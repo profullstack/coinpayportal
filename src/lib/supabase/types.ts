@@ -28,6 +28,14 @@ export type WebhookEvent =
   | 'payment.failed'
   | 'payment.expired';
 
+export type EmailEventType =
+  | 'payment.detected'
+  | 'payment.confirmed'
+  | 'payment.forwarded'
+  | 'payment.failed';
+
+export type EmailStatus = 'pending' | 'sent' | 'failed';
+
 export interface Merchant {
   id: string;
   email: string;
@@ -102,6 +110,31 @@ export interface WebhookLog {
   next_retry_at: string | null;
 }
 
+export interface MerchantSettings {
+  merchant_id: string;
+  notifications_enabled: boolean;
+  email_notifications: boolean;
+  web_notifications: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailQueue {
+  id: string;
+  merchant_id: string;
+  payment_id: string | null;
+  event_type: EmailEventType;
+  recipient_email: string;
+  subject: string;
+  html_body: string;
+  status: EmailStatus;
+  attempts: number;
+  error_message: string | null;
+  created_at: string;
+  sent_at: string | null;
+  next_retry_at: string | null;
+}
+
 // Database schema type
 export interface Database {
   public: {
@@ -133,6 +166,16 @@ export interface Database {
         Row: WebhookLog;
         Insert: Omit<WebhookLog, 'id' | 'created_at'>;
         Update: Partial<Omit<WebhookLog, 'id' | 'created_at'>>;
+      };
+      merchant_settings: {
+        Row: MerchantSettings;
+        Insert: Omit<MerchantSettings, 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<MerchantSettings, 'merchant_id' | 'created_at'>>;
+      };
+      email_queue: {
+        Row: EmailQueue;
+        Insert: Omit<EmailQueue, 'id' | 'created_at'>;
+        Update: Partial<Omit<EmailQueue, 'id' | 'created_at'>>;
       };
     };
   };

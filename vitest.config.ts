@@ -5,7 +5,7 @@ import path from 'path';
 export default defineConfig({
   plugins: [react()] as any,
   test: {
-    environment: 'node',
+    environment: 'jsdom',
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
     exclude: [
@@ -18,6 +18,12 @@ export default defineConfig({
       'src/lib/blockchain/providers.test.ts',
       'src/lib/blockchain/wallets.test.ts',
       'src/lib/blockchain/monitor.test.ts',
+    ],
+    environmentMatchGlobs: [
+      // Use jsdom for React component tests
+      ['**/*.tsx', 'jsdom'],
+      // Use node for everything else
+      ['**/*.ts', 'node'],
     ],
   },
   resolve: {
