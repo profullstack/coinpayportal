@@ -23,14 +23,20 @@ export default function Footer() {
     support: [
       { name: 'Help Center', href: '/help' },
       { name: 'Status', href: '/status' },
-      { name: 'GitHub', href: 'https://github.com/coinpayportal' },
+      { name: 'GitHub', href: 'https://github.com/profullstack/coinpayportal' },
+      { name: 'Discord', href: 'https://discord.gg/w5nHdzpQ29' },
+    ],
+    social: [
+      { name: 'X (Twitter)', href: 'https://x.com/profullstackinc' },
+      { name: 'LinkedIn', href: 'https://www.linkedin.com/company/profullstackinc' },
+      { name: 'Profullstack', href: 'https://profullstack.com' },
     ],
   };
 
   return (
     <footer className="bg-gray-50 border-t border-gray-200">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12">
-        <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-8 md:grid-cols-5">
           {/* Product */}
           <div>
             <h3 className="text-sm font-semibold text-gray-900 tracking-wider uppercase">
@@ -130,6 +136,40 @@ export default function Footer() {
               ))}
             </ul>
           </div>
+
+          {/* Social */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 tracking-wider uppercase">
+              Connect
+            </h3>
+            <ul className="mt-4 space-y-3">
+              {footerLinks.social.map((link) => (
+                <li key={link.name}>
+                  <a
+                    href={link.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-gray-600 hover:text-purple-600 transition-colors inline-flex items-center"
+                  >
+                    {link.name}
+                    <svg
+                      className="ml-1 h-3 w-3"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                      />
+                    </svg>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
 
         {/* Bottom section */}
@@ -140,7 +180,16 @@ export default function Footer() {
                 <span className="text-white font-bold text-sm">₿</span>
               </div>
               <p className="text-sm text-gray-500">
-                © {currentYear} CoinPayPortal. All rights reserved.
+                © {currentYear}{' '}
+                <a
+                  href="https://profullstack.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-purple-600 transition-colors"
+                >
+                  Profullstack, Inc.
+                </a>{' '}
+                All rights reserved.
               </p>
             </div>
             
