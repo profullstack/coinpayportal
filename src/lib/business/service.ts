@@ -113,6 +113,10 @@ export async function createBusiness(
       encryptedSecret = encrypt(input.webhook_secret, derivedKey);
     }
 
+    // Generate API key for the new business
+    const apiKey = generateApiKey();
+    const apiKeyCreatedAt = new Date().toISOString();
+
     // Insert business
     const { data: business, error } = await supabase
       .from('businesses')
@@ -124,6 +128,8 @@ export async function createBusiness(
         webhook_secret: encryptedSecret,
         webhook_events: input.webhook_events || ['payment.confirmed', 'payment.forwarded'],
         active: true,
+        api_key: apiKey,
+        api_key_created_at: apiKeyCreatedAt,
       })
       .select()
       .single();

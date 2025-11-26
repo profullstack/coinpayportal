@@ -195,9 +195,6 @@ export default function Footer() {
         <div className="mt-12 border-t border-gray-200 pt-8">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between">
             <div className="flex items-center space-x-2">
-              <div className="h-6 w-6 rounded bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                <span className="text-white font-bold text-sm">₿</span>
-              </div>
               <p className="text-sm text-gray-500">
                 © {currentYear}{' '}
                 <a

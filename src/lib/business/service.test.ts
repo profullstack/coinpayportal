@@ -18,6 +18,15 @@ vi.mock('../crypto/encryption', async () => {
   };
 });
 
+// Mock API key generation
+vi.mock('../auth/apikey', () => ({
+  generateApiKey: vi.fn(() => 'cp_live_' + 'a'.repeat(32)),
+  validateApiKeyFormat: vi.fn(),
+  getBusinessByApiKey: vi.fn(),
+  regenerateApiKey: vi.fn(),
+  isApiKey: vi.fn(),
+}));
+
 const createMockSupabaseClient = () => {
   const mockClient = {
     from: vi.fn(() => mockClient),
@@ -45,20 +54,24 @@ describe('Business Service', () => {
   });
 
   describe('createBusiness', () => {
-    it('should create a new business successfully', async () => {
+    it('should create a new business successfully with API key', async () => {
+      const mockBusiness = {
+        id: 'business-123',
+        merchant_id: 'merchant-123',
+        name: 'Test Business',
+        description: 'Test Description',
+        webhook_url: 'https://example.com/webhook',
+        active: true,
+        api_key: 'cp_live_' + 'a'.repeat(32),
+        api_key_created_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      };
+
       mockSupabase.from = vi.fn(() => ({
         insert: vi.fn(() => ({
           select: vi.fn(() => ({
             single: vi.fn().mockResolvedValue({
-              data: {
-                id: 'business-123',
-                merchant_id: 'merchant-123',
-                name: 'Test Business',
-                description: 'Test Description',
-                webhook_url: 'https://example.com/webhook',
-                active: true,
-                created_at: new Date().toISOString(),
-              },
+              data: mockBusiness,
               error: null,
             }),
           })),
@@ -75,7 +88,46 @@ describe('Business Service', () => {
       expect(result.success).toBe(true);
       expect(result.business).toBeDefined();
       expect(result.business?.name).toBe('Test Business');
+      expect(result.business?.api_key).toBeDefined();
+      expect(result.business?.api_key).toMatch(/^cp_live_/);
+      expect(result.business?.api_key_created_at).toBeDefined();
       expect(encryption.encrypt).toHaveBeenCalledWith('my-secret', expect.any(String));
+    });
+
+    it('should auto-generate API key on business creation', async () => {
+      const mockBusiness = {
+        id: 'business-123',
+        merchant_id: 'merchant-123',
+        name: 'Test Business',
+        active: true,
+        api_key: 'cp_live_' + 'b'.repeat(32),
+        api_key_created_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      };
+
+      mockSupabase.from = vi.fn(() => ({
+        insert: vi.fn(() => ({
+          select: vi.fn(() => ({
+            single: vi.fn().mockResolvedValue({
+              data: mockBusiness,
+              error: null,
+            }),
+          })),
+        })),
+      })) as any;
+
+      const result = await createBusiness(mockSupabase, 'merchant-123', {
+        name: 'Test Business',
+      });
+
+      if (!result.success) {
+        console.log('Error:', result.error);
+      }
+
+      expect(result.success).toBe(true);
+      expect(result.business?.api_key).toBeDefined();
+      expect(result.business?.api_key).toMatch(/^cp_live_/);
+      expect(result.business?.api_key_created_at).toBeDefined();
     });
 
     it('should validate business name is required', async () => {
