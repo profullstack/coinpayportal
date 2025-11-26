@@ -13,126 +13,343 @@ export default function DocsPage() {
             Back to Home
           </Link>
           <h1 className="text-5xl font-bold text-white mb-4">
-            Documentation
+            API Documentation
           </h1>
           <p className="text-xl text-gray-300">
-            Complete guide to integrating CoinPay into your application
+            Complete reference for the CoinPay REST API
           </p>
         </div>
 
-        {/* Quick Start */}
+        {/* Authentication */}
         <section className="mb-12 p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
-          <h2 className="text-3xl font-bold text-white mb-6">Quick Start</h2>
+          <h2 className="text-3xl font-bold text-white mb-6">Authentication</h2>
           
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-xl font-semibold text-purple-400 mb-3">1. Create an Account</h3>
-              <p className="text-gray-300 mb-4">
-                Sign up for a free account to get your API credentials.
-              </p>
-              <div className="bg-slate-800/50 p-4 rounded-lg">
-                <code className="text-green-400">
-                  POST /api/auth/signup
-                </code>
-              </div>
+          <p className="text-gray-300 mb-6">
+            All API requests require authentication using a JWT token in the Authorization header.
+          </p>
+
+          {/* Register */}
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-lg font-mono text-sm">POST</span>
+              <code className="text-purple-400 font-mono">/api/auth/register</code>
+            </div>
+            <p className="text-gray-300 mb-4">Create a new merchant account.</p>
+            
+            <h4 className="text-lg font-semibold text-white mb-2">Request Body</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto mb-4">
+              <pre className="text-sm text-gray-300">
+{`{
+  "email": "merchant@example.com",
+  "password": "SecurePassword123!",
+  "name": "My Business"  // optional
+}`}
+              </pre>
             </div>
 
-            <div>
-              <h3 className="text-xl font-semibold text-purple-400 mb-3">2. Get Your API Key</h3>
-              <p className="text-gray-300 mb-4">
-                After signing up, navigate to your dashboard to retrieve your API key.
-              </p>
-              <div className="bg-slate-800/50 p-4 rounded-lg">
-                <code className="text-green-400">
-                  API_KEY=your_api_key_here
-                </code>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-xl font-semibold text-purple-400 mb-3">3. Make Your First Payment Request</h3>
-              <p className="text-gray-300 mb-4">
-                Create a payment request using our REST API.
-              </p>
-              <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
-                <pre className="text-green-400 text-sm">
-{`curl -X POST https://api.coinpayportal.com/v1/payments \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
+            <h4 className="text-lg font-semibold text-white mb-2">cURL Example</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto mb-4">
+              <pre className="text-sm text-green-400">
+{`curl -X POST https://coinpayportal.com/api/auth/register \\
   -H "Content-Type: application/json" \\
   -d '{
-    "amount": "100.00",
-    "currency": "USD",
-    "crypto": "BTC",
-    "callback_url": "https://yoursite.com/webhook"
+    "email": "merchant@example.com",
+    "password": "SecurePassword123!",
+    "name": "My Business"
   }'`}
-                </pre>
-              </div>
+              </pre>
+            </div>
+
+            <h4 className="text-lg font-semibold text-white mb-2">Node.js Example</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-sm text-blue-400">
+{`const response = await fetch('https://coinpayportal.com/api/auth/register', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    email: 'merchant@example.com',
+    password: 'SecurePassword123!',
+    name: 'My Business'
+  })
+});
+const data = await response.json();
+console.log(data.token); // Save this token`}
+              </pre>
+            </div>
+          </div>
+
+          {/* Login */}
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-lg font-mono text-sm">POST</span>
+              <code className="text-purple-400 font-mono">/api/auth/login</code>
+            </div>
+            <p className="text-gray-300 mb-4">Login to get an authentication token.</p>
+            
+            <h4 className="text-lg font-semibold text-white mb-2">Request Body</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto mb-4">
+              <pre className="text-sm text-gray-300">
+{`{
+  "email": "merchant@example.com",
+  "password": "SecurePassword123!"
+}`}
+              </pre>
+            </div>
+
+            <h4 className="text-lg font-semibold text-white mb-2">Response</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-sm text-gray-300">
+{`{
+  "success": true,
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "merchant": {
+    "id": "merchant-123",
+    "email": "merchant@example.com",
+    "name": "My Business"
+  }
+}`}
+              </pre>
             </div>
           </div>
         </section>
 
-        {/* API Reference */}
+        {/* Businesses */}
         <section className="mb-12 p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
-          <h2 className="text-3xl font-bold text-white mb-6">API Reference</h2>
-          
-          <div className="space-y-8">
-            {/* Create Payment */}
-            <div>
-              <div className="flex items-center gap-3 mb-4">
-                <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-lg font-mono text-sm">POST</span>
-                <code className="text-purple-400 font-mono">/api/v1/payments</code>
-              </div>
-              <p className="text-gray-300 mb-4">Create a new payment request.</p>
-              
-              <h4 className="text-lg font-semibold text-white mb-2">Request Body</h4>
-              <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto mb-4">
-                <pre className="text-sm text-gray-300">
-{`{
-  "amount": "100.00",        // Amount in fiat currency
-  "currency": "USD",         // Fiat currency code
-  "crypto": "BTC",           // Cryptocurrency to receive
-  "callback_url": "string",  // Webhook URL for notifications
-  "metadata": {}             // Optional custom data
-}`}
-                </pre>
-              </div>
+          <h2 className="text-3xl font-bold text-white mb-6">Businesses</h2>
 
-              <h4 className="text-lg font-semibold text-white mb-2">Response</h4>
-              <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
-                <pre className="text-sm text-gray-300">
+          {/* List Businesses */}
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-lg font-mono text-sm">GET</span>
+              <code className="text-purple-400 font-mono">/api/businesses</code>
+            </div>
+            <p className="text-gray-300 mb-4">List all businesses for the authenticated merchant.</p>
+            
+            <h4 className="text-lg font-semibold text-white mb-2">cURL Example</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-sm text-green-400">
+{`curl https://coinpayportal.com/api/businesses \\
+  -H "Authorization: Bearer YOUR_TOKEN"`}
+              </pre>
+            </div>
+          </div>
+
+          {/* Create Business */}
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-lg font-mono text-sm">POST</span>
+              <code className="text-purple-400 font-mono">/api/businesses</code>
+            </div>
+            <p className="text-gray-300 mb-4">Create a new business.</p>
+            
+            <h4 className="text-lg font-semibold text-white mb-2">Request Body</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto mb-4">
+              <pre className="text-sm text-gray-300">
 {`{
-  "id": "pay_abc123",
-  "status": "pending",
-  "amount": "100.00",
-  "crypto_amount": "0.00234",
-  "address": "bc1q...",
-  "expires_at": "2024-01-01T12:00:00Z"
+  "name": "My Store",
+  "description": "Online retail store",  // optional
+  "wallet_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+  "webhook_url": "https://mystore.com/webhook"  // optional
 }`}
-                </pre>
-              </div>
+              </pre>
             </div>
 
-            {/* Get Payment */}
-            <div>
-              <div className="flex items-center gap-3 mb-4">
-                <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-lg font-mono text-sm">GET</span>
-                <code className="text-purple-400 font-mono">/api/v1/payments/:id</code>
-              </div>
-              <p className="text-gray-300 mb-4">Retrieve payment details by ID.</p>
-              
-              <h4 className="text-lg font-semibold text-white mb-2">Response</h4>
-              <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
-                <pre className="text-sm text-gray-300">
+            <h4 className="text-lg font-semibold text-white mb-2">Node.js Example</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-sm text-blue-400">
+{`const response = await fetch('https://coinpayportal.com/api/businesses', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    name: 'My Store',
+    wallet_address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'
+  })
+});
+const data = await response.json();`}
+              </pre>
+            </div>
+          </div>
+
+          {/* Update Business */}
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-yellow-500/20 text-yellow-400 rounded-lg font-mono text-sm">PATCH</span>
+              <code className="text-purple-400 font-mono">/api/businesses/:id</code>
+            </div>
+            <p className="text-gray-300 mb-4">Update an existing business.</p>
+          </div>
+
+          {/* Delete Business */}
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-red-500/20 text-red-400 rounded-lg font-mono text-sm">DELETE</span>
+              <code className="text-purple-400 font-mono">/api/businesses/:id</code>
+            </div>
+            <p className="text-gray-300 mb-4">Delete a business.</p>
+          </div>
+        </section>
+
+        {/* Payments */}
+        <section className="mb-12 p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
+          <h2 className="text-3xl font-bold text-white mb-6">Payments</h2>
+
+          {/* Create Payment */}
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-lg font-mono text-sm">POST</span>
+              <code className="text-purple-400 font-mono">/api/payments/create</code>
+            </div>
+            <p className="text-gray-300 mb-4">Create a new payment request.</p>
+            
+            <h4 className="text-lg font-semibold text-white mb-2">Request Body</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto mb-4">
+              <pre className="text-sm text-gray-300">
 {`{
-  "id": "pay_abc123",
-  "status": "completed",
-  "amount": "100.00",
-  "crypto_amount": "0.00234",
-  "confirmations": 6,
-  "created_at": "2024-01-01T12:00:00Z"
+  "business_id": "business-123",
+  "amount_usd": 100.00,
+  "currency": "btc",  // btc, eth, matic, sol
+  "description": "Order #12345"  // optional
 }`}
-                </pre>
-              </div>
+              </pre>
+            </div>
+
+            <h4 className="text-lg font-semibold text-white mb-2">cURL Example</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto mb-4">
+              <pre className="text-sm text-green-400">
+{`curl -X POST https://coinpayportal.com/api/payments/create \\
+  -H "Authorization: Bearer YOUR_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "business_id": "business-123",
+    "amount_usd": 100.00,
+    "currency": "btc"
+  }'`}
+              </pre>
+            </div>
+
+            <h4 className="text-lg font-semibold text-white mb-2">Response</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-sm text-gray-300">
+{`{
+  "success": true,
+  "payment": {
+    "id": "payment-456",
+    "business_id": "business-123",
+    "amount_usd": "100.00",
+    "amount_crypto": "0.00234567",
+    "currency": "btc",
+    "payment_address": "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+    "status": "pending",
+    "created_at": "2024-01-01T12:00:00Z",
+    "expires_at": "2024-01-01T13:00:00Z"
+  }
+}`}
+              </pre>
+            </div>
+          </div>
+
+          {/* Get Payment */}
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-lg font-mono text-sm">GET</span>
+              <code className="text-purple-400 font-mono">/api/payments/:id</code>
+            </div>
+            <p className="text-gray-300 mb-4">Retrieve payment details by ID.</p>
+            
+            <h4 className="text-lg font-semibold text-white mb-2">Node.js Example</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-sm text-blue-400">
+{`const response = await fetch('https://coinpayportal.com/api/payments/payment-456', {
+  headers: { 'Authorization': 'Bearer YOUR_TOKEN' }
+});
+const data = await response.json();
+console.log(data.payment.status);`}
+              </pre>
+            </div>
+          </div>
+
+          {/* Get QR Code */}
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-lg font-mono text-sm">GET</span>
+              <code className="text-purple-400 font-mono">/api/payments/:id/qr</code>
+            </div>
+            <p className="text-gray-300 mb-4">Get QR code image for payment address.</p>
+            
+            <h4 className="text-lg font-semibold text-white mb-2">Usage</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-sm text-gray-300">
+{`<img src="https://coinpayportal.com/api/payments/payment-456/qr" 
+     alt="Payment QR Code" />`}
+              </pre>
+            </div>
+          </div>
+        </section>
+
+        {/* Dashboard */}
+        <section className="mb-12 p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
+          <h2 className="text-3xl font-bold text-white mb-6">Dashboard</h2>
+
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-lg font-mono text-sm">GET</span>
+              <code className="text-purple-400 font-mono">/api/dashboard/stats</code>
+            </div>
+            <p className="text-gray-300 mb-4">Get payment statistics and recent activity.</p>
+            
+            <h4 className="text-lg font-semibold text-white mb-2">Response</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-sm text-gray-300">
+{`{
+  "success": true,
+  "stats": {
+    "total_payments": 150,
+    "successful_payments": 142,
+    "pending_payments": 5,
+    "failed_payments": 3,
+    "total_volume": "0.12345678",
+    "total_volume_usd": 5234.56
+  },
+  "recent_payments": [...]
+}`}
+              </pre>
+            </div>
+          </div>
+        </section>
+
+        {/* Settings */}
+        <section className="mb-12 p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
+          <h2 className="text-3xl font-bold text-white mb-6">Settings</h2>
+
+          {/* Get Settings */}
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-lg font-mono text-sm">GET</span>
+              <code className="text-purple-400 font-mono">/api/settings</code>
+            </div>
+            <p className="text-gray-300 mb-4">Get merchant notification settings.</p>
+          </div>
+
+          {/* Update Settings */}
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-yellow-500/20 text-yellow-400 rounded-lg font-mono text-sm">PUT</span>
+              <code className="text-purple-400 font-mono">/api/settings</code>
+            </div>
+            <p className="text-gray-300 mb-4">Update notification preferences.</p>
+            
+            <h4 className="text-lg font-semibold text-white mb-2">Request Body</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-sm text-gray-300">
+{`{
+  "notifications_enabled": true,
+  "email_notifications": true,
+  "web_notifications": false
+}`}
+              </pre>
             </div>
           </div>
         </section>
@@ -141,19 +358,18 @@ export default function DocsPage() {
         <section className="mb-12 p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
           <h2 className="text-3xl font-bold text-white mb-6">Supported Cryptocurrencies</h2>
           
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { name: 'Bitcoin', symbol: 'BTC', network: 'Bitcoin' },
-              { name: 'Ethereum', symbol: 'ETH', network: 'Ethereum' },
-              { name: 'Solana', symbol: 'SOL', network: 'Solana' },
-              { name: 'USD Coin', symbol: 'USDC', network: 'Multiple' },
-              { name: 'Tether', symbol: 'USDT', network: 'Multiple' },
-              { name: 'Litecoin', symbol: 'LTC', network: 'Litecoin' },
+              { name: 'Bitcoin', symbol: 'BTC', code: 'btc', confirmations: 3 },
+              { name: 'Ethereum', symbol: 'ETH', code: 'eth', confirmations: 12 },
+              { name: 'Polygon', symbol: 'MATIC', code: 'matic', confirmations: 128 },
+              { name: 'Solana', symbol: 'SOL', code: 'sol', confirmations: 32 },
             ].map((crypto) => (
               <div key={crypto.symbol} className="p-4 rounded-lg bg-slate-800/50 border border-white/10">
                 <div className="font-semibold text-white mb-1">{crypto.name}</div>
-                <div className="text-purple-400 font-mono text-sm mb-1">{crypto.symbol}</div>
-                <div className="text-gray-400 text-sm">{crypto.network}</div>
+                <div className="text-purple-400 font-mono text-sm mb-2">{crypto.symbol}</div>
+                <div className="text-gray-400 text-xs">Code: <code className="text-purple-300">{crypto.code}</code></div>
+                <div className="text-gray-400 text-xs">Confirmations: {crypto.confirmations}</div>
               </div>
             ))}
           </div>
@@ -164,16 +380,15 @@ export default function DocsPage() {
           <h2 className="text-3xl font-bold text-white mb-6">Webhooks</h2>
           
           <p className="text-gray-300 mb-6">
-            Receive real-time notifications about payment status changes.
+            Configure webhook URLs in your business settings to receive real-time payment notifications.
           </p>
 
           <h3 className="text-xl font-semibold text-white mb-4">Webhook Events</h3>
-          <div className="space-y-4">
+          <div className="space-y-4 mb-8">
             {[
-              { event: 'payment.created', description: 'Payment request created' },
-              { event: 'payment.pending', description: 'Payment detected on blockchain' },
-              { event: 'payment.confirmed', description: 'Payment confirmed' },
-              { event: 'payment.completed', description: 'Payment fully processed' },
+              { event: 'payment.detected', description: 'Payment detected on blockchain (0 confirmations)' },
+              { event: 'payment.confirmed', description: 'Payment confirmed (sufficient confirmations)' },
+              { event: 'payment.forwarded', description: 'Payment forwarded to merchant wallet' },
               { event: 'payment.failed', description: 'Payment failed or expired' },
             ].map((webhook) => (
               <div key={webhook.event} className="p-4 rounded-lg bg-slate-800/50">
@@ -183,21 +398,52 @@ export default function DocsPage() {
             ))}
           </div>
 
-          <h3 className="text-xl font-semibold text-white mb-4 mt-8">Webhook Payload Example</h3>
+          <h3 className="text-xl font-semibold text-white mb-4">Webhook Payload Example</h3>
           <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
             <pre className="text-sm text-gray-300">
 {`{
-  "event": "payment.completed",
-  "payment": {
-    "id": "pay_abc123",
-    "status": "completed",
-    "amount": "100.00",
-    "crypto_amount": "0.00234",
-    "confirmations": 6
-  },
-  "timestamp": "2024-01-01T12:00:00Z"
+  "event": "payment.confirmed",
+  "payment_id": "payment-456",
+  "business_id": "business-123",
+  "amount_crypto": "0.00234567",
+  "amount_usd": "100.00",
+  "currency": "btc",
+  "status": "confirmed",
+  "confirmations": 3,
+  "tx_hash": "abc123...",
+  "timestamp": "2024-01-01T12:05:00Z"
 }`}
             </pre>
+          </div>
+
+          <div className="mt-6 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+            <p className="text-yellow-300 text-sm">
+              <strong>Note:</strong> Webhook payloads are signed with HMAC-SHA256. Verify the signature using your webhook secret.
+            </p>
+          </div>
+        </section>
+
+        {/* Rate Limits & Fees */}
+        <section className="mb-12 p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
+          <h2 className="text-3xl font-bold text-white mb-6">Rate Limits & Fees</h2>
+          
+          <div className="grid md:grid-cols-2 gap-6">
+            <div>
+              <h3 className="text-xl font-semibold text-white mb-4">Rate Limits</h3>
+              <div className="space-y-2 text-gray-300">
+                <p>• <strong>API Requests:</strong> 100 requests/minute</p>
+                <p>• <strong>Payment Creation:</strong> 10 payments/minute</p>
+                <p>• <strong>Webhook Retries:</strong> 3 attempts with exponential backoff</p>
+              </div>
+            </div>
+            <div>
+              <h3 className="text-xl font-semibold text-white mb-4">Platform Fees</h3>
+              <div className="space-y-2 text-gray-300">
+                <p>• <strong>Platform Fee:</strong> 0.5% per transaction</p>
+                <p>• <strong>Network Fees:</strong> Paid by customer</p>
+                <p>• <strong>Minimum Payment:</strong> $1.00 USD</p>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -207,11 +453,10 @@ export default function DocsPage() {
           
           <div className="space-y-4">
             {[
-              { code: '400', name: 'Bad Request', description: 'Invalid request parameters' },
-              { code: '401', name: 'Unauthorized', description: 'Invalid or missing API key' },
+              { code: '400', name: 'Bad Request', description: 'Invalid request parameters or missing required fields' },
+              { code: '401', name: 'Unauthorized', description: 'Invalid or missing authentication token' },
               { code: '404', name: 'Not Found', description: 'Resource not found' },
-              { code: '429', name: 'Rate Limit', description: 'Too many requests' },
-              { code: '500', name: 'Server Error', description: 'Internal server error' },
+              { code: '500', name: 'Server Error', description: 'Internal server error - please try again' },
             ].map((error) => (
               <div key={error.code} className="p-4 rounded-lg bg-slate-800/50 flex items-start gap-4">
                 <span className="px-3 py-1 bg-red-500/20 text-red-400 rounded-lg font-mono text-sm font-semibold">
@@ -223,6 +468,18 @@ export default function DocsPage() {
                 </div>
               </div>
             ))}
+          </div>
+
+          <div className="mt-8 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+            <h4 className="text-lg font-semibold text-white mb-2">Error Response Format</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-sm text-gray-300">
+{`{
+  "success": false,
+  "error": "Detailed error message here"
+}`}
+              </pre>
+            </div>
           </div>
         </section>
       </div>

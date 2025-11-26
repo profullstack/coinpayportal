@@ -25,15 +25,13 @@ export default function Header() {
 
   const navigation = [
     { name: 'Home', href: '/' },
-    { name: 'Documentation', href: '/docs' },
-    { name: 'API', href: '/docs#api' },
+    { name: 'API', href: '/docs' },
     { name: 'Pricing', href: '/#pricing' },
   ];
 
   const loggedInNavigation = [
     { name: 'Dashboard', href: '/dashboard' },
-    { name: 'Documentation', href: '/docs' },
-    { name: 'API', href: '/docs#api' },
+    { name: 'API', href: '/docs' },
   ];
 
   const currentNav = isLoggedIn ? loggedInNavigation : navigation;
