@@ -1,4 +1,4 @@
-// Database types for CoinPayPortal
+// Database types for CoinPay
 
 export type Blockchain =
   | 'btc'

@@ -1,5 +1,5 @@
 {
-  "name": "CoinPayPortal",
+  "name": "CoinPay",
   "short_name": "CoinPay",
   "description": " A non-custodial payment gateway for crypto e-commerce payments ",
   "start_url": "/",

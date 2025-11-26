@@ -1,4 +1,4 @@
-# CoinPayPortal - Implementation Status
+# CoinPay - Implementation Status
 
 ## Current Status: Building Core Payment Features
 

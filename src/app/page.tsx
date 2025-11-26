@@ -21,7 +21,7 @@ export default function Home() {
               </svg>
             </div>
             <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white mb-6 tracking-tight">
-              Coin<span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">Pay</span>Portal
+              Coin<span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">Pay</span>
             </h1>
             <p className="text-xl sm:text-2xl text-gray-300 mb-4 max-w-3xl mx-auto">
               Non-Custodial Cryptocurrency Payment Gateway
@@ -71,7 +71,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-4xl sm:text-5xl font-bold text-white mb-4">
-              Why Choose CoinPayPortal?
+              Why Choose CoinPay?
             </h2>
             <p className="text-xl text-gray-400 max-w-2xl mx-auto">
               Built for developers, designed for businesses
@@ -266,7 +266,7 @@ export default function Home() {
               Ready to Get Started?
             </h2>
             <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-              Join thousands of businesses already using CoinPayPortal to accept cryptocurrency payments.
+              Join thousands of businesses already using CoinPay to accept cryptocurrency payments.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link
@@ -285,15 +285,6 @@ export default function Home() {
           </div>
         </div>
       </section>
-
-      {/* Footer */}
-      <footer className="relative py-12 border-t border-white/10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center text-gray-400">
-            <p>&copy; 2024 CoinPayPortal. All rights reserved.</p>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

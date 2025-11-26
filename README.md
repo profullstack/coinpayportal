@@ -1,4 +1,4 @@
-# CoinPayPortal 🚀
+# CoinPay 🚀
 
 A non-custodial cryptocurrency payment gateway for e-commerce that enables merchants to accept crypto payments with automatic fee handling and real-time transaction monitoring.
 
@@ -17,7 +17,7 @@ A non-custodial cryptocurrency payment gateway for e-commerce that enables merch
 
 ## 🏗️ Architecture
 
-CoinPayPortal uses a modern, scalable architecture:
+CoinPay uses a modern, scalable architecture:
 
 - **Frontend**: Next.js 14+ with TypeScript and TailwindCSS
 - **Backend**: Next.js API Routes (serverless)
@@ -157,9 +157,9 @@ coinpay webhook set --url https://yoursite.com/webhook
 ### Using the SDK
 
 ```typescript
-import { CoinPayPortal } from '@coinpayportal/sdk';
+import { CoinPay } from '@coinpayportal/sdk';
 
-const client = new CoinPayPortal({
+const client = new CoinPay({
   apiKey: 'your-api-key',
   environment: 'production'
 });
@@ -281,4 +281,4 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 
 ---
 
-Built with ❤️ by the CoinPayPortal team
+Built with ❤️ by the CoinPay team

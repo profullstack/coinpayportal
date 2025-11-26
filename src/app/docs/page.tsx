@@ -16,7 +16,7 @@ export default function DocsPage() {
             Documentation
           </h1>
           <p className="text-xl text-gray-300">
-            Complete guide to integrating CoinPayPortal into your application
+            Complete guide to integrating CoinPay into your application
           </p>
         </div>
 

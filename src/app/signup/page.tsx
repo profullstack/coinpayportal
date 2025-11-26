@@ -75,7 +75,7 @@ export default function SignupPage() {
             Create your account
           </h1>
           <p className="text-gray-600">
-            Start accepting crypto payments in minutes
+            Start accepting crypto payments in minutes with CoinPay
           </p>
         </div>
 

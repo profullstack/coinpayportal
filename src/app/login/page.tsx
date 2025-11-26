@@ -63,7 +63,7 @@ export default function LoginPage() {
             Welcome back
           </h1>
           <p className="text-gray-600">
-            Log in to your CoinPayPortal account
+            Log in to your CoinPay account
           </p>
         </div>
 

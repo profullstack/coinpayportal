@@ -39,19 +39,17 @@ export default function Header() {
   const currentNav = isLoggedIn ? loggedInNavigation : navigation;
 
   return (
-    <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <header className="bg-gray-900 border-b border-gray-800 sticky top-0 z-50">
       <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8" aria-label="Top">
-        <div className="flex w-full items-center justify-between py-4">
+        <div className="flex w-full items-center justify-between py-3">
           {/* Logo */}
-          <div className="flex items-center">
-            <Link href="/" className="flex items-center">
-              <img
-                src="/logo.svg"
-                alt="CoinPayPortal"
-                className="h-8 w-auto"
-              />
-            </Link>
-          </div>
+          <Link href="/" className="block">
+            <img
+              src="/logo.white.svg"
+              alt="CoinPay"
+              className="h-14 w-auto"
+            />
+          </Link>
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex md:items-center md:space-x-8">
@@ -59,7 +57,7 @@ export default function Header() {
               <Link
                 key={item.name}
                 href={item.href}
-                className="text-sm font-medium text-gray-700 hover:text-purple-600 transition-colors"
+                className="text-sm font-medium text-gray-300 hover:text-white transition-colors"
               >
                 {item.name}
               </Link>
@@ -70,7 +68,7 @@ export default function Header() {
               <div className="relative">
                 <button
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center space-x-2 text-sm font-medium text-gray-700 hover:text-purple-600 transition-colors"
+                  className="flex items-center space-x-2 text-sm font-medium text-gray-300 hover:text-white transition-colors"
                 >
                   <div className="h-8 w-8 rounded-full bg-purple-600 flex items-center justify-center">
                     <span className="text-white text-sm font-semibold">M</span>
@@ -104,7 +102,7 @@ export default function Header() {
               <div className="flex items-center space-x-4">
                 <Link
                   href="/login"
-                  className="text-sm font-medium text-gray-700 hover:text-purple-600 transition-colors"
+                  className="text-sm font-medium text-gray-300 hover:text-white transition-colors"
                 >
                   Log in
                 </Link>
@@ -165,13 +163,13 @@ export default function Header() {
 
         {/* Mobile menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-gray-200 py-4">
+          <div className="md:hidden border-t border-gray-800 py-4">
             <div className="space-y-1">
               {currentNav.map((item) => (
                 <Link
                   key={item.name}
                   href={item.href}
-                  className="block px-3 py-2 text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-purple-600 rounded-md transition-colors"
+                  className="block px-3 py-2 text-base font-medium text-gray-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   {item.name}
@@ -180,10 +178,10 @@ export default function Header() {
               
               {/* Mobile Auth Buttons / User Menu */}
               {isLoggedIn ? (
-                <div className="pt-4 space-y-2 border-t border-gray-200 mt-4">
+                <div className="pt-4 space-y-2 border-t border-gray-800 mt-4">
                   <Link
                     href="/dashboard"
-                    className="block px-3 py-2 text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-purple-600 rounded-md transition-colors"
+                    className="block px-3 py-2 text-base font-medium text-gray-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Dashboard
@@ -193,7 +191,7 @@ export default function Header() {
                       handleLogout();
                       setMobileMenuOpen(false);
                     }}
-                    className="block w-full text-left px-3 py-2 text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-purple-600 rounded-md transition-colors"
+                    className="block w-full text-left px-3 py-2 text-base font-medium text-gray-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
                   >
                     Log out
                   </button>
@@ -202,7 +200,7 @@ export default function Header() {
                 <div className="pt-4 space-y-2">
                   <Link
                     href="/login"
-                    className="block px-3 py-2 text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-purple-600 rounded-md transition-colors"
+                    className="block px-3 py-2 text-base font-medium text-gray-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Log in

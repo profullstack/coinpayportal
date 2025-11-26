@@ -1,8 +1,8 @@
-# CoinPayPortal Database Schema
+# CoinPay Database Schema
 
 ## Overview
 
-CoinPayPortal uses Supabase (PostgreSQL) as its primary database. The schema is designed to support multi-tenant merchant operations with multiple businesses per merchant, secure payment processing, and comprehensive audit logging.
+CoinPay uses Supabase (PostgreSQL) as its primary database. The schema is designed to support multi-tenant merchant operations with multiple businesses per merchant, secure payment processing, and comprehensive audit logging.
 
 ## Entity Relationship Diagram
 

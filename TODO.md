@@ -1,4 +1,4 @@
-# CoinPayPortal - Implementation TODO
+# CoinPay - Implementation TODO
 
 ## Phase 1: Foundation & Core Infrastructure ✅
 

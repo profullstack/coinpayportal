@@ -1,4 +1,4 @@
-# CoinPayPortal - Development Progress
+# CoinPay - Development Progress
 
 ## 🎉 Current Status: 129/129 Tests Passing (100%)
 

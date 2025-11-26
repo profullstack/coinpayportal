@@ -1,8 +1,8 @@
-# CoinPayPortal Security Documentation
+# CoinPay Security Documentation
 
 ## Overview
 
-Security is paramount in CoinPayPortal as we handle cryptocurrency transactions and private keys. This document outlines our security architecture, best practices, and threat mitigation strategies.
+Security is paramount in CoinPay as we handle cryptocurrency transactions and private keys. This document outlines our security architecture, best practices, and threat mitigation strategies.
 
 ## Security Principles
 
@@ -407,9 +407,9 @@ async function deliverWebhook(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-CoinPayPortal-Signature': signature,
-      'X-CoinPayPortal-Timestamp': Date.now().toString(),
-      'User-Agent': 'CoinPayPortal-Webhook/1.0'
+      'X-CoinPay-Signature': signature,
+      'X-CoinPay-Timestamp': Date.now().toString(),
+      'User-Agent': 'CoinPay-Webhook/1.0'
     },
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(10000) // 10 second timeout

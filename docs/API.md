@@ -1,4 +1,4 @@
-# CoinPayPortal API Documentation
+# CoinPay API Documentation
 
 ## Base URL
 
@@ -599,7 +599,7 @@ View webhook delivery logs.
 
 ## Webhook Payload Format
 
-When a webhook event occurs, CoinPayPortal sends a POST request to your configured URL:
+When a webhook event occurs, CoinPay sends a POST request to your configured URL:
 
 ```json
 {
@@ -661,9 +661,9 @@ function verifyWebhook(payload, signature, secret) {
 ### JavaScript/TypeScript
 
 ```typescript
-import { CoinPayPortal } from '@coinpayportal/sdk';
+import { CoinPay } from '@coinpayportal/sdk';
 
-const client = new CoinPayPortal({
+const client = new CoinPay({
   apiKey: 'your-api-key',
   environment: 'production'
 });

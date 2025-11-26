@@ -1,8 +1,8 @@
-# CoinPayPortal Architecture
+# CoinPay Architecture
 
 ## System Overview
 
-CoinPayPortal is a non-custodial cryptocurrency payment gateway that enables e-commerce merchants to accept crypto payments with automatic fee handling and real-time transaction monitoring.
+CoinPay is a non-custodial cryptocurrency payment gateway that enables e-commerce merchants to accept crypto payments with automatic fee handling and real-time transaction monitoring.
 
 ## High-Level Architecture
 
@@ -177,21 +177,21 @@ All Supabase interactions go through server-side API routes for security.
 sequenceDiagram
     participant Customer
     participant MerchantSite
-    participant CoinPayPortal
+    participant CoinPay
     participant Blockchain
     participant MerchantWallet
     participant WebhookEndpoint
 
-    MerchantSite->>CoinPayPortal: Create Payment Request
-    CoinPayPortal->>CoinPayPortal: Generate Forwarding Address
-    CoinPayPortal->>MerchantSite: Return Payment Details + QR
+    MerchantSite->>CoinPay: Create Payment Request
+    CoinPay->>CoinPay: Generate Forwarding Address
+    CoinPay->>MerchantSite: Return Payment Details + QR
     MerchantSite->>Customer: Display QR Code
     Customer->>Blockchain: Send Payment to Forwarding Address
-    Blockchain->>CoinPayPortal: Transaction Detected
-    CoinPayPortal->>CoinPayPortal: Wait for Confirmations
-    CoinPayPortal->>CoinPayPortal: Calculate 2% Fee
-    CoinPayPortal->>MerchantWallet: Forward Payment minus Fee
-    CoinPayPortal->>WebhookEndpoint: Send Payment Notification
+    Blockchain->>CoinPay: Transaction Detected
+    CoinPay->>CoinPay: Wait for Confirmations
+    CoinPay->>CoinPay: Calculate 2% Fee
+    CoinPay->>MerchantWallet: Forward Payment minus Fee
+    CoinPay->>WebhookEndpoint: Send Payment Notification
     WebhookEndpoint->>MerchantSite: Update Order Status
 ```
 
