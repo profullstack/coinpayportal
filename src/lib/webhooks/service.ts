@@ -1,0 +1,335 @@
+import { createHmac, timingSafeEqual } from 'crypto';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+/**
+ * Webhook event types
+ */
+export type WebhookEvent =
+  | 'payment.detected'
+  | 'payment.confirmed'
+  | 'payment.forwarded'
+  | 'payment.failed';
+
+/**
+ * Webhook payload structure
+ */
+export interface WebhookPayload {
+  event: WebhookEvent;
+  payment_id: string;
+  business_id: string;
+  amount_crypto: string;
+  amount_usd: string;
+  currency: string;
+  status: string;
+  confirmations?: number;
+  tx_hash?: string;
+  timestamp?: string;
+  [key: string]: any;
+}
+
+/**
+ * Webhook delivery result
+ */
+export interface WebhookDeliveryResult {
+  success: boolean;
+  statusCode?: number;
+  error?: string;
+  attempts?: number;
+}
+
+/**
+ * Webhook log entry
+ */
+export interface WebhookLogEntry {
+  business_id: string;
+  payment_id: string;
+  event: WebhookEvent;
+  webhook_url: string;
+  success: boolean;
+  status_code?: number;
+  error_message?: string;
+  attempt_number: number;
+  response_time_ms?: number;
+}
+
+/**
+ * Sign webhook payload with HMAC-SHA256
+ */
+export function signWebhookPayload(
+  payload: Partial<WebhookPayload> | Record<string, any>,
+  secret: string
+): string {
+  const payloadString = JSON.stringify(payload);
+  const hmac = createHmac('sha256', secret);
+  hmac.update(payloadString);
+  return hmac.digest('hex');
+}
+
+/**
+ * Verify webhook signature
+ */
+export function verifyWebhookSignature(
+  payload: Partial<WebhookPayload> | Record<string, any>,
+  signature: string,
+  secret: string
+): boolean {
+  try {
+    const expectedSignature = signWebhookPayload(payload, secret);
+    
+    // Use timing-safe comparison to prevent timing attacks
+    const signatureBuffer = Buffer.from(signature, 'hex');
+    const expectedBuffer = Buffer.from(expectedSignature, 'hex');
+    
+    if (signatureBuffer.length !== expectedBuffer.length) {
+      return false;
+    }
+    
+    return timingSafeEqual(signatureBuffer, expectedBuffer);
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Deliver webhook to specified URL
+ */
+export async function deliverWebhook(
+  webhookUrl: string,
+  payload: Partial<WebhookPayload> | Record<string, any>,
+  secret: string,
+  timeout: number = 30000
+): Promise<WebhookDeliveryResult> {
+  try {
+    // Add timestamp to payload
+    const payloadWithTimestamp = {
+      ...payload,
+      timestamp: new Date().toISOString(),
+    };
+
+    // Sign the payload
+    const signature = signWebhookPayload(payloadWithTimestamp, secret);
+
+    // Deliver webhook
+    const startTime = Date.now();
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Webhook-Signature': signature,
+        'User-Agent': 'CoinPay-Webhook/1.0',
+      },
+      body: JSON.stringify(payloadWithTimestamp),
+      signal: AbortSignal.timeout(timeout),
+    });
+
+    const responseTime = Date.now() - startTime;
+
+    if (response.ok) {
+      return {
+        success: true,
+        statusCode: response.status,
+      };
+    } else {
+      return {
+        success: false,
+        statusCode: response.status,
+        error: `HTTP ${response.status}: ${response.statusText}`,
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Retry failed webhook with exponential backoff
+ */
+export async function retryFailedWebhook(
+  webhookUrl: string,
+  payload: Partial<WebhookPayload> | Record<string, any>,
+  secret: string,
+  maxRetries: number = 3
+): Promise<WebhookDeliveryResult> {
+  let lastResult: WebhookDeliveryResult = { success: false };
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    lastResult = await deliverWebhook(webhookUrl, payload, secret);
+    
+    if (lastResult.success) {
+      return {
+        ...lastResult,
+        attempts: attempt,
+      };
+    }
+    
+    // Don't wait after the last attempt
+    if (attempt < maxRetries) {
+      // Exponential backoff: 1s, 2s, 4s, 8s, etc.
+      const delayMs = Math.pow(2, attempt - 1) * 1000;
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+  
+  return {
+    ...lastResult,
+    attempts: maxRetries,
+  };
+}
+
+/**
+ * Log webhook attempt to database
+ */
+export async function logWebhookAttempt(
+  supabase: SupabaseClient,
+  logEntry: WebhookLogEntry
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.from('webhook_logs').insert({
+      business_id: logEntry.business_id,
+      payment_id: logEntry.payment_id,
+      event: logEntry.event,
+      webhook_url: logEntry.webhook_url,
+      success: logEntry.success,
+      status_code: logEntry.status_code,
+      error_message: logEntry.error_message,
+      attempt_number: logEntry.attempt_number,
+      response_time_ms: logEntry.response_time_ms,
+      created_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Get webhook logs for a business
+ */
+export async function getWebhookLogs(
+  supabase: SupabaseClient,
+  businessId: string,
+  options?: {
+    payment_id?: string;
+    limit?: number;
+    offset?: number;
+  }
+): Promise<{ success: boolean; logs?: any[]; error?: string }> {
+  try {
+    let query = supabase
+      .from('webhook_logs')
+      .select('*')
+      .eq('business_id', businessId)
+      .order('created_at', { ascending: false });
+
+    if (options?.payment_id) {
+      query = query.eq('payment_id', options.payment_id);
+    }
+
+    if (options?.limit) {
+      query = query.limit(options.limit);
+    }
+
+    if (options?.offset) {
+      query = query.range(
+        options.offset,
+        options.offset + (options.limit || 100) - 1
+      );
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, logs: data };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Send webhook for payment event
+ */
+export async function sendPaymentWebhook(
+  supabase: SupabaseClient,
+  businessId: string,
+  paymentId: string,
+  event: WebhookEvent,
+  paymentData: any
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Get business webhook configuration
+    const { data: business, error: businessError } = await supabase
+      .from('businesses')
+      .select('webhook_url, webhook_secret')
+      .eq('id', businessId)
+      .single();
+
+    if (businessError || !business) {
+      return { success: false, error: 'Business not found' };
+    }
+
+    if (!business.webhook_url) {
+      // No webhook configured, skip silently
+      return { success: true };
+    }
+
+    // Prepare webhook payload
+    const payload: WebhookPayload = {
+      event,
+      payment_id: paymentId,
+      business_id: businessId,
+      amount_crypto: paymentData.amount_crypto,
+      amount_usd: paymentData.amount_usd,
+      currency: paymentData.currency,
+      status: paymentData.status,
+      confirmations: paymentData.confirmations,
+      tx_hash: paymentData.tx_hash,
+    };
+
+    // Deliver webhook with retries
+    const result = await retryFailedWebhook(
+      business.webhook_url,
+      payload,
+      business.webhook_secret || '',
+      3
+    );
+
+    // Log the attempt
+    await logWebhookAttempt(supabase, {
+      business_id: businessId,
+      payment_id: paymentId,
+      event,
+      webhook_url: business.webhook_url,
+      success: result.success,
+      status_code: result.statusCode,
+      error_message: result.error,
+      attempt_number: result.attempts || 1,
+    });
+
+    return {
+      success: result.success,
+      error: result.error,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}

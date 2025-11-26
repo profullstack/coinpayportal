@@ -111,6 +111,38 @@ console.log(data.token); // Save this token`}
               </pre>
             </div>
           </div>
+
+          {/* Get Current User */}
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-lg font-mono text-sm">GET</span>
+              <code className="text-purple-400 font-mono">/api/auth/me</code>
+            </div>
+            <p className="text-gray-300 mb-4">Get current authenticated merchant information.</p>
+            
+            <h4 className="text-lg font-semibold text-white mb-2">cURL Example</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto mb-4">
+              <pre className="text-sm text-green-400">
+{`curl https://coinpayportal.com/api/auth/me \\
+  -H "Authorization: Bearer YOUR_TOKEN"`}
+              </pre>
+            </div>
+
+            <h4 className="text-lg font-semibold text-white mb-2">Response</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-sm text-gray-300">
+{`{
+  "success": true,
+  "merchant": {
+    "id": "merchant-123",
+    "email": "merchant@example.com",
+    "name": "My Business",
+    "created_at": "2024-01-01T12:00:00Z"
+  }
+}`}
+              </pre>
+            </div>
+          </div>
         </section>
 
         {/* Businesses */}
