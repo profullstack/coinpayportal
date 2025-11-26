@@ -18,7 +18,7 @@
     "@scure/bip39": "^1.2.2",
     "@solana/web3.js": "^1.87.6",
     "@supabase/supabase-js": "^2.39.0",
-    "bcrypt": "^5.1.1",
+    "bcryptjs": "^3.0.3",
     "bitcoinjs-lib": "^6.1.5",
     "ethers": "^6.10.0",
     "jsonwebtoken": "^9.0.2",
