@@ -8,8 +8,10 @@ const nextConfig = {
     },
   },
   env: {
-    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || `http://localhost:${process.env.PORT || 3000}`,
   },
+  // Next.js will automatically use PORT environment variable
+  // No need to specify it in scripts
 };
 
 export default nextConfig;
