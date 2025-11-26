@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { encrypt, deriveKey } from '../crypto/encryption';
+import { generateApiKey } from '../auth/apikey';
 import { z } from 'zod';
 
 /**
@@ -38,6 +39,8 @@ export interface Business {
   webhook_secret?: string;
   webhook_events?: string[];
   active: boolean;
+  api_key?: string;
+  api_key_created_at?: string;
   created_at: string;
   updated_at: string;
 }
