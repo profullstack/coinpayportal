@@ -2,15 +2,11 @@ import { generateMnemonic as bip39GenerateMnemonic, mnemonicToSeedSync, validate
 import { wordlist } from '@scure/bip39/wordlists/english';
 import { HDKey } from '@scure/bip32';
 import * as bitcoin from 'bitcoinjs-lib';
-import { ECPairFactory } from 'ecpair';
-import * as ecc from 'tiny-secp256k1';
 import { ethers } from 'ethers';
 import { Keypair } from '@solana/web3.js';
 import { encrypt } from '../crypto/encryption';
 import type { BlockchainType } from './providers';
-
-// Initialize ECPair with tiny-secp256k1
-const ECPair = ECPairFactory(ecc);
+import { secp256k1 } from '@noble/curves/secp256k1';
 
 /**
  * Wallet interface
@@ -91,9 +87,11 @@ function generateBitcoinWallet(
     throw new Error('Failed to derive private key');
   }
 
-  const keyPair = ECPair.fromPrivateKey(Buffer.from(child.privateKey));
+  // Use secp256k1 directly to generate public key
+  const publicKey = secp256k1.getPublicKey(child.privateKey, true);
+  
   const { address } = bitcoin.payments.p2pkh({
-    pubkey: Buffer.from(keyPair.publicKey),
+    pubkey: Buffer.from(publicKey),
     network: bitcoin.networks.bitcoin,
   });
 
@@ -103,8 +101,8 @@ function generateBitcoinWallet(
 
   return {
     address,
-    privateKey: Buffer.from(keyPair.privateKey!).toString('hex'),
-    publicKey: Buffer.from(keyPair.publicKey).toString('hex'),
+    privateKey: Buffer.from(child.privateKey).toString('hex'),
+    publicKey: Buffer.from(publicKey).toString('hex'),
     chain,
     index,
   };

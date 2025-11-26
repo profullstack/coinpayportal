@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   BitcoinProvider,
   EthereumProvider,
@@ -6,8 +6,21 @@ import {
   SolanaProvider,
   getProvider,
 } from './providers';
+import axios from 'axios';
+
+// Mock axios
+vi.mock('axios');
+const mockedAxios = vi.mocked(axios, true);
 
 describe('Blockchain Providers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   describe('BitcoinProvider', () => {
     let provider: BitcoinProvider;
 
@@ -22,15 +35,50 @@ describe('Blockchain Providers', () => {
 
     it('should get balance for an address', async () => {
       const address = '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa';
+      
+      // Mock the axios response
+      mockedAxios.get.mockResolvedValueOnce({
+        data: {
+          chain_stats: {
+            funded_txo_sum: 5000000000,
+            spent_txo_sum: 0,
+          },
+        },
+      });
+
       const balance = await provider.getBalance(address);
       expect(typeof balance).toBe('string');
+      expect(mockedAxios.get).toHaveBeenCalledWith(
+        expect.stringContaining(address)
+      );
     });
 
     it('should get transaction details', async () => {
-      const txHash = '0000000000000000000000000000000000000000000000000000000000000000';
+      const txHash = '4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b';
+      
+      // Mock the axios response with proper structure
+      mockedAxios.get.mockResolvedValueOnce({
+        data: {
+          txid: txHash,
+          status: {
+            confirmed: true,
+            block_height: 700000,
+            block_time: 1234567890,
+          },
+          vin: [{ txid: 'input_tx', vout: 0 }],
+          vout: [{ value: 50000000 }],
+        },
+      });
+
+      // Mock the current block height request
+      mockedAxios.get.mockResolvedValueOnce({
+        data: 700010,
+      });
+
       const tx = await provider.getTransaction(txHash);
       expect(tx).toHaveProperty('hash');
       expect(tx).toHaveProperty('confirmations');
+      expect(mockedAxios.get).toHaveBeenCalled();
     });
 
     it('should get required confirmations', () => {
@@ -43,6 +91,16 @@ describe('Blockchain Providers', () => {
 
     beforeEach(() => {
       provider = new EthereumProvider('https://ethereum-rpc.example.com');
+      
+      // Mock the provider methods after instantiation
+      vi.spyOn(provider['provider'], 'getBalance').mockResolvedValue(BigInt(1000000000000000000));
+      vi.spyOn(provider['provider'], 'getTransaction').mockResolvedValue({
+        hash: '0x123',
+        blockNumber: 12345,
+        wait: vi.fn().mockResolvedValue({ confirmations: 12 }),
+      } as any);
+      vi.spyOn(provider['provider'], 'getBlockNumber').mockResolvedValue(12357);
+      vi.spyOn(provider['provider'], 'estimateGas').mockResolvedValue(BigInt(21000));
     });
 
     it('should create an Ethereum provider instance', () => {
@@ -98,6 +156,19 @@ describe('Blockchain Providers', () => {
 
     beforeEach(() => {
       provider = new SolanaProvider('https://solana-rpc.example.com');
+      
+      // Mock the connection methods after instantiation
+      vi.spyOn(provider['connection'], 'getBalance').mockResolvedValue(1000000000);
+      vi.spyOn(provider['connection'], 'getTransaction').mockResolvedValue({
+        slot: 12345,
+        transaction: {
+          signatures: ['1111111111111111111111111111111111111111111111111111111111111111'],
+        },
+        meta: {
+          err: null,
+        },
+      } as any);
+      vi.spyOn(provider['connection'], 'getSlot').mockResolvedValue(12377);
     });
 
     it('should create a Solana provider instance', () => {
