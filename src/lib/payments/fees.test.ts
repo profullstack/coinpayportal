@@ -3,35 +3,35 @@ import { calculateFee, calculateMerchantAmount, calculatePlatformFee, FEE_PERCEN
 
 describe('Payment Fee Calculations', () => {
   describe('FEE_PERCENTAGE constant', () => {
-    it('should be 0.25%', () => {
-      expect(FEE_PERCENTAGE).toBe(0.0025);
+    it('should be 0.5%', () => {
+      expect(FEE_PERCENTAGE).toBe(0.005);
     });
   });
 
   describe('calculateFee', () => {
-    it('should calculate 0.25% fee correctly', () => {
+    it('should calculate 0.5% fee correctly', () => {
       const fee = calculateFee(100);
-      expect(fee).toBe(0.25); // 100 * 0.0025
+      expect(fee).toBe(0.5); // 100 * 0.005
     });
 
     it('should handle decimal amounts', () => {
       const fee = calculateFee(123.45);
-      expect(fee).toBeCloseTo(0.308625, 6);
+      expect(fee).toBeCloseTo(0.61725, 6);
     });
 
     it('should handle very small amounts', () => {
       const fee = calculateFee(1);
-      expect(fee).toBe(0.0025);
+      expect(fee).toBe(0.005);
     });
 
     it('should handle very large amounts', () => {
       const fee = calculateFee(1000000);
-      expect(fee).toBe(2500); // 1M * 0.0025
+      expect(fee).toBe(5000); // 1M * 0.005
     });
 
     it('should handle crypto amounts with many decimals', () => {
       const fee = calculateFee(0.00123456);
-      expect(fee).toBeCloseTo(0.00000309, 8);
+      expect(fee).toBeCloseTo(0.00000617, 8);
     });
 
     it('should throw error for zero amount', () => {
@@ -51,24 +51,24 @@ describe('Payment Fee Calculations', () => {
   });
 
   describe('calculateMerchantAmount', () => {
-    it('should calculate merchant amount (99.75% of total)', () => {
+    it('should calculate merchant amount (99.5% of total)', () => {
       const merchantAmount = calculateMerchantAmount(100);
-      expect(merchantAmount).toBe(99.75); // 100 - 0.25
+      expect(merchantAmount).toBe(99.5); // 100 - 0.5
     });
 
     it('should handle decimal amounts', () => {
       const merchantAmount = calculateMerchantAmount(123.45);
-      expect(merchantAmount).toBeCloseTo(123.141375, 6);
+      expect(merchantAmount).toBeCloseTo(122.83275, 6);
     });
 
     it('should handle very small amounts', () => {
       const merchantAmount = calculateMerchantAmount(1);
-      expect(merchantAmount).toBe(0.9975);
+      expect(merchantAmount).toBe(0.995);
     });
 
     it('should handle very large amounts', () => {
       const merchantAmount = calculateMerchantAmount(1000000);
-      expect(merchantAmount).toBe(997500); // 1M - 2500
+      expect(merchantAmount).toBe(995000); // 1M - 5000
     });
 
     it('should throw error for zero amount', () => {
@@ -96,7 +96,7 @@ describe('Payment Fee Calculations', () => {
 
     it('should calculate platform fee correctly', () => {
       const platformFee = calculatePlatformFee(1000);
-      expect(platformFee).toBe(2.5); // 1000 * 0.0025
+      expect(platformFee).toBe(5); // 1000 * 0.005
     });
   });
 
@@ -106,8 +106,8 @@ describe('Payment Fee Calculations', () => {
       const platformFee = calculatePlatformFee(totalAmount);
       const merchantAmount = calculateMerchantAmount(totalAmount);
       
-      expect(platformFee).toBe(2.5);
-      expect(merchantAmount).toBe(997.5);
+      expect(platformFee).toBe(5);
+      expect(merchantAmount).toBe(995);
       expect(platformFee + merchantAmount).toBeCloseTo(totalAmount, 10);
     });
 
@@ -116,8 +116,8 @@ describe('Payment Fee Calculations', () => {
       const platformFee = calculatePlatformFee(totalCrypto);
       const merchantAmount = calculateMerchantAmount(totalCrypto);
       
-      expect(platformFee).toBeCloseTo(0.00125, 8);
-      expect(merchantAmount).toBeCloseTo(0.49875, 8);
+      expect(platformFee).toBeCloseTo(0.0025, 8);
+      expect(merchantAmount).toBeCloseTo(0.4975, 8);
       expect(platformFee + merchantAmount).toBeCloseTo(totalCrypto, 10);
     });
 
@@ -136,8 +136,8 @@ describe('Payment Fee Calculations', () => {
       const platformFee = calculatePlatformFee(totalFiat);
       const merchantAmount = calculateMerchantAmount(totalFiat);
       
-      expect(platformFee).toBeCloseTo(2500, 1);
-      expect(merchantAmount).toBeCloseTo(997500, 1);
+      expect(platformFee).toBeCloseTo(5000, 1);
+      expect(merchantAmount).toBeCloseTo(995000, 1);
       expect(platformFee + merchantAmount).toBeCloseTo(totalFiat, 2);
     });
   });

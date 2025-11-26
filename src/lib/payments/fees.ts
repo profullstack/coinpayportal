@@ -1,12 +1,12 @@
 /**
  * Payment Fee Calculations
- * Platform fee: 0.25% of payment amount
+ * Platform transaction fee: 0.5% of payment amount
  */
 
 /**
- * Platform fee percentage (0.25%)
+ * Platform fee percentage (0.5%)
  */
-export const FEE_PERCENTAGE = 0.0025;
+export const FEE_PERCENTAGE = 0.005;
 
 /**
  * Precision for crypto amounts (8 decimal places)
