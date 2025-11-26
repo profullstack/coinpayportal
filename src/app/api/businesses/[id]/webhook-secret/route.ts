@@ -9,9 +9,10 @@ import { verifyToken } from '@/lib/auth/jwt';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Get token from Authorization header
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -56,7 +57,7 @@ export async function GET(
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Get webhook secret
-    const result = await getWebhookSecret(supabase, params.id, decoded.userId);
+    const result = await getWebhookSecret(supabase, id, decoded.userId);
 
     if (!result.success) {
       return NextResponse.json(
@@ -84,9 +85,10 @@ export async function GET(
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Get token from Authorization header
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -131,7 +133,7 @@ export async function POST(
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Regenerate webhook secret
-    const result = await regenerateWebhookSecret(supabase, params.id, decoded.userId);
+    const result = await regenerateWebhookSecret(supabase, id, decoded.userId);
 
     if (!result.success) {
       return NextResponse.json(
