@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, vi, beforeAll } from 'vitest';
-import { createBusiness, listBusinesses, getBusiness, updateBusiness, deleteBusiness } from './service';
+import {
+  createBusiness,
+  listBusinesses,
+  getBusiness,
+  updateBusiness,
+  deleteBusiness,
+  getWebhookSecret,
+  regenerateWebhookSecret
+} from './service';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as encryption from '../crypto/encryption';
 
@@ -360,5 +368,112 @@ describe('Business Service', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
     });
+
+  describe('getWebhookSecret', () => {
+    it('should retrieve and decrypt webhook secret', async () => {
+      mockSupabase.from = vi.fn(() => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              single: vi.fn().mockResolvedValue({
+                data: { webhook_secret: 'encrypted-secret' },
+                error: null,
+              }),
+            })),
+          })),
+        })),
+      })) as any;
+
+      vi.mocked(encryption.decrypt).mockReturnValue('decrypted-secret-123');
+
+      const result = await getWebhookSecret(mockSupabase, 'business-123', 'merchant-123');
+
+      expect(result.success).toBe(true);
+      expect(result.secret).toBe('decrypted-secret-123');
+      expect(encryption.decrypt).toHaveBeenCalledWith('encrypted-secret', expect.any(String));
+    });
+
+    it('should return error when business not found', async () => {
+      mockSupabase.from = vi.fn(() => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              single: vi.fn().mockResolvedValue({
+                data: null,
+                error: { message: 'Not found' },
+              }),
+            })),
+          })),
+        })),
+      })) as any;
+
+      const result = await getWebhookSecret(mockSupabase, 'business-123', 'merchant-123');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Not found');
+    });
+
+    it('should return error when no webhook secret configured', async () => {
+      mockSupabase.from = vi.fn(() => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              single: vi.fn().mockResolvedValue({
+                data: { webhook_secret: null },
+                error: null,
+              }),
+            })),
+          })),
+        })),
+      })) as any;
+
+      const result = await getWebhookSecret(mockSupabase, 'business-123', 'merchant-123');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('No webhook secret');
+    });
+  });
+
+  describe('regenerateWebhookSecret', () => {
+    it('should generate and encrypt new webhook secret', async () => {
+      mockSupabase.from = vi.fn(() => ({
+        update: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            eq: vi.fn().mockResolvedValue({
+              data: null,
+              error: null,
+            }),
+          })),
+        })),
+      })) as any;
+
+      vi.mocked(encryption.encrypt).mockReturnValue('new-encrypted-secret');
+
+      const result = await regenerateWebhookSecret(mockSupabase, 'business-123', 'merchant-123');
+
+      expect(result.success).toBe(true);
+      expect(result.secret).toBeDefined();
+      expect(result.secret?.length).toBe(64); // 32 bytes = 64 hex characters
+      expect(encryption.encrypt).toHaveBeenCalled();
+    });
+
+    it('should handle database errors during regeneration', async () => {
+      mockSupabase.from = vi.fn(() => ({
+        update: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            eq: vi.fn().mockResolvedValue({
+              data: null,
+              error: { message: 'Update failed' },
+            }),
+          })),
+        })),
+      })) as any;
+
+      const result = await regenerateWebhookSecret(mockSupabase, 'business-123', 'merchant-123');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Update failed');
+    });
+  });
   });
 });

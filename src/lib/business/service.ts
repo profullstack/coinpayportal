@@ -1,7 +1,105 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { encrypt, deriveKey } from '../crypto/encryption';
+import { encrypt, decrypt, deriveKey } from '../crypto/encryption';
 import { generateApiKey } from '../auth/apikey';
+import { randomBytes } from 'crypto';
 import { z } from 'zod';
+
+/**
+ * Generate a secure webhook secret
+ */
+function generateWebhookSecret(): string {
+  return randomBytes(32).toString('hex');
+}
+
+/**
+ * Get decrypted webhook secret for a business
+ */
+export async function getWebhookSecret(
+  supabase: SupabaseClient,
+  businessId: string,
+  merchantId: string
+): Promise<{ success: boolean; secret?: string; error?: string }> {
+  try {
+    const { data: business, error } = await supabase
+      .from('businesses')
+      .select('webhook_secret')
+      .eq('id', businessId)
+      .eq('merchant_id', merchantId)
+      .single();
+
+    if (error || !business) {
+      return {
+        success: false,
+        error: error?.message || 'Business not found',
+      };
+    }
+
+    if (!business.webhook_secret) {
+      return {
+        success: false,
+        error: 'No webhook secret configured',
+      };
+    }
+
+    // Decrypt the webhook secret
+    const encryptionKey = getEncryptionKey();
+    const derivedKey = deriveKey(encryptionKey, merchantId);
+    const decryptedSecret = decrypt(business.webhook_secret, derivedKey);
+
+    return {
+      success: true,
+      secret: decryptedSecret,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get webhook secret',
+    };
+  }
+}
+
+/**
+ * Regenerate webhook secret for a business
+ */
+export async function regenerateWebhookSecret(
+  supabase: SupabaseClient,
+  businessId: string,
+  merchantId: string
+): Promise<{ success: boolean; secret?: string; error?: string }> {
+  try {
+    // Generate new secret
+    const newSecret = generateWebhookSecret();
+    
+    // Encrypt it
+    const encryptionKey = getEncryptionKey();
+    const derivedKey = deriveKey(encryptionKey, merchantId);
+    const encryptedSecret = encrypt(newSecret, derivedKey);
+
+    // Update business
+    const { error } = await supabase
+      .from('businesses')
+      .update({ webhook_secret: encryptedSecret })
+      .eq('id', businessId)
+      .eq('merchant_id', merchantId);
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+
+    return {
+      success: true,
+      secret: newSecret,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to regenerate webhook secret',
+    };
+  }
+}
 
 /**
  * Validation schemas
@@ -108,12 +206,14 @@ export async function createBusiness(
       }
     }
 
-    // Encrypt webhook secret if provided
+    // Generate and encrypt webhook secret if webhook URL is provided
     let encryptedSecret: string | undefined;
-    if (input.webhook_secret) {
+    if (input.webhook_url) {
+      // Use provided secret or generate a new one
+      const webhookSecret = input.webhook_secret || generateWebhookSecret();
       const encryptionKey = getEncryptionKey();
       const derivedKey = deriveKey(encryptionKey, merchantId);
-      encryptedSecret = encrypt(input.webhook_secret, derivedKey);
+      encryptedSecret = encrypt(webhookSecret, derivedKey);
     }
 
     // Generate API key for the new business
@@ -273,8 +373,15 @@ export async function updateBusiness(
     if (input.webhook_events !== undefined) updateData.webhook_events = input.webhook_events;
     if (input.active !== undefined) updateData.active = input.active;
 
-    // Encrypt webhook secret if provided
-    if (input.webhook_secret) {
+    // Generate and encrypt webhook secret if webhook URL is being added/updated
+    if (input.webhook_url) {
+      // Use provided secret or generate a new one
+      const webhookSecret = input.webhook_secret || generateWebhookSecret();
+      const encryptionKey = getEncryptionKey();
+      const derivedKey = deriveKey(encryptionKey, merchantId);
+      updateData.webhook_secret = encrypt(webhookSecret, derivedKey);
+    } else if (input.webhook_secret) {
+      // If only secret is being updated (webhook_url already exists)
       const encryptionKey = getEncryptionKey();
       const derivedKey = deriveKey(encryptionKey, merchantId);
       updateData.webhook_secret = encrypt(input.webhook_secret, derivedKey);
