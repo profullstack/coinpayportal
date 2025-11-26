@@ -447,3 +447,47 @@ export async function deleteBusiness(
     };
   }
 }
+
+/**
+ * Regenerate API key for a business
+ */
+export async function regenerateApiKey(
+  supabase: SupabaseClient,
+  businessId: string,
+  merchantId: string
+): Promise<{ success: boolean; apiKey?: string; error?: string }> {
+  try {
+    // Generate new API key
+    const newApiKey = generateApiKey();
+    const apiKeyCreatedAt = new Date().toISOString();
+
+    // Update business with new API key
+    const { data: business, error } = await supabase
+      .from('businesses')
+      .update({
+        api_key: newApiKey,
+        api_key_created_at: apiKeyCreatedAt,
+      })
+      .eq('id', businessId)
+      .eq('merchant_id', merchantId)
+      .select()
+      .single();
+
+    if (error || !business) {
+      return {
+        success: false,
+        error: error?.message || 'Failed to regenerate API key',
+      };
+    }
+
+    return {
+      success: true,
+      apiKey: newApiKey,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'API key regeneration failed',
+    };
+  }
+}
