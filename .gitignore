@@ -39,4 +39,3 @@ next-env.d.ts
 
 # vitest
 .vitest
-pnpm-lock.yaml
