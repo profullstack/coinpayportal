@@ -1,0 +1,11 @@
+/* TEAM */
+Developer/Founder: Anthony Ettinger
+Contact: https://github.com/profullstack
+
+Developer/Co-founder: Preshy Opusunju
+Contact: https://github.com/Preshy
+
+/* SITE */
+Last update: 2025/11/26
+Language: English
+Components: Node.js, Next, React, Tailwind, Supabase
