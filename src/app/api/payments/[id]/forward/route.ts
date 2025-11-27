@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/server';
 import { verifyToken } from '@/lib/auth/jwt';
-import {
-  processConfirmedPayment,
-  retryFailedForwarding,
-  getForwardingStatus,
-} from '@/lib/payments/forwarding';
+import { getForwardingStatus } from '@/lib/payments/forwarding';
+import { forwardPaymentSecurely, retryForwardingSecurely } from '@/lib/wallets/secure-forwarding';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 /**
  * POST /api/payments/[id]/forward
  * Manually trigger payment forwarding (admin only)
+ *
+ * SECURITY: Private keys are NEVER accepted via API.
+ * Keys are retrieved from encrypted storage server-side only.
  */
 export async function POST(
   request: NextRequest,
@@ -37,25 +37,44 @@ export async function POST(
       );
     }
 
-    // Get request body
-    const body = await request.json().catch(() => ({}));
-    const { privateKey, retry } = body;
+    // Verify admin access
+    const { data: merchant, error: merchantError } = await supabaseAdmin
+      .from('merchants')
+      .select('is_admin')
+      .eq('id', payload.sub)
+      .single();
 
-    if (!privateKey) {
+    if (merchantError || !merchant?.is_admin) {
       return NextResponse.json(
-        { success: false, error: 'Private key is required for forwarding' },
+        { success: false, error: 'Admin access required for manual forwarding' },
+        { status: 403 }
+      );
+    }
+
+    // Get request body (only for retry flag, NO private keys accepted)
+    const body = await request.json().catch(() => ({}));
+    const { retry } = body;
+
+    // SECURITY: Reject any request that attempts to send a private key
+    if (body.privateKey || body.private_key || body.key) {
+      console.warn(`Security: Rejected attempt to send private key via API for payment ${(await params).id}`);
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Private keys cannot be sent via API. Keys are managed securely server-side.'
+        },
         { status: 400 }
       );
     }
 
     const { id: paymentId } = await params;
 
-    // Check if this is a retry request
+    // Use secure forwarding that retrieves encrypted keys from database
     let result;
     if (retry) {
-      result = await retryFailedForwarding(supabaseAdmin, paymentId, privateKey);
+      result = await retryForwardingSecurely(supabaseAdmin, paymentId);
     } else {
-      result = await processConfirmedPayment(supabaseAdmin, paymentId, privateKey);
+      result = await forwardPaymentSecurely(supabaseAdmin, paymentId);
     }
 
     if (!result.success) {

@@ -13,6 +13,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getProvider, getRpcUrl, type BlockchainType } from '../blockchain/providers';
 import { generatePaymentAddress } from '../blockchain/wallets';
 import { deliverWebhook, logWebhookAttempt, retryFailedWebhook } from '../webhooks/service';
+import { decrypt } from '../crypto/encryption';
 
 /**
  * Supported blockchains for business collection
@@ -259,14 +260,14 @@ export async function createBusinessCollectionPayment(
 }
 
 /**
- * Forward a confirmed business collection payment
- * 
+ * Forward a confirmed business collection payment securely
+ *
  * This forwards 100% of the received amount to the platform's collection wallet.
+ * Private keys are retrieved from encrypted storage - NEVER passed via API.
  */
-export async function forwardBusinessCollectionPayment(
+export async function forwardBusinessCollectionPaymentSecurely(
   supabase: SupabaseClient,
-  paymentId: string,
-  privateKey: string
+  paymentId: string
 ): Promise<BusinessCollectionForwardingResult> {
   try {
     // Get payment details
@@ -288,6 +289,33 @@ export async function forwardBusinessCollectionPayment(
       return {
         success: false,
         error: `Payment is not confirmed. Current status: ${payment.status}`,
+      };
+    }
+
+    // Get and decrypt the private key securely
+    if (!payment.private_key_encrypted) {
+      return {
+        success: false,
+        error: 'No encrypted private key found for this payment',
+      };
+    }
+
+    const encryptionKey = process.env.ENCRYPTION_KEY;
+    if (!encryptionKey) {
+      return {
+        success: false,
+        error: 'Encryption key not configured',
+      };
+    }
+
+    let privateKey: string;
+    try {
+      privateKey = decrypt(payment.private_key_encrypted, encryptionKey);
+    } catch (decryptError) {
+      console.error(`[SECURE] Failed to decrypt private key for business collection ${paymentId}`);
+      return {
+        success: false,
+        error: 'Failed to decrypt private key',
       };
     }
 
@@ -580,33 +608,19 @@ async function sendBusinessCollectionWebhook(
 }
 
 /**
- * Process confirmed business collection payments
+ * Process confirmed business collection payments securely
  *
  * This is called by the blockchain monitor when a payment reaches
  * the required number of confirmations.
+ *
+ * SECURITY: Private keys are decrypted internally - never passed via API.
  */
 export async function processConfirmedBusinessCollectionPayment(
   supabase: SupabaseClient,
   paymentId: string
 ): Promise<BusinessCollectionForwardingResult> {
-  // Get the payment to retrieve the private key
-  const { data: payment, error } = await supabase
-    .from('business_collection_payments')
-    .select('private_key_encrypted')
-    .eq('id', paymentId)
-    .single();
-
-  if (error || !payment || !payment.private_key_encrypted) {
-    return {
-      success: false,
-      error: 'Payment not found or private key not available',
-    };
-  }
-
-  // In production, decrypt the private key here
-  const privateKey = payment.private_key_encrypted;
-
-  return forwardBusinessCollectionPayment(supabase, paymentId, privateKey);
+  // Use the secure forwarding function that handles decryption internally
+  return forwardBusinessCollectionPaymentSecurely(supabase, paymentId);
 }
 
 /**
