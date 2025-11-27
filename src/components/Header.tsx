@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { ConnectButton } from './wallet';
 
 export default function Header() {
   const router = useRouter();
@@ -26,7 +27,7 @@ export default function Header() {
   const navigation = [
     { name: 'Home', href: '/' },
     { name: 'API', href: '/docs' },
-    { name: 'Pricing', href: '/#pricing' },
+    { name: 'Pricing', href: '/pricing' },
   ];
 
   const loggedInNavigation = [
@@ -63,45 +64,50 @@ export default function Header() {
             
             {/* Auth Buttons / User Menu */}
             {isLoggedIn ? (
-              <div className="relative">
-                <button
-                  onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center space-x-2 text-sm font-medium text-gray-300 hover:text-white transition-colors"
-                >
-                  <div className="h-8 w-8 rounded-full bg-purple-600 flex items-center justify-center">
-                    <span className="text-white text-sm font-semibold">M</span>
-                  </div>
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
+              <div className="flex items-center space-x-4">
+                {/* Wallet Connect Button - Only for logged in users */}
+                <ConnectButton variant="secondary" size="sm" />
                 
-                {userMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
-                    <div className="py-1">
-                      <Link
-                        href="/dashboard"
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        onClick={() => setUserMenuOpen(false)}
-                      >
-                        Dashboard
-                      </Link>
-                      <Link
-                        href="/settings"
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        onClick={() => setUserMenuOpen(false)}
-                      >
-                        Settings
-                      </Link>
-                      <button
-                        onClick={handleLogout}
-                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Log out
-                      </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setUserMenuOpen(!userMenuOpen)}
+                    className="flex items-center space-x-2 text-sm font-medium text-gray-300 hover:text-white transition-colors"
+                  >
+                    <div className="h-8 w-8 rounded-full bg-purple-600 flex items-center justify-center">
+                      <span className="text-white text-sm font-semibold">M</span>
                     </div>
-                  </div>
-                )}
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  
+                  {userMenuOpen && (
+                    <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                      <div className="py-1">
+                        <Link
+                          href="/dashboard"
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          onClick={() => setUserMenuOpen(false)}
+                        >
+                          Dashboard
+                        </Link>
+                        <Link
+                          href="/settings"
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          onClick={() => setUserMenuOpen(false)}
+                        >
+                          Settings
+                        </Link>
+                        <button
+                          onClick={handleLogout}
+                          className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Log out
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="flex items-center space-x-4">
@@ -184,6 +190,10 @@ export default function Header() {
               {/* Mobile Auth Buttons / User Menu */}
               {isLoggedIn ? (
                 <div className="pt-4 space-y-2 border-t border-gray-800 mt-4">
+                  {/* Mobile Wallet Connect - Only for logged in users */}
+                  <div className="px-3 py-2">
+                    <ConnectButton variant="secondary" size="sm" />
+                  </div>
                   <Link
                     href="/dashboard"
                     className="block px-3 py-2 text-base font-medium text-gray-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"

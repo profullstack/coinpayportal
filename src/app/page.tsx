@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { PaymentDemo } from '@/components/demo/PaymentDemo';
 
 export default function Home() {
   return (
@@ -66,8 +67,42 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Live Demo Section */}
+      <section className="relative py-24 bg-slate-900/50" id="demo">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            <div>
+              <h2 className="text-4xl sm:text-5xl font-bold text-white mb-6">
+                Try It <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">Live</span>
+              </h2>
+              <p className="text-xl text-gray-400 mb-8">
+                Experience our payment flow firsthand. This demo simulates the complete payment process from creation to confirmation.
+              </p>
+              <ul className="space-y-4">
+                {[
+                  'Create a payment with any amount',
+                  'Choose from multiple cryptocurrencies',
+                  'Watch real-time status updates',
+                  'See automatic confirmation handling',
+                ].map((item, index) => (
+                  <li key={index} className="flex items-start gap-3">
+                    <svg className="w-6 h-6 text-purple-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span className="text-gray-300">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <PaymentDemo />
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Features Section */}
-      <section className="relative py-24 bg-slate-900/50">
+      <section className="relative py-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-4xl sm:text-5xl font-bold text-white mb-4">
@@ -132,7 +167,7 @@ export default function Home() {
                   </svg>
                 ),
                 title: 'Multi-Chain Support',
-                description: 'Support for Ethereum, Bitcoin, Solana, and 10+ other major blockchains.',
+                description: 'Support for Ethereum, Bitcoin, Solana, Polygon, and 10+ other major blockchains.',
               },
             ].map((feature, index) => (
               <div
@@ -150,8 +185,43 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Supported Chains Section */}
+      <section className="relative py-24 bg-slate-900/50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl sm:text-5xl font-bold text-white mb-4">
+              Supported Blockchains
+            </h2>
+            <p className="text-xl text-gray-400 max-w-2xl mx-auto">
+              Accept payments on all major networks
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-6">
+            {[
+              { name: 'Bitcoin', symbol: 'BTC', icon: '₿', color: 'from-orange-500 to-yellow-500' },
+              { name: 'Ethereum', symbol: 'ETH', icon: '⟠', color: 'from-blue-500 to-purple-500' },
+              { name: 'Solana', symbol: 'SOL', icon: '◎', color: 'from-purple-500 to-green-500' },
+              { name: 'Polygon', symbol: 'MATIC', icon: '⬡', color: 'from-purple-500 to-blue-500' },
+              { name: 'Bitcoin Cash', symbol: 'BCH', icon: '₿', color: 'from-green-500 to-emerald-500' },
+            ].map((chain, index) => (
+              <div
+                key={index}
+                className="p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 hover:border-white/30 transition-all text-center group"
+              >
+                <div className={`w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br ${chain.color} flex items-center justify-center mb-4 text-3xl text-white group-hover:scale-110 transition-transform`}>
+                  {chain.icon}
+                </div>
+                <div className="text-white font-semibold">{chain.name}</div>
+                <div className="text-gray-400 text-sm">{chain.symbol}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Pricing Preview */}
-      <section className="relative py-24">
+      <section className="relative py-24" id="pricing">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-4xl sm:text-5xl font-bold text-white mb-4">
@@ -254,6 +324,81 @@ export default function Home() {
                 </Link>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* API Preview Section */}
+      <section className="relative py-24 bg-slate-900/50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            <div>
+              <h2 className="text-4xl sm:text-5xl font-bold text-white mb-6">
+                Simple <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">API</span>
+              </h2>
+              <p className="text-xl text-gray-400 mb-8">
+                Integrate crypto payments in minutes with our developer-friendly REST API.
+              </p>
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                  <span className="text-gray-300">RESTful API with JSON responses</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                    </svg>
+                  </div>
+                  <span className="text-gray-300">Webhook notifications for payment events</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                  </div>
+                  <span className="text-gray-300">HMAC-SHA256 webhook signatures</span>
+                </div>
+              </div>
+              <div className="mt-8">
+                <Link
+                  href="/docs"
+                  className="inline-flex items-center gap-2 text-purple-400 hover:text-purple-300 font-medium"
+                >
+                  View API Documentation
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </Link>
+              </div>
+            </div>
+            <div className="bg-slate-800/50 rounded-2xl border border-white/10 overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-3 bg-slate-800/80 border-b border-white/10">
+                <div className="w-3 h-3 rounded-full bg-red-500" />
+                <div className="w-3 h-3 rounded-full bg-yellow-500" />
+                <div className="w-3 h-3 rounded-full bg-green-500" />
+                <span className="ml-2 text-sm text-gray-400">Create Payment</span>
+              </div>
+              <pre className="p-4 text-sm overflow-x-auto">
+                <code className="text-gray-300">
+{`curl -X POST https://api.coinpay.dev/v1/payments \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "amount": 100.00,
+    "currency": "USD",
+    "cryptocurrency": "ETH",
+    "description": "Order #12345",
+    "webhook_url": "https://your-site.com/webhook"
+  }'`}
+                </code>
+              </pre>
+            </div>
           </div>
         </div>
       </section>
