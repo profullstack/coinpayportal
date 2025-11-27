@@ -38,9 +38,10 @@ describe('PaymentDetailPage', () => {
     id: 'payment-123',
     business_id: 'business-1',
     payment_address: '0x1234567890abcdef1234567890abcdef12345678',
-    amount_usd: '100.00',
-    amount_crypto: '0.05000000',
-    currency: 'eth',
+    amount: '100.00',
+    crypto_amount: '0.05000000',
+    currency: 'USD',
+    crypto_currency: 'ETH',
     blockchain: 'ETH',
     status: 'pending',
     description: 'Test payment',
@@ -224,6 +225,75 @@ describe('PaymentDetailPage', () => {
       });
 
       expect(screen.queryByAltText(/payment qr code/i)).not.toBeInTheDocument();
+    });
+
+    it('should not show QR code when payment_address is missing', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: { ...mockPayment, payment_address: null },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/payment address is being generated/i)).toBeInTheDocument();
+      });
+
+      expect(screen.queryByAltText(/payment qr code/i)).not.toBeInTheDocument();
+    });
+
+    it('should show loading spinner while QR code is loading', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: mockPayment,
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        // QR code section should be present
+        expect(screen.getByText(/qr code/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Missing Payment Address', () => {
+    it('should show warning message when payment address is missing', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: { ...mockPayment, payment_address: null },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/payment address is being generated/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should show payment address when available', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: { ...mockPayment, status: 'confirmed' },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(mockPayment.payment_address)).toBeInTheDocument();
+      });
     });
   });
 

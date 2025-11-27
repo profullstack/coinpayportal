@@ -10,9 +10,10 @@ interface Payment {
   id: string;
   business_id: string;
   payment_address: string;
-  amount_usd: string;
-  amount_crypto: string;
+  amount: string;
+  crypto_amount: string;
   currency?: string;
+  crypto_currency?: string;
   blockchain: string;
   status: string;
   description?: string;
@@ -31,6 +32,8 @@ export default function PaymentDetailPage() {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
   const [paymentStatus, setPaymentStatus] = useState<string>('pending');
+  const [qrLoaded, setQrLoaded] = useState(false);
+  const [qrError, setQrError] = useState(false);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -309,26 +312,34 @@ export default function PaymentDetailPage() {
               <h3 className="text-sm font-medium text-gray-700 mb-2">
                 Payment Address
               </h3>
-              <div className="bg-gray-50 p-4 rounded-lg flex items-center justify-between gap-3">
-                <p className="font-mono text-sm text-gray-900 break-all flex-1">
-                  {payment.payment_address}
-                </p>
-                <button
-                  onClick={() => copyToClipboard(payment.payment_address, 'address')}
-                  className="flex-shrink-0 p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                  title="Copy address"
-                >
-                  {copiedField === 'address' ? (
-                    <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                  )}
-                </button>
-              </div>
+              {payment.payment_address ? (
+                <div className="bg-gray-50 p-4 rounded-lg flex items-center justify-between gap-3">
+                  <p className="font-mono text-sm text-gray-900 break-all flex-1">
+                    {payment.payment_address}
+                  </p>
+                  <button
+                    onClick={() => copyToClipboard(payment.payment_address, 'address')}
+                    className="flex-shrink-0 p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                    title="Copy address"
+                  >
+                    {copiedField === 'address' ? (
+                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                  <p className="text-sm text-yellow-800">
+                    Payment address is being generated. Please refresh the page in a moment.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -338,12 +349,12 @@ export default function PaymentDetailPage() {
                 </h3>
                 <div className="flex items-center gap-2">
                   <p className="text-lg font-semibold text-gray-900">
-                    {payment.amount_crypto ? parseFloat(payment.amount_crypto).toFixed(8) : 'N/A'}{' '}
-                    {payment.currency?.toUpperCase() || payment.blockchain}
+                    {payment.crypto_amount ? parseFloat(payment.crypto_amount).toFixed(8) : 'N/A'}{' '}
+                    {payment.crypto_currency?.toUpperCase() || payment.blockchain}
                   </p>
-                  {payment.amount_crypto && (
+                  {payment.crypto_amount && (
                     <button
-                      onClick={() => copyToClipboard(parseFloat(payment.amount_crypto).toFixed(8), 'amount')}
+                      onClick={() => copyToClipboard(parseFloat(payment.crypto_amount).toFixed(8), 'amount')}
                       className="p-1.5 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
                       title="Copy amount"
                     >
@@ -365,22 +376,47 @@ export default function PaymentDetailPage() {
                   Amount (USD)
                 </h3>
                 <p className="text-lg font-semibold text-gray-900">
-                  ${payment.amount_usd ? parseFloat(payment.amount_usd).toFixed(2) : 'N/A'}
+                  ${payment.amount ? parseFloat(payment.amount).toFixed(2) : 'N/A'}
                 </p>
               </div>
             </div>
 
-            {payment.id && (paymentStatus === 'pending' || paymentStatus === 'detected') && (
+            {payment.id && payment.payment_address && (paymentStatus === 'pending' || paymentStatus === 'detected') && (
               <div>
                 <h3 className="text-sm font-medium text-gray-700 mb-2">
                   QR Code
                 </h3>
                 <div className="flex justify-center bg-white p-4 rounded-lg border border-gray-200">
-                  <img
-                    src={`/api/payments/${payment.id}/qr`}
-                    alt="Payment QR Code"
-                    className="w-64 h-64"
-                  />
+                  {!qrError ? (
+                    <>
+                      {!qrLoaded && (
+                        <div className="w-64 h-64 flex items-center justify-center">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                        </div>
+                      )}
+                      <img
+                        key={`qr-${payment.id}`}
+                        src={`/api/payments/${payment.id}/qr`}
+                        alt="Payment QR Code"
+                        className={`w-64 h-64 ${qrLoaded ? '' : 'hidden'}`}
+                        onLoad={() => setQrLoaded(true)}
+                        onError={() => {
+                          setQrError(true);
+                          setQrLoaded(false);
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <div className="w-64 h-64 flex items-center justify-center text-gray-500 text-sm">
+                      <div className="text-center">
+                        <svg className="w-12 h-12 mx-auto text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <p>QR code unavailable</p>
+                        <p className="text-xs mt-1">Use the address above to pay</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
