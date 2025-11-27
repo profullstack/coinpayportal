@@ -4,16 +4,29 @@ A non-custodial cryptocurrency payment gateway for e-commerce that enables merch
 
 ## 🌟 Features
 
+### Core Payment Features
 - **Multi-Chain Support**: Bitcoin, Bitcoin Cash, Ethereum, Polygon, Solana, and USDC across major blockchains
 - **Non-Custodial**: Merchants maintain full control of their funds
 - **Real-Time Processing**: Instant payment detection and forwarding (no batching)
-- **Automatic Fee Handling**: 2% platform fee automatically deducted during forwarding
+- **Automatic Fee Handling**: 0.5% platform fee automatically deducted during forwarding
 - **Multi-Business Support**: Manage multiple businesses under one merchant account
 - **Wallet Integration**: Connect MetaMask, WalletConnect, or Phantom wallet
 - **QR Code Payments**: Easy-to-integrate payment QR codes
 - **Webhook Notifications**: Real-time payment callbacks for your system
 - **CLI & SDK**: Command-line interface and ESM module for programmatic integration
 - **Exchange Rates**: Real-time crypto/fiat rates via Tatum API
+
+### Subscription Plans & Entitlements
+- **Starter Plan (Free)**: Up to 100 transactions/month, all supported chains, basic API access, email support
+- **Professional Plan ($49/month)**: Unlimited transactions, priority support, advanced analytics, custom webhooks, white-label option
+- **Crypto Payments for Subscriptions**: Pay for upgrades using BTC, BCH, ETH, MATIC, or SOL
+- **Usage Tracking**: Real-time transaction counting with automatic limit enforcement
+- **Feature Gating**: API-level enforcement of plan-specific features
+
+### Business Collection
+- **Platform Payments**: Collect subscription fees and service charges from businesses
+- **100% Forwarding**: Business collection payments forward entirely to platform wallets
+- **Multiple Blockchains**: Support for BTC, BCH, ETH, MATIC, SOL
 
 ## 🏗️ Architecture
 
@@ -100,10 +113,9 @@ npm run dev
 - [Architecture Overview](./docs/ARCHITECTURE.md)
 - [API Documentation](./docs/API.md)
 - [Database Schema](./docs/DATABASE.md)
-- [Payment Flow](./docs/PAYMENT_FLOW.md)
+- [Subscriptions & Entitlements](./docs/SUBSCRIPTIONS.md)
+- [Business Collection](./docs/BUSINESS_COLLECTION.md)
 - [Security Best Practices](./docs/SECURITY.md)
-- [CLI Usage](./docs/CLI.md)
-- [SDK Integration](./docs/SDK.md)
 
 ## 💻 Usage Examples
 
@@ -225,21 +237,39 @@ coinpayportal/
 │   ├── ARCHITECTURE.md
 │   ├── API.md
 │   ├── DATABASE.md
-│   └── ...
+│   ├── SUBSCRIPTIONS.md    # Subscription plans & entitlements
+│   ├── BUSINESS_COLLECTION.md
+│   └── SECURITY.md
 ├── src/
 │   ├── app/                # Next.js app directory
 │   │   ├── api/           # API routes
+│   │   │   ├── auth/      # Authentication endpoints
+│   │   │   ├── payments/  # Payment endpoints
+│   │   │   ├── businesses/ # Business management
+│   │   │   ├── business-collection/ # Platform payments
+│   │   │   ├── subscriptions/ # Subscription management
+│   │   │   └── entitlements/ # Entitlements API
 │   │   ├── dashboard/     # Merchant dashboard
+│   │   ├── pricing/       # Pricing & upgrade page
+│   │   ├── docs/          # API documentation page
 │   │   └── page.tsx       # Landing page
 │   ├── components/        # React components
+│   │   ├── business/      # Business management components
+│   │   └── docs/          # Documentation components
 │   ├── lib/              # Utility libraries
+│   │   ├── auth/         # Authentication services
 │   │   ├── blockchain/   # Blockchain services
+│   │   ├── business/     # Business services
+│   │   ├── entitlements/ # Entitlements & usage tracking
+│   │   ├── payments/     # Payment processing
+│   │   ├── subscriptions/ # Subscription management
 │   │   ├── supabase/     # Supabase client
 │   │   └── crypto/       # Encryption utilities
 │   └── types/            # TypeScript types
+├── supabase/
+│   └── migrations/       # Database migrations
 ├── cli/                   # CLI package
 ├── sdk/                   # SDK package
-├── tests/                # Test files
 └── package.json
 ```
 
@@ -249,12 +279,16 @@ coinpayportal/
 - [x] Multi-chain support (BTC, BCH, ETH, MATIC, SOL, USDC)
 - [x] Merchant dashboard
 - [x] Webhook system
+- [x] Subscription plans (Starter/Professional)
+- [x] Entitlements & usage tracking
+- [x] Business collection payments
+- [x] Crypto-based subscription payments
 - [ ] Mobile SDK
 - [ ] WooCommerce plugin
 - [ ] Shopify app
-- [ ] Recurring payments
+- [ ] Recurring payments (auto-renewal)
 - [ ] Fiat off-ramp
-- [ ] Advanced analytics
+- [ ] Advanced analytics dashboard
 
 ## 🤝 Contributing
 
@@ -266,10 +300,10 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 
 ## 🆘 Support
 
-- Documentation: [docs.coinpayportal.com](https://docs.coinpayportal.com)
+- Documentation: [coinpayportal.com/docs](https://coinpayportal.com/docs)
 - Email: support@coinpayportal.com
-- Discord: [Join our community](https://discord.gg/coinpayportal)
-- GitHub Issues: [Report a bug](https://github.com/yourusername/coinpayportal/issues)
+- Discord: [Join our community](https://discord.gg/w5nHdzpQ29)
+- GitHub Issues: [Report a bug](https://github.com/profullstack/coinpayportal/issues)
 
 ## 🙏 Acknowledgments
 
