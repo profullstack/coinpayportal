@@ -210,8 +210,8 @@ export default function CreatePaymentPage() {
                     Amount (Crypto)
                   </h3>
                   <p className="text-lg font-semibold text-gray-900">
-                    {parseFloat(createdPayment.amount_crypto).toFixed(8)}{' '}
-                    {createdPayment.currency.toUpperCase()}
+                    {createdPayment.amount_crypto ? parseFloat(createdPayment.amount_crypto).toFixed(8) : 'N/A'}{' '}
+                    {createdPayment.currency?.toUpperCase() || createdPayment.blockchain}
                   </p>
                 </div>
                 <div>
@@ -219,7 +219,7 @@ export default function CreatePaymentPage() {
                     Amount (USD)
                   </h3>
                   <p className="text-lg font-semibold text-gray-900">
-                    ${parseFloat(createdPayment.amount_usd).toFixed(2)}
+                    ${createdPayment.amount_usd ? parseFloat(createdPayment.amount_usd).toFixed(2) : 'N/A'}
                   </p>
                 </div>
               </div>

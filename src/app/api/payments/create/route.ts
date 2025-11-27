@@ -168,10 +168,19 @@ export async function POST(request: NextRequest) {
     // Increment transaction count after successful payment creation
     await incrementTransactionCount(supabase, merchantId);
 
+    // Transform payment response to include expected field names
+    const payment = result.payment;
+    const transformedPayment = {
+      ...payment,
+      amount_usd: payment?.amount,
+      amount_crypto: payment?.crypto_amount,
+      currency: payment?.blockchain?.toLowerCase(),
+    };
+
     return NextResponse.json(
-      { 
-        success: true, 
-        payment: result.payment,
+      {
+        success: true,
+        payment: transformedPayment,
         usage: {
           current: limitCheck.currentUsage + 1,
           limit: limitCheck.limit,

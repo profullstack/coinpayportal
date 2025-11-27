@@ -40,6 +40,69 @@ describe('Tatum Exchange Rate Service', () => {
       );
     });
 
+    it('should handle rate returned as string (Tatum API behavior)', async () => {
+      // Tatum API sometimes returns rate as a string instead of number
+      const mockResponse = {
+        value: '45000.50', // String instead of number
+        timestamp: Date.now(),
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const rate = await getExchangeRate('BTC', 'USD');
+
+      expect(rate).toBe(45000.50);
+      expect(typeof rate).toBe('number');
+    });
+
+    it('should handle rate returned as integer string', async () => {
+      const mockResponse = {
+        value: '3000', // Integer as string
+        timestamp: Date.now(),
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const rate = await getExchangeRate('ETH', 'USD');
+
+      expect(rate).toBe(3000);
+      expect(typeof rate).toBe('number');
+    });
+
+    it('should reject invalid string rate values', async () => {
+      const mockResponse = {
+        value: 'invalid',
+        timestamp: Date.now(),
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      await expect(getExchangeRate('BTC', 'USD')).rejects.toThrow('Invalid rate');
+    });
+
+    it('should reject empty string rate values', async () => {
+      const mockResponse = {
+        value: '',
+        timestamp: Date.now(),
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      await expect(getExchangeRate('BTC', 'USD')).rejects.toThrow('Invalid rate');
+    });
+
     it('should fetch ETH to USD exchange rate', async () => {
       const mockResponse = {
         value: 3000.25,
