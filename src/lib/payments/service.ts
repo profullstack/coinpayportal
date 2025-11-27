@@ -8,6 +8,12 @@ import { z } from 'zod';
 export type Blockchain = 'BTC' | 'BCH' | 'ETH' | 'MATIC' | 'SOL' | 'USDC_ETH' | 'USDC_MATIC' | 'USDC_SOL';
 
 /**
+ * Payment expiration time in minutes
+ * Users have 15 minutes to complete their payment
+ */
+export const PAYMENT_EXPIRATION_MINUTES = 15;
+
+/**
  * Validation schemas
  */
 const blockchainSchema = z.enum(['BTC', 'BCH', 'ETH', 'MATIC', 'SOL', 'USDC_ETH', 'USDC_MATIC', 'USDC_SOL']);
@@ -102,9 +108,10 @@ export async function createPayment(
       cryptoCurrency
     );
 
-    // Calculate expiration (1 hour from now)
+    // Calculate expiration (15 minutes from now)
+    // Users must complete payment within this window
     const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 1);
+    expiresAt.setMinutes(expiresAt.getMinutes() + PAYMENT_EXPIRATION_MINUTES);
 
     // Insert payment
     const { data: payment, error } = await supabase
@@ -205,6 +212,157 @@ export async function listPayments(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to list payments',
+    };
+  }
+}
+
+/**
+ * Check if a payment has expired
+ */
+export function isPaymentExpired(payment: Payment): boolean {
+  if (!payment.expires_at) return false;
+  return new Date(payment.expires_at) < new Date();
+}
+
+/**
+ * Get time remaining for a payment in seconds
+ * Returns 0 if expired
+ */
+export function getPaymentTimeRemaining(payment: Payment): number {
+  if (!payment.expires_at) return 0;
+  const expiresAt = new Date(payment.expires_at);
+  const now = new Date();
+  const remaining = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
+  return remaining;
+}
+
+/**
+ * Format time remaining as MM:SS
+ */
+export function formatTimeRemaining(seconds: number): string {
+  if (seconds <= 0) return '00:00';
+  const minutes = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Expire a pending payment
+ */
+export async function expirePayment(
+  supabase: SupabaseClient,
+  paymentId: string
+): Promise<PaymentResult> {
+  try {
+    const { data: payment, error } = await supabase
+      .from('payments')
+      .update({
+        status: 'expired',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', paymentId)
+      .eq('status', 'pending') // Only expire pending payments
+      .select()
+      .single();
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+
+    if (!payment) {
+      return {
+        success: false,
+        error: 'Payment not found or already processed',
+      };
+    }
+
+    return {
+      success: true,
+      payment: payment as Payment,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to expire payment',
+    };
+  }
+}
+
+/**
+ * Get payment with expiration status
+ * Automatically marks expired payments
+ */
+export async function getPaymentWithExpirationCheck(
+  supabase: SupabaseClient,
+  paymentId: string
+): Promise<PaymentResult> {
+  try {
+    const result = await getPayment(supabase, paymentId);
+    
+    if (!result.success || !result.payment) {
+      return result;
+    }
+
+    // Check if payment should be expired
+    if (result.payment.status === 'pending' && isPaymentExpired(result.payment)) {
+      // Expire the payment
+      const expireResult = await expirePayment(supabase, paymentId);
+      if (expireResult.success && expireResult.payment) {
+        return {
+          success: true,
+          payment: expireResult.payment,
+        };
+      }
+    }
+
+    return result;
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get payment',
+    };
+  }
+}
+
+/**
+ * Batch expire all pending payments that have exceeded their time limit
+ */
+export async function batchExpirePayments(
+  supabase: SupabaseClient
+): Promise<{ success: boolean; expiredCount: number; error?: string }> {
+  try {
+    const now = new Date().toISOString();
+    
+    const { data, error } = await supabase
+      .from('payments')
+      .update({
+        status: 'expired',
+        updated_at: now,
+      })
+      .eq('status', 'pending')
+      .lt('expires_at', now)
+      .select('id');
+
+    if (error) {
+      return {
+        success: false,
+        expiredCount: 0,
+        error: error.message,
+      };
+    }
+
+    return {
+      success: true,
+      expiredCount: data?.length || 0,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      expiredCount: 0,
+      error: error instanceof Error ? error.message : 'Failed to batch expire payments',
     };
   }
 }

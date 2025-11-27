@@ -9,6 +9,7 @@ import {
   getStatusMessage,
   getStatusColor,
 } from '@/lib/payments/usePaymentStatus';
+import { PAYMENT_EXPIRATION_MINUTES } from '@/lib/payments/service';
 
 interface PaymentStatusCardProps {
   paymentId: string;
@@ -39,10 +40,14 @@ export function PaymentStatusCard({
     },
   });
 
-  // Countdown timer (assuming 15 min expiry)
+  // Countdown timer based on expires_at from payment data
   useEffect(() => {
     if (data && status === 'pending') {
-      const expiryTime = new Date(data.updatedAt).getTime() + 15 * 60 * 1000;
+      // Use expires_at if available, otherwise calculate from createdAt
+      const expiryTime = data.expiresAt
+        ? new Date(data.expiresAt).getTime()
+        : new Date(data.createdAt).getTime() + PAYMENT_EXPIRATION_MINUTES * 60 * 1000;
+      
       const updateTimer = () => {
         const remaining = Math.max(0, Math.floor((expiryTime - Date.now()) / 1000));
         setTimeLeft(remaining);
@@ -123,11 +128,32 @@ export function PaymentStatusCard({
             </span>
           </div>
           {timeLeft !== null && status === 'pending' && (
-            <span className={`text-sm font-mono ${timeLeft < 60 ? 'text-red-400' : 'text-gray-400'}`}>
-              {formatTime(timeLeft)}
-            </span>
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className={`text-sm font-mono font-semibold ${
+                timeLeft < 60 ? 'text-red-400 animate-pulse' :
+                timeLeft < 180 ? 'text-orange-400' :
+                'text-gray-300'
+              }`}>
+                {formatTime(timeLeft)}
+              </span>
+            </div>
           )}
         </div>
+        
+        {/* Time warning banner */}
+        {timeLeft !== null && status === 'pending' && timeLeft < 180 && timeLeft > 0 && (
+          <div className={`mt-3 p-2 rounded-lg text-xs text-center ${
+            timeLeft < 60 ? 'bg-red-500/20 text-red-300' : 'bg-orange-500/20 text-orange-300'
+          }`}>
+            {timeLeft < 60
+              ? '⚠️ Less than 1 minute remaining! Send payment now.'
+              : `⏰ Only ${Math.ceil(timeLeft / 60)} minutes left to complete payment`
+            }
+          </div>
+        )}
       </div>
 
       {/* Content */}
@@ -158,11 +184,26 @@ export function PaymentStatusCard({
           </div>
         )}
 
+        {/* Time limit notice */}
+        {status === 'pending' && timeLeft !== null && timeLeft > 180 && (
+          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+            <div className="flex items-start gap-2">
+              <svg className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div className="text-sm text-blue-300">
+                <span className="font-medium">You have {PAYMENT_EXPIRATION_MINUTES} minutes</span> to complete this payment.
+                After that, the payment will expire and you&apos;ll need to create a new one.
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Address */}
         {status === 'pending' && (
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              Send to this address
+              Send exactly <span className="text-white font-semibold">{data.cryptoAmount} {data.cryptocurrency}</span> to this address
             </label>
             <div className="flex items-center gap-2">
               <div className="flex-1 p-3 bg-slate-700/50 rounded-xl text-sm text-gray-300 font-mono truncate">
@@ -233,7 +274,25 @@ export function PaymentStatusCard({
               </svg>
             </div>
             <div className="text-lg font-semibold text-white mb-2">Payment Expired</div>
-            <div className="text-sm text-gray-400">Please create a new payment</div>
+            <div className="text-sm text-gray-400 mb-4">
+              The {PAYMENT_EXPIRATION_MINUTES}-minute payment window has passed.
+            </div>
+            <div className="text-xs text-gray-500">
+              No funds were received. Please create a new payment to try again.
+            </div>
+          </div>
+        )}
+
+        {/* Cancelled state */}
+        {status === 'cancelled' && (
+          <div className="text-center py-4">
+            <div className="w-16 h-16 mx-auto bg-gray-500/20 rounded-full flex items-center justify-center mb-4">
+              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </div>
+            <div className="text-lg font-semibold text-white mb-2">Payment Cancelled</div>
+            <div className="text-sm text-gray-400">This payment has been cancelled</div>
           </div>
         )}
       </div>

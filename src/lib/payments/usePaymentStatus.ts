@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-export type PaymentStatus = 
+export type PaymentStatus =
   | 'pending'
   | 'confirming'
   | 'completed'
   | 'expired'
   | 'failed'
-  | 'refunded';
+  | 'refunded'
+  | 'cancelled';
 
 export interface PaymentStatusData {
   id: string;
@@ -20,7 +21,9 @@ export interface PaymentStatusData {
   cryptocurrency: string;
   address: string;
   txHash?: string;
+  createdAt: string;
   updatedAt: string;
+  expiresAt?: string;
 }
 
 interface UsePaymentStatusOptions {
@@ -103,7 +106,7 @@ export function usePaymentStatus({
       }
 
       // Stop polling on terminal states
-      if (['completed', 'expired', 'failed', 'refunded'].includes(paymentData.status)) {
+      if (['completed', 'expired', 'failed', 'refunded', 'cancelled'].includes(paymentData.status)) {
         setIsPolling(false);
       }
     } catch (err) {
@@ -229,6 +232,8 @@ export function getStatusMessage(status: PaymentStatus, confirmations?: number, 
       return 'Payment failed';
     case 'refunded':
       return 'Payment refunded';
+    case 'cancelled':
+      return 'Payment cancelled';
     default:
       return 'Unknown status';
   }
@@ -250,6 +255,8 @@ export function getStatusColor(status: PaymentStatus): string {
       return 'red';
     case 'refunded':
       return 'orange';
+    case 'cancelled':
+      return 'gray';
     default:
       return 'gray';
   }
