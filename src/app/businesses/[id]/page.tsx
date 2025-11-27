@@ -1,0 +1,225 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter, useParams } from 'next/navigation';
+import { Business, Wallet, TabType } from '@/components/business/types';
+import { GeneralTab } from '@/components/business/GeneralTab';
+import { WalletsTab } from '@/components/business/WalletsTab';
+import { WebhooksTab } from '@/components/business/WebhooksTab';
+import { ApiKeysTab } from '@/components/business/ApiKeysTab';
+
+export default function BusinessDetailPage() {
+  const router = useRouter();
+  const params = useParams();
+  const businessId = params?.id as string;
+
+  const [activeTab, setActiveTab] = useState<TabType>('general');
+  const [business, setBusiness] = useState<Business | null>(null);
+  const [wallets, setWallets] = useState<Wallet[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  useEffect(() => {
+    if (businessId) {
+      fetchBusiness();
+      fetchWallets();
+    }
+  }, [businessId]);
+
+  const fetchBusiness = async () => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        router.push('/login');
+        return;
+      }
+
+      const response = await fetch(`/api/businesses/${businessId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setError(data.error || 'Failed to load business');
+        setLoading(false);
+        return;
+      }
+
+      setBusiness(data.business);
+      setLoading(false);
+    } catch (err) {
+      setError('Failed to load business');
+      setLoading(false);
+    }
+  };
+
+  const fetchWallets = async () => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) return;
+
+      const response = await fetch(`/api/businesses/${businessId}/wallets`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setWallets(data.wallets);
+      }
+    } catch (err) {
+      console.error('Failed to load wallets:', err);
+    }
+  };
+
+  const handleUpdate = () => {
+    setSuccess('Changes saved successfully');
+    setTimeout(() => setSuccess(''), 3000);
+    fetchBusiness();
+    fetchWallets();
+  };
+
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setSuccess(`${label} copied to clipboard`);
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError('Failed to copy to clipboard');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading business...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!business) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600">Business not found</p>
+          <button
+            onClick={() => router.push('/businesses')}
+            className="mt-4 text-purple-600 hover:text-purple-500"
+          >
+            Back to Businesses
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-8">
+          <button
+            onClick={() => router.push('/businesses')}
+            className="text-sm text-gray-600 hover:text-gray-900 mb-4 flex items-center"
+          >
+            <svg
+              className="h-4 w-4 mr-1"
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path d="M15 19l-7-7 7-7"></path>
+            </svg>
+            Back to Businesses
+          </button>
+          <h1 className="text-3xl font-bold text-gray-900">{business.name}</h1>
+          {business.description && (
+            <p className="mt-2 text-gray-600">{business.description}</p>
+          )}
+        </div>
+
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
+            {success}
+          </div>
+        )}
+
+        <div className="bg-white rounded-lg shadow-md overflow-hidden">
+          <div className="border-b border-gray-200">
+            <nav className="flex -mb-px">
+              {[
+                { id: 'general', label: 'General' },
+                { id: 'wallets', label: `Wallets (${wallets.length})` },
+                { id: 'webhooks', label: 'Webhooks' },
+                { id: 'api-keys', label: 'API Keys' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as TabType)}
+                  className={`px-6 py-4 text-sm font-medium border-b-2 ${
+                    activeTab === tab.id
+                      ? 'border-purple-600 text-purple-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          <div className="p-6">
+            {activeTab === 'general' && (
+              <GeneralTab
+                business={business}
+                onUpdate={handleUpdate}
+                onCopy={copyToClipboard}
+              />
+            )}
+
+            {activeTab === 'wallets' && (
+              <WalletsTab
+                businessId={businessId}
+                wallets={wallets}
+                onUpdate={handleUpdate}
+                onCopy={copyToClipboard}
+              />
+            )}
+
+            {activeTab === 'webhooks' && (
+              <WebhooksTab
+                business={business}
+                onUpdate={handleUpdate}
+                onCopy={copyToClipboard}
+              />
+            )}
+
+            {activeTab === 'api-keys' && (
+              <ApiKeysTab
+                business={business}
+                onUpdate={handleUpdate}
+                onCopy={copyToClipboard}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

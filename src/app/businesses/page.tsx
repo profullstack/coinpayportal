@@ -288,17 +288,25 @@ export default function BusinessesPage() {
                 </div>
                 <div className="bg-gray-50 px-6 py-3 flex items-center justify-between border-t border-gray-200">
                   <button
-                    onClick={() => handleEdit(business)}
+                    onClick={() => router.push(`/businesses/${business.id}`)}
                     className="text-sm font-medium text-purple-600 hover:text-purple-500"
                   >
-                    Edit
+                    Manage
                   </button>
-                  <button
-                    onClick={() => handleDelete(business.id)}
-                    className="text-sm font-medium text-red-600 hover:text-red-500"
-                  >
-                    Delete
-                  </button>
+                  <div className="flex items-center space-x-3">
+                    <button
+                      onClick={() => handleEdit(business)}
+                      className="text-sm font-medium text-gray-600 hover:text-gray-900"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(business.id)}
+                      className="text-sm font-medium text-red-600 hover:text-red-500"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
