@@ -321,6 +321,142 @@ console.log(data.payment.status);`}
           </div>
         </section>
 
+        {/* Business Collection */}
+        <section className="mb-12 p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
+          <h2 className="text-3xl font-bold text-white mb-6">Business Collection</h2>
+          
+          <p className="text-gray-300 mb-6">
+            Business Collection payments allow the platform to collect payments from business users (subscription fees, service charges, etc.) with <strong className="text-purple-400">100% forwarding</strong> to platform wallets.
+          </p>
+
+          <div className="mb-6 p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+            <p className="text-purple-300 text-sm">
+              <strong>Key Difference:</strong> Unlike regular payments (99.5% merchant / 0.5% platform), Business Collection forwards 100% of funds to the platform&apos;s collection wallet.
+            </p>
+          </div>
+
+          {/* Create Business Collection Payment */}
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-lg font-mono text-sm">POST</span>
+              <code className="text-purple-400 font-mono">/api/business-collection</code>
+            </div>
+            <p className="text-gray-300 mb-4">Create a new business collection payment.</p>
+            
+            <h4 className="text-lg font-semibold text-white mb-2">Request Body</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto mb-4">
+              <pre className="text-sm text-gray-300">
+{`{
+  "business_id": "business-123",
+  "amount": 99.99,
+  "currency": "USD",
+  "blockchain": "ETH",  // BTC, BCH, ETH, MATIC, SOL
+  "description": "Monthly subscription fee",
+  "metadata": {
+    "plan": "premium",
+    "billing_period": "2024-01"
+  }
+}`}
+              </pre>
+            </div>
+
+            <h4 className="text-lg font-semibold text-white mb-2">cURL Example</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto mb-4">
+              <pre className="text-sm text-green-400">
+{`curl -X POST https://coinpayportal.com/api/business-collection \\
+  -H "Authorization: Bearer YOUR_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "business_id": "business-123",
+    "amount": 99.99,
+    "currency": "USD",
+    "blockchain": "ETH",
+    "description": "Monthly subscription fee"
+  }'`}
+              </pre>
+            </div>
+
+            <h4 className="text-lg font-semibold text-white mb-2">Response</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-sm text-gray-300">
+{`{
+  "success": true,
+  "payment": {
+    "id": "collection-456",
+    "payment_address": "0x1234...5678",
+    "amount": 99.99,
+    "currency": "USD",
+    "blockchain": "ETH",
+    "destination_wallet": "0xplatform...wallet",
+    "status": "pending",
+    "description": "Monthly subscription fee",
+    "expires_at": "2024-01-02T12:00:00Z",
+    "created_at": "2024-01-01T12:00:00Z"
+  }
+}`}
+              </pre>
+            </div>
+          </div>
+
+          {/* List Business Collection Payments */}
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-lg font-mono text-sm">GET</span>
+              <code className="text-purple-400 font-mono">/api/business-collection</code>
+            </div>
+            <p className="text-gray-300 mb-4">List business collection payments with optional filters.</p>
+            
+            <h4 className="text-lg font-semibold text-white mb-2">Query Parameters</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto mb-4">
+              <div className="space-y-2 text-sm text-gray-300">
+                <p><code className="text-purple-400">business_id</code> - Filter by business (optional)</p>
+                <p><code className="text-purple-400">status</code> - Filter by status: pending, confirmed, forwarded (optional)</p>
+                <p><code className="text-purple-400">limit</code> - Results per page, default 50 (optional)</p>
+                <p><code className="text-purple-400">offset</code> - Pagination offset (optional)</p>
+              </div>
+            </div>
+
+            <h4 className="text-lg font-semibold text-white mb-2">Node.js Example</h4>
+            <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-sm text-blue-400">
+{`const response = await fetch(
+  'https://coinpayportal.com/api/business-collection?status=pending&limit=10',
+  { headers: { 'Authorization': 'Bearer YOUR_TOKEN' } }
+);
+const data = await response.json();
+console.log(data.payments);`}
+              </pre>
+            </div>
+          </div>
+
+          {/* Get Business Collection Payment */}
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-lg font-mono text-sm">GET</span>
+              <code className="text-purple-400 font-mono">/api/business-collection/:id</code>
+            </div>
+            <p className="text-gray-300 mb-4">Get details of a specific business collection payment.</p>
+          </div>
+
+          {/* Payment Statuses */}
+          <h3 className="text-xl font-semibold text-white mb-4">Collection Payment Statuses</h3>
+          <div className="grid md:grid-cols-2 gap-4">
+            {[
+              { status: 'pending', description: 'Waiting for payment', color: 'yellow' },
+              { status: 'detected', description: 'Payment detected on blockchain', color: 'blue' },
+              { status: 'confirmed', description: 'Payment confirmed', color: 'green' },
+              { status: 'forwarding', description: 'Forwarding to platform wallet', color: 'purple' },
+              { status: 'forwarded', description: '100% forwarded to platform', color: 'green' },
+              { status: 'expired', description: 'Payment request expired', color: 'red' },
+            ].map((item) => (
+              <div key={item.status} className="p-3 rounded-lg bg-slate-800/50">
+                <code className={`text-${item.color}-400 font-mono`}>{item.status}</code>
+                <p className="text-gray-300 text-sm mt-1">{item.description}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* Dashboard */}
         <section className="mb-12 p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
           <h2 className="text-3xl font-bold text-white mb-6">Dashboard</h2>

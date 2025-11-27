@@ -3,7 +3,7 @@
 ## Base URL
 
 ```
-Production: https://api.coinpayportal.com
+Production: https://coinpayportal.com/api
 Development: http://localhost:3000/api
 ```
 
@@ -491,6 +491,148 @@ Get rates for multiple currencies at once.
   }
 }
 ```
+
+## Business Collection Endpoints
+
+Business Collection payments allow the platform to collect payments from business users (subscription fees, service charges, etc.) with 100% forwarding to platform wallets.
+
+### Create Business Collection Payment
+
+Create a new payment that forwards 100% of funds to the platform's collection wallet.
+
+**Endpoint:** `POST /api/business-collection`
+
+**Headers:** `Authorization: Bearer TOKEN`
+
+**Request Body:**
+```json
+{
+  "business_id": "uuid",
+  "amount": 99.99,
+  "currency": "USD",
+  "blockchain": "ETH",
+  "description": "Monthly subscription fee",
+  "metadata": {
+    "plan": "premium",
+    "billing_period": "2024-01"
+  }
+}
+```
+
+**Supported Blockchains:**
+- `BTC` - Bitcoin
+- `BCH` - Bitcoin Cash
+- `ETH` - Ethereum
+- `MATIC` - Polygon
+- `SOL` - Solana
+
+**Response:**
+```json
+{
+  "success": true,
+  "payment": {
+    "id": "uuid",
+    "payment_address": "0x1234...5678",
+    "amount": 99.99,
+    "currency": "USD",
+    "blockchain": "ETH",
+    "destination_wallet": "0xplatform...wallet",
+    "status": "pending",
+    "description": "Monthly subscription fee",
+    "expires_at": "2024-01-02T00:00:00.000Z",
+    "created_at": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+### List Business Collection Payments
+
+Get paginated list of business collection payments.
+
+**Endpoint:** `GET /api/business-collection`
+
+**Headers:** `Authorization: Bearer TOKEN`
+
+**Query Parameters:**
+- `business_id` (optional) - Filter by business UUID
+- `status` (optional) - Filter by status (pending, confirmed, forwarded, etc.)
+- `limit` (optional) - Items per page (default: 50)
+- `offset` (optional) - Pagination offset (default: 0)
+
+**Response:**
+```json
+{
+  "success": true,
+  "payments": [
+    {
+      "id": "uuid",
+      "business_id": "uuid",
+      "payment_address": "0x1234...5678",
+      "amount": 99.99,
+      "currency": "USD",
+      "blockchain": "ETH",
+      "destination_wallet": "0xplatform...wallet",
+      "status": "forwarded",
+      "description": "Monthly subscription fee",
+      "expires_at": "2024-01-02T00:00:00.000Z",
+      "created_at": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "total": 25
+}
+```
+
+### Get Business Collection Payment
+
+Get details of a specific business collection payment.
+
+**Endpoint:** `GET /api/business-collection/:id`
+
+**Headers:** `Authorization: Bearer TOKEN`
+
+**Response:**
+```json
+{
+  "success": true,
+  "payment": {
+    "id": "uuid",
+    "business_id": "uuid",
+    "payment_address": "0x1234...5678",
+    "amount": 99.99,
+    "currency": "USD",
+    "blockchain": "ETH",
+    "destination_wallet": "0xplatform...wallet",
+    "status": "forwarded",
+    "description": "Monthly subscription fee",
+    "metadata": {
+      "plan": "premium",
+      "billing_period": "2024-01"
+    },
+    "expires_at": "2024-01-02T00:00:00.000Z",
+    "created_at": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+**Business Collection Payment Statuses:**
+- `pending` - Waiting for payment
+- `detected` - Payment detected on blockchain
+- `confirming` - Waiting for required confirmations
+- `confirmed` - Payment confirmed
+- `forwarding` - Forwarding to platform wallet
+- `forwarded` - Successfully forwarded (100% to platform)
+- `forwarding_failed` - Forwarding failed (will retry)
+- `expired` - Payment request expired
+- `cancelled` - Payment cancelled
+
+### Business Collection vs Regular Payments
+
+| Feature | Regular Payments | Business Collection |
+|---------|-----------------|---------------------|
+| Forward Split | 99.5% merchant / 0.5% platform | 100% platform |
+| Destination | Merchant wallet | Platform wallet from .env |
+| Use Case | Customer payments | Business fees/subscriptions |
+| Webhook Event | `payment.forwarded` | `business_collection.forwarded` |
 
 ## Webhook Endpoints
 
