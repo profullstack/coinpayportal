@@ -79,13 +79,19 @@ export interface PaymentAddressInfo {
  * In production, this should be stored securely (HSM, Vault, etc.)
  */
 function getSystemMnemonic(cryptocurrency: SystemBlockchain): string {
-  const envKey = `SYSTEM_MNEMONIC_${cryptocurrency}`;
-  const mnemonic = process.env[envKey];
+  let envKey = `SYSTEM_MNEMONIC_${cryptocurrency}`;
+  let mnemonic = process.env[envKey];
+
+  // MATIC uses the same derivation as ETH, so fall back to ETH mnemonic
+  if (!mnemonic && cryptocurrency === 'MATIC') {
+    envKey = 'SYSTEM_MNEMONIC_ETH';
+    mnemonic = process.env[envKey];
+  }
 
   if (!mnemonic) {
     throw new Error(
       `System mnemonic not configured for ${cryptocurrency}. ` +
-        `Set ${envKey} environment variable.`
+        `Set SYSTEM_MNEMONIC_${cryptocurrency} environment variable.`
     );
   }
 
@@ -97,15 +103,15 @@ function getSystemMnemonic(cryptocurrency: SystemBlockchain): string {
 }
 
 /**
- * Get the system's commission wallet address
+ * Get the system's platform fee wallet address (where commission is sent)
  */
 function getCommissionWallet(cryptocurrency: SystemBlockchain): string {
-  const envKey = `COMMISSION_WALLET_${cryptocurrency}`;
+  const envKey = `PLATFORM_FEE_WALLET_${cryptocurrency}`;
   const wallet = process.env[envKey];
 
   if (!wallet) {
     throw new Error(
-      `Commission wallet not configured for ${cryptocurrency}. ` +
+      `Platform fee wallet not configured for ${cryptocurrency}. ` +
         `Set ${envKey} environment variable.`
     );
   }

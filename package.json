@@ -12,7 +12,9 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "type-check": "tsc --noEmit",
-    "pre-commit": "pnpm build && vitest run"
+    "pre-commit": "pnpm build && vitest run",
+    "generate-wallet": "node scripts/generate-hd-wallets.mjs",
+    "decrypt-wallet": "node scripts/decrypt-wallet-backup.mjs"
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",
@@ -64,9 +66,11 @@
     "@vitest/coverage-v8": "^1.2.1",
     "@vitest/ui": "^1.2.1",
     "autoprefixer": "^10.4.17",
+    "chalk": "^5.6.2",
     "eslint": "^9.39.1",
     "eslint-config-next": "16.0.4",
     "ignore-loader": "^0.1.2",
+    "inquirer": "^13.0.1",
     "jsdom": "^23.2.0",
     "postcss": "^8.4.33",
     "prettier": "^3.2.4",

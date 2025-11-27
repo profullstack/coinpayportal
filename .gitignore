@@ -39,3 +39,6 @@ next-env.d.ts
 
 # vitest
 .vitest
+
+# Wallet backups (encrypted)
+backups/

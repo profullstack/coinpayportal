@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getCryptoPrice } from '../rates/tatum';
 import { z } from 'zod';
+import { generatePaymentAddress, type SystemBlockchain } from '../wallets/system-wallet';
 
 /**
  * Supported blockchains
@@ -28,7 +29,7 @@ export interface CreatePaymentInput {
   amount: number;
   currency: string;
   blockchain: Blockchain;
-  merchant_wallet_address: string;
+  merchant_wallet_address?: string; // Optional - will use platform wallet if not provided
   metadata?: Record<string, any>;
 }
 
@@ -41,7 +42,7 @@ export interface Payment {
   status: string;
   crypto_amount?: number;
   crypto_currency?: string;
-  merchant_wallet_address: string;
+  merchant_wallet_address?: string; // Optional - may use platform wallet
   payment_address?: string;
   tx_hash?: string;
   confirmations?: number;
@@ -113,21 +114,28 @@ export async function createPayment(
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + PAYMENT_EXPIRATION_MINUTES);
 
+    // Build payment data - merchant_wallet_address is optional
+    const paymentData: Record<string, any> = {
+      business_id: input.business_id,
+      amount: input.amount,
+      currency: input.currency,
+      blockchain: input.blockchain,
+      status: 'pending',
+      crypto_amount: cryptoAmount,
+      crypto_currency: cryptoCurrency,
+      metadata: input.metadata || {},
+      expires_at: expiresAt.toISOString(),
+    };
+    
+    // Only include merchant_wallet_address if provided
+    if (input.merchant_wallet_address) {
+      paymentData.merchant_wallet_address = input.merchant_wallet_address;
+    }
+
     // Insert payment
     const { data: payment, error } = await supabase
       .from('payments')
-      .insert({
-        business_id: input.business_id,
-        amount: input.amount,
-        currency: input.currency,
-        blockchain: input.blockchain,
-        status: 'pending',
-        crypto_amount: cryptoAmount,
-        crypto_currency: cryptoCurrency,
-        merchant_wallet_address: input.merchant_wallet_address,
-        metadata: input.metadata || {},
-        expires_at: expiresAt.toISOString(),
-      })
+      .insert(paymentData)
       .select()
       .single();
 
@@ -138,6 +146,55 @@ export async function createPayment(
       };
     }
 
+    // Generate a unique payment address using the system wallet
+    // This is the address customers will pay to
+    const baseBlockchain = input.blockchain.startsWith('USDC_')
+      ? input.blockchain.replace('USDC_', '') as SystemBlockchain
+      : input.blockchain as SystemBlockchain;
+    
+    // Only generate system wallet address for supported blockchains
+    const supportedBlockchains: SystemBlockchain[] = ['BTC', 'ETH', 'MATIC', 'SOL'];
+    if (supportedBlockchains.includes(baseBlockchain)) {
+      const addressResult = await generatePaymentAddress(
+        supabase,
+        payment.id,
+        input.business_id,
+        baseBlockchain,
+        input.merchant_wallet_address || '', // Merchant's wallet for forwarding
+        cryptoAmount
+      );
+
+      if (!addressResult.success) {
+        // Payment was created but address generation failed
+        // Update payment status to indicate the issue
+        await supabase
+          .from('payments')
+          .update({
+            status: 'failed',
+            metadata: {
+              ...input.metadata,
+              error: addressResult.error
+            }
+          })
+          .eq('id', payment.id);
+
+        return {
+          success: false,
+          error: `Payment created but address generation failed: ${addressResult.error}`,
+        };
+      }
+
+      // Return payment with the generated address
+      return {
+        success: true,
+        payment: {
+          ...payment,
+          payment_address: addressResult.address,
+        } as Payment,
+      };
+    }
+
+    // For unsupported blockchains (like BCH), return without system wallet address
     return {
       success: true,
       payment: payment as Payment,

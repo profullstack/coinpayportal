@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { createPayment } from '@/lib/payments/service';
+import { createPayment, Blockchain } from '@/lib/payments/service';
 import { authenticateRequest, isMerchantAuth, isBusinessAuth } from '@/lib/auth/middleware';
 import {
   withTransactionLimit,
@@ -9,9 +9,36 @@ import {
 import { incrementTransactionCount } from '@/lib/entitlements/service';
 
 /**
+ * Map frontend currency values to blockchain types
+ */
+function mapCurrencyToBlockchain(currency: string): Blockchain | null {
+  const mapping: Record<string, Blockchain> = {
+    'btc': 'BTC',
+    'bch': 'BCH',
+    'eth': 'ETH',
+    'matic': 'MATIC',
+    'sol': 'SOL',
+    'usdc_eth': 'USDC_ETH',
+    'usdc_matic': 'USDC_MATIC',
+    'usdc_sol': 'USDC_SOL',
+  };
+  return mapping[currency.toLowerCase()] || null;
+}
+
+/**
+ * Map blockchain to cryptocurrency code for wallet lookup
+ */
+function blockchainToCrypto(blockchain: Blockchain): string {
+  if (blockchain.startsWith('USDC_')) {
+    return 'USDC';
+  }
+  return blockchain;
+}
+
+/**
  * POST /api/payments/create
  * Create a new payment
- * 
+ *
  * Requires authentication via JWT token or API key.
  * Enforces transaction limits based on subscription plan.
  */
@@ -60,8 +87,8 @@ export async function POST(request: NextRequest) {
         return createEntitlementErrorResponse(limitCheck.error);
       }
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Monthly transaction limit exceeded',
           usage: {
             current: limitCheck.currentUsage,
@@ -74,7 +101,62 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const result = await createPayment(supabase, body);
+    
+    // Transform frontend data to service format
+    const { business_id, amount_usd, amount, currency, blockchain, description, metadata } = body;
+    
+    // Determine the blockchain type
+    const blockchainType = blockchain
+      ? (blockchain.toUpperCase() as Blockchain)
+      : currency
+        ? mapCurrencyToBlockchain(currency)
+        : null;
+    
+    if (!blockchainType) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid or missing cryptocurrency type' },
+        { status: 400 }
+      );
+    }
+    
+    // Determine the amount (support both amount_usd and amount)
+    const paymentAmount = amount_usd ?? amount;
+    if (!paymentAmount || paymentAmount <= 0) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid or missing payment amount' },
+        { status: 400 }
+      );
+    }
+    
+    // Look up the merchant's wallet address for this cryptocurrency
+    const cryptoCode = blockchainToCrypto(blockchainType);
+    const { data: wallet, error: walletError } = await supabase
+      .from('business_wallets')
+      .select('wallet_address')
+      .eq('business_id', business_id)
+      .eq('cryptocurrency', cryptoCode)
+      .eq('is_active', true)
+      .single();
+    
+    if (walletError || !wallet) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `No ${cryptoCode} wallet configured for this business. Please add a wallet address in the business settings.`
+        },
+        { status: 400 }
+      );
+    }
+    
+    // Create the payment with transformed data
+    const result = await createPayment(supabase, {
+      business_id,
+      amount: paymentAmount,
+      currency: 'USD', // Always USD for now
+      blockchain: blockchainType,
+      merchant_wallet_address: wallet.wallet_address,
+      metadata: metadata || (description ? { description } : undefined),
+    });
 
     if (!result.success) {
       return NextResponse.json(

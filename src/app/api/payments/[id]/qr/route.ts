@@ -34,11 +34,20 @@ export async function GET(
     }
 
     const payment = result.payment;
+    
+    // Get the address for the QR code
+    const address = payment.payment_address || payment.merchant_wallet_address;
+    if (!address) {
+      return NextResponse.json(
+        { success: false, error: 'No payment address available' },
+        { status: 400 }
+      );
+    }
 
     // Generate QR code
     const qrCode = await generatePaymentQR({
       blockchain: payment.blockchain as any,
-      address: payment.payment_address || payment.merchant_wallet_address,
+      address,
       amount: payment.crypto_amount || 0,
     });
 
