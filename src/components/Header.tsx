@@ -3,7 +3,20 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ConnectButton } from './wallet';
+import dynamic from 'next/dynamic';
+
+// Dynamically import ConnectButton with SSR disabled to avoid pino/thread-stream issues
+const ConnectButton = dynamic(
+  () => import('./wallet').then((mod) => mod.ConnectButton),
+  { 
+    ssr: false,
+    loading: () => (
+      <button className="inline-flex items-center justify-center rounded-lg bg-gray-700 px-3 py-1.5 text-sm font-medium text-gray-400">
+        Loading...
+      </button>
+    )
+  }
+);
 
 export default function Header() {
   const router = useRouter();

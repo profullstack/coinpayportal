@@ -15,6 +15,8 @@
     "pre-commit": "pnpm build && vitest run"
   },
   "dependencies": {
+    "@coinbase/wallet-sdk": "^4.3.7",
+    "@metamask/sdk": "^0.34.0",
     "@noble/curves": "^2.0.1",
     "@reown/appkit": "^1.8.14",
     "@reown/appkit-adapter-wagmi": "^1.8.14",
@@ -27,6 +29,7 @@
     "@solana/web3.js": "^1.87.6",
     "@supabase/supabase-js": "^2.39.0",
     "@tanstack/react-query": "^5.90.11",
+    "@walletconnect/ethereum-provider": "^2.23.0",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
     "bitcoinjs-lib": "^6.1.5",
@@ -58,6 +61,7 @@
     "autoprefixer": "^10.4.17",
     "eslint": "^9.39.1",
     "eslint-config-next": "16.0.4",
+    "ignore-loader": "^0.1.2",
     "jsdom": "^23.2.0",
     "postcss": "^8.4.33",
     "prettier": "^3.2.4",
