@@ -6,6 +6,12 @@ import {
   listBusinessCollectionPayments,
   type BusinessCollectionInput,
 } from '@/lib/payments/business-collection';
+import {
+  withTransactionLimit,
+  EntitlementError,
+  createEntitlementErrorResponse,
+} from '@/lib/entitlements/middleware';
+import { incrementTransactionCount } from '@/lib/entitlements/service';
 
 /**
  * Get JWT secret from environment
@@ -84,6 +90,18 @@ export async function POST(request: NextRequest) {
     // Create Supabase client
     const supabase = await createServerClient();
 
+    // Check transaction limit before creating payment
+    const limitCheck = await withTransactionLimit(supabase, merchantId);
+    if (!limitCheck.allowed) {
+      if (limitCheck.error) {
+        return createEntitlementErrorResponse(limitCheck.error);
+      }
+      return NextResponse.json(
+        { error: 'Transaction limit exceeded' },
+        { status: 429 }
+      );
+    }
+
     // Create the collection payment
     const input: BusinessCollectionInput = {
       businessId: business_id,
@@ -103,6 +121,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Increment transaction count after successful payment creation
+    await incrementTransactionCount(supabase, merchantId);
 
     return NextResponse.json({
       success: true,

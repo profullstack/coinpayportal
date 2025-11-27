@@ -782,6 +782,154 @@ function verifyWebhook(payload, signature, secret) {
 }
 ```
 
+## Subscription & Entitlements Endpoints
+
+### Get Subscription Plans
+
+Get all available subscription plans (public endpoint, no authentication required).
+
+**Endpoint:** `GET /api/subscription-plans`
+
+**Response:**
+```json
+{
+  "success": true,
+  "plans": [
+    {
+      "id": "starter",
+      "name": "Starter",
+      "description": "Perfect for testing and small projects",
+      "pricing": {
+        "monthly": 0,
+        "yearly": 0
+      },
+      "limits": {
+        "monthly_transactions": 100,
+        "is_unlimited": false
+      },
+      "features": {
+        "all_chains_supported": true,
+        "basic_api_access": true,
+        "advanced_analytics": false,
+        "custom_webhooks": false,
+        "white_label": false,
+        "priority_support": false
+      }
+    },
+    {
+      "id": "professional",
+      "name": "Professional",
+      "description": "For growing businesses",
+      "pricing": {
+        "monthly": 49,
+        "yearly": 490
+      },
+      "limits": {
+        "monthly_transactions": null,
+        "is_unlimited": true
+      },
+      "features": {
+        "all_chains_supported": true,
+        "basic_api_access": true,
+        "advanced_analytics": true,
+        "custom_webhooks": true,
+        "white_label": true,
+        "priority_support": true
+      }
+    }
+  ]
+}
+```
+
+### Get Current Entitlements
+
+Get the authenticated merchant's current subscription, features, and usage.
+
+**Endpoint:** `GET /api/entitlements`
+
+**Headers:** `Authorization: Bearer TOKEN`
+
+**Response:**
+```json
+{
+  "success": true,
+  "entitlements": {
+    "plan": {
+      "id": "starter",
+      "name": "Starter",
+      "description": "Perfect for testing and small projects",
+      "price_monthly": 0
+    },
+    "features": {
+      "all_chains_supported": true,
+      "basic_api_access": true,
+      "advanced_analytics": false,
+      "custom_webhooks": false,
+      "white_label": false,
+      "priority_support": false
+    },
+    "usage": {
+      "transactions_this_month": 45,
+      "transaction_limit": 100,
+      "transactions_remaining": 55,
+      "is_unlimited": false
+    },
+    "status": "active"
+  }
+}
+```
+
+### Subscription Plan Comparison
+
+| Feature | Starter (Free) | Professional ($49/month) |
+|---------|----------------|--------------------------|
+| Monthly Transactions | Up to 100 | Unlimited |
+| All Supported Chains | ✅ | ✅ |
+| Basic API Access | ✅ | ✅ |
+| Advanced Analytics | ❌ | ✅ |
+| Custom Webhooks | ❌ | ✅ |
+| White-label Option | ❌ | ✅ |
+| Priority Support | ❌ | ✅ |
+
+### Entitlement Error Responses
+
+When a request is blocked due to entitlement limits, the API returns specific error codes:
+
+**Transaction Limit Exceeded (429 Too Many Requests):**
+```json
+{
+  "error": "Monthly transaction limit reached (100/100). Please upgrade to Professional for unlimited transactions.",
+  "code": "TRANSACTION_LIMIT_EXCEEDED",
+  "details": {
+    "currentUsage": 100,
+    "limit": 100
+  }
+}
+```
+
+**Feature Not Available (403 Forbidden):**
+```json
+{
+  "error": "Advanced Analytics is not available on your current plan. Please upgrade to Professional to access this feature.",
+  "code": "FEATURE_NOT_AVAILABLE",
+  "details": {
+    "feature": "advanced_analytics",
+    "currentPlan": "starter"
+  }
+}
+```
+
+**Subscription Inactive (402 Payment Required):**
+```json
+{
+  "error": "Subscription is past_due. Please update your payment method or reactivate your subscription.",
+  "code": "SUBSCRIPTION_INACTIVE",
+  "details": {
+    "status": "past_due"
+  }
+}
+```
+
 ## Error Codes
 
 | Code | Description |
@@ -791,6 +939,9 @@ function verifyWebhook(payload, signature, secret) {
 | `NOT_FOUND` | Resource not found |
 | `VALIDATION_ERROR` | Invalid request parameters |
 | `RATE_LIMIT_EXCEEDED` | Too many requests |
+| `TRANSACTION_LIMIT_EXCEEDED` | Monthly transaction limit reached |
+| `FEATURE_NOT_AVAILABLE` | Feature not available on current plan |
+| `SUBSCRIPTION_INACTIVE` | Subscription is not active |
 | `INSUFFICIENT_BALANCE` | Not enough funds for operation |
 | `BLOCKCHAIN_ERROR` | Blockchain interaction failed |
 | `PAYMENT_EXPIRED` | Payment request has expired |
