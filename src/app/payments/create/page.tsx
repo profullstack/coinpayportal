@@ -1,12 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface Business {
   id: string;
   name: string;
 }
+
+const PAYMENT_EXPIRY_MINUTES = 15;
+const POLL_INTERVAL_MS = 5000;
 
 export default function CreatePaymentPage() {
   const router = useRouter();
@@ -22,6 +25,11 @@ export default function CreatePaymentPage() {
   });
   const [createdPayment, setCreatedPayment] = useState<any>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [timeRemaining, setTimeRemaining] = useState<number>(PAYMENT_EXPIRY_MINUTES * 60);
+  const [paymentStatus, setPaymentStatus] = useState<string>('pending');
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const paymentCreatedAtRef = useRef<Date | null>(null);
 
   const copyToClipboard = async (text: string, field: string) => {
     try {
@@ -30,6 +38,115 @@ export default function CreatePaymentPage() {
       setTimeout(() => setCopiedField(null), 2000);
     } catch (err) {
       console.error('Failed to copy:', err);
+    }
+  };
+
+  // Poll for payment status
+  const pollPaymentStatus = useCallback(async (paymentId: string) => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) return;
+
+      const response = await fetch(`/api/payments/${paymentId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.payment) {
+          setPaymentStatus(data.payment.status);
+          setCreatedPayment((prev: any) => ({
+            ...prev,
+            status: data.payment.status,
+          }));
+
+          // Stop polling if payment is complete or failed
+          if (['confirmed', 'forwarded', 'expired', 'failed'].includes(data.payment.status)) {
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            if (timerIntervalRef.current) {
+              clearInterval(timerIntervalRef.current);
+              timerIntervalRef.current = null;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to poll payment status:', err);
+    }
+  }, []);
+
+  // Start polling and timer when payment is created
+  useEffect(() => {
+    if (createdPayment?.id && paymentStatus === 'pending') {
+      paymentCreatedAtRef.current = new Date();
+      
+      // Start polling
+      pollIntervalRef.current = setInterval(() => {
+        pollPaymentStatus(createdPayment.id);
+      }, POLL_INTERVAL_MS);
+
+      // Start countdown timer
+      timerIntervalRef.current = setInterval(() => {
+        if (paymentCreatedAtRef.current) {
+          const elapsed = Math.floor((Date.now() - paymentCreatedAtRef.current.getTime()) / 1000);
+          const remaining = Math.max(0, PAYMENT_EXPIRY_MINUTES * 60 - elapsed);
+          setTimeRemaining(remaining);
+
+          if (remaining === 0) {
+            setPaymentStatus('expired');
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            if (timerIntervalRef.current) {
+              clearInterval(timerIntervalRef.current);
+              timerIntervalRef.current = null;
+            }
+          }
+        }
+      }, 1000);
+
+      // Cleanup on unmount
+      return () => {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+        }
+        if (timerIntervalRef.current) {
+          clearInterval(timerIntervalRef.current);
+        }
+      };
+    }
+  }, [createdPayment?.id, paymentStatus, pollPaymentStatus]);
+
+  // Format time remaining as MM:SS
+  const formatTimeRemaining = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Get status color and text
+  const getStatusDisplay = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return { color: 'text-yellow-600 bg-yellow-50', text: 'Waiting for payment...' };
+      case 'detected':
+        return { color: 'text-blue-600 bg-blue-50', text: 'Payment detected! Confirming...' };
+      case 'confirmed':
+        return { color: 'text-green-600 bg-green-50', text: 'Payment confirmed!' };
+      case 'forwarded':
+        return { color: 'text-green-600 bg-green-50', text: 'Payment complete!' };
+      case 'expired':
+        return { color: 'text-red-600 bg-red-50', text: 'Payment expired' };
+      case 'failed':
+        return { color: 'text-red-600 bg-red-50', text: 'Payment failed' };
+      default:
+        return { color: 'text-gray-600 bg-gray-50', text: status };
     }
   };
 
@@ -123,7 +240,20 @@ export default function CreatePaymentPage() {
   };
 
   const handleCreateAnother = () => {
+    // Clear any existing intervals
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+    
     setCreatedPayment(null);
+    setPaymentStatus('pending');
+    setTimeRemaining(PAYMENT_EXPIRY_MINUTES * 60);
+    paymentCreatedAtRef.current = null;
     setFormData({
       business_id: businesses[0]?.id || '',
       amount_usd: '',
@@ -284,18 +414,51 @@ export default function CreatePaymentPage() {
                 </div>
               )}
 
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <p className="text-sm text-blue-900">
-                  <strong>Payment ID:</strong> {createdPayment.id}
-                </p>
-                <p className="text-sm text-blue-900 mt-1">
-                  <strong>Status:</strong> {createdPayment.status}
-                </p>
-                {createdPayment.description && (
-                  <p className="text-sm text-blue-900 mt-1">
-                    <strong>Description:</strong> {createdPayment.description}
-                  </p>
+              {/* Status and Timer Section */}
+              <div className={`p-4 rounded-lg ${getStatusDisplay(paymentStatus).color}`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    {paymentStatus === 'pending' && (
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent"></div>
+                    )}
+                    {(paymentStatus === 'confirmed' || paymentStatus === 'forwarded') && (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                    {(paymentStatus === 'expired' || paymentStatus === 'failed') && (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    )}
+                    <span className="font-semibold">{getStatusDisplay(paymentStatus).text}</span>
+                  </div>
+                  {paymentStatus === 'pending' && timeRemaining > 0 && (
+                    <div className="flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="font-mono font-semibold">{formatTimeRemaining(timeRemaining)}</span>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Progress bar for pending payments */}
+                {paymentStatus === 'pending' && timeRemaining > 0 && (
+                  <div className="w-full bg-yellow-200 rounded-full h-2 mb-3">
+                    <div
+                      className="bg-yellow-500 h-2 rounded-full transition-all duration-1000"
+                      style={{ width: `${(timeRemaining / (PAYMENT_EXPIRY_MINUTES * 60)) * 100}%` }}
+                    ></div>
+                  </div>
                 )}
+
+                <div className="text-sm opacity-80">
+                  <p><strong>Payment ID:</strong> {createdPayment.id}</p>
+                  {createdPayment.description && (
+                    <p className="mt-1"><strong>Description:</strong> {createdPayment.description}</p>
+                  )}
+                </div>
               </div>
 
               <div className="flex items-center justify-between pt-4 border-t border-gray-200">

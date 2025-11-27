@@ -5,10 +5,24 @@ import { getForwardingStatus } from '@/lib/payments/forwarding';
 import { forwardPaymentSecurely, retryForwardingSecurely } from '@/lib/wallets/secure-forwarding';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
+
+/**
+ * Verify if the request is from an internal service (monitor function)
+ */
+function isInternalRequest(authHeader: string | null): boolean {
+  if (!INTERNAL_API_KEY) return false;
+  if (!authHeader?.startsWith('Bearer ')) return false;
+  return authHeader.substring(7) === INTERNAL_API_KEY;
+}
 
 /**
  * POST /api/payments/[id]/forward
- * Manually trigger payment forwarding (admin only)
+ * Trigger payment forwarding
+ *
+ * Authentication:
+ * - Internal API key (for automated forwarding from monitor)
+ * - Admin JWT token (for manual forwarding)
  *
  * SECURITY: Private keys are NEVER accepted via API.
  * Keys are retrieved from encrypted storage server-side only.
@@ -27,28 +41,34 @@ export async function POST(
       );
     }
 
-    const token = authHeader.substring(7);
-    const payload = verifyToken(token, JWT_SECRET);
+    // Check if this is an internal request (from monitor function)
+    const isInternal = isInternalRequest(authHeader);
+    
+    if (!isInternal) {
+      // For non-internal requests, verify JWT and admin access
+      const token = authHeader.substring(7);
+      const payload = verifyToken(token, JWT_SECRET);
 
-    if (!payload) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid token' },
-        { status: 401 }
-      );
-    }
+      if (!payload) {
+        return NextResponse.json(
+          { success: false, error: 'Invalid token' },
+          { status: 401 }
+        );
+      }
 
-    // Verify admin access
-    const { data: merchant, error: merchantError } = await supabaseAdmin
-      .from('merchants')
-      .select('is_admin')
-      .eq('id', payload.sub)
-      .single();
+      // Verify admin access
+      const { data: merchant, error: merchantError } = await supabaseAdmin
+        .from('merchants')
+        .select('is_admin')
+        .eq('id', payload.sub)
+        .single();
 
-    if (merchantError || !merchant?.is_admin) {
-      return NextResponse.json(
-        { success: false, error: 'Admin access required for manual forwarding' },
-        { status: 403 }
-      );
+      if (merchantError || !merchant?.is_admin) {
+        return NextResponse.json(
+          { success: false, error: 'Admin access required for manual forwarding' },
+          { status: 403 }
+        );
+      }
     }
 
     // Get request body (only for retry flag, NO private keys accepted)
