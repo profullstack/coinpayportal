@@ -7,7 +7,6 @@ interface Business {
   id: string;
   name: string;
   description: string | null;
-  wallet_address: string;
   webhook_url: string | null;
   created_at: string;
 }
@@ -22,8 +21,6 @@ export default function BusinessesPage() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    wallet_address: '',
-    webhook_url: '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -65,8 +62,6 @@ export default function BusinessesPage() {
     setFormData({
       name: '',
       description: '',
-      wallet_address: '',
-      webhook_url: '',
     });
     setEditingBusiness(null);
     setShowCreateModal(true);
@@ -76,8 +71,6 @@ export default function BusinessesPage() {
     setFormData({
       name: business.name,
       description: business.description || '',
-      wallet_address: business.wallet_address,
-      webhook_url: business.webhook_url || '',
     });
     setEditingBusiness(business);
     setShowCreateModal(true);
@@ -263,25 +256,7 @@ export default function BusinessesPage() {
                     </p>
                   )}
                   <div className="space-y-2 text-sm">
-                    <div>
-                      <span className="font-medium text-gray-700">
-                        Wallet:
-                      </span>
-                      <p className="text-gray-600 font-mono text-xs mt-1 break-all">
-                        {business.wallet_address}
-                      </p>
-                    </div>
-                    {business.webhook_url && (
-                      <div>
-                        <span className="font-medium text-gray-700">
-                          Webhook:
-                        </span>
-                        <p className="text-gray-600 text-xs mt-1 break-all">
-                          {business.webhook_url}
-                        </p>
-                      </div>
-                    )}
-                    <div className="text-xs text-gray-500 pt-2">
+                    <div className="text-xs text-gray-500">
                       Created {new Date(business.created_at).toLocaleDateString()}
                     </div>
                   </div>
@@ -362,53 +337,9 @@ export default function BusinessesPage() {
                   />
                 </div>
 
-                <div>
-                  <label
-                    htmlFor="wallet_address"
-                    className="block text-sm font-medium text-gray-700 mb-2"
-                  >
-                    Wallet Address *
-                  </label>
-                  <input
-                    id="wallet_address"
-                    type="text"
-                    required
-                    value={formData.wallet_address}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        wallet_address: e.target.value,
-                      })
-                    }
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono text-sm text-gray-900"
-                    placeholder="0x..."
-                  />
-                  <p className="mt-1 text-xs text-gray-500">
-                    Your crypto wallet address for receiving payments
-                  </p>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="webhook_url"
-                    className="block text-sm font-medium text-gray-700 mb-2"
-                  >
-                    Webhook URL
-                  </label>
-                  <input
-                    id="webhook_url"
-                    type="url"
-                    value={formData.webhook_url}
-                    onChange={(e) =>
-                      setFormData({ ...formData, webhook_url: e.target.value })
-                    }
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
-                    placeholder="https://example.com/webhook"
-                  />
-                  <p className="mt-1 text-xs text-gray-500">
-                    Optional URL to receive payment notifications
-                  </p>
-                </div>
+                <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
+                  💡 After creating your business, you can configure wallet addresses and webhooks in the business management page.
+                </p>
 
                 <div className="flex items-center justify-end space-x-3 pt-4">
                   <button

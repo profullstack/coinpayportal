@@ -88,7 +88,6 @@ describe('BusinessesPage', () => {
         id: 'business-1',
         name: 'Test Business 1',
         description: 'Test description',
-        wallet_address: '0x1234567890abcdef',
         webhook_url: 'https://example.com/webhook',
         created_at: '2024-01-01T00:00:00Z',
       },
@@ -96,7 +95,6 @@ describe('BusinessesPage', () => {
         id: 'business-2',
         name: 'Test Business 2',
         description: null,
-        wallet_address: '0xfedcba0987654321',
         webhook_url: null,
         created_at: '2024-01-02T00:00:00Z',
       },
@@ -132,8 +130,8 @@ describe('BusinessesPage', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Test description')).toBeInTheDocument();
-        expect(screen.getByText(/0x1234567890abcdef/i)).toBeInTheDocument();
-        expect(screen.getByText(/https:\/\/example\.com\/webhook/i)).toBeInTheDocument();
+        // Business cards now only show name, description, and created date
+        // Wallet addresses and webhooks are managed in the business detail page
       });
     });
 
@@ -178,7 +176,8 @@ describe('BusinessesPage', () => {
 
       await waitFor(() => {
         expect(screen.getByLabelText(/business name/i)).toBeInTheDocument();
-        expect(screen.getByLabelText(/wallet address/i)).toBeInTheDocument();
+        // Wallet address and webhook URL are now configured in business management page
+        expect(screen.getByText(/after creating your business/i)).toBeInTheDocument();
       });
     });
 
@@ -206,12 +205,10 @@ describe('BusinessesPage', () => {
         screen.getByLabelText(/business name/i);
       });
 
-      // Fill form
+      // Fill form - now only name and description are required
       const nameInput = screen.getByLabelText(/business name/i);
-      const walletInput = screen.getByLabelText(/wallet address/i);
 
       fireEvent.change(nameInput, { target: { value: 'New Business' } });
-      fireEvent.change(walletInput, { target: { value: '0xnewwallet' } });
 
       // Mock create request
       vi.mocked(fetch).mockResolvedValueOnce({
@@ -221,7 +218,6 @@ describe('BusinessesPage', () => {
           business: {
             id: 'new-id',
             name: 'New Business',
-            wallet_address: '0xnewwallet',
           },
         }),
       } as Response);
@@ -235,7 +231,6 @@ describe('BusinessesPage', () => {
             {
               id: 'new-id',
               name: 'New Business',
-              wallet_address: '0xnewwallet',
               created_at: new Date().toISOString(),
             },
           ],
@@ -262,7 +257,6 @@ describe('BusinessesPage', () => {
         id: 'business-1',
         name: 'Test Business',
         description: 'Test desc',
-        wallet_address: '0x1234',
         webhook_url: 'https://test.com',
         created_at: '2024-01-01T00:00:00Z',
       };
@@ -296,7 +290,6 @@ describe('BusinessesPage', () => {
       const mockBusiness = {
         id: 'business-1',
         name: 'Test Business',
-        wallet_address: '0x1234',
         created_at: '2024-01-01T00:00:00Z',
       };
 

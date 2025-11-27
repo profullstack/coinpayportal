@@ -2,7 +2,6 @@ export interface Business {
   id: string;
   name: string;
   description: string | null;
-  wallet_address: string;
   webhook_url: string | null;
   webhook_secret: string | null;
   api_key: string | null;
