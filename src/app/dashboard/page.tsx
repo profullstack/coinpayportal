@@ -154,7 +154,26 @@ export default function DashboardPage() {
 
   const formatAddress = (address: string) => {
     if (!address) return 'N/A';
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+    return `${address.slice(0, 10)}...${address.slice(-8)}`;
+  };
+
+  const formatAmount = (amount: string | null | undefined, decimals: number = 8) => {
+    if (amount === null || amount === undefined || amount === '') return '0';
+    const parsed = parseFloat(amount);
+    if (isNaN(parsed)) return '0';
+    return parsed.toFixed(decimals);
+  };
+
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedAddress(text);
+      setTimeout(() => setCopiedAddress(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
   };
 
   if (loading) {
@@ -451,29 +470,58 @@ export default function DashboardPage() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Date
                     </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {recentPayments.map((payment) => (
                     <tr key={payment.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {payment.id.slice(0, 8)}...
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <Link
+                          href={`/payments/${payment.id}`}
+                          className="text-purple-600 hover:text-purple-800 hover:underline"
+                        >
+                          {payment.id.slice(0, 8)}...
+                        </Link>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         <div>
                           <div className="font-medium">
-                            {parseFloat(payment.amount_crypto).toFixed(8)}
+                            {formatAmount(payment.amount_crypto, 8)}
                           </div>
                           <div className="text-gray-500">
-                            ${parseFloat(payment.amount_usd).toFixed(2)}
+                            ${formatAmount(payment.amount_usd, 2)}
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {payment.currency.toUpperCase()}
+                        {payment.currency?.toUpperCase() || 'N/A'}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
-                        {formatAddress(payment.payment_address)}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs" title={payment.payment_address || 'N/A'}>
+                            {formatAddress(payment.payment_address)}
+                          </span>
+                          {payment.payment_address && (
+                            <button
+                              onClick={() => copyToClipboard(payment.payment_address)}
+                              className="text-gray-400 hover:text-gray-600 transition-colors"
+                              title="Copy full address"
+                            >
+                              {copiedAddress === payment.payment_address ? (
+                                <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              ) : (
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                              )}
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span
@@ -486,6 +534,14 @@ export default function DashboardPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {formatDate(payment.created_at)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <Link
+                          href={`/payments/${payment.id}`}
+                          className="inline-flex items-center px-3 py-1 border border-purple-300 text-purple-600 rounded-md hover:bg-purple-50 transition-colors text-xs font-medium"
+                        >
+                          View Details
+                        </Link>
                       </td>
                     </tr>
                   ))}
