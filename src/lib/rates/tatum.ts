@@ -79,10 +79,14 @@ export async function getExchangeRate(
     }
 
     const data = await response.json();
-    const rate = data.value;
+    
+    // Tatum API may return rate as string or number
+    const rate = typeof data.value === 'string'
+      ? parseFloat(data.value)
+      : data.value;
 
-    if (typeof rate !== 'number' || rate <= 0) {
-      throw new Error(`Invalid rate received from Tatum API: ${rate}`);
+    if (typeof rate !== 'number' || isNaN(rate) || rate <= 0) {
+      throw new Error(`Invalid rate received from Tatum API: ${data.value}`);
     }
 
     // Cache the result
