@@ -3,13 +3,13 @@
  * Testing Framework: Vitest
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CoinPayClient } from '../src/client.js';
 
 describe('CoinPayClient', () => {
   describe('constructor', () => {
     it('should create a client with valid API key', () => {
-      const client = new CoinPayClient({ apiKey: 'test_api_key' });
+      const client = new CoinPayClient({ apiKey: 'cp_live_test_api_key_12345678' });
       expect(client).toBeInstanceOf(CoinPayClient);
     });
 
@@ -22,13 +22,13 @@ describe('CoinPayClient', () => {
     });
 
     it('should use default base URL when not provided', () => {
-      const client = new CoinPayClient({ apiKey: 'test_key' });
+      const client = new CoinPayClient({ apiKey: 'cp_live_test_key_123456789' });
       expect(client).toBeInstanceOf(CoinPayClient);
     });
 
     it('should accept custom base URL', () => {
       const client = new CoinPayClient({
-        apiKey: 'test_key',
+        apiKey: 'cp_live_test_key_123456789',
         baseUrl: 'https://custom.api.com',
       });
       expect(client).toBeInstanceOf(CoinPayClient);
@@ -36,7 +36,7 @@ describe('CoinPayClient', () => {
 
     it('should remove trailing slash from base URL', () => {
       const client = new CoinPayClient({
-        apiKey: 'test_key',
+        apiKey: 'cp_live_test_key_123456789',
         baseUrl: 'https://custom.api.com/',
       });
       expect(client).toBeInstanceOf(CoinPayClient);
@@ -44,7 +44,7 @@ describe('CoinPayClient', () => {
 
     it('should accept custom timeout', () => {
       const client = new CoinPayClient({
-        apiKey: 'test_key',
+        apiKey: 'cp_live_test_key_123456789',
         timeout: 60000,
       });
       expect(client).toBeInstanceOf(CoinPayClient);
@@ -56,13 +56,34 @@ describe('CoinPayClient', () => {
 
     beforeEach(() => {
       client = new CoinPayClient({
-        apiKey: 'test_api_key',
+        apiKey: 'cp_live_test_api_key_12345678',
         baseUrl: 'https://api.test.com',
       });
     });
 
     it('should be a function', () => {
       expect(typeof client.request).toBe('function');
+    });
+
+    it('should use Authorization Bearer header', async () => {
+      // Mock fetch to capture the request
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ success: true }),
+      });
+      global.fetch = mockFetch;
+
+      await client.request('/test');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.test.com/test',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Authorization': 'Bearer cp_live_test_api_key_12345678',
+            'Content-Type': 'application/json',
+          }),
+        })
+      );
     });
   });
 
@@ -71,7 +92,7 @@ describe('CoinPayClient', () => {
 
     beforeEach(() => {
       client = new CoinPayClient({
-        apiKey: 'test_api_key',
+        apiKey: 'cp_live_test_api_key_12345678',
         baseUrl: 'https://api.test.com',
       });
     });
@@ -93,12 +114,93 @@ describe('CoinPayClient', () => {
     });
   });
 
+  describe('createPayment', () => {
+    let client;
+    let mockFetch;
+
+    beforeEach(() => {
+      client = new CoinPayClient({
+        apiKey: 'cp_live_test_api_key_12345678',
+        baseUrl: 'https://api.test.com',
+      });
+      mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          payment: {
+            id: 'pay_123',
+            payment_address: '0x123',
+            crypto_amount: '0.05',
+            blockchain: 'ETH',
+          },
+        }),
+      });
+      global.fetch = mockFetch;
+    });
+
+    it('should send correct field names to API', async () => {
+      await client.createPayment({
+        businessId: 'biz_123',
+        amount: 100,
+        currency: 'USD',
+        blockchain: 'ETH',
+        description: 'Test payment',
+        metadata: { orderId: '12345' },
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.test.com/payments/create',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            business_id: 'biz_123',
+            amount: 100,
+            currency: 'USD',
+            blockchain: 'ETH',
+            description: 'Test payment',
+            metadata: { orderId: '12345' },
+          }),
+        })
+      );
+    });
+
+    it('should default currency to USD', async () => {
+      await client.createPayment({
+        businessId: 'biz_123',
+        amount: 100,
+        blockchain: 'BTC',
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.test.com/payments/create',
+        expect.objectContaining({
+          body: expect.stringContaining('"currency":"USD"'),
+        })
+      );
+    });
+
+    it('should uppercase blockchain value', async () => {
+      await client.createPayment({
+        businessId: 'biz_123',
+        amount: 100,
+        blockchain: 'eth',
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.test.com/payments/create',
+        expect.objectContaining({
+          body: expect.stringContaining('"blockchain":"ETH"'),
+        })
+      );
+    });
+  });
+
   describe('exchange rate methods', () => {
     let client;
 
     beforeEach(() => {
       client = new CoinPayClient({
-        apiKey: 'test_api_key',
+        apiKey: 'cp_live_test_api_key_12345678',
         baseUrl: 'https://api.test.com',
       });
     });
@@ -117,7 +219,7 @@ describe('CoinPayClient', () => {
 
     beforeEach(() => {
       client = new CoinPayClient({
-        apiKey: 'test_api_key',
+        apiKey: 'cp_live_test_api_key_12345678',
         baseUrl: 'https://api.test.com',
       });
     });
@@ -144,7 +246,7 @@ describe('CoinPayClient', () => {
 
     beforeEach(() => {
       client = new CoinPayClient({
-        apiKey: 'test_api_key',
+        apiKey: 'cp_live_test_api_key_12345678',
         baseUrl: 'https://api.test.com',
       });
     });

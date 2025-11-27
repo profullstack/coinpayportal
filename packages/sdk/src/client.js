@@ -3,7 +3,7 @@
  * Main client class for interacting with the CoinPay API
  */
 
-const DEFAULT_BASE_URL = 'https://coinpay.dev/api';
+const DEFAULT_BASE_URL = 'https://coinpayportal.com/api';
 
 /**
  * CoinPay API Client
@@ -17,7 +17,7 @@ export class CoinPayClient {
    * Create a new CoinPay client
    * @param {Object} options - Client options
    * @param {string} options.apiKey - Your CoinPay API key
-   * @param {string} [options.baseUrl] - API base URL (default: https://coinpay.dev/api)
+   * @param {string} [options.baseUrl] - API base URL (default: https://coinpayportal.com/api)
    * @param {number} [options.timeout] - Request timeout in ms (default: 30000)
    */
   constructor({ apiKey, baseUrl = DEFAULT_BASE_URL, timeout = 30000 }) {
@@ -47,7 +47,7 @@ export class CoinPayClient {
         signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': this.#apiKey,
+          'Authorization': `Bearer ${this.#apiKey}`,
           ...options.headers,
         },
       });
@@ -74,35 +74,51 @@ export class CoinPayClient {
 
   /**
    * Create a new payment
+   *
+   * This is the primary method for merchants to create payment requests.
+   * When a customer needs to pay, call this method to generate a unique
+   * payment address and QR code.
+   *
    * @param {Object} params - Payment parameters
-   * @param {string} params.businessId - Business ID
-   * @param {number} params.amount - Amount in fiat currency
-   * @param {string} params.currency - Fiat currency code (USD, EUR, etc.)
-   * @param {string} params.cryptocurrency - Cryptocurrency code (BTC, ETH, etc.)
-   * @param {string} [params.description] - Payment description
-   * @param {string} [params.metadata] - Custom metadata (JSON string)
-   * @param {string} [params.callbackUrl] - Webhook callback URL
-   * @returns {Promise<Object>} Created payment
+   * @param {string} params.businessId - Business ID (from your CoinPay dashboard)
+   * @param {number} params.amount - Amount in fiat currency (e.g., 100.00)
+   * @param {string} [params.currency='USD'] - Fiat currency code (USD, EUR, etc.)
+   * @param {string} params.blockchain - Blockchain/cryptocurrency (BTC, ETH, SOL, MATIC, BCH, USDC_ETH, USDC_MATIC, USDC_SOL)
+   * @param {string} [params.description] - Payment description (shown to customer)
+   * @param {Object} [params.metadata] - Custom metadata (e.g., { orderId: 'ORD-123', customerId: 'CUST-456' })
+   * @returns {Promise<Object>} Created payment with address and QR code
+   *
+   * @example
+   * // Create a $50 payment in Bitcoin
+   * const payment = await client.createPayment({
+   *   businessId: 'your-business-id',
+   *   amount: 50.00,
+   *   currency: 'USD',
+   *   blockchain: 'BTC',
+   *   description: 'Order #12345',
+   *   metadata: { orderId: '12345', customerEmail: 'customer@example.com' }
+   * });
+   *
+   * // Display payment.payment_address and payment.qr_code to customer
    */
   async createPayment({
     businessId,
     amount,
-    currency,
-    cryptocurrency,
+    currency = 'USD',
+    blockchain,
     description,
     metadata,
-    callbackUrl,
   }) {
+    // Map to API field names (snake_case)
     return this.request('/payments/create', {
       method: 'POST',
       body: JSON.stringify({
-        businessId,
+        business_id: businessId,
         amount,
         currency,
-        cryptocurrency,
+        blockchain: blockchain?.toUpperCase(),
         description,
         metadata,
-        callbackUrl,
       }),
     });
   }

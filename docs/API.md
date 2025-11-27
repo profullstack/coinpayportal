@@ -1,21 +1,51 @@
 # CoinPay API Documentation
 
+## Overview
+
+CoinPay is a cryptocurrency payment gateway that allows merchants to accept crypto payments from their customers. The typical flow is:
+
+1. **Merchant** creates a payment request via API when customer checks out
+2. **CoinPay** generates a unique payment address and QR code
+3. **Customer** sends cryptocurrency to the payment address
+4. **CoinPay** monitors the blockchain and sends webhook notifications
+5. **Funds** are automatically forwarded to the merchant's wallet (minus fees)
+
 ## Base URL
 
 ```
-Production: https://coinpayportal.com/api
+Production: https://coinpay.dev/api
 Development: http://localhost:3000/api
 ```
 
 ## Authentication
 
-All API requests require authentication using JWT tokens in the Authorization header:
+CoinPay supports two authentication methods:
+
+### API Key Authentication (Recommended for Merchants)
+
+Use your business API key for server-to-server API calls. Get your API key from the business settings in your dashboard.
 
 ```
-Authorization: Bearer YOUR_JWT_TOKEN
+Authorization: Bearer cp_live_xxxxxxxxxxxxxxxxxxxxx
 ```
 
-Obtain tokens via the authentication endpoints.
+API keys start with `cp_live_` and are tied to a specific business. Use this method when:
+- Creating payments from your backend
+- Checking payment status
+- Managing webhooks programmatically
+
+### JWT Token Authentication (Dashboard Access)
+
+JWT tokens are used for dashboard/UI access after logging in. Obtain tokens via the login endpoint.
+
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+```
+
+Use this method when:
+- Building custom dashboard interfaces
+- Managing multiple businesses
+- Accessing merchant-level settings
 
 ## Rate Limiting
 
@@ -277,20 +307,20 @@ Delete a business (soft delete).
 
 ### Create Payment
 
-Generate a new payment request.
+Generate a new payment request. This is the primary endpoint merchants use to accept crypto payments.
 
 **Endpoint:** `POST /api/payments/create`
 
-**Headers:** `Authorization: Bearer TOKEN`
+**Headers:** `Authorization: Bearer cp_live_your_api_key`
 
 **Request Body:**
 ```json
 {
-  "business_id": "uuid",
+  "business_id": "your-business-uuid",
   "amount": 100.00,
   "currency": "USD",
-  "blockchain": "eth",
-  "merchant_wallet_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+  "blockchain": "ETH",
+  "description": "Order #12345",
   "metadata": {
     "order_id": "ORDER-123",
     "customer_email": "customer@example.com",
@@ -299,37 +329,105 @@ Generate a new payment request.
 }
 ```
 
+**Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `business_id` | string | Yes | Your business UUID from the dashboard |
+| `amount` | number | Yes | Amount in fiat currency (e.g., 100.00) |
+| `currency` | string | No | Fiat currency code (default: "USD") |
+| `blockchain` | string | Yes | Blockchain/cryptocurrency to accept |
+| `description` | string | No | Description shown to customer |
+| `metadata` | object | No | Custom data for your records |
+
 **Supported Blockchains:**
-- `btc` - Bitcoin
-- `bch` - Bitcoin Cash
-- `eth` - Ethereum
-- `matic` - Polygon
-- `sol` - Solana
-- `usdc_eth` - USDC on Ethereum
-- `usdc_matic` - USDC on Polygon
-- `usdc_sol` - USDC on Solana
+
+| Code | Name | Description |
+|------|------|-------------|
+| `BTC` | Bitcoin | Native Bitcoin payments |
+| `BCH` | Bitcoin Cash | Bitcoin Cash payments |
+| `ETH` | Ethereum | Native Ether payments |
+| `MATIC` | Polygon | Native MATIC payments |
+| `SOL` | Solana | Native SOL payments |
+| `USDC_ETH` | USDC (Ethereum) | USDC stablecoin on Ethereum |
+| `USDC_MATIC` | USDC (Polygon) | USDC stablecoin on Polygon |
+| `USDC_SOL` | USDC (Solana) | USDC stablecoin on Solana |
 
 **Response:**
 ```json
 {
   "success": true,
-  "data": {
-    "payment": {
-      "id": "uuid",
-      "business_id": "uuid",
-      "amount": 100.00,
-      "currency": "USD",
-      "blockchain": "eth",
-      "crypto_amount": "0.0456",
-      "crypto_currency": "ETH",
-      "payment_address": "0x1234...5678",
-      "qr_code": "data:image/png;base64,...",
-      "status": "pending",
-      "expires_at": "2024-01-01T01:00:00.000Z",
-      "created_at": "2024-01-01T00:00:00.000Z"
+  "payment": {
+    "id": "pay_abc123",
+    "business_id": "biz_xyz789",
+    "amount": 100.00,
+    "currency": "USD",
+    "blockchain": "ETH",
+    "crypto_amount": "0.0456",
+    "payment_address": "0x1234567890abcdef...",
+    "qr_code": "data:image/png;base64,...",
+    "status": "pending",
+    "expires_at": "2024-01-01T01:00:00.000Z",
+    "created_at": "2024-01-01T00:00:00.000Z",
+    "metadata": {
+      "order_id": "ORDER-123"
     }
+  },
+  "usage": {
+    "current": 45,
+    "limit": 100,
+    "remaining": 55
   }
 }
+```
+
+**Example - cURL:**
+```bash
+curl -X POST https://coinpay.dev/api/payments/create \
+  -H "Authorization: Bearer cp_live_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "business_id": "your-business-id",
+    "amount": 50.00,
+    "blockchain": "BTC",
+    "description": "Premium subscription"
+  }'
+```
+
+**Example - JavaScript (fetch):**
+```javascript
+const response = await fetch('https://coinpay.dev/api/payments/create', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer cp_live_your_api_key',
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    business_id: 'your-business-id',
+    amount: 50.00,
+    blockchain: 'BTC',
+    description: 'Premium subscription',
+    metadata: { orderId: '12345' }
+  }),
+});
+
+const data = await response.json();
+// Display payment.payment_address and payment.qr_code to customer
+```
+
+**Example - Node.js SDK:**
+```javascript
+import { CoinPayClient } from '@profullstack/coinpay';
+
+const client = new CoinPayClient({ apiKey: 'cp_live_your_api_key' });
+
+const payment = await client.createPayment({
+  businessId: 'your-business-id',
+  amount: 50.00,
+  blockchain: 'BTC',
+  description: 'Premium subscription',
+  metadata: { orderId: '12345' }
+});
 ```
 
 ### Get Payment Status
@@ -949,46 +1047,182 @@ When a request is blocked due to entitlement limits, the API returns specific er
 | `WEBHOOK_DELIVERY_FAILED` | Failed to deliver webhook |
 | `INTERNAL_ERROR` | Server error |
 
-## SDK Examples
+## Integration Examples
 
-### JavaScript/TypeScript
+### E-commerce Checkout Flow
 
-```typescript
-import { CoinPay } from '@coinpayportal/sdk';
+Here's a complete example of integrating CoinPay into an e-commerce checkout:
 
-const client = new CoinPay({
-  apiKey: 'your-api-key',
-  environment: 'production'
+**1. Backend: Create Payment Endpoint**
+```javascript
+// routes/checkout.js
+import { CoinPayClient } from '@profullstack/coinpay';
+
+const coinpay = new CoinPayClient({
+  apiKey: process.env.COINPAY_API_KEY,
 });
 
-// Create payment
-const payment = await client.payments.create({
-  businessId: 'uuid',
-  amount: 100,
-  currency: 'USD',
-  blockchain: 'eth',
-  merchantWalletAddress: '0x...'
-});
-
-// Listen for events
-client.payments.on('confirmed', (payment) => {
-  console.log('Payment confirmed:', payment.id);
+app.post('/api/checkout/crypto', async (req, res) => {
+  const { orderId, blockchain } = req.body;
+  
+  // Get order from your database
+  const order = await db.orders.findById(orderId);
+  
+  // Create CoinPay payment
+  const payment = await coinpay.createPayment({
+    businessId: process.env.COINPAY_BUSINESS_ID,
+    amount: order.total,
+    currency: 'USD',
+    blockchain,
+    description: `Order #${order.id}`,
+    metadata: {
+      orderId: order.id,
+      customerEmail: order.customerEmail
+    }
+  });
+  
+  // Save payment reference
+  await db.orders.update(orderId, {
+    cryptoPaymentId: payment.payment.id,
+    cryptoAddress: payment.payment.payment_address
+  });
+  
+  res.json({
+    paymentAddress: payment.payment.payment_address,
+    cryptoAmount: payment.payment.crypto_amount,
+    blockchain: payment.payment.blockchain,
+    qrCode: payment.payment.qr_code,
+    expiresAt: payment.payment.expires_at
+  });
 });
 ```
 
-### cURL
+**2. Frontend: Display Payment**
+```javascript
+// components/CryptoPayment.jsx
+function CryptoPayment({ orderId, blockchain }) {
+  const [payment, setPayment] = useState(null);
+  
+  useEffect(() => {
+    fetch('/api/checkout/crypto', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId, blockchain })
+    })
+    .then(res => res.json())
+    .then(setPayment);
+  }, [orderId, blockchain]);
+  
+  if (!payment) return <div>Loading...</div>;
+  
+  return (
+    <div>
+      <h2>Send {payment.cryptoAmount} {payment.blockchain}</h2>
+      <img src={payment.qrCode} alt="Payment QR Code" />
+      <p>Address: {payment.paymentAddress}</p>
+      <p>Expires: {new Date(payment.expiresAt).toLocaleString()}</p>
+    </div>
+  );
+}
+```
 
+**3. Webhook Handler**
+```javascript
+// routes/webhooks.js
+import { verifyWebhookSignature } from '@profullstack/coinpay';
+
+app.post('/webhooks/coinpay', async (req, res) => {
+  // Verify signature
+  const isValid = verifyWebhookSignature({
+    payload: req.rawBody,
+    signature: req.headers['x-coinpay-signature'],
+    secret: process.env.COINPAY_WEBHOOK_SECRET
+  });
+  
+  if (!isValid) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+  
+  const { event, data } = req.body;
+  
+  switch (event) {
+    case 'payment.confirmed':
+      // Payment confirmed - fulfill order
+      const { orderId } = data.payment.metadata;
+      await db.orders.update(orderId, { status: 'paid' });
+      await sendOrderConfirmationEmail(orderId);
+      break;
+      
+    case 'payment.forwarded':
+      // Funds received in your wallet
+      await db.orders.update(data.payment.metadata.orderId, {
+        fundsReceived: true
+      });
+      break;
+      
+    case 'payment.expired':
+      // Payment expired - notify customer
+      await sendPaymentExpiredEmail(data.payment.metadata.orderId);
+      break;
+  }
+  
+  res.json({ received: true });
+});
+```
+
+### cURL Examples
+
+**Create a Bitcoin payment:**
 ```bash
-curl -X POST https://api.coinpayportal.com/api/payments/create \
-  -H "Authorization: Bearer YOUR_TOKEN" \
+curl -X POST https://coinpay.dev/api/payments/create \
+  -H "Authorization: Bearer cp_live_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{
-    "business_id": "uuid",
-    "amount": 100.00,
-    "currency": "USD",
-    "blockchain": "eth",
-    "merchant_wallet_address": "0x..."
+    "business_id": "your-business-id",
+    "amount": 99.99,
+    "blockchain": "BTC",
+    "description": "Order #12345",
+    "metadata": {"orderId": "12345"}
   }'
+```
+
+**Create a USDC payment on Polygon:**
+```bash
+curl -X POST https://coinpay.dev/api/payments/create \
+  -H "Authorization: Bearer cp_live_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "business_id": "your-business-id",
+    "amount": 50.00,
+    "blockchain": "USDC_MATIC",
+    "description": "Monthly subscription"
+  }'
+```
+
+**Check payment status:**
+```bash
+curl https://coinpay.dev/api/payments/pay_abc123 \
+  -H "Authorization: Bearer cp_live_your_api_key"
+```
+
+### CLI Examples
+
+```bash
+# Configure API key (one-time)
+coinpay config set-key cp_live_your_api_key
+
+# Create a payment
+coinpay payment create \
+  --business-id your-business-id \
+  --amount 100 \
+  --blockchain ETH \
+  --description "Test payment"
+
+# Check payment status
+coinpay payment get pay_abc123
+
+# List recent payments
+coinpay payment list --business-id your-business-id --limit 10
 ```
 
 ## Support

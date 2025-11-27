@@ -35,7 +35,7 @@ export default function SDKDocsPage() {
               npm
             </a>
             <a
-              href="https://github.com/profullstack/coinpay"
+              href="https://github.com/profullstack/coinpayportal"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors"
@@ -108,35 +108,72 @@ npm install -g @profullstack/coinpay`}
         {/* Quick Start */}
         <div id="quick-start">
           <DocSection title="Quick Start">
+            <div className="mb-8 p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+              <h4 className="text-purple-300 font-semibold mb-2">How CoinPay Works</h4>
+              <ol className="text-gray-300 text-sm space-y-1 list-decimal list-inside">
+                <li>Your server calls the CoinPay API to create a payment request</li>
+                <li>CoinPay generates a unique payment address and QR code</li>
+                <li>Your customer sends cryptocurrency to that address</li>
+                <li>CoinPay monitors the blockchain and notifies you via webhook</li>
+                <li>Funds are automatically forwarded to your wallet (minus fees)</li>
+              </ol>
+            </div>
+
             <h3 className="text-xl font-semibold text-white mb-4">SDK Usage</h3>
             <CodeBlock title="Basic SDK Example" language="javascript">
-{`import { CoinPayClient } from '@profullstack/coinpay';
+{`import { CoinPayClient, Blockchain } from '@profullstack/coinpay';
 
-// Initialize the client
+// Initialize with your API key (get it from your dashboard)
 const coinpay = new CoinPayClient({
-  apiKey: 'your-api-key',
+  apiKey: 'cp_live_your_api_key_here',
 });
 
-// Create a payment
-const payment = await coinpay.createPayment({
-  businessId: 'biz_123',
-  amount: 100,
-  currency: 'USD',
-  cryptocurrency: 'BTC',
-  description: 'Order #12345',
+// Create a payment when customer checks out
+const result = await coinpay.createPayment({
+  businessId: 'your-business-id',  // From your dashboard
+  amount: 100,                      // Amount in fiat currency
+  currency: 'USD',                  // Fiat currency (default: USD)
+  blockchain: Blockchain.BTC,       // Cryptocurrency to accept
+  description: 'Order #12345',      // Shown to customer
+  metadata: {                       // Your custom data
+    orderId: '12345',
+    customerEmail: 'customer@example.com'
+  }
 });
 
-console.log(\`Payment address: \${payment.address}\`);
-console.log(\`Amount: \${payment.cryptoAmount} \${payment.cryptocurrency}\`);`}
+// Display to customer
+console.log('Send payment to:', result.payment.payment_address);
+console.log('Amount:', result.payment.crypto_amount, result.payment.blockchain);
+console.log('QR Code:', result.payment.qr_code);`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">cURL Example</h3>
+            <CodeBlock title="Direct API Call" language="bash">
+{`curl -X POST https://coinpay.dev/api/payments/create \\
+  -H "Authorization: Bearer cp_live_your_api_key" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "business_id": "your-business-id",
+    "amount": 100,
+    "blockchain": "BTC",
+    "description": "Order #12345",
+    "metadata": {"orderId": "12345"}
+  }'`}
             </CodeBlock>
 
             <h3 className="text-xl font-semibold text-white mb-4 mt-8">CLI Usage</h3>
             <CodeBlock title="CLI Quick Start" language="bash">
-{`# Configure your API key
-coinpay config set-key sk_live_xxxxx
+{`# Configure your API key (one-time setup)
+coinpay config set-key cp_live_your_api_key
 
-# Create a payment
-coinpay payment create --business-id biz_123 --amount 100 --currency USD --crypto BTC
+# Create a Bitcoin payment
+coinpay payment create --business-id biz_123 --amount 100 --blockchain BTC
+
+# Create an Ethereum payment with description
+coinpay payment create --business-id biz_123 --amount 50 --blockchain ETH --description "Order #12345"
+
+# Create a USDC payment on Polygon
+coinpay payment create --business-id biz_123 --amount 25 --blockchain USDC_MATIC
 
 # Get payment details
 coinpay payment get pay_abc123
@@ -154,15 +191,15 @@ coinpay rates get BTC`}
         <div id="sdk-client">
           <DocSection title="SDK Client Configuration">
             <p className="text-gray-300 mb-6">
-              Initialize the CoinPayClient with your API credentials and optional configuration:
+              Initialize the CoinPayClient with your API key from your business dashboard:
             </p>
 
             <CodeBlock title="Client Initialization" language="javascript">
 {`import { CoinPayClient } from '@profullstack/coinpay';
 
 const client = new CoinPayClient({
-  // Required: Your API key
-  apiKey: 'your-api-key',
+  // Required: Your API key (starts with cp_live_)
+  apiKey: 'cp_live_your_api_key_here',
   
   // Optional: Custom API URL (defaults to https://coinpay.dev/api)
   baseUrl: 'https://coinpay.dev/api',
@@ -199,27 +236,41 @@ const client = new CoinPayClient({
         {/* Payments API */}
         <div id="payments">
           <DocSection title="Payments API">
+            <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+              <p className="text-blue-300 text-sm">
+                <strong>Primary Use Case:</strong> Call this API from your backend when a customer wants to pay with cryptocurrency.
+                Display the returned payment address and QR code to your customer.
+              </p>
+            </div>
+
             <h3 className="text-xl font-semibold text-white mb-4">Create Payment</h3>
             <CodeBlock title="Create a new payment" language="javascript">
-{`const payment = await client.createPayment({
-  businessId: 'biz_123',
-  amount: 100,
-  currency: 'USD',
-  cryptocurrency: 'BTC',
-  description: 'Order #12345',
-  metadata: JSON.stringify({ orderId: '12345' }),
-  callbackUrl: 'https://your-site.com/webhook',
+{`const result = await client.createPayment({
+  businessId: 'your-business-id',  // Required: From your dashboard
+  amount: 100,                      // Required: Amount in fiat
+  currency: 'USD',                  // Optional: Fiat currency (default: USD)
+  blockchain: 'BTC',                // Required: BTC, ETH, SOL, MATIC, BCH, USDC_ETH, USDC_MATIC, USDC_SOL
+  description: 'Order #12345',      // Optional: Shown to customer
+  metadata: {                       // Optional: Your custom data
+    orderId: '12345',
+    customerEmail: 'customer@example.com'
+  }
 });
 
-// Response
-console.log(payment);
+// Response structure
+console.log(result);
 // {
-//   id: 'pay_abc123',
-//   address: 'bc1q...',
-//   cryptoAmount: '0.00234567',
-//   cryptocurrency: 'BTC',
-//   status: 'pending',
-//   expiresAt: '2024-01-01T13:00:00Z'
+//   success: true,
+//   payment: {
+//     id: 'pay_abc123',
+//     payment_address: 'bc1q...',
+//     crypto_amount: '0.00234567',
+//     blockchain: 'BTC',
+//     status: 'pending',
+//     expires_at: '2024-01-01T13:00:00Z',
+//     qr_code: 'data:image/png;base64,...'
+//   },
+//   usage: { current: 45, limit: 100, remaining: 55 }
 // }`}
             </CodeBlock>
 
@@ -320,14 +371,17 @@ rates.forEach(rate => {
 });`}
             </CodeBlock>
 
-            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Supported Cryptocurrencies</h3>
-            <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Supported Blockchains</h3>
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
               {[
                 { name: 'Bitcoin', symbol: 'BTC' },
                 { name: 'Bitcoin Cash', symbol: 'BCH' },
                 { name: 'Ethereum', symbol: 'ETH' },
                 { name: 'Polygon', symbol: 'MATIC' },
                 { name: 'Solana', symbol: 'SOL' },
+                { name: 'USDC (Ethereum)', symbol: 'USDC_ETH' },
+                { name: 'USDC (Polygon)', symbol: 'USDC_MATIC' },
+                { name: 'USDC (Solana)', symbol: 'USDC_SOL' },
               ].map((crypto) => (
                 <div key={crypto.symbol} className="p-3 rounded-lg bg-slate-800/50 border border-white/10 text-center">
                   <div className="font-semibold text-white">{crypto.name}</div>
@@ -455,13 +509,18 @@ coinpay config show`}
 
             <h3 className="text-xl font-semibold text-white mb-4 mt-8">Payment Commands</h3>
             <CodeBlock title="Payment operations" language="bash">
-{`# Create a payment
+{`# Create a Bitcoin payment
 coinpay payment create \\
   --business-id biz_123 \\
   --amount 100 \\
-  --currency USD \\
-  --crypto BTC \\
+  --blockchain BTC \\
   --description "Order #12345"
+
+# Create a USDC payment on Polygon
+coinpay payment create \\
+  --business-id biz_123 \\
+  --amount 50 \\
+  --blockchain USDC_MATIC
 
 # Get payment details
 coinpay payment get pay_abc123
@@ -518,24 +577,26 @@ coinpay webhook test biz_123 --event payment.completed`}
             <CodeBlock title="Error handling example" language="javascript">
 {`import { CoinPayClient } from '@profullstack/coinpay';
 
-const client = new CoinPayClient({ apiKey: 'your-api-key' });
+const client = new CoinPayClient({ apiKey: 'cp_live_your_api_key' });
 
 try {
-  const payment = await client.createPayment({
-    businessId: 'biz_123',
+  const result = await client.createPayment({
+    businessId: 'your-business-id',
     amount: 100,
-    currency: 'USD',
-    cryptocurrency: 'BTC',
+    blockchain: 'BTC',
   });
   
-  console.log('Payment created:', payment.id);
+  console.log('Payment created:', result.payment.id);
+  console.log('Address:', result.payment.payment_address);
 } catch (error) {
   if (error.status === 401) {
     console.error('Invalid API key');
   } else if (error.status === 400) {
-    console.error('Invalid request:', error.response);
+    console.error('Invalid request:', error.response?.error);
   } else if (error.status === 429) {
-    console.error('Rate limit exceeded, retry after:', error.retryAfter);
+    // Transaction limit exceeded or rate limit
+    console.error('Limit exceeded:', error.response?.error);
+    console.error('Usage:', error.response?.usage);
   } else {
     console.error('Unexpected error:', error.message);
   }
@@ -573,17 +634,18 @@ try {
           </p>
 
           <CodeBlock title="Type hints in VS Code" language="javascript">
-{`// Types are inferred from JSDoc annotations
-const payment = await client.createPayment({
-  businessId: 'biz_123',  // string
-  amount: 100,            // number
-  currency: 'USD',        // string
-  cryptocurrency: 'BTC',  // 'BTC' | 'BCH' | 'ETH' | 'MATIC' | 'SOL'
+{`import { CoinPayClient, Blockchain, PaymentStatus } from '@profullstack/coinpay';
+
+// Use Blockchain constants for type safety
+const result = await client.createPayment({
+  businessId: 'biz_123',
+  amount: 100,
+  blockchain: Blockchain.BTC,  // 'BTC' | 'BCH' | 'ETH' | 'MATIC' | 'SOL' | 'USDC_ETH' | 'USDC_MATIC' | 'USDC_SOL'
 });
 
-// payment.id: string
-// payment.status: 'pending' | 'confirming' | 'completed' | 'expired' | 'failed'
-// payment.cryptoAmount: string`}
+// result.payment.status: 'pending' | 'detected' | 'confirmed' | 'forwarding' | 'forwarded' | 'expired' | 'failed'
+// result.payment.payment_address: string
+// result.payment.crypto_amount: string`}
           </CodeBlock>
         </DocSection>
 
@@ -597,7 +659,7 @@ const payment = await client.createPayment({
               Back to API Documentation
             </Link>
             <a
-              href="https://github.com/profullstack/coinpay/issues"
+              href="https://github.com/profullstack/coinpayportal/issues"
               target="_blank"
               rel="noopener noreferrer"
               className="text-gray-400 hover:text-white flex items-center"

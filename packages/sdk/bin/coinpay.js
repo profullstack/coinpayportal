@@ -6,7 +6,7 @@
  */
 
 import { CoinPayClient } from '../src/client.js';
-import { PaymentStatus, Cryptocurrency, FiatCurrency } from '../src/payments.js';
+import { PaymentStatus, Blockchain, FiatCurrency } from '../src/payments.js';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -70,7 +70,7 @@ function getApiKey() {
  */
 function getBaseUrl() {
   const config = loadConfig();
-  return process.env.COINPAY_BASE_URL || config.baseUrl || 'https://coinpay.dev/api';
+  return process.env.COINPAY_BASE_URL || config.baseUrl || 'https://coinpayportal.com/api';
 }
 
 /**
@@ -152,15 +152,31 @@ ${colors.cyan}Options:${colors.reset}
   --version, -v           Show version
   --json                  Output as JSON
   --business-id <id>      Business ID for operations
-  --amount <amount>       Payment amount
-  --currency <code>       Fiat currency (USD, EUR, etc.)
-  --crypto <code>         Cryptocurrency (BTC, ETH, etc.)
+  --amount <amount>       Payment amount in fiat currency
+  --currency <code>       Fiat currency (USD, EUR, etc.) - default: USD
+  --blockchain <code>     Blockchain (BTC, ETH, SOL, MATIC, BCH, USDC_ETH, USDC_MATIC, USDC_SOL)
+  --description <text>    Payment description
 
 ${colors.cyan}Examples:${colors.reset}
-  coinpay config set-key sk_live_xxxxx
-  coinpay payment create --business-id biz_123 --amount 100 --currency USD --crypto BTC
+  # Configure your API key (get it from your CoinPay dashboard)
+  coinpay config set-key cp_live_xxxxx
+
+  # Create a $100 Bitcoin payment
+  coinpay payment create --business-id biz_123 --amount 100 --blockchain BTC
+
+  # Create a $50 Ethereum payment with description
+  coinpay payment create --business-id biz_123 --amount 50 --blockchain ETH --description "Order #12345"
+
+  # Create a USDC payment on Polygon
+  coinpay payment create --business-id biz_123 --amount 25 --blockchain USDC_MATIC
+
+  # Get payment status
   coinpay payment get pay_abc123
+
+  # Get exchange rates
   coinpay rates get BTC
+
+  # List your businesses
   coinpay business list
 
 ${colors.cyan}Environment Variables:${colors.reset}
@@ -218,10 +234,11 @@ async function handlePayment(subcommand, args, flags) {
   
   switch (subcommand) {
     case 'create': {
-      const { 'business-id': businessId, amount, currency, crypto, description } = flags;
+      const { 'business-id': businessId, amount, currency = 'USD', blockchain, description } = flags;
       
-      if (!businessId || !amount || !currency || !crypto) {
-        print.error('Required: --business-id, --amount, --currency, --crypto');
+      if (!businessId || !amount || !blockchain) {
+        print.error('Required: --business-id, --amount, --blockchain');
+        print.info('Example: coinpay payment create --business-id biz_123 --amount 100 --blockchain BTC');
         return;
       }
       
@@ -229,12 +246,19 @@ async function handlePayment(subcommand, args, flags) {
         businessId,
         amount: parseFloat(amount),
         currency,
-        cryptocurrency: crypto,
+        blockchain,
         description,
       });
       
       print.success('Payment created');
-      print.json(payment);
+      if (payment.payment) {
+        print.info(`Payment Address: ${payment.payment.payment_address}`);
+        print.info(`Amount: ${payment.payment.crypto_amount} ${payment.payment.blockchain}`);
+        print.info(`Expires: ${payment.payment.expires_at}`);
+      }
+      if (!flags.json) {
+        print.json(payment);
+      }
       break;
     }
     
@@ -364,7 +388,7 @@ async function handleRates(subcommand, args, flags) {
       const { fiat } = flags;
       
       if (!crypto) {
-        print.error('Cryptocurrency code required (BTC, ETH, etc.)');
+        print.error('Blockchain code required (BTC, ETH, SOL, etc.)');
         return;
       }
       
@@ -375,7 +399,7 @@ async function handleRates(subcommand, args, flags) {
     
     case 'list': {
       const { fiat } = flags;
-      const cryptos = Object.values(Cryptocurrency);
+      const cryptos = Object.values(Blockchain);
       const rates = await client.getExchangeRates(cryptos, fiat);
       print.json(rates);
       break;

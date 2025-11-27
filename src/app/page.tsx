@@ -386,7 +386,7 @@ export default function Home() {
               </div>
               <pre className="p-4 text-sm overflow-x-auto">
                 <code className="text-gray-300">
-{`curl -X POST https://api.coinpay.dev/v1/payments \\
+{`curl -X POST https://api.coinpayportal.com/v1/payments \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{

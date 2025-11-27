@@ -1,33 +1,65 @@
 /**
  * Payment utilities for CoinPay SDK
+ *
+ * This module provides helper functions for creating and managing cryptocurrency payments.
+ *
+ * @example
+ * // Quick payment creation
+ * import { createPayment } from '@coinpay/sdk';
+ *
+ * const payment = await createPayment({
+ *   apiKey: 'cp_live_xxxxx',
+ *   businessId: 'your-business-id',
+ *   amount: 100.00,
+ *   blockchain: 'ETH',
+ *   description: 'Order #12345'
+ * });
  */
 
 import { CoinPayClient } from './client.js';
 
 /**
  * Create a payment using a client instance or API key
+ *
+ * This is a convenience function for creating payments without manually
+ * instantiating a client. For multiple operations, create a client instance
+ * and reuse it.
+ *
  * @param {Object} params - Payment parameters
- * @param {string} params.apiKey - API key (if not using client)
- * @param {CoinPayClient} [params.client] - Existing client instance
- * @param {string} params.businessId - Business ID
- * @param {number} params.amount - Amount in fiat currency
- * @param {string} params.currency - Fiat currency code
- * @param {string} params.cryptocurrency - Cryptocurrency code
- * @param {string} [params.description] - Payment description
- * @param {string} [params.metadata] - Custom metadata
- * @param {string} [params.callbackUrl] - Webhook callback URL
- * @returns {Promise<Object>} Created payment
+ * @param {string} params.apiKey - API key (required if not using client)
+ * @param {CoinPayClient} [params.client] - Existing client instance (optional)
+ * @param {string} params.businessId - Business ID from your CoinPay dashboard
+ * @param {number} params.amount - Amount in fiat currency (e.g., 100.00)
+ * @param {string} [params.currency='USD'] - Fiat currency code (USD, EUR, etc.)
+ * @param {string} params.blockchain - Blockchain to use (BTC, ETH, SOL, MATIC, BCH, USDC_ETH, USDC_MATIC, USDC_SOL)
+ * @param {string} [params.description] - Payment description shown to customer
+ * @param {Object} [params.metadata] - Custom metadata for your records
+ * @returns {Promise<Object>} Created payment with address and QR code
+ *
+ * @example
+ * // Create a Bitcoin payment
+ * const payment = await createPayment({
+ *   apiKey: 'cp_live_xxxxx',
+ *   businessId: 'biz_123',
+ *   amount: 50.00,
+ *   currency: 'USD',
+ *   blockchain: 'BTC',
+ *   description: 'Premium subscription',
+ *   metadata: { userId: 'user_456', plan: 'premium' }
+ * });
+ *
+ * console.log('Payment address:', payment.payment.payment_address);
+ * console.log('Amount in BTC:', payment.payment.crypto_amount);
  */
 export async function createPayment({
   apiKey,
   client,
   businessId,
   amount,
-  currency,
-  cryptocurrency,
+  currency = 'USD',
+  blockchain,
   description,
   metadata,
-  callbackUrl,
 }) {
   const coinpay = client || new CoinPayClient({ apiKey });
   
@@ -35,10 +67,9 @@ export async function createPayment({
     businessId,
     amount,
     currency,
-    cryptocurrency,
+    blockchain,
     description,
     metadata,
-    callbackUrl,
   });
 }
 
@@ -91,15 +122,43 @@ export const PaymentStatus = {
 };
 
 /**
- * Supported cryptocurrencies
+ * Supported blockchains/cryptocurrencies
+ *
+ * Use these constants when creating payments to ensure valid blockchain values.
+ *
+ * @example
+ * import { Blockchain, createPayment } from '@coinpay/sdk';
+ *
+ * const payment = await createPayment({
+ *   apiKey: 'cp_live_xxxxx',
+ *   businessId: 'biz_123',
+ *   amount: 100,
+ *   blockchain: Blockchain.ETH
+ * });
  */
-export const Cryptocurrency = {
+export const Blockchain = {
+  /** Bitcoin */
   BTC: 'BTC',
+  /** Bitcoin Cash */
   BCH: 'BCH',
+  /** Ethereum */
   ETH: 'ETH',
+  /** Polygon (MATIC) */
   MATIC: 'MATIC',
+  /** Solana */
   SOL: 'SOL',
+  /** USDC on Ethereum */
+  USDC_ETH: 'USDC_ETH',
+  /** USDC on Polygon */
+  USDC_MATIC: 'USDC_MATIC',
+  /** USDC on Solana */
+  USDC_SOL: 'USDC_SOL',
 };
+
+/**
+ * @deprecated Use Blockchain instead
+ */
+export const Cryptocurrency = Blockchain;
 
 /**
  * Supported fiat currencies
@@ -117,6 +176,7 @@ export default {
   getPayment,
   listPayments,
   PaymentStatus,
+  Blockchain,
   Cryptocurrency,
   FiatCurrency,
 };

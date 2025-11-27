@@ -3,10 +3,31 @@
  * Cryptocurrency payment integration for Node.js
  *
  * @module @profullstack/coinpay
+ *
+ * @example
+ * // Quick start
+ * import { CoinPayClient, Blockchain } from '@profullstack/coinpay';
+ *
+ * const client = new CoinPayClient({ apiKey: 'cp_live_xxxxx' });
+ *
+ * const payment = await client.createPayment({
+ *   businessId: 'your-business-id',
+ *   amount: 100,
+ *   blockchain: Blockchain.BTC,
+ *   description: 'Order #12345'
+ * });
  */
 
 import { CoinPayClient } from './client.js';
-import { createPayment, getPayment, listPayments } from './payments.js';
+import {
+  createPayment,
+  getPayment,
+  listPayments,
+  Blockchain,
+  Cryptocurrency,
+  PaymentStatus,
+  FiatCurrency,
+} from './payments.js';
 import {
   verifyWebhookSignature,
   generateWebhookSignature,
@@ -16,10 +37,21 @@ import {
 } from './webhooks.js';
 
 export {
+  // Client
   CoinPayClient,
+  
+  // Payment functions
   createPayment,
   getPayment,
   listPayments,
+  
+  // Constants
+  Blockchain,
+  Cryptocurrency,  // Deprecated, use Blockchain
+  PaymentStatus,
+  FiatCurrency,
+  
+  // Webhook utilities
   verifyWebhookSignature,
   generateWebhookSignature,
   parseWebhookPayload,

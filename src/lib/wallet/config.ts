@@ -8,8 +8,8 @@ export const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '';
 export const metadata = {
   name: 'CoinPay',
   description: 'Non-Custodial Cryptocurrency Payment Gateway',
-  url: typeof window !== 'undefined' ? window.location.origin : 'https://coinpay.dev',
-  icons: ['https://coinpay.dev/logo.svg'],
+  url: typeof window !== 'undefined' ? window.location.origin : 'https://coinpayportal.com',
+  icons: ['https://coinpayportal.com/logo.svg'],
 };
 
 // Wagmi config for EVM chains

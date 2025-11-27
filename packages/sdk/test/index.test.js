@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 import * as sdk from '../src/index.js';
 import { CoinPayClient } from '../src/client.js';
 import { verifyWebhookSignature, WebhookEvent } from '../src/webhooks.js';
+import { Blockchain, PaymentStatus, FiatCurrency } from '../src/payments.js';
 
 describe('@profullstack/coinpay SDK exports', () => {
   describe('named exports', () => {
@@ -39,6 +40,26 @@ describe('@profullstack/coinpay SDK exports', () => {
       expect(sdk.listPayments).toBeDefined();
       expect(typeof sdk.listPayments).toBe('function');
     });
+
+    it('should export Blockchain constants', () => {
+      expect(sdk.Blockchain).toBeDefined();
+      expect(sdk.Blockchain).toBe(Blockchain);
+    });
+
+    it('should export PaymentStatus constants', () => {
+      expect(sdk.PaymentStatus).toBeDefined();
+      expect(sdk.PaymentStatus).toBe(PaymentStatus);
+    });
+
+    it('should export FiatCurrency constants', () => {
+      expect(sdk.FiatCurrency).toBeDefined();
+      expect(sdk.FiatCurrency).toBe(FiatCurrency);
+    });
+
+    it('should export Cryptocurrency as deprecated alias for Blockchain', () => {
+      expect(sdk.Cryptocurrency).toBeDefined();
+      expect(sdk.Cryptocurrency).toBe(sdk.Blockchain);
+    });
   });
 
   describe('default export', () => {
@@ -50,13 +71,13 @@ describe('@profullstack/coinpay SDK exports', () => {
 
   describe('CoinPayClient instantiation', () => {
     it('should create client with API key', () => {
-      const client = new sdk.CoinPayClient({ apiKey: 'test_key' });
+      const client = new sdk.CoinPayClient({ apiKey: 'cp_live_test_key_123456789' });
       expect(client).toBeInstanceOf(CoinPayClient);
     });
 
     it('should create client with all options', () => {
       const client = new sdk.CoinPayClient({
-        apiKey: 'test_key',
+        apiKey: 'cp_live_test_key_123456789',
         baseUrl: 'https://custom.api.com',
         timeout: 60000,
       });
@@ -78,6 +99,41 @@ describe('@profullstack/coinpay SDK exports', () => {
     it('should have all business events', () => {
       expect(sdk.WebhookEvent.BUSINESS_CREATED).toBe('business.created');
       expect(sdk.WebhookEvent.BUSINESS_UPDATED).toBe('business.updated');
+    });
+  });
+
+  describe('Blockchain constants', () => {
+    it('should have all native blockchain types', () => {
+      expect(sdk.Blockchain.BTC).toBe('BTC');
+      expect(sdk.Blockchain.BCH).toBe('BCH');
+      expect(sdk.Blockchain.ETH).toBe('ETH');
+      expect(sdk.Blockchain.MATIC).toBe('MATIC');
+      expect(sdk.Blockchain.SOL).toBe('SOL');
+    });
+
+    it('should have all USDC variants', () => {
+      expect(sdk.Blockchain.USDC_ETH).toBe('USDC_ETH');
+      expect(sdk.Blockchain.USDC_MATIC).toBe('USDC_MATIC');
+      expect(sdk.Blockchain.USDC_SOL).toBe('USDC_SOL');
+    });
+  });
+
+  describe('PaymentStatus constants', () => {
+    it('should have all payment statuses', () => {
+      expect(sdk.PaymentStatus.PENDING).toBe('pending');
+      expect(sdk.PaymentStatus.CONFIRMING).toBe('confirming');
+      expect(sdk.PaymentStatus.COMPLETED).toBe('completed');
+      expect(sdk.PaymentStatus.EXPIRED).toBe('expired');
+      expect(sdk.PaymentStatus.FAILED).toBe('failed');
+      expect(sdk.PaymentStatus.REFUNDED).toBe('refunded');
+    });
+  });
+
+  describe('FiatCurrency constants', () => {
+    it('should have common fiat currencies', () => {
+      expect(sdk.FiatCurrency.USD).toBe('USD');
+      expect(sdk.FiatCurrency.EUR).toBe('EUR');
+      expect(sdk.FiatCurrency.GBP).toBe('GBP');
     });
   });
 });
