@@ -1,6 +1,6 @@
 interface CodeBlockProps {
   title?: string;
-  language?: 'json' | 'curl' | 'javascript' | 'html';
+  language?: 'json' | 'curl' | 'javascript' | 'html' | 'bash';
   children: string;
 }
 
@@ -9,6 +9,7 @@ const languageColors = {
   curl: 'text-green-400',
   javascript: 'text-blue-400',
   html: 'text-orange-400',
+  bash: 'text-green-400',
 };
 
 export function CodeBlock({ title, language = 'json', children }: CodeBlockProps) {

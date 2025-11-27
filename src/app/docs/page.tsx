@@ -25,11 +25,33 @@ export default function DocsPage() {
           </p>
         </div>
 
+        {/* SDK Documentation Link */}
+        <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-purple-500/20 to-blue-500/20 border border-purple-500/30">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white mb-2">📦 Node.js SDK &amp; CLI</h2>
+              <p className="text-gray-300 text-sm">
+                Use our official SDK for seamless integration with your Node.js applications
+              </p>
+            </div>
+            <Link
+              href="/docs/sdk"
+              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              View SDK Docs
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+          </div>
+        </div>
+
         {/* Table of Contents */}
         <nav className="mb-12 p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
           <h2 className="text-xl font-bold text-white mb-4">Quick Navigation</h2>
           <div className="grid md:grid-cols-3 gap-4">
             {[
+              { name: 'SDK Documentation', href: '/docs/sdk', external: true },
               { name: 'Authentication', href: '#authentication' },
               { name: 'Subscriptions & Entitlements', href: '#subscriptions' },
               { name: 'Businesses', href: '#businesses' },
@@ -40,13 +62,23 @@ export default function DocsPage() {
               { name: 'Webhooks', href: '#webhooks' },
               { name: 'Error Codes', href: '#errors' },
             ].map((item) => (
-              <a
-                key={item.name}
-                href={item.href}
-                className="text-purple-400 hover:text-purple-300 text-sm"
-              >
-                → {item.name}
-              </a>
+              item.external ? (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className="text-purple-400 hover:text-purple-300 text-sm font-semibold"
+                >
+                  → {item.name} ↗
+                </Link>
+              ) : (
+                <a
+                  key={item.name}
+                  href={item.href}
+                  className="text-purple-400 hover:text-purple-300 text-sm"
+                >
+                  → {item.name}
+                </a>
+              )
             ))}
           </div>
         </nav>
