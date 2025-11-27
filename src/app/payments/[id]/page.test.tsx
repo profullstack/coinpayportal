@@ -536,6 +536,112 @@ describe('PaymentDetailPage', () => {
     });
   });
 
+  describe('QR Code Persistence', () => {
+    it('should show QR code for pending payment even with old created_at', async () => {
+      // Create a payment that was created 20 minutes ago (past the 15 min expiry)
+      // but server still says it's pending - QR should still show
+      const oldCreatedAt = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+      
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: {
+            ...mockPayment,
+            status: 'pending',
+            created_at: oldCreatedAt,
+          },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        // QR code should still be visible because server status is 'pending'
+        const qrImage = screen.getByAltText(/payment qr code/i);
+        expect(qrImage).toBeInTheDocument();
+      });
+    });
+
+    it('should show QR code for detected payment even with old created_at', async () => {
+      // Create a payment that was created 20 minutes ago but is in 'detected' status
+      const oldCreatedAt = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+      
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: {
+            ...mockPayment,
+            status: 'detected',
+            created_at: oldCreatedAt,
+          },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        // QR code should still be visible because server status is 'detected'
+        const qrImage = screen.getByAltText(/payment qr code/i);
+        expect(qrImage).toBeInTheDocument();
+      });
+    });
+
+    it('should not show QR code when server status is expired', async () => {
+      // Payment is expired on the server - QR should not show
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: {
+            ...mockPayment,
+            status: 'expired',
+          },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        screen.getByText(/payment expired/i);
+      });
+
+      expect(screen.queryByAltText(/payment qr code/i)).not.toBeInTheDocument();
+    });
+
+    it('should use expires_at field for time calculation when available', async () => {
+      // Payment with explicit expires_at in the future
+      const futureExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes from now
+      const oldCreatedAt = new Date(Date.now() - 20 * 60 * 1000).toISOString(); // 20 minutes ago
+      
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: {
+            ...mockPayment,
+            status: 'pending',
+            created_at: oldCreatedAt,
+            expires_at: futureExpiresAt,
+          },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        // Timer should show time remaining based on expires_at, not created_at
+        // Since expires_at is 10 minutes in the future, timer should show ~10:00
+        const timerElements = screen.getAllByText(/\d{2}:\d{2}/);
+        expect(timerElements.length).toBeGreaterThan(0);
+        // The timer should show something around 09:xx or 10:xx
+        const timerText = timerElements[0].textContent;
+        expect(timerText).toMatch(/^(09|10):\d{2}$/);
+      });
+    });
+  });
+
   describe('Polling Behavior', () => {
     it('should not poll for confirmed payment', async () => {
       vi.mocked(fetch).mockResolvedValueOnce({

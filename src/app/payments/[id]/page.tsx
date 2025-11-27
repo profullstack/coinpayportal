@@ -47,10 +47,15 @@ export default function PaymentDetailPage() {
     }
   };
 
-  // Calculate time remaining based on created_at
-  const calculateTimeRemaining = useCallback((createdAt: string) => {
-    const created = new Date(createdAt);
-    const expiresAt = new Date(created.getTime() + PAYMENT_EXPIRY_MINUTES * 60 * 1000);
+  // Calculate time remaining based on expires_at or created_at
+  const calculateTimeRemaining = useCallback((payment: Payment) => {
+    let expiresAt: Date;
+    if (payment.expires_at) {
+      expiresAt = new Date(payment.expires_at);
+    } else {
+      const created = new Date(payment.created_at);
+      expiresAt = new Date(created.getTime() + PAYMENT_EXPIRY_MINUTES * 60 * 1000);
+    }
     const now = new Date();
     const remaining = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
     return remaining;
@@ -121,7 +126,7 @@ export default function PaymentDetailPage() {
         
         // Calculate initial time remaining
         if (data.payment.created_at) {
-          const remaining = calculateTimeRemaining(data.payment.created_at);
+          const remaining = calculateTimeRemaining(data.payment);
           setTimeRemaining(remaining);
         }
         
@@ -148,15 +153,15 @@ export default function PaymentDetailPage() {
       // Start countdown timer
       timerIntervalRef.current = setInterval(() => {
         if (payment.created_at) {
-          const remaining = calculateTimeRemaining(payment.created_at);
+          const remaining = calculateTimeRemaining(payment);
           setTimeRemaining(remaining);
 
+          // Only set expired on client if timer reaches 0 AND status is still pending
+          // The server will also mark it expired, so this is just for UI feedback
           if (remaining === 0 && paymentStatus === 'pending') {
-            setPaymentStatus('expired');
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current);
-              pollIntervalRef.current = null;
-            }
+            // Don't immediately set to expired - let the next poll confirm it
+            // This prevents the QR from disappearing before the server confirms
+            // Just stop the timer
             if (timerIntervalRef.current) {
               clearInterval(timerIntervalRef.current);
               timerIntervalRef.current = null;
@@ -381,7 +386,7 @@ export default function PaymentDetailPage() {
               </div>
             </div>
 
-            {payment.id && payment.payment_address && (paymentStatus === 'pending' || paymentStatus === 'detected') && (
+            {payment.id && payment.payment_address && (payment.status === 'pending' || payment.status === 'detected') && (
               <div>
                 <h3 className="text-sm font-medium text-gray-700 mb-2">
                   QR Code
