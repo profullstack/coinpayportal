@@ -1,0 +1,64 @@
+{
+  "name": "@profullstack/coinpay",
+  "version": "0.1.0",
+  "description": "CoinPay SDK & CLI - Cryptocurrency payment integration for Node.js",
+  "type": "module",
+  "main": "./src/index.js",
+  "bin": {
+    "coinpay": "./bin/coinpay.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "types": "./src/index.d.ts"
+    },
+    "./payments": {
+      "import": "./src/payments.js",
+      "types": "./src/payments.d.ts"
+    },
+    "./webhooks": {
+      "import": "./src/webhooks.js",
+      "types": "./src/webhooks.d.ts"
+    }
+  },
+  "files": [
+    "src",
+    "bin",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src bin test",
+    "format": "prettier --write src bin test"
+  },
+  "keywords": [
+    "coinpay",
+    "profullstack",
+    "cryptocurrency",
+    "payments",
+    "bitcoin",
+    "ethereum",
+    "solana",
+    "polygon",
+    "sdk",
+    "cli"
+  ],
+  "author": "Profullstack, Inc.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/profullstack/coinpayportal.git",
+    "directory": "packages/sdk"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8",
+    "eslint": "^8.57.0",
+    "prettier": "^3.4.1"
+  },
+  "peerDependencies": {},
+  "dependencies": {}
+}

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import QRCode from 'qrcode';
 
 interface DemoPayment {
   id: string;
@@ -11,14 +12,24 @@ interface DemoPayment {
   address: string;
   status: 'pending' | 'confirming' | 'completed' | 'expired';
   expiresAt: Date;
+  qrCode?: string;
+  paymentUri?: string;
 }
 
 const DEMO_CRYPTOS = [
-  { symbol: 'ETH', name: 'Ethereum', icon: '⟠', rate: 3500 },
-  { symbol: 'MATIC', name: 'Polygon', icon: '⬡', rate: 0.85 },
-  { symbol: 'SOL', name: 'Solana', icon: '◎', rate: 180 },
-  { symbol: 'BTC', name: 'Bitcoin', icon: '₿', rate: 95000 },
+  { symbol: 'ETH', name: 'Ethereum', icon: '⟠', rate: 3500, scheme: 'ethereum' },
+  { symbol: 'MATIC', name: 'Polygon', icon: '⬡', rate: 0.85, scheme: 'polygon' },
+  { symbol: 'SOL', name: 'Solana', icon: '◎', rate: 180, scheme: 'solana' },
+  { symbol: 'BTC', name: 'Bitcoin', icon: '₿', rate: 95000, scheme: 'bitcoin' },
 ];
+
+// Demo addresses for each cryptocurrency (testnet addresses)
+const DEMO_ADDRESSES: Record<string, string> = {
+  ETH: '0x742d35Cc6634C0532925a3b844Bc9e7595f5bE21',
+  MATIC: '0x742d35Cc6634C0532925a3b844Bc9e7595f5bE21',
+  SOL: 'DemoSo1anaAddressXXXXXXXXXXXXXXXXXXXXXXXXX',
+  BTC: 'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh',
+};
 
 export function PaymentDemo() {
   const [step, setStep] = useState<'amount' | 'crypto' | 'payment' | 'success'>('amount');
@@ -27,6 +38,8 @@ export function PaymentDemo() {
   const [payment, setPayment] = useState<DemoPayment | null>(null);
   const [timeLeft, setTimeLeft] = useState(900); // 15 minutes
   const [copied, setCopied] = useState(false);
+  const [confirmations, setConfirmations] = useState(0);
+  const [requiredConfirmations, setRequiredConfirmations] = useState(12);
 
   // Countdown timer
   useEffect(() => {
@@ -38,26 +51,38 @@ export function PaymentDemo() {
     }
   }, [step, timeLeft]);
 
-  // Simulate payment confirmation
+  // Simulate payment confirmation with realistic confirmation progress
   useEffect(() => {
     if (step === 'payment' && payment) {
-      // Simulate payment detection after 5 seconds
+      // Simulate payment detection after 3 seconds
       const detectTimer = setTimeout(() => {
         setPayment((prev) => prev ? { ...prev, status: 'confirming' } : null);
-      }, 5000);
-
-      // Simulate payment completion after 10 seconds
-      const completeTimer = setTimeout(() => {
-        setPayment((prev) => prev ? { ...prev, status: 'completed' } : null);
-        setStep('success');
-      }, 10000);
+      }, 3000);
 
       return () => {
         clearTimeout(detectTimer);
-        clearTimeout(completeTimer);
       };
     }
   }, [step, payment]);
+
+  // Simulate confirmation progress
+  useEffect(() => {
+    if (payment?.status === 'confirming' && confirmations < requiredConfirmations) {
+      const confirmTimer = setInterval(() => {
+        setConfirmations((prev) => {
+          const next = prev + 1;
+          if (next >= requiredConfirmations) {
+            setPayment((p) => p ? { ...p, status: 'completed' } : null);
+            setStep('success');
+            return requiredConfirmations;
+          }
+          return next;
+        });
+      }, 800); // Faster for demo purposes
+
+      return () => clearInterval(confirmTimer);
+    }
+  }, [payment?.status, confirmations, requiredConfirmations]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -65,31 +90,70 @@ export function PaymentDemo() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const calculateCryptoAmount = () => {
+  const calculateCryptoAmount = useCallback(() => {
     const fiatAmount = parseFloat(amount) || 0;
     return (fiatAmount / selectedCrypto.rate).toFixed(8);
-  };
+  }, [amount, selectedCrypto.rate]);
 
-  const generateDemoAddress = () => {
-    if (selectedCrypto.symbol === 'SOL') {
-      return 'DemoSo1anaAddress' + Math.random().toString(36).substring(2, 15);
+  // Build payment URI for QR code
+  const buildPaymentUri = useCallback((crypto: typeof DEMO_CRYPTOS[0], address: string, cryptoAmount: string) => {
+    const scheme = crypto.scheme;
+    let uri = `${scheme}:${address}`;
+    
+    // Add amount parameter
+    if (cryptoAmount) {
+      uri += `?amount=${cryptoAmount}`;
     }
-    if (selectedCrypto.symbol === 'BTC') {
-      return 'bc1qDemo' + Math.random().toString(36).substring(2, 20);
-    }
-    return '0xDemo' + Math.random().toString(36).substring(2, 15) + 'Address';
-  };
+    
+    return uri;
+  }, []);
 
-  const handleCreatePayment = () => {
+  // Generate QR code
+  const generateQRCode = useCallback(async (data: string): Promise<string> => {
+    try {
+      const qrDataUrl = await QRCode.toDataURL(data, {
+        width: 200,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF',
+        },
+        errorCorrectionLevel: 'M',
+      });
+      return qrDataUrl;
+    } catch (error) {
+      console.error('QR code generation failed:', error);
+      return '';
+    }
+  }, []);
+
+  const handleCreatePayment = async () => {
+    const cryptoAmount = calculateCryptoAmount();
+    const address = DEMO_ADDRESSES[selectedCrypto.symbol];
+    const paymentUri = buildPaymentUri(selectedCrypto, address, cryptoAmount);
+    const qrCode = await generateQRCode(paymentUri);
+    
+    // Set required confirmations based on crypto
+    const confirmationsMap: Record<string, number> = {
+      BTC: 3,
+      ETH: 12,
+      MATIC: 128,
+      SOL: 32,
+    };
+    setRequiredConfirmations(confirmationsMap[selectedCrypto.symbol] || 12);
+    setConfirmations(0);
+    
     const newPayment: DemoPayment = {
       id: 'demo_' + Math.random().toString(36).substring(2, 9),
       amount: parseFloat(amount),
       currency: 'USD',
-      cryptoAmount: calculateCryptoAmount(),
+      cryptoAmount,
       cryptoCurrency: selectedCrypto.symbol,
-      address: generateDemoAddress(),
+      address,
       status: 'pending',
       expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+      qrCode,
+      paymentUri,
     };
     setPayment(newPayment);
     setStep('payment');
@@ -110,6 +174,7 @@ export function PaymentDemo() {
     setAmount('25.00');
     setSelectedCrypto(DEMO_CRYPTOS[0]);
     setTimeLeft(900);
+    setConfirmations(0);
   };
 
   return (
@@ -230,18 +295,29 @@ export function PaymentDemo() {
               </div>
 
               {/* Status */}
-              <div className="flex items-center justify-center gap-2">
+              <div className="flex flex-col items-center gap-2">
                 {payment.status === 'pending' && (
-                  <>
+                  <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
                     <span className="text-yellow-400 text-sm">Waiting for payment</span>
-                  </>
+                  </div>
                 )}
                 {payment.status === 'confirming' && (
-                  <>
-                    <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
-                    <span className="text-blue-400 text-sm">Confirming transaction</span>
-                  </>
+                  <div className="w-full">
+                    <div className="flex items-center justify-center gap-2 mb-2">
+                      <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
+                      <span className="text-blue-400 text-sm">
+                        Confirming ({confirmations}/{requiredConfirmations})
+                      </span>
+                    </div>
+                    {/* Progress bar */}
+                    <div className="w-full bg-slate-700 rounded-full h-2">
+                      <div
+                        className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${(confirmations / requiredConfirmations) * 100}%` }}
+                      />
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -281,17 +357,37 @@ export function PaymentDemo() {
                 </div>
               </div>
 
-              {/* QR Code Placeholder */}
+              {/* QR Code */}
               <div className="flex justify-center">
-                <div className="w-40 h-40 bg-white rounded-xl flex items-center justify-center">
-                  <div className="text-center text-gray-500 text-xs">
-                    <svg className="w-16 h-16 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-                    </svg>
-                    QR Code
+                {payment.qrCode ? (
+                  <div className="p-2 bg-white rounded-xl">
+                    <img
+                      src={payment.qrCode}
+                      alt="Payment QR Code"
+                      className="w-40 h-40"
+                    />
                   </div>
-                </div>
+                ) : (
+                  <div className="w-40 h-40 bg-white rounded-xl flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                  </div>
+                )}
               </div>
+
+              {/* Payment URI for mobile wallets */}
+              {payment.paymentUri && (
+                <div className="text-center">
+                  <a
+                    href={payment.paymentUri}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-purple-500/20 text-purple-400 rounded-lg hover:bg-purple-500/30 transition-colors text-sm"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                    Open in Wallet App
+                  </a>
+                </div>
+              )}
 
               {/* Sign up prompt */}
               <div className="text-center p-4 bg-purple-500/10 rounded-xl border border-purple-500/30">

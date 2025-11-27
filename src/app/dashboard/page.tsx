@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useRealtimePayments, type RealtimePayment } from '@/lib/realtime/useRealtimePayments';
 
 interface DashboardStats {
   total_payments: number;
@@ -29,6 +30,66 @@ export default function DashboardPage() {
   const [recentPayments, setRecentPayments] = useState<RecentPayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notification, setNotification] = useState<string | null>(null);
+
+  // Real-time payment updates
+  const { isConnected, payments: realtimePayments } = useRealtimePayments({
+    onPaymentCreated: (payment) => {
+      setNotification(`New payment created: ${payment.id.slice(0, 8)}...`);
+      setTimeout(() => setNotification(null), 5000);
+      // Add to recent payments
+      setRecentPayments((prev) => [{
+        id: payment.id,
+        amount_crypto: payment.amount_crypto,
+        amount_usd: payment.amount_usd,
+        currency: payment.currency,
+        status: payment.status,
+        created_at: payment.created_at,
+        payment_address: payment.payment_address,
+      }, ...prev.slice(0, 9)]);
+      // Update stats
+      setStats((prev) => prev ? {
+        ...prev,
+        total_payments: prev.total_payments + 1,
+        pending_payments: prev.pending_payments + 1,
+      } : prev);
+    },
+    onPaymentCompleted: (payment) => {
+      setNotification(`Payment completed: ${payment.id.slice(0, 8)}...`);
+      setTimeout(() => setNotification(null), 5000);
+      // Update payment in list
+      setRecentPayments((prev) =>
+        prev.map((p) => p.id === payment.id ? {
+          ...p,
+          status: payment.status,
+        } : p)
+      );
+      // Update stats
+      setStats((prev) => prev ? {
+        ...prev,
+        successful_payments: prev.successful_payments + 1,
+        pending_payments: Math.max(0, prev.pending_payments - 1),
+        total_volume_usd: prev.total_volume_usd + parseFloat(payment.amount_usd),
+      } : prev);
+    },
+    onPaymentExpired: (payment) => {
+      setNotification(`Payment expired: ${payment.id.slice(0, 8)}...`);
+      setTimeout(() => setNotification(null), 5000);
+      // Update payment in list
+      setRecentPayments((prev) =>
+        prev.map((p) => p.id === payment.id ? {
+          ...p,
+          status: payment.status,
+        } : p)
+      );
+      // Update stats
+      setStats((prev) => prev ? {
+        ...prev,
+        failed_payments: prev.failed_payments + 1,
+        pending_payments: Math.max(0, prev.pending_payments - 1),
+      } : prev);
+    },
+  });
 
   useEffect(() => {
     fetchDashboardData();
@@ -111,12 +172,31 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="mt-2 text-gray-600">
-            Overview of your payment activity
-          </p>
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+            <p className="mt-2 text-gray-600">
+              Overview of your payment activity
+            </p>
+          </div>
+          {/* Connection Status */}
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <span className="text-sm text-gray-500">
+              {isConnected ? 'Live updates' : 'Reconnecting...'}
+            </span>
+          </div>
         </div>
+
+        {/* Real-time Notification */}
+        {notification && (
+          <div className="mb-6 bg-purple-50 border border-purple-200 text-purple-700 px-4 py-3 rounded-lg flex items-center gap-2 animate-pulse">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+            {notification}
+          </div>
+        )}
 
         {/* Error Message */}
         {error && (

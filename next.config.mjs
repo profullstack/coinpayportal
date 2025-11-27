@@ -11,6 +11,7 @@ const nextConfig = {
   },
   // Transpile wallet packages that have ESM/CJS issues
   transpilePackages: [
+    '@profullstack/coinpay',
     '@reown/appkit',
     '@reown/appkit-adapter-wagmi',
     '@reown/appkit-controllers',

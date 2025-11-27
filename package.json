@@ -15,6 +15,7 @@
     "pre-commit": "pnpm build && vitest run"
   },
   "dependencies": {
+    "@profullstack/coinpay": "workspace:*",
     "@coinbase/wallet-sdk": "^4.3.7",
     "@metamask/sdk": "^0.34.0",
     "@noble/curves": "^2.0.1",
