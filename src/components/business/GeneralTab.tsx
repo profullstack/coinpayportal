@@ -14,7 +14,6 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
   const [formData, setFormData] = useState({
     name: business.name,
     description: business.description || '',
-    wallet_address: business.wallet_address,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -99,19 +98,6 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Primary Wallet Address *
-            </label>
-            <input
-              type="text"
-              required
-              value={formData.wallet_address}
-              onChange={(e) => setFormData({ ...formData, wallet_address: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono text-sm text-gray-900"
-            />
-          </div>
-
           <div className="flex items-center space-x-3 pt-4">
             <button
               type="submit"
@@ -127,7 +113,6 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
                 setFormData({
                   name: business.name,
                   description: business.description || '',
-                  wallet_address: business.wallet_address,
                 });
                 setError('');
               }}
@@ -155,32 +140,10 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
             </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Primary Wallet Address
-            </label>
-            <div className="flex items-center space-x-2">
-              <p className="text-gray-900 font-mono text-sm break-all">
-                {business.wallet_address}
-              </p>
-              <button
-                onClick={() => onCopy(business.wallet_address, 'Wallet address')}
-                className="text-purple-600 hover:text-purple-500"
-                title="Copy to clipboard"
-              >
-                <svg
-                  className="h-5 w-5"
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
-                </svg>
-              </button>
-            </div>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-sm text-blue-700">
+              💡 Wallet addresses are now managed in the <strong>Wallets</strong> tab. You can configure multiple cryptocurrency wallets for receiving payments.
+            </p>
           </div>
 
           <div>

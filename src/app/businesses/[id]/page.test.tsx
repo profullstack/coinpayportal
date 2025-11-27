@@ -20,7 +20,6 @@ const mockBusiness = {
   id: 'business-123',
   name: 'Test Business',
   description: 'Test Description',
-  wallet_address: '0x1234567890abcdef',
   webhook_url: 'https://example.com/webhook',
   webhook_secret: 'secret-123',
   api_key: 'api-key-123',
@@ -209,7 +208,7 @@ describe('BusinessDetailPage', () => {
         if (urlString.includes('/wallets')) {
           return Promise.resolve({
             ok: true,
-            json: () => Promise.resolve({ success: true, wallets: [] }),
+            json: () => Promise.resolve({ success: true, wallets: mockWallets }),
           } as Response);
         }
         return Promise.resolve({
@@ -219,19 +218,27 @@ describe('BusinessDetailPage', () => {
       });
     });
 
-    it('should copy wallet address to clipboard', async () => {
+    it('should copy wallet address to clipboard from Wallets tab', async () => {
       render(<BusinessDetailPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'Test Business' })).toBeInTheDocument();
       });
 
+      // Switch to Wallets tab
+      const walletsTab = screen.getByRole('button', { name: /Wallets \(2\)/i });
+      fireEvent.click(walletsTab);
+
+      await waitFor(() => {
+        expect(screen.getByText('Multi-Crypto Wallets')).toBeInTheDocument();
+      });
+
       const copyButtons = screen.getAllByTitle('Copy to clipboard');
       fireEvent.click(copyButtons[0]);
 
       await waitFor(() => {
-        expect(navigator.clipboard.writeText).toHaveBeenCalledWith('0x1234567890abcdef');
-        expect(screen.getByText(/Wallet address copied to clipboard/i)).toBeInTheDocument();
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith('bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh');
+        expect(screen.getByText(/BTC wallet address copied to clipboard/i)).toBeInTheDocument();
       });
     });
   });
