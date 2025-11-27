@@ -170,6 +170,17 @@ describe('PaymentDetailPage', () => {
         expect(screen.getByText(mockPayment.description)).toBeInTheDocument();
       });
     });
+
+    it('should display status in payment details section', async () => {
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        // Status label should be present
+        expect(screen.getByText('Status:')).toBeInTheDocument();
+        // Status value should be capitalized (Confirmed)
+        expect(screen.getByText('Confirmed')).toBeInTheDocument();
+      });
+    });
   });
 
   describe('QR Code Display', () => {

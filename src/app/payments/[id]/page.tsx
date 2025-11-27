@@ -433,6 +433,18 @@ export default function PaymentDetailPage() {
                 <span className="font-mono text-gray-900">{payment.id}</span>
               </div>
               <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Status:</span>
+                <span className={`font-medium px-2 py-0.5 rounded ${
+                  payment.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                  payment.status === 'detected' ? 'bg-blue-100 text-blue-800' :
+                  payment.status === 'confirmed' || payment.status === 'forwarded' ? 'bg-green-100 text-green-800' :
+                  payment.status === 'expired' || payment.status === 'failed' ? 'bg-red-100 text-red-800' :
+                  'bg-gray-100 text-gray-800'
+                }`}>
+                  {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Blockchain:</span>
                 <span className="text-gray-900">{payment.blockchain}</span>
               </div>
