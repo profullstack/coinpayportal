@@ -3,6 +3,9 @@
 -- The system (CoinPay) owns these wallets, NOT merchants
 -- This enables commission collection on every transaction
 
+-- Drop existing payment_addresses table if it exists (no production data yet)
+DROP TABLE IF EXISTS payment_addresses CASCADE;
+
 -- Table to track the next derivation index for each cryptocurrency
 CREATE TABLE IF NOT EXISTS system_wallet_indexes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -13,7 +16,7 @@ CREATE TABLE IF NOT EXISTS system_wallet_indexes (
 );
 
 -- Table to store payment addresses derived from system wallet
-CREATE TABLE IF NOT EXISTS payment_addresses (
+CREATE TABLE payment_addresses (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   payment_id UUID NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
   business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -39,11 +42,11 @@ CREATE TABLE IF NOT EXISTS payment_addresses (
 );
 
 -- Index for faster lookups
-CREATE INDEX IF NOT EXISTS idx_payment_addresses_payment_id ON payment_addresses(payment_id);
-CREATE INDEX IF NOT EXISTS idx_payment_addresses_business_id ON payment_addresses(business_id);
-CREATE INDEX IF NOT EXISTS idx_payment_addresses_address ON payment_addresses(address);
-CREATE INDEX IF NOT EXISTS idx_payment_addresses_cryptocurrency ON payment_addresses(cryptocurrency);
-CREATE INDEX IF NOT EXISTS idx_payment_addresses_is_used ON payment_addresses(is_used);
+CREATE INDEX idx_payment_addresses_payment_id ON payment_addresses(payment_id);
+CREATE INDEX idx_payment_addresses_business_id ON payment_addresses(business_id);
+CREATE INDEX idx_payment_addresses_address ON payment_addresses(address);
+CREATE INDEX idx_payment_addresses_cryptocurrency ON payment_addresses(cryptocurrency);
+CREATE INDEX idx_payment_addresses_is_used ON payment_addresses(is_used);
 
 -- Initialize indexes for supported cryptocurrencies
 INSERT INTO system_wallet_indexes (cryptocurrency, next_index)
@@ -65,12 +68,20 @@ BEGIN
   END IF;
 END $$;
 
--- Create index on payment_address
+-- Create index on payment_address if not exists
 CREATE INDEX IF NOT EXISTS idx_payments_payment_address ON payments(payment_address);
 
 -- Enable RLS
 ALTER TABLE system_wallet_indexes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payment_addresses ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist (for idempotency)
+DROP POLICY IF EXISTS "Admin can view system wallet indexes" ON system_wallet_indexes;
+DROP POLICY IF EXISTS "Admin can update system wallet indexes" ON system_wallet_indexes;
+DROP POLICY IF EXISTS "Merchants can view their payment addresses" ON payment_addresses;
+DROP POLICY IF EXISTS "Admin can view all payment addresses" ON payment_addresses;
+DROP POLICY IF EXISTS "Service role full access to system_wallet_indexes" ON system_wallet_indexes;
+DROP POLICY IF EXISTS "Service role full access to payment_addresses" ON payment_addresses;
 
 -- RLS Policies for system_wallet_indexes (admin only)
 CREATE POLICY "Admin can view system wallet indexes"
