@@ -21,6 +21,17 @@ export default function CreatePaymentPage() {
     description: '',
   });
   const [createdPayment, setCreatedPayment] = useState<any>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const copyToClipboard = async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
 
   const currencies = [
     { value: 'btc', label: 'Bitcoin (BTC)' },
@@ -197,10 +208,25 @@ export default function CreatePaymentPage() {
                 <h3 className="text-sm font-medium text-gray-700 mb-2">
                   Payment Address
                 </h3>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="font-mono text-sm text-gray-900 break-all">
+                <div className="bg-gray-50 p-4 rounded-lg flex items-center justify-between gap-3">
+                  <p className="font-mono text-sm text-gray-900 break-all flex-1">
                     {createdPayment.payment_address}
                   </p>
+                  <button
+                    onClick={() => copyToClipboard(createdPayment.payment_address, 'address')}
+                    className="flex-shrink-0 p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                    title="Copy address"
+                  >
+                    {copiedField === 'address' ? (
+                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    )}
+                  </button>
                 </div>
               </div>
 
@@ -209,10 +235,29 @@ export default function CreatePaymentPage() {
                   <h3 className="text-sm font-medium text-gray-700 mb-2">
                     Amount (Crypto)
                   </h3>
-                  <p className="text-lg font-semibold text-gray-900">
-                    {createdPayment.amount_crypto ? parseFloat(createdPayment.amount_crypto).toFixed(8) : 'N/A'}{' '}
-                    {createdPayment.currency?.toUpperCase() || createdPayment.blockchain}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-lg font-semibold text-gray-900">
+                      {createdPayment.amount_crypto ? parseFloat(createdPayment.amount_crypto).toFixed(8) : 'N/A'}{' '}
+                      {createdPayment.currency?.toUpperCase() || createdPayment.blockchain}
+                    </p>
+                    {createdPayment.amount_crypto && (
+                      <button
+                        onClick={() => copyToClipboard(parseFloat(createdPayment.amount_crypto).toFixed(8), 'amount')}
+                        className="p-1.5 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
+                        title="Copy amount"
+                      >
+                        {copiedField === 'amount' ? (
+                          <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : (
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                        )}
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <h3 className="text-sm font-medium text-gray-700 mb-2">
@@ -224,18 +269,20 @@ export default function CreatePaymentPage() {
                 </div>
               </div>
 
-              <div>
-                <h3 className="text-sm font-medium text-gray-700 mb-2">
-                  QR Code
-                </h3>
-                <div className="flex justify-center bg-white p-4 rounded-lg border border-gray-200">
-                  <img
-                    src={`/api/payments/${createdPayment.id}/qr`}
-                    alt="Payment QR Code"
-                    className="w-64 h-64"
-                  />
+              {createdPayment.id && (
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700 mb-2">
+                    QR Code
+                  </h3>
+                  <div className="flex justify-center bg-white p-4 rounded-lg border border-gray-200">
+                    <img
+                      src={`/api/payments/${createdPayment.id}/qr`}
+                      alt="Payment QR Code"
+                      className="w-64 h-64"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="bg-blue-50 p-4 rounded-lg">
                 <p className="text-sm text-blue-900">

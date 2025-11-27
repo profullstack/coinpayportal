@@ -112,6 +112,166 @@ describe('CoinPayClient', () => {
     it('should have getPaymentQR method', () => {
       expect(typeof client.getPaymentQR).toBe('function');
     });
+
+    it('should have getPaymentQRUrl method', () => {
+      expect(typeof client.getPaymentQRUrl).toBe('function');
+    });
+  });
+
+  describe('getPaymentQRUrl', () => {
+    let client;
+
+    beforeEach(() => {
+      client = new CoinPayClient({
+        apiKey: 'cp_live_test_api_key_12345678',
+        baseUrl: 'https://api.test.com',
+      });
+    });
+
+    it('should return correct QR code URL', () => {
+      const url = client.getPaymentQRUrl('pay_abc123');
+      expect(url).toBe('https://api.test.com/payments/pay_abc123/qr');
+    });
+
+    it('should work with different payment IDs', () => {
+      const url = client.getPaymentQRUrl('pay_xyz789');
+      expect(url).toBe('https://api.test.com/payments/pay_xyz789/qr');
+    });
+  });
+
+  describe('waitForPayment', () => {
+    let client;
+    let mockFetch;
+
+    beforeEach(() => {
+      client = new CoinPayClient({
+        apiKey: 'cp_live_test_api_key_12345678',
+        baseUrl: 'https://api.test.com',
+      });
+    });
+
+    it('should have waitForPayment method', () => {
+      expect(typeof client.waitForPayment).toBe('function');
+    });
+
+    it('should return immediately when payment is already confirmed', async () => {
+      mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          payment: { id: 'pay_123', status: 'confirmed' },
+        }),
+      });
+      global.fetch = mockFetch;
+
+      const result = await client.waitForPayment('pay_123');
+
+      expect(result.payment.status).toBe('confirmed');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('should poll until payment reaches target status', async () => {
+      let callCount = 0;
+      mockFetch = vi.fn().mockImplementation(() => {
+        callCount++;
+        const status = callCount < 3 ? 'pending' : 'confirmed';
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            payment: { id: 'pay_123', status },
+          }),
+        });
+      });
+      global.fetch = mockFetch;
+
+      const result = await client.waitForPayment('pay_123', { interval: 10 });
+
+      expect(result.payment.status).toBe('confirmed');
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('should call onStatusChange callback when status changes', async () => {
+      let callCount = 0;
+      mockFetch = vi.fn().mockImplementation(() => {
+        callCount++;
+        const status = callCount === 1 ? 'pending' : callCount === 2 ? 'detected' : 'confirmed';
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            payment: { id: 'pay_123', status },
+          }),
+        });
+      });
+      global.fetch = mockFetch;
+
+      const statusChanges = [];
+      await client.waitForPayment('pay_123', {
+        interval: 10,
+        onStatusChange: (status) => statusChanges.push(status),
+      });
+
+      expect(statusChanges).toEqual(['detected', 'confirmed']);
+    });
+
+    it('should timeout if payment does not complete', async () => {
+      mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          payment: { id: 'pay_123', status: 'pending' },
+        }),
+      });
+      global.fetch = mockFetch;
+
+      await expect(
+        client.waitForPayment('pay_123', { interval: 10, timeout: 50 })
+      ).rejects.toThrow('timed out');
+    });
+  });
+
+  describe('getPaymentQR', () => {
+    let client;
+    let mockFetch;
+
+    beforeEach(() => {
+      client = new CoinPayClient({
+        apiKey: 'cp_live_test_api_key_12345678',
+        baseUrl: 'https://api.test.com',
+      });
+    });
+
+    it('should fetch QR code as binary data', async () => {
+      const mockArrayBuffer = new ArrayBuffer(8);
+      mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(mockArrayBuffer),
+      });
+      global.fetch = mockFetch;
+
+      const result = await client.getPaymentQR('pay_abc123');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.test.com/payments/pay_abc123/qr',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Authorization': 'Bearer cp_live_test_api_key_12345678',
+          }),
+        })
+      );
+      expect(result).toBe(mockArrayBuffer);
+    });
+
+    it('should throw error on non-ok response', async () => {
+      mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
+      global.fetch = mockFetch;
+
+      await expect(client.getPaymentQR('pay_invalid')).rejects.toThrow('HTTP 404');
+    });
   });
 
   describe('createPayment', () => {

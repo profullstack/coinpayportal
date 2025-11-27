@@ -5,7 +5,12 @@ import { generatePaymentQR } from '@/lib/qr/generator';
 
 /**
  * GET /api/payments/[id]/qr
- * Get payment QR code
+ * Get payment QR code as PNG image
+ *
+ * Returns the QR code as binary PNG image data.
+ * Can be used directly as an <img> src.
+ *
+ * Example: <img src="/api/payments/abc123/qr" alt="Payment QR" />
  */
 export async function GET(
   request: NextRequest,
@@ -13,24 +18,19 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
-      return NextResponse.json(
-        { success: false, error: 'Server configuration error' },
-        { status: 500 }
-      );
+      return new NextResponse('Server configuration error', { status: 500 });
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const result = await getPayment(supabase, id);
 
     if (!result.success || !result.payment) {
-      return NextResponse.json(
-        { success: false, error: 'Payment not found' },
-        { status: 404 }
-      );
+      return new NextResponse('Payment not found', { status: 404 });
     }
 
     const payment = result.payment;
@@ -38,10 +38,7 @@ export async function GET(
     // Get the address for the QR code
     const address = payment.payment_address || payment.merchant_wallet_address;
     if (!address) {
-      return NextResponse.json(
-        { success: false, error: 'No payment address available' },
-        { status: 400 }
-      );
+      return new NextResponse('No payment address available', { status: 400 });
     }
 
     // Generate QR code
@@ -51,15 +48,20 @@ export async function GET(
       amount: payment.crypto_amount || 0,
     });
 
-    return NextResponse.json(
-      { success: true, qr_code: qrCode },
-      { status: 200 }
-    );
+    // Extract base64 data from data URL and return as binary PNG
+    const base64Data = qrCode.replace(/^data:image\/png;base64,/, '');
+    const imageBuffer = Buffer.from(base64Data, 'base64');
+    
+    return new NextResponse(imageBuffer, {
+      status: 200,
+      headers: {
+        'Content-Type': 'image/png',
+        'Content-Length': imageBuffer.length.toString(),
+        'Cache-Control': 'public, max-age=3600', // Cache for 1 hour
+      },
+    });
   } catch (error) {
     console.error('Get payment QR error:', error);
-    return NextResponse.json(
-      { success: false, error: 'Internal server error' },
-      { status: 500 }
-    );
+    return new NextResponse('Internal server error', { status: 500 });
   }
 }

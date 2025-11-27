@@ -125,11 +125,89 @@ export class CoinPayClient {
 
   /**
    * Get payment by ID
+   *
+   * Use this to check the current status of a payment. You can poll this
+   * endpoint to wait for payment completion, or use webhooks for real-time
+   * notifications.
+   *
    * @param {string} paymentId - Payment ID
-   * @returns {Promise<Object>} Payment details
+   * @returns {Promise<Object>} Payment details including status
+   *
+   * @example
+   * const result = await client.getPayment('pay_abc123');
+   * console.log(result.payment.status); // 'pending', 'confirmed', 'forwarded', etc.
    */
   async getPayment(paymentId) {
     return this.request(`/payments/${paymentId}`);
+  }
+
+  /**
+   * Wait for payment to reach a terminal status
+   *
+   * Polls the payment status until it reaches a terminal state (confirmed,
+   * forwarded, expired, or failed). Useful for simple integrations that
+   * don't use webhooks.
+   *
+   * For production use, webhooks are recommended over polling.
+   *
+   * @param {string} paymentId - Payment ID
+   * @param {Object} [options] - Polling options
+   * @param {number} [options.interval=5000] - Polling interval in ms (default: 5 seconds)
+   * @param {number} [options.timeout=3600000] - Maximum wait time in ms (default: 1 hour)
+   * @param {string[]} [options.targetStatuses] - Statuses to wait for (default: ['confirmed', 'forwarded', 'expired', 'failed'])
+   * @param {Function} [options.onStatusChange] - Callback when status changes
+   * @returns {Promise<Object>} Final payment details
+   *
+   * @example
+   * // Simple usage - wait for payment to complete
+   * const payment = await client.waitForPayment('pay_abc123');
+   * if (payment.payment.status === 'confirmed' || payment.payment.status === 'forwarded') {
+   *   console.log('Payment successful!');
+   * }
+   *
+   * @example
+   * // With status change callback
+   * const payment = await client.waitForPayment('pay_abc123', {
+   *   interval: 3000,
+   *   timeout: 600000, // 10 minutes
+   *   onStatusChange: (status, payment) => {
+   *     console.log(`Payment status: ${status}`);
+   *   }
+   * });
+   */
+  async waitForPayment(paymentId, options = {}) {
+    const {
+      interval = 5000,
+      timeout = 3600000,
+      targetStatuses = ['confirmed', 'forwarded', 'expired', 'failed'],
+      onStatusChange,
+    } = options;
+
+    const startTime = Date.now();
+    let lastStatus = null;
+
+    while (Date.now() - startTime < timeout) {
+      const result = await this.getPayment(paymentId);
+      const currentStatus = result.payment?.status;
+
+      // Notify on status change
+      if (currentStatus !== lastStatus) {
+        if (onStatusChange && lastStatus !== null) {
+          onStatusChange(currentStatus, result.payment);
+        }
+        lastStatus = currentStatus;
+      }
+
+      // Check if we've reached a target status
+      if (targetStatuses.includes(currentStatus)) {
+        return result;
+      }
+
+      // Wait before next poll
+      await new Promise(resolve => setTimeout(resolve, interval));
+    }
+
+    throw new Error(`Payment status check timed out after ${timeout}ms`);
   }
 
   /**
@@ -156,13 +234,66 @@ export class CoinPayClient {
   }
 
   /**
-   * Get payment QR code
+   * Get payment QR code URL
+   *
+   * Returns the URL to the QR code image endpoint. The endpoint returns
+   * binary PNG image data that can be used directly in an <img> tag.
+   *
    * @param {string} paymentId - Payment ID
-   * @param {string} [format] - QR code format (png, svg)
-   * @returns {Promise<Object>} QR code data
+   * @returns {string} URL to the QR code image
+   *
+   * @example
+   * // Get QR code URL for use in HTML
+   * const qrUrl = client.getPaymentQRUrl('pay_abc123');
+   * // Use in HTML: <img src={qrUrl} alt="Payment QR Code" />
    */
-  async getPaymentQR(paymentId, format = 'png') {
-    return this.request(`/payments/${paymentId}/qr?format=${format}`);
+  getPaymentQRUrl(paymentId) {
+    return `${this.#baseUrl}/payments/${paymentId}/qr`;
+  }
+
+  /**
+   * Get payment QR code as binary image data
+   *
+   * Fetches the QR code image as binary data (ArrayBuffer).
+   * Useful for server-side processing or saving to file.
+   *
+   * @param {string} paymentId - Payment ID
+   * @returns {Promise<ArrayBuffer>} QR code image as binary data
+   *
+   * @example
+   * // Get QR code as binary data
+   * const imageData = await client.getPaymentQR('pay_abc123');
+   * // Save to file (Node.js)
+   * fs.writeFileSync('qr.png', Buffer.from(imageData));
+   */
+  async getPaymentQR(paymentId) {
+    const url = `${this.#baseUrl}/payments/${paymentId}/qr`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.#timeout);
+
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'Authorization': `Bearer ${this.#apiKey}`,
+        },
+      });
+
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+
+      return response.arrayBuffer();
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error(`Request timeout after ${this.#timeout}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   /**

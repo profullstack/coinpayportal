@@ -170,11 +170,13 @@ export async function POST(request: NextRequest) {
 
     // Transform payment response to include expected field names
     const payment = result.payment;
+    
     const transformedPayment = {
       ...payment,
       amount_usd: payment?.amount,
       amount_crypto: payment?.crypto_amount,
       currency: payment?.blockchain?.toLowerCase(),
+      // QR code is available at GET /api/payments/{id}/qr
     };
 
     return NextResponse.json(

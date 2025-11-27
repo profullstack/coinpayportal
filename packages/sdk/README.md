@@ -160,20 +160,82 @@ const payment = await client.createPayment({
 }
 ```
 
-### Getting Payment Status
+### Checking Payment Status
+
+There are two ways to know when a payment is complete:
+
+#### Option 1: Polling (Simple)
+
+Use `getPayment()` to check status, or `waitForPayment()` to poll until complete:
 
 ```javascript
-// Get payment by ID
-const payment = await client.getPayment('pay_abc123');
+// Check status once
+const result = await client.getPayment('pay_abc123');
+console.log(result.payment.status);
 
-// Payment statuses:
-// - pending: Waiting for payment
-// - detected: Payment detected, waiting for confirmations
-// - confirmed: Payment confirmed on blockchain
-// - forwarding: Forwarding to your wallet
-// - forwarded: Successfully sent to your wallet
-// - expired: Payment request expired
-// - failed: Payment failed
+// Or wait for payment to complete (polls automatically)
+const payment = await client.waitForPayment('pay_abc123', {
+  interval: 5000,      // Check every 5 seconds
+  timeout: 600000,     // Give up after 10 minutes
+  onStatusChange: (status, payment) => {
+    console.log(`Status changed to: ${status}`);
+  }
+});
+
+if (payment.payment.status === 'confirmed' || payment.payment.status === 'forwarded') {
+  console.log('Payment successful!');
+} else {
+  console.log('Payment failed or expired');
+}
+```
+
+#### Option 2: Webhooks (Recommended for Production)
+
+Configure a webhook URL in your business settings to receive real-time notifications:
+
+```javascript
+// Your webhook endpoint receives POST requests like:
+{
+  "event": "payment.confirmed",
+  "data": {
+    "payment": {
+      "id": "pay_abc123",
+      "status": "confirmed",
+      "metadata": { "orderId": "12345" }
+    }
+  }
+}
+```
+
+See [Webhook Integration](#webhook-integration) for full details.
+
+**Payment Statuses:**
+- `pending` - Waiting for payment
+- `detected` - Payment detected, waiting for confirmations
+- `confirmed` - Payment confirmed on blockchain
+- `forwarding` - Forwarding to your wallet
+- `forwarded` - Successfully sent to your wallet
+- `expired` - Payment request expired
+- `failed` - Payment failed
+
+### Getting QR Code
+
+The QR code endpoint returns binary PNG image data.
+
+```javascript
+// Get QR code URL for use in HTML <img> tags
+const qrUrl = client.getPaymentQRUrl('pay_abc123');
+// Returns: "https://coinpayportal.com/api/payments/pay_abc123/qr"
+
+// Use directly in HTML
+// <img src={qrUrl} alt="Payment QR Code" />
+
+// Get QR code as binary data (for server-side processing)
+const imageData = await client.getPaymentQR('pay_abc123');
+
+// Save to file (Node.js)
+import fs from 'fs';
+fs.writeFileSync('payment-qr.png', Buffer.from(imageData));
 ```
 
 ### Listing Payments
@@ -360,8 +422,8 @@ coinpay payment get pay_abc123
 # List payments
 coinpay payment list --business-id biz_123 --status pending --limit 10
 
-# Get QR code
-coinpay payment qr pay_abc123 --format png
+# Get QR code (saves as PNG file)
+coinpay payment qr pay_abc123 --output payment-qr.png
 ```
 
 ### Businesses

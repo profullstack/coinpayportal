@@ -149,7 +149,7 @@ console.log('QR Code:', result.payment.qr_code);`}
 
             <h3 className="text-xl font-semibold text-white mb-4 mt-8">cURL Example</h3>
             <CodeBlock title="Direct API Call" language="bash">
-{`curl -X POST https://coinpay.dev/api/payments/create \\
+{`curl -X POST https://coinpayportal.com/api/payments/create \\
   -H "Authorization: Bearer cp_live_your_api_key" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -201,8 +201,8 @@ const client = new CoinPayClient({
   // Required: Your API key (starts with cp_live_)
   apiKey: 'cp_live_your_api_key_here',
   
-  // Optional: Custom API URL (defaults to https://coinpay.dev/api)
-  baseUrl: 'https://coinpay.dev/api',
+  // Optional: Custom API URL (defaults to https://coinpayportal.com/api)
+  baseUrl: 'https://coinpayportal.com/api',
   
   // Optional: Request timeout in milliseconds (default: 30000)
   timeout: 30000,
@@ -274,13 +274,38 @@ console.log(result);
 // }`}
             </CodeBlock>
 
-            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Get Payment</h3>
-            <CodeBlock title="Retrieve payment by ID" language="javascript">
-{`const payment = await client.getPayment('pay_abc123');
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Check Payment Status</h3>
+            <p className="text-gray-300 mb-4">
+              There are two ways to know when a payment is complete:
+            </p>
+            
+            <h4 className="text-lg font-semibold text-purple-300 mb-3">Option 1: Polling (Simple)</h4>
+            <CodeBlock title="Poll for payment status" language="javascript">
+{`// Check status once
+const result = await client.getPayment('pay_abc123');
+console.log(result.payment.status); // 'pending', 'confirmed', 'forwarded', etc.
 
-console.log(payment.status); // 'pending', 'confirming', 'completed', etc.
-console.log(payment.confirmations); // Number of blockchain confirmations`}
+// Or wait for payment to complete (polls automatically)
+const payment = await client.waitForPayment('pay_abc123', {
+  interval: 5000,      // Check every 5 seconds
+  timeout: 600000,     // Give up after 10 minutes
+  onStatusChange: (status, payment) => {
+    console.log(\`Status changed to: \${status}\`);
+  }
+});
+
+if (payment.payment.status === 'confirmed' || payment.payment.status === 'forwarded') {
+  console.log('Payment successful!');
+} else {
+  console.log('Payment failed or expired');
+}`}
             </CodeBlock>
+
+            <h4 className="text-lg font-semibold text-purple-300 mb-3 mt-6">Option 2: Webhooks (Recommended)</h4>
+            <p className="text-gray-300 mb-4">
+              Configure a webhook URL in your business settings to receive real-time notifications.
+              See the <a href="#webhooks" className="text-purple-400 hover:text-purple-300">Webhook Verification</a> section below.
+            </p>
 
             <h3 className="text-xl font-semibold text-white mb-4 mt-8">List Payments</h3>
             <CodeBlock title="List payments with filters" language="javascript">
@@ -295,12 +320,28 @@ console.log(\`Found \${payments.length} payments\`);`}
             </CodeBlock>
 
             <h3 className="text-xl font-semibold text-white mb-4 mt-8">Get Payment QR Code</h3>
-            <CodeBlock title="Generate QR code for payment" language="javascript">
-{`// Get QR code as PNG buffer
-const qrPng = await client.getPaymentQR('pay_abc123', 'png');
+            <p className="text-gray-300 mb-4">
+              The QR code endpoint returns binary PNG image data that can be used directly in HTML.
+            </p>
+            <CodeBlock title="QR code usage" language="javascript">
+{`// Get QR code URL for use in HTML <img> tags
+const qrUrl = client.getPaymentQRUrl('pay_abc123');
+// Returns: "https://coinpayportal.com/api/payments/pay_abc123/qr"
 
-// Get QR code as SVG string
-const qrSvg = await client.getPaymentQR('pay_abc123', 'svg');`}
+// Use directly in HTML:
+// <img src={qrUrl} alt="Payment QR Code" />
+
+// Or fetch as binary data (for server-side processing)
+const imageData = await client.getPaymentQR('pay_abc123');
+
+// Save to file (Node.js)
+import fs from 'fs';
+fs.writeFileSync('payment-qr.png', Buffer.from(imageData));`}
+            </CodeBlock>
+
+            <CodeBlock title="HTML usage" language="html">
+{`<!-- Use QR endpoint directly as image source -->
+<img src="https://coinpayportal.com/api/payments/pay_abc123/qr" alt="Payment QR Code" />`}
             </CodeBlock>
           </DocSection>
         </div>

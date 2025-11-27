@@ -13,7 +13,7 @@ CoinPay is a cryptocurrency payment gateway that allows merchants to accept cryp
 ## Base URL
 
 ```
-Production: https://coinpay.dev/api
+Production: https://coinpayportal.com/api
 Development: http://localhost:3000/api
 ```
 
@@ -383,7 +383,7 @@ Generate a new payment request. This is the primary endpoint merchants use to ac
 
 **Example - cURL:**
 ```bash
-curl -X POST https://coinpay.dev/api/payments/create \
+curl -X POST https://coinpayportal.com/api/payments/create \
   -H "Authorization: Bearer cp_live_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -396,7 +396,7 @@ curl -X POST https://coinpay.dev/api/payments/create \
 
 **Example - JavaScript (fetch):**
 ```javascript
-const response = await fetch('https://coinpay.dev/api/payments/create', {
+const response = await fetch('https://coinpayportal.com/api/payments/create', {
   method: 'POST',
   headers: {
     'Authorization': 'Bearer cp_live_your_api_key',
@@ -509,27 +509,53 @@ Get paginated list of payments for a business.
 
 ### Get Payment QR Code
 
-Get QR code for a payment.
+Get QR code image for a payment. Returns binary PNG image data.
 
 **Endpoint:** `GET /api/payments/:id/qr`
 
-**Headers:** `Authorization: Bearer TOKEN`
+**Headers:** `Authorization: Bearer TOKEN` (optional for public payments)
 
-**Query Parameters:**
-- `size` (optional) - QR code size in pixels (default: 300)
-- `format` (optional) - `png` or `svg` (default: png)
+**Response:** Binary PNG image data
 
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "qr_code": "data:image/png;base64,...",
-    "payment_address": "0x1234...5678",
-    "amount": "0.0456",
-    "currency": "ETH"
+**Content-Type:** `image/png`
+
+**Usage Examples:**
+
+**HTML (direct use as image source):**
+```html
+<img src="https://coinpayportal.com/api/payments/pay_abc123/qr" alt="Payment QR Code" />
+```
+
+**JavaScript (fetch as blob):**
+```javascript
+const response = await fetch('https://coinpayportal.com/api/payments/pay_abc123/qr', {
+  headers: {
+    'Authorization': 'Bearer cp_live_your_api_key'
   }
-}
+});
+const blob = await response.blob();
+const imageUrl = URL.createObjectURL(blob);
+document.getElementById('qr-image').src = imageUrl;
+```
+
+**cURL (save to file):**
+```bash
+curl -o payment-qr.png \
+  -H "Authorization: Bearer cp_live_your_api_key" \
+  https://coinpayportal.com/api/payments/pay_abc123/qr
+```
+
+**Node.js SDK:**
+```javascript
+// Get QR code URL for use in HTML
+const qrUrl = client.getPaymentQRUrl('pay_abc123');
+// Returns: "https://coinpayportal.com/api/payments/pay_abc123/qr"
+
+// Get QR code as binary data
+const imageData = await client.getPaymentQR('pay_abc123');
+// Save to file
+import fs from 'fs';
+fs.writeFileSync('qr.png', Buffer.from(imageData));
 ```
 
 ## Exchange Rate Endpoints
@@ -1174,7 +1200,7 @@ app.post('/webhooks/coinpay', async (req, res) => {
 
 **Create a Bitcoin payment:**
 ```bash
-curl -X POST https://coinpay.dev/api/payments/create \
+curl -X POST https://coinpayportal.com/api/payments/create \
   -H "Authorization: Bearer cp_live_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1188,7 +1214,7 @@ curl -X POST https://coinpay.dev/api/payments/create \
 
 **Create a USDC payment on Polygon:**
 ```bash
-curl -X POST https://coinpay.dev/api/payments/create \
+curl -X POST https://coinpayportal.com/api/payments/create \
   -H "Authorization: Bearer cp_live_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1201,7 +1227,7 @@ curl -X POST https://coinpay.dev/api/payments/create \
 
 **Check payment status:**
 ```bash
-curl https://coinpay.dev/api/payments/pay_abc123 \
+curl https://coinpayportal.com/api/payments/pay_abc123 \
   -H "Authorization: Bearer cp_live_your_api_key"
 ```
 
