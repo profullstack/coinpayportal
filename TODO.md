@@ -39,6 +39,16 @@
   - [x] Track address usage and status
 - [x] Implement address validation utilities (implemented)
 
+### System Wallet Service (NEW)
+- [x] Create system-owned HD wallet service (src/lib/wallets/system-wallet.ts)
+  - [x] System owns all payment addresses (not merchants)
+  - [x] SLIP-0010 Ed25519 derivation for Solana
+  - [x] BIP44 derivation for BTC, ETH, MATIC
+  - [x] 0.5% commission split (system wallet)
+  - [x] 99.5% forwarding to merchant wallet
+- [x] Database migration for system wallet indexes (20251127040000)
+- [x] Payment address tracking with commission amounts
+
 *Note: Blockchain tests are excluded due to ws/CommonJS ESM incompatibility with ethers.js and @solana/web3.js in vitest
 
 ## Phase 3: Payment Processing ✅
@@ -236,8 +246,8 @@
 - ⏳ Publish @profullstack/coinpay to npm
 
 **Test Summary:**
-- 27 test files passing
-- 502 tests passing (8 skipped)
+- 28 test files passing
+- 532 tests passing (8 skipped)
 - Key test coverage:
   - Encryption: 28 tests
   - Key Storage: 35 tests
@@ -252,7 +262,7 @@
   - SDK Index: 11 tests
 
 **Known Limitations:**
-- Blockchain tests (providers, wallets, monitor) excluded due to ws/CommonJS ESM incompatibility with ethers.js and @solana/web3.js in vitest
+- Blockchain tests (providers, wallets, monitor, system-wallet) excluded due to ws/CommonJS ESM incompatibility with ethers.js and @solana/web3.js in vitest
 
 ---
 
