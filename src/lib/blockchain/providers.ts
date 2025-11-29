@@ -1,5 +1,14 @@
 import { ethers } from 'ethers';
-import { Connection, PublicKey } from '@solana/web3.js';
+import {
+  Connection,
+  PublicKey,
+  Keypair,
+  Transaction,
+  SystemProgram,
+  sendAndConfirmTransaction,
+  LAMPORTS_PER_SOL,
+} from '@solana/web3.js';
+import bs58 from 'bs58';
 import axios from 'axios';
 
 /**
@@ -245,6 +254,66 @@ export class SolanaProvider implements BlockchainProvider {
       };
     } catch (error) {
       throw new Error(`Failed to fetch Solana transaction: ${error}`);
+    }
+  }
+
+  async sendTransaction(
+    from: string,
+    to: string,
+    amount: string,
+    privateKey: string
+  ): Promise<string> {
+    try {
+      // Decode the private key (supports both base58 and hex formats)
+      let secretKey: Uint8Array;
+      try {
+        // Try base58 first (common Solana format)
+        secretKey = bs58.decode(privateKey);
+      } catch {
+        // Fall back to hex format
+        secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
+      }
+
+      // Create keypair from private key
+      const keypair = Keypair.fromSecretKey(secretKey);
+
+      // Verify the from address matches the keypair
+      if (keypair.publicKey.toString() !== from) {
+        throw new Error('Private key does not match the from address');
+      }
+
+      // Convert amount to lamports
+      const lamports = Math.floor(parseFloat(amount) * LAMPORTS_PER_SOL);
+
+      // Create the transfer instruction
+      const transaction = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: keypair.publicKey,
+          toPubkey: new PublicKey(to),
+          lamports,
+        })
+      );
+
+      // Get recent blockhash
+      const { blockhash } = await this.connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = keypair.publicKey;
+
+      // Sign and send the transaction
+      const signature = await sendAndConfirmTransaction(
+        this.connection,
+        transaction,
+        [keypair],
+        {
+          commitment: 'confirmed',
+        }
+      );
+
+      console.log(`[SOL] Transaction sent: ${signature}`);
+      return signature;
+    } catch (error) {
+      console.error('[SOL] Transaction failed:', error);
+      throw new Error(`Failed to send Solana transaction: ${error}`);
     }
   }
 

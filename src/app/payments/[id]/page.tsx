@@ -20,7 +20,39 @@ interface Payment {
   description?: string;
   created_at: string;
   expires_at?: string;
+  tx_hash?: string;
+  forward_tx_hash?: string;
 }
+
+// Get blockchain explorer URL for a transaction
+const getExplorerUrl = (blockchain: string, txHash: string): string => {
+  const explorers: Record<string, string> = {
+    BTC: `https://blockstream.info/tx/${txHash}`,
+    BCH: `https://blockchair.com/bitcoin-cash/transaction/${txHash}`,
+    ETH: `https://etherscan.io/tx/${txHash}`,
+    MATIC: `https://polygonscan.com/tx/${txHash}`,
+    SOL: `https://solscan.io/tx/${txHash}`,
+    USDC_ETH: `https://etherscan.io/tx/${txHash}`,
+    USDC_MATIC: `https://polygonscan.com/tx/${txHash}`,
+    USDC_SOL: `https://solscan.io/tx/${txHash}`,
+  };
+  return explorers[blockchain] || `https://blockchair.com/search?q=${txHash}`;
+};
+
+// Get blockchain explorer URL for an address
+const getAddressExplorerUrl = (blockchain: string, address: string): string => {
+  const explorers: Record<string, string> = {
+    BTC: `https://blockstream.info/address/${address}`,
+    BCH: `https://blockchair.com/bitcoin-cash/address/${address}`,
+    ETH: `https://etherscan.io/address/${address}`,
+    MATIC: `https://polygonscan.com/address/${address}`,
+    SOL: `https://solscan.io/account/${address}`,
+    USDC_ETH: `https://etherscan.io/address/${address}`,
+    USDC_MATIC: `https://polygonscan.com/address/${address}`,
+    USDC_SOL: `https://solscan.io/account/${address}`,
+  };
+  return explorers[blockchain] || `https://blockchair.com/search?q=${address}`;
+};
 
 export default function PaymentDetailPage() {
   const router = useRouter();
@@ -470,10 +502,13 @@ export default function PaymentDetailPage() {
               </div>
             </div>
 
-            {payment.id && payment.payment_address && (payment.status === 'pending' || payment.status === 'detected') && (
+            {payment.id && payment.payment_address && (
               <div>
                 <h3 className="text-sm font-medium text-gray-700 mb-2">
                   QR Code
+                  {(paymentStatus !== 'pending' && paymentStatus !== 'detected') && (
+                    <span className="ml-2 text-xs text-gray-500 font-normal">(for reference)</span>
+                  )}
                 </h3>
                 <div className="flex justify-center bg-white p-4 rounded-lg border border-gray-200">
                   {!qrError ? (
@@ -532,6 +567,54 @@ export default function PaymentDetailPage() {
                 <span className="text-gray-600">Blockchain:</span>
                 <span className="text-gray-900">{payment.blockchain}</span>
               </div>
+              {payment.payment_address && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Address:</span>
+                  <a
+                    href={getAddressExplorerUrl(payment.blockchain, payment.payment_address)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-purple-600 hover:text-purple-800 hover:underline flex items-center gap-1"
+                  >
+                    {payment.payment_address.slice(0, 8)}...{payment.payment_address.slice(-6)}
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                </div>
+              )}
+              {payment.tx_hash && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Transaction:</span>
+                  <a
+                    href={getExplorerUrl(payment.blockchain, payment.tx_hash)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-purple-600 hover:text-purple-800 hover:underline flex items-center gap-1"
+                  >
+                    {payment.tx_hash.slice(0, 8)}...{payment.tx_hash.slice(-6)}
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                </div>
+              )}
+              {payment.forward_tx_hash && payment.forward_tx_hash !== payment.tx_hash && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Forward TX:</span>
+                  <a
+                    href={getExplorerUrl(payment.blockchain, payment.forward_tx_hash)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-purple-600 hover:text-purple-800 hover:underline flex items-center gap-1"
+                  >
+                    {payment.forward_tx_hash.slice(0, 8)}...{payment.forward_tx_hash.slice(-6)}
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                </div>
+              )}
               {payment.description && (
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Description:</span>

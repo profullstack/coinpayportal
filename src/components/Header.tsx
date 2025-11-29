@@ -23,11 +23,36 @@ export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
-    // Check if user is logged in
+    // Mark as hydrated and check if user is logged in
     const token = localStorage.getItem('auth_token');
     setIsLoggedIn(!!token);
+    setIsHydrated(true);
+  }, []);
+
+  // Listen for storage changes (e.g., login/logout in another tab)
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'auth_token') {
+        setIsLoggedIn(!!e.newValue);
+      }
+    };
+
+    // Also listen for custom auth events within the same tab
+    const handleAuthChange = () => {
+      const token = localStorage.getItem('auth_token');
+      setIsLoggedIn(!!token);
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('auth-change', handleAuthChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('auth-change', handleAuthChange);
+    };
   }, []);
 
   const handleLogout = () => {
@@ -76,7 +101,12 @@ export default function Header() {
             ))}
             
             {/* Auth Buttons / User Menu */}
-            {isLoggedIn ? (
+            {!isHydrated ? (
+              // Show loading state during hydration to prevent flash
+              <div className="flex items-center space-x-4">
+                <div className="h-8 w-20 bg-gray-700 rounded animate-pulse"></div>
+              </div>
+            ) : isLoggedIn ? (
               <div className="flex items-center space-x-4">
                 {/* Wallet Connect Button - Only for logged in users */}
                 <ConnectButton variant="secondary" size="sm" />
@@ -201,7 +231,13 @@ export default function Header() {
               ))}
               
               {/* Mobile Auth Buttons / User Menu */}
-              {isLoggedIn ? (
+              {!isHydrated ? (
+                <div className="pt-4 space-y-2 border-t border-gray-800 mt-4">
+                  <div className="px-3 py-2">
+                    <div className="h-8 w-full bg-gray-700 rounded animate-pulse"></div>
+                  </div>
+                </div>
+              ) : isLoggedIn ? (
                 <div className="pt-4 space-y-2 border-t border-gray-800 mt-4">
                   {/* Mobile Wallet Connect - Only for logged in users */}
                   <div className="px-3 py-2">
