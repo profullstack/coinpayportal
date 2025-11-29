@@ -787,8 +787,9 @@ describe('PaymentDetailPage', () => {
       render(<PaymentDetailPage />);
 
       await waitFor(() => {
-        // Should show the forward tx hash label
-        expect(screen.getByText(/forward tx/i)).toBeInTheDocument();
+        // Should show the forward tx hash label (appears in both header and details)
+        const forwardTxLabels = screen.getAllByText(/forward tx/i);
+        expect(forwardTxLabels.length).toBeGreaterThanOrEqual(1);
       });
     });
 
@@ -832,6 +833,191 @@ describe('PaymentDetailPage', () => {
         const shouldPoll = ['pending', 'detected', 'forwarding'].includes(status);
         expect(shouldPoll).toBe(false);
       });
+    });
+  });
+
+  describe('Transaction Links in Success Header', () => {
+    it('should show payment tx link in success header for confirmed payment', async () => {
+      const txHash = '0xpayment123456789abcdef1234567890abcdef';
+      
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: {
+            ...mockPayment,
+            status: 'confirmed',
+            tx_hash: txHash,
+          },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        // Should show "Payment TX:" label in the header
+        expect(screen.getByText(/payment tx:/i)).toBeInTheDocument();
+      });
+
+      // Should have a link to the explorer
+      const txLinks = screen.getAllByRole('link');
+      const explorerLink = txLinks.find(link =>
+        link.getAttribute('href')?.includes('etherscan.io/tx/')
+      );
+      expect(explorerLink).toBeDefined();
+    });
+
+    it('should show both payment and forward tx links in success header for forwarded payment', async () => {
+      const txHash = '0xpayment123456789abcdef1234567890abcdef';
+      const forwardTxHash = '0xforward987654321fedcba0987654321fedcba';
+      
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: {
+            ...mockPayment,
+            status: 'forwarded',
+            tx_hash: txHash,
+            forward_tx_hash: forwardTxHash,
+          },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        // Should show both labels in the header
+        expect(screen.getByText(/payment tx:/i)).toBeInTheDocument();
+        // Forward TX appears in both header and details section
+        const forwardTxLabels = screen.getAllByText(/forward tx:/i);
+        expect(forwardTxLabels.length).toBeGreaterThanOrEqual(1);
+      });
+    });
+
+    it('should not show tx links in header for pending payment', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: {
+            ...mockPayment,
+            status: 'pending',
+            tx_hash: null,
+          },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/waiting for payment/i)).toBeInTheDocument();
+      });
+
+      // Should not show "Payment TX:" label in the header
+      expect(screen.queryByText(/payment tx:/i)).not.toBeInTheDocument();
+    });
+
+    it('should show correct explorer link for Solana transactions', async () => {
+      const txHash = 'SolTx123456789abcdef1234567890abcdef12345678';
+      
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: {
+            ...mockPayment,
+            blockchain: 'SOL',
+            crypto_currency: 'SOL',
+            status: 'confirmed',
+            tx_hash: txHash,
+          },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/payment tx:/i)).toBeInTheDocument();
+      });
+
+      // Should have a link to Solscan
+      const txLinks = screen.getAllByRole('link');
+      const explorerLink = txLinks.find(link =>
+        link.getAttribute('href')?.includes('solscan.io/tx/')
+      );
+      expect(explorerLink).toBeDefined();
+    });
+
+    it('should show correct explorer link for Bitcoin transactions', async () => {
+      const txHash = 'btctx123456789abcdef1234567890abcdef12345678';
+      
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: {
+            ...mockPayment,
+            blockchain: 'BTC',
+            crypto_currency: 'BTC',
+            payment_address: 'bc1qtest123',
+            status: 'confirmed',
+            tx_hash: txHash,
+          },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/payment tx:/i)).toBeInTheDocument();
+      });
+
+      // Should have a link to Blockstream
+      const txLinks = screen.getAllByRole('link');
+      const explorerLink = txLinks.find(link =>
+        link.getAttribute('href')?.includes('blockstream.info/tx/')
+      );
+      expect(explorerLink).toBeDefined();
+    });
+
+    it('should truncate long tx hashes in header display', async () => {
+      const txHash = '0xpayment123456789abcdef1234567890abcdef12345678901234567890';
+      
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: {
+            ...mockPayment,
+            status: 'confirmed',
+            tx_hash: txHash,
+          },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/payment tx:/i)).toBeInTheDocument();
+      });
+
+      // The full tx hash should not be displayed (it's truncated)
+      expect(screen.queryByText(txHash)).not.toBeInTheDocument();
+      
+      // Should show truncated version with ellipsis
+      // Format is: first 10 chars...last 8 chars
+      const truncatedStart = txHash.slice(0, 10);
+      const truncatedEnd = txHash.slice(-8);
+      
+      // Find the link that contains the truncated hash
+      const txLinks = screen.getAllByRole('link');
+      const explorerLink = txLinks.find(link =>
+        link.textContent?.includes(truncatedStart) &&
+        link.textContent?.includes(truncatedEnd) &&
+        link.textContent?.includes('...')
+      );
+      expect(explorerLink).toBeDefined();
     });
   });
 });

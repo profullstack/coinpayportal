@@ -601,9 +601,10 @@ export class SolanaProvider implements BlockchainProvider {
   rpcUrl: string;
   private connection: Connection;
 
-  // Minimum rent-exempt balance for a basic Solana account (approximately 0.00089088 SOL)
-  // This is the minimum balance required to keep an account alive
-  private static readonly RENT_EXEMPT_MINIMUM = 890880; // lamports
+  // For one-time payment addresses, we don't need to keep rent-exempt minimum
+  // The account will become rent-paying and eventually be garbage collected
+  // We only need to keep enough for the transaction fee
+  private static readonly RENT_EXEMPT_MINIMUM = 0; // Don't keep rent for one-time addresses
 
   constructor(rpcUrl: string) {
     this.rpcUrl = rpcUrl;
@@ -709,23 +710,23 @@ export class SolanaProvider implements BlockchainProvider {
       // Convert amount to lamports
       let lamports = Math.floor(parseFloat(amount) * LAMPORTS_PER_SOL);
 
-      // Get current balance to check if we need to adjust for rent
+      // Get current balance to check if we need to adjust for fees
       const currentBalance = await this.connection.getBalance(keypair.publicKey);
       const txFee = SolanaProvider.SOLANA_TX_FEE_LAMPORTS;
-      const rentExempt = SolanaProvider.RENT_EXEMPT_MINIMUM;
       
-      // We need to keep at least rentExempt + txFee in the account
-      const minimumToKeep = rentExempt + txFee;
+      // For one-time payment addresses, we only need to keep enough for the transaction fee
+      // The account will become rent-paying and eventually be garbage collected
+      const minimumToKeep = txFee;
       const maxSendable = currentBalance - minimumToKeep;
       
-      console.log(`[SOL] Current balance: ${currentBalance} lamports, requested: ${lamports} lamports, tx fee: ${txFee} lamports, rent: ${rentExempt} lamports, max sendable: ${maxSendable} lamports`);
+      console.log(`[SOL] Current balance: ${currentBalance} lamports, requested: ${lamports} lamports, tx fee: ${txFee} lamports, max sendable: ${maxSendable} lamports`);
 
       // If we're trying to send more than max sendable, adjust
       if (lamports > maxSendable) {
         if (maxSendable <= 0) {
-          throw new Error(`Insufficient balance. Have ${currentBalance} lamports, need at least ${minimumToKeep + 1} lamports (${rentExempt} rent + ${txFee} fee + 1)`);
+          throw new Error(`Insufficient balance. Have ${currentBalance} lamports, need at least ${minimumToKeep + 1} lamports (${txFee} fee + 1)`);
         }
-        console.log(`[SOL] Adjusting amount from ${lamports} to ${maxSendable} lamports (keeping ${minimumToKeep} for rent+fee)`);
+        console.log(`[SOL] Adjusting amount from ${lamports} to ${maxSendable} lamports (keeping ${minimumToKeep} for fee)`);
         lamports = maxSendable;
       }
 
@@ -799,7 +800,6 @@ export class SolanaProvider implements BlockchainProvider {
       // Get current balance
       const currentBalance = await this.connection.getBalance(keypair.publicKey);
       const txFee = SolanaProvider.SOLANA_TX_FEE_LAMPORTS;
-      const rentExempt = SolanaProvider.RENT_EXEMPT_MINIMUM;
 
       // Calculate total requested
       let totalLamports = 0;
@@ -811,21 +811,21 @@ export class SolanaProvider implements BlockchainProvider {
         transfers.push({ address: recipient.address, lamports });
       }
 
-      console.log(`[SOL] Split transaction: balance=${currentBalance}, total=${totalLamports}, fee=${txFee}, rentExempt=${rentExempt}`);
+      console.log(`[SOL] Split transaction: balance=${currentBalance}, total=${totalLamports}, fee=${txFee}`);
 
-      // Calculate the maximum we can send while keeping the account rent-exempt
-      // We need to leave at least rentExempt + txFee in the account
-      const minimumToKeep = rentExempt + txFee;
+      // For one-time payment addresses, we only need to keep enough for the transaction fee
+      // The account will become rent-paying and eventually be garbage collected
+      const minimumToKeep = txFee;
       const maxSendable = currentBalance - minimumToKeep;
       
       if (maxSendable <= 0) {
-        throw new Error(`Insufficient balance for split transaction. Have ${currentBalance} lamports, need at least ${minimumToKeep} lamports (${rentExempt} rent + ${txFee} fee)`);
+        throw new Error(`Insufficient balance for split transaction. Have ${currentBalance} lamports, need at least ${minimumToKeep + 1} lamports (${txFee} fee + 1)`);
       }
 
       // If total exceeds max sendable, proportionally reduce amounts
       if (totalLamports > maxSendable) {
         const ratio = maxSendable / totalLamports;
-        console.log(`[SOL] Adjusting split amounts by ratio ${ratio} (keeping ${minimumToKeep} lamports for rent+fee)`);
+        console.log(`[SOL] Adjusting split amounts by ratio ${ratio} (keeping ${minimumToKeep} lamports for fee)`);
         
         let adjustedTotal = 0;
         for (const transfer of transfers) {

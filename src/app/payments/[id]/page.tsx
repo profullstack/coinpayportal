@@ -391,6 +391,9 @@ export default function PaymentDetailPage() {
                 {paymentStatus === 'detected' && (
                   <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-600 border-t-transparent mr-2"></div>
                 )}
+                {paymentStatus === 'forwarding' && (
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-600 border-t-transparent mr-2"></div>
+                )}
                 {(paymentStatus === 'confirmed' || paymentStatus === 'forwarded') && (
                   <svg className="h-5 w-5 text-green-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -424,6 +427,44 @@ export default function PaymentDetailPage() {
                   }`}
                   style={{ width: `${(timeRemaining / (PAYMENT_EXPIRY_MINUTES * 60)) * 100}%` }}
                 ></div>
+              </div>
+            )}
+
+            {/* Transaction links for completed payments */}
+            {(paymentStatus === 'confirmed' || paymentStatus === 'forwarded') && (payment.tx_hash || payment.forward_tx_hash) && (
+              <div className="mt-3 space-y-2">
+                {payment.tx_hash && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-green-700">Payment TX:</span>
+                    <a
+                      href={getExplorerUrl(payment.blockchain, payment.tx_hash)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-green-700 hover:text-green-900 hover:underline flex items-center gap-1"
+                    >
+                      {payment.tx_hash.slice(0, 10)}...{payment.tx_hash.slice(-8)}
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  </div>
+                )}
+                {payment.forward_tx_hash && payment.forward_tx_hash !== payment.tx_hash && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-green-700">Forward TX:</span>
+                    <a
+                      href={getExplorerUrl(payment.blockchain, payment.forward_tx_hash)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-green-700 hover:text-green-900 hover:underline flex items-center gap-1"
+                    >
+                      {payment.forward_tx_hash.slice(0, 10)}...{payment.forward_tx_hash.slice(-8)}
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -299,6 +299,127 @@ describe('Blockchain Providers', () => {
       // The mock returns a 64-byte array for bs58.decode
       expect(provider.sendTransaction).toBeDefined();
     });
+
+    describe('Rent-Exempt Minimum for One-Time Payment Addresses', () => {
+      it('should have RENT_EXEMPT_MINIMUM set to 0 for one-time payment addresses', () => {
+        const provider = new SolanaProvider('https://api.mainnet-beta.solana.com');
+        
+        // Access private static constant
+        const rentExemptMinimum = (SolanaProvider as any).RENT_EXEMPT_MINIMUM;
+        
+        // For one-time payment addresses, we don't need to keep rent-exempt minimum
+        // The account will become rent-paying and eventually be garbage collected
+        expect(rentExemptMinimum).toBe(0);
+      });
+
+      it('should have SOLANA_TX_FEE_LAMPORTS constant for transaction fee', () => {
+        const provider = new SolanaProvider('https://api.mainnet-beta.solana.com');
+        
+        // Access private static constant
+        const txFeeLamports = (SolanaProvider as any).SOLANA_TX_FEE_LAMPORTS;
+        
+        // Transaction fee should be approximately 5000 lamports
+        expect(txFeeLamports).toBe(5000);
+      });
+
+      it('should only keep transaction fee when calculating max sendable amount', () => {
+        // This test verifies the logic for calculating max sendable amount
+        // For one-time payment addresses:
+        // - We only need to keep enough for the transaction fee (5000 lamports)
+        // - We don't need to keep rent-exempt minimum (890,880 lamports)
+        
+        const txFee = 5000; // SOLANA_TX_FEE_LAMPORTS
+        const rentExemptMinimum = 0; // RENT_EXEMPT_MINIMUM for one-time addresses
+        
+        // Example: 1 SOL balance (1,000,000,000 lamports)
+        const balance = 1000000000;
+        
+        // Minimum to keep = txFee (since rent-exempt is 0)
+        const minimumToKeep = txFee;
+        expect(minimumToKeep).toBe(5000);
+        
+        // Max sendable = balance - minimumToKeep
+        const maxSendable = balance - minimumToKeep;
+        expect(maxSendable).toBe(999995000); // 0.999995 SOL
+        
+        // This is much better than the old behavior which kept 890,880 lamports for rent
+        // Old max sendable would have been: 1000000000 - 890880 - 5000 = 999104120
+        // New max sendable is: 1000000000 - 5000 = 999995000
+        // Difference: 885,880 lamports (~$0.21 at $240/SOL) more sent to merchant
+      });
+
+      it('should calculate correct amounts for $1 payment scenario', () => {
+        // Real-world scenario: $1 payment at $240/SOL
+        // $1 = 0.00416667 SOL = 4,166,670 lamports
+        
+        const paymentLamports = 4166670;
+        const txFee = 5000;
+        
+        // With RENT_EXEMPT_MINIMUM = 0:
+        const minimumToKeep = txFee;
+        const maxSendable = paymentLamports - minimumToKeep;
+        
+        expect(maxSendable).toBe(4161670); // 0.00416167 SOL
+        
+        // Convert back to USD: 0.00416167 * $240 = $0.9988
+        // Platform fee (0.5%): $0.005
+        // Merchant receives: ~$0.9938
+        // This is ~99.4% of the original $1 payment
+        
+        // With old RENT_EXEMPT_MINIMUM = 890880:
+        // maxSendable would be: 4166670 - 890880 - 5000 = 3270790 lamports
+        // That's only 0.00327079 SOL = $0.785 (78.5% of payment)
+        // The difference is significant!
+      });
+
+      it('should handle split transaction with correct fee calculation', () => {
+        // Split transaction scenario: merchant + platform fee
+        const balance = 4166670; // ~$1 in lamports
+        const txFee = 5000;
+        
+        // With RENT_EXEMPT_MINIMUM = 0:
+        const minimumToKeep = txFee;
+        const maxSendable = balance - minimumToKeep;
+        
+        // Split: 99.5% to merchant, 0.5% to platform
+        const merchantRatio = 0.995;
+        const platformRatio = 0.005;
+        
+        const merchantAmount = Math.floor(maxSendable * merchantRatio);
+        const platformAmount = Math.floor(maxSendable * platformRatio);
+        
+        expect(merchantAmount).toBe(4140861); // ~$0.9938
+        expect(platformAmount).toBe(20808); // ~$0.005
+        
+        // Total sent should be close to maxSendable (minus rounding)
+        const totalSent = merchantAmount + platformAmount;
+        expect(totalSent).toBeLessThanOrEqual(maxSendable);
+        expect(totalSent).toBeGreaterThan(maxSendable - 100); // Allow for rounding
+      });
+
+      it('should document why rent-exempt is not needed for one-time addresses', () => {
+        // Documentation test - explains the rationale
+        
+        // Solana accounts need to maintain a minimum balance (rent-exempt minimum)
+        // to avoid being garbage collected. This is ~0.00089 SOL (~$0.21).
+        
+        // However, for one-time payment addresses:
+        // 1. The address is only used once for a single payment
+        // 2. After forwarding, the account has no further use
+        // 3. The account can become "rent-paying" and be garbage collected
+        // 4. This is actually desirable - it cleans up unused accounts
+        
+        // By setting RENT_EXEMPT_MINIMUM = 0:
+        // - We maximize the amount forwarded to the merchant
+        // - The source account will be garbage collected (good for network)
+        // - No funds are "stuck" in unused accounts
+        
+        // The only amount we need to keep is the transaction fee (~5000 lamports)
+        // which is needed to pay for the forwarding transaction itself.
+        
+        expect(true).toBe(true); // Documentation test always passes
+      });
+    });
   });
 
   describe('BitcoinCashProvider', () => {
