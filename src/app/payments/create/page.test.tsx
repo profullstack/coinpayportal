@@ -124,14 +124,19 @@ describe('CreatePaymentPage', () => {
       });
     });
 
-    it('should show platform fee notice', async () => {
+    it('should show payment breakdown with fees', async () => {
       render(<CreatePaymentPage />);
 
       await waitFor(() => {
         expect(
-          screen.getByText(/0\.5% platform fee will be added/i)
+          screen.getByText(/Payment Breakdown/i)
         ).toBeInTheDocument();
       });
+      
+      // Check for fee info - use queryAllByText since elements may appear multiple times
+      expect(screen.queryAllByText(/Network Fee/i).length).toBeGreaterThan(0);
+      expect(screen.queryAllByText(/Customer Pays/i).length).toBeGreaterThan(0);
+      expect(screen.queryAllByText(/platform fee/i).length).toBeGreaterThan(0);
     });
 
     it('should have all currency options', async () => {

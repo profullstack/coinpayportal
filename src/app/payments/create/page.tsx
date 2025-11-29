@@ -151,16 +151,29 @@ export default function CreatePaymentPage() {
   };
 
   const currencies = [
-    { value: 'btc', label: 'Bitcoin (BTC)', networkFee: '$0.50-3.00' },
-    { value: 'eth', label: 'Ethereum (ETH)', networkFee: '$0.50-5.00' },
-    { value: 'matic', label: 'Polygon (MATIC)', networkFee: '$0.001-0.01' },
-    { value: 'sol', label: 'Solana (SOL)', networkFee: '~$0.00025' },
+    { value: 'btc', label: 'Bitcoin (BTC)', networkFee: '$0.50-3.00', estimatedFee: 2.00 },
+    { value: 'eth', label: 'Ethereum (ETH)', networkFee: '$0.50-5.00', estimatedFee: 3.00 },
+    { value: 'matic', label: 'Polygon (MATIC)', networkFee: '$0.001-0.01', estimatedFee: 0.01 },
+    { value: 'sol', label: 'Solana (SOL)', networkFee: '~$0.001', estimatedFee: 0.001 },
   ];
 
   // Get estimated network fee for selected currency
   const getNetworkFee = () => {
     const currency = currencies.find(c => c.value === formData.currency);
     return currency?.networkFee || 'varies';
+  };
+
+  // Get estimated fee amount for selected currency
+  const getEstimatedFeeAmount = () => {
+    const currency = currencies.find(c => c.value === formData.currency);
+    return currency?.estimatedFee || 0;
+  };
+
+  // Calculate total amount customer will pay
+  const getTotalAmount = () => {
+    const baseAmount = parseFloat(formData.amount_usd) || 0;
+    const networkFee = getEstimatedFeeAmount();
+    return baseAmount + networkFee;
   };
 
   useEffect(() => {
@@ -605,17 +618,26 @@ export default function CreatePaymentPage() {
               />
             </div>
 
-            <div className="bg-blue-50 p-4 rounded-lg space-y-2">
-              <p className="text-sm text-blue-900">
-                <strong>Platform Fee:</strong> 0.5% of the payment amount
-              </p>
-              <p className="text-sm text-blue-900">
-                <strong>Est. Network Fee:</strong> {getNetworkFee()} (deducted from forwarded amount)
-              </p>
-              <p className="text-xs text-blue-700 mt-1">
-                Network fees are charged by the blockchain and vary based on congestion.
-                They are deducted when funds are forwarded to your wallet.
-              </p>
+            <div className="bg-blue-50 p-4 rounded-lg space-y-3">
+              <h4 className="text-sm font-semibold text-blue-900">Payment Breakdown</h4>
+              <div className="text-sm text-blue-900 space-y-1">
+                <div className="flex justify-between">
+                  <span>Your Amount:</span>
+                  <span>${parseFloat(formData.amount_usd || '0').toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-blue-700">
+                  <span>+ Network Fee ({getNetworkFee()}):</span>
+                  <span>${getEstimatedFeeAmount().toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between font-semibold border-t border-blue-200 pt-2 mt-2">
+                  <span>Customer Pays:</span>
+                  <span>${getTotalAmount().toFixed(2)}</span>
+                </div>
+              </div>
+              <div className="text-xs text-blue-700 space-y-1 pt-2 border-t border-blue-200">
+                <p>✓ Customer pays the network fee - you receive the full amount</p>
+                <p>✓ 0.5% platform fee (${((parseFloat(formData.amount_usd || '0')) * 0.005).toFixed(2)}) deducted from forwarded amount</p>
+              </div>
             </div>
 
             <div className="flex items-center justify-between pt-4">

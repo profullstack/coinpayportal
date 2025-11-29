@@ -2,6 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getCryptoPrice } from '../rates/tatum';
 import { z } from 'zod';
 import { generatePaymentAddress, type SystemBlockchain } from '../wallets/system-wallet';
+import { ESTIMATED_NETWORK_FEES_USD, getEstimatedNetworkFee, getEstimatedNetworkFeeSync } from './network-fees';
+
+// Re-export network fee utilities for backward compatibility
+export { ESTIMATED_NETWORK_FEES_USD, getEstimatedNetworkFee, getEstimatedNetworkFeeSync };
 
 /**
  * Supported blockchains
@@ -99,15 +103,22 @@ export async function createPayment(
     }
 
     // Calculate crypto amount
-    const cryptoCurrency = input.blockchain.startsWith('USDC_') 
-      ? 'USDC' 
+    const cryptoCurrency = input.blockchain.startsWith('USDC_')
+      ? 'USDC'
       : input.blockchain;
     
+    // Add estimated network fee to the amount so merchant receives full amount after forwarding
+    // Use dynamic fee estimation from Tatum API
+    const networkFeeUsd = await getEstimatedNetworkFee(input.blockchain);
+    const totalAmountUsd = input.amount + networkFeeUsd;
+    
     const cryptoAmount = await getCryptoPrice(
-      input.amount,
+      totalAmountUsd,
       input.currency,
       cryptoCurrency
     );
+    
+    console.log(`[Payment] Amount: $${input.amount}, Network fee: $${networkFeeUsd}, Total: $${totalAmountUsd}, Crypto: ${cryptoAmount} ${cryptoCurrency}`);
 
     // Calculate expiration (15 minutes from now)
     // Users must complete payment within this window
@@ -117,13 +128,17 @@ export async function createPayment(
     // Build payment data - merchant_wallet_address is optional
     const paymentData: Record<string, any> = {
       business_id: input.business_id,
-      amount: input.amount,
+      amount: input.amount, // Original amount (without network fee)
       currency: input.currency,
       blockchain: input.blockchain,
       status: 'pending',
-      crypto_amount: cryptoAmount,
+      crypto_amount: cryptoAmount, // Includes network fee
       crypto_currency: cryptoCurrency,
-      metadata: input.metadata || {},
+      metadata: {
+        ...input.metadata,
+        network_fee_usd: networkFeeUsd,
+        total_amount_usd: totalAmountUsd,
+      },
       expires_at: expiresAt.toISOString(),
     };
     
