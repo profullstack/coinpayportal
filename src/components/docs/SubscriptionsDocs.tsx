@@ -40,7 +40,6 @@ export function SubscriptionsDocs() {
             <li>• Priority support</li>
             <li>• Advanced analytics</li>
             <li>• Custom webhooks</li>
-            <li>• White-label option</li>
           </ul>
         </div>
       </div>

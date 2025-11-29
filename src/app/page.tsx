@@ -255,7 +255,6 @@ export default function Home() {
                   'Priority support',
                   'Advanced analytics',
                   'Custom webhooks',
-                  'White-label option',
                 ],
                 popular: true,
               },
@@ -265,6 +264,7 @@ export default function Home() {
                 description: 'For large-scale operations',
                 features: [
                   'Everything in Professional',
+                  'White-label option',
                   'Dedicated account manager',
                   'SLA guarantee',
                   'Custom integrations',
