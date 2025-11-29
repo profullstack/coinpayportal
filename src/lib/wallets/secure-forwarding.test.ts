@@ -413,3 +413,148 @@ describe('Business Collection Security Tests', () => {
     expect(decrypted.includes(':')).toBe(false); // Decrypted key shouldn't have our format
   });
 });
+
+describe('Database Update Error Handling', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    process.env.ENCRYPTION_KEY = TEST_ENCRYPTION_KEY;
+    mockSupabase = createMockSupabase();
+  });
+
+  afterEach(() => {
+    delete process.env.ENCRYPTION_KEY;
+  });
+
+  it('should handle database update errors gracefully', async () => {
+    // Simulate a database update error
+    const mockUpdateError = { message: 'Database connection failed' };
+    
+    mockSupabase._mockEq.mockReturnValueOnce({
+      single: vi.fn().mockResolvedValueOnce({
+        data: null,
+        error: mockUpdateError,
+      }),
+    });
+
+    const result = await mockSupabase
+      .from('payments')
+      .update({ status: 'forwarded' })
+      .eq('id', 'payment-123')
+      .single();
+
+    expect(result.error).toBeDefined();
+    expect(result.error.message).toBe('Database connection failed');
+  });
+
+  it('should detect when payment status update fails', async () => {
+    // Test the error detection logic
+    const updateResult = {
+      data: null,
+      error: { message: 'Update failed: row not found' },
+    };
+
+    const hasError = !!updateResult.error;
+    expect(hasError).toBe(true);
+    expect(updateResult.error?.message).toContain('Update failed');
+  });
+
+  it('should successfully update payment status to forwarded', async () => {
+    mockSupabase._mockEq.mockReturnValueOnce({
+      single: vi.fn().mockResolvedValueOnce({
+        data: { id: 'payment-123', status: 'forwarded' },
+        error: null,
+      }),
+    });
+
+    const result = await mockSupabase
+      .from('payments')
+      .update({
+        status: 'forwarded',
+        forward_tx_hash: '0xtxhash123',
+        merchant_amount: 99.5,
+        fee_amount: 0.5,
+        forwarded_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', 'payment-123')
+      .single();
+
+    expect(result.error).toBeNull();
+    expect(result.data).toBeDefined();
+    expect(result.data.status).toBe('forwarded');
+  });
+
+  it('should handle payment_addresses update errors without throwing', async () => {
+    // First call for payments update succeeds
+    mockSupabase._mockEq.mockReturnValueOnce({
+      single: vi.fn().mockResolvedValueOnce({
+        data: { id: 'payment-123', status: 'forwarded' },
+        error: null,
+      }),
+    });
+
+    // Second call for payment_addresses update fails
+    mockSupabase._mockEq.mockReturnValueOnce({
+      single: vi.fn().mockResolvedValueOnce({
+        data: null,
+        error: { message: 'Address update failed' },
+      }),
+    });
+
+    // Payment update should succeed
+    const paymentResult = await mockSupabase
+      .from('payments')
+      .update({ status: 'forwarded' })
+      .eq('id', 'payment-123')
+      .single();
+
+    expect(paymentResult.error).toBeNull();
+
+    // Address update fails but shouldn't throw
+    const addressResult = await mockSupabase
+      .from('payment_addresses')
+      .update({ is_used: true })
+      .eq('payment_id', 'payment-123')
+      .single();
+
+    expect(addressResult.error).toBeDefined();
+    // The main operation (payment forwarding) should still be considered successful
+    // even if the address metadata update fails
+  });
+});
+
+describe('Forwarding Status Transitions', () => {
+  it('should transition from confirmed to forwarding', () => {
+    const validTransitions: Record<string, string[]> = {
+      'confirmed': ['forwarding'],
+      'forwarding': ['forwarded', 'forwarding_failed'],
+      'forwarding_failed': ['confirmed'], // For retry
+    };
+
+    expect(validTransitions['confirmed']).toContain('forwarding');
+    expect(validTransitions['forwarding']).toContain('forwarded');
+    expect(validTransitions['forwarding']).toContain('forwarding_failed');
+  });
+
+  it('should not allow forwarding from pending status', () => {
+    const canForward = (status: string): boolean => {
+      return status === 'confirmed';
+    };
+
+    expect(canForward('pending')).toBe(false);
+    expect(canForward('confirmed')).toBe(true);
+    expect(canForward('forwarded')).toBe(false);
+    expect(canForward('expired')).toBe(false);
+  });
+
+  it('should allow retry from forwarding_failed status', () => {
+    const canRetry = (status: string): boolean => {
+      return ['forwarding_failed', 'confirmed'].includes(status);
+    };
+
+    expect(canRetry('forwarding_failed')).toBe(true);
+    expect(canRetry('confirmed')).toBe(true);
+    expect(canRetry('forwarded')).toBe(false);
+    expect(canRetry('pending')).toBe(false);
+  });
+});

@@ -246,9 +246,9 @@ export default function PaymentDetailPage() {
     }
   }, [paymentId, router, calculateTimeRemaining]);
 
-  // Start polling and timer when payment is loaded and pending
+  // Start polling and timer when payment is loaded and pending/forwarding
   useEffect(() => {
-    if (payment?.id && (paymentStatus === 'pending' || paymentStatus === 'detected')) {
+    if (payment?.id && (paymentStatus === 'pending' || paymentStatus === 'detected' || paymentStatus === 'forwarding')) {
       // Start polling for payment status
       pollIntervalRef.current = setInterval(() => {
         pollPaymentStatus();

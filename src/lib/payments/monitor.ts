@@ -360,11 +360,14 @@ async function processPayment(supabase: any, payment: Payment): Promise<{ confir
           const errorText = await forwardResponse.text();
           console.error(`[Monitor] Failed to trigger forwarding for ${payment.id}: ${forwardResponse.status} - ${errorText}`);
         } else {
-          console.log(`[Monitor] Forwarding triggered for payment ${payment.id}`);
+          const forwardResult = await forwardResponse.json();
+          console.log(`[Monitor] Forwarding completed for payment ${payment.id}:`, JSON.stringify(forwardResult));
         }
       } catch (forwardError) {
         console.error(`[Monitor] Error triggering forwarding for ${payment.id}:`, forwardError);
       }
+    } else {
+      console.warn(`[Monitor] INTERNAL_API_KEY not configured - cannot trigger forwarding for ${payment.id}`);
     }
     
     return { confirmed: true, expired: false };

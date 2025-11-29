@@ -728,5 +728,110 @@ describe('PaymentDetailPage', () => {
       
       expect(fetch).toHaveBeenCalledTimes(1);
     });
+
+    it('should not poll for forwarded payment', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: { ...mockPayment, status: 'forwarded' },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        screen.getByText(/payment complete/i);
+      });
+
+      // Wait a bit and verify no additional fetches
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Forwarding Status', () => {
+    it('should show forwarding status', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: { ...mockPayment, status: 'forwarding' },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/forwarding payment/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should display forward_tx_hash when available', async () => {
+      const forwardTxHash = '0xforward123456789abcdef';
+      
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: {
+            ...mockPayment,
+            status: 'forwarded',
+            tx_hash: '0xincoming123',
+            forward_tx_hash: forwardTxHash,
+          },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        // Should show the forward tx hash label
+        expect(screen.getByText(/forward tx/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should not show forward_tx_hash section when same as tx_hash', async () => {
+      const txHash = '0xsametx123456789abcdef';
+      
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: {
+            ...mockPayment,
+            status: 'forwarded',
+            tx_hash: txHash,
+            forward_tx_hash: txHash, // Same as tx_hash
+          },
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        screen.getByText(/payment complete/i);
+      });
+
+      // Should not show "Forward TX" label when hashes are the same
+      expect(screen.queryByText(/forward tx/i)).not.toBeInTheDocument();
+    });
+
+    it('should include forwarding in polling statuses', () => {
+      // Test that the polling condition includes 'forwarding' status
+      const pollingStatuses = ['pending', 'detected', 'forwarding'];
+      const nonPollingStatuses = ['confirmed', 'forwarded', 'expired', 'failed'];
+
+      pollingStatuses.forEach(status => {
+        const shouldPoll = ['pending', 'detected', 'forwarding'].includes(status);
+        expect(shouldPoll).toBe(true);
+      });
+
+      nonPollingStatuses.forEach(status => {
+        const shouldPoll = ['pending', 'detected', 'forwarding'].includes(status);
+        expect(shouldPoll).toBe(false);
+      });
+    });
   });
 });

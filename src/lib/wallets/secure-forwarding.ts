@@ -253,7 +253,7 @@ export async function forwardPaymentSecurely(
       }
 
       // Update payment with forwarding details
-      await supabase
+      const { error: updateError } = await supabase
         .from('payments')
         .update({
           status: 'forwarded',
@@ -265,8 +265,15 @@ export async function forwardPaymentSecurely(
         })
         .eq('id', paymentId);
 
+      if (updateError) {
+        console.error(`[SECURE] Failed to update payment ${paymentId} to forwarded:`, updateError);
+        throw new Error(`Database update failed: ${updateError.message}`);
+      }
+
+      console.log(`[SECURE] Payment ${paymentId} status updated to 'forwarded'`);
+
       // Mark address as used
-      await supabase
+      const { error: addressError } = await supabase
         .from('payment_addresses')
         .update({
           is_used: true,
@@ -275,6 +282,11 @@ export async function forwardPaymentSecurely(
           merchant_tx_hash: merchantTxHash,
         })
         .eq('payment_id', paymentId);
+
+      if (addressError) {
+        console.error(`[SECURE] Failed to update payment address for ${paymentId}:`, addressError);
+        // Don't throw here - payment is already forwarded, this is just metadata
+      }
 
       // Send webhook notification
       await sendPaymentWebhook(supabase, paymentId, paymentId, 'payment.forwarded', {
