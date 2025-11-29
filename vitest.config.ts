@@ -19,8 +19,7 @@ export default defineConfig({
       '**/cypress/**',
       '**/.{idea,git,cache,output,temp}/**',
       '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build}.config.*',
-      // Skip blockchain tests due to ws CommonJS/ESM incompatibility
-      'src/lib/blockchain/providers.test.ts',
+      // Skip blockchain tests due to ws CommonJS/ESM incompatibility (except providers.test.ts which is fully mocked)
       'src/lib/blockchain/wallets.test.ts',
       'src/lib/blockchain/monitor.test.ts',
       // Skip system-wallet test due to ethers/ws CommonJS/ESM incompatibility
