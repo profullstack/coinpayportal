@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 
 const PAYMENT_EXPIRY_MINUTES = 15;
-const POLL_INTERVAL_MS = 5000;
+const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
+const BALANCE_CHECK_INTERVAL_MS = 15000; // Check blockchain balance every 15 seconds
 
 interface Payment {
   id: string;
@@ -36,6 +37,8 @@ export default function PaymentDetailPage() {
   const [qrError, setQrError] = useState(false);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const balanceCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastBalanceCheckRef = useRef<number>(0);
 
   const copyToClipboard = async (text: string, field: string) => {
     try {
@@ -60,6 +63,64 @@ export default function PaymentDetailPage() {
     const remaining = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
     return remaining;
   }, []);
+
+  // Check blockchain balance directly
+  const checkBlockchainBalance = useCallback(async () => {
+    try {
+      console.log(`Checking blockchain balance for payment ${paymentId}...`);
+      
+      const response = await fetch(`/api/payments/${paymentId}/check-balance`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Balance check result:', data);
+        
+        if (data.status && data.status !== 'pending') {
+          // Payment status changed, update UI
+          setPaymentStatus(data.status);
+          
+          // Fetch full payment details
+          const token = localStorage.getItem('auth_token');
+          if (token) {
+            const paymentResponse = await fetch(`/api/payments/${paymentId}`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            });
+            if (paymentResponse.ok) {
+              const paymentData = await paymentResponse.json();
+              if (paymentData.success && paymentData.payment) {
+                setPayment(paymentData.payment);
+              }
+            }
+          }
+          
+          // Stop checking if payment is no longer pending
+          if (['confirmed', 'forwarded', 'expired', 'failed'].includes(data.status)) {
+            if (balanceCheckIntervalRef.current) {
+              clearInterval(balanceCheckIntervalRef.current);
+              balanceCheckIntervalRef.current = null;
+            }
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            if (timerIntervalRef.current) {
+              clearInterval(timerIntervalRef.current);
+              timerIntervalRef.current = null;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to check blockchain balance:', err);
+    }
+  }, [paymentId]);
 
   // Poll for payment status
   const pollPaymentStatus = useCallback(async () => {
@@ -89,13 +150,24 @@ export default function PaymentDetailPage() {
               clearInterval(timerIntervalRef.current);
               timerIntervalRef.current = null;
             }
+            if (balanceCheckIntervalRef.current) {
+              clearInterval(balanceCheckIntervalRef.current);
+              balanceCheckIntervalRef.current = null;
+            }
           }
         }
+      }
+      
+      // Also check blockchain balance periodically during polling
+      const now = Date.now();
+      if (now - lastBalanceCheckRef.current >= BALANCE_CHECK_INTERVAL_MS) {
+        lastBalanceCheckRef.current = now;
+        checkBlockchainBalance();
       }
     } catch (err) {
       console.error('Failed to poll payment status:', err);
     }
-  }, [paymentId]);
+  }, [paymentId, checkBlockchainBalance]);
 
   // Fetch payment on mount
   useEffect(() => {
@@ -145,10 +217,19 @@ export default function PaymentDetailPage() {
   // Start polling and timer when payment is loaded and pending
   useEffect(() => {
     if (payment?.id && (paymentStatus === 'pending' || paymentStatus === 'detected')) {
-      // Start polling
+      // Start polling for payment status
       pollIntervalRef.current = setInterval(() => {
         pollPaymentStatus();
       }, POLL_INTERVAL_MS);
+
+      // Start blockchain balance checking (more frequent for faster detection)
+      // Do an immediate check first
+      checkBlockchainBalance();
+      lastBalanceCheckRef.current = Date.now();
+      
+      balanceCheckIntervalRef.current = setInterval(() => {
+        checkBlockchainBalance();
+      }, BALANCE_CHECK_INTERVAL_MS);
 
       // Start countdown timer
       timerIntervalRef.current = setInterval(() => {
@@ -178,9 +259,12 @@ export default function PaymentDetailPage() {
         if (timerIntervalRef.current) {
           clearInterval(timerIntervalRef.current);
         }
+        if (balanceCheckIntervalRef.current) {
+          clearInterval(balanceCheckIntervalRef.current);
+        }
       };
     }
-  }, [payment?.id, payment?.created_at, paymentStatus, pollPaymentStatus, calculateTimeRemaining]);
+  }, [payment?.id, payment?.created_at, paymentStatus, pollPaymentStatus, calculateTimeRemaining, checkBlockchainBalance]);
 
   // Format time remaining as MM:SS
   const formatTimeRemaining = (seconds: number) => {

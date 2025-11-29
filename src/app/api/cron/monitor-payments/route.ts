@@ -1,36 +1,21 @@
-/**
- * Supabase Edge Function: Payment Monitor
- *
- * This function runs on a schedule (every minute via pg_cron) to:
- * 1. Check pending payments for incoming blockchain transactions
- * 2. Mark payments as confirmed when funds are detected
- * 3. Mark payments as expired/cancelled after 15 minutes
- * 4. Trigger forwarding for confirmed payments
- *
- * PAYMENT LIFECYCLE:
- * - pending (0-15 min): Waiting for customer payment
- * - confirmed: Payment detected, waiting for forwarding
- * - forwarding: Funds being split and sent
- * - forwarded: Complete - funds sent to merchant + platform
- * - expired: No payment received within 15 minutes
- */
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 // RPC endpoints for different blockchains
 const RPC_ENDPOINTS: Record<string, string> = {
-  BTC: Deno.env.get('BITCOIN_RPC_URL') || 'https://blockstream.info/api',
-  BCH: Deno.env.get('BCH_RPC_URL') || 'https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet',
-  ETH: Deno.env.get('ETHEREUM_RPC_URL') || 'https://eth.llamarpc.com',
-  MATIC: Deno.env.get('POLYGON_RPC_URL') || 'https://polygon-rpc.com',
-  SOL: Deno.env.get('SOLANA_RPC_URL') || Deno.env.get('NEXT_PUBLIC_SOLANA_RPC_URL') || 'https://api.mainnet-beta.solana.com',
+  BTC: process.env.BITCOIN_RPC_URL || 'https://blockstream.info/api',
+  BCH: process.env.BCH_RPC_URL || 'https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet',
+  ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
+  MATIC: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+  SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
 };
 
 // API keys
-const CRYPTO_APIS_KEY = Deno.env.get('CRYPTO_APIS_KEY') || '';
-
-// Payment expiration time in minutes
-const PAYMENT_EXPIRATION_MINUTES = 15;
+const CRYPTO_APIS_KEY = process.env.CRYPTO_APIS_KEY || '';
+const CRON_SECRET = process.env.CRON_SECRET || process.env.INTERNAL_API_KEY;
 
 interface Payment {
   id: string;
@@ -42,16 +27,6 @@ interface Payment {
   created_at: string;
   expires_at: string;
   merchant_wallet_address: string;
-}
-
-interface PaymentAddress {
-  id: string;
-  payment_id: string;
-  address: string;
-  cryptocurrency: string;
-  encrypted_private_key: string;
-  merchant_wallet: string;
-  commission_wallet: string;
 }
 
 /**
@@ -66,7 +41,6 @@ async function checkBitcoinBalance(address: string): Promise<number> {
     }
     
     const data = await response.json();
-    // Balance is in satoshis, convert to BTC
     const balanceSatoshis = (data.chain_stats?.funded_txo_sum || 0) - (data.chain_stats?.spent_txo_sum || 0);
     return balanceSatoshis / 100_000_000;
   } catch (error) {
@@ -77,7 +51,6 @@ async function checkBitcoinBalance(address: string): Promise<number> {
 
 /**
  * Check balance for a Bitcoin Cash address using Crypto APIs
- * API docs: https://developers.cryptoapis.io/technical-documentation/blockchain-data/unified-endpoints/get-address-details
  */
 async function checkBCHBalance(address: string): Promise<number> {
   try {
@@ -86,7 +59,6 @@ async function checkBCHBalance(address: string): Promise<number> {
       return 0;
     }
     
-    // Crypto APIs endpoint for BCH address details
     const url = `https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet/addresses/${address}`;
     
     const response = await fetch(url, {
@@ -104,9 +76,6 @@ async function checkBCHBalance(address: string): Promise<number> {
     }
     
     const data = await response.json();
-    
-    // Crypto APIs returns balance in the data.item.confirmedBalance field
-    // The balance is already in BCH (not satoshis)
     const confirmedBalance = parseFloat(data.data?.item?.confirmedBalance?.amount || '0');
     return confirmedBalance;
   } catch (error) {
@@ -142,7 +111,6 @@ async function checkEVMBalance(address: string, rpcUrl: string): Promise<number>
       return 0;
     }
     
-    // Balance is in wei, convert to ETH
     const balanceWei = BigInt(data.result || '0x0');
     return Number(balanceWei) / 1e18;
   } catch (error) {
@@ -156,6 +124,8 @@ async function checkEVMBalance(address: string, rpcUrl: string): Promise<number>
  */
 async function checkSolanaBalance(address: string, rpcUrl: string): Promise<number> {
   try {
+    console.log(`Checking Solana balance for ${address} using ${rpcUrl}`);
+    
     const response = await fetch(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -168,19 +138,23 @@ async function checkSolanaBalance(address: string, rpcUrl: string): Promise<numb
     });
     
     if (!response.ok) {
-      console.error(`Failed to fetch Solana balance for ${address}: ${response.status}`);
+      const errorText = await response.text();
+      console.error(`Failed to fetch Solana balance for ${address}: ${response.status} - ${errorText}`);
       return 0;
     }
     
     const data = await response.json();
+    console.log(`Solana RPC response for ${address}:`, JSON.stringify(data));
+    
     if (data.error) {
       console.error(`RPC error for ${address}:`, data.error);
       return 0;
     }
     
-    // Balance is in lamports, convert to SOL
     const balanceLamports = data.result?.value || 0;
-    return balanceLamports / 1e9;
+    const balanceSOL = balanceLamports / 1e9;
+    console.log(`Solana balance for ${address}: ${balanceLamports} lamports = ${balanceSOL} SOL`);
+    return balanceSOL;
   } catch (error) {
     console.error(`Error checking Solana balance for ${address}:`, error);
     return 0;
@@ -215,13 +189,12 @@ async function checkBalance(address: string, blockchain: string): Promise<number
  * Send webhook notification for payment status change
  */
 async function sendWebhook(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   payment: Payment,
   event: string,
   additionalData?: Record<string, unknown>
 ): Promise<void> {
   try {
-    // Get business webhook URL
     const { data: business } = await supabase
       .from('businesses')
       .select('webhook_url, webhook_secret')
@@ -265,7 +238,6 @@ async function sendWebhook(
         .join('');
     }
     
-    // Send webhook
     const response = await fetch(business.webhook_url, {
       method: 'POST',
       headers: {
@@ -294,22 +266,34 @@ async function sendWebhook(
 }
 
 /**
- * Main handler for the edge function
+ * GET /api/cron/monitor-payments
+ * Background job to monitor pending payments and check blockchain balances
+ * 
+ * This endpoint should be called by an external cron service every 15 seconds.
+ * Configure in:
+ * - Vercel: vercel.json with cron configuration
+ * - Railway: railway.toml with cron
+ * - External: cron-job.org or similar
+ * 
+ * Authentication: Requires CRON_SECRET or INTERNAL_API_KEY in Authorization header
  */
-Deno.serve(async (req) => {
+export async function GET(request: NextRequest) {
   try {
-    // Verify request is from Supabase (cron job) or has valid auth
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    // Verify cron secret for security
+    const authHeader = request.headers.get('authorization');
+    const cronSecret = authHeader?.replace('Bearer ', '');
+    
+    // Allow requests from Vercel Cron (they include a special header)
+    const isVercelCron = request.headers.get('x-vercel-cron') === '1';
+    
+    if (!isVercelCron && cronSecret !== CRON_SECRET) {
+      console.warn('Unauthorized cron request');
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
     }
     
-    // Create Supabase client with service role
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     
     const now = new Date();
@@ -320,7 +304,7 @@ Deno.serve(async (req) => {
       errors: 0,
     };
     
-    // 1. Get all pending payments
+    // Get all pending payments
     const { data: pendingPayments, error: fetchError } = await supabase
       .from('payments')
       .select(`
@@ -339,15 +323,15 @@ Deno.serve(async (req) => {
     
     if (fetchError) {
       console.error('Failed to fetch pending payments:', fetchError);
-      return new Response(JSON.stringify({ error: fetchError.message }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return NextResponse.json(
+        { error: fetchError.message },
+        { status: 500 }
+      );
     }
     
     console.log(`Processing ${pendingPayments?.length || 0} pending payments`);
     
-    // 2. Process each pending payment
+    // Process each pending payment
     for (const payment of pendingPayments || []) {
       stats.checked++;
       
@@ -355,7 +339,7 @@ Deno.serve(async (req) => {
         // Check if payment has expired (15 minutes)
         const expiresAt = new Date(payment.expires_at);
         if (now > expiresAt) {
-          // Mark as expired/cancelled
+          // Mark as expired
           await supabase
             .from('payments')
             .update({
@@ -365,7 +349,7 @@ Deno.serve(async (req) => {
             .eq('id', payment.id);
           
           // Send webhook notification
-          await sendWebhook(supabase, { ...payment, status: 'expired' }, 'payment.expired', {
+          await sendWebhook(supabase, { ...payment, status: 'expired' } as Payment, 'payment.expired', {
             reason: 'Payment window expired (15 minutes)',
             expired_at: now.toISOString(),
           });
@@ -397,7 +381,7 @@ Deno.serve(async (req) => {
             .eq('id', payment.id);
           
           // Send webhook notification
-          await sendWebhook(supabase, { ...payment, status: 'confirmed' }, 'payment.confirmed', {
+          await sendWebhook(supabase, { ...payment, status: 'confirmed' } as Payment, 'payment.confirmed', {
             received_amount: balance,
             confirmed_at: now.toISOString(),
           });
@@ -405,9 +389,9 @@ Deno.serve(async (req) => {
           stats.confirmed++;
           console.log(`Payment ${payment.id} confirmed with balance ${balance}`);
           
-          // Trigger forwarding via the forward-payment function
-          const appUrl = Deno.env.get('APP_URL') || 'http://localhost:3000';
-          const internalApiKey = Deno.env.get('INTERNAL_API_KEY');
+          // Trigger forwarding
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
+          const internalApiKey = process.env.INTERNAL_API_KEY;
           
           if (internalApiKey) {
             try {
@@ -420,7 +404,8 @@ Deno.serve(async (req) => {
               });
               
               if (!forwardResponse.ok) {
-                console.error(`Failed to trigger forwarding for ${payment.id}: ${forwardResponse.status}`);
+                const errorText = await forwardResponse.text();
+                console.error(`Failed to trigger forwarding for ${payment.id}: ${forwardResponse.status} - ${errorText}`);
               } else {
                 console.log(`Forwarding triggered for payment ${payment.id}`);
               }
@@ -435,7 +420,6 @@ Deno.serve(async (req) => {
       }
     }
     
-    // 3. Return processing stats
     const response = {
       success: true,
       timestamp: now.toISOString(),
@@ -444,15 +428,17 @@ Deno.serve(async (req) => {
     
     console.log('Monitor complete:', response);
     
-    return new Response(JSON.stringify(response), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return NextResponse.json(response);
   } catch (error) {
     console.error('Monitor error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Monitor failed' },
+      { status: 500 }
+    );
   }
-});
+}
+
+// Also support POST for flexibility
+export async function POST(request: NextRequest) {
+  return GET(request);
+}
