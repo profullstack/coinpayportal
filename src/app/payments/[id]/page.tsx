@@ -173,7 +173,12 @@ export default function PaymentDetailPage() {
           setPaymentStatus(data.payment.status);
 
           // Stop polling if payment is complete or failed
-          if (['confirmed', 'forwarded', 'expired', 'failed'].includes(data.payment.status)) {
+          // For confirmed/forwarded, also wait for tx_hash to be available
+          const isTerminalStatus = ['expired', 'failed'].includes(data.payment.status);
+          const isCompleteWithTxHash = ['confirmed', 'forwarded'].includes(data.payment.status) &&
+            (data.payment.tx_hash || data.payment.forward_tx_hash);
+          
+          if (isTerminalStatus || isCompleteWithTxHash) {
             if (pollIntervalRef.current) {
               clearInterval(pollIntervalRef.current);
               pollIntervalRef.current = null;
@@ -247,8 +252,16 @@ export default function PaymentDetailPage() {
   }, [paymentId, router, calculateTimeRemaining]);
 
   // Start polling and timer when payment is loaded and pending/forwarding
+  // Also continue polling for confirmed status until we have tx_hash
   useEffect(() => {
-    if (payment?.id && (paymentStatus === 'pending' || paymentStatus === 'detected' || paymentStatus === 'forwarding')) {
+    const needsPolling = paymentStatus === 'pending' ||
+      paymentStatus === 'detected' ||
+      paymentStatus === 'forwarding' ||
+      // Continue polling for confirmed/forwarded until we have tx_hash
+      ((paymentStatus === 'confirmed' || paymentStatus === 'forwarded') &&
+       !payment?.tx_hash && !payment?.forward_tx_hash);
+    
+    if (payment?.id && needsPolling) {
       // Start polling for payment status
       pollIntervalRef.current = setInterval(() => {
         pollPaymentStatus();

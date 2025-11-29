@@ -666,12 +666,12 @@ describe('PaymentDetailPage', () => {
   });
 
   describe('Polling Behavior', () => {
-    it('should not poll for confirmed payment', async () => {
+    it('should not poll for confirmed payment with tx_hash', async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           success: true,
-          payment: { ...mockPayment, status: 'confirmed' },
+          payment: { ...mockPayment, status: 'confirmed', tx_hash: '0xconfirmed123' },
         }),
       } as Response);
 
@@ -685,6 +685,33 @@ describe('PaymentDetailPage', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
       
       expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('should continue polling for confirmed payment without tx_hash', async () => {
+      // First call returns confirmed without tx_hash
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: { ...mockPayment, status: 'confirmed' },
+          status: 'confirmed',
+          balance: 0.05,
+        }),
+      } as Response);
+
+      render(<PaymentDetailPage />);
+
+      await waitFor(() => {
+        screen.getByText(/payment confirmed/i);
+      });
+
+      // Should continue polling to get tx_hash
+      // The polling will start because status is confirmed but no tx_hash
+      // Wait a bit and verify more than 1 fetch (polling is active)
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // At least 2 fetches: initial load + balance check
+      expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(2);
     });
 
     it('should not poll for expired payment', async () => {
@@ -729,12 +756,12 @@ describe('PaymentDetailPage', () => {
       expect(fetch).toHaveBeenCalledTimes(1);
     });
 
-    it('should not poll for forwarded payment', async () => {
+    it('should not poll for forwarded payment with tx_hash', async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           success: true,
-          payment: { ...mockPayment, status: 'forwarded' },
+          payment: { ...mockPayment, status: 'forwarded', tx_hash: '0xincoming123', forward_tx_hash: '0xforward123' },
         }),
       } as Response);
 

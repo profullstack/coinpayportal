@@ -1,10 +1,12 @@
 /**
  * Payment Fee Calculations
  * Platform transaction fee: 0.5% of payment amount
+ * Merchant receives: 99.5% of payment amount
  */
 
 /**
  * Platform fee percentage (0.5%)
+ * Merchant receives 99.5% of the payment
  */
 export const FEE_PERCENTAGE = 0.005;
 
@@ -39,7 +41,7 @@ function validateAmount(amount: number): void {
 }
 
 /**
- * Calculate platform fee (0.25% of amount)
+ * Calculate platform fee (0.5% of amount)
  * @param amount - Total payment amount
  * @returns Platform fee amount
  */
@@ -53,7 +55,7 @@ export function calculateFee(amount: number): number {
 }
 
 /**
- * Calculate merchant amount (99.75% of total)
+ * Calculate merchant amount (99.5% of total)
  * @param amount - Total payment amount
  * @returns Amount merchant receives
  */

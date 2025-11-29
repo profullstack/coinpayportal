@@ -362,9 +362,10 @@ describe('Blockchain Providers', () => {
         expect(maxSendable).toBe(4161670); // 0.00416167 SOL
         
         // Convert back to USD: 0.00416167 * $240 = $0.9988
-        // Platform fee (0.5%): $0.005
-        // Merchant receives: ~$0.9938
-        // This is ~99.4% of the original $1 payment
+        // Platform fee (0.5%): ~$0.005
+        // Merchant receives: ~$0.9938 (99.38% of original $1)
+        // Network fee: ~$0.0012 (0.12% of original $1)
+        // Total to merchant: ~99.38% - very close to the target 99.5%!
         
         // With old RENT_EXEMPT_MINIMUM = 890880:
         // maxSendable would be: 4166670 - 890880 - 5000 = 3270790 lamports
@@ -374,6 +375,7 @@ describe('Blockchain Providers', () => {
 
       it('should handle split transaction with correct fee calculation', () => {
         // Split transaction scenario: merchant + platform fee
+        // Platform takes 0.5%, merchant gets 99.5%
         const balance = 4166670; // ~$1 in lamports
         const txFee = 5000;
         
@@ -381,20 +383,23 @@ describe('Blockchain Providers', () => {
         const minimumToKeep = txFee;
         const maxSendable = balance - minimumToKeep;
         
-        // Split: 99.5% to merchant, 0.5% to platform
+        // Split: 99.5% to merchant, 0.5% to platform (our fee structure)
         const merchantRatio = 0.995;
         const platformRatio = 0.005;
         
         const merchantAmount = Math.floor(maxSendable * merchantRatio);
         const platformAmount = Math.floor(maxSendable * platformRatio);
         
-        expect(merchantAmount).toBe(4140861); // ~$0.9938
-        expect(platformAmount).toBe(20808); // ~$0.005
+        expect(merchantAmount).toBe(4140861); // ~$0.9938 (99.38% of original $1)
+        expect(platformAmount).toBe(20808); // ~$0.005 (0.5% platform fee)
         
         // Total sent should be close to maxSendable (minus rounding)
         const totalSent = merchantAmount + platformAmount;
         expect(totalSent).toBeLessThanOrEqual(maxSendable);
         expect(totalSent).toBeGreaterThan(maxSendable - 100); // Allow for rounding
+        
+        // Merchant receives ~99.38% of original payment
+        // This is very close to the target 99.5% (difference is network tx fee)
       });
 
       it('should document why rent-exempt is not needed for one-time addresses', () => {
