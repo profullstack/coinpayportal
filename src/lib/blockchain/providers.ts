@@ -10,6 +10,13 @@ import {
 } from '@solana/web3.js';
 import bs58 from 'bs58';
 import axios from 'axios';
+import * as bitcoin from 'bitcoinjs-lib';
+import { HDKey } from '@scure/bip32';
+import * as ecc from 'tiny-secp256k1';
+import ECPairFactory from 'ecpair';
+
+// Initialize ECPair with secp256k1
+const ECPair = ECPairFactory(ecc);
 
 /**
  * Supported blockchain types
@@ -43,14 +50,33 @@ export interface BlockchainProvider {
 }
 
 /**
- * Bitcoin provider implementation
+ * UTXO interface for Bitcoin transactions
+ */
+interface UTXO {
+  txid: string;
+  vout: number;
+  value: number; // in satoshis
+  scriptPubKey?: string;
+}
+
+/**
+ * Bitcoin provider implementation with transaction sending
  */
 export class BitcoinProvider implements BlockchainProvider {
   chain: BlockchainType = 'BTC';
   rpcUrl: string;
+  private network: bitcoin.Network;
+  private isTestnet: boolean;
 
-  constructor(rpcUrl: string) {
+  // Bitcoin transaction fee in satoshis per byte (conservative estimate)
+  private static readonly SATOSHIS_PER_BYTE = 20;
+  // Minimum output value (dust limit)
+  private static readonly DUST_LIMIT = 546;
+
+  constructor(rpcUrl: string, testnet: boolean = false) {
     this.rpcUrl = rpcUrl;
+    this.isTestnet = testnet;
+    this.network = testnet ? bitcoin.networks.testnet : bitcoin.networks.bitcoin;
   }
 
   async getBalance(address: string): Promise<string> {
@@ -86,6 +112,277 @@ export class BitcoinProvider implements BlockchainProvider {
       };
     } catch (error) {
       throw new Error(`Failed to fetch Bitcoin transaction: ${error}`);
+    }
+  }
+
+  /**
+   * Fetch UTXOs for an address using Tatum API
+   */
+  private async getUTXOs(address: string): Promise<UTXO[]> {
+    try {
+      const apiKey = process.env.TATUM_API_KEY;
+      if (!apiKey) {
+        throw new Error('TATUM_API_KEY not configured');
+      }
+
+      const response = await axios.get(
+        `https://api.tatum.io/v3/bitcoin/utxo/${address}`,
+        {
+          headers: {
+            'x-api-key': apiKey,
+          },
+        }
+      );
+
+      return response.data.map((utxo: any) => ({
+        txid: utxo.txHash,
+        vout: utxo.index,
+        value: Math.round(parseFloat(utxo.value) * 100000000), // Convert BTC to satoshis
+      }));
+    } catch (error) {
+      console.error('[BTC] Failed to fetch UTXOs:', error);
+      throw new Error(`Failed to fetch UTXOs: ${error}`);
+    }
+  }
+
+  /**
+   * Broadcast a signed transaction using Tatum API
+   */
+  private async broadcastTransaction(txHex: string): Promise<string> {
+    try {
+      const apiKey = process.env.TATUM_API_KEY;
+      if (!apiKey) {
+        throw new Error('TATUM_API_KEY not configured');
+      }
+
+      const response = await axios.post(
+        'https://api.tatum.io/v3/bitcoin/broadcast',
+        { txData: txHex },
+        {
+          headers: {
+            'x-api-key': apiKey,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      return response.data.txId;
+    } catch (error: any) {
+      console.error('[BTC] Failed to broadcast transaction:', error.response?.data || error);
+      throw new Error(`Failed to broadcast transaction: ${error.response?.data?.message || error}`);
+    }
+  }
+
+  /**
+   * Estimate transaction size for fee calculation
+   * P2PKH: ~148 bytes per input, ~34 bytes per output, ~10 bytes overhead
+   */
+  private estimateTxSize(inputCount: number, outputCount: number): number {
+    return inputCount * 148 + outputCount * 34 + 10;
+  }
+
+  /**
+   * Send a Bitcoin transaction
+   */
+  async sendTransaction(
+    from: string,
+    to: string,
+    amount: string,
+    privateKey: string
+  ): Promise<string> {
+    try {
+      // Parse private key (hex format)
+      const keyPair = ECPair.fromPrivateKey(Buffer.from(privateKey, 'hex'), {
+        network: this.network,
+      });
+
+      // Fetch UTXOs
+      const utxos = await this.getUTXOs(from);
+      if (utxos.length === 0) {
+        throw new Error('No UTXOs available for spending');
+      }
+
+      // Calculate total available
+      const totalAvailable = utxos.reduce((sum, utxo) => sum + utxo.value, 0);
+      const amountSatoshis = Math.round(parseFloat(amount) * 100000000);
+
+      // Estimate fee (2 outputs: recipient + change)
+      const estimatedSize = this.estimateTxSize(utxos.length, 2);
+      const fee = estimatedSize * BitcoinProvider.SATOSHIS_PER_BYTE;
+
+      console.log(`[BTC] Balance: ${totalAvailable} sats, amount: ${amountSatoshis} sats, fee: ${fee} sats`);
+
+      if (amountSatoshis + fee > totalAvailable) {
+        throw new Error(`Insufficient balance. Have ${totalAvailable} sats, need ${amountSatoshis + fee} sats`);
+      }
+
+      // Build transaction
+      const psbt = new bitcoin.Psbt({ network: this.network });
+
+      // Add inputs
+      for (const utxo of utxos) {
+        // Fetch the raw transaction to get the full output script
+        const rawTxResponse = await axios.get(
+          `https://blockchain.info/rawtx/${utxo.txid}?format=hex`
+        );
+        const rawTx = rawTxResponse.data;
+
+        psbt.addInput({
+          hash: utxo.txid,
+          index: utxo.vout,
+          nonWitnessUtxo: Buffer.from(rawTx, 'hex'),
+        });
+      }
+
+      // Add output to recipient
+      psbt.addOutput({
+        address: to,
+        value: amountSatoshis,
+      });
+
+      // Add change output if there's enough left over
+      const change = totalAvailable - amountSatoshis - fee;
+      if (change > BitcoinProvider.DUST_LIMIT) {
+        psbt.addOutput({
+          address: from,
+          value: change,
+        });
+      }
+
+      // Sign all inputs - need to cast keyPair to satisfy TypeScript
+      const signer = {
+        publicKey: Buffer.from(keyPair.publicKey),
+        sign: (hash: Buffer) => Buffer.from(keyPair.sign(hash)),
+      };
+      
+      for (let i = 0; i < utxos.length; i++) {
+        psbt.signInput(i, signer);
+      }
+
+      // Finalize and extract transaction
+      psbt.finalizeAllInputs();
+      const tx = psbt.extractTransaction();
+      const txHex = tx.toHex();
+
+      // Broadcast transaction
+      const txId = await this.broadcastTransaction(txHex);
+      console.log(`[BTC] Transaction sent: ${txId}`);
+
+      return txId;
+    } catch (error) {
+      console.error('[BTC] Transaction failed:', error);
+      throw new Error(`Failed to send Bitcoin transaction: ${error}`);
+    }
+  }
+
+  /**
+   * Send split transaction to multiple recipients
+   */
+  async sendSplitTransaction(
+    from: string,
+    recipients: Array<{ address: string; amount: string }>,
+    privateKey: string
+  ): Promise<string> {
+    try {
+      // Parse private key
+      const keyPair = ECPair.fromPrivateKey(Buffer.from(privateKey, 'hex'), {
+        network: this.network,
+      });
+
+      // Fetch UTXOs
+      const utxos = await this.getUTXOs(from);
+      if (utxos.length === 0) {
+        throw new Error('No UTXOs available for spending');
+      }
+
+      // Calculate totals
+      const totalAvailable = utxos.reduce((sum, utxo) => sum + utxo.value, 0);
+      let totalToSend = 0;
+      const outputs: Array<{ address: string; value: number }> = [];
+
+      for (const recipient of recipients) {
+        const satoshis = Math.round(parseFloat(recipient.amount) * 100000000);
+        if (satoshis > BitcoinProvider.DUST_LIMIT) {
+          outputs.push({ address: recipient.address, value: satoshis });
+          totalToSend += satoshis;
+        }
+      }
+
+      // Estimate fee (outputs + change)
+      const estimatedSize = this.estimateTxSize(utxos.length, outputs.length + 1);
+      const fee = estimatedSize * BitcoinProvider.SATOSHIS_PER_BYTE;
+
+      console.log(`[BTC] Split: balance=${totalAvailable}, total=${totalToSend}, fee=${fee}`);
+
+      // Adjust amounts if needed
+      if (totalToSend + fee > totalAvailable) {
+        const ratio = (totalAvailable - fee) / totalToSend;
+        console.log(`[BTC] Adjusting split amounts by ratio ${ratio}`);
+        
+        for (const output of outputs) {
+          output.value = Math.floor(output.value * ratio);
+        }
+        totalToSend = outputs.reduce((sum, o) => sum + o.value, 0);
+      }
+
+      // Build transaction
+      const psbt = new bitcoin.Psbt({ network: this.network });
+
+      // Add inputs
+      for (const utxo of utxos) {
+        const rawTxResponse = await axios.get(
+          `https://blockchain.info/rawtx/${utxo.txid}?format=hex`
+        );
+        const rawTx = rawTxResponse.data;
+
+        psbt.addInput({
+          hash: utxo.txid,
+          index: utxo.vout,
+          nonWitnessUtxo: Buffer.from(rawTx, 'hex'),
+        });
+      }
+
+      // Add outputs
+      for (const output of outputs) {
+        if (output.value > BitcoinProvider.DUST_LIMIT) {
+          psbt.addOutput({
+            address: output.address,
+            value: output.value,
+          });
+        }
+      }
+
+      // Add change output
+      const change = totalAvailable - totalToSend - fee;
+      if (change > BitcoinProvider.DUST_LIMIT) {
+        psbt.addOutput({
+          address: from,
+          value: change,
+        });
+      }
+
+      // Sign all inputs - need to cast keyPair to satisfy TypeScript
+      const signer = {
+        publicKey: Buffer.from(keyPair.publicKey),
+        sign: (hash: Buffer) => Buffer.from(keyPair.sign(hash)),
+      };
+      
+      for (let i = 0; i < utxos.length; i++) {
+        psbt.signInput(i, signer);
+      }
+
+      // Finalize and broadcast
+      psbt.finalizeAllInputs();
+      const tx = psbt.extractTransaction();
+      const txHex = tx.toHex();
+
+      const txId = await this.broadcastTransaction(txHex);
+      console.log(`[BTC] Split transaction sent: ${txId}`);
+
+      return txId;
+    } catch (error) {
+      console.error('[BTC] Split transaction failed:', error);
+      throw new Error(`Failed to send Bitcoin split transaction: ${error}`);
     }
   }
 
@@ -304,6 +601,10 @@ export class SolanaProvider implements BlockchainProvider {
   rpcUrl: string;
   private connection: Connection;
 
+  // Minimum rent-exempt balance for a basic Solana account (approximately 0.00089088 SOL)
+  // This is the minimum balance required to keep an account alive
+  private static readonly RENT_EXEMPT_MINIMUM = 890880; // lamports
+
   constructor(rpcUrl: string) {
     this.rpcUrl = rpcUrl;
     this.connection = new Connection(rpcUrl, 'confirmed');
@@ -411,17 +712,20 @@ export class SolanaProvider implements BlockchainProvider {
       // Get current balance to check if we need to adjust for rent
       const currentBalance = await this.connection.getBalance(keypair.publicKey);
       const txFee = SolanaProvider.SOLANA_TX_FEE_LAMPORTS;
+      const rentExempt = SolanaProvider.RENT_EXEMPT_MINIMUM;
       
-      console.log(`[SOL] Current balance: ${currentBalance} lamports, requested: ${lamports} lamports, tx fee: ${txFee} lamports`);
+      // We need to keep at least rentExempt + txFee in the account
+      const minimumToKeep = rentExempt + txFee;
+      const maxSendable = currentBalance - minimumToKeep;
+      
+      console.log(`[SOL] Current balance: ${currentBalance} lamports, requested: ${lamports} lamports, tx fee: ${txFee} lamports, rent: ${rentExempt} lamports, max sendable: ${maxSendable} lamports`);
 
-      // If we're trying to send more than balance - fee, adjust to send max possible
-      // This handles the "insufficient funds for rent" error by sending everything minus fee
-      if (lamports + txFee > currentBalance) {
-        const maxSendable = currentBalance - txFee;
+      // If we're trying to send more than max sendable, adjust
+      if (lamports > maxSendable) {
         if (maxSendable <= 0) {
-          throw new Error(`Insufficient balance. Have ${currentBalance} lamports, need at least ${txFee + 1} lamports`);
+          throw new Error(`Insufficient balance. Have ${currentBalance} lamports, need at least ${minimumToKeep + 1} lamports (${rentExempt} rent + ${txFee} fee + 1)`);
         }
-        console.log(`[SOL] Adjusting amount from ${lamports} to ${maxSendable} lamports (max sendable after fee)`);
+        console.log(`[SOL] Adjusting amount from ${lamports} to ${maxSendable} lamports (keeping ${minimumToKeep} for rent+fee)`);
         lamports = maxSendable;
       }
 
@@ -495,6 +799,7 @@ export class SolanaProvider implements BlockchainProvider {
       // Get current balance
       const currentBalance = await this.connection.getBalance(keypair.publicKey);
       const txFee = SolanaProvider.SOLANA_TX_FEE_LAMPORTS;
+      const rentExempt = SolanaProvider.RENT_EXEMPT_MINIMUM;
 
       // Calculate total requested
       let totalLamports = 0;
@@ -506,21 +811,35 @@ export class SolanaProvider implements BlockchainProvider {
         transfers.push({ address: recipient.address, lamports });
       }
 
-      console.log(`[SOL] Split transaction: balance=${currentBalance}, total=${totalLamports}, fee=${txFee}`);
+      console.log(`[SOL] Split transaction: balance=${currentBalance}, total=${totalLamports}, fee=${txFee}, rentExempt=${rentExempt}`);
 
-      // If total + fee exceeds balance, proportionally reduce amounts
-      if (totalLamports + txFee > currentBalance) {
-        const availableForTransfers = currentBalance - txFee;
-        if (availableForTransfers <= 0) {
-          throw new Error(`Insufficient balance for split transaction`);
-        }
+      // Calculate the maximum we can send while keeping the account rent-exempt
+      // We need to leave at least rentExempt + txFee in the account
+      const minimumToKeep = rentExempt + txFee;
+      const maxSendable = currentBalance - minimumToKeep;
+      
+      if (maxSendable <= 0) {
+        throw new Error(`Insufficient balance for split transaction. Have ${currentBalance} lamports, need at least ${minimumToKeep} lamports (${rentExempt} rent + ${txFee} fee)`);
+      }
+
+      // If total exceeds max sendable, proportionally reduce amounts
+      if (totalLamports > maxSendable) {
+        const ratio = maxSendable / totalLamports;
+        console.log(`[SOL] Adjusting split amounts by ratio ${ratio} (keeping ${minimumToKeep} lamports for rent+fee)`);
         
-        const ratio = availableForTransfers / totalLamports;
-        console.log(`[SOL] Adjusting split amounts by ratio ${ratio}`);
-        
+        let adjustedTotal = 0;
         for (const transfer of transfers) {
           transfer.lamports = Math.floor(transfer.lamports * ratio);
+          adjustedTotal += transfer.lamports;
         }
+        
+        // Due to rounding, we might have a few lamports left over - add to first transfer
+        const leftover = maxSendable - adjustedTotal;
+        if (leftover > 0 && transfers.length > 0) {
+          transfers[0].lamports += leftover;
+        }
+        
+        console.log(`[SOL] Adjusted transfers: ${transfers.map(t => t.lamports).join(', ')} lamports`);
       }
 
       // Create transaction with multiple transfer instructions
@@ -600,6 +919,104 @@ export class SolanaProvider implements BlockchainProvider {
 }
 
 /**
+ * Bitcoin Cash provider implementation (extends Bitcoin with different network)
+ */
+export class BitcoinCashProvider extends BitcoinProvider {
+  chain: BlockchainType = 'BCH';
+
+  constructor(rpcUrl: string) {
+    // BCH uses the same network parameters as BTC mainnet for legacy addresses
+    super(rpcUrl, false);
+  }
+
+  /**
+   * Override UTXO fetching for BCH
+   */
+  private async getBCHUTXOs(address: string): Promise<UTXO[]> {
+    try {
+      const apiKey = process.env.TATUM_API_KEY;
+      if (!apiKey) {
+        throw new Error('TATUM_API_KEY not configured');
+      }
+
+      const response = await axios.get(
+        `https://api.tatum.io/v3/bcash/utxo/${address}`,
+        {
+          headers: {
+            'x-api-key': apiKey,
+          },
+        }
+      );
+
+      return response.data.map((utxo: any) => ({
+        txid: utxo.txHash,
+        vout: utxo.index,
+        value: Math.round(parseFloat(utxo.value) * 100000000),
+      }));
+    } catch (error) {
+      console.error('[BCH] Failed to fetch UTXOs:', error);
+      throw new Error(`Failed to fetch BCH UTXOs: ${error}`);
+    }
+  }
+
+  /**
+   * Override broadcast for BCH
+   */
+  private async broadcastBCHTransaction(txHex: string): Promise<string> {
+    try {
+      const apiKey = process.env.TATUM_API_KEY;
+      if (!apiKey) {
+        throw new Error('TATUM_API_KEY not configured');
+      }
+
+      const response = await axios.post(
+        'https://api.tatum.io/v3/bcash/broadcast',
+        { txData: txHex },
+        {
+          headers: {
+            'x-api-key': apiKey,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      return response.data.txId;
+    } catch (error: any) {
+      console.error('[BCH] Failed to broadcast transaction:', error.response?.data || error);
+      throw new Error(`Failed to broadcast BCH transaction: ${error.response?.data?.message || error}`);
+    }
+  }
+
+  async getBalance(address: string): Promise<string> {
+    try {
+      const apiKey = process.env.TATUM_API_KEY;
+      if (!apiKey) {
+        // Fallback to blockchain.info style API
+        return super.getBalance(address);
+      }
+
+      const response = await axios.get(
+        `https://api.tatum.io/v3/bcash/address/balance/${address}`,
+        {
+          headers: {
+            'x-api-key': apiKey,
+          },
+        }
+      );
+
+      return response.data.incoming || '0';
+    } catch (error) {
+      console.error('Error fetching BCH balance:', error);
+      return '0';
+    }
+  }
+
+  getRequiredConfirmations(): number {
+    return 6; // BCH typically needs more confirmations
+  }
+}
+
+/**
  * Factory function to get the appropriate provider for a blockchain
  */
 export function getProvider(
@@ -610,7 +1027,7 @@ export function getProvider(
     case 'BTC':
       return new BitcoinProvider(rpcUrl);
     case 'BCH':
-      return new BitcoinProvider(rpcUrl); // BCH uses same structure as BTC
+      return new BitcoinCashProvider(rpcUrl);
     case 'ETH':
       return new EthereumProvider(rpcUrl);
     case 'MATIC':

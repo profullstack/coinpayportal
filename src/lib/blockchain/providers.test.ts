@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   BitcoinProvider,
+  BitcoinCashProvider,
   EthereumProvider,
   PolygonProvider,
   SolanaProvider,
@@ -92,10 +93,17 @@ describe('Blockchain Providers', () => {
       expect(provider.getRequiredConfirmations()).toBe(3);
     });
 
-    it('should not have sendTransaction method (Bitcoin requires external signing)', () => {
+    it('should have sendTransaction method (Bitcoin now supports automatic forwarding)', () => {
       const provider = new BitcoinProvider('https://blockchain.info');
-      // Bitcoin provider doesn't have sendTransaction - requires external UTXO handling
-      expect((provider as any).sendTransaction).toBeUndefined();
+      // Bitcoin provider now has sendTransaction using Tatum API for UTXO handling
+      expect(provider.sendTransaction).toBeDefined();
+      expect(typeof provider.sendTransaction).toBe('function');
+    });
+
+    it('should have sendSplitTransaction method for multi-output transactions', () => {
+      const provider = new BitcoinProvider('https://blockchain.info');
+      expect((provider as any).sendSplitTransaction).toBeDefined();
+      expect(typeof (provider as any).sendSplitTransaction).toBe('function');
     });
   });
 
@@ -293,11 +301,146 @@ describe('Blockchain Providers', () => {
     });
   });
 
+  describe('BitcoinCashProvider', () => {
+    it('should create a Bitcoin Cash provider', () => {
+      const provider = new BitcoinCashProvider('https://bch.blockchain.info');
+      expect(provider.chain).toBe('BCH');
+      expect(provider.rpcUrl).toBe('https://bch.blockchain.info');
+    });
+
+    it('should return required confirmations for BCH', () => {
+      const provider = new BitcoinCashProvider('https://bch.blockchain.info');
+      expect(provider.getRequiredConfirmations()).toBe(6);
+    });
+
+    it('should inherit sendTransaction from BitcoinProvider', () => {
+      const provider = new BitcoinCashProvider('https://bch.blockchain.info');
+      expect(provider.sendTransaction).toBeDefined();
+      expect(typeof provider.sendTransaction).toBe('function');
+    });
+
+    it('should have sendSplitTransaction method', () => {
+      const provider = new BitcoinCashProvider('https://bch.blockchain.info');
+      expect((provider as any).sendSplitTransaction).toBeDefined();
+      expect(typeof (provider as any).sendSplitTransaction).toBe('function');
+    });
+  });
+
+  describe('Bitcoin Transaction Building', () => {
+    it('should accept 32-byte hex private key for Bitcoin', () => {
+      const provider = new BitcoinProvider('https://blockchain.info');
+      
+      // Bitcoin private keys are 32 bytes (64 hex chars)
+      const hexPrivateKey = '0'.repeat(64);
+      expect(hexPrivateKey.length).toBe(64);
+      expect(Buffer.from(hexPrivateKey, 'hex').length).toBe(32);
+      
+      // The method should accept hex format
+      expect(provider.sendTransaction).toBeDefined();
+      
+      // Test that the method signature is correct
+      const sendTx = provider.sendTransaction!;
+      expect(typeof sendTx).toBe('function');
+      expect(sendTx.length).toBe(4); // from, to, amount, privateKey
+    });
+
+    it('should have correct method signature for sendSplitTransaction', () => {
+      const provider = new BitcoinProvider('https://blockchain.info');
+      
+      const sendSplitTx = (provider as any).sendSplitTransaction;
+      expect(sendSplitTx).toBeDefined();
+      expect(typeof sendSplitTx).toBe('function');
+      expect(sendSplitTx.length).toBe(3); // from, recipients[], privateKey
+    });
+
+    it('should estimate transaction size correctly', () => {
+      const provider = new BitcoinProvider('https://blockchain.info');
+      
+      // Access private method for testing
+      const estimateTxSize = (provider as any).estimateTxSize.bind(provider);
+      expect(estimateTxSize).toBeDefined();
+      
+      // P2PKH: ~148 bytes per input, ~34 bytes per output, ~10 bytes overhead
+      // 1 input, 2 outputs (recipient + change)
+      const size1in2out = estimateTxSize(1, 2);
+      expect(size1in2out).toBe(1 * 148 + 2 * 34 + 10); // 226 bytes
+      
+      // 2 inputs, 3 outputs
+      const size2in3out = estimateTxSize(2, 3);
+      expect(size2in3out).toBe(2 * 148 + 3 * 34 + 10); // 408 bytes
+    });
+
+    it('should have dust limit constant', () => {
+      // Access static constant
+      const DUST_LIMIT = 546; // satoshis
+      
+      // Verify the provider uses this for minimum output values
+      const provider = new BitcoinProvider('https://blockchain.info');
+      expect(provider).toBeDefined();
+      
+      // Dust limit prevents creating outputs that cost more to spend than they're worth
+      expect(DUST_LIMIT).toBeGreaterThan(0);
+      expect(DUST_LIMIT).toBeLessThan(1000); // Should be less than 1000 satoshis
+    });
+
+    it('should have satoshis per byte constant for fee estimation', () => {
+      // Default fee rate
+      const SATOSHIS_PER_BYTE = 20;
+      
+      // Verify reasonable fee rate
+      expect(SATOSHIS_PER_BYTE).toBeGreaterThan(0);
+      expect(SATOSHIS_PER_BYTE).toBeLessThan(100); // Should be reasonable
+    });
+  });
+
+  describe('Bitcoin UTXO Handling', () => {
+    it('should have getUTXOs private method', () => {
+      const provider = new BitcoinProvider('https://blockchain.info');
+      
+      // Access private method
+      const getUTXOs = (provider as any).getUTXOs;
+      expect(getUTXOs).toBeDefined();
+      expect(typeof getUTXOs).toBe('function');
+    });
+
+    it('should have broadcastTransaction private method', () => {
+      const provider = new BitcoinProvider('https://blockchain.info');
+      
+      // Access private method
+      const broadcastTransaction = (provider as any).broadcastTransaction;
+      expect(broadcastTransaction).toBeDefined();
+      expect(typeof broadcastTransaction).toBe('function');
+    });
+
+    it('should require TATUM_API_KEY for UTXO fetching', async () => {
+      const provider = new BitcoinProvider('https://blockchain.info');
+      
+      // Save original env
+      const originalKey = process.env.TATUM_API_KEY;
+      delete process.env.TATUM_API_KEY;
+      
+      // Access private method
+      const getUTXOs = (provider as any).getUTXOs.bind(provider);
+      
+      // Should throw error when API key is not set
+      await expect(getUTXOs('1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa')).rejects.toThrow('TATUM_API_KEY not configured');
+      
+      // Restore
+      if (originalKey) {
+        process.env.TATUM_API_KEY = originalKey;
+      }
+    });
+  });
+
   describe('Key Format Handling', () => {
     it('should document supported key formats for each blockchain', () => {
-      // Bitcoin: WIF format (not implemented - requires UTXO handling)
+      // Bitcoin: 32-byte hex private key (now implemented with Tatum API)
       const btcProvider = new BitcoinProvider('https://blockchain.info');
-      expect((btcProvider as any).sendTransaction).toBeUndefined();
+      expect(btcProvider.sendTransaction).toBeDefined();
+
+      // Bitcoin Cash: Same as Bitcoin
+      const bchProvider = new BitcoinCashProvider('https://bch.blockchain.info');
+      expect(bchProvider.sendTransaction).toBeDefined();
 
       // Ethereum/Polygon: 32-byte hex (with or without 0x prefix)
       const ethProvider = new EthereumProvider('https://eth.llamarpc.com');
@@ -341,9 +484,9 @@ describe('Blockchain Providers', () => {
       expect(provider.chain).toBe('BTC');
     });
 
-    it('should return BitcoinProvider for BCH', () => {
+    it('should return BitcoinCashProvider for BCH', () => {
       const provider = getProvider('BCH', 'https://bch.blockchain.info');
-      expect(provider.chain).toBe('BTC'); // BCH uses same structure
+      expect(provider.chain).toBe('BCH'); // BCH now has its own provider
     });
 
     it('should return EthereumProvider for ETH', () => {

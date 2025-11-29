@@ -16,7 +16,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { decrypt } from '../crypto/encryption';
-import { getProvider, getRpcUrl, type BlockchainType, SolanaProvider } from '../blockchain/providers';
+import { getProvider, getRpcUrl, type BlockchainType, SolanaProvider, BitcoinProvider, EthereumProvider } from '../blockchain/providers';
 import { splitPayment } from '../payments/fees';
 import { sendPaymentWebhook } from '../webhooks/service';
 
@@ -191,28 +191,44 @@ export async function forwardPaymentSecurely(
 
     try {
       if (provider.sendTransaction) {
-        // For Solana, use split transaction to send both amounts in one tx
-        // This is more efficient and avoids rent issues
+        // Use split transaction for all providers that support it
+        // This is more efficient and handles fee deduction properly
+        const recipients = [
+          { address: addressData.merchant_wallet, amount: merchantAmount.toString() },
+          { address: addressData.commission_wallet, amount: platformFee.toString() },
+        ];
+
+        // Check if provider supports split transactions
         if (provider instanceof SolanaProvider && 'sendSplitTransaction' in provider) {
-          const solanaProvider = provider as SolanaProvider;
-          
-          // Send both merchant and platform amounts in a single transaction
-          merchantTxHash = await solanaProvider.sendSplitTransaction(
+          // Solana: single transaction with multiple transfers
+          merchantTxHash = await provider.sendSplitTransaction(
             addressData.address,
-            [
-              { address: addressData.merchant_wallet, amount: merchantAmount.toString() },
-              { address: addressData.commission_wallet, amount: platformFee.toString() },
-            ],
+            recipients,
             sensitiveData.privateKey
           );
-          
-          // For split transactions, both go in the same tx
           platformTxHash = merchantTxHash;
-          
           console.log(`[SECURE] Forwarded Solana payment ${paymentId} in single tx: ${merchantTxHash}`);
+        } else if (provider instanceof BitcoinProvider && 'sendSplitTransaction' in provider) {
+          // Bitcoin/BCH: single transaction with multiple outputs
+          merchantTxHash = await (provider as BitcoinProvider).sendSplitTransaction(
+            addressData.address,
+            recipients,
+            sensitiveData.privateKey
+          );
+          platformTxHash = merchantTxHash;
+          console.log(`[SECURE] Forwarded Bitcoin payment ${paymentId} in single tx: ${merchantTxHash}`);
+        } else if (provider instanceof EthereumProvider && 'sendSplitTransaction' in provider) {
+          // Ethereum/Polygon: multiple transactions but with proper fee handling
+          merchantTxHash = await (provider as EthereumProvider).sendSplitTransaction(
+            addressData.address,
+            recipients,
+            sensitiveData.privateKey
+          );
+          // For ETH, the first tx hash is returned but both are sent
+          platformTxHash = merchantTxHash;
+          console.log(`[SECURE] Forwarded Ethereum payment ${paymentId}: ${merchantTxHash}`);
         } else {
-          // For other blockchains, send two separate transactions
-          // Send merchant portion
+          // Fallback: send two separate transactions
           merchantTxHash = await provider.sendTransaction(
             addressData.address,
             addressData.merchant_wallet,
@@ -220,7 +236,6 @@ export async function forwardPaymentSecurely(
             sensitiveData.privateKey
           );
 
-          // Send platform fee
           platformTxHash = await provider.sendTransaction(
             addressData.address,
             addressData.commission_wallet,
