@@ -10,6 +10,7 @@ interface Business {
 
 const PAYMENT_EXPIRY_MINUTES = 15;
 const POLL_INTERVAL_MS = 5000;
+const BALANCE_CHECK_INTERVAL_MS = 15000; // Check blockchain balance every 15 seconds
 
 export default function CreatePaymentPage() {
   const router = useRouter();
@@ -29,6 +30,8 @@ export default function CreatePaymentPage() {
   const [paymentStatus, setPaymentStatus] = useState<string>('pending');
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const balanceCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastBalanceCheckRef = useRef<number>(0);
   const paymentCreatedAtRef = useRef<Date | null>(null);
 
   const copyToClipboard = async (text: string, field: string) => {
@@ -40,6 +43,67 @@ export default function CreatePaymentPage() {
       console.error('Failed to copy:', err);
     }
   };
+
+  // Check blockchain balance directly
+  const checkBlockchainBalance = useCallback(async (paymentId: string) => {
+    try {
+      console.log(`Checking blockchain balance for payment ${paymentId}...`);
+      
+      const response = await fetch(`/api/payments/${paymentId}/check-balance`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Balance check result:', data);
+        
+        if (data.status && data.status !== 'pending') {
+          // Payment status changed, update UI
+          setPaymentStatus(data.status);
+          
+          // Fetch full payment details
+          const token = localStorage.getItem('auth_token');
+          if (token) {
+            const paymentResponse = await fetch(`/api/payments/${paymentId}`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            });
+            if (paymentResponse.ok) {
+              const paymentData = await paymentResponse.json();
+              if (paymentData.success && paymentData.payment) {
+                setCreatedPayment((prev: any) => ({
+                  ...prev,
+                  ...paymentData.payment,
+                }));
+              }
+            }
+          }
+          
+          // Stop checking if payment is no longer pending
+          if (['confirmed', 'forwarded', 'expired', 'failed'].includes(data.status)) {
+            if (balanceCheckIntervalRef.current) {
+              clearInterval(balanceCheckIntervalRef.current);
+              balanceCheckIntervalRef.current = null;
+            }
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            if (timerIntervalRef.current) {
+              clearInterval(timerIntervalRef.current);
+              timerIntervalRef.current = null;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to check blockchain balance:', err);
+    }
+  }, []);
 
   // Poll for payment status
   const pollPaymentStatus = useCallback(async (paymentId: string) => {
@@ -57,13 +121,21 @@ export default function CreatePaymentPage() {
         const data = await response.json();
         if (data.success && data.payment) {
           setPaymentStatus(data.payment.status);
+          // Update the full payment object including tx_hash
           setCreatedPayment((prev: any) => ({
             ...prev,
             status: data.payment.status,
+            tx_hash: data.payment.tx_hash,
+            forward_tx_hash: data.payment.forward_tx_hash,
+            blockchain: data.payment.blockchain,
           }));
 
-          // Stop polling if payment is complete or failed
-          if (['confirmed', 'forwarded', 'expired', 'failed'].includes(data.payment.status)) {
+          // Stop polling if payment is complete or failed AND we have tx_hash
+          const isTerminalStatus = ['expired', 'failed'].includes(data.payment.status);
+          const isCompleteWithTxHash = ['confirmed', 'forwarded'].includes(data.payment.status) &&
+            (data.payment.tx_hash || data.payment.forward_tx_hash);
+          
+          if (isTerminalStatus || isCompleteWithTxHash) {
             if (pollIntervalRef.current) {
               clearInterval(pollIntervalRef.current);
               pollIntervalRef.current = null;
@@ -72,23 +144,51 @@ export default function CreatePaymentPage() {
               clearInterval(timerIntervalRef.current);
               timerIntervalRef.current = null;
             }
+            if (balanceCheckIntervalRef.current) {
+              clearInterval(balanceCheckIntervalRef.current);
+              balanceCheckIntervalRef.current = null;
+            }
           }
         }
+      }
+      
+      // Also check blockchain balance periodically during polling
+      const now = Date.now();
+      if (now - lastBalanceCheckRef.current >= BALANCE_CHECK_INTERVAL_MS) {
+        lastBalanceCheckRef.current = now;
+        checkBlockchainBalance(paymentId);
       }
     } catch (err) {
       console.error('Failed to poll payment status:', err);
     }
-  }, []);
+  }, [checkBlockchainBalance]);
 
   // Start polling and timer when payment is created
+  // Also continue polling for confirmed status until we have tx_hash
   useEffect(() => {
-    if (createdPayment?.id && paymentStatus === 'pending') {
+    const needsPolling = paymentStatus === 'pending' ||
+      paymentStatus === 'detected' ||
+      paymentStatus === 'forwarding' ||
+      // Continue polling for confirmed/forwarded until we have tx_hash
+      ((paymentStatus === 'confirmed' || paymentStatus === 'forwarded') &&
+       !createdPayment?.tx_hash && !createdPayment?.forward_tx_hash);
+    
+    if (createdPayment?.id && needsPolling) {
       paymentCreatedAtRef.current = new Date();
       
-      // Start polling
+      // Start polling for payment status
       pollIntervalRef.current = setInterval(() => {
         pollPaymentStatus(createdPayment.id);
       }, POLL_INTERVAL_MS);
+
+      // Start blockchain balance checking (more frequent for faster detection)
+      // Do an immediate check first
+      checkBlockchainBalance(createdPayment.id);
+      lastBalanceCheckRef.current = Date.now();
+      
+      balanceCheckIntervalRef.current = setInterval(() => {
+        checkBlockchainBalance(createdPayment.id);
+      }, BALANCE_CHECK_INTERVAL_MS);
 
       // Start countdown timer
       timerIntervalRef.current = setInterval(() => {
@@ -119,9 +219,12 @@ export default function CreatePaymentPage() {
         if (timerIntervalRef.current) {
           clearInterval(timerIntervalRef.current);
         }
+        if (balanceCheckIntervalRef.current) {
+          clearInterval(balanceCheckIntervalRef.current);
+        }
       };
     }
-  }, [createdPayment?.id, paymentStatus, pollPaymentStatus]);
+  }, [createdPayment?.id, paymentStatus, pollPaymentStatus, checkBlockchainBalance]);
 
   // Format time remaining as MM:SS
   const formatTimeRemaining = (seconds: number) => {
@@ -148,6 +251,23 @@ export default function CreatePaymentPage() {
       default:
         return { color: 'text-gray-600 bg-gray-50', text: status };
     }
+  };
+
+  // Get blockchain explorer URL for transaction
+  const getExplorerUrl = (blockchain: string, txHash: string): string => {
+    const explorers: Record<string, string> = {
+      btc: `https://mempool.space/tx/${txHash}`,
+      bitcoin: `https://mempool.space/tx/${txHash}`,
+      bch: `https://blockchair.com/bitcoin-cash/transaction/${txHash}`,
+      'bitcoin-cash': `https://blockchair.com/bitcoin-cash/transaction/${txHash}`,
+      eth: `https://etherscan.io/tx/${txHash}`,
+      ethereum: `https://etherscan.io/tx/${txHash}`,
+      matic: `https://polygonscan.com/tx/${txHash}`,
+      polygon: `https://polygonscan.com/tx/${txHash}`,
+      sol: `https://solscan.io/tx/${txHash}`,
+      solana: `https://solscan.io/tx/${txHash}`,
+    };
+    return explorers[blockchain?.toLowerCase()] || `https://blockchair.com/search?q=${txHash}`;
   };
 
   const currencies = [
@@ -267,6 +387,10 @@ export default function CreatePaymentPage() {
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
+    }
+    if (balanceCheckIntervalRef.current) {
+      clearInterval(balanceCheckIntervalRef.current);
+      balanceCheckIntervalRef.current = null;
     }
     
     setCreatedPayment(null);
@@ -476,6 +600,37 @@ export default function CreatePaymentPage() {
                   <p><strong>Payment ID:</strong> {createdPayment.id}</p>
                   {createdPayment.description && (
                     <p className="mt-1"><strong>Description:</strong> {createdPayment.description}</p>
+                  )}
+                  {/* Transaction Links */}
+                  {(createdPayment.tx_hash || createdPayment.forward_tx_hash) && (
+                    <div className="mt-2 space-y-1">
+                      {createdPayment.tx_hash && (
+                        <p>
+                          <strong>Incoming TX:</strong>{' '}
+                          <a
+                            href={getExplorerUrl(createdPayment.blockchain || createdPayment.currency, createdPayment.tx_hash)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline hover:opacity-80"
+                          >
+                            {createdPayment.tx_hash.slice(0, 8)}...{createdPayment.tx_hash.slice(-8)}
+                          </a>
+                        </p>
+                      )}
+                      {createdPayment.forward_tx_hash && (
+                        <p>
+                          <strong>Forward TX:</strong>{' '}
+                          <a
+                            href={getExplorerUrl(createdPayment.blockchain || createdPayment.currency, createdPayment.forward_tx_hash)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline hover:opacity-80"
+                          >
+                            {createdPayment.forward_tx_hash.slice(0, 8)}...{createdPayment.forward_tx_hash.slice(-8)}
+                          </a>
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
