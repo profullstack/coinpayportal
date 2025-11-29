@@ -16,7 +16,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { decrypt } from '../crypto/encryption';
-import { getProvider, getRpcUrl, type BlockchainType } from '../blockchain/providers';
+import { getProvider, getRpcUrl, type BlockchainType, SolanaProvider } from '../blockchain/providers';
 import { splitPayment } from '../payments/fees';
 import { sendPaymentWebhook } from '../webhooks/service';
 
@@ -191,23 +191,45 @@ export async function forwardPaymentSecurely(
 
     try {
       if (provider.sendTransaction) {
-        // Send merchant portion
-        merchantTxHash = await provider.sendTransaction(
-          addressData.address,
-          addressData.merchant_wallet,
-          merchantAmount.toString(),
-          sensitiveData.privateKey
-        );
+        // For Solana, use split transaction to send both amounts in one tx
+        // This is more efficient and avoids rent issues
+        if (provider instanceof SolanaProvider && 'sendSplitTransaction' in provider) {
+          const solanaProvider = provider as SolanaProvider;
+          
+          // Send both merchant and platform amounts in a single transaction
+          merchantTxHash = await solanaProvider.sendSplitTransaction(
+            addressData.address,
+            [
+              { address: addressData.merchant_wallet, amount: merchantAmount.toString() },
+              { address: addressData.commission_wallet, amount: platformFee.toString() },
+            ],
+            sensitiveData.privateKey
+          );
+          
+          // For split transactions, both go in the same tx
+          platformTxHash = merchantTxHash;
+          
+          console.log(`[SECURE] Forwarded Solana payment ${paymentId} in single tx: ${merchantTxHash}`);
+        } else {
+          // For other blockchains, send two separate transactions
+          // Send merchant portion
+          merchantTxHash = await provider.sendTransaction(
+            addressData.address,
+            addressData.merchant_wallet,
+            merchantAmount.toString(),
+            sensitiveData.privateKey
+          );
 
-        // Send platform fee
-        platformTxHash = await provider.sendTransaction(
-          addressData.address,
-          addressData.commission_wallet,
-          platformFee.toString(),
-          sensitiveData.privateKey
-        );
+          // Send platform fee
+          platformTxHash = await provider.sendTransaction(
+            addressData.address,
+            addressData.commission_wallet,
+            platformFee.toString(),
+            sensitiveData.privateKey
+          );
 
-        console.log(`[SECURE] Forwarded payment ${paymentId}: merchant=${merchantTxHash}, platform=${platformTxHash}`);
+          console.log(`[SECURE] Forwarded payment ${paymentId}: merchant=${merchantTxHash}, platform=${platformTxHash}`);
+        }
       } else {
         // For blockchains without sendTransaction support
         console.log(`[SECURE] Manual forwarding required for ${addressData.cryptocurrency}`);

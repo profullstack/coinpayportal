@@ -184,6 +184,9 @@ export default function PricingPage() {
           <p className="mt-4 text-xl text-gray-600 max-w-2xl mx-auto">
             Choose the plan that's right for your business. Start free and upgrade as you grow.
           </p>
+          <p className="mt-2 text-sm text-gray-500">
+            All plans include a 0.5% platform fee per transaction. Blockchain network fees are additional and vary by network.
+          </p>
         </div>
 
         {/* Current Plan Banner (for authenticated users) */}
@@ -417,10 +420,27 @@ export default function PricingPage() {
                 Do you offer refunds?
               </h3>
               <p className="mt-2 text-gray-600">
-                We offer a 14-day money-back guarantee for new Professional subscriptions. 
-                If you're not satisfied, contact our support team within 14 days of 
+                We offer a 14-day money-back guarantee for new Professional subscriptions.
+                If you're not satisfied, contact our support team within 14 days of
                 your upgrade for a full refund.
               </p>
+            </div>
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-gray-900">
+                What about blockchain network fees?
+              </h3>
+              <p className="mt-2 text-gray-600">
+                Blockchain network fees (also called "gas fees" on Ethereum or "transaction fees" on other networks)
+                are charged by the blockchain network itself, not by CoinPay. These fees vary based on network
+                congestion and are deducted from the payment amount when funds are forwarded to your wallet.
+                Network fees are typically very small (fractions of a cent to a few dollars depending on the blockchain).
+              </p>
+              <ul className="mt-3 text-sm text-gray-500 space-y-1">
+                <li>• <strong>Solana:</strong> ~$0.00025 per transaction</li>
+                <li>• <strong>Polygon:</strong> ~$0.001-0.01 per transaction</li>
+                <li>• <strong>Ethereum:</strong> ~$0.50-5.00 per transaction (varies with congestion)</li>
+                <li>• <strong>Bitcoin:</strong> ~$0.50-3.00 per transaction (varies with congestion)</li>
+              </ul>
             </div>
           </div>
         </div>

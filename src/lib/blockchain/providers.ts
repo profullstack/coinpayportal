@@ -170,14 +170,109 @@ export class EthereumProvider implements BlockchainProvider {
   ): Promise<string> {
     try {
       const wallet = new ethers.Wallet(privateKey, this.provider);
+      
+      // Get current balance and gas price to calculate max sendable
+      const balance = await this.provider.getBalance(wallet.address);
+      const feeData = await this.provider.getFeeData();
+      const gasLimit = BigInt(21000); // Standard ETH transfer gas limit
+      const gasPrice = feeData.gasPrice || BigInt(20000000000); // 20 gwei fallback
+      const gasCost = gasLimit * gasPrice;
+      
+      let valueToSend = ethers.parseEther(amount);
+      
+      console.log(`[ETH] Balance: ${ethers.formatEther(balance)} ETH, requested: ${amount} ETH, gas cost: ${ethers.formatEther(gasCost)} ETH`);
+      
+      // If requested amount + gas exceeds balance, adjust to send max possible
+      if (valueToSend + gasCost > balance) {
+        const maxSendable = balance - gasCost;
+        if (maxSendable <= BigInt(0)) {
+          throw new Error(`Insufficient balance. Have ${ethers.formatEther(balance)} ETH, need at least ${ethers.formatEther(gasCost)} ETH for gas`);
+        }
+        console.log(`[ETH] Adjusting amount from ${amount} to ${ethers.formatEther(maxSendable)} ETH (max sendable after gas)`);
+        valueToSend = maxSendable;
+      }
+      
       const tx = await wallet.sendTransaction({
         to,
-        value: ethers.parseEther(amount),
+        value: valueToSend,
+        gasLimit,
+        gasPrice,
       });
       await tx.wait();
+      console.log(`[ETH] Transaction sent: ${tx.hash}`);
       return tx.hash;
     } catch (error) {
+      console.error('[ETH] Transaction failed:', error);
       throw new Error(`Failed to send Ethereum transaction: ${error}`);
+    }
+  }
+
+  /**
+   * Send split transaction to multiple recipients
+   * For EVM chains, we need to send separate transactions but account for gas
+   */
+  async sendSplitTransaction(
+    from: string,
+    recipients: Array<{ address: string; amount: string }>,
+    privateKey: string
+  ): Promise<string> {
+    try {
+      const wallet = new ethers.Wallet(privateKey, this.provider);
+      
+      // Get current balance and gas price
+      const balance = await this.provider.getBalance(wallet.address);
+      const feeData = await this.provider.getFeeData();
+      const gasLimit = BigInt(21000);
+      const gasPrice = feeData.gasPrice || BigInt(20000000000);
+      const gasCostPerTx = gasLimit * gasPrice;
+      const totalGasCost = gasCostPerTx * BigInt(recipients.length);
+      
+      // Calculate total requested
+      let totalRequested = BigInt(0);
+      for (const recipient of recipients) {
+        totalRequested += ethers.parseEther(recipient.amount);
+      }
+      
+      console.log(`[ETH] Split: balance=${ethers.formatEther(balance)}, total=${ethers.formatEther(totalRequested)}, gas=${ethers.formatEther(totalGasCost)}`);
+      
+      // Calculate amounts to send (proportionally reduced if needed)
+      const availableForTransfers = balance - totalGasCost;
+      if (availableForTransfers <= BigInt(0)) {
+        throw new Error(`Insufficient balance for split transaction`);
+      }
+      
+      let ratio = BigInt(1000000); // Use fixed point math (1.0 = 1000000)
+      if (totalRequested > availableForTransfers) {
+        ratio = (availableForTransfers * BigInt(1000000)) / totalRequested;
+        console.log(`[ETH] Adjusting split amounts by ratio ${Number(ratio) / 1000000}`);
+      }
+      
+      const txHashes: string[] = [];
+      
+      for (const recipient of recipients) {
+        let valueToSend = ethers.parseEther(recipient.amount);
+        if (ratio < BigInt(1000000)) {
+          valueToSend = (valueToSend * ratio) / BigInt(1000000);
+        }
+        
+        if (valueToSend > BigInt(0)) {
+          const tx = await wallet.sendTransaction({
+            to: recipient.address,
+            value: valueToSend,
+            gasLimit,
+            gasPrice,
+          });
+          await tx.wait();
+          txHashes.push(tx.hash);
+          console.log(`[ETH] Split tx sent to ${recipient.address}: ${tx.hash}`);
+        }
+      }
+      
+      // Return first tx hash (or combined)
+      return txHashes[0] || '';
+    } catch (error) {
+      console.error('[ETH] Split transaction failed:', error);
+      throw new Error(`Failed to send Ethereum split transaction: ${error}`);
     }
   }
 
@@ -257,6 +352,12 @@ export class SolanaProvider implements BlockchainProvider {
     }
   }
 
+  /**
+   * Solana transaction fee in lamports (approximately 5000 lamports = 0.000005 SOL)
+   * We use a slightly higher estimate to be safe
+   */
+  private static readonly SOLANA_TX_FEE_LAMPORTS = 5000;
+
   async sendTransaction(
     from: string,
     to: string,
@@ -305,7 +406,24 @@ export class SolanaProvider implements BlockchainProvider {
       }
 
       // Convert amount to lamports
-      const lamports = Math.floor(parseFloat(amount) * LAMPORTS_PER_SOL);
+      let lamports = Math.floor(parseFloat(amount) * LAMPORTS_PER_SOL);
+
+      // Get current balance to check if we need to adjust for rent
+      const currentBalance = await this.connection.getBalance(keypair.publicKey);
+      const txFee = SolanaProvider.SOLANA_TX_FEE_LAMPORTS;
+      
+      console.log(`[SOL] Current balance: ${currentBalance} lamports, requested: ${lamports} lamports, tx fee: ${txFee} lamports`);
+
+      // If we're trying to send more than balance - fee, adjust to send max possible
+      // This handles the "insufficient funds for rent" error by sending everything minus fee
+      if (lamports + txFee > currentBalance) {
+        const maxSendable = currentBalance - txFee;
+        if (maxSendable <= 0) {
+          throw new Error(`Insufficient balance. Have ${currentBalance} lamports, need at least ${txFee + 1} lamports`);
+        }
+        console.log(`[SOL] Adjusting amount from ${lamports} to ${maxSendable} lamports (max sendable after fee)`);
+        lamports = maxSendable;
+      }
 
       // Create the transfer instruction
       const transaction = new SolanaTransaction().add(
@@ -336,6 +454,110 @@ export class SolanaProvider implements BlockchainProvider {
     } catch (error) {
       console.error('[SOL] Transaction failed:', error);
       throw new Error(`Failed to send Solana transaction: ${error}`);
+    }
+  }
+
+  /**
+   * Send multiple transfers in a single transaction (more efficient for splits)
+   * This is useful for payment forwarding where we need to send to merchant and platform
+   */
+  async sendSplitTransaction(
+    from: string,
+    recipients: Array<{ address: string; amount: string }>,
+    privateKey: string
+  ): Promise<string> {
+    try {
+      // Parse private key (same logic as sendTransaction)
+      let secretKey: Uint8Array;
+      
+      try {
+        const decoded = bs58.decode(privateKey);
+        if (decoded.length === 64) {
+          secretKey = decoded;
+        } else if (decoded.length === 32) {
+          secretKey = await this.deriveFullKeypair(decoded);
+        } else {
+          throw new Error(`Invalid key length: ${decoded.length}`);
+        }
+      } catch {
+        const hexBytes = Buffer.from(privateKey, 'hex');
+        if (hexBytes.length === 64) {
+          secretKey = Uint8Array.from(hexBytes);
+        } else if (hexBytes.length === 32) {
+          secretKey = await this.deriveFullKeypair(Uint8Array.from(hexBytes));
+        } else {
+          throw new Error(`Invalid hex key length: ${hexBytes.length}`);
+        }
+      }
+
+      const keypair = Keypair.fromSecretKey(secretKey);
+
+      // Get current balance
+      const currentBalance = await this.connection.getBalance(keypair.publicKey);
+      const txFee = SolanaProvider.SOLANA_TX_FEE_LAMPORTS;
+
+      // Calculate total requested
+      let totalLamports = 0;
+      const transfers: Array<{ address: string; lamports: number }> = [];
+      
+      for (const recipient of recipients) {
+        const lamports = Math.floor(parseFloat(recipient.amount) * LAMPORTS_PER_SOL);
+        totalLamports += lamports;
+        transfers.push({ address: recipient.address, lamports });
+      }
+
+      console.log(`[SOL] Split transaction: balance=${currentBalance}, total=${totalLamports}, fee=${txFee}`);
+
+      // If total + fee exceeds balance, proportionally reduce amounts
+      if (totalLamports + txFee > currentBalance) {
+        const availableForTransfers = currentBalance - txFee;
+        if (availableForTransfers <= 0) {
+          throw new Error(`Insufficient balance for split transaction`);
+        }
+        
+        const ratio = availableForTransfers / totalLamports;
+        console.log(`[SOL] Adjusting split amounts by ratio ${ratio}`);
+        
+        for (const transfer of transfers) {
+          transfer.lamports = Math.floor(transfer.lamports * ratio);
+        }
+      }
+
+      // Create transaction with multiple transfer instructions
+      const transaction = new SolanaTransaction();
+      
+      for (const transfer of transfers) {
+        if (transfer.lamports > 0) {
+          transaction.add(
+            SystemProgram.transfer({
+              fromPubkey: keypair.publicKey,
+              toPubkey: new PublicKey(transfer.address),
+              lamports: transfer.lamports,
+            })
+          );
+        }
+      }
+
+      // Get recent blockhash
+      const { blockhash } = await this.connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = keypair.publicKey;
+
+      // Sign and send
+      const signature = await sendAndConfirmTransaction(
+        this.connection,
+        transaction,
+        [keypair],
+        {
+          commitment: 'confirmed',
+        }
+      );
+
+      console.log(`[SOL] Split transaction sent: ${signature}`);
+      return signature;
+    } catch (error) {
+      console.error('[SOL] Split transaction failed:', error);
+      throw new Error(`Failed to send Solana split transaction: ${error}`);
     }
   }
 

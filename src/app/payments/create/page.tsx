@@ -151,11 +151,17 @@ export default function CreatePaymentPage() {
   };
 
   const currencies = [
-    { value: 'btc', label: 'Bitcoin (BTC)' },
-    { value: 'eth', label: 'Ethereum (ETH)' },
-    { value: 'matic', label: 'Polygon (MATIC)' },
-    { value: 'sol', label: 'Solana (SOL)' },
+    { value: 'btc', label: 'Bitcoin (BTC)', networkFee: '$0.50-3.00' },
+    { value: 'eth', label: 'Ethereum (ETH)', networkFee: '$0.50-5.00' },
+    { value: 'matic', label: 'Polygon (MATIC)', networkFee: '$0.001-0.01' },
+    { value: 'sol', label: 'Solana (SOL)', networkFee: '~$0.00025' },
   ];
+
+  // Get estimated network fee for selected currency
+  const getNetworkFee = () => {
+    const currency = currencies.find(c => c.value === formData.currency);
+    return currency?.networkFee || 'varies';
+  };
 
   useEffect(() => {
     fetchBusinesses();
@@ -599,10 +605,16 @@ export default function CreatePaymentPage() {
               />
             </div>
 
-            <div className="bg-blue-50 p-4 rounded-lg">
+            <div className="bg-blue-50 p-4 rounded-lg space-y-2">
               <p className="text-sm text-blue-900">
-                <strong>Note:</strong> A 0.5% platform fee will be added to the
-                payment amount.
+                <strong>Platform Fee:</strong> 0.5% of the payment amount
+              </p>
+              <p className="text-sm text-blue-900">
+                <strong>Est. Network Fee:</strong> {getNetworkFee()} (deducted from forwarded amount)
+              </p>
+              <p className="text-xs text-blue-700 mt-1">
+                Network fees are charged by the blockchain and vary based on congestion.
+                They are deducted when funds are forwarded to your wallet.
               </p>
             </div>
 
