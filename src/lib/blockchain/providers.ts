@@ -3,7 +3,7 @@ import {
   Connection,
   PublicKey,
   Keypair,
-  Transaction,
+  Transaction as SolanaTransaction,
   SystemProgram,
   sendAndConfirmTransaction,
   LAMPORTS_PER_SOL,
@@ -19,7 +19,7 @@ export type BlockchainType = 'BTC' | 'BCH' | 'ETH' | 'MATIC' | 'SOL';
 /**
  * Transaction details interface
  */
-export interface Transaction {
+export interface TransactionDetails {
   hash: string;
   from: string;
   to: string;
@@ -37,7 +37,7 @@ export interface BlockchainProvider {
   chain: BlockchainType;
   rpcUrl: string;
   getBalance(address: string): Promise<string>;
-  getTransaction(txHash: string): Promise<Transaction>;
+  getTransaction(txHash: string): Promise<TransactionDetails>;
   getRequiredConfirmations(): number;
   sendTransaction?(from: string, to: string, amount: string, privateKey: string): Promise<string>;
 }
@@ -67,7 +67,7 @@ export class BitcoinProvider implements BlockchainProvider {
     }
   }
 
-  async getTransaction(txHash: string): Promise<Transaction> {
+  async getTransaction(txHash: string): Promise<TransactionDetails> {
     try {
       const response = await axios.get(
         `https://blockchain.info/rawtx/${txHash}`
@@ -117,7 +117,7 @@ export class EthereumProvider implements BlockchainProvider {
     }
   }
 
-  async getTransaction(txHash: string): Promise<Transaction> {
+  async getTransaction(txHash: string): Promise<TransactionDetails> {
     try {
       const tx = await this.provider.getTransaction(txHash);
       if (!tx) {
@@ -226,7 +226,7 @@ export class SolanaProvider implements BlockchainProvider {
     }
   }
 
-  async getTransaction(txHash: string): Promise<Transaction> {
+  async getTransaction(txHash: string): Promise<TransactionDetails> {
     try {
       const tx = await this.connection.getTransaction(txHash, {
         maxSupportedTransactionVersion: 0,
@@ -286,7 +286,7 @@ export class SolanaProvider implements BlockchainProvider {
       const lamports = Math.floor(parseFloat(amount) * LAMPORTS_PER_SOL);
 
       // Create the transfer instruction
-      const transaction = new Transaction().add(
+      const transaction = new SolanaTransaction().add(
         SystemProgram.transfer({
           fromPubkey: keypair.publicKey,
           toPubkey: new PublicKey(to),

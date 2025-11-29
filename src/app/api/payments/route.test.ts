@@ -31,16 +31,30 @@ describe('GET /api/payments', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     
+    // Create a chainable mock that returns itself for all query methods
+    // Supabase queries are thenable - they implement .then() for awaiting
     mockSupabase = {
-      from: vi.fn(() => mockSupabase),
-      select: vi.fn(() => mockSupabase),
-      in: vi.fn(() => mockSupabase),
-      eq: vi.fn(() => mockSupabase),
-      ilike: vi.fn(() => mockSupabase),
-      gte: vi.fn(() => mockSupabase),
-      lt: vi.fn(() => mockSupabase),
-      order: vi.fn(() => Promise.resolve({ data: [], error: null })),
+      from: vi.fn(),
+      select: vi.fn(),
+      in: vi.fn(),
+      eq: vi.fn(),
+      ilike: vi.fn(),
+      gte: vi.fn(),
+      lt: vi.fn(),
+      order: vi.fn(),
+      // Make the mock thenable so it can be awaited
+      then: vi.fn((resolve) => resolve({ data: [], error: null })),
     };
+    
+    // Set up chaining - each method returns mockSupabase (which is thenable)
+    mockSupabase.from.mockReturnValue(mockSupabase);
+    mockSupabase.select.mockReturnValue(mockSupabase);
+    mockSupabase.in.mockReturnValue(mockSupabase);
+    mockSupabase.eq.mockReturnValue(mockSupabase);
+    mockSupabase.ilike.mockReturnValue(mockSupabase);
+    mockSupabase.gte.mockReturnValue(mockSupabase);
+    mockSupabase.lt.mockReturnValue(mockSupabase);
+    mockSupabase.order.mockReturnValue(mockSupabase);
   });
 
   it('should return 401 if no authorization header', async () => {
@@ -135,7 +149,7 @@ describe('GET /api/payments', () => {
       },
     ];
 
-    mockSupabase.order = vi.fn(() => Promise.resolve({ data: mockPayments, error: null }));
+    mockSupabase.then = vi.fn((resolve) => resolve({ data: mockPayments, error: null }));
 
     const request = new NextRequest('http://localhost/api/payments', {
       headers: {
@@ -164,8 +178,6 @@ describe('GET /api/payments', () => {
       ],
     });
 
-    mockSupabase.order = vi.fn(() => Promise.resolve({ data: [], error: null }));
-
     const request = new NextRequest('http://localhost/api/payments?business_id=business-1', {
       headers: {
         Authorization: 'Bearer valid-token',
@@ -186,8 +198,6 @@ describe('GET /api/payments', () => {
       success: true,
       businesses: [{ id: 'business-1', name: 'Test Business' }],
     });
-
-    mockSupabase.order = vi.fn(() => Promise.resolve({ data: [], error: null }));
 
     const request = new NextRequest('http://localhost/api/payments?status=confirmed', {
       headers: {
@@ -210,8 +220,6 @@ describe('GET /api/payments', () => {
       businesses: [{ id: 'business-1', name: 'Test Business' }],
     });
 
-    mockSupabase.order = vi.fn(() => Promise.resolve({ data: [], error: null }));
-
     const request = new NextRequest('http://localhost/api/payments?currency=btc', {
       headers: {
         Authorization: 'Bearer valid-token',
@@ -232,8 +240,6 @@ describe('GET /api/payments', () => {
       success: true,
       businesses: [{ id: 'business-1', name: 'Test Business' }],
     });
-
-    mockSupabase.order = vi.fn(() => Promise.resolve({ data: [], error: null }));
 
     const request = new NextRequest(
       'http://localhost/api/payments?date_from=2024-01-01&date_to=2024-01-31',
@@ -281,9 +287,9 @@ describe('GET /api/payments', () => {
       businesses: [{ id: 'business-1', name: 'Test Business' }],
     });
 
-    mockSupabase.order = vi.fn(() => Promise.resolve({ 
-      data: null, 
-      error: { message: 'Database error' } 
+    mockSupabase.then = vi.fn((resolve) => resolve({
+      data: null,
+      error: { message: 'Database error' }
     }));
 
     const request = new NextRequest('http://localhost/api/payments', {
@@ -306,8 +312,6 @@ describe('GET /api/payments', () => {
       success: true,
       businesses: [{ id: 'business-1', name: 'Test Business' }],
     });
-
-    mockSupabase.order = vi.fn(() => Promise.resolve({ data: [], error: null }));
 
     const request = new NextRequest('http://localhost/api/payments?business_id=other-business', {
       headers: {

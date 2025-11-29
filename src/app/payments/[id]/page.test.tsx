@@ -202,7 +202,7 @@ describe('PaymentDetailPage', () => {
       });
     });
 
-    it('should not show QR code for confirmed payment', async () => {
+    it('should show QR code for confirmed payment with reference note', async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -217,10 +217,14 @@ describe('PaymentDetailPage', () => {
         screen.getByText(/payment confirmed/i);
       });
 
-      expect(screen.queryByAltText(/payment qr code/i)).not.toBeInTheDocument();
+      // QR code should still be present for reference
+      const qrImage = screen.getByAltText(/payment qr code/i);
+      expect(qrImage).toBeInTheDocument();
+      // Should show "(for reference)" note
+      expect(screen.getByText(/for reference/i)).toBeInTheDocument();
     });
 
-    it('should not show QR code for expired payment', async () => {
+    it('should show QR code for expired payment with reference note', async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -235,7 +239,11 @@ describe('PaymentDetailPage', () => {
         screen.getByText(/payment expired/i);
       });
 
-      expect(screen.queryByAltText(/payment qr code/i)).not.toBeInTheDocument();
+      // QR code should still be present for reference
+      const qrImage = screen.getByAltText(/payment qr code/i);
+      expect(qrImage).toBeInTheDocument();
+      // Should show "(for reference)" note
+      expect(screen.getByText(/for reference/i)).toBeInTheDocument();
     });
 
     it('should not show QR code when payment_address is missing', async () => {
@@ -599,8 +607,8 @@ describe('PaymentDetailPage', () => {
       });
     });
 
-    it('should not show QR code when server status is expired', async () => {
-      // Payment is expired on the server - QR should not show
+    it('should show QR code with reference note when server status is expired', async () => {
+      // Payment is expired on the server - QR should still show for reference
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -618,7 +626,11 @@ describe('PaymentDetailPage', () => {
         screen.getByText(/payment expired/i);
       });
 
-      expect(screen.queryByAltText(/payment qr code/i)).not.toBeInTheDocument();
+      // QR code should still be present for reference
+      const qrImage = screen.getByAltText(/payment qr code/i);
+      expect(qrImage).toBeInTheDocument();
+      // Should show "(for reference)" note
+      expect(screen.getByText(/for reference/i)).toBeInTheDocument();
     });
 
     it('should use expires_at field for time calculation when available', async () => {
