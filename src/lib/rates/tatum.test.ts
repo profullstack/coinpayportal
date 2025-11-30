@@ -154,6 +154,37 @@ describe('Tatum Exchange Rate Service', () => {
         expect(rate).toBe(1000);
       }
     });
+
+    it('should map MATIC to POL for Tatum API (Polygon rebrand)', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ value: 0.55, timestamp: Date.now() }),
+      } as Response);
+
+      const rate = await getExchangeRate('MATIC', 'USD');
+
+      expect(rate).toBe(0.55);
+      // Verify the API was called with POL instead of MATIC
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/v3/tatum/rate/POL'),
+        expect.any(Object)
+      );
+    });
+
+    it('should handle lowercase matic and map to POL', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ value: 0.55, timestamp: Date.now() }),
+      } as Response);
+
+      const rate = await getExchangeRate('matic', 'USD');
+
+      expect(rate).toBe(0.55);
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/v3/tatum/rate/POL'),
+        expect.any(Object)
+      );
+    });
   });
 
   describe('getMultipleRates', () => {
