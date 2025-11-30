@@ -28,7 +28,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 /**
  * Supported blockchains for HD derivation
  */
-export type HDBlockchain = 'BTC' | 'ETH' | 'POL' | 'SOL';
+export type HDBlockchain = 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL';
 
 /**
  * HD Wallet configuration stored per business
@@ -96,6 +96,128 @@ function deriveBitcoinAddress(xpub: string, index: number): string {
 }
 
 /**
+ * CashAddr charset for Bitcoin Cash addresses
+ */
+const CASHADDR_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+
+/**
+ * Convert between bit sizes (used for CashAddr encoding)
+ */
+function convertBits(data: Uint8Array, fromBits: number, toBits: number, pad: boolean): number[] {
+  let acc = 0;
+  let bits = 0;
+  const result: number[] = [];
+  const maxv = (1 << toBits) - 1;
+
+  for (const value of data) {
+    acc = (acc << fromBits) | value;
+    bits += fromBits;
+    while (bits >= toBits) {
+      bits -= toBits;
+      result.push((acc >> bits) & maxv);
+    }
+  }
+
+  if (pad) {
+    if (bits > 0) {
+      result.push((acc << (toBits - bits)) & maxv);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * CashAddr polymod checksum calculation
+ */
+function cashAddrPolymod(values: number[]): bigint {
+  const GENERATORS: bigint[] = [
+    0x98f2bc8e61n,
+    0x79b76d99e2n,
+    0xf33e5fb3c4n,
+    0xae2eabe2a8n,
+    0x1e4f43e470n,
+  ];
+
+  let chk = 1n;
+  for (const value of values) {
+    const top = chk >> 35n;
+    chk = ((chk & 0x07ffffffffn) << 5n) ^ BigInt(value);
+    for (let i = 0; i < 5; i++) {
+      if ((top >> BigInt(i)) & 1n) {
+        chk ^= GENERATORS[i];
+      }
+    }
+  }
+  return chk;
+}
+
+/**
+ * Convert a P2PKH hash160 to CashAddr format
+ */
+function hashToCashAddress(hash160: Buffer): string {
+  // Version byte: 0x00 for P2PKH
+  const versionByte = 0x00;
+
+  // Create payload: version byte + hash160
+  const payload = Buffer.concat([Buffer.from([versionByte]), hash160]);
+
+  // Convert to 5-bit groups for base32 encoding
+  const data = convertBits(payload, 8, 5, true);
+
+  // Calculate checksum
+  const prefix = 'bitcoincash';
+  const prefixData: number[] = [];
+  for (let i = 0; i < prefix.length; i++) {
+    prefixData.push(prefix.charCodeAt(i) & 0x1f);
+  }
+  prefixData.push(0); // separator
+
+  const checksumInput = [...prefixData, ...data, 0, 0, 0, 0, 0, 0, 0, 0];
+  const checksum = cashAddrPolymod(checksumInput) ^ 1n;
+
+  // Extract 8 5-bit checksum values
+  const checksumData: number[] = [];
+  for (let i = 0; i < 8; i++) {
+    checksumData.push(Number((checksum >> BigInt(5 * (7 - i))) & 0x1fn));
+  }
+
+  // Encode to CashAddr
+  let result = prefix + ':';
+  for (const d of [...data, ...checksumData]) {
+    result += CASHADDR_CHARSET[d];
+  }
+
+  return result;
+}
+
+/**
+ * Derive a Bitcoin Cash address from xpub
+ * BCH uses coin type 145 (BIP44) and CashAddr format
+ */
+function deriveBitcoinCashAddress(xpub: string, index: number): string {
+  const hdKey = HDKey.fromExtendedKey(xpub);
+  const child = hdKey.deriveChild(index);
+
+  if (!child.publicKey) {
+    throw new Error('Failed to derive public key');
+  }
+
+  // Get the hash160 from P2PKH payment
+  const { hash } = bitcoin.payments.p2pkh({
+    pubkey: Buffer.from(child.publicKey),
+    network: bitcoin.networks.bitcoin,
+  });
+
+  if (!hash) {
+    throw new Error('Failed to generate Bitcoin Cash address hash');
+  }
+
+  // Convert to CashAddr format
+  return hashToCashAddress(hash);
+}
+
+/**
  * Derive an Ethereum/Polygon address from xpub
  */
 function deriveEthereumAddress(xpub: string, index: number): string {
@@ -147,6 +269,10 @@ export function derivePaymentAddress(
     case 'BTC':
       address = deriveBitcoinAddress(xpub, index);
       derivationPath = `m/44'/0'/0'/0/${index}`;
+      break;
+    case 'BCH':
+      address = deriveBitcoinCashAddress(xpub, index);
+      derivationPath = `m/44'/145'/0'/0/${index}`;
       break;
     case 'ETH':
     case 'POL':
@@ -388,6 +514,9 @@ export async function configureHDWallet(
     switch (cryptocurrency) {
       case 'BTC':
         derivationPath = "m/44'/0'/0'/0";
+        break;
+      case 'BCH':
+        derivationPath = "m/44'/145'/0'/0";
         break;
       case 'ETH':
       case 'POL':

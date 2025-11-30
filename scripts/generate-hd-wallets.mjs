@@ -2,11 +2,11 @@
 
 /**
  * HD Wallet Generator for CoinPay
- * 
- * Generates HD wallets for BTC, ETH, and SOL
+ *
+ * Generates HD wallets for BTC, BCH, ETH, and SOL
  * Creates encrypted backup and outputs .env format
- * 
- * Usage: 
+ *
+ * Usage:
  *   pnpm generate-wallet              # Generate all wallets
  *   pnpm generate-wallet --no-backup  # Skip encrypted backup
  */
@@ -110,6 +110,125 @@ function deriveBitcoinAddress(mnemonic, index = 0) {
   return address;
 }
 
+/**
+ * Derive Bitcoin Cash address from mnemonic
+ * BCH uses coin type 145 (BIP44)
+ * Returns CashAddr format (bitcoincash:q...)
+ */
+function deriveBitcoinCashAddress(mnemonic, index = 0) {
+  const seed = mnemonicToSeedSync(mnemonic);
+  const hdKey = HDKey.fromMasterSeed(seed);
+  // BCH uses coin type 145 per BIP44
+  const path = `m/44'/145'/0'/0/${index}`;
+  const child = hdKey.derive(path);
+
+  // BCH uses the same P2PKH format as BTC but with different address prefix
+  // We'll generate the legacy address first, then convert to CashAddr
+  const { hash } = bitcoin.payments.p2pkh({
+    pubkey: Buffer.from(child.publicKey),
+    network: bitcoin.networks.bitcoin,
+  });
+
+  // Convert to CashAddr format
+  const cashAddress = hashToCashAddress(hash);
+  return cashAddress;
+}
+
+/**
+ * Convert a P2PKH hash160 to CashAddr format
+ * CashAddr uses a custom base32 encoding with prefix "bitcoincash:"
+ */
+function hashToCashAddress(hash160) {
+  // CashAddr charset (different from standard base32)
+  const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+  
+  // Version byte: 0x00 for P2PKH
+  const versionByte = 0x00;
+  
+  // Create payload: version byte + hash160
+  const payload = Buffer.concat([Buffer.from([versionByte]), hash160]);
+  
+  // Convert to 5-bit groups for base32 encoding
+  const data = convertBits(payload, 8, 5, true);
+  
+  // Calculate checksum
+  const prefix = 'bitcoincash';
+  const prefixData = [];
+  for (let i = 0; i < prefix.length; i++) {
+    prefixData.push(prefix.charCodeAt(i) & 0x1f);
+  }
+  prefixData.push(0); // separator
+  
+  const checksumInput = [...prefixData, ...data, 0, 0, 0, 0, 0, 0, 0, 0];
+  const checksum = polymod(checksumInput) ^ 1;
+  
+  // Extract 8 5-bit checksum values
+  const checksumData = [];
+  for (let i = 0; i < 8; i++) {
+    checksumData.push((checksum >> (5 * (7 - i))) & 0x1f);
+  }
+  
+  // Encode to CashAddr
+  let result = prefix + ':';
+  for (const d of [...data, ...checksumData]) {
+    result += CHARSET[d];
+  }
+  
+  return result;
+}
+
+/**
+ * Convert between bit sizes (used for CashAddr encoding)
+ */
+function convertBits(data, fromBits, toBits, pad) {
+  let acc = 0;
+  let bits = 0;
+  const result = [];
+  const maxv = (1 << toBits) - 1;
+  
+  for (const value of data) {
+    acc = (acc << fromBits) | value;
+    bits += fromBits;
+    while (bits >= toBits) {
+      bits -= toBits;
+      result.push((acc >> bits) & maxv);
+    }
+  }
+  
+  if (pad) {
+    if (bits > 0) {
+      result.push((acc << (toBits - bits)) & maxv);
+    }
+  }
+  
+  return result;
+}
+
+/**
+ * CashAddr polymod checksum calculation
+ */
+function polymod(values) {
+  const GENERATORS = [
+    0x98f2bc8e61n,
+    0x79b76d99e2n,
+    0xf33e5fb3c4n,
+    0xae2eabe2a8n,
+    0x1e4f43e470n,
+  ];
+  
+  let chk = 1n;
+  for (const value of values) {
+    const top = chk >> 35n;
+    chk = ((chk & 0x07ffffffffn) << 5n) ^ BigInt(value);
+    for (let i = 0; i < 5; i++) {
+      if ((top >> BigInt(i)) & 1n) {
+        chk ^= GENERATORS[i];
+      }
+    }
+  }
+  return Number(chk);
+}
+
 function deriveEthereumAddress(mnemonic, index = 0) {
   const seed = mnemonicToSeedSync(mnemonic);
   const hdKey = HDKey.fromMasterSeed(seed);
@@ -171,15 +290,17 @@ async function main() {
   console.log('\n' + '='.repeat(70));
   console.log('  🔐 CoinPay HD Wallet Generator');
   console.log('='.repeat(70));
-  console.log('\nGenerating HD wallets for BTC, ETH, and SOL...\n');
+  console.log('\nGenerating HD wallets for BTC, BCH, ETH, and SOL...\n');
 
   // Generate mnemonics
   const btcMnemonic = generateMnemonic(wordlist, 128);
+  const bchMnemonic = generateMnemonic(wordlist, 128);
   const ethMnemonic = generateMnemonic(wordlist, 128);
   const solMnemonic = generateMnemonic(wordlist, 128);
 
   // Derive addresses
   const btcAddress = deriveBitcoinAddress(btcMnemonic, 0);
+  const bchAddress = deriveBitcoinCashAddress(bchMnemonic, 0);
   const ethAddress = deriveEthereumAddress(ethMnemonic, 0);
   const solAddress = await deriveSolanaAddress(solMnemonic, 0);
 
@@ -191,6 +312,14 @@ async function main() {
   console.log(`  ${btcMnemonic}`);
   console.log('\n  First address:');
   console.log(`  ${btcAddress}\n`);
+
+  console.log('='.repeat(70));
+  console.log('  ₿  BITCOIN CASH (BCH)');
+  console.log('='.repeat(70));
+  console.log('\n  Mnemonic (12 words):');
+  console.log(`  ${bchMnemonic}`);
+  console.log('\n  First address (CashAddr format):');
+  console.log(`  ${bchAddress}\n`);
 
   console.log('='.repeat(70));
   console.log('  Ξ  ETHEREUM (ETH)');
@@ -224,6 +353,7 @@ async function main() {
   console.log('='.repeat(70));
   console.log('\nAdd these to your .env file:\n');
   console.log(`SYSTEM_MNEMONIC_BTC=${btcMnemonic}`);
+  console.log(`SYSTEM_MNEMONIC_BCH=${bchMnemonic}`);
   console.log(`SYSTEM_MNEMONIC_ETH=${ethMnemonic}`);
   console.log(`SYSTEM_MNEMONIC_POL=${ethMnemonic}`);
   console.log(`SYSTEM_MNEMONIC_SOL=${solMnemonic}`);
@@ -251,6 +381,7 @@ async function main() {
         created: new Date().toISOString(),
         wallets: {
           btc: { mnemonic: btcMnemonic, firstAddress: btcAddress },
+          bch: { mnemonic: bchMnemonic, firstAddress: bchAddress },
           eth: { mnemonic: ethMnemonic, firstAddress: ethAddress },
           sol: { mnemonic: solMnemonic, firstAddress: solAddress },
         },
@@ -281,6 +412,7 @@ async function main() {
 
   To import into wallet apps:
   • BTC: Electrum (Linux) or BlueWallet (iOS)
+  • BCH: Electron Cash (Linux) or Bitcoin.com Wallet (iOS)
   • ETH/POL: MetaMask (Linux/iOS)
   • SOL: Phantom (Linux/iOS)
 `);

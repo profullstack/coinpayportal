@@ -168,7 +168,7 @@ export async function createPayment(
       : input.blockchain as SystemBlockchain;
     
     // Only generate system wallet address for supported blockchains
-    const supportedBlockchains: SystemBlockchain[] = ['BTC', 'ETH', 'POL', 'SOL'];
+    const supportedBlockchains: SystemBlockchain[] = ['BTC', 'BCH', 'ETH', 'POL', 'SOL'];
     if (supportedBlockchains.includes(baseBlockchain)) {
       const addressResult = await generatePaymentAddress(
         supabase,
@@ -209,7 +209,7 @@ export async function createPayment(
       };
     }
 
-    // For unsupported blockchains (like BCH), return without system wallet address
+    // For unsupported blockchains, return without system wallet address
     return {
       success: true,
       payment: payment as Payment,
