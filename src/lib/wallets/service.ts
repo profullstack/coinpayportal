@@ -8,9 +8,22 @@ export const SUPPORTED_CRYPTOCURRENCIES = ['BTC', 'ETH', 'POL', 'SOL'] as const;
 export type Cryptocurrency = (typeof SUPPORTED_CRYPTOCURRENCIES)[number];
 
 /**
+ * Legacy cryptocurrencies (deprecated but still allowed for read/delete operations)
+ */
+export const LEGACY_CRYPTOCURRENCIES = ['MATIC'] as const;
+export type LegacyCryptocurrency = (typeof LEGACY_CRYPTOCURRENCIES)[number];
+
+/**
+ * All valid cryptocurrencies (current + legacy)
+ */
+export const ALL_VALID_CRYPTOCURRENCIES = [...SUPPORTED_CRYPTOCURRENCIES, ...LEGACY_CRYPTOCURRENCIES] as const;
+export type AnyValidCryptocurrency = (typeof ALL_VALID_CRYPTOCURRENCIES)[number];
+
+/**
  * Validation schemas
  */
 const cryptocurrencySchema = z.enum(SUPPORTED_CRYPTOCURRENCIES);
+const legacyCryptocurrencySchema = z.enum(ALL_VALID_CRYPTOCURRENCIES as unknown as [string, ...string[]]);
 const walletAddressSchema = z.string().min(26, 'Invalid wallet address').max(100);
 
 /**
@@ -190,16 +203,17 @@ export async function listWallets(
 
 /**
  * Get a single wallet by cryptocurrency
+ * Supports legacy cryptocurrencies (MATIC) for backward compatibility
  */
 export async function getWallet(
   supabase: SupabaseClient,
   businessId: string,
-  cryptocurrency: Cryptocurrency,
+  cryptocurrency: Cryptocurrency | LegacyCryptocurrency,
   merchantId: string
 ): Promise<WalletResult> {
   try {
-    // Validate cryptocurrency
-    const cryptoResult = cryptocurrencySchema.safeParse(cryptocurrency);
+    // Validate cryptocurrency (allow legacy for read operations)
+    const cryptoResult = legacyCryptocurrencySchema.safeParse(cryptocurrency);
     if (!cryptoResult.success) {
       return {
         success: false,
@@ -251,17 +265,18 @@ export async function getWallet(
 
 /**
  * Update a wallet
+ * Supports legacy cryptocurrencies (MATIC) for backward compatibility
  */
 export async function updateWallet(
   supabase: SupabaseClient,
   businessId: string,
-  cryptocurrency: Cryptocurrency,
+  cryptocurrency: Cryptocurrency | LegacyCryptocurrency,
   merchantId: string,
   input: UpdateWalletInput
 ): Promise<WalletResult> {
   try {
-    // Validate cryptocurrency
-    const cryptoResult = cryptocurrencySchema.safeParse(cryptocurrency);
+    // Validate cryptocurrency (allow legacy for update operations)
+    const cryptoResult = legacyCryptocurrencySchema.safeParse(cryptocurrency);
     if (!cryptoResult.success) {
       return {
         success: false,
@@ -330,16 +345,17 @@ export async function updateWallet(
 
 /**
  * Delete a wallet
+ * Supports legacy cryptocurrencies (MATIC) for backward compatibility
  */
 export async function deleteWallet(
   supabase: SupabaseClient,
   businessId: string,
-  cryptocurrency: Cryptocurrency,
+  cryptocurrency: Cryptocurrency | LegacyCryptocurrency,
   merchantId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // Validate cryptocurrency
-    const cryptoResult = cryptocurrencySchema.safeParse(cryptocurrency);
+    // Validate cryptocurrency (allow legacy for delete operations)
+    const cryptoResult = legacyCryptocurrencySchema.safeParse(cryptocurrency);
     if (!cryptoResult.success) {
       return {
         success: false,
