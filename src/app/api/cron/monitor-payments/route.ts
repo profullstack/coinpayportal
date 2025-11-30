@@ -204,7 +204,10 @@ async function checkBCHBalance(address: string): Promise<number> {
     
     // Try CryptoAPIs with UTXO balance endpoint (correct format for BCH)
     // CryptoAPIs accepts CashAddr format without the bitcoincash: prefix
-    if (CRYPTO_APIS_KEY) {
+    // Check both CRYPTO_APIS_KEY and CRYPTOAPIS_API_KEY (common variations)
+    const cryptoApisKey = CRYPTO_APIS_KEY || process.env.CRYPTOAPIS_API_KEY || '';
+    console.log(`[Monitor BCH] CRYPTO_APIS_KEY configured: ${cryptoApisKey ? 'yes (length=' + cryptoApisKey.length + ')' : 'no'}`);
+    if (cryptoApisKey) {
       try {
         // Remove bitcoincash: prefix if present, CryptoAPIs accepts the short CashAddr format
         let cashAddrShort = address.toLowerCase();
@@ -214,12 +217,13 @@ async function checkBCHBalance(address: string): Promise<number> {
         
         const url = `https://rest.cryptoapis.io/addresses-latest/utxo/bitcoin-cash/mainnet/${cashAddrShort}/balance`;
         console.log(`[Monitor BCH] CryptoAPIs URL: ${url}`);
+        console.log(`[Monitor BCH] CryptoAPIs API Key: ${cryptoApisKey.substring(0, 8)}...`);
         
         const response = await fetch(url, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': CRYPTO_APIS_KEY,
+            'X-API-Key': cryptoApisKey,
           },
         });
         

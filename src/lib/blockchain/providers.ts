@@ -118,7 +118,7 @@ export class BitcoinProvider implements BlockchainProvider {
   /**
    * Fetch UTXOs for an address using Tatum API
    */
-  private async getUTXOs(address: string): Promise<UTXO[]> {
+  protected async getUTXOs(address: string): Promise<UTXO[]> {
     try {
       const apiKey = process.env.TATUM_API_KEY;
       if (!apiKey) {
@@ -148,7 +148,7 @@ export class BitcoinProvider implements BlockchainProvider {
   /**
    * Broadcast a signed transaction using Tatum API
    */
-  private async broadcastTransaction(txHex: string): Promise<string> {
+  protected async broadcastTransaction(txHex: string): Promise<string> {
     try {
       const apiKey = process.env.TATUM_API_KEY;
       if (!apiKey) {
@@ -1039,7 +1039,7 @@ export class BitcoinCashProvider extends BitcoinProvider {
   /**
    * Override UTXO fetching for BCH
    */
-  private async getBCHUTXOs(address: string): Promise<UTXO[]> {
+  protected async getUTXOs(address: string): Promise<UTXO[]> {
     try {
       const apiKey = process.env.TATUM_API_KEY;
       if (!apiKey) {
@@ -1073,7 +1073,7 @@ export class BitcoinCashProvider extends BitcoinProvider {
   /**
    * Override broadcast for BCH
    */
-  private async broadcastBCHTransaction(txHex: string): Promise<string> {
+  protected async broadcastTransaction(txHex: string): Promise<string> {
     try {
       const apiKey = process.env.TATUM_API_KEY;
       if (!apiKey) {
