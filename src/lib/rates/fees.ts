@@ -33,6 +33,12 @@ const FALLBACK_FEES_USD: Record<string, number> = {
   'ETH': 3.00,    // Ethereum: ~$0.50-5.00
   'POL': 0.01,    // Polygon: ~$0.001-0.01
   'SOL': 0.001,   // Solana: ~$0.00025
+  'DOGE': 0.05,   // Dogecoin: ~$0.01-0.10
+  'XRP': 0.001,   // Ripple: very low fees
+  'ADA': 0.20,    // Cardano: ~$0.15-0.30
+  'BNB': 0.10,    // Binance Smart Chain: ~$0.05-0.20
+  'USDT': 3.00,   // USDT (ERC-20): same as ETH
+  'USDC': 3.00,   // USDC (ERC-20): same as ETH
 };
 
 /**
@@ -231,6 +237,27 @@ export async function getEstimatedNetworkFee(blockchain: string): Promise<number
       case 'BCH':
         // BCH has very low fees, use static estimate
         fee = FALLBACK_FEES_USD['BCH'];
+        break;
+      case 'DOGE':
+        // Dogecoin has low fees, use static estimate
+        fee = FALLBACK_FEES_USD['DOGE'];
+        break;
+      case 'XRP':
+        // XRP has very low fees, use static estimate
+        fee = FALLBACK_FEES_USD['XRP'];
+        break;
+      case 'ADA':
+        // Cardano has moderate fees, use static estimate
+        fee = FALLBACK_FEES_USD['ADA'];
+        break;
+      case 'BNB':
+        // BNB Smart Chain has low fees, use static estimate
+        fee = FALLBACK_FEES_USD['BNB'];
+        break;
+      case 'USDT':
+      case 'USDC':
+        // Stablecoins on Ethereum, use ETH fee estimate
+        fee = await estimateEthereumFee();
         break;
       default:
         // Unknown blockchain, use conservative estimate

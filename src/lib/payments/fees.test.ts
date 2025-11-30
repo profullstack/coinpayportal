@@ -155,6 +155,12 @@ describe('Payment Fee Calculations', () => {
         expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('ETH');
         expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('POL');
         expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('SOL');
+        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('DOGE');
+        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('XRP');
+        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('ADA');
+        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('BNB');
+        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('USDT');
+        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('USDC');
       });
 
       it('should have reasonable fee estimates', () => {
@@ -172,6 +178,24 @@ describe('Payment Fee Calculations', () => {
         
         // Solana: extremely low fees
         expect(ESTIMATED_NETWORK_FEES_USD['SOL']).toBe(0.001);
+        
+        // Dogecoin: low fees
+        expect(ESTIMATED_NETWORK_FEES_USD['DOGE']).toBe(0.05);
+        
+        // XRP: very low fees
+        expect(ESTIMATED_NETWORK_FEES_USD['XRP']).toBe(0.001);
+        
+        // Cardano: moderate fees
+        expect(ESTIMATED_NETWORK_FEES_USD['ADA']).toBe(0.20);
+        
+        // BNB Smart Chain: low fees
+        expect(ESTIMATED_NETWORK_FEES_USD['BNB']).toBe(0.10);
+        
+        // USDT (ERC-20): same as ETH
+        expect(ESTIMATED_NETWORK_FEES_USD['USDT']).toBe(3.00);
+        
+        // USDC (ERC-20): same as ETH
+        expect(ESTIMATED_NETWORK_FEES_USD['USDC']).toBe(3.00);
       });
 
       it('should have all fees as positive numbers', () => {
@@ -201,6 +225,30 @@ describe('Payment Fee Calculations', () => {
 
       it('should return correct fee for BCH', () => {
         expect(getEstimatedNetworkFeeSync('BCH')).toBe(0.01);
+      });
+
+      it('should return correct fee for DOGE', () => {
+        expect(getEstimatedNetworkFeeSync('DOGE' as Blockchain)).toBe(0.05);
+      });
+
+      it('should return correct fee for XRP', () => {
+        expect(getEstimatedNetworkFeeSync('XRP' as Blockchain)).toBe(0.001);
+      });
+
+      it('should return correct fee for ADA', () => {
+        expect(getEstimatedNetworkFeeSync('ADA' as Blockchain)).toBe(0.20);
+      });
+
+      it('should return correct fee for BNB', () => {
+        expect(getEstimatedNetworkFeeSync('BNB' as Blockchain)).toBe(0.10);
+      });
+
+      it('should return correct fee for USDT', () => {
+        expect(getEstimatedNetworkFeeSync('USDT' as Blockchain)).toBe(3.00);
+      });
+
+      it('should return correct fee for USDC', () => {
+        expect(getEstimatedNetworkFeeSync('USDC' as Blockchain)).toBe(3.00);
       });
 
       it('should handle USDC variants by using base chain fee', () => {

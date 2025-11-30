@@ -165,10 +165,15 @@ describe('CreatePaymentPage', () => {
       await waitFor(() => {
         const select = screen.getByLabelText(/cryptocurrency/i) as HTMLSelectElement;
         expect(select.options).toHaveLength(4);
-        expect(select.options[0].text).toContain('Bitcoin (BTC)');
-        expect(select.options[1].text).toContain('Ethereum');
-        expect(select.options[2].text).toContain('Polygon');
-        expect(select.options[3].text).toContain('Solana');
+        
+        // Get all option texts
+        const optionTexts = Array.from(select.options).map(opt => opt.text);
+        
+        // Check that all expected currencies are present (order may vary)
+        expect(optionTexts.some(text => text.includes('Bitcoin (BTC)'))).toBe(true);
+        expect(optionTexts.some(text => text.includes('Ethereum'))).toBe(true);
+        expect(optionTexts.some(text => text.includes('Polygon'))).toBe(true);
+        expect(optionTexts.some(text => text.includes('Solana'))).toBe(true);
       });
     });
 

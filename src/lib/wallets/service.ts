@@ -4,7 +4,7 @@ import { z } from 'zod';
 /**
  * Supported cryptocurrencies
  */
-export const SUPPORTED_CRYPTOCURRENCIES = ['BTC', 'ETH', 'POL', 'SOL'] as const;
+export const SUPPORTED_CRYPTOCURRENCIES = ['BTC', 'BCH', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'POL'] as const;
 export type Cryptocurrency = (typeof SUPPORTED_CRYPTOCURRENCIES)[number];
 
 /**
@@ -64,7 +64,7 @@ export async function createWallet(
     if (!cryptoResult.success) {
       return {
         success: false,
-        error: 'Invalid cryptocurrency. Must be one of: BTC, ETH, POL, SOL',
+        error: `Invalid cryptocurrency. Must be one of: ${SUPPORTED_CRYPTOCURRENCIES.join(', ')}`,
       };
     }
 
@@ -203,7 +203,7 @@ export async function getWallet(
     if (!cryptoResult.success) {
       return {
         success: false,
-        error: 'Invalid cryptocurrency. Must be one of: BTC, ETH, POL, SOL',
+        error: `Invalid cryptocurrency. Must be one of: ${SUPPORTED_CRYPTOCURRENCIES.join(', ')}`,
       };
     }
 
@@ -265,7 +265,7 @@ export async function updateWallet(
     if (!cryptoResult.success) {
       return {
         success: false,
-        error: 'Invalid cryptocurrency. Must be one of: BTC, ETH, POL, SOL',
+        error: `Invalid cryptocurrency. Must be one of: ${SUPPORTED_CRYPTOCURRENCIES.join(', ')}`,
       };
     }
 
@@ -343,7 +343,7 @@ export async function deleteWallet(
     if (!cryptoResult.success) {
       return {
         success: false,
-        error: 'Invalid cryptocurrency. Must be one of: BTC, ETH, POL, SOL',
+        error: `Invalid cryptocurrency. Must be one of: ${SUPPORTED_CRYPTOCURRENCIES.join(', ')}`,
       };
     }
 

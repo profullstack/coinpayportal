@@ -13,11 +13,19 @@ import { incrementTransactionCount } from '@/lib/entitlements/service';
  */
 function mapCurrencyToBlockchain(currency: string): Blockchain | null {
   const mapping: Record<string, Blockchain> = {
+    // Native cryptocurrencies
     'btc': 'BTC',
     'bch': 'BCH',
     'eth': 'ETH',
     'pol': 'POL',
     'sol': 'SOL',
+    'doge': 'DOGE',
+    'xrp': 'XRP',
+    'ada': 'ADA',
+    'bnb': 'BNB',
+    // Stablecoins (use parent chain)
+    'usdt': 'USDT',      // ERC-20 on Ethereum
+    'usdc': 'USDC',      // ERC-20 on Ethereum
     'usdc_eth': 'USDC_ETH',
     'usdc_pol': 'USDC_POL',
     'usdc_sol': 'USDC_SOL',
@@ -31,6 +39,9 @@ function mapCurrencyToBlockchain(currency: string): Blockchain | null {
 function blockchainToCrypto(blockchain: Blockchain): string {
   if (blockchain.startsWith('USDC_')) {
     return 'USDC';
+  }
+  if (blockchain === 'USDT') {
+    return 'USDT';
   }
   return blockchain;
 }

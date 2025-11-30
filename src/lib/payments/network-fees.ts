@@ -14,7 +14,11 @@ export const ESTIMATED_NETWORK_FEES_USD = getFallbackFees();
 /**
  * Supported blockchain types
  */
-export type Blockchain = 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL' | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
+export type Blockchain =
+  | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
+  | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
+  | 'USDT' | 'USDC'
+  | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
 
 /**
  * Get estimated network fee for a blockchain in USD

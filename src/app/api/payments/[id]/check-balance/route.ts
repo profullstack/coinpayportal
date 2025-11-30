@@ -11,6 +11,10 @@ const RPC_ENDPOINTS: Record<string, string> = {
   ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
   POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
   SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+  BNB: process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org',
+  DOGE: process.env.DOGE_RPC_URL || 'https://rest.cryptoapis.io/blockchain-data/dogecoin/mainnet',
+  XRP: process.env.XRP_RPC_URL || 'https://xrplcluster.com',
+  ADA: process.env.ADA_RPC_URL || 'https://cardano-mainnet.blockfrost.io/api/v0',
 };
 
 // API keys
@@ -169,6 +173,8 @@ async function checkBalance(address: string, blockchain: string): Promise<number
       return checkBCHBalance(address);
     case 'ETH':
     case 'USDC_ETH':
+    case 'USDT':
+    case 'USDC':
       return checkEVMBalance(address, RPC_ENDPOINTS.ETH);
     case 'POL':
     case 'USDC_POL':
@@ -176,6 +182,20 @@ async function checkBalance(address: string, blockchain: string): Promise<number
     case 'SOL':
     case 'USDC_SOL':
       return checkSolanaBalance(address, RPC_ENDPOINTS.SOL);
+    case 'BNB':
+      return checkEVMBalance(address, RPC_ENDPOINTS.BNB);
+    case 'DOGE':
+      // DOGE uses similar API to BCH via CryptoAPIs
+      console.log(`DOGE balance check not yet implemented for ${address}`);
+      return 0;
+    case 'XRP':
+      // XRP requires special handling
+      console.log(`XRP balance check not yet implemented for ${address}`);
+      return 0;
+    case 'ADA':
+      // ADA requires Blockfrost API
+      console.log(`ADA balance check not yet implemented for ${address}`);
+      return 0;
     default:
       console.error(`Unsupported blockchain: ${blockchain}`);
       return 0;

@@ -271,10 +271,19 @@ export default function CreatePaymentPage() {
       'bitcoin-cash': `https://blockchair.com/bitcoin-cash/transaction/${txHash}`,
       eth: `https://etherscan.io/tx/${txHash}`,
       ethereum: `https://etherscan.io/tx/${txHash}`,
+      usdt: `https://etherscan.io/tx/${txHash}`,
+      usdc: `https://etherscan.io/tx/${txHash}`,
+      bnb: `https://bscscan.com/tx/${txHash}`,
       pol: `https://polygonscan.com/tx/${txHash}`,
       polygon: `https://polygonscan.com/tx/${txHash}`,
       sol: `https://solscan.io/tx/${txHash}`,
       solana: `https://solscan.io/tx/${txHash}`,
+      doge: `https://dogechain.info/tx/${txHash}`,
+      dogecoin: `https://dogechain.info/tx/${txHash}`,
+      xrp: `https://xrpscan.com/tx/${txHash}`,
+      ripple: `https://xrpscan.com/tx/${txHash}`,
+      ada: `https://cardanoscan.io/transaction/${txHash}`,
+      cardano: `https://cardanoscan.io/transaction/${txHash}`,
     };
     return explorers[blockchain?.toLowerCase()] || `https://blockchair.com/search?q=${txHash}`;
   };
@@ -284,8 +293,14 @@ export default function CreatePaymentPage() {
     { value: 'btc', label: 'Bitcoin (BTC)', networkFee: '$0.50-3.00', estimatedFee: 2.00 },
     { value: 'bch', label: 'Bitcoin Cash (BCH)', networkFee: '~$0.01', estimatedFee: 0.01 },
     { value: 'eth', label: 'Ethereum (ETH)', networkFee: '$0.50-5.00', estimatedFee: 3.00 },
-    { value: 'pol', label: 'Polygon (POL)', networkFee: '$0.001-0.01', estimatedFee: 0.01 },
+    { value: 'usdt', label: 'Tether (USDT)', networkFee: '$0.50-5.00', estimatedFee: 3.00 },
+    { value: 'usdc', label: 'USD Coin (USDC)', networkFee: '$0.50-5.00', estimatedFee: 3.00 },
+    { value: 'bnb', label: 'Binance Coin (BNB)', networkFee: '$0.05-0.20', estimatedFee: 0.10 },
     { value: 'sol', label: 'Solana (SOL)', networkFee: '~$0.001', estimatedFee: 0.001 },
+    { value: 'xrp', label: 'Ripple (XRP)', networkFee: '~$0.001', estimatedFee: 0.001 },
+    { value: 'ada', label: 'Cardano (ADA)', networkFee: '~$0.20', estimatedFee: 0.20 },
+    { value: 'doge', label: 'Dogecoin (DOGE)', networkFee: '~$0.05', estimatedFee: 0.05 },
+    { value: 'pol', label: 'Polygon (POL)', networkFee: '$0.001-0.01', estimatedFee: 0.01 },
   ];
 
   // Filter currencies to only show those with configured wallets

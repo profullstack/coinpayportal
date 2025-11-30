@@ -495,7 +495,24 @@ describe('Wallet Service', () => {
 
   describe('SUPPORTED_CRYPTOCURRENCIES', () => {
     it('should export supported cryptocurrencies', () => {
-      expect(SUPPORTED_CRYPTOCURRENCIES).toEqual(['BTC', 'ETH', 'POL', 'SOL']);
+      expect(SUPPORTED_CRYPTOCURRENCIES).toEqual(['BTC', 'BCH', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'POL']);
+    });
+
+    it('should include BCH (Bitcoin Cash)', () => {
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('BCH');
+    });
+
+    it('should include all major cryptocurrencies', () => {
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('BTC');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('ETH');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('USDT');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('USDC');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('BNB');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('SOL');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('XRP');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('ADA');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('DOGE');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('POL');
     });
   });
 

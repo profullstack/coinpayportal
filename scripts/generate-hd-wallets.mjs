@@ -3,7 +3,21 @@
 /**
  * HD Wallet Generator for CoinPay
  *
- * Generates HD wallets for BTC, BCH, ETH, and SOL
+ * Generates HD wallets for all supported cryptocurrencies:
+ * - BTC (Bitcoin) - coin type 0
+ * - BCH (Bitcoin Cash) - coin type 145
+ * - ETH (Ethereum) - coin type 60
+ * - POL (Polygon) - uses ETH derivation (coin type 60)
+ * - BNB (Binance Smart Chain) - uses ETH derivation (coin type 60)
+ * - SOL (Solana) - coin type 501
+ * - DOGE (Dogecoin) - coin type 3
+ * - XRP (Ripple) - coin type 144
+ * - ADA (Cardano) - coin type 1815 (simplified)
+ *
+ * Tokens (use parent chain addresses):
+ * - USDT - ERC-20 token on ETH/POL
+ * - USDC - ERC-20 token on ETH/POL/SOL
+ *
  * Creates encrypted backup and outputs .env format
  *
  * Usage:
@@ -11,15 +25,16 @@
  *   pnpm generate-wallet --no-backup  # Skip encrypted backup
  */
 
-import { generateMnemonic, mnemonicToSeedSync } from '@scure/bip39';
+import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
 import { HDKey } from '@scure/bip32';
 import * as bitcoin from 'bitcoinjs-lib';
 import { ethers } from 'ethers';
 import { createHmac, createCipheriv, randomBytes, scryptSync } from 'crypto';
-import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import * as readline from 'readline';
+import { config } from 'dotenv';
 
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
@@ -252,6 +267,102 @@ async function deriveSolanaAddress(mnemonic, index = 0) {
   return base58Encode(publicKey);
 }
 
+/**
+ * Derive Dogecoin address from mnemonic
+ * DOGE uses coin type 3 (BIP44)
+ */
+function deriveDogecoinAddress(mnemonic, index = 0) {
+  const seed = mnemonicToSeedSync(mnemonic);
+  const hdKey = HDKey.fromMasterSeed(seed);
+  // DOGE uses coin type 3 per BIP44
+  const path = `m/44'/3'/0'/0/${index}`;
+  const child = hdKey.derive(path);
+
+  // DOGE uses P2PKH with version byte 0x1e (30)
+  const pubkeyHash = bitcoin.crypto.hash160(Buffer.from(child.publicKey));
+  const versionByte = Buffer.from([0x1e]); // DOGE mainnet P2PKH
+  const payload = Buffer.concat([versionByte, pubkeyHash]);
+  
+  // Double SHA256 for checksum
+  const checksum = bitcoin.crypto.hash256(payload).subarray(0, 4);
+  const addressBytes = Buffer.concat([payload, checksum]);
+  
+  return base58Encode(addressBytes);
+}
+
+/**
+ * Derive XRP address from mnemonic
+ * XRP uses coin type 144 (BIP44)
+ */
+function deriveXRPAddress(mnemonic, index = 0) {
+  const seed = mnemonicToSeedSync(mnemonic);
+  const hdKey = HDKey.fromMasterSeed(seed);
+  // XRP uses coin type 144 per BIP44
+  const path = `m/44'/144'/0'/0/${index}`;
+  const child = hdKey.derive(path);
+
+  // XRP uses RIPEMD160(SHA256(pubkey)) with version byte 0x00
+  const pubkeyHash = bitcoin.crypto.hash160(Buffer.from(child.publicKey));
+  const versionByte = Buffer.from([0x00]); // XRP mainnet
+  const payload = Buffer.concat([versionByte, pubkeyHash]);
+  
+  // XRP uses a different checksum: first 4 bytes of SHA256(SHA256(payload))
+  const checksum = bitcoin.crypto.hash256(payload).subarray(0, 4);
+  const addressBytes = Buffer.concat([payload, checksum]);
+  
+  // XRP uses base58 with a different alphabet
+  const XRP_ALPHABET = 'rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxyz';
+  return base58EncodeWithAlphabet(addressBytes, XRP_ALPHABET);
+}
+
+/**
+ * Base58 encode with custom alphabet (for XRP)
+ */
+function base58EncodeWithAlphabet(bytes, alphabet) {
+  const digits = [0];
+  for (let i = 0; i < bytes.length; i++) {
+    let carry = bytes[i];
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+  let result = '';
+  for (let i = 0; i < bytes.length && bytes[i] === 0; i++) {
+    result += alphabet[0];
+  }
+  for (let i = digits.length - 1; i >= 0; i--) {
+    result += alphabet[digits[i]];
+  }
+  return result;
+}
+
+/**
+ * Derive Cardano address from mnemonic (simplified)
+ * ADA uses coin type 1815 (BIP44)
+ * Note: Full Cardano address derivation is complex (uses Ed25519-BIP32)
+ * This generates a simplified enterprise address for receiving
+ */
+async function deriveCardanoAddress(mnemonic, index = 0) {
+  const seedUint8 = mnemonicToSeedSync(mnemonic);
+  const seed = Buffer.from(seedUint8);
+  // Cardano uses coin type 1815
+  const path = `m/44'/1815'/${index}'/0'`;
+  const { key } = deriveEd25519Key(seed, path);
+
+  const publicKey = await getEd25519PublicKey(key);
+  
+  // Simplified: return hex-encoded public key as placeholder
+  // Full Cardano addresses require bech32 encoding with specific prefixes
+  // For production, use a proper Cardano library
+  return `addr1_${publicKey.toString('hex').substring(0, 40)}...`;
+}
+
 function encryptData(data, password) {
   const salt = randomBytes(32);
   const key = scryptSync(password, salt, 32);
@@ -284,29 +395,134 @@ function prompt(question) {
   });
 }
 
+/**
+ * Load existing mnemonics from .env.prod file
+ * Returns an object with existing mnemonics keyed by cryptocurrency
+ */
+function loadExistingMnemonics() {
+  const envProdPath = join(process.cwd(), '.env.prod');
+  const existing = {};
+  
+  if (existsSync(envProdPath)) {
+    console.log('📂 Found .env.prod file, loading existing mnemonics...\n');
+    
+    // Parse .env.prod file
+    const envContent = readFileSync(envProdPath, 'utf8');
+    const lines = envContent.split('\n');
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('SYSTEM_MNEMONIC_')) {
+        const match = trimmed.match(/^SYSTEM_MNEMONIC_(\w+)=(.+)$/);
+        if (match) {
+          const [, crypto, mnemonic] = match;
+          const cleanMnemonic = mnemonic.replace(/["']/g, '').trim();
+          
+          // Validate the mnemonic
+          if (validateMnemonic(cleanMnemonic, wordlist)) {
+            existing[crypto] = cleanMnemonic;
+            console.log(`  ✓ Loaded existing ${crypto} mnemonic`);
+          } else {
+            console.log(`  ⚠ Invalid ${crypto} mnemonic in .env.prod, will generate new one`);
+          }
+        }
+      }
+    }
+    console.log();
+  } else {
+    console.log('📂 No .env.prod file found, will generate all new mnemonics\n');
+  }
+  
+  return existing;
+}
+
+/**
+ * Get mnemonic for a cryptocurrency - use existing if available, otherwise generate new
+ */
+function getMnemonic(existing, crypto, fallbackCrypto = null) {
+  // Check if we have an existing mnemonic for this crypto
+  if (existing[crypto]) {
+    return { mnemonic: existing[crypto], isExisting: true };
+  }
+  
+  // Check fallback (e.g., POL uses ETH mnemonic)
+  if (fallbackCrypto && existing[fallbackCrypto]) {
+    return { mnemonic: existing[fallbackCrypto], isExisting: true };
+  }
+  
+  // Generate new mnemonic
+  return { mnemonic: generateMnemonic(wordlist, 128), isExisting: false };
+}
+
 async function main() {
   const skipBackup = process.argv.includes('--no-backup');
+  const forceNew = process.argv.includes('--force-new');
 
   console.log('\n' + '='.repeat(70));
   console.log('  🔐 CoinPay HD Wallet Generator');
   console.log('='.repeat(70));
-  console.log('\nGenerating HD wallets for BTC, BCH, ETH, and SOL...\n');
+  console.log('\nGenerating HD wallets for all supported cryptocurrencies...\n');
+  console.log('Supported: BTC, BCH, ETH, POL, BNB, SOL, DOGE, XRP, ADA');
+  console.log('Tokens (use parent chain): USDT, USDC\n');
+  
+  if (forceNew) {
+    console.log('⚠️  --force-new flag detected, generating all new mnemonics\n');
+  }
 
-  // Generate mnemonics
-  const btcMnemonic = generateMnemonic(wordlist, 128);
-  const bchMnemonic = generateMnemonic(wordlist, 128);
-  const ethMnemonic = generateMnemonic(wordlist, 128);
-  const solMnemonic = generateMnemonic(wordlist, 128);
+  // Load existing mnemonics from .env.prod
+  const existing = forceNew ? {} : loadExistingMnemonics();
+  
+  // Determine which cryptos need new mnemonics
+  const cryptosToGenerate = ['BTC', 'BCH', 'ETH', 'SOL', 'DOGE', 'XRP', 'ADA'].filter(
+    crypto => !existing[crypto]
+  );
+  
+  if (cryptosToGenerate.length > 0) {
+    console.log(`\n🔑 Generating new mnemonics for: ${cryptosToGenerate.join(', ')}\n`);
+  } else {
+    console.log('\n✅ All mnemonics found in .env.prod, no new generation needed\n');
+  }
+  
+  // Get or generate mnemonics for each unique derivation path
+  const btcResult = getMnemonic(existing, 'BTC');
+  const bchResult = getMnemonic(existing, 'BCH');
+  const ethResult = getMnemonic(existing, 'ETH');
+  const solResult = getMnemonic(existing, 'SOL');
+  const dogeResult = getMnemonic(existing, 'DOGE');
+  const xrpResult = getMnemonic(existing, 'XRP');
+  const adaResult = getMnemonic(existing, 'ADA');
+  
+  const btcMnemonic = btcResult.mnemonic;
+  const bchMnemonic = bchResult.mnemonic;
+  const ethMnemonic = ethResult.mnemonic; // Also used for POL, BNB, USDT, USDC
+  const solMnemonic = solResult.mnemonic; // Also used for USDC on Solana
+  const dogeMnemonic = dogeResult.mnemonic;
+  const xrpMnemonic = xrpResult.mnemonic;
+  const adaMnemonic = adaResult.mnemonic;
+  
+  // Track which mnemonics are new vs existing
+  const mnemonicStatus = {
+    BTC: btcResult.isExisting ? '(existing from .env.prod)' : '(NEW - generated)',
+    BCH: bchResult.isExisting ? '(existing from .env.prod)' : '(NEW - generated)',
+    ETH: ethResult.isExisting ? '(existing from .env.prod)' : '(NEW - generated)',
+    SOL: solResult.isExisting ? '(existing from .env.prod)' : '(NEW - generated)',
+    DOGE: dogeResult.isExisting ? '(existing from .env.prod)' : '(NEW - generated)',
+    XRP: xrpResult.isExisting ? '(existing from .env.prod)' : '(NEW - generated)',
+    ADA: adaResult.isExisting ? '(existing from .env.prod)' : '(NEW - generated)',
+  };
 
   // Derive addresses
   const btcAddress = deriveBitcoinAddress(btcMnemonic, 0);
   const bchAddress = deriveBitcoinCashAddress(bchMnemonic, 0);
   const ethAddress = deriveEthereumAddress(ethMnemonic, 0);
   const solAddress = await deriveSolanaAddress(solMnemonic, 0);
+  const dogeAddress = deriveDogecoinAddress(dogeMnemonic, 0);
+  const xrpAddress = deriveXRPAddress(xrpMnemonic, 0);
+  const adaAddress = await deriveCardanoAddress(adaMnemonic, 0);
 
   // Display results
   console.log('='.repeat(70));
-  console.log('  ₿  BITCOIN (BTC)');
+  console.log(`  ₿  BITCOIN (BTC) ${mnemonicStatus.BTC}`);
   console.log('='.repeat(70));
   console.log('\n  Mnemonic (12 words):');
   console.log(`  ${btcMnemonic}`);
@@ -314,7 +530,7 @@ async function main() {
   console.log(`  ${btcAddress}\n`);
 
   console.log('='.repeat(70));
-  console.log('  ₿  BITCOIN CASH (BCH)');
+  console.log(`  ₿  BITCOIN CASH (BCH) ${mnemonicStatus.BCH}`);
   console.log('='.repeat(70));
   console.log('\n  Mnemonic (12 words):');
   console.log(`  ${bchMnemonic}`);
@@ -322,7 +538,7 @@ async function main() {
   console.log(`  ${bchAddress}\n`);
 
   console.log('='.repeat(70));
-  console.log('  Ξ  ETHEREUM (ETH)');
+  console.log(`  Ξ  ETHEREUM (ETH) ${mnemonicStatus.ETH}`);
   console.log('='.repeat(70));
   console.log('\n  Mnemonic (12 words):');
   console.log(`  ${ethMnemonic}`);
@@ -330,7 +546,7 @@ async function main() {
   console.log(`  ${ethAddress}\n`);
 
   console.log('='.repeat(70));
-  console.log('  ⬡  POLYGON (POL)');
+  console.log(`  ⬡  POLYGON (POL) ${mnemonicStatus.ETH}`);
   console.log('='.repeat(70));
   console.log('\n  Mnemonic (12 words):');
   console.log(`  ${ethMnemonic}`);
@@ -340,12 +556,46 @@ async function main() {
   console.log('  (Same address works on both ETH and Polygon networks)\n');
 
   console.log('='.repeat(70));
-  console.log('  ◎  SOLANA (SOL)');
+  console.log(`  ◎  SOLANA (SOL) ${mnemonicStatus.SOL}`);
   console.log('='.repeat(70));
   console.log('\n  Mnemonic (12 words):');
   console.log(`  ${solMnemonic}`);
   console.log('\n  First address:');
   console.log(`  ${solAddress}\n`);
+
+  console.log('='.repeat(70));
+  console.log(`  Ð  DOGECOIN (DOGE) ${mnemonicStatus.DOGE}`);
+  console.log('='.repeat(70));
+  console.log('\n  Mnemonic (12 words):');
+  console.log(`  ${dogeMnemonic}`);
+  console.log('\n  First address:');
+  console.log(`  ${dogeAddress}\n`);
+
+  console.log('='.repeat(70));
+  console.log(`  ✕  RIPPLE (XRP) ${mnemonicStatus.XRP}`);
+  console.log('='.repeat(70));
+  console.log('\n  Mnemonic (12 words):');
+  console.log(`  ${xrpMnemonic}`);
+  console.log('\n  First address:');
+  console.log(`  ${xrpAddress}\n`);
+
+  console.log('='.repeat(70));
+  console.log(`  ₳  CARDANO (ADA) ${mnemonicStatus.ADA}`);
+  console.log('='.repeat(70));
+  console.log('\n  Mnemonic (12 words):');
+  console.log(`  ${adaMnemonic}`);
+  console.log('\n  First address (simplified):');
+  console.log(`  ${adaAddress}`);
+  console.log('  Note: For production, use a proper Cardano wallet for full address support\n');
+
+  console.log('='.repeat(70));
+  console.log('  💵 TOKENS (USDT, USDC, BNB)');
+  console.log('='.repeat(70));
+  console.log('\n  These tokens use parent chain addresses:');
+  console.log('  • USDT (ERC-20): Use ETH address');
+  console.log('  • USDC (ERC-20): Use ETH address');
+  console.log('  • USDC (SPL): Use SOL address');
+  console.log('  • BNB (BSC): Use ETH address (same derivation path)\n');
 
   // Show .env format
   console.log('='.repeat(70));
@@ -356,8 +606,16 @@ async function main() {
   console.log(`SYSTEM_MNEMONIC_BCH=${bchMnemonic}`);
   console.log(`SYSTEM_MNEMONIC_ETH=${ethMnemonic}`);
   console.log(`SYSTEM_MNEMONIC_POL=${ethMnemonic}`);
+  console.log(`SYSTEM_MNEMONIC_BNB=${ethMnemonic}`);
   console.log(`SYSTEM_MNEMONIC_SOL=${solMnemonic}`);
-  console.log('\n  Note: ETH and POL use the same mnemonic (same derivation path)');
+  console.log(`SYSTEM_MNEMONIC_DOGE=${dogeMnemonic}`);
+  console.log(`SYSTEM_MNEMONIC_XRP=${xrpMnemonic}`);
+  console.log(`SYSTEM_MNEMONIC_ADA=${adaMnemonic}`);
+  console.log(`SYSTEM_MNEMONIC_USDT=${ethMnemonic}`);
+  console.log(`SYSTEM_MNEMONIC_USDC=${ethMnemonic}`);
+  console.log('\n  Notes:');
+  console.log('  • ETH, POL, BNB, USDT, USDC use the same mnemonic (EVM compatible)');
+  console.log('  • USDC on Solana uses the SOL mnemonic');
   console.log();
 
   // Create encrypted backup
@@ -377,14 +635,24 @@ async function main() {
       }
 
       const backupData = {
-        version: 1,
+        version: 3,
         created: new Date().toISOString(),
+        source: existsSync(join(process.cwd(), '.env.prod')) ? '.env.prod' : 'generated',
         wallets: {
-          btc: { mnemonic: btcMnemonic, firstAddress: btcAddress },
-          bch: { mnemonic: bchMnemonic, firstAddress: bchAddress },
-          eth: { mnemonic: ethMnemonic, firstAddress: ethAddress },
-          sol: { mnemonic: solMnemonic, firstAddress: solAddress },
+          btc: { mnemonic: btcMnemonic, firstAddress: btcAddress, isExisting: btcResult.isExisting },
+          bch: { mnemonic: bchMnemonic, firstAddress: bchAddress, isExisting: bchResult.isExisting },
+          eth: { mnemonic: ethMnemonic, firstAddress: ethAddress, isExisting: ethResult.isExisting },
+          pol: { mnemonic: ethMnemonic, firstAddress: ethAddress, note: 'Same as ETH', isExisting: ethResult.isExisting },
+          bnb: { mnemonic: ethMnemonic, firstAddress: ethAddress, note: 'Same as ETH', isExisting: ethResult.isExisting },
+          sol: { mnemonic: solMnemonic, firstAddress: solAddress, isExisting: solResult.isExisting },
+          doge: { mnemonic: dogeMnemonic, firstAddress: dogeAddress, isExisting: dogeResult.isExisting },
+          xrp: { mnemonic: xrpMnemonic, firstAddress: xrpAddress, isExisting: xrpResult.isExisting },
+          ada: { mnemonic: adaMnemonic, firstAddress: adaAddress, isExisting: adaResult.isExisting },
+          usdt: { mnemonic: ethMnemonic, firstAddress: ethAddress, note: 'ERC-20 on ETH', isExisting: ethResult.isExisting },
+          usdc: { mnemonic: ethMnemonic, firstAddress: ethAddress, note: 'ERC-20 on ETH', isExisting: ethResult.isExisting },
         },
+        // Include platform fee wallets if they exist in .env.prod
+        platformFeeWallets: loadPlatformFeeWallets(),
       };
 
       const encrypted = encryptData(backupData, password);
@@ -413,10 +681,45 @@ async function main() {
   To import into wallet apps:
   • BTC: Electrum (Linux) or BlueWallet (iOS)
   • BCH: Electron Cash (Linux) or Bitcoin.com Wallet (iOS)
-  • ETH/POL: MetaMask (Linux/iOS)
+  • ETH/POL/BNB: MetaMask (Linux/iOS)
   • SOL: Phantom (Linux/iOS)
+  • DOGE: Dogecoin Core or Trust Wallet
+  • XRP: XUMM Wallet
+  • ADA: Daedalus or Yoroi Wallet
+  • USDT/USDC: MetaMask (ERC-20) or Phantom (SPL)
+
+  Usage:
+  • pnpm generate-wallet              # Use existing from .env.prod or generate new
+  • pnpm generate-wallet --force-new  # Generate all new mnemonics
+  • pnpm generate-wallet --no-backup  # Skip encrypted backup
 `);
   console.log('='.repeat(70) + '\n');
+}
+
+/**
+ * Load platform fee wallet addresses from .env.prod
+ */
+function loadPlatformFeeWallets() {
+  const envProdPath = join(process.cwd(), '.env.prod');
+  const wallets = {};
+  
+  if (existsSync(envProdPath)) {
+    const envContent = readFileSync(envProdPath, 'utf8');
+    const lines = envContent.split('\n');
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('PLATFORM_FEE_WALLET_')) {
+        const match = trimmed.match(/^PLATFORM_FEE_WALLET_(\w+)=(.+)$/);
+        if (match) {
+          const [, crypto, address] = match;
+          wallets[crypto] = address.replace(/["']/g, '').trim();
+        }
+      }
+    }
+  }
+  
+  return wallets;
 }
 
 main().catch((error) => {
