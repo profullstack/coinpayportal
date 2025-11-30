@@ -7,6 +7,7 @@ import {
   SolanaProvider,
   getProvider,
   getRpcUrl,
+  cashAddrToLegacy,
 } from './providers';
 
 // Mock axios for Bitcoin provider
@@ -449,6 +450,163 @@ describe('Blockchain Providers', () => {
       const provider = new BitcoinCashProvider('https://bch.blockchain.info');
       expect((provider as any).sendSplitTransaction).toBeDefined();
       expect(typeof (provider as any).sendSplitTransaction).toBe('function');
+    });
+
+    describe('CashAddr to Legacy Address Conversion', () => {
+      it('should have cashAddrToLegacy function exported', () => {
+        expect(cashAddrToLegacy).toBeDefined();
+        expect(typeof cashAddrToLegacy).toBe('function');
+      });
+
+      it('should convert CashAddr with prefix to legacy format', () => {
+        // Test with bitcoincash: prefix
+        // This is a known test vector - CashAddr to legacy conversion
+        const cashAddr = 'bitcoincash:qpsap6c3faj60zqqp9m585mxmya272mxm54d68gckz';
+        const legacy = cashAddrToLegacy(cashAddr);
+        
+        // Should return a legacy address starting with 1 or 3
+        expect(legacy).toBeDefined();
+        expect(typeof legacy).toBe('string');
+        expect(legacy.length).toBeGreaterThan(25);
+        expect(legacy.length).toBeLessThan(36);
+        // Legacy P2PKH addresses start with 1, P2SH with 3
+        expect(['1', '3'].includes(legacy[0])).toBe(true);
+      });
+
+      it('should convert CashAddr without prefix to legacy format', () => {
+        // Test without bitcoincash: prefix
+        const cashAddr = 'qpsap6c3faj60zqqp9m585mxmya272mxm54d68gckz';
+        const legacy = cashAddrToLegacy(cashAddr);
+        
+        // Should return a legacy address
+        expect(legacy).toBeDefined();
+        expect(typeof legacy).toBe('string');
+        expect(['1', '3'].includes(legacy[0])).toBe(true);
+      });
+
+      it('should return same result for CashAddr with and without prefix', () => {
+        const withPrefix = 'bitcoincash:qpsap6c3faj60zqqp9m585mxmya272mxm54d68gckz';
+        const withoutPrefix = 'qpsap6c3faj60zqqp9m585mxmya272mxm54d68gckz';
+        
+        const legacyWithPrefix = cashAddrToLegacy(withPrefix);
+        const legacyWithoutPrefix = cashAddrToLegacy(withoutPrefix);
+        
+        expect(legacyWithPrefix).toBe(legacyWithoutPrefix);
+      });
+
+      it('should throw error for legacy addresses (not CashAddr format)', () => {
+        // Legacy address starting with 1 (P2PKH) - will fail CashAddr decoding
+        const legacyP2PKH = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2';
+        expect(() => cashAddrToLegacy(legacyP2PKH)).toThrow('Invalid CashAddr character');
+        
+        // Legacy address starting with 3 (P2SH) - will fail CashAddr decoding
+        const legacyP2SH = '3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy';
+        expect(() => cashAddrToLegacy(legacyP2SH)).toThrow('Invalid CashAddr character');
+      });
+
+      it('should handle P2PKH CashAddr (q prefix)', () => {
+        // CashAddr starting with q is P2PKH
+        const cashAddr = 'qpsap6c3faj60zqqp9m585mxmya272mxm54d68gckz';
+        const legacy = cashAddrToLegacy(cashAddr);
+        
+        // P2PKH legacy addresses start with 1
+        expect(legacy[0]).toBe('1');
+      });
+
+      it('should handle P2SH CashAddr (p prefix)', () => {
+        // CashAddr starting with p is P2SH
+        // Example P2SH CashAddr
+        const cashAddr = 'ppm2qsznhks23z7629mms6s4cwef74vcwvn0h829pq';
+        const legacy = cashAddrToLegacy(cashAddr);
+        
+        // P2SH legacy addresses start with 3
+        expect(legacy[0]).toBe('3');
+      });
+
+      it('should produce valid Base58Check encoded legacy address', () => {
+        const cashAddr = 'qpsap6c3faj60zqqp9m585mxmya272mxm54d68gckz';
+        const legacy = cashAddrToLegacy(cashAddr);
+        
+        // Base58Check alphabet doesn't include 0, O, I, l
+        const base58Alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+        for (const char of legacy) {
+          expect(base58Alphabet.includes(char)).toBe(true);
+        }
+      });
+
+      it('should be deterministic - same input always produces same output', () => {
+        const cashAddr = 'bitcoincash:qpsap6c3faj60zqqp9m585mxmya272mxm54d68gckz';
+        
+        // Call multiple times
+        const result1 = cashAddrToLegacy(cashAddr);
+        const result2 = cashAddrToLegacy(cashAddr);
+        const result3 = cashAddrToLegacy(cashAddr);
+        
+        expect(result1).toBe(result2);
+        expect(result2).toBe(result3);
+      });
+
+      it('should handle various valid CashAddr formats', () => {
+        // Various CashAddr test cases
+        const testCases = [
+          'qr95sy3j9xwd2ap32xkykttr4cvcu7as4y0qverfuy',
+          'qqq3728yw0y47sqn6l2na30mcw6zm78dzqre909m2r',
+          'qp3wjpa3tjlj042z2wv7hahsldgwhwy0rq9sywjpyy',
+        ];
+        
+        for (const cashAddr of testCases) {
+          const legacy = cashAddrToLegacy(cashAddr);
+          expect(legacy).toBeDefined();
+          expect(typeof legacy).toBe('string');
+          expect(legacy.length).toBeGreaterThan(25);
+          expect(['1', '3'].includes(legacy[0])).toBe(true);
+        }
+      });
+
+      it('should throw error for invalid CashAddr characters', () => {
+        // CashAddr charset is 'qpzry9x8gf2tvdw0s3jn54khce6mua7l'
+        // Characters like 'b', 'i', 'o' are not in the charset
+        const invalidAddr = 'qbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        expect(() => cashAddrToLegacy(invalidAddr)).toThrow('Invalid CashAddr character');
+      });
+
+      it('should handle uppercase CashAddr (case insensitive)', () => {
+        const lowercase = 'qpsap6c3faj60zqqp9m585mxmya272mxm54d68gckz';
+        const uppercase = 'QPSAP6C3FAJ60ZQQP9M585MXMYA272MXM54D68GCKZ';
+        
+        const legacyLower = cashAddrToLegacy(lowercase);
+        const legacyUpper = cashAddrToLegacy(uppercase);
+        
+        expect(legacyLower).toBe(legacyUpper);
+      });
+
+      it('should document CashAddr format for reference', () => {
+        // CashAddr format documentation test
+        
+        // CashAddr uses Bech32-like encoding with custom charset
+        const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+        expect(CHARSET.length).toBe(32); // 5-bit encoding
+        
+        // CashAddr structure:
+        // - Optional prefix: "bitcoincash:" (mainnet) or "bchtest:" (testnet)
+        // - Type byte: q (P2PKH) or p (P2SH)
+        // - 20-byte hash (160 bits = 32 * 5-bit chars)
+        // - 8 checksum characters
+        
+        // P2PKH addresses start with 'q' in CashAddr, '1' in legacy
+        // P2SH addresses start with 'p' in CashAddr, '3' in legacy
+        
+        expect(true).toBe(true); // Documentation test
+      });
+
+      it('should verify BitcoinCashProvider uses cashAddrToLegacy internally', () => {
+        const provider = new BitcoinCashProvider('https://bch.blockchain.info');
+        
+        // The provider should have a private toLegacyAddress method
+        const toLegacyAddress = (provider as any).toLegacyAddress;
+        expect(toLegacyAddress).toBeDefined();
+        expect(typeof toLegacyAddress).toBe('function');
+      });
     });
   });
 

@@ -926,8 +926,9 @@ const CASHADDR_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 /**
  * Convert CashAddr to legacy Bitcoin address format
  * CashAddr format: bitcoincash:qp... -> Legacy format: 1... or 3...
+ * Exported for testing purposes
  */
-function cashAddrToLegacy(cashAddr: string): string {
+export function cashAddrToLegacy(cashAddr: string): string {
   // Remove prefix if present
   let address = cashAddr.toLowerCase();
   if (address.startsWith('bitcoincash:')) {
@@ -1103,14 +1104,15 @@ export class BitcoinCashProvider extends BitcoinProvider {
       
       // Convert to legacy address for API calls
       const legacyAddress = this.toLegacyAddress(address);
-      console.log(`[BCH] Checking balance for ${address} (legacy: ${legacyAddress})`);
+      console.log(`[BCH Provider] Original address: ${address}`);
+      console.log(`[BCH Provider] Legacy address: ${legacyAddress}`);
       
       if (!apiKey) {
         // Fallback to Blockchair API which supports both formats
         try {
-          const response = await axios.get(
-            `https://api.blockchair.com/bitcoin-cash/dashboards/address/${legacyAddress}`
-          );
+          const blockchairUrl = `https://api.blockchair.com/bitcoin-cash/dashboards/address/${legacyAddress}`;
+          console.log(`[BCH Provider] Blockchair URL: ${blockchairUrl}`);
+          const response = await axios.get(blockchairUrl);
           const balance = response.data?.data?.[legacyAddress]?.address?.balance || 0;
           return (balance / 100000000).toString();
         } catch (blockchairError) {
@@ -1119,14 +1121,13 @@ export class BitcoinCashProvider extends BitcoinProvider {
         }
       }
 
-      const response = await axios.get(
-        `https://api.tatum.io/v3/bcash/address/balance/${legacyAddress}`,
-        {
-          headers: {
-            'x-api-key': apiKey,
-          },
-        }
-      );
+      const tatumUrl = `https://api.tatum.io/v3/bcash/address/balance/${legacyAddress}`;
+      console.log(`[BCH Provider] Tatum URL: ${tatumUrl}`);
+      const response = await axios.get(tatumUrl, {
+        headers: {
+          'x-api-key': apiKey,
+        },
+      });
 
       // Tatum returns balance in BCH
       const incoming = parseFloat(response.data.incoming || '0');

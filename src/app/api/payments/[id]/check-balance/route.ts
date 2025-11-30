@@ -1,8 +1,116 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+import * as bitcoin from 'bitcoinjs-lib';
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+/**
+ * CashAddr charset for decoding
+ */
+const CASHADDR_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+
+/**
+ * Convert CashAddr to legacy Bitcoin address format
+ * CashAddr format: bitcoincash:qp... -> Legacy format: 1... or 3...
+ */
+function cashAddrToLegacy(cashAddr: string): string {
+  // Remove prefix if present
+  let address = cashAddr.toLowerCase();
+  if (address.startsWith('bitcoincash:')) {
+    address = address.substring(12);
+  }
+  
+  // Decode base32
+  const data: number[] = [];
+  for (const char of address) {
+    const index = CASHADDR_CHARSET.indexOf(char);
+    if (index === -1) {
+      throw new Error(`Invalid CashAddr character: ${char}`);
+    }
+    data.push(index);
+  }
+  
+  // Remove checksum (last 8 characters = 40 bits)
+  const payload = data.slice(0, -8);
+  
+  // Convert from 5-bit to 8-bit
+  let acc = 0;
+  let bits = 0;
+  const result: number[] = [];
+  
+  for (const value of payload) {
+    acc = (acc << 5) | value;
+    bits += 5;
+    while (bits >= 8) {
+      bits -= 8;
+      result.push((acc >> bits) & 0xff);
+    }
+  }
+  
+  // First byte is version, rest is hash160
+  const version = result[0];
+  const hash160 = result.slice(1, 21);
+  
+  // Convert to legacy address
+  // Version 0 = P2PKH (starts with 1)
+  // Version 8 = P2SH (starts with 3)
+  const legacyVersion = version === 0 ? 0x00 : 0x05;
+  
+  // Build legacy address: version + hash160 + checksum
+  const payload2 = Buffer.concat([
+    Buffer.from([legacyVersion]),
+    Buffer.from(hash160)
+  ]);
+  
+  // Double SHA256 for checksum
+  const checksum = bitcoin.crypto.hash256(payload2).subarray(0, 4);
+  const addressBytes = Buffer.concat([payload2, checksum]);
+  
+  // Base58 encode
+  const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  const digits = [0];
+  for (let i = 0; i < addressBytes.length; i++) {
+    let carry = addressBytes[i];
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+  
+  let legacyAddress = '';
+  // Leading zeros
+  for (let i = 0; i < addressBytes.length && addressBytes[i] === 0; i++) {
+    legacyAddress += BASE58_ALPHABET[0];
+  }
+  // Convert digits to string
+  for (let i = digits.length - 1; i >= 0; i--) {
+    legacyAddress += BASE58_ALPHABET[digits[i]];
+  }
+  
+  return legacyAddress;
+}
+
+/**
+ * Convert BCH address to legacy format if needed
+ */
+function toBCHLegacyAddress(address: string): string {
+  if (address.startsWith('bitcoincash:') || address.startsWith('q') || address.startsWith('p')) {
+    try {
+      return cashAddrToLegacy(address);
+    } catch (error) {
+      console.error('[BCH] Failed to convert CashAddr to legacy:', error);
+      return address;
+    }
+  }
+  return address;
+}
 
 // RPC endpoints for different blockchains
 const RPC_ENDPOINTS: Record<string, string> = {
@@ -46,35 +154,82 @@ async function checkBitcoinBalance(address: string): Promise<number> {
 
 /**
  * Check balance for a Bitcoin Cash address using Crypto APIs
+ * Supports both CashAddr (bitcoincash:q...) and legacy (1...) formats
  */
 async function checkBCHBalance(address: string): Promise<number> {
   try {
-    if (!CRYPTO_APIS_KEY) {
-      console.error('CRYPTO_APIS_KEY not configured for BCH balance check');
-      return 0;
+    // Convert CashAddr to legacy format for API compatibility
+    const legacyAddress = toBCHLegacyAddress(address);
+    console.log(`[BCH Balance] Original: ${address}`);
+    console.log(`[BCH Balance] Legacy: ${legacyAddress}`);
+    
+    // Try CryptoAPIs first if key is available
+    if (CRYPTO_APIS_KEY) {
+      try {
+        const url = `https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet/addresses/${legacyAddress}`;
+        console.log(`[BCH Balance] CryptoAPIs URL: ${url}`);
+        
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': CRYPTO_APIS_KEY,
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          const confirmedBalance = parseFloat(data.data?.item?.confirmedBalance?.amount || '0');
+          console.log(`BCH balance for ${address}: ${confirmedBalance} BCH (via CryptoAPIs)`);
+          return confirmedBalance;
+        } else {
+          const errorText = await response.text();
+          console.error(`CryptoAPIs failed for BCH ${legacyAddress}: ${response.status} - ${errorText}`);
+        }
+      } catch (cryptoApisError) {
+        console.error(`CryptoAPIs error for BCH ${legacyAddress}:`, cryptoApisError);
+      }
     }
     
-    console.log(`Checking BCH balance for ${address}`);
-    const url = `https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet/addresses/${address}`;
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': CRYPTO_APIS_KEY,
-      },
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Failed to fetch BCH balance for ${address}: ${response.status} - ${errorText}`);
-      return 0;
+    // Fallback to Blockchair API (free, no API key required)
+    try {
+      const blockchairUrl = `https://api.blockchair.com/bitcoin-cash/dashboards/address/${legacyAddress}`;
+      console.log(`[BCH Balance] Blockchair URL: ${blockchairUrl}`);
+      const blockchairResponse = await fetch(blockchairUrl);
+      
+      if (blockchairResponse.ok) {
+        const blockchairData = await blockchairResponse.json();
+        const balanceSatoshis = blockchairData?.data?.[legacyAddress]?.address?.balance || 0;
+        const balanceBCH = balanceSatoshis / 100_000_000;
+        console.log(`BCH balance for ${address}: ${balanceBCH} BCH (via Blockchair)`);
+        return balanceBCH;
+      } else {
+        const errorText = await blockchairResponse.text();
+        console.error(`Blockchair failed for BCH ${legacyAddress}: ${blockchairResponse.status} - ${errorText}`);
+      }
+    } catch (blockchairError) {
+      console.error(`Blockchair error for BCH ${legacyAddress}:`, blockchairError);
     }
     
-    const data = await response.json();
-    const confirmedBalance = parseFloat(data.data?.item?.confirmedBalance?.amount || '0');
-    console.log(`BCH balance for ${address}: ${confirmedBalance} BCH`);
-    return confirmedBalance;
+    // Fallback to BTC.com API
+    try {
+      const btcComUrl = `https://bch-chain.api.btc.com/v3/address/${legacyAddress}`;
+      console.log(`[BCH Balance] BTC.com URL: ${btcComUrl}`);
+      const btcComResponse = await fetch(btcComUrl);
+      
+      if (btcComResponse.ok) {
+        const btcComData = await btcComResponse.json();
+        const balanceSatoshis = btcComData?.data?.balance || 0;
+        const balanceBCH = balanceSatoshis / 100_000_000;
+        console.log(`BCH balance for ${address}: ${balanceBCH} BCH (via BTC.com)`);
+        return balanceBCH;
+      }
+    } catch (btcComError) {
+      console.error(`BTC.com error for BCH ${legacyAddress}:`, btcComError);
+    }
+    
+    console.error(`All BCH balance APIs failed for ${address}`);
+    return 0;
   } catch (error) {
     console.error(`Error checking BCH balance for ${address}:`, error);
     return 0;
