@@ -75,32 +75,57 @@ describe('Tatum Exchange Rate Service', () => {
       expect(typeof rate).toBe('number');
     });
 
-    it('should reject invalid string rate values', async () => {
-      const mockResponse = {
-        value: 'invalid',
-        timestamp: Date.now(),
-      };
-
+    it('should reject invalid string rate values and fallback to Kraken', async () => {
+      // Tatum returns invalid rate
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
-        json: async () => mockResponse,
+        json: async () => ({ value: 'invalid', timestamp: Date.now() }),
+      } as Response);
+      
+      // Kraken fallback succeeds
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ error: [], result: { XBTUSD: { c: ['45000', '1.0'] } } }),
       } as Response);
 
-      await expect(getExchangeRate('BTC', 'USD')).rejects.toThrow('Invalid rate');
+      const rate = await getExchangeRate('BTC', 'USD');
+      expect(rate).toBe(45000);
+      expect(fetch).toHaveBeenCalledTimes(2);
     });
 
-    it('should reject empty string rate values', async () => {
-      const mockResponse = {
-        value: '',
-        timestamp: Date.now(),
-      };
-
+    it('should reject empty string rate values and fallback to Kraken', async () => {
+      // Tatum returns empty rate
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
-        json: async () => mockResponse,
+        json: async () => ({ value: '', timestamp: Date.now() }),
+      } as Response);
+      
+      // Kraken fallback succeeds
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ error: [], result: { XBTUSD: { c: ['45000', '1.0'] } } }),
       } as Response);
 
-      await expect(getExchangeRate('BTC', 'USD')).rejects.toThrow('Invalid rate');
+      const rate = await getExchangeRate('BTC', 'USD');
+      expect(rate).toBe(45000);
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should throw error when both Tatum and Kraken fail', async () => {
+      // Tatum fails
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ value: 'invalid', timestamp: Date.now() }),
+      } as Response);
+      
+      // Kraken also fails
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+      } as Response);
+
+      await expect(getExchangeRate('BTC', 'USD')).rejects.toThrow();
     });
 
     it('should fetch ETH to USD exchange rate', async () => {
@@ -129,10 +154,21 @@ describe('Tatum Exchange Rate Service', () => {
       await expect(getExchangeRate('BTC', 'USD')).rejects.toThrow();
     });
 
-    it('should throw error when API key is missing', async () => {
+    it('should fallback to Kraken when Tatum API key is missing', async () => {
       delete process.env.TATUM_API_KEY;
 
-      await expect(getExchangeRate('BTC', 'USD')).rejects.toThrow('TATUM_API_KEY');
+      // When Tatum API key is missing, it should fallback to Kraken
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ error: [], result: { XBTUSD: { c: ['45000', '1.0'] } } }),
+      } as Response);
+
+      const rate = await getExchangeRate('BTC', 'USD');
+      expect(rate).toBe(45000);
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('kraken.com'),
+        expect.any(Object)
+      );
     });
 
     it('should handle network errors', async () => {
@@ -142,9 +178,8 @@ describe('Tatum Exchange Rate Service', () => {
     });
 
     it('should support multiple cryptocurrencies', async () => {
-      const currencies = ['BTC', 'ETH', 'SOL', 'POL'];
-      
-      for (const currency of currencies) {
+      // BTC, ETH, SOL use Tatum API
+      for (const currency of ['BTC', 'ETH', 'SOL']) {
         vi.mocked(fetch).mockResolvedValueOnce({
           ok: true,
           json: async () => ({ value: 1000, timestamp: Date.now() }),
@@ -153,34 +188,44 @@ describe('Tatum Exchange Rate Service', () => {
         const rate = await getExchangeRate(currency, 'USD');
         expect(rate).toBe(1000);
       }
-    });
-
-    it('should fetch POL exchange rate (Polygon)', async () => {
+      
+      // POL uses Kraken API (Tatum returns NaN for POL/MATIC)
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ value: 0.55, timestamp: Date.now() }),
+        json: async () => ({ error: [], result: { POLUSD: { c: ['1000', '1.0'] } } }),
+      } as Response);
+
+      const polRate = await getExchangeRate('POL', 'USD');
+      expect(polRate).toBe(1000);
+    });
+
+    it('should fetch POL exchange rate via Kraken (Polygon)', async () => {
+      // POL uses Kraken because Tatum returns NaN for MATIC/POL
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ error: [], result: { POLUSD: { c: ['0.55', '1.0'] } } }),
       } as Response);
 
       const rate = await getExchangeRate('POL', 'USD');
 
       expect(rate).toBe(0.55);
       expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v3/tatum/rate/POL'),
+        expect.stringContaining('kraken.com'),
         expect.any(Object)
       );
     });
 
-    it('should handle lowercase pol', async () => {
+    it('should handle lowercase pol via Kraken', async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ value: 0.55, timestamp: Date.now() }),
+        json: async () => ({ error: [], result: { POLUSD: { c: ['0.55', '1.0'] } } }),
       } as Response);
 
       const rate = await getExchangeRate('pol', 'USD');
 
       expect(rate).toBe(0.55);
       expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v3/tatum/rate/POL'),
+        expect.stringContaining('kraken.com'),
         expect.any(Object)
       );
     });

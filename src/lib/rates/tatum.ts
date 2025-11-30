@@ -1,10 +1,36 @@
 /**
- * Tatum API Exchange Rate Service
+ * Exchange Rate Service
  * Provides real-time cryptocurrency exchange rates
+ *
+ * Primary: Tatum API (requires TATUM_API_KEY)
+ * Fallback: Kraken API (free, no API key required)
+ *
+ * Note: Tatum returns NaN for POL/MATIC, so Kraken is used for Polygon
  */
 
 const TATUM_API_BASE = 'https://api.tatum.io';
+const KRAKEN_API_BASE = 'https://api.kraken.com/0/public';
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+/**
+ * Map internal cryptocurrency symbols to Kraken trading pairs
+ * Kraken uses specific pair formats like BTCUSD, ETHUSD, POLUSD
+ */
+const KRAKEN_PAIR_MAP: Record<string, string> = {
+  'BTC': 'XBTUSD',
+  'ETH': 'ETHUSD',
+  'SOL': 'SOLUSD',
+  'POL': 'POLUSD',
+  'MATIC': 'POLUSD',
+  'BCH': 'BCHUSD',
+  'USDC': 'USDCUSD',
+  'USDT': 'USDTUSD',
+};
+
+/**
+ * Currencies that should use Kraken (Tatum returns NaN for these)
+ */
+const USE_KRAKEN = ['POL', 'MATIC', 'USDC_POL', 'USDC_MATIC'];
 
 /**
  * Rate cache to minimize API calls
@@ -42,7 +68,108 @@ function getCacheKey(from: string, to: string): string {
 }
 
 /**
+ * Fetch exchange rate from Kraken API (free, no API key required)
+ *
+ * @param from - Source cryptocurrency (BTC, ETH, SOL, POL, etc.)
+ * @param to - Target fiat currency (USD, EUR, etc.)
+ * @returns Exchange rate value
+ */
+async function getExchangeRateFromKraken(
+  from: string,
+  to: string
+): Promise<number> {
+  // Kraken only supports USD pairs in our implementation
+  if (to.toUpperCase() !== 'USD') {
+    throw new Error(`Kraken fallback only supports USD pairs, got: ${to}`);
+  }
+
+  const krakenPair = KRAKEN_PAIR_MAP[from.toUpperCase()];
+  if (!krakenPair) {
+    throw new Error(`Unknown cryptocurrency for Kraken: ${from}`);
+  }
+
+  const url = `${KRAKEN_API_BASE}/Ticker?pair=${krakenPair}`;
+  
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Kraken API error: ${response.status} ${response.statusText}`
+    );
+  }
+
+  const data = await response.json();
+  
+  // Check for Kraken API errors
+  if (data.error && data.error.length > 0) {
+    throw new Error(`Kraken API error: ${data.error.join(', ')}`);
+  }
+
+  // Kraken returns data in result object with the pair as key
+  // The 'c' field contains [price, lot_volume] for last trade
+  const pairData = data.result?.[krakenPair];
+  const rate = parseFloat(pairData?.c?.[0]);
+
+  if (typeof rate !== 'number' || isNaN(rate) || rate <= 0) {
+    throw new Error(`Invalid rate received from Kraken API: ${JSON.stringify(data)}`);
+  }
+
+  return rate;
+}
+
+/**
  * Fetch exchange rate from Tatum API
+ * @param from - Source cryptocurrency (BTC, ETH, SOL, POL, etc.)
+ * @param to - Target fiat currency (USD, EUR, etc.)
+ * @returns Exchange rate value
+ */
+async function getExchangeRateFromTatum(
+  from: string,
+  to: string
+): Promise<number> {
+  const apiKey = getApiKey();
+  const url = `${TATUM_API_BASE}/v3/tatum/rate/${from.toUpperCase()}?basePair=${to.toUpperCase()}`;
+  
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'x-api-key': apiKey,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Tatum API error: ${response.status} ${response.statusText}`
+    );
+  }
+
+  const data = await response.json();
+  
+  // Tatum API may return rate as string or number
+  const rate = typeof data.value === 'string'
+    ? parseFloat(data.value)
+    : data.value;
+
+  if (typeof rate !== 'number' || isNaN(rate) || rate <= 0) {
+    throw new Error(`Invalid rate received from Tatum API: ${data.value}`);
+  }
+
+  return rate;
+}
+
+/**
+ * Fetch exchange rate with automatic provider selection
+ *
+ * Provider selection:
+ * - POL/MATIC: Always uses Kraken (Tatum returns NaN)
+ * - Other cryptos: Uses Tatum, falls back to Kraken on error
+ *
  * @param from - Source cryptocurrency (BTC, ETH, SOL, POL, etc.)
  * @param to - Target fiat currency (USD, EUR, etc.)
  * @returns Exchange rate value
@@ -60,33 +187,23 @@ export async function getExchangeRate(
       return cached.value;
     }
 
-    // Fetch from API
-    const apiKey = getApiKey();
-    const url = `${TATUM_API_BASE}/v3/tatum/rate/${from.toUpperCase()}?basePair=${to.toUpperCase()}`;
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'x-api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
-    });
+    let rate: number;
+    const upperFrom = from.toUpperCase();
 
-    if (!response.ok) {
-      throw new Error(
-        `Tatum API error: ${response.status} ${response.statusText}`
-      );
-    }
-
-    const data = await response.json();
-    
-    // Tatum API may return rate as string or number
-    const rate = typeof data.value === 'string'
-      ? parseFloat(data.value)
-      : data.value;
-
-    if (typeof rate !== 'number' || isNaN(rate) || rate <= 0) {
-      throw new Error(`Invalid rate received from Tatum API: ${data.value}`);
+    // Use Kraken for POL/MATIC (Tatum returns NaN for these)
+    if (USE_KRAKEN.includes(upperFrom)) {
+      // For USDC on Polygon, get USDC rate
+      const symbol = upperFrom.startsWith('USDC_') ? 'USDC' : from;
+      rate = await getExchangeRateFromKraken(symbol, to);
+    } else {
+      // Try Tatum first, fall back to Kraken on error
+      try {
+        rate = await getExchangeRateFromTatum(from, to);
+      } catch (tatumError) {
+        console.warn(`Tatum API failed for ${from}/${to}, falling back to Kraken:`,
+          tatumError instanceof Error ? tatumError.message : tatumError);
+        rate = await getExchangeRateFromKraken(from, to);
+      }
     }
 
     // Cache the result
