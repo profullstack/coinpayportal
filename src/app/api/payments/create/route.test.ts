@@ -218,11 +218,9 @@ describe('Currency to Blockchain Mapping', () => {
       'bch': 'BCH',
       'eth': 'ETH',
       'pol': 'POL',
-      'matic': 'POL', // Legacy support: map matic to POL
       'sol': 'SOL',
       'usdc_eth': 'USDC_ETH',
       'usdc_pol': 'USDC_POL',
-      'usdc_matic': 'USDC_POL', // Legacy support: map usdc_matic to USDC_POL
       'usdc_sol': 'USDC_SOL',
     };
     return mapping[currency.toLowerCase()] || null;
@@ -248,9 +246,9 @@ describe('Currency to Blockchain Mapping', () => {
     expect(mapCurrencyToBlockchain('POL')).toBe('POL');
   });
 
-  it('should map legacy matic to POL', () => {
-    expect(mapCurrencyToBlockchain('matic')).toBe('POL');
-    expect(mapCurrencyToBlockchain('MATIC')).toBe('POL');
+  it('should reject matic as invalid (use pol instead)', () => {
+    expect(mapCurrencyToBlockchain('matic')).toBeNull();
+    expect(mapCurrencyToBlockchain('MATIC')).toBeNull();
   });
 
   it('should map bch to BCH', () => {
@@ -260,8 +258,11 @@ describe('Currency to Blockchain Mapping', () => {
   it('should map USDC variants correctly', () => {
     expect(mapCurrencyToBlockchain('usdc_eth')).toBe('USDC_ETH');
     expect(mapCurrencyToBlockchain('usdc_pol')).toBe('USDC_POL');
-    expect(mapCurrencyToBlockchain('usdc_matic')).toBe('USDC_POL'); // Legacy support
     expect(mapCurrencyToBlockchain('usdc_sol')).toBe('USDC_SOL');
+  });
+
+  it('should reject usdc_matic as invalid (use usdc_pol instead)', () => {
+    expect(mapCurrencyToBlockchain('usdc_matic')).toBeNull();
   });
 
   it('should return null for unknown currencies', () => {

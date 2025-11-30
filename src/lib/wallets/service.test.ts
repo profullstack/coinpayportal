@@ -7,8 +7,6 @@ import {
   deleteWallet,
   getActiveWalletAddress,
   SUPPORTED_CRYPTOCURRENCIES,
-  LEGACY_CRYPTOCURRENCIES,
-  ALL_VALID_CRYPTOCURRENCIES,
 } from './service';
 
 // Mock Supabase client
@@ -501,115 +499,33 @@ describe('Wallet Service', () => {
     });
   });
 
-  describe('Legacy MATIC Support', () => {
-    it('should export legacy cryptocurrencies', () => {
-      expect(LEGACY_CRYPTOCURRENCIES).toEqual(['MATIC']);
-    });
-
-    it('should export all valid cryptocurrencies (current + legacy)', () => {
-      expect(ALL_VALID_CRYPTOCURRENCIES).toEqual(['BTC', 'ETH', 'POL', 'SOL', 'MATIC']);
-    });
-
-    it('should allow getting a legacy MATIC wallet', async () => {
-      const expectedWallet = {
-        id: 'wallet-123',
-        business_id: businessId,
-        cryptocurrency: 'MATIC',
-        wallet_address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
-        is_active: true,
-        created_at: '2024-01-01T00:00:00Z',
-        updated_at: '2024-01-01T00:00:00Z',
-      };
-
-      // Mock business verification
-      mockSupabase._mocks.single.mockResolvedValueOnce({
-        data: { id: businessId },
-        error: null,
-      });
-
-      // Mock wallet retrieval
-      mockSupabase._mocks.single.mockResolvedValueOnce({
-        data: expectedWallet,
-        error: null,
-      });
-
+  describe('MATIC is no longer supported', () => {
+    it('should reject MATIC as invalid cryptocurrency for getWallet', async () => {
       const result = await getWallet(mockSupabase, businessId, 'MATIC' as any, merchantId);
 
-      expect(result.success).toBe(true);
-      expect(result.wallet).toEqual(expectedWallet);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Invalid cryptocurrency');
     });
 
-    it('should allow deleting a legacy MATIC wallet', async () => {
-      // Create a fresh mock for this test
-      const mockEqChain = vi.fn(() => ({
-        eq: vi.fn().mockResolvedValue({ error: null }),
-      }));
-      
-      const mockDelete = vi.fn(() => ({
-        eq: mockEqChain,
-      }));
-      
-      const mockSingle = vi.fn().mockResolvedValue({
-        data: { id: businessId },
-        error: null,
-      });
-      
-      const mockSelect = vi.fn(() => ({
-        eq: vi.fn(() => ({
-          eq: vi.fn(() => ({
-            single: mockSingle,
-          })),
-        })),
-      }));
-      
-      const testSupabase = {
-        from: vi.fn((table) => {
-          if (table === 'businesses') {
-            return { select: mockSelect };
-          }
-          return { delete: mockDelete };
-        }),
-      };
+    it('should reject MATIC as invalid cryptocurrency for deleteWallet', async () => {
+      const result = await deleteWallet(mockSupabase, businessId, 'MATIC' as any, merchantId);
 
-      const result = await deleteWallet(testSupabase as any, businessId, 'MATIC' as any, merchantId);
-
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Invalid cryptocurrency');
     });
 
-    it('should allow updating a legacy MATIC wallet', async () => {
+    it('should reject MATIC as invalid cryptocurrency for updateWallet', async () => {
       const updateData = {
         is_active: false,
       };
 
-      const expectedWallet = {
-        id: 'wallet-123',
-        business_id: businessId,
-        cryptocurrency: 'MATIC',
-        wallet_address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
-        is_active: false,
-        created_at: '2024-01-01T00:00:00Z',
-        updated_at: '2024-01-01T00:00:00Z',
-      };
-
-      // Mock business verification
-      mockSupabase._mocks.single.mockResolvedValueOnce({
-        data: { id: businessId },
-        error: null,
-      });
-
-      // Mock wallet update
-      mockSupabase._mocks.single.mockResolvedValueOnce({
-        data: expectedWallet,
-        error: null,
-      });
-
       const result = await updateWallet(mockSupabase, businessId, 'MATIC' as any, merchantId, updateData);
 
-      expect(result.success).toBe(true);
-      expect(result.wallet?.is_active).toBe(false);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Invalid cryptocurrency');
     });
 
-    it('should NOT allow creating a new MATIC wallet (use POL instead)', async () => {
+    it('should reject MATIC as invalid cryptocurrency for createWallet', async () => {
       const walletData = {
         cryptocurrency: 'MATIC' as any,
         wallet_address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',

@@ -4,10 +4,10 @@ export type Blockchain =
   | 'btc'
   | 'bch'
   | 'eth'
-  | 'matic'
+  | 'pol'
   | 'sol'
   | 'usdc_eth'
-  | 'usdc_matic'
+  | 'usdc_pol'
   | 'usdc_sol';
 
 export type PaymentStatus =
