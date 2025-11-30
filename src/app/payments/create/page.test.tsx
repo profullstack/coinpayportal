@@ -31,6 +31,18 @@ describe('CreatePaymentPage', () => {
     { id: 'business-2', name: 'Test Business 2' },
   ];
 
+  const mockWallets = [
+    { id: 'wallet-1', cryptocurrency: 'BTC', wallet_address: '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2', is_active: true },
+    { id: 'wallet-2', cryptocurrency: 'ETH', wallet_address: '0x742d35Cc6634C0532925a3b844Bc9e7595f8fE00', is_active: true },
+    { id: 'wallet-3', cryptocurrency: 'SOL', wallet_address: '7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV', is_active: true },
+    { id: 'wallet-4', cryptocurrency: 'POL', wallet_address: '0x742d35Cc6634C0532925a3b844Bc9e7595f8fE00', is_active: true },
+  ];
+
+  const mockWalletsWithBCH = [
+    ...mockWallets,
+    { id: 'wallet-5', cryptocurrency: 'BCH', wallet_address: 'bitcoincash:qpat0gmrdrlhrq2r9f467f42u55kazdknyml9aaj76', is_active: true },
+  ];
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useRouter).mockReturnValue(mockRouter);
@@ -91,11 +103,20 @@ describe('CreatePaymentPage', () => {
 
   describe('Payment Form', () => {
     beforeEach(async () => {
+      // Mock businesses fetch
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           success: true,
           businesses: mockBusinesses,
+        }),
+      } as Response);
+      // Mock wallets fetch for first business
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          wallets: mockWallets,
         }),
       } as Response);
     });
@@ -109,7 +130,6 @@ describe('CreatePaymentPage', () => {
 
       expect(screen.getByLabelText(/business/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/amount \(usd\)/i)).toBeInTheDocument();
-      expect(screen.getByLabelText(/cryptocurrency/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/description/i)).toBeInTheDocument();
     });
 
@@ -139,27 +159,126 @@ describe('CreatePaymentPage', () => {
       expect(screen.queryAllByText(/platform fee/i).length).toBeGreaterThan(0);
     });
 
-    it('should have all currency options', async () => {
+    it('should only show currencies with configured wallets', async () => {
       render(<CreatePaymentPage />);
 
       await waitFor(() => {
         const select = screen.getByLabelText(/cryptocurrency/i) as HTMLSelectElement;
         expect(select.options).toHaveLength(4);
-        expect(select.options[0].text).toContain('Bitcoin');
+        expect(select.options[0].text).toContain('Bitcoin (BTC)');
         expect(select.options[1].text).toContain('Ethereum');
         expect(select.options[2].text).toContain('Polygon');
         expect(select.options[3].text).toContain('Solana');
+      });
+    });
+
+    it('should show BCH option when BCH wallet is configured', async () => {
+      // Reset mocks
+      vi.mocked(fetch).mockReset();
+      
+      // Mock businesses fetch
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          businesses: mockBusinesses,
+        }),
+      } as Response);
+      // Mock wallets fetch with BCH
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          wallets: mockWalletsWithBCH,
+        }),
+      } as Response);
+
+      render(<CreatePaymentPage />);
+
+      await waitFor(() => {
+        const select = screen.getByLabelText(/cryptocurrency/i) as HTMLSelectElement;
+        expect(select.options).toHaveLength(5);
+        // BCH should be second option (after BTC)
+        expect(select.options[1].text).toContain('Bitcoin Cash (BCH)');
+      });
+    });
+
+    it('should show message when no wallets are configured', async () => {
+      // Reset mocks
+      vi.mocked(fetch).mockReset();
+      
+      // Mock businesses fetch
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          businesses: mockBusinesses,
+        }),
+      } as Response);
+      // Mock wallets fetch with empty wallets
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          wallets: [],
+        }),
+      } as Response);
+
+      render(<CreatePaymentPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/no wallets configured/i)).toBeInTheDocument();
+      });
+      
+      expect(screen.getByText(/add a wallet address/i)).toBeInTheDocument();
+    });
+
+    it('should disable submit button when no wallets are configured', async () => {
+      // Reset mocks
+      vi.mocked(fetch).mockReset();
+      
+      // Mock businesses fetch
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          businesses: mockBusinesses,
+        }),
+      } as Response);
+      // Mock wallets fetch with empty wallets
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          wallets: [],
+        }),
+      } as Response);
+
+      render(<CreatePaymentPage />);
+
+      await waitFor(() => {
+        const submitButton = screen.getByRole('button', { name: /create payment/i });
+        expect(submitButton).toBeDisabled();
       });
     });
   });
 
   describe('Create Payment', () => {
     beforeEach(async () => {
+      // Mock businesses fetch
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           success: true,
           businesses: mockBusinesses,
+        }),
+      } as Response);
+      // Mock wallets fetch
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          wallets: mockWallets,
         }),
       } as Response);
     });
@@ -374,11 +493,20 @@ describe('CreatePaymentPage', () => {
 
   describe('Form Validation', () => {
     beforeEach(async () => {
+      // Mock businesses fetch
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           success: true,
           businesses: mockBusinesses,
+        }),
+      } as Response);
+      // Mock wallets fetch
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          wallets: mockWallets,
         }),
       } as Response);
     });
@@ -470,7 +598,7 @@ describe('CreatePaymentPage', () => {
         'bitcoin-cash': 'https://blockchair.com/bitcoin-cash/transaction/',
         eth: 'https://etherscan.io/tx/',
         ethereum: 'https://etherscan.io/tx/',
-        matic: 'https://polygonscan.com/tx/',
+        pol: 'https://polygonscan.com/tx/',
         polygon: 'https://polygonscan.com/tx/',
         sol: 'https://solscan.io/tx/',
         solana: 'https://solscan.io/tx/',
@@ -478,9 +606,10 @@ describe('CreatePaymentPage', () => {
       
       // Verify all expected blockchains have explorer URLs
       expect(explorers['btc']).toBe('https://mempool.space/tx/');
+      expect(explorers['bch']).toBe('https://blockchair.com/bitcoin-cash/transaction/');
       expect(explorers['eth']).toBe('https://etherscan.io/tx/');
       expect(explorers['sol']).toBe('https://solscan.io/tx/');
-      expect(explorers['matic']).toBe('https://polygonscan.com/tx/');
+      expect(explorers['pol']).toBe('https://polygonscan.com/tx/');
     });
   });
 });

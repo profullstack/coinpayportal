@@ -8,6 +8,13 @@ interface Business {
   name: string;
 }
 
+interface BusinessWallet {
+  id: string;
+  cryptocurrency: string;
+  wallet_address: string;
+  is_active: boolean;
+}
+
 const PAYMENT_EXPIRY_MINUTES = 15;
 const POLL_INTERVAL_MS = 5000;
 const BALANCE_CHECK_INTERVAL_MS = 15000; // Check blockchain balance every 15 seconds
@@ -15,13 +22,15 @@ const BALANCE_CHECK_INTERVAL_MS = 15000; // Check blockchain balance every 15 se
 export default function CreatePaymentPage() {
   const router = useRouter();
   const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [businessWallets, setBusinessWallets] = useState<BusinessWallet[]>([]);
+  const [loadingWallets, setLoadingWallets] = useState(false);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const [formData, setFormData] = useState({
     business_id: '',
     amount_usd: '',
-    currency: 'btc',
+    currency: '',
     description: '',
   });
   const [createdPayment, setCreatedPayment] = useState<any>(null);
@@ -270,23 +279,82 @@ export default function CreatePaymentPage() {
     return explorers[blockchain?.toLowerCase()] || `https://blockchair.com/search?q=${txHash}`;
   };
 
-  const currencies = [
+  // All supported currencies with their fee info
+  const allCurrencies = [
     { value: 'btc', label: 'Bitcoin (BTC)', networkFee: '$0.50-3.00', estimatedFee: 2.00 },
+    { value: 'bch', label: 'Bitcoin Cash (BCH)', networkFee: '~$0.01', estimatedFee: 0.01 },
     { value: 'eth', label: 'Ethereum (ETH)', networkFee: '$0.50-5.00', estimatedFee: 3.00 },
     { value: 'pol', label: 'Polygon (POL)', networkFee: '$0.001-0.01', estimatedFee: 0.01 },
     { value: 'sol', label: 'Solana (SOL)', networkFee: '~$0.001', estimatedFee: 0.001 },
   ];
 
+  // Filter currencies to only show those with configured wallets
+  const availableCurrencies = businessWallets.length > 0
+    ? allCurrencies.filter(currency =>
+        businessWallets.some(wallet =>
+          wallet.cryptocurrency.toLowerCase() === currency.value.toLowerCase() && wallet.is_active
+        )
+      )
+    : [];
+
   // Get estimated network fee for selected currency
   const getNetworkFee = () => {
-    const currency = currencies.find(c => c.value === formData.currency);
+    const currency = allCurrencies.find(c => c.value === formData.currency);
     return currency?.networkFee || 'varies';
   };
 
   // Get estimated fee amount for selected currency
   const getEstimatedFeeAmount = () => {
-    const currency = currencies.find(c => c.value === formData.currency);
+    const currency = allCurrencies.find(c => c.value === formData.currency);
     return currency?.estimatedFee || 0;
+  };
+
+  // Fetch wallets for a business
+  const fetchBusinessWallets = async (businessId: string) => {
+    if (!businessId) {
+      setBusinessWallets([]);
+      return;
+    }
+
+    setLoadingWallets(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) return;
+
+      const response = await fetch(`/api/businesses/${businessId}/wallets`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setBusinessWallets(data.wallets || []);
+        // Auto-select first available currency if current selection is not available
+        const activeWallets = (data.wallets || []).filter((w: BusinessWallet) => w.is_active);
+        if (activeWallets.length > 0) {
+          const currentCurrencyAvailable = activeWallets.some(
+            (w: BusinessWallet) => w.cryptocurrency.toLowerCase() === formData.currency.toLowerCase()
+          );
+          if (!currentCurrencyAvailable) {
+            setFormData(prev => ({
+              ...prev,
+              currency: activeWallets[0].cryptocurrency.toLowerCase(),
+            }));
+          }
+        } else {
+          setFormData(prev => ({ ...prev, currency: '' }));
+        }
+      } else {
+        setBusinessWallets([]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch business wallets:', err);
+      setBusinessWallets([]);
+    } finally {
+      setLoadingWallets(false);
+    }
   };
 
   // Calculate total amount customer will pay
@@ -299,6 +367,13 @@ export default function CreatePaymentPage() {
   useEffect(() => {
     fetchBusinesses();
   }, []);
+
+  // Fetch wallets when business changes
+  useEffect(() => {
+    if (formData.business_id) {
+      fetchBusinessWallets(formData.business_id);
+    }
+  }, [formData.business_id]);
 
   const fetchBusinesses = async () => {
     try {
@@ -324,10 +399,12 @@ export default function CreatePaymentPage() {
 
       setBusinesses(data.businesses);
       if (data.businesses.length > 0) {
+        const firstBusinessId = data.businesses[0].id;
         setFormData((prev) => ({
           ...prev,
-          business_id: data.businesses[0].id,
+          business_id: firstBusinessId,
         }));
+        // Wallets will be fetched by the useEffect that watches business_id
       }
       setLoading(false);
     } catch (err) {
@@ -787,21 +864,41 @@ export default function CreatePaymentPage() {
               >
                 Cryptocurrency *
               </label>
-              <select
-                id="currency"
-                required
-                value={formData.currency}
-                onChange={(e) =>
-                  setFormData({ ...formData, currency: e.target.value })
-                }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
-              >
-                {currencies.map((currency) => (
-                  <option key={currency.value} value={currency.value}>
-                    {currency.label}
-                  </option>
-                ))}
-              </select>
+              {loadingWallets ? (
+                <div className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500">
+                  Loading wallets...
+                </div>
+              ) : availableCurrencies.length === 0 ? (
+                <div className="w-full px-4 py-3 border border-yellow-300 rounded-lg bg-yellow-50 text-yellow-800 text-sm">
+                  <p className="font-medium">No wallets configured</p>
+                  <p className="mt-1">
+                    Please{' '}
+                    <a
+                      href={`/businesses/${formData.business_id}`}
+                      className="text-purple-600 hover:text-purple-500 underline"
+                    >
+                      add a wallet address
+                    </a>{' '}
+                    for this business before creating a payment.
+                  </p>
+                </div>
+              ) : (
+                <select
+                  id="currency"
+                  required
+                  value={formData.currency}
+                  onChange={(e) =>
+                    setFormData({ ...formData, currency: e.target.value })
+                  }
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+                >
+                  {availableCurrencies.map((currency) => (
+                    <option key={currency.value} value={currency.value}>
+                      {currency.label}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             <div>
@@ -855,7 +952,7 @@ export default function CreatePaymentPage() {
               </button>
               <button
                 type="submit"
-                disabled={creating}
+                disabled={creating || availableCurrencies.length === 0 || loadingWallets}
                 className="px-6 py-2 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {creating ? 'Creating...' : 'Create Payment'}

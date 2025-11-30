@@ -21,6 +21,7 @@ export type TabType = 'general' | 'wallets' | 'webhooks' | 'api-keys';
 
 export const SUPPORTED_CRYPTOS = [
   { value: 'BTC', label: 'Bitcoin (BTC)' },
+  { value: 'BCH', label: 'Bitcoin Cash (BCH)' },
   { value: 'ETH', label: 'Ethereum (ETH)' },
   { value: 'USDT', label: 'Tether (USDT)' },
   { value: 'USDC', label: 'USD Coin (USDC)' },
