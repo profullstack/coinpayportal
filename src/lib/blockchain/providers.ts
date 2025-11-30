@@ -919,6 +919,97 @@ export class SolanaProvider implements BlockchainProvider {
 }
 
 /**
+ * CashAddr charset for decoding
+ */
+const CASHADDR_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+
+/**
+ * Convert CashAddr to legacy Bitcoin address format
+ * CashAddr format: bitcoincash:qp... -> Legacy format: 1... or 3...
+ */
+function cashAddrToLegacy(cashAddr: string): string {
+  // Remove prefix if present
+  let address = cashAddr.toLowerCase();
+  if (address.startsWith('bitcoincash:')) {
+    address = address.substring(12);
+  }
+  
+  // Decode base32
+  const data: number[] = [];
+  for (const char of address) {
+    const index = CASHADDR_CHARSET.indexOf(char);
+    if (index === -1) {
+      throw new Error(`Invalid CashAddr character: ${char}`);
+    }
+    data.push(index);
+  }
+  
+  // Remove checksum (last 8 characters = 40 bits)
+  const payload = data.slice(0, -8);
+  
+  // Convert from 5-bit to 8-bit
+  let acc = 0;
+  let bits = 0;
+  const result: number[] = [];
+  
+  for (const value of payload) {
+    acc = (acc << 5) | value;
+    bits += 5;
+    while (bits >= 8) {
+      bits -= 8;
+      result.push((acc >> bits) & 0xff);
+    }
+  }
+  
+  // First byte is version, rest is hash160
+  const version = result[0];
+  const hash160 = result.slice(1, 21);
+  
+  // Convert to legacy address
+  // Version 0 = P2PKH (starts with 1)
+  // Version 8 = P2SH (starts with 3)
+  const legacyVersion = version === 0 ? 0x00 : 0x05;
+  
+  // Build legacy address: version + hash160 + checksum
+  const payload2 = Buffer.concat([
+    Buffer.from([legacyVersion]),
+    Buffer.from(hash160)
+  ]);
+  
+  // Double SHA256 for checksum
+  const checksum = bitcoin.crypto.hash256(payload2).subarray(0, 4);
+  const addressBytes = Buffer.concat([payload2, checksum]);
+  
+  // Base58 encode
+  const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  const digits = [0];
+  for (let i = 0; i < addressBytes.length; i++) {
+    let carry = addressBytes[i];
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+  
+  let legacyAddress = '';
+  // Leading zeros
+  for (let i = 0; i < addressBytes.length && addressBytes[i] === 0; i++) {
+    legacyAddress += BASE58_ALPHABET[0];
+  }
+  // Convert digits to string
+  for (let i = digits.length - 1; i >= 0; i--) {
+    legacyAddress += BASE58_ALPHABET[digits[i]];
+  }
+  
+  return legacyAddress;
+}
+
+/**
  * Bitcoin Cash provider implementation (extends Bitcoin with different network)
  */
 export class BitcoinCashProvider extends BitcoinProvider {
@@ -927,6 +1018,21 @@ export class BitcoinCashProvider extends BitcoinProvider {
   constructor(rpcUrl: string) {
     // BCH uses the same network parameters as BTC mainnet for legacy addresses
     super(rpcUrl, false);
+  }
+
+  /**
+   * Convert address to legacy format if needed for API calls
+   */
+  private toLegacyAddress(address: string): string {
+    if (address.startsWith('bitcoincash:') || address.startsWith('q') || address.startsWith('p')) {
+      try {
+        return cashAddrToLegacy(address);
+      } catch (error) {
+        console.error('[BCH] Failed to convert CashAddr to legacy:', error);
+        return address;
+      }
+    }
+    return address;
   }
 
   /**
@@ -939,8 +1045,12 @@ export class BitcoinCashProvider extends BitcoinProvider {
         throw new Error('TATUM_API_KEY not configured');
       }
 
+      // Convert to legacy address for Tatum API
+      const legacyAddress = this.toLegacyAddress(address);
+      console.log(`[BCH] Fetching UTXOs for ${address} (legacy: ${legacyAddress})`);
+
       const response = await axios.get(
-        `https://api.tatum.io/v3/bcash/utxo/${address}`,
+        `https://api.tatum.io/v3/bcash/utxo/${legacyAddress}`,
         {
           headers: {
             'x-api-key': apiKey,
@@ -990,13 +1100,27 @@ export class BitcoinCashProvider extends BitcoinProvider {
   async getBalance(address: string): Promise<string> {
     try {
       const apiKey = process.env.TATUM_API_KEY;
+      
+      // Convert to legacy address for API calls
+      const legacyAddress = this.toLegacyAddress(address);
+      console.log(`[BCH] Checking balance for ${address} (legacy: ${legacyAddress})`);
+      
       if (!apiKey) {
-        // Fallback to blockchain.info style API
-        return super.getBalance(address);
+        // Fallback to Blockchair API which supports both formats
+        try {
+          const response = await axios.get(
+            `https://api.blockchair.com/bitcoin-cash/dashboards/address/${legacyAddress}`
+          );
+          const balance = response.data?.data?.[legacyAddress]?.address?.balance || 0;
+          return (balance / 100000000).toString();
+        } catch (blockchairError) {
+          console.error('[BCH] Blockchair API failed:', blockchairError);
+          return '0';
+        }
       }
 
       const response = await axios.get(
-        `https://api.tatum.io/v3/bcash/address/balance/${address}`,
+        `https://api.tatum.io/v3/bcash/address/balance/${legacyAddress}`,
         {
           headers: {
             'x-api-key': apiKey,
@@ -1004,10 +1128,75 @@ export class BitcoinCashProvider extends BitcoinProvider {
         }
       );
 
-      return response.data.incoming || '0';
+      // Tatum returns balance in BCH
+      const incoming = parseFloat(response.data.incoming || '0');
+      const outgoing = parseFloat(response.data.outgoing || '0');
+      return (incoming - outgoing).toString();
+    } catch (error: any) {
+      console.error(`[BCH] Failed to fetch BCH balance for ${address}:`, error.response?.status, '-', JSON.stringify(error.response?.data || error.message));
+      
+      // Try Blockchair as fallback
+      try {
+        const legacyAddress = this.toLegacyAddress(address);
+        const response = await axios.get(
+          `https://api.blockchair.com/bitcoin-cash/dashboards/address/${legacyAddress}`
+        );
+        const balance = response.data?.data?.[legacyAddress]?.address?.balance || 0;
+        return (balance / 100000000).toString();
+      } catch (blockchairError) {
+        console.error('[BCH] Blockchair fallback also failed:', blockchairError);
+        return '0';
+      }
+    }
+  }
+
+  async getTransaction(txHash: string): Promise<TransactionDetails> {
+    try {
+      const apiKey = process.env.TATUM_API_KEY;
+      if (!apiKey) {
+        // Fallback to Blockchair
+        const response = await axios.get(
+          `https://api.blockchair.com/bitcoin-cash/dashboards/transaction/${txHash}`
+        );
+        const tx = response.data?.data?.[txHash]?.transaction;
+        if (!tx) {
+          throw new Error('Transaction not found');
+        }
+        
+        return {
+          hash: txHash,
+          from: response.data?.data?.[txHash]?.inputs?.[0]?.recipient || '',
+          to: response.data?.data?.[txHash]?.outputs?.[0]?.recipient || '',
+          value: (response.data?.data?.[txHash]?.outputs?.[0]?.value / 100000000).toString(),
+          confirmations: tx.block_id ? 1 : 0,
+          blockNumber: tx.block_id,
+          timestamp: new Date(tx.time).getTime() / 1000,
+          status: tx.block_id ? 'confirmed' : 'pending',
+        };
+      }
+
+      const response = await axios.get(
+        `https://api.tatum.io/v3/bcash/transaction/${txHash}`,
+        {
+          headers: {
+            'x-api-key': apiKey,
+          },
+        }
+      );
+      
+      const tx = response.data;
+      return {
+        hash: tx.hash,
+        from: tx.inputs?.[0]?.coin?.address || '',
+        to: tx.outputs?.[0]?.address || '',
+        value: tx.outputs?.[0]?.value || '0',
+        confirmations: tx.confirmations || 0,
+        blockNumber: tx.blockNumber,
+        timestamp: tx.time,
+        status: tx.confirmations > 0 ? 'confirmed' : 'pending',
+      };
     } catch (error) {
-      console.error('Error fetching BCH balance:', error);
-      return '0';
+      throw new Error(`Failed to fetch BCH transaction: ${error}`);
     }
   }
 
