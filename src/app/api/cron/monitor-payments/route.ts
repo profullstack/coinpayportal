@@ -171,10 +171,48 @@ async function checkBCHBalance(address: string): Promise<number> {
     console.log(`[Monitor BCH] Original address: ${address}`);
     console.log(`[Monitor BCH] Legacy address: ${legacyAddress}`);
     
-    // Try CryptoAPIs first if key is available
+    // Try Tatum API first (most reliable for BCH)
+    const tatumApiKey = process.env.TATUM_API_KEY;
+    if (tatumApiKey) {
+      try {
+        const tatumUrl = `https://api.tatum.io/v3/bcash/address/balance/${legacyAddress}`;
+        console.log(`[Monitor BCH] Tatum URL: ${tatumUrl}`);
+        
+        const response = await fetch(tatumUrl, {
+          method: 'GET',
+          headers: {
+            'x-api-key': tatumApiKey,
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          // Tatum returns incoming and outgoing, balance = incoming - outgoing
+          const incoming = parseFloat(data.incoming || '0');
+          const outgoing = parseFloat(data.outgoing || '0');
+          const balance = incoming - outgoing;
+          console.log(`[Monitor BCH] Tatum response: incoming=${incoming}, outgoing=${outgoing}, balance=${balance}`);
+          return balance;
+        } else {
+          const errorText = await response.text();
+          console.error(`[Monitor BCH] Tatum failed for ${legacyAddress}: ${response.status} - ${errorText}`);
+        }
+      } catch (tatumError) {
+        console.error(`[Monitor BCH] Tatum error for ${legacyAddress}:`, tatumError);
+      }
+    }
+    
+    // Try CryptoAPIs with UTXO balance endpoint (correct format for BCH)
+    // CryptoAPIs accepts CashAddr format without the bitcoincash: prefix
     if (CRYPTO_APIS_KEY) {
       try {
-        const url = `https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet/addresses/${legacyAddress}`;
+        // Remove bitcoincash: prefix if present, CryptoAPIs accepts the short CashAddr format
+        let cashAddrShort = address.toLowerCase();
+        if (cashAddrShort.startsWith('bitcoincash:')) {
+          cashAddrShort = cashAddrShort.substring(12);
+        }
+        
+        const url = `https://rest.cryptoapis.io/addresses-latest/utxo/bitcoin-cash/mainnet/${cashAddrShort}/balance`;
         console.log(`[Monitor BCH] CryptoAPIs URL: ${url}`);
         
         const response = await fetch(url, {
@@ -187,19 +225,43 @@ async function checkBCHBalance(address: string): Promise<number> {
         
         if (response.ok) {
           const data = await response.json();
+          // Response format: { data: { item: { confirmedBalance: { amount: "0.001", unit: "BCH" } } } }
           const confirmedBalance = parseFloat(data.data?.item?.confirmedBalance?.amount || '0');
-          console.log(`[Monitor] BCH balance for ${address}: ${confirmedBalance} BCH (via CryptoAPIs)`);
+          console.log(`[Monitor BCH] CryptoAPIs response:`, JSON.stringify(data.data?.item));
+          console.log(`[Monitor BCH] CryptoAPIs balance: ${confirmedBalance} BCH`);
           return confirmedBalance;
         } else {
           const errorText = await response.text();
-          console.error(`[Monitor] CryptoAPIs failed for BCH ${legacyAddress}: ${response.status} - ${errorText}`);
+          console.error(`[Monitor BCH] CryptoAPIs failed for ${cashAddrShort}: ${response.status} - ${errorText}`);
         }
       } catch (cryptoApisError) {
-        console.error(`[Monitor] CryptoAPIs error for BCH ${legacyAddress}:`, cryptoApisError);
+        console.error(`[Monitor BCH] CryptoAPIs error:`, cryptoApisError);
       }
     }
     
-    // Fallback to Blockchair API (free, no API key required)
+    // Fallback to Blockstream-style API (fullstack.cash)
+    try {
+      const fullstackUrl = `https://api.fullstack.cash/v5/electrumx/balance/${address}`;
+      console.log(`[Monitor BCH] Fullstack.cash URL: ${fullstackUrl}`);
+      const fullstackResponse = await fetch(fullstackUrl);
+      
+      if (fullstackResponse.ok) {
+        const fullstackData = await fullstackResponse.json();
+        if (fullstackData.success) {
+          const balanceSatoshis = (fullstackData.balance?.confirmed || 0) + (fullstackData.balance?.unconfirmed || 0);
+          const balanceBCH = balanceSatoshis / 100_000_000;
+          console.log(`[Monitor BCH] Fullstack.cash balance: ${balanceBCH} BCH`);
+          return balanceBCH;
+        }
+      } else {
+        const errorText = await fullstackResponse.text();
+        console.error(`[Monitor BCH] Fullstack.cash failed for ${address}: ${fullstackResponse.status} - ${errorText}`);
+      }
+    } catch (fullstackError) {
+      console.error(`[Monitor BCH] Fullstack.cash error for ${address}:`, fullstackError);
+    }
+    
+    // Fallback to Blockchair API (may be rate limited)
     try {
       const blockchairUrl = `https://api.blockchair.com/bitcoin-cash/dashboards/address/${legacyAddress}`;
       console.log(`[Monitor BCH] Blockchair URL: ${blockchairUrl}`);
@@ -209,37 +271,20 @@ async function checkBCHBalance(address: string): Promise<number> {
         const blockchairData = await blockchairResponse.json();
         const balanceSatoshis = blockchairData?.data?.[legacyAddress]?.address?.balance || 0;
         const balanceBCH = balanceSatoshis / 100_000_000;
-        console.log(`[Monitor] BCH balance for ${address}: ${balanceBCH} BCH (via Blockchair)`);
+        console.log(`[Monitor BCH] Blockchair balance: ${balanceBCH} BCH`);
         return balanceBCH;
       } else {
         const errorText = await blockchairResponse.text();
-        console.error(`[Monitor] Blockchair failed for BCH ${legacyAddress}: ${blockchairResponse.status} - ${errorText}`);
+        console.error(`[Monitor BCH] Blockchair failed for ${legacyAddress}: ${blockchairResponse.status} - ${errorText}`);
       }
     } catch (blockchairError) {
-      console.error(`[Monitor] Blockchair error for BCH ${legacyAddress}:`, blockchairError);
+      console.error(`[Monitor BCH] Blockchair error for ${legacyAddress}:`, blockchairError);
     }
     
-    // Fallback to BTC.com API
-    try {
-      const btcComUrl = `https://bch-chain.api.btc.com/v3/address/${legacyAddress}`;
-      console.log(`[Monitor BCH] BTC.com URL: ${btcComUrl}`);
-      const btcComResponse = await fetch(btcComUrl);
-      
-      if (btcComResponse.ok) {
-        const btcComData = await btcComResponse.json();
-        const balanceSatoshis = btcComData?.data?.balance || 0;
-        const balanceBCH = balanceSatoshis / 100_000_000;
-        console.log(`[Monitor] BCH balance for ${address}: ${balanceBCH} BCH (via BTC.com)`);
-        return balanceBCH;
-      }
-    } catch (btcComError) {
-      console.error(`[Monitor] BTC.com error for BCH ${legacyAddress}:`, btcComError);
-    }
-    
-    console.error(`[Monitor] All BCH balance APIs failed for ${address}`);
+    console.error(`[Monitor BCH] All APIs failed for ${address}`);
     return 0;
   } catch (error) {
-    console.error(`[Monitor] Error checking BCH balance for ${address}:`, error);
+    console.error(`[Monitor BCH] Error checking balance for ${address}:`, error);
     return 0;
   }
 }
