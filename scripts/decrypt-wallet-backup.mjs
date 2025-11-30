@@ -76,7 +76,7 @@ async function main() {
     console.log(`  First address: ${data.wallets.btc.firstAddress}\n`);
 
     console.log('='.repeat(70));
-    console.log('  Ξ  ETHEREUM (ETH) / POLYGON (MATIC)');
+    console.log('  Ξ  ETHEREUM (ETH) / POLYGON (POL)');
     console.log('='.repeat(70));
     console.log(`\n  Mnemonic: ${data.wallets.eth.mnemonic}`);
     console.log(`  First address: ${data.wallets.eth.firstAddress}\n`);

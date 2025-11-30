@@ -31,7 +31,7 @@ import { CoinPayClient } from './client.js';
  * @param {string} params.businessId - Business ID from your CoinPay dashboard
  * @param {number} params.amount - Amount in fiat currency (e.g., 100.00)
  * @param {string} [params.currency='USD'] - Fiat currency code (USD, EUR, etc.)
- * @param {string} params.blockchain - Blockchain to use (BTC, ETH, SOL, MATIC, BCH, USDC_ETH, USDC_MATIC, USDC_SOL)
+ * @param {string} params.blockchain - Blockchain to use (BTC, ETH, SOL, POL, BCH, USDC_ETH, USDC_POL, USDC_SOL)
  * @param {string} [params.description] - Payment description shown to customer
  * @param {Object} [params.metadata] - Custom metadata for your records
  * @returns {Promise<Object>} Created payment with address and QR code
@@ -143,14 +143,14 @@ export const Blockchain = {
   BCH: 'BCH',
   /** Ethereum */
   ETH: 'ETH',
-  /** Polygon (MATIC) */
-  MATIC: 'MATIC',
+  /** Polygon (POL) */
+  POL: 'POL',
   /** Solana */
   SOL: 'SOL',
   /** USDC on Ethereum */
   USDC_ETH: 'USDC_ETH',
   /** USDC on Polygon */
-  USDC_MATIC: 'USDC_MATIC',
+  USDC_POL: 'USDC_POL',
   /** USDC on Solana */
   USDC_SOL: 'USDC_SOL',
 };

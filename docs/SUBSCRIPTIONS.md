@@ -17,7 +17,7 @@ CoinPay Portal offers two subscription tiers:
 | Priority Support | ❌ | ✅ |
 | Email Support | ✅ | ✅ |
 
-**Payment Method**: All subscription payments are processed using cryptocurrency through our internal payment gateway. Supported blockchains: BTC, BCH, ETH, MATIC, SOL.
+**Payment Method**: All subscription payments are processed using cryptocurrency through our internal payment gateway. Supported blockchains: BTC, BCH, ETH, POL, SOL.
 
 ## Database Schema
 
@@ -206,7 +206,7 @@ Content-Type: application/json
 }
 ```
 
-Creates a crypto payment for subscription upgrade. Supported blockchains: BTC, BCH, ETH, MATIC, SOL.
+Creates a crypto payment for subscription upgrade. Supported blockchains: BTC, BCH, ETH, POL, SOL.
 
 **Response:**
 ```json
@@ -471,7 +471,7 @@ The migration file is located at:
 ### Crypto Payment Process
 
 1. Merchant selects Professional plan on the pricing page (`/pricing`)
-2. Merchant chooses a cryptocurrency (BTC, BCH, ETH, MATIC, or SOL)
+2. Merchant chooses a cryptocurrency (BTC, BCH, ETH, POL, or SOL)
 3. System creates a business-collection payment with 100% forwarding to platform
 4. Merchant sends crypto to the provided payment address
 5. Blockchain monitor detects the payment confirmation

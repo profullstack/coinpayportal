@@ -29,5 +29,5 @@ export const SUPPORTED_CRYPTOS = [
   { value: 'XRP', label: 'Ripple (XRP)' },
   { value: 'ADA', label: 'Cardano (ADA)' },
   { value: 'DOGE', label: 'Dogecoin (DOGE)' },
-  { value: 'MATIC', label: 'Polygon (MATIC)' },
+  { value: 'POL', label: 'Polygon (POL)' },
 ];

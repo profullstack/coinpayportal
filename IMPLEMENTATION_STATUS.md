@@ -45,7 +45,7 @@
 - [x] Payment pages (15 tests)
 
 #### Feature 5: Blockchain Integration ✅
-- [x] Blockchain providers (BTC, ETH, MATIC, SOL)
+- [x] Blockchain providers (BTC, ETH, POL, SOL)
 - [x] Balance checking
 - [x] Transaction monitoring
 - [x] Wallet service (20 tests)
@@ -71,7 +71,7 @@
 
 - [x] Business collection service (36 tests)
 - [x] 100% forwarding to platform wallets from .env
-- [x] Support for BTC, BCH, ETH, MATIC, SOL
+- [x] Support for BTC, BCH, ETH, POL, SOL
 - [x] Payment address generation
 - [x] Webhook notifications
 - [x] API endpoints:

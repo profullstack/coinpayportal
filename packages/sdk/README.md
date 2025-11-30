@@ -103,10 +103,10 @@ coinpay payment create \
 | Bitcoin | `BTC` | Native Bitcoin |
 | Bitcoin Cash | `BCH` | Bitcoin Cash |
 | Ethereum | `ETH` | Native Ether |
-| Polygon | `MATIC` | Native MATIC |
+| Polygon | `POL` | Native POL |
 | Solana | `SOL` | Native SOL |
 | USDC (Ethereum) | `USDC_ETH` | USDC on Ethereum |
-| USDC (Polygon) | `USDC_MATIC` | USDC on Polygon |
+| USDC (Polygon) | `USDC_POL` | USDC on Polygon |
 | USDC (Solana) | `USDC_SOL` | USDC on Solana |
 
 ## SDK API Reference
@@ -526,7 +526,7 @@ app.post('/webhook/coinpay', createWebhookHandler({
 const payment = await coinpay.createPayment({
   businessId: process.env.COINPAY_BUSINESS_ID,
   amount: 9.99,
-  blockchain: 'USDC_MATIC',  // Stablecoin for predictable pricing
+  blockchain: 'USDC_POL',  // Stablecoin for predictable pricing
   description: 'Monthly subscription',
   metadata: {
     userId: user.id,

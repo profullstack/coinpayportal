@@ -83,7 +83,7 @@ export class CoinPayClient {
    * @param {string} params.businessId - Business ID (from your CoinPay dashboard)
    * @param {number} params.amount - Amount in fiat currency (e.g., 100.00)
    * @param {string} [params.currency='USD'] - Fiat currency code (USD, EUR, etc.)
-   * @param {string} params.blockchain - Blockchain/cryptocurrency (BTC, ETH, SOL, MATIC, BCH, USDC_ETH, USDC_MATIC, USDC_SOL)
+   * @param {string} params.blockchain - Blockchain/cryptocurrency (BTC, ETH, SOL, POL, BCH, USDC_ETH, USDC_POL, USDC_SOL)
    * @param {string} [params.description] - Payment description (shown to customer)
    * @param {Object} [params.metadata] - Custom metadata (e.g., { orderId: 'ORD-123', customerId: 'CUST-456' })
    * @returns {Promise<Object>} Created payment with address and QR code

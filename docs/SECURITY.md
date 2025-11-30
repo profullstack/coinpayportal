@@ -293,7 +293,7 @@ const CONFIRMATION_REQUIREMENTS = {
   btc: 3,
   bch: 6,
   eth: 12,
-  matic: 128,
+  pol: 128,
   sol: 32
 };
 
@@ -501,7 +501,7 @@ SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
 # Platform Fee Wallets (NEVER commit these)
 PLATFORM_FEE_WALLET_BTC=your-btc-address
 PLATFORM_FEE_WALLET_ETH=your-eth-address
-PLATFORM_FEE_WALLET_MATIC=your-matic-address
+PLATFORM_FEE_WALLET_POL=your-pol-address
 PLATFORM_FEE_WALLET_SOL=your-sol-address
 
 # Tatum API

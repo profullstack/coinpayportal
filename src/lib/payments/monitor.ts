@@ -151,7 +151,7 @@ async function checkBCHBalance(address: string): Promise<BalanceResult> {
 }
 
 /**
- * Check balance for an EVM address (ETH/MATIC)
+ * Check balance for an EVM address (ETH/POL)
  */
 async function checkEVMBalance(address: string, rpcUrl: string, chain: string): Promise<BalanceResult> {
   try {

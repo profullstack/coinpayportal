@@ -36,7 +36,7 @@ graph TB
         BTC[Bitcoin]
         BCH[Bitcoin Cash]
         ETH[Ethereum]
-        MATIC[Polygon]
+        POL[Polygon]
         SOL[Solana]
         USDC[USDC Multi-chain]
     end
@@ -134,7 +134,7 @@ All Supabase interactions go through server-side API routes for security.
 **payment_addresses**
 - id (uuid, primary key)
 - business_id (uuid, foreign key)
-- blockchain (text) - btc, bch, eth, matic, sol, usdc_eth, usdc_matic, usdc_sol
+- blockchain (text) - btc, bch, eth, pol, sol, usdc_eth, usdc_pol, usdc_sol
 - address (text, unique)
 - private_key_encrypted (text)
 - derivation_path (text)
@@ -258,7 +258,7 @@ Required environment variables:
 - `SOLANA_RPC_URL`
 - `PLATFORM_FEE_WALLET_BTC`
 - `PLATFORM_FEE_WALLET_ETH`
-- `PLATFORM_FEE_WALLET_MATIC`
+- `PLATFORM_FEE_WALLET_POL`
 - `PLATFORM_FEE_WALLET_SOL`
 - `WEBHOOK_SIGNING_SECRET`
 

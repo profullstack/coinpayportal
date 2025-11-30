@@ -19,14 +19,14 @@ A non-custodial cryptocurrency payment gateway for e-commerce that enables merch
 ### Subscription Plans & Entitlements
 - **Starter Plan (Free)**: Up to 100 transactions/month, all supported chains, basic API access, email support
 - **Professional Plan ($49/month)**: Unlimited transactions, priority support, advanced analytics, custom webhooks, white-label option
-- **Crypto Payments for Subscriptions**: Pay for upgrades using BTC, BCH, ETH, MATIC, or SOL
+- **Crypto Payments for Subscriptions**: Pay for upgrades using BTC, BCH, ETH, POL, or SOL
 - **Usage Tracking**: Real-time transaction counting with automatic limit enforcement
 - **Feature Gating**: API-level enforcement of plan-specific features
 
 ### Business Collection
 - **Platform Payments**: Collect subscription fees and service charges from businesses
 - **100% Forwarding**: Business collection payments forward entirely to platform wallets
-- **Multiple Blockchains**: Support for BTC, BCH, ETH, MATIC, SOL
+- **Multiple Blockchains**: Support for BTC, BCH, ETH, POL, SOL
 
 ## 🏗️ Architecture
 
@@ -86,7 +86,7 @@ SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
 # Platform Fee Wallets
 PLATFORM_FEE_WALLET_BTC=your_btc_address
 PLATFORM_FEE_WALLET_ETH=your_eth_address
-PLATFORM_FEE_WALLET_MATIC=your_matic_address
+PLATFORM_FEE_WALLET_POL=your_pol_address
 PLATFORM_FEE_WALLET_SOL=your_sol_address
 
 # Tatum API
@@ -276,7 +276,7 @@ coinpayportal/
 ## 🛣️ Roadmap
 
 - [x] Core payment processing
-- [x] Multi-chain support (BTC, BCH, ETH, MATIC, SOL, USDC)
+- [x] Multi-chain support (BTC, BCH, ETH, POL, SOL, USDC)
 - [x] Merchant dashboard
 - [x] Webhook system
 - [x] Subscription plans (Starter/Professional)

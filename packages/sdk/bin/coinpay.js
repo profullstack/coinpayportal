@@ -154,7 +154,7 @@ ${colors.cyan}Options:${colors.reset}
   --business-id <id>      Business ID for operations
   --amount <amount>       Payment amount in fiat currency
   --currency <code>       Fiat currency (USD, EUR, etc.) - default: USD
-  --blockchain <code>     Blockchain (BTC, ETH, SOL, MATIC, BCH, USDC_ETH, USDC_MATIC, USDC_SOL)
+  --blockchain <code>     Blockchain (BTC, ETH, SOL, POL, BCH, USDC_ETH, USDC_POL, USDC_SOL)
   --description <text>    Payment description
 
 ${colors.cyan}Examples:${colors.reset}
@@ -168,7 +168,7 @@ ${colors.cyan}Examples:${colors.reset}
   coinpay payment create --business-id biz_123 --amount 50 --blockchain ETH --description "Order #12345"
 
   # Create a USDC payment on Polygon
-  coinpay payment create --business-id biz_123 --amount 25 --blockchain USDC_MATIC
+  coinpay payment create --business-id biz_123 --amount 25 --blockchain USDC_POL
 
   # Get payment status
   coinpay payment get pay_abc123

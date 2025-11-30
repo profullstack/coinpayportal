@@ -347,10 +347,10 @@ Generate a new payment request. This is the primary endpoint merchants use to ac
 | `BTC` | Bitcoin | Native Bitcoin payments |
 | `BCH` | Bitcoin Cash | Bitcoin Cash payments |
 | `ETH` | Ethereum | Native Ether payments |
-| `MATIC` | Polygon | Native MATIC payments |
+| `POL` | Polygon | Native POL payments |
 | `SOL` | Solana | Native SOL payments |
 | `USDC_ETH` | USDC (Ethereum) | USDC stablecoin on Ethereum |
-| `USDC_MATIC` | USDC (Polygon) | USDC stablecoin on Polygon |
+| `USDC_POL` | USDC (Polygon) | USDC stablecoin on Polygon |
 | `USDC_SOL` | USDC (Solana) | USDC stablecoin on Solana |
 
 **Response:**
@@ -647,7 +647,7 @@ Create a new payment that forwards 100% of funds to the platform's collection wa
 - `BTC` - Bitcoin
 - `BCH` - Bitcoin Cash
 - `ETH` - Ethereum
-- `MATIC` - Polygon
+- `POL` - Polygon
 - `SOL` - Solana
 
 **Response:**
@@ -1220,7 +1220,7 @@ curl -X POST https://coinpayportal.com/api/payments/create \
   -d '{
     "business_id": "your-business-id",
     "amount": 50.00,
-    "blockchain": "USDC_MATIC",
+    "blockchain": "USDC_POL",
     "description": "Monthly subscription"
   }'
 ```

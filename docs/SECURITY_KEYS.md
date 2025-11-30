@@ -80,7 +80,7 @@ const encrypted = encrypt(privateKey, process.env.ENCRYPTION_KEY);
 Master mnemonics are stored in environment variables:
 - `SYSTEM_MNEMONIC_BTC` - Bitcoin HD wallet seed
 - `SYSTEM_MNEMONIC_ETH` - Ethereum HD wallet seed
-- `SYSTEM_MNEMONIC_MATIC` - Polygon HD wallet seed
+- `SYSTEM_MNEMONIC_POL` - Polygon HD wallet seed
 - `SYSTEM_MNEMONIC_SOL` - Solana HD wallet seed
 
 ### 4. Memory Handling
@@ -120,13 +120,13 @@ ENCRYPTION_KEY=your-64-character-hex-key
 # System HD wallet mnemonics (24 words each)
 SYSTEM_MNEMONIC_BTC="word1 word2 ... word24"
 SYSTEM_MNEMONIC_ETH="word1 word2 ... word24"
-SYSTEM_MNEMONIC_MATIC="word1 word2 ... word24"
+SYSTEM_MNEMONIC_POL="word1 word2 ... word24"
 SYSTEM_MNEMONIC_SOL="word1 word2 ... word24"
 
 # Commission wallets (public addresses)
 COMMISSION_WALLET_BTC=bc1q...
 COMMISSION_WALLET_ETH=0x...
-COMMISSION_WALLET_MATIC=0x...
+COMMISSION_WALLET_POL=0x...
 COMMISSION_WALLET_SOL=...
 ```
 

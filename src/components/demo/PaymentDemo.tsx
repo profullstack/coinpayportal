@@ -18,7 +18,7 @@ interface DemoPayment {
 
 const DEMO_CRYPTOS = [
   { symbol: 'ETH', name: 'Ethereum', icon: '⟠', rate: 3500, scheme: 'ethereum' },
-  { symbol: 'MATIC', name: 'Polygon', icon: '⬡', rate: 0.85, scheme: 'polygon' },
+  { symbol: 'POL', name: 'Polygon', icon: '⬡', rate: 0.85, scheme: 'polygon' },
   { symbol: 'SOL', name: 'Solana', icon: '◎', rate: 180, scheme: 'solana' },
   { symbol: 'BTC', name: 'Bitcoin', icon: '₿', rate: 95000, scheme: 'bitcoin' },
 ];
@@ -26,7 +26,7 @@ const DEMO_CRYPTOS = [
 // Demo addresses for each cryptocurrency (testnet addresses)
 const DEMO_ADDRESSES: Record<string, string> = {
   ETH: '0x742d35Cc6634C0532925a3b844Bc9e7595f5bE21',
-  MATIC: '0x742d35Cc6634C0532925a3b844Bc9e7595f5bE21',
+  POL: '0x742d35Cc6634C0532925a3b844Bc9e7595f5bE21',
   SOL: 'DemoSo1anaAddressXXXXXXXXXXXXXXXXXXXXXXXXX',
   BTC: 'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh',
 };
@@ -137,7 +137,7 @@ export function PaymentDemo() {
     const confirmationsMap: Record<string, number> = {
       BTC: 3,
       ETH: 12,
-      MATIC: 128,
+      POL: 128,
       SOL: 32,
     };
     setRequiredConfirmations(confirmationsMap[selectedCrypto.symbol] || 12);

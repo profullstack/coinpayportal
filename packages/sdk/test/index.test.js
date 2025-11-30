@@ -107,13 +107,13 @@ describe('@profullstack/coinpay SDK exports', () => {
       expect(sdk.Blockchain.BTC).toBe('BTC');
       expect(sdk.Blockchain.BCH).toBe('BCH');
       expect(sdk.Blockchain.ETH).toBe('ETH');
-      expect(sdk.Blockchain.MATIC).toBe('MATIC');
+      expect(sdk.Blockchain.POL).toBe('POL');
       expect(sdk.Blockchain.SOL).toBe('SOL');
     });
 
     it('should have all USDC variants', () => {
       expect(sdk.Blockchain.USDC_ETH).toBe('USDC_ETH');
-      expect(sdk.Blockchain.USDC_MATIC).toBe('USDC_MATIC');
+      expect(sdk.Blockchain.USDC_POL).toBe('USDC_POL');
       expect(sdk.Blockchain.USDC_SOL).toBe('USDC_SOL');
     });
   });

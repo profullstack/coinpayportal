@@ -201,7 +201,7 @@ async function main() {
   console.log(`  ${ethAddress}\n`);
 
   console.log('='.repeat(70));
-  console.log('  ⬡  POLYGON (MATIC)');
+  console.log('  ⬡  POLYGON (POL)');
   console.log('='.repeat(70));
   console.log('\n  Mnemonic (12 words):');
   console.log(`  ${ethMnemonic}`);
@@ -225,9 +225,9 @@ async function main() {
   console.log('\nAdd these to your .env file:\n');
   console.log(`SYSTEM_MNEMONIC_BTC=${btcMnemonic}`);
   console.log(`SYSTEM_MNEMONIC_ETH=${ethMnemonic}`);
-  console.log(`SYSTEM_MNEMONIC_MATIC=${ethMnemonic}`);
+  console.log(`SYSTEM_MNEMONIC_POL=${ethMnemonic}`);
   console.log(`SYSTEM_MNEMONIC_SOL=${solMnemonic}`);
-  console.log('\n  Note: ETH and MATIC use the same mnemonic (same derivation path)');
+  console.log('\n  Note: ETH and POL use the same mnemonic (same derivation path)');
   console.log();
 
   // Create encrypted backup
@@ -281,7 +281,7 @@ async function main() {
 
   To import into wallet apps:
   • BTC: Electrum (Linux) or BlueWallet (iOS)
-  • ETH/MATIC: MetaMask (Linux/iOS)
+  • ETH/POL: MetaMask (Linux/iOS)
   • SOL: Phantom (Linux/iOS)
 `);
   console.log('='.repeat(70) + '\n');

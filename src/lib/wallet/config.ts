@@ -39,8 +39,8 @@ export const supportedChains = [
   {
     id: polygon.id,
     name: 'Polygon',
-    symbol: 'MATIC',
-    icon: '/icons/matic.svg',
+    symbol: 'POL',
+    icon: '/icons/pol.svg',
     testnet: false,
   },
   {
@@ -53,8 +53,8 @@ export const supportedChains = [
   {
     id: polygonAmoy.id,
     name: 'Polygon Amoy',
-    symbol: 'MATIC',
-    icon: '/icons/matic.svg',
+    symbol: 'POL',
+    icon: '/icons/pol.svg',
     testnet: true,
   },
 ];

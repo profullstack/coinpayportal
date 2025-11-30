@@ -69,7 +69,7 @@ CoinPay is a non-custodial cryptocurrency payment gateway that enables e-commerc
 5. Create payment address generation system
 
 **Deliverables:**
-- Wallet generation service for BTC, BCH, ETH, MATIC, SOL
+- Wallet generation service for BTC, BCH, ETH, POL, SOL
 - Encrypted key storage
 - Real-time blockchain monitoring
 - Payment detection system
@@ -181,7 +181,7 @@ CoinPay is a non-custodial cryptocurrency payment gateway that enables e-commerc
 1. **Bitcoin (BTC)** - 3 confirmations
 2. **Bitcoin Cash (BCH)** - 6 confirmations
 3. **Ethereum (ETH)** - 12 confirmations
-4. **Polygon (MATIC)** - 128 confirmations
+4. **Polygon (POL)** - 128 confirmations
 5. **Solana (SOL)** - 32 confirmations
 6. **USDC** - On Ethereum, Polygon, and Solana
 
@@ -219,7 +219,7 @@ SOLANA_RPC_URL
 # Platform Fee Wallets
 PLATFORM_FEE_WALLET_BTC
 PLATFORM_FEE_WALLET_ETH
-PLATFORM_FEE_WALLET_MATIC
+PLATFORM_FEE_WALLET_POL
 PLATFORM_FEE_WALLET_SOL
 
 # APIs

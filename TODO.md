@@ -27,7 +27,7 @@
   - [x] Bitcoin (BTC) wallet generation
   - [x] Bitcoin Cash (BCH) wallet generation
   - [x] Ethereum (ETH) wallet generation
-  - [x] Polygon (MATIC) wallet generation
+  - [x] Polygon (POL) wallet generation
   - [x] Solana (SOL) wallet generation
 - [x] Create mnemonic generation and validation (implemented)
 - [x] Implement derivation path utilities (implemented)
@@ -43,7 +43,7 @@
 - [x] Create system-owned HD wallet service (src/lib/wallets/system-wallet.ts)
   - [x] System owns all payment addresses (not merchants)
   - [x] SLIP-0010 Ed25519 derivation for Solana
-  - [x] BIP44 derivation for BTC, ETH, MATIC
+  - [x] BIP44 derivation for BTC, ETH, POL
   - [x] 0.5% commission split (system wallet)
   - [x] 99.5% forwarding to merchant wallet
 - [x] Database migration for system wallet indexes (20251127040000)
@@ -89,7 +89,7 @@
   - [x] BTC: 3 confirmations
   - [x] BCH: 6 confirmations
   - [x] ETH: 12 confirmations
-  - [x] MATIC: 128 confirmations
+  - [x] POL: 128 confirmations
   - [x] SOL: 32 confirmations
 - [x] Implement payment status updates (implemented)
 

@@ -23,7 +23,7 @@ Configure platform collection wallet addresses in your `.env` file:
 # Platform Collection Wallets (100% forwarding destinations)
 PLATFORM_FEE_WALLET_BTC=your-bitcoin-address
 PLATFORM_FEE_WALLET_ETH=your-ethereum-address
-PLATFORM_FEE_WALLET_MATIC=your-polygon-address
+PLATFORM_FEE_WALLET_POL=your-polygon-address
 PLATFORM_FEE_WALLET_SOL=your-solana-address
 ```
 
@@ -34,7 +34,7 @@ PLATFORM_FEE_WALLET_SOL=your-solana-address
 - **BTC** - Bitcoin
 - **BCH** - Bitcoin Cash
 - **ETH** - Ethereum
-- **MATIC** - Polygon
+- **POL** - Polygon
 - **SOL** - Solana
 
 ## API Endpoints
@@ -321,7 +321,7 @@ psql -f supabase/migrations/20251127010000_add_business_collection_payments.sql
 
 ### Invalid Blockchain Error
 
-Ensure you're using one of the supported blockchains: BTC, BCH, ETH, MATIC, SOL
+Ensure you're using one of the supported blockchains: BTC, BCH, ETH, POL, SOL
 
 ### Authentication Errors
 

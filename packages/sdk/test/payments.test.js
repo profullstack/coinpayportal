@@ -21,13 +21,13 @@ describe('Payments Module', () => {
       expect(Blockchain.BTC).toBe('BTC');
       expect(Blockchain.BCH).toBe('BCH');
       expect(Blockchain.ETH).toBe('ETH');
-      expect(Blockchain.MATIC).toBe('MATIC');
+      expect(Blockchain.POL).toBe('POL');
       expect(Blockchain.SOL).toBe('SOL');
     });
 
     it('should have all USDC variants', () => {
       expect(Blockchain.USDC_ETH).toBe('USDC_ETH');
-      expect(Blockchain.USDC_MATIC).toBe('USDC_MATIC');
+      expect(Blockchain.USDC_POL).toBe('USDC_POL');
       expect(Blockchain.USDC_SOL).toBe('USDC_SOL');
     });
 

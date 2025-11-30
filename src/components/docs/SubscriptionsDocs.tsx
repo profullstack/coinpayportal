@@ -120,7 +120,7 @@ export function SubscriptionsDocs() {
 {`{
   "plan_id": "professional",
   "billing_period": "monthly",  // or "yearly"
-  "blockchain": "ETH"  // BTC, BCH, ETH, MATIC, SOL
+  "blockchain": "ETH"  // BTC, BCH, ETH, POL, SOL
 }`}
         </CodeBlock>
 

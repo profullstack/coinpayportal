@@ -23,7 +23,7 @@
 
 #### 2. **Exchange Rate Integration** (Complete)
 - [x] Tatum API integration
-- [x] Real-time crypto-to-fiat rates (BTC, ETH, SOL, MATIC, USDC)
+- [x] Real-time crypto-to-fiat rates (BTC, ETH, SOL, POL, USDC)
 - [x] 5-minute caching to minimize API calls
 - [x] Batch rate fetching
 - [x] Crypto/fiat price calculations
@@ -36,7 +36,7 @@
 - [x] BIP21/EIP681 URI format support
 - [x] Customizable options (size, error correction)
 - [x] PNG and SVG output formats
-- [x] Support for BTC, BCH, ETH, MATIC, SOL, USDC
+- [x] Support for BTC, BCH, ETH, POL, SOL, USDC
 
 **Test Coverage:**
 - QR Generator: 15 tests
@@ -294,7 +294,7 @@ TATUM_API_KEY=your_tatum_api_key
 PLATFORM_FEE_WALLET_BTC=your_btc_address
 PLATFORM_FEE_WALLET_BCH=your_bch_address
 PLATFORM_FEE_WALLET_ETH=your_eth_address
-PLATFORM_FEE_WALLET_MATIC=your_matic_address
+PLATFORM_FEE_WALLET_POL=your_pol_address
 PLATFORM_FEE_WALLET_SOL=your_sol_address
 
 # Blockchain RPC URLs (optional, defaults provided)
