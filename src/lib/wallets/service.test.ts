@@ -495,7 +495,7 @@ describe('Wallet Service', () => {
 
   describe('SUPPORTED_CRYPTOCURRENCIES', () => {
     it('should export supported cryptocurrencies', () => {
-      expect(SUPPORTED_CRYPTOCURRENCIES).toEqual(['BTC', 'ETH', 'MATIC', 'SOL']);
+      expect(SUPPORTED_CRYPTOCURRENCIES).toEqual(['BTC', 'ETH', 'POL', 'SOL']);
     });
   });
 });

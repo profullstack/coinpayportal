@@ -142,7 +142,7 @@ describe('Tatum Exchange Rate Service', () => {
     });
 
     it('should support multiple cryptocurrencies', async () => {
-      const currencies = ['BTC', 'ETH', 'SOL', 'MATIC'];
+      const currencies = ['BTC', 'ETH', 'SOL', 'POL'];
       
       for (const currency of currencies) {
         vi.mocked(fetch).mockResolvedValueOnce({
@@ -155,29 +155,28 @@ describe('Tatum Exchange Rate Service', () => {
       }
     });
 
-    it('should map MATIC to POL for Tatum API (Polygon rebrand)', async () => {
+    it('should fetch POL exchange rate (Polygon)', async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
         json: async () => ({ value: 0.55, timestamp: Date.now() }),
       } as Response);
 
-      const rate = await getExchangeRate('MATIC', 'USD');
+      const rate = await getExchangeRate('POL', 'USD');
 
       expect(rate).toBe(0.55);
-      // Verify the API was called with POL instead of MATIC
       expect(fetch).toHaveBeenCalledWith(
         expect.stringContaining('/v3/tatum/rate/POL'),
         expect.any(Object)
       );
     });
 
-    it('should handle lowercase matic and map to POL', async () => {
+    it('should handle lowercase pol', async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
         json: async () => ({ value: 0.55, timestamp: Date.now() }),
       } as Response);
 
-      const rate = await getExchangeRate('matic', 'USD');
+      const rate = await getExchangeRate('pol', 'USD');
 
       expect(rate).toBe(0.55);
       expect(fetch).toHaveBeenCalledWith(

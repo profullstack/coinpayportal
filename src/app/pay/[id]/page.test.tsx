@@ -704,12 +704,12 @@ describe('PublicPaymentPage', () => {
       });
     });
 
-    it('should show Polygon name for MATIC', async () => {
+    it('should show Polygon name for POL', async () => {
       vi.mocked(fetch).mockResolvedValue({
         ok: true,
         json: async () => ({
           success: true,
-          payment: { ...mockPayment, blockchain: 'MATIC', status: 'confirmed' },
+          payment: { ...mockPayment, blockchain: 'POL', status: 'confirmed' },
         }),
       } as Response);
 

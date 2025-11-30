@@ -16,10 +16,12 @@ function mapCurrencyToBlockchain(currency: string): Blockchain | null {
     'btc': 'BTC',
     'bch': 'BCH',
     'eth': 'ETH',
-    'matic': 'MATIC',
+    'pol': 'POL',
+    'matic': 'POL', // Legacy support - MATIC is now POL
     'sol': 'SOL',
     'usdc_eth': 'USDC_ETH',
-    'usdc_matic': 'USDC_MATIC',
+    'usdc_pol': 'USDC_POL',
+    'usdc_matic': 'USDC_POL', // Legacy support - USDC_MATIC is now USDC_POL
     'usdc_sol': 'USDC_SOL',
   };
   return mapping[currency.toLowerCase()] || null;

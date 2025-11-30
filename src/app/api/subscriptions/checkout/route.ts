@@ -16,7 +16,7 @@ import {
  * Request body:
  * - plan_id: string (e.g., 'professional')
  * - billing_period: 'monthly' | 'yearly'
- * - blockchain: 'BTC' | 'BCH' | 'ETH' | 'MATIC' | 'SOL'
+ * - blockchain: 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
  */
 export async function POST(request: NextRequest) {
   try {

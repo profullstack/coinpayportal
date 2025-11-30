@@ -142,7 +142,7 @@ const data = await response.json();`}
 {`{
   "business_id": "business-123",
   "amount_usd": 100.00,
-  "currency": "btc",  // btc, eth, matic, sol
+  "currency": "btc",  // btc, eth, pol, sol
   "description": "Order #12345"  // optional
 }`}
               </CodeBlock>
@@ -214,7 +214,7 @@ console.log(data.payment.status);`}
   "business_id": "business-123",
   "amount": 99.99,
   "currency": "USD",
-  "blockchain": "ETH",  // BTC, BCH, ETH, MATIC, SOL
+  "blockchain": "ETH",  // BTC, BCH, ETH, POL, SOL
   "description": "Monthly subscription fee",
   "metadata": {
     "plan": "premium",
@@ -320,7 +320,7 @@ console.log(data.payment.status);`}
             {[
               { name: 'Bitcoin', symbol: 'BTC', code: 'btc', confirmations: 3 },
               { name: 'Ethereum', symbol: 'ETH', code: 'eth', confirmations: 12 },
-              { name: 'Polygon', symbol: 'MATIC', code: 'matic', confirmations: 128 },
+              { name: 'Polygon', symbol: 'POL', code: 'pol', confirmations: 128 },
               { name: 'Solana', symbol: 'SOL', code: 'sol', confirmations: 32 },
             ].map((crypto) => (
               <div key={crypto.symbol} className="p-4 rounded-lg bg-slate-800/50 border border-white/10">

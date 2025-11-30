@@ -166,7 +166,7 @@ describe('Payment Forwarding Service', () => {
     });
 
     it('should accept all valid blockchains', () => {
-      const blockchains = ['BTC', 'BCH', 'ETH', 'MATIC', 'SOL'];
+      const blockchains = ['BTC', 'BCH', 'ETH', 'POL', 'SOL'];
       blockchains.forEach((blockchain) => {
         const input = { ...validInput, blockchain: blockchain as any };
         const result = validateForwardingInput(input);

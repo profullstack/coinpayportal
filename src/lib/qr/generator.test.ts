@@ -210,7 +210,7 @@ describe('QR Code Generator', () => {
       // USDC on Polygon
       vi.mocked(QRCode.toDataURL).mockResolvedValueOnce(mockDataURL);
       await generatePaymentQR({
-        blockchain: 'USDC_MATIC',
+        blockchain: 'USDC_POL',
         address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         amount: 100,
       });

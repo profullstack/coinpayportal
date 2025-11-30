@@ -7,23 +7,6 @@ const TATUM_API_BASE = 'https://api.tatum.io';
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
 
 /**
- * Currency symbol mapping for Tatum API
- * Some cryptocurrencies have different symbols in Tatum API
- * e.g., Polygon rebranded from MATIC to POL
- */
-const TATUM_SYMBOL_MAP: Record<string, string> = {
-  'MATIC': 'POL', // Polygon rebranded from MATIC to POL
-};
-
-/**
- * Map internal currency symbol to Tatum API symbol
- */
-function mapToTatumSymbol(symbol: string): string {
-  const upperSymbol = symbol.toUpperCase();
-  return TATUM_SYMBOL_MAP[upperSymbol] || upperSymbol;
-}
-
-/**
  * Rate cache to minimize API calls
  */
 interface CachedRate {
@@ -60,7 +43,7 @@ function getCacheKey(from: string, to: string): string {
 
 /**
  * Fetch exchange rate from Tatum API
- * @param from - Source cryptocurrency (BTC, ETH, SOL, MATIC, etc.)
+ * @param from - Source cryptocurrency (BTC, ETH, SOL, POL, etc.)
  * @param to - Target fiat currency (USD, EUR, etc.)
  * @returns Exchange rate value
  */
@@ -79,9 +62,7 @@ export async function getExchangeRate(
 
     // Fetch from API
     const apiKey = getApiKey();
-    // Map the currency symbol to Tatum's expected format
-    const tatumSymbol = mapToTatumSymbol(from);
-    const url = `${TATUM_API_BASE}/v3/tatum/rate/${tatumSymbol}?basePair=${to.toUpperCase()}`;
+    const url = `${TATUM_API_BASE}/v3/tatum/rate/${from.toUpperCase()}?basePair=${to.toUpperCase()}`;
     
     const response = await fetch(url, {
       method: 'GET',

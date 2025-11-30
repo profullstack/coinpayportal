@@ -21,7 +21,7 @@ const ECPair = ECPairFactory(ecc);
 /**
  * Supported blockchain types
  */
-export type BlockchainType = 'BTC' | 'BCH' | 'ETH' | 'MATIC' | 'SOL';
+export type BlockchainType = 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL';
 
 /**
  * Transaction details interface
@@ -582,7 +582,7 @@ export class EthereumProvider implements BlockchainProvider {
  * Polygon provider implementation (extends Ethereum)
  */
 export class PolygonProvider extends EthereumProvider {
-  chain: BlockchainType = 'MATIC';
+  chain: BlockchainType = 'POL';
 
   constructor(rpcUrl: string) {
     super(rpcUrl);
@@ -1030,7 +1030,7 @@ export function getProvider(
       return new BitcoinCashProvider(rpcUrl);
     case 'ETH':
       return new EthereumProvider(rpcUrl);
-    case 'MATIC':
+    case 'POL':
       return new PolygonProvider(rpcUrl);
     case 'SOL':
       return new SolanaProvider(rpcUrl);
@@ -1047,7 +1047,7 @@ export function getRpcUrl(chain: BlockchainType): string {
     BTC: process.env.BITCOIN_RPC_URL || 'https://blockchain.info',
     BCH: process.env.BCH_RPC_URL || 'https://bch.blockchain.info',
     ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-    MATIC: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
     SOL: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
   };
 

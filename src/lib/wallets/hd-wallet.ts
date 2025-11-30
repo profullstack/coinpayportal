@@ -28,7 +28,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 /**
  * Supported blockchains for HD derivation
  */
-export type HDBlockchain = 'BTC' | 'ETH' | 'MATIC' | 'SOL';
+export type HDBlockchain = 'BTC' | 'ETH' | 'POL' | 'SOL';
 
 /**
  * HD Wallet configuration stored per business
@@ -149,7 +149,7 @@ export function derivePaymentAddress(
       derivationPath = `m/44'/0'/0'/0/${index}`;
       break;
     case 'ETH':
-    case 'MATIC':
+    case 'POL':
       address = deriveEthereumAddress(xpub, index);
       derivationPath = `m/44'/60'/0'/0/${index}`;
       break;
@@ -390,7 +390,7 @@ export async function configureHDWallet(
         derivationPath = "m/44'/0'/0'/0";
         break;
       case 'ETH':
-      case 'MATIC':
+      case 'POL':
         derivationPath = "m/44'/60'/0'/0";
         break;
       case 'SOL':

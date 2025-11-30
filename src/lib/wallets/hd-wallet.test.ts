@@ -67,7 +67,7 @@ describe('HD Wallet Utilities', () => {
         case 'BTC':
           return `m/44'/0'/0'/0/${index}`;
         case 'ETH':
-        case 'MATIC':
+        case 'POL':
           return `m/44'/60'/0'/0/${index}`;
         case 'SOL':
           return `m/44'/501'/${index}'/0'`;
@@ -88,9 +88,9 @@ describe('HD Wallet Utilities', () => {
       expect(getDerivationPath('ETH', 100)).toBe("m/44'/60'/0'/0/100");
     });
 
-    it('should use same derivation path for MATIC as ETH', () => {
-      expect(getDerivationPath('MATIC', 0)).toBe(getDerivationPath('ETH', 0));
-      expect(getDerivationPath('MATIC', 5)).toBe(getDerivationPath('ETH', 5));
+    it('should use same derivation path for POL as ETH', () => {
+      expect(getDerivationPath('POL', 0)).toBe(getDerivationPath('ETH', 0));
+      expect(getDerivationPath('POL', 5)).toBe(getDerivationPath('ETH', 5));
     });
 
     it('should generate correct SOL derivation path', () => {
@@ -118,8 +118,8 @@ describe('HD Wallet Utilities', () => {
     });
 
     function getSystemMnemonicEnvKey(cryptocurrency: string): string {
-      if (cryptocurrency === 'MATIC') {
-        return 'SYSTEM_MNEMONIC_ETH'; // MATIC uses ETH mnemonic
+      if (cryptocurrency === 'POL') {
+        return 'SYSTEM_MNEMONIC_ETH'; // POL uses ETH mnemonic
       }
       return `SYSTEM_MNEMONIC_${cryptocurrency}`;
     }
@@ -136,9 +136,9 @@ describe('HD Wallet Utilities', () => {
       expect(getSystemMnemonicEnvKey('ETH')).toBe('SYSTEM_MNEMONIC_ETH');
     });
 
-    it('should return ETH mnemonic env key for MATIC', () => {
-      // MATIC uses the same derivation as ETH, so it shares the mnemonic
-      expect(getSystemMnemonicEnvKey('MATIC')).toBe('SYSTEM_MNEMONIC_ETH');
+    it('should return ETH mnemonic env key for POL', () => {
+      // POL uses the same derivation as ETH, so it shares the mnemonic
+      expect(getSystemMnemonicEnvKey('POL')).toBe('SYSTEM_MNEMONIC_ETH');
     });
 
     it('should return correct mnemonic env key for SOL', () => {
@@ -148,13 +148,13 @@ describe('HD Wallet Utilities', () => {
     it('should return correct platform fee wallet env key', () => {
       expect(getPlatformFeeWalletEnvKey('BTC')).toBe('PLATFORM_FEE_WALLET_BTC');
       expect(getPlatformFeeWalletEnvKey('ETH')).toBe('PLATFORM_FEE_WALLET_ETH');
-      expect(getPlatformFeeWalletEnvKey('MATIC')).toBe('PLATFORM_FEE_WALLET_MATIC');
+      expect(getPlatformFeeWalletEnvKey('POL')).toBe('PLATFORM_FEE_WALLET_POL');
       expect(getPlatformFeeWalletEnvKey('SOL')).toBe('PLATFORM_FEE_WALLET_SOL');
     });
   });
 
   describe('Supported Blockchains', () => {
-    const SUPPORTED_BLOCKCHAINS = ['BTC', 'ETH', 'MATIC', 'SOL'];
+    const SUPPORTED_BLOCKCHAINS = ['BTC', 'ETH', 'POL', 'SOL'];
 
     function isBlockchainSupported(blockchain: string): boolean {
       return SUPPORTED_BLOCKCHAINS.includes(blockchain);
@@ -163,7 +163,7 @@ describe('HD Wallet Utilities', () => {
     it('should recognize supported blockchains', () => {
       expect(isBlockchainSupported('BTC')).toBe(true);
       expect(isBlockchainSupported('ETH')).toBe(true);
-      expect(isBlockchainSupported('MATIC')).toBe(true);
+      expect(isBlockchainSupported('POL')).toBe(true);
       expect(isBlockchainSupported('SOL')).toBe(true);
     });
 
@@ -192,12 +192,12 @@ describe('HD Wallet Utilities', () => {
       expect(getBaseBlockchain('BTC')).toBe('BTC');
       expect(getBaseBlockchain('ETH')).toBe('ETH');
       expect(getBaseBlockchain('SOL')).toBe('SOL');
-      expect(getBaseBlockchain('MATIC')).toBe('MATIC');
+      expect(getBaseBlockchain('POL')).toBe('POL');
     });
 
     it('should extract base blockchain from USDC variants', () => {
       expect(getBaseBlockchain('USDC_ETH')).toBe('ETH');
-      expect(getBaseBlockchain('USDC_MATIC')).toBe('MATIC');
+      expect(getBaseBlockchain('USDC_POL')).toBe('POL');
       expect(getBaseBlockchain('USDC_SOL')).toBe('SOL');
     });
   });

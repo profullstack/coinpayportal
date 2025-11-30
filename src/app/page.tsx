@@ -202,7 +202,7 @@ export default function Home() {
               { name: 'Bitcoin', symbol: 'BTC', icon: '₿', color: 'from-orange-500 to-yellow-500' },
               { name: 'Ethereum', symbol: 'ETH', icon: '⟠', color: 'from-blue-500 to-purple-500' },
               { name: 'Solana', symbol: 'SOL', icon: '◎', color: 'from-purple-500 to-green-500' },
-              { name: 'Polygon', symbol: 'MATIC', icon: '⬡', color: 'from-purple-500 to-blue-500' },
+              { name: 'Polygon', symbol: 'POL', icon: '⬡', color: 'from-purple-500 to-blue-500' },
               { name: 'Bitcoin Cash', symbol: 'BCH', icon: '₿', color: 'from-green-500 to-emerald-500' },
             ].map((chain, index) => (
               <div

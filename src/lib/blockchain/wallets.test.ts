@@ -52,9 +52,9 @@ describe('Wallet Generation Service', () => {
     });
 
     it('should generate Polygon wallet from mnemonic', async () => {
-      const wallet = await generateWalletFromMnemonic(testMnemonic, 'MATIC', 0);
+      const wallet = await generateWalletFromMnemonic(testMnemonic, 'POL', 0);
       expect(wallet).toHaveProperty('address');
-      expect(wallet.chain).toBe('MATIC');
+      expect(wallet.chain).toBe('POL');
       expect(wallet.address).toMatch(/^0x[a-fA-F0-9]{40}$/);
     });
 
@@ -99,10 +99,10 @@ describe('Wallet Generation Service', () => {
     });
 
     it('should support all blockchain types', async () => {
-      const chains: Array<'BTC' | 'ETH' | 'MATIC' | 'SOL'> = [
+      const chains: Array<'BTC' | 'ETH' | 'POL' | 'SOL'> = [
         'BTC',
         'ETH',
-        'MATIC',
+        'POL',
         'SOL',
       ];
       for (const chain of chains) {
@@ -131,9 +131,9 @@ describe('Wallet Generation Service', () => {
 
     it('should validate Polygon addresses', () => {
       expect(
-        validateAddress('0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb', 'MATIC')
+        validateAddress('0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb', 'POL')
       ).toBe(true);
-      expect(validateAddress('invalid-matic-address', 'MATIC')).toBe(false);
+      expect(validateAddress('invalid-pol-address', 'POL')).toBe(false);
     });
 
     it('should validate Solana addresses', () => {

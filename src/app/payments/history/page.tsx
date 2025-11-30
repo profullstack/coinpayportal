@@ -299,7 +299,7 @@ export default function PaymentHistoryPage() {
                 <option value="">All Currencies</option>
                 <option value="btc">Bitcoin (BTC)</option>
                 <option value="eth">Ethereum (ETH)</option>
-                <option value="matic">Polygon (MATIC)</option>
+                <option value="pol">Polygon (POL)</option>
                 <option value="sol">Solana (SOL)</option>
               </select>
             </div>

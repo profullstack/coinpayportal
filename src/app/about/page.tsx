@@ -18,7 +18,7 @@ export default function AboutPage() {
           <li>Non-custodial - You control your funds</li>
           <li>0.5% transaction fee - Lower than traditional processors</li>
           <li>Real-time processing - Instant payment detection</li>
-          <li>Multi-chain support - BTC, ETH, SOL, MATIC, USDC</li>
+          <li>Multi-chain support - BTC, ETH, SOL, POL, USDC</li>
           <li>Simple integration - RESTful API and webhooks</li>
         </ul>
 

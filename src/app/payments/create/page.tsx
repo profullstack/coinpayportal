@@ -262,7 +262,7 @@ export default function CreatePaymentPage() {
       'bitcoin-cash': `https://blockchair.com/bitcoin-cash/transaction/${txHash}`,
       eth: `https://etherscan.io/tx/${txHash}`,
       ethereum: `https://etherscan.io/tx/${txHash}`,
-      matic: `https://polygonscan.com/tx/${txHash}`,
+      pol: `https://polygonscan.com/tx/${txHash}`,
       polygon: `https://polygonscan.com/tx/${txHash}`,
       sol: `https://solscan.io/tx/${txHash}`,
       solana: `https://solscan.io/tx/${txHash}`,
@@ -273,7 +273,7 @@ export default function CreatePaymentPage() {
   const currencies = [
     { value: 'btc', label: 'Bitcoin (BTC)', networkFee: '$0.50-3.00', estimatedFee: 2.00 },
     { value: 'eth', label: 'Ethereum (ETH)', networkFee: '$0.50-5.00', estimatedFee: 3.00 },
-    { value: 'matic', label: 'Polygon (MATIC)', networkFee: '$0.001-0.01', estimatedFee: 0.01 },
+    { value: 'pol', label: 'Polygon (POL)', networkFee: '$0.001-0.01', estimatedFee: 0.01 },
     { value: 'sol', label: 'Solana (SOL)', networkFee: '~$0.001', estimatedFee: 0.001 },
   ];
 

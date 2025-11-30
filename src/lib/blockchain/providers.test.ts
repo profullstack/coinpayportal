@@ -155,7 +155,7 @@ describe('Blockchain Providers', () => {
   describe('PolygonProvider', () => {
     it('should create a Polygon provider', () => {
       const provider = new PolygonProvider('https://polygon-rpc.com');
-      expect(provider.chain).toBe('MATIC');
+      expect(provider.chain).toBe('POL');
       expect(provider.rpcUrl).toBe('https://polygon-rpc.com');
     });
 
@@ -572,8 +572,8 @@ describe('Blockchain Providers', () => {
       const ethProvider = new EthereumProvider('https://eth.llamarpc.com');
       expect(ethProvider.sendTransaction).toBeDefined();
 
-      const maticProvider = new PolygonProvider('https://polygon-rpc.com');
-      expect(maticProvider.sendTransaction).toBeDefined();
+      const polProvider = new PolygonProvider('https://polygon-rpc.com');
+      expect(polProvider.sendTransaction).toBeDefined();
 
       // Solana: 32-byte seed (hex) OR 64-byte keypair (hex or base58)
       const solProvider = new SolanaProvider('https://api.mainnet-beta.solana.com');
@@ -620,9 +620,9 @@ describe('Blockchain Providers', () => {
       expect(provider.chain).toBe('ETH');
     });
 
-    it('should return PolygonProvider for MATIC', () => {
-      const provider = getProvider('MATIC', 'https://polygon-rpc.com');
-      expect(provider.chain).toBe('MATIC');
+    it('should return PolygonProvider for POL', () => {
+      const provider = getProvider('POL', 'https://polygon-rpc.com');
+      expect(provider.chain).toBe('POL');
     });
 
     it('should return SolanaProvider for SOL', () => {
@@ -648,8 +648,8 @@ describe('Blockchain Providers', () => {
       expect(url).toBe('https://eth.llamarpc.com');
     });
 
-    it('should return default RPC URL for MATIC', () => {
-      const url = getRpcUrl('MATIC');
+    it('should return default RPC URL for POL', () => {
+      const url = getRpcUrl('POL');
       expect(url).toBe('https://polygon-rpc.com');
     });
 

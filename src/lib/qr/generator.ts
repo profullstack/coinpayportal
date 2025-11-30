@@ -3,14 +3,14 @@ import QRCode from 'qrcode';
 /**
  * Supported blockchain types
  */
-export type Blockchain = 
-  | 'BTC' 
-  | 'BCH' 
-  | 'ETH' 
-  | 'MATIC' 
-  | 'SOL' 
-  | 'USDC_ETH' 
-  | 'USDC_MATIC' 
+export type Blockchain =
+  | 'BTC'
+  | 'BCH'
+  | 'ETH'
+  | 'POL'
+  | 'SOL'
+  | 'USDC_ETH'
+  | 'USDC_POL'
   | 'USDC_SOL';
 
 /**
@@ -92,10 +92,10 @@ function getPaymentScheme(blockchain: Blockchain): string {
     BTC: 'bitcoin',
     BCH: 'bitcoincash',
     ETH: 'ethereum',
-    MATIC: 'polygon',
+    POL: 'polygon',
     SOL: 'solana',
     USDC_ETH: 'ethereum',
-    USDC_MATIC: 'polygon',
+    USDC_POL: 'polygon',
     USDC_SOL: 'solana',
   };
 
@@ -147,10 +147,10 @@ function validatePaymentParams(params: PaymentQRParams): void {
     'BTC',
     'BCH',
     'ETH',
-    'MATIC',
+    'POL',
     'SOL',
     'USDC_ETH',
-    'USDC_MATIC',
+    'USDC_POL',
     'USDC_SOL',
   ];
 

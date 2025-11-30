@@ -21,7 +21,7 @@ export const SUBSCRIPTION_PRICES = {
  * Supported blockchains for subscription payments
  * Must match the blockchains supported by business-collection
  */
-export const SUPPORTED_BLOCKCHAINS = ['BTC', 'BCH', 'ETH', 'MATIC', 'SOL'] as const;
+export const SUPPORTED_BLOCKCHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL'] as const;
 export type SupportedBlockchain = typeof SUPPORTED_BLOCKCHAINS[number];
 
 /**
@@ -126,7 +126,7 @@ export async function createSubscriptionPayment(
       merchantId,
       amount: price,
       currency: 'USD',
-      blockchain: blockchain as 'BTC' | 'BCH' | 'ETH' | 'MATIC' | 'SOL',
+      blockchain: blockchain as 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL',
       description: `${planId.charAt(0).toUpperCase() + planId.slice(1)} Plan - ${billingPeriod === 'yearly' ? 'Annual' : 'Monthly'} Subscription`,
       metadata: {
         type: 'subscription_payment',

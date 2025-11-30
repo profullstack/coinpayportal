@@ -493,7 +493,7 @@ export default function PricingPage() {
               >
                 <option value="BTC">Bitcoin (BTC)</option>
                 <option value="ETH">Ethereum (ETH)</option>
-                <option value="MATIC">Polygon (MATIC)</option>
+                <option value="POL">Polygon (POL)</option>
                 <option value="SOL">Solana (SOL)</option>
                 <option value="BCH">Bitcoin Cash (BCH)</option>
               </select>

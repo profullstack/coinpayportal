@@ -153,7 +153,7 @@ describe('Payment Fee Calculations', () => {
         expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('BTC');
         expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('BCH');
         expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('ETH');
-        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('MATIC');
+        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('POL');
         expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('SOL');
       });
 
@@ -168,7 +168,7 @@ describe('Payment Fee Calculations', () => {
         expect(ESTIMATED_NETWORK_FEES_USD['ETH']).toBe(3.00);
         
         // Polygon: very low fees
-        expect(ESTIMATED_NETWORK_FEES_USD['MATIC']).toBe(0.01);
+        expect(ESTIMATED_NETWORK_FEES_USD['POL']).toBe(0.01);
         
         // Solana: extremely low fees
         expect(ESTIMATED_NETWORK_FEES_USD['SOL']).toBe(0.001);
@@ -191,8 +191,8 @@ describe('Payment Fee Calculations', () => {
         expect(getEstimatedNetworkFeeSync('ETH')).toBe(3.00);
       });
 
-      it('should return correct fee for MATIC', () => {
-        expect(getEstimatedNetworkFeeSync('MATIC')).toBe(0.01);
+      it('should return correct fee for POL', () => {
+        expect(getEstimatedNetworkFeeSync('POL')).toBe(0.01);
       });
 
       it('should return correct fee for SOL', () => {
@@ -207,8 +207,8 @@ describe('Payment Fee Calculations', () => {
         // USDC on Ethereum should use ETH fee
         expect(getEstimatedNetworkFeeSync('USDC_ETH' as Blockchain)).toBe(3.00);
         
-        // USDC on Polygon should use MATIC fee
-        expect(getEstimatedNetworkFeeSync('USDC_MATIC' as Blockchain)).toBe(0.01);
+        // USDC on Polygon should use POL fee
+        expect(getEstimatedNetworkFeeSync('USDC_POL' as Blockchain)).toBe(0.01);
         
         // USDC on Solana should use SOL fee
         expect(getEstimatedNetworkFeeSync('USDC_SOL' as Blockchain)).toBe(0.001);

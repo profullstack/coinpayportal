@@ -6,7 +6,7 @@ import { sendPaymentWebhook } from '../webhooks/service';
 /**
  * Supported blockchains for forwarding
  */
-const SUPPORTED_BLOCKCHAINS = ['BTC', 'BCH', 'ETH', 'MATIC', 'SOL'] as const;
+const SUPPORTED_BLOCKCHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL'] as const;
 
 /**
  * Forwarding input interface
@@ -110,7 +110,7 @@ function getPlatformWalletAddress(blockchain: BlockchainType): string {
     BTC: 'PLATFORM_FEE_WALLET_BTC',
     BCH: 'PLATFORM_FEE_WALLET_BCH',
     ETH: 'PLATFORM_FEE_WALLET_ETH',
-    MATIC: 'PLATFORM_FEE_WALLET_MATIC',
+    POL: 'PLATFORM_FEE_WALLET_POL',
     SOL: 'PLATFORM_FEE_WALLET_SOL',
   };
 

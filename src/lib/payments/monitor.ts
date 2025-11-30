@@ -20,7 +20,7 @@ const RPC_ENDPOINTS: Record<string, string> = {
   BTC: process.env.BITCOIN_RPC_URL || 'https://blockstream.info/api',
   BCH: process.env.BCH_RPC_URL || 'https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet',
   ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-  MATIC: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+  POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
   SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
 };
 
@@ -278,9 +278,9 @@ async function checkBalance(address: string, blockchain: string): Promise<Balanc
     case 'ETH':
     case 'USDC_ETH':
       return checkEVMBalance(address, RPC_ENDPOINTS.ETH, 'ETH');
-    case 'MATIC':
-    case 'USDC_MATIC':
-      return checkEVMBalance(address, RPC_ENDPOINTS.MATIC, 'MATIC');
+    case 'POL':
+    case 'USDC_POL':
+      return checkEVMBalance(address, RPC_ENDPOINTS.POL, 'POL');
     case 'SOL':
     case 'USDC_SOL':
       return checkSolanaBalance(address, RPC_ENDPOINTS.SOL);

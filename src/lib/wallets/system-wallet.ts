@@ -30,7 +30,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 /**
  * Supported blockchains
  */
-export type SystemBlockchain = 'BTC' | 'ETH' | 'MATIC' | 'SOL';
+export type SystemBlockchain = 'BTC' | 'ETH' | 'POL' | 'SOL';
 
 /**
  * Commission rate (0.5%)
@@ -82,8 +82,8 @@ function getSystemMnemonic(cryptocurrency: SystemBlockchain): string {
   let envKey = `SYSTEM_MNEMONIC_${cryptocurrency}`;
   let mnemonic = process.env[envKey];
 
-  // MATIC uses the same derivation as ETH, so fall back to ETH mnemonic
-  if (!mnemonic && cryptocurrency === 'MATIC') {
+  // POL (Polygon) uses the same derivation as ETH, so fall back to ETH mnemonic
+  if (!mnemonic && cryptocurrency === 'POL') {
     envKey = 'SYSTEM_MNEMONIC_ETH';
     mnemonic = process.env[envKey];
   }
@@ -314,7 +314,7 @@ export async function deriveSystemPaymentAddress(
       derivationPath = `m/44'/0'/0'/0/${index}`;
       break;
     case 'ETH':
-    case 'MATIC':
+    case 'POL':
       wallet = deriveEthereumWallet(mnemonic, index);
       derivationPath = `m/44'/60'/0'/0/${index}`;
       break;

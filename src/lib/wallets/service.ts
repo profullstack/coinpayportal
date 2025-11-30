@@ -4,7 +4,7 @@ import { z } from 'zod';
 /**
  * Supported cryptocurrencies
  */
-export const SUPPORTED_CRYPTOCURRENCIES = ['BTC', 'ETH', 'MATIC', 'SOL'] as const;
+export const SUPPORTED_CRYPTOCURRENCIES = ['BTC', 'ETH', 'POL', 'SOL'] as const;
 export type Cryptocurrency = (typeof SUPPORTED_CRYPTOCURRENCIES)[number];
 
 /**
@@ -64,7 +64,7 @@ export async function createWallet(
     if (!cryptoResult.success) {
       return {
         success: false,
-        error: 'Invalid cryptocurrency. Must be one of: BTC, ETH, MATIC, SOL',
+        error: 'Invalid cryptocurrency. Must be one of: BTC, ETH, POL, SOL',
       };
     }
 

@@ -31,7 +31,7 @@ import {
 const mockEnv = {
   PLATFORM_FEE_WALLET_BTC: 'bc1qtest123btcaddress',
   PLATFORM_FEE_WALLET_ETH: '0x1234567890abcdef1234567890abcdef12345678',
-  PLATFORM_FEE_WALLET_MATIC: '0xabcdef1234567890abcdef1234567890abcdef12',
+  PLATFORM_FEE_WALLET_POL: '0xabcdef1234567890abcdef1234567890abcdef12',
   PLATFORM_FEE_WALLET_SOL: 'SoLaNaAdDrEsS123456789012345678901234567890',
 };
 
@@ -57,10 +57,10 @@ describe('Business Collection Service', () => {
       expect(address).toBe(mockEnv.PLATFORM_FEE_WALLET_ETH);
     });
 
-    it('should return MATIC wallet address from environment', () => {
-      process.env.PLATFORM_FEE_WALLET_MATIC = mockEnv.PLATFORM_FEE_WALLET_MATIC;
-      const address = getCollectionWalletAddress('MATIC');
-      expect(address).toBe(mockEnv.PLATFORM_FEE_WALLET_MATIC);
+    it('should return POL wallet address from environment', () => {
+      process.env.PLATFORM_FEE_WALLET_POL = mockEnv.PLATFORM_FEE_WALLET_POL;
+      const address = getCollectionWalletAddress('POL');
+      expect(address).toBe(mockEnv.PLATFORM_FEE_WALLET_POL);
     });
 
     it('should return SOL wallet address from environment', () => {
@@ -95,8 +95,8 @@ describe('Business Collection Service', () => {
       expect(isValidBlockchain('ETH')).toBe(true);
     });
 
-    it('should return true for MATIC', () => {
-      expect(isValidBlockchain('MATIC')).toBe(true);
+    it('should return true for POL', () => {
+      expect(isValidBlockchain('POL')).toBe(true);
     });
 
     it('should return true for SOL', () => {
@@ -222,7 +222,7 @@ describe('Business Collection Service', () => {
 });
 
 describe('Business Collection - Supported Blockchains', () => {
-  const supportedBlockchains = ['BTC', 'BCH', 'ETH', 'MATIC', 'SOL'];
+  const supportedBlockchains = ['BTC', 'BCH', 'ETH', 'POL', 'SOL'];
 
   supportedBlockchains.forEach((blockchain) => {
     it(`should support ${blockchain} blockchain`, () => {

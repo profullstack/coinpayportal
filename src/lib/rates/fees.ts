@@ -31,7 +31,7 @@ const FALLBACK_FEES_USD: Record<string, number> = {
   'BTC': 2.00,    // Bitcoin: ~$0.50-3.00
   'BCH': 0.01,    // Bitcoin Cash: very low fees
   'ETH': 3.00,    // Ethereum: ~$0.50-5.00
-  'MATIC': 0.01,  // Polygon: ~$0.001-0.01
+  'POL': 0.01,    // Polygon: ~$0.001-0.01
   'SOL': 0.001,   // Solana: ~$0.00025
 };
 
@@ -160,12 +160,12 @@ async function estimatePolygonFee(): Promise<number> {
     const feeInGwei = gasPriceGwei * gasLimit;
     const feeInMatic = feeInGwei / 1000000000;
     
-    // Convert to USD
-    const maticPrice = await getExchangeRate('MATIC', 'USD');
-    return feeInMatic * maticPrice;
+    // Convert to USD (POL is the new symbol for Polygon's native token)
+    const polPrice = await getExchangeRate('POL', 'USD');
+    return feeInMatic * polPrice;
   } catch (error) {
     console.warn('[Fee] Polygon fee estimation failed, using fallback:', error);
-    return FALLBACK_FEES_USD['MATIC'];
+    return FALLBACK_FEES_USD['POL'];
   }
 }
 
@@ -222,7 +222,7 @@ export async function getEstimatedNetworkFee(blockchain: string): Promise<number
       case 'ETH':
         fee = await estimateEthereumFee();
         break;
-      case 'MATIC':
+      case 'POL':
         fee = await estimatePolygonFee();
         break;
       case 'SOL':

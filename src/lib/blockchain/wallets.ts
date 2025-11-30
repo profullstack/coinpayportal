@@ -62,7 +62,7 @@ export async function generateWalletFromMnemonic(
     case 'BCH':
       return generateBitcoinWallet(hdKey, chain, index);
     case 'ETH':
-    case 'MATIC':
+    case 'POL':
       return generateEthereumWallet(hdKey, chain, index);
     case 'SOL':
       return generateSolanaWallet(hdKey, chain, index);
@@ -220,7 +220,7 @@ export function validateAddress(address: string, chain: BlockchainType): boolean
       case 'BCH':
         return validateBitcoinAddress(address);
       case 'ETH':
-      case 'MATIC':
+      case 'POL':
         return validateEthereumAddress(address);
       case 'SOL':
         return validateSolanaAddress(address);
@@ -287,7 +287,7 @@ export function getDerivationPath(chain: BlockchainType, index: number = 0): str
     case 'BCH':
       return `m/44'/0'/0'/0/${index}`;
     case 'ETH':
-    case 'MATIC':
+    case 'POL':
       return `m/44'/60'/0'/0/${index}`;
     case 'SOL':
       return `m/44'/501'/${index}'/0'`;

@@ -36,10 +36,10 @@ const getExplorerUrl = (blockchain: string, txHash: string): string => {
     BTC: `https://blockstream.info/tx/${txHash}`,
     BCH: `https://blockchair.com/bitcoin-cash/transaction/${txHash}`,
     ETH: `https://etherscan.io/tx/${txHash}`,
-    MATIC: `https://polygonscan.com/tx/${txHash}`,
+    POL: `https://polygonscan.com/tx/${txHash}`,
     SOL: `https://solscan.io/tx/${txHash}`,
     USDC_ETH: `https://etherscan.io/tx/${txHash}`,
-    USDC_MATIC: `https://polygonscan.com/tx/${txHash}`,
+    USDC_POL: `https://polygonscan.com/tx/${txHash}`,
     USDC_SOL: `https://solscan.io/tx/${txHash}`,
   };
   return explorers[blockchain] || `https://blockchair.com/search?q=${txHash}`;
@@ -51,10 +51,10 @@ const getCurrencyName = (blockchain: string): string => {
     BTC: 'Bitcoin',
     BCH: 'Bitcoin Cash',
     ETH: 'Ethereum',
-    MATIC: 'Polygon',
+    POL: 'Polygon',
     SOL: 'Solana',
     USDC_ETH: 'USDC (Ethereum)',
-    USDC_MATIC: 'USDC (Polygon)',
+    USDC_POL: 'USDC (Polygon)',
     USDC_SOL: 'USDC (Solana)',
   };
   return names[blockchain] || blockchain;
@@ -66,10 +66,10 @@ const getCurrencyColor = (blockchain: string): string => {
     BTC: 'bg-orange-500',
     BCH: 'bg-green-500',
     ETH: 'bg-blue-500',
-    MATIC: 'bg-purple-500',
+    POL: 'bg-purple-500',
     SOL: 'bg-gradient-to-r from-purple-500 to-teal-400',
     USDC_ETH: 'bg-blue-400',
-    USDC_MATIC: 'bg-purple-400',
+    USDC_POL: 'bg-purple-400',
     USDC_SOL: 'bg-teal-400',
   };
   return colors[blockchain] || 'bg-gray-500';

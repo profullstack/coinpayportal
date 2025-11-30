@@ -30,10 +30,10 @@ const getExplorerUrl = (blockchain: string, txHash: string): string => {
     BTC: `https://blockstream.info/tx/${txHash}`,
     BCH: `https://blockchair.com/bitcoin-cash/transaction/${txHash}`,
     ETH: `https://etherscan.io/tx/${txHash}`,
-    MATIC: `https://polygonscan.com/tx/${txHash}`,
+    POL: `https://polygonscan.com/tx/${txHash}`,
     SOL: `https://solscan.io/tx/${txHash}`,
     USDC_ETH: `https://etherscan.io/tx/${txHash}`,
-    USDC_MATIC: `https://polygonscan.com/tx/${txHash}`,
+    USDC_POL: `https://polygonscan.com/tx/${txHash}`,
     USDC_SOL: `https://solscan.io/tx/${txHash}`,
   };
   return explorers[blockchain] || `https://blockchair.com/search?q=${txHash}`;
@@ -45,10 +45,10 @@ const getAddressExplorerUrl = (blockchain: string, address: string): string => {
     BTC: `https://blockstream.info/address/${address}`,
     BCH: `https://blockchair.com/bitcoin-cash/address/${address}`,
     ETH: `https://etherscan.io/address/${address}`,
-    MATIC: `https://polygonscan.com/address/${address}`,
+    POL: `https://polygonscan.com/address/${address}`,
     SOL: `https://solscan.io/account/${address}`,
     USDC_ETH: `https://etherscan.io/address/${address}`,
-    USDC_MATIC: `https://polygonscan.com/address/${address}`,
+    USDC_POL: `https://polygonscan.com/address/${address}`,
     USDC_SOL: `https://solscan.io/account/${address}`,
   };
   return explorers[blockchain] || `https://blockchair.com/search?q=${address}`;

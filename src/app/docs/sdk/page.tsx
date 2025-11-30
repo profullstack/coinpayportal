@@ -173,7 +173,7 @@ coinpay payment create --business-id biz_123 --amount 100 --blockchain BTC
 coinpay payment create --business-id biz_123 --amount 50 --blockchain ETH --description "Order #12345"
 
 # Create a USDC payment on Polygon
-coinpay payment create --business-id biz_123 --amount 25 --blockchain USDC_MATIC
+coinpay payment create --business-id biz_123 --amount 25 --blockchain USDC_POL
 
 # Get payment details
 coinpay payment get pay_abc123
@@ -249,7 +249,7 @@ const client = new CoinPayClient({
   businessId: 'your-business-id',  // Required: From your dashboard
   amount: 100,                      // Required: Amount in fiat
   currency: 'USD',                  // Optional: Fiat currency (default: USD)
-  blockchain: 'BTC',                // Required: BTC, ETH, SOL, MATIC, BCH, USDC_ETH, USDC_MATIC, USDC_SOL
+  blockchain: 'BTC',                // Required: BTC, ETH, SOL, POL, BCH, USDC_ETH, USDC_POL, USDC_SOL
   description: 'Order #12345',      // Optional: Shown to customer
   metadata: {                       // Optional: Your custom data
     orderId: '12345',
@@ -418,10 +418,10 @@ rates.forEach(rate => {
                 { name: 'Bitcoin', symbol: 'BTC' },
                 { name: 'Bitcoin Cash', symbol: 'BCH' },
                 { name: 'Ethereum', symbol: 'ETH' },
-                { name: 'Polygon', symbol: 'MATIC' },
+                { name: 'Polygon', symbol: 'POL' },
                 { name: 'Solana', symbol: 'SOL' },
                 { name: 'USDC (Ethereum)', symbol: 'USDC_ETH' },
-                { name: 'USDC (Polygon)', symbol: 'USDC_MATIC' },
+                { name: 'USDC (Polygon)', symbol: 'USDC_POL' },
                 { name: 'USDC (Solana)', symbol: 'USDC_SOL' },
               ].map((crypto) => (
                 <div key={crypto.symbol} className="p-3 rounded-lg bg-slate-800/50 border border-white/10 text-center">
@@ -561,7 +561,7 @@ coinpay payment create \\
 coinpay payment create \\
   --business-id biz_123 \\
   --amount 50 \\
-  --blockchain USDC_MATIC
+  --blockchain USDC_POL
 
 # Get payment details
 coinpay payment get pay_abc123
@@ -681,7 +681,7 @@ try {
 const result = await client.createPayment({
   businessId: 'biz_123',
   amount: 100,
-  blockchain: Blockchain.BTC,  // 'BTC' | 'BCH' | 'ETH' | 'MATIC' | 'SOL' | 'USDC_ETH' | 'USDC_MATIC' | 'USDC_SOL'
+  blockchain: Blockchain.BTC,  // 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL' | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL'
 });
 
 // result.payment.status: 'pending' | 'detected' | 'confirmed' | 'forwarding' | 'forwarded' | 'expired' | 'failed'

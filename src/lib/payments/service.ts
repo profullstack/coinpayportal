@@ -10,7 +10,7 @@ export { ESTIMATED_NETWORK_FEES_USD, getEstimatedNetworkFee, getEstimatedNetwork
 /**
  * Supported blockchains
  */
-export type Blockchain = 'BTC' | 'BCH' | 'ETH' | 'MATIC' | 'SOL' | 'USDC_ETH' | 'USDC_MATIC' | 'USDC_SOL';
+export type Blockchain = 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL' | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
 
 /**
  * Payment expiration time in minutes
@@ -21,7 +21,7 @@ export const PAYMENT_EXPIRATION_MINUTES = 15;
 /**
  * Validation schemas
  */
-const blockchainSchema = z.enum(['BTC', 'BCH', 'ETH', 'MATIC', 'SOL', 'USDC_ETH', 'USDC_MATIC', 'USDC_SOL']);
+const blockchainSchema = z.enum(['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL']);
 const amountSchema = z.number().positive('Amount must be greater than zero');
 const businessIdSchema = z.string().uuid('Invalid business ID');
 
@@ -168,7 +168,7 @@ export async function createPayment(
       : input.blockchain as SystemBlockchain;
     
     // Only generate system wallet address for supported blockchains
-    const supportedBlockchains: SystemBlockchain[] = ['BTC', 'ETH', 'MATIC', 'SOL'];
+    const supportedBlockchains: SystemBlockchain[] = ['BTC', 'ETH', 'POL', 'SOL'];
     if (supportedBlockchains.includes(baseBlockchain)) {
       const addressResult = await generatePaymentAddress(
         supabase,

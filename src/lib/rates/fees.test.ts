@@ -13,7 +13,7 @@ describe('Tatum Fee Estimation Service', () => {
       expect(fees).toHaveProperty('BTC');
       expect(fees).toHaveProperty('BCH');
       expect(fees).toHaveProperty('ETH');
-      expect(fees).toHaveProperty('MATIC');
+      expect(fees).toHaveProperty('POL');
       expect(fees).toHaveProperty('SOL');
     });
 
@@ -23,7 +23,7 @@ describe('Tatum Fee Estimation Service', () => {
       expect(fees['BTC']).toBe(2.00);
       expect(fees['BCH']).toBe(0.01);
       expect(fees['ETH']).toBe(3.00);
-      expect(fees['MATIC']).toBe(0.01);
+      expect(fees['POL']).toBe(0.01);
       expect(fees['SOL']).toBe(0.001);
     });
 
@@ -55,8 +55,8 @@ describe('Tatum Fee Estimation Service', () => {
         expect(fee).toBe(3.60);
       });
 
-      it('should return fee for MATIC with minimum $0.01', async () => {
-        const fee = await getEstimatedNetworkFee('MATIC');
+      it('should return fee for POL with minimum $0.01', async () => {
+        const fee = await getEstimatedNetworkFee('POL');
         
         // Fallback is $0.01, with 20% buffer = $0.012, but minimum is $0.01
         expect(fee).toBeGreaterThanOrEqual(0.01);
@@ -85,11 +85,11 @@ describe('Tatum Fee Estimation Service', () => {
         expect(usdcEthFee).toBe(ethFee);
       });
 
-      it('should use MATIC fee for USDC_MATIC', async () => {
-        const maticFee = await getEstimatedNetworkFee('MATIC');
-        const usdcMaticFee = await getEstimatedNetworkFee('USDC_MATIC');
+      it('should use POL fee for USDC_POL', async () => {
+        const polFee = await getEstimatedNetworkFee('POL');
+        const usdcPolFee = await getEstimatedNetworkFee('USDC_POL');
         
-        expect(usdcMaticFee).toBe(maticFee);
+        expect(usdcPolFee).toBe(polFee);
       });
 
       it('should use SOL fee for USDC_SOL', async () => {
@@ -138,7 +138,7 @@ describe('Tatum Fee Estimation Service', () => {
       });
 
       it('should return positive fees for all supported chains', async () => {
-        const chains = ['BTC', 'ETH', 'MATIC', 'SOL', 'BCH'];
+        const chains = ['BTC', 'ETH', 'POL', 'SOL', 'BCH'];
         
         for (const chain of chains) {
           const fee = await getEstimatedNetworkFee(chain);
@@ -165,7 +165,7 @@ describe('Tatum Fee Estimation Service', () => {
     });
 
     it('should fetch fees for all supported blockchains', async () => {
-      const chains = ['BTC', 'ETH', 'MATIC', 'SOL', 'BCH'];
+      const chains = ['BTC', 'ETH', 'POL', 'SOL', 'BCH'];
       const fees = await getEstimatedNetworkFees(chains);
       
       for (const chain of chains) {
@@ -178,19 +178,19 @@ describe('Tatum Fee Estimation Service', () => {
   describe('fee reasonableness', () => {
     it('should have BTC fee higher than low-fee chains', async () => {
       const btcFee = await getEstimatedNetworkFee('BTC');
-      const maticFee = await getEstimatedNetworkFee('MATIC');
+      const polFee = await getEstimatedNetworkFee('POL');
       const solFee = await getEstimatedNetworkFee('SOL');
       
-      expect(btcFee).toBeGreaterThan(maticFee);
+      expect(btcFee).toBeGreaterThan(polFee);
       expect(btcFee).toBeGreaterThan(solFee);
     });
 
     it('should have ETH fee higher than low-fee chains', async () => {
       const ethFee = await getEstimatedNetworkFee('ETH');
-      const maticFee = await getEstimatedNetworkFee('MATIC');
+      const polFee = await getEstimatedNetworkFee('POL');
       const solFee = await getEstimatedNetworkFee('SOL');
       
-      expect(ethFee).toBeGreaterThan(maticFee);
+      expect(ethFee).toBeGreaterThan(polFee);
       expect(ethFee).toBeGreaterThan(solFee);
     });
 
