@@ -1038,36 +1038,126 @@ export class BitcoinCashProvider extends BitcoinProvider {
 
   /**
    * Override UTXO fetching for BCH
+   * Uses Blockchair API since Tatum doesn't have a direct UTXO endpoint for BCH
    */
   protected async getUTXOs(address: string): Promise<UTXO[]> {
+    // Convert to legacy address for API calls
+    const legacyAddress = this.toLegacyAddress(address);
+    console.log(`[BCH] Fetching UTXOs for ${address} (legacy: ${legacyAddress})`);
+
+    // Try Blockchair API first (most reliable for BCH UTXOs)
     try {
-      const apiKey = process.env.TATUM_API_KEY;
-      if (!apiKey) {
-        throw new Error('TATUM_API_KEY not configured');
+      const blockchairUrl = `https://api.blockchair.com/bitcoin-cash/dashboards/address/${legacyAddress}?limit=100`;
+      console.log(`[BCH] Blockchair UTXO URL: ${blockchairUrl}`);
+      
+      const response = await axios.get(blockchairUrl);
+      const addressData = response.data?.data?.[legacyAddress];
+      
+      if (!addressData) {
+        console.log(`[BCH] No address data from Blockchair for ${legacyAddress}`);
+        throw new Error('Address not found in Blockchair');
       }
-
-      // Convert to legacy address for Tatum API
-      const legacyAddress = this.toLegacyAddress(address);
-      console.log(`[BCH] Fetching UTXOs for ${address} (legacy: ${legacyAddress})`);
-
-      const response = await axios.get(
-        `https://api.tatum.io/v3/bcash/utxo/${legacyAddress}`,
-        {
-          headers: {
-            'x-api-key': apiKey,
-          },
-        }
-      );
-
-      return response.data.map((utxo: any) => ({
-        txid: utxo.txHash,
+      
+      const utxos = addressData.utxo || [];
+      console.log(`[BCH] Blockchair found ${utxos.length} UTXOs`);
+      
+      return utxos.map((utxo: any) => ({
+        txid: utxo.transaction_hash,
         vout: utxo.index,
-        value: Math.round(parseFloat(utxo.value) * 100000000),
+        value: utxo.value, // Already in satoshis
       }));
-    } catch (error) {
-      console.error('[BCH] Failed to fetch UTXOs:', error);
-      throw new Error(`Failed to fetch BCH UTXOs: ${error}`);
+    } catch (blockchairError: any) {
+      console.error('[BCH] Blockchair UTXO fetch failed:', blockchairError.response?.status || blockchairError.message);
     }
+
+    // Fallback to Fullstack.cash API
+    try {
+      // Fullstack.cash accepts CashAddr format
+      const fullstackUrl = `https://api.fullstack.cash/v5/electrumx/utxos/${address}`;
+      console.log(`[BCH] Fullstack.cash UTXO URL: ${fullstackUrl}`);
+      
+      const response = await axios.get(fullstackUrl);
+      
+      if (response.data?.success && response.data?.utxos) {
+        const utxos = response.data.utxos;
+        console.log(`[BCH] Fullstack.cash found ${utxos.length} UTXOs`);
+        
+        return utxos.map((utxo: any) => ({
+          txid: utxo.tx_hash,
+          vout: utxo.tx_pos,
+          value: utxo.value, // Already in satoshis
+        }));
+      }
+    } catch (fullstackError: any) {
+      console.error('[BCH] Fullstack.cash UTXO fetch failed:', fullstackError.response?.status || fullstackError.message);
+    }
+
+    // Last resort: Try CryptoAPIs
+    const cryptoApisKey = process.env.CRYPTO_APIS_KEY;
+    if (cryptoApisKey) {
+      try {
+        // Remove bitcoincash: prefix for CryptoAPIs
+        let cashAddrShort = address.toLowerCase();
+        if (cashAddrShort.startsWith('bitcoincash:')) {
+          cashAddrShort = cashAddrShort.substring(12);
+        }
+        
+        const cryptoApisUrl = `https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet/addresses/${cashAddrShort}/unspent-outputs?limit=50`;
+        console.log(`[BCH] CryptoAPIs UTXO URL: ${cryptoApisUrl}`);
+        
+        const response = await axios.get(cryptoApisUrl, {
+          headers: {
+            'X-API-Key': cryptoApisKey,
+          },
+        });
+        
+        const items = response.data?.data?.items || [];
+        console.log(`[BCH] CryptoAPIs found ${items.length} UTXOs`);
+        
+        return items.map((utxo: any) => ({
+          txid: utxo.transactionId,
+          vout: utxo.index,
+          value: Math.round(parseFloat(utxo.amount) * 100000000),
+        }));
+      } catch (cryptoApisError: any) {
+        console.error('[BCH] CryptoAPIs UTXO fetch failed:', cryptoApisError.response?.status || cryptoApisError.message);
+      }
+    }
+
+    throw new Error('Failed to fetch BCH UTXOs from all available APIs');
+  }
+
+  /**
+   * Fetch raw transaction hex for BCH
+   * Used for building PSBT inputs
+   */
+  protected async getRawTransaction(txid: string): Promise<string> {
+    // Try Blockchair first
+    try {
+      const blockchairUrl = `https://api.blockchair.com/bitcoin-cash/raw/transaction/${txid}`;
+      console.log(`[BCH] Fetching raw tx from Blockchair: ${txid}`);
+      const response = await axios.get(blockchairUrl);
+      const rawHex = response.data?.data?.[txid]?.raw_transaction;
+      if (rawHex) {
+        return rawHex;
+      }
+    } catch (error: any) {
+      console.error('[BCH] Blockchair raw tx fetch failed:', error.response?.status || error.message);
+    }
+
+    // Try Fullstack.cash
+    try {
+      const fullstackUrl = `https://api.fullstack.cash/v5/rawtransactions/getRawTransaction/${txid}?verbose=false`;
+      console.log(`[BCH] Fetching raw tx from Fullstack.cash: ${txid}`);
+      const response = await axios.get(fullstackUrl);
+      if (response.data) {
+        return response.data;
+      }
+    } catch (error: any) {
+      console.error('[BCH] Fullstack.cash raw tx fetch failed:', error.response?.status || error.message);
+    }
+
+    throw new Error(`Failed to fetch raw transaction ${txid} for BCH`);
   }
 
   /**
@@ -1095,6 +1185,123 @@ export class BitcoinCashProvider extends BitcoinProvider {
     } catch (error: any) {
       console.error('[BCH] Failed to broadcast transaction:', error.response?.data || error);
       throw new Error(`Failed to broadcast BCH transaction: ${error.response?.data?.message || error}`);
+    }
+  }
+
+  /**
+   * Override sendSplitTransaction for BCH
+   * Uses BCH-specific APIs for raw transaction fetching
+   */
+  async sendSplitTransaction(
+    from: string,
+    recipients: Array<{ address: string; amount: string }>,
+    privateKey: string
+  ): Promise<string> {
+    try {
+      // Parse private key
+      const ECPair = (await import('ecpair')).default((await import('tiny-secp256k1')));
+      const keyPair = ECPair.fromPrivateKey(Buffer.from(privateKey, 'hex'), {
+        network: bitcoin.networks.bitcoin, // BCH uses same network params
+      });
+
+      // Fetch UTXOs using our BCH-specific method
+      const utxos = await this.getUTXOs(from);
+      if (utxos.length === 0) {
+        throw new Error('No UTXOs available for spending');
+      }
+
+      // Calculate totals
+      const totalAvailable = utxos.reduce((sum, utxo) => sum + utxo.value, 0);
+      let totalToSend = 0;
+      const outputs: Array<{ address: string; value: number }> = [];
+
+      // BCH dust limit
+      const DUST_LIMIT = 546;
+      const SATOSHIS_PER_BYTE = 1; // BCH has much lower fees
+
+      for (const recipient of recipients) {
+        const satoshis = Math.round(parseFloat(recipient.amount) * 100000000);
+        if (satoshis > DUST_LIMIT) {
+          // Convert recipient address to legacy if needed
+          const legacyRecipient = this.toLegacyAddress(recipient.address);
+          outputs.push({ address: legacyRecipient, value: satoshis });
+          totalToSend += satoshis;
+        }
+      }
+
+      // Estimate fee (outputs + change)
+      const estimatedSize = utxos.length * 148 + (outputs.length + 1) * 34 + 10;
+      const fee = estimatedSize * SATOSHIS_PER_BYTE;
+
+      console.log(`[BCH] Split: balance=${totalAvailable}, total=${totalToSend}, fee=${fee}`);
+
+      // Adjust amounts if needed
+      if (totalToSend + fee > totalAvailable) {
+        const ratio = (totalAvailable - fee) / totalToSend;
+        console.log(`[BCH] Adjusting split amounts by ratio ${ratio}`);
+        
+        for (const output of outputs) {
+          output.value = Math.floor(output.value * ratio);
+        }
+        totalToSend = outputs.reduce((sum, o) => sum + o.value, 0);
+      }
+
+      // Build transaction
+      const psbt = new bitcoin.Psbt({ network: bitcoin.networks.bitcoin });
+
+      // Add inputs - fetch raw transactions from BCH APIs
+      for (const utxo of utxos) {
+        const rawTx = await this.getRawTransaction(utxo.txid);
+
+        psbt.addInput({
+          hash: utxo.txid,
+          index: utxo.vout,
+          nonWitnessUtxo: Buffer.from(rawTx, 'hex'),
+        });
+      }
+
+      // Add outputs
+      for (const output of outputs) {
+        if (output.value > DUST_LIMIT) {
+          psbt.addOutput({
+            address: output.address,
+            value: output.value,
+          });
+        }
+      }
+
+      // Add change output
+      const fromLegacy = this.toLegacyAddress(from);
+      const change = totalAvailable - totalToSend - fee;
+      if (change > DUST_LIMIT) {
+        psbt.addOutput({
+          address: fromLegacy,
+          value: change,
+        });
+      }
+
+      // Sign all inputs
+      const signer = {
+        publicKey: Buffer.from(keyPair.publicKey),
+        sign: (hash: Buffer) => Buffer.from(keyPair.sign(hash)),
+      };
+      
+      for (let i = 0; i < utxos.length; i++) {
+        psbt.signInput(i, signer);
+      }
+
+      // Finalize and broadcast
+      psbt.finalizeAllInputs();
+      const tx = psbt.extractTransaction();
+      const txHex = tx.toHex();
+
+      const txId = await this.broadcastTransaction(txHex);
+      console.log(`[BCH] Split transaction sent: ${txId}`);
+
+      return txId;
+    } catch (error) {
+      console.error('[BCH] Split transaction failed:', error);
+      throw new Error(`Failed to send BCH split transaction: ${error}`);
     }
   }
 
