@@ -1190,7 +1190,8 @@ export class BitcoinCashProvider extends BitcoinProvider {
 
   /**
    * Override sendSplitTransaction for BCH
-   * Uses BCH-specific APIs for raw transaction fetching
+   * Uses Tatum's transaction API which handles SIGHASH_FORKID signing
+   * BCH requires SIGHASH_FORKID (0x40) flag which bitcoinjs-lib doesn't support
    */
   async sendSplitTransaction(
     from: string,
@@ -1198,12 +1199,14 @@ export class BitcoinCashProvider extends BitcoinProvider {
     privateKey: string
   ): Promise<string> {
     try {
-      // Parse private key
-      const ECPair = (await import('ecpair')).default((await import('tiny-secp256k1')));
-      const keyPair = ECPair.fromPrivateKey(Buffer.from(privateKey, 'hex'), {
-        network: bitcoin.networks.bitcoin, // BCH uses same network params
-      });
+      const apiKey = process.env.TATUM_API_KEY;
+      if (!apiKey) {
+        throw new Error('TATUM_API_KEY not configured');
+      }
 
+      // Convert addresses to legacy format for Tatum API
+      const fromLegacy = this.toLegacyAddress(from);
+      
       // Fetch UTXOs using our BCH-specific method
       const utxos = await this.getUTXOs(from);
       if (utxos.length === 0) {
@@ -1212,25 +1215,27 @@ export class BitcoinCashProvider extends BitcoinProvider {
 
       // Calculate totals
       const totalAvailable = utxos.reduce((sum, utxo) => sum + utxo.value, 0);
-      let totalToSend = 0;
-      const outputs: Array<{ address: string; value: number }> = [];
-
+      
       // BCH dust limit
       const DUST_LIMIT = 546;
       const SATOSHIS_PER_BYTE = 1; // BCH has much lower fees
+
+      // Prepare outputs for Tatum API
+      const tatumOutputs: Array<{ address: string; value: number }> = [];
+      let totalToSend = 0;
 
       for (const recipient of recipients) {
         const satoshis = Math.round(parseFloat(recipient.amount) * 100000000);
         if (satoshis > DUST_LIMIT) {
           // Convert recipient address to legacy if needed
           const legacyRecipient = this.toLegacyAddress(recipient.address);
-          outputs.push({ address: legacyRecipient, value: satoshis });
+          tatumOutputs.push({ address: legacyRecipient, value: satoshis });
           totalToSend += satoshis;
         }
       }
 
-      // Estimate fee (outputs + change)
-      const estimatedSize = utxos.length * 148 + (outputs.length + 1) * 34 + 10;
+      // Estimate fee
+      const estimatedSize = utxos.length * 148 + (tatumOutputs.length + 1) * 34 + 10;
       const fee = estimatedSize * SATOSHIS_PER_BYTE;
 
       console.log(`[BCH] Split: balance=${totalAvailable}, total=${totalToSend}, fee=${fee}`);
@@ -1240,69 +1245,67 @@ export class BitcoinCashProvider extends BitcoinProvider {
         const ratio = (totalAvailable - fee) / totalToSend;
         console.log(`[BCH] Adjusting split amounts by ratio ${ratio}`);
         
-        for (const output of outputs) {
+        for (const output of tatumOutputs) {
           output.value = Math.floor(output.value * ratio);
         }
-        totalToSend = outputs.reduce((sum, o) => sum + o.value, 0);
+        totalToSend = tatumOutputs.reduce((sum, o) => sum + o.value, 0);
       }
 
-      // Build transaction
-      const psbt = new bitcoin.Psbt({ network: bitcoin.networks.bitcoin });
-
-      // Add inputs - fetch raw transactions from BCH APIs
-      for (const utxo of utxos) {
-        const rawTx = await this.getRawTransaction(utxo.txid);
-
-        psbt.addInput({
-          hash: utxo.txid,
-          index: utxo.vout,
-          nonWitnessUtxo: Buffer.from(rawTx, 'hex'),
-        });
-      }
-
-      // Add outputs
-      for (const output of outputs) {
-        if (output.value > DUST_LIMIT) {
-          psbt.addOutput({
-            address: output.address,
-            value: output.value,
-          });
-        }
-      }
-
-      // Add change output
-      const fromLegacy = this.toLegacyAddress(from);
+      // Add change output if there's enough left
       const change = totalAvailable - totalToSend - fee;
       if (change > DUST_LIMIT) {
-        psbt.addOutput({
-          address: fromLegacy,
-          value: change,
-        });
+        tatumOutputs.push({ address: fromLegacy, value: change });
       }
 
-      // Sign all inputs
-      const signer = {
-        publicKey: Buffer.from(keyPair.publicKey),
-        sign: (hash: Buffer) => Buffer.from(keyPair.sign(hash)),
+      // Build Tatum API request
+      // Tatum's BCH transaction endpoint handles SIGHASH_FORKID signing
+      const tatumRequest = {
+        fromUTXO: utxos.map(utxo => ({
+          txHash: utxo.txid,
+          index: utxo.vout,
+          privateKey: privateKey,
+        })),
+        to: tatumOutputs.map(output => ({
+          address: output.address,
+          value: output.value / 100000000, // Convert satoshis to BCH
+        })),
       };
-      
-      for (let i = 0; i < utxos.length; i++) {
-        psbt.signInput(i, signer);
-      }
 
-      // Finalize and broadcast
-      psbt.finalizeAllInputs();
-      const tx = psbt.extractTransaction();
-      const txHex = tx.toHex();
+      console.log(`[BCH] Sending transaction via Tatum API with ${utxos.length} inputs and ${tatumOutputs.length} outputs`);
 
-      const txId = await this.broadcastTransaction(txHex);
+      const response = await axios.post(
+        'https://api.tatum.io/v3/bcash/transaction',
+        tatumRequest,
+        {
+          headers: {
+            'x-api-key': apiKey,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const txId = response.data.txId;
       console.log(`[BCH] Split transaction sent: ${txId}`);
 
       return txId;
-    } catch (error) {
-      console.error('[BCH] Split transaction failed:', error);
-      throw new Error(`Failed to send BCH split transaction: ${error}`);
+    } catch (error: any) {
+      console.error('[BCH] Split transaction failed:', error.response?.data || error);
+      throw new Error(`Failed to send BCH split transaction: ${error.response?.data?.message || error}`);
     }
+  }
+
+  /**
+   * Override sendTransaction for BCH
+   * Uses Tatum's transaction API which handles SIGHASH_FORKID signing
+   */
+  async sendTransaction(
+    from: string,
+    to: string,
+    amount: string,
+    privateKey: string
+  ): Promise<string> {
+    // Use sendSplitTransaction with a single recipient
+    return this.sendSplitTransaction(from, [{ address: to, amount }], privateKey);
   }
 
   async getBalance(address: string): Promise<string> {
