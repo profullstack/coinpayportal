@@ -924,6 +924,81 @@ export class SolanaProvider implements BlockchainProvider {
 const CASHADDR_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 
 /**
+ * Base58 alphabet for WIF encoding
+ */
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+/**
+ * Convert a hex private key to WIF (Wallet Import Format)
+ * WIF format: version (1 byte) + private key (32 bytes) + compression flag (1 byte) + checksum (4 bytes)
+ * Then Base58 encoded
+ *
+ * @param hexPrivateKey - 64 character hex string (32 bytes)
+ * @param compressed - Whether to use compressed public key (default: true)
+ * @returns WIF encoded private key (52 characters for compressed)
+ */
+export function hexToWIF(hexPrivateKey: string, compressed: boolean = true): string {
+  // Validate hex private key
+  if (!/^[0-9a-fA-F]{64}$/.test(hexPrivateKey)) {
+    throw new Error(`Invalid hex private key: expected 64 hex characters, got ${hexPrivateKey.length}`);
+  }
+
+  // Version byte for mainnet (0x80)
+  const versionByte = 0x80;
+  
+  // Build the payload: version + private key + (optional) compression flag
+  const privateKeyBytes = Buffer.from(hexPrivateKey, 'hex');
+  let payload: Buffer;
+  
+  if (compressed) {
+    // Add compression flag (0x01) for compressed public keys
+    payload = Buffer.concat([
+      Buffer.from([versionByte]),
+      privateKeyBytes,
+      Buffer.from([0x01])
+    ]);
+  } else {
+    payload = Buffer.concat([
+      Buffer.from([versionByte]),
+      privateKeyBytes
+    ]);
+  }
+  
+  // Calculate checksum: first 4 bytes of double SHA256
+  const checksum = bitcoin.crypto.hash256(payload).subarray(0, 4);
+  
+  // Combine payload and checksum
+  const wifBytes = Buffer.concat([payload, checksum]);
+  
+  // Base58 encode
+  const digits = [0];
+  for (let i = 0; i < wifBytes.length; i++) {
+    let carry = wifBytes[i];
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+  
+  let wif = '';
+  // Leading zeros
+  for (let i = 0; i < wifBytes.length && wifBytes[i] === 0; i++) {
+    wif += BASE58_ALPHABET[0];
+  }
+  // Convert digits to string
+  for (let i = digits.length - 1; i >= 0; i--) {
+    wif += BASE58_ALPHABET[digits[i]];
+  }
+  
+  return wif;
+}
+
+/**
  * Convert CashAddr to legacy Bitcoin address format
  * CashAddr format: bitcoincash:qp... -> Legacy format: 1... or 3...
  * Exported for testing purposes
@@ -1257,13 +1332,31 @@ export class BitcoinCashProvider extends BitcoinProvider {
         tatumOutputs.push({ address: fromLegacy, value: change });
       }
 
+      // Convert hex private key to WIF format for Tatum API
+      // Tatum expects WIF format (52 characters for compressed keys)
+      let wifPrivateKey: string;
+      try {
+        // Check if already in WIF format (starts with K, L, or 5 for mainnet)
+        if (/^[KL5][1-9A-HJ-NP-Za-km-z]{50,51}$/.test(privateKey)) {
+          wifPrivateKey = privateKey;
+          console.log(`[BCH] Private key already in WIF format`);
+        } else {
+          // Convert from hex to WIF
+          wifPrivateKey = hexToWIF(privateKey, true);
+          console.log(`[BCH] Converted hex private key to WIF format (${wifPrivateKey.length} chars)`);
+        }
+      } catch (conversionError) {
+        console.error(`[BCH] Failed to convert private key to WIF:`, conversionError);
+        throw new Error(`Private key conversion failed: ${conversionError}`);
+      }
+
       // Build Tatum API request
       // Tatum's BCH transaction endpoint handles SIGHASH_FORKID signing
       const tatumRequest = {
         fromUTXO: utxos.map(utxo => ({
           txHash: utxo.txid,
           index: utxo.vout,
-          privateKey: privateKey,
+          privateKey: wifPrivateKey,
         })),
         to: tatumOutputs.map(output => ({
           address: output.address,
