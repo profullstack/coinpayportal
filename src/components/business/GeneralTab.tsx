@@ -74,6 +74,24 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
       {editing ? (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Merchant ID
+            </label>
+            <div className="flex items-center space-x-2">
+              <code className="flex-1 px-3 py-2 bg-gray-100 rounded-lg text-sm font-mono text-gray-900 break-all">
+                {business.id}
+              </code>
+              <button
+                type="button"
+                onClick={() => onCopy(business.id, 'Merchant ID')}
+                className="px-3 py-2 text-sm font-medium text-purple-600 hover:text-purple-500 border border-purple-200 rounded-lg hover:bg-purple-50"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Business Name *
             </label>
@@ -124,6 +142,23 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
         </form>
       ) : (
         <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Merchant ID
+            </label>
+            <div className="flex items-center space-x-2">
+              <code className="flex-1 px-3 py-2 bg-gray-100 rounded-lg text-sm font-mono text-gray-900 break-all">
+                {business.id}
+              </code>
+              <button
+                onClick={() => onCopy(business.id, 'Merchant ID')}
+                className="px-3 py-2 text-sm font-medium text-purple-600 hover:text-purple-500 border border-purple-200 rounded-lg hover:bg-purple-50"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Business Name

@@ -2,7 +2,7 @@
 
 import { useAppKit, useAppKitAccount } from '@reown/appkit/react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface ConnectButtonProps {
   className?: string;
@@ -11,16 +11,55 @@ interface ConnectButtonProps {
   showBalance?: boolean;
 }
 
+// Safe hook wrapper that returns default values if context is not available
+function useSafeWallet() {
+  try {
+    return useWallet();
+  } catch {
+    return {
+      publicKey: null,
+      connected: false,
+      disconnect: async () => {},
+    };
+  }
+}
+
+function useSafeAppKit() {
+  try {
+    return useAppKit();
+  } catch {
+    return {
+      open: () => {},
+    };
+  }
+}
+
+function useSafeAppKitAccount() {
+  try {
+    return useAppKitAccount();
+  } catch {
+    return {
+      address: undefined,
+      isConnected: false,
+    };
+  }
+}
+
 export function ConnectButton({
   className = '',
   variant = 'primary',
   size = 'md',
   showBalance = false,
 }: ConnectButtonProps) {
-  const { open } = useAppKit();
-  const { address: evmAddress, isConnected: isEvmConnected } = useAppKitAccount();
-  const { publicKey: solanaPublicKey, connected: isSolanaConnected, disconnect: disconnectSolana } = useWallet();
+  const [mounted, setMounted] = useState(false);
+  const { open } = useSafeAppKit();
+  const { address: evmAddress, isConnected: isEvmConnected } = useSafeAppKitAccount();
+  const { publicKey: solanaPublicKey, connected: isSolanaConnected, disconnect: disconnectSolana } = useSafeWallet();
   const [showDropdown, setShowDropdown] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const isConnected = isEvmConnected || isSolanaConnected;
   const displayAddress = evmAddress || solanaPublicKey?.toBase58();
@@ -55,6 +94,21 @@ export function ConnectButton({
     // EVM disconnect is handled by AppKit
     setShowDropdown(false);
   };
+
+  // Don't render until mounted to avoid hydration issues
+  if (!mounted) {
+    return (
+      <button
+        className={`${baseStyles} ${variantStyles[variant]} ${sizeStyles[size]} ${className} opacity-50`}
+        disabled
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+        </svg>
+        Connect Wallet
+      </button>
+    );
+  }
 
   if (isConnected && displayAddress) {
     return (
