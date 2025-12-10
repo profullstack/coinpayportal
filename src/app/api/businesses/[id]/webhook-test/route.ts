@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifySession } from '@/lib/auth/service';
-import { deliverWebhook, signWebhookPayload } from '@/lib/webhooks/service';
+import { generateTestWebhookSignature } from '@/lib/sdk';
 
 /**
  * POST /api/businesses/[id]/webhook-test
@@ -96,26 +96,29 @@ export async function POST(
       );
     }
 
-    // Create test payload
+    // Create test payload matching SDK's expected format
     const testPayload = {
-      event: 'test.webhook' as const,
-      payment_id: `test_${Date.now()}`,
+      id: `evt_test_${Date.now()}`,
+      type: 'test.webhook',
+      data: {
+        payment_id: `test_${Date.now()}`,
+        amount_crypto: '0.001',
+        amount_usd: '50.00',
+        currency: 'BTC',
+        status: 'test',
+        confirmations: 6,
+        tx_hash: `0x${Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('')}`,
+        message: 'This is a test webhook from CoinPay',
+      },
+      created_at: new Date().toISOString(),
       business_id: businessId,
-      amount_crypto: '0.001',
-      amount_usd: '50.00',
-      currency: 'BTC',
-      status: 'test',
-      confirmations: 6,
-      tx_hash: `0x${Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('')}`,
-      message: 'This is a test webhook from CoinPay',
     };
 
-    // Sign the payload
-    const payloadWithTimestamp = {
-      ...testPayload,
-      timestamp: new Date().toISOString(),
-    };
-    const signature = signWebhookPayload(payloadWithTimestamp, business.webhook_secret);
+    // Convert payload to string for signing (SDK expects string payload)
+    const payloadString = JSON.stringify(testPayload);
+    
+    // Generate signature using SDK's format: t=timestamp,v1=signature
+    const signature = generateTestWebhookSignature(payloadString, business.webhook_secret);
 
     // Deliver the webhook
     const startTime = Date.now();
@@ -127,10 +130,10 @@ export async function POST(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Webhook-Signature': signature,
+          'X-CoinPay-Signature': signature,
           'User-Agent': 'CoinPay-Webhook/1.0',
         },
-        body: JSON.stringify(payloadWithTimestamp),
+        body: payloadString,
         signal: AbortSignal.timeout(30000),
       });
 
@@ -151,7 +154,7 @@ export async function POST(
       // Log the test attempt
       await supabase.from('webhook_logs').insert({
         business_id: businessId,
-        payment_id: testPayload.payment_id,
+        payment_id: testPayload.id,
         event: 'test.webhook',
         webhook_url: business.webhook_url,
         success: response.ok,
@@ -177,10 +180,10 @@ export async function POST(
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'X-Webhook-Signature': signature.substring(0, 20) + '...',
+                'X-CoinPay-Signature': signature.substring(0, 30) + '...',
                 'User-Agent': 'CoinPay-Webhook/1.0',
               },
-              body: payloadWithTimestamp,
+              body: testPayload,
             },
           },
         },
@@ -193,7 +196,7 @@ export async function POST(
       // Log the failed test attempt
       await supabase.from('webhook_logs').insert({
         business_id: businessId,
-        payment_id: testPayload.payment_id,
+        payment_id: testPayload.id,
         event: 'test.webhook',
         webhook_url: business.webhook_url,
         success: false,
@@ -218,10 +221,10 @@ export async function POST(
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'X-Webhook-Signature': signature.substring(0, 20) + '...',
+                'X-CoinPay-Signature': signature.substring(0, 30) + '...',
                 'User-Agent': 'CoinPay-Webhook/1.0',
               },
-              body: payloadWithTimestamp,
+              body: testPayload,
             },
           },
         },

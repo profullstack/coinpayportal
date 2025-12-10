@@ -11,14 +11,13 @@ vi.mock('@/lib/auth/service', () => ({
   verifySession: vi.fn(),
 }));
 
-vi.mock('@/lib/webhooks/service', () => ({
-  deliverWebhook: vi.fn(),
-  signWebhookPayload: vi.fn(() => 'test-signature-abc123'),
+vi.mock('@/lib/sdk', () => ({
+  generateTestWebhookSignature: vi.fn(() => 't=1234567890,v1=abc123def456'),
 }));
 
 // Import mocked modules
 import { verifySession } from '@/lib/auth/service';
-import { signWebhookPayload } from '@/lib/webhooks/service';
+import { generateTestWebhookSignature } from '@/lib/sdk';
 
 let mockSupabase: any;
 
@@ -235,8 +234,8 @@ describe('POST /api/businesses/[id]/webhook-test', () => {
     expect(data.test_result.response_body).toBe('{"received": true}');
     expect(data.test_result.request.url).toBe('https://example.com/webhook');
     expect(data.test_result.request.method).toBe('POST');
-    expect(data.test_result.request.body.event).toBe('test.webhook');
-    expect(data.test_result.request.body.message).toBe('This is a test webhook from CoinPay');
+    expect(data.test_result.request.body.type).toBe('test.webhook');
+    expect(data.test_result.request.body.data.message).toBe('This is a test webhook from CoinPay');
   });
 
   it('should handle failed webhook delivery', async () => {
@@ -399,7 +398,7 @@ describe('POST /api/businesses/[id]/webhook-test', () => {
     expect(data.test_result.response_time_ms).toBeGreaterThanOrEqual(0);
   });
 
-  it('should sign payload with webhook secret', async () => {
+  it('should use SDK signature format with X-CoinPay-Signature header', async () => {
     vi.mocked(verifySession).mockResolvedValue({
       success: true,
       merchant: { id: 'merchant-123', email: 'test@test.com' },
@@ -432,14 +431,58 @@ describe('POST /api/businesses/[id]/webhook-test', () => {
     
     await POST(request, { params: Promise.resolve({ id: 'biz-123' }) });
     
-    // Verify signWebhookPayload was called with the secret
-    expect(signWebhookPayload).toHaveBeenCalled();
-    const signCall = vi.mocked(signWebhookPayload).mock.calls[0];
+    // Verify generateTestWebhookSignature was called with the secret
+    expect(generateTestWebhookSignature).toHaveBeenCalled();
+    const signCall = vi.mocked(generateTestWebhookSignature).mock.calls[0];
     expect(signCall[1]).toBe('secret-123');
     
-    // Verify fetch was called with signature header
+    // Verify fetch was called with X-CoinPay-Signature header
     expect(mockFetch).toHaveBeenCalled();
     const fetchCall = mockFetch.mock.calls[0];
-    expect(fetchCall[1].headers['X-Webhook-Signature']).toBe('test-signature-abc123');
+    expect(fetchCall[1].headers['X-CoinPay-Signature']).toBe('t=1234567890,v1=abc123def456');
+  });
+
+  it('should send payload in SDK-compatible format', async () => {
+    vi.mocked(verifySession).mockResolvedValue({
+      success: true,
+      merchant: { id: 'merchant-123', email: 'test@test.com' },
+    });
+
+    mockSupabase.single.mockResolvedValue({
+      data: {
+        id: 'biz-123',
+        name: 'Test Business',
+        webhook_url: 'https://example.com/webhook',
+        webhook_secret: 'secret-123',
+      },
+      error: null,
+    });
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: () => Promise.resolve('{}'),
+      headers: new Headers({}),
+    });
+
+    const request = new NextRequest('http://localhost/api/businesses/biz-123/webhook-test', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer valid-token',
+      },
+    });
+    
+    const response = await POST(request, { params: Promise.resolve({ id: 'biz-123' }) });
+    const data = await response.json();
+    
+    // Verify payload has SDK-compatible structure
+    const payload = data.test_result.request.body;
+    expect(payload.id).toBeDefined();
+    expect(payload.id).toMatch(/^evt_test_/);
+    expect(payload.type).toBe('test.webhook');
+    expect(payload.data).toBeDefined();
+    expect(payload.created_at).toBeDefined();
+    expect(payload.business_id).toBe('biz-123');
   });
 });

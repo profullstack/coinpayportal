@@ -370,13 +370,38 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
                   <p className="text-sm text-gray-900">{testResult.request.method}</p>
                 </div>
                 <div>
-                  <span className="text-xs font-medium text-gray-500 uppercase">Headers</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-500 uppercase">Headers</span>
+                    <button
+                      onClick={() => onCopy(JSON.stringify(testResult.request.headers, null, 2), 'Request headers')}
+                      className="text-purple-600 hover:text-purple-500 p-1"
+                      title="Copy to clipboard"
+                    >
+                      <svg className="h-4 w-4" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
+                        <path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                      </svg>
+                    </button>
+                  </div>
                   <pre className="text-xs text-gray-900 bg-white p-2 rounded border overflow-x-auto">
                     {JSON.stringify(testResult.request.headers, null, 2)}
                   </pre>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Signature format: <code className="bg-gray-100 px-1 rounded">t=timestamp,v1=hmac_sha256_hex</code>
+                  </p>
                 </div>
                 <div>
-                  <span className="text-xs font-medium text-gray-500 uppercase">Body</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-500 uppercase">Body</span>
+                    <button
+                      onClick={() => onCopy(JSON.stringify(testResult.request.body, null, 2), 'Request body')}
+                      className="text-purple-600 hover:text-purple-500 p-1"
+                      title="Copy to clipboard"
+                    >
+                      <svg className="h-4 w-4" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
+                        <path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                      </svg>
+                    </button>
+                  </div>
                   <pre className="text-xs text-gray-900 bg-white p-2 rounded border overflow-x-auto max-h-48">
                     {JSON.stringify(testResult.request.body, null, 2)}
                   </pre>
@@ -408,14 +433,44 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
                 </div>
                 {testResult.response_headers && Object.keys(testResult.response_headers).length > 0 && (
                   <div>
-                    <span className="text-xs font-medium text-gray-500 uppercase">Headers</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-gray-500 uppercase">Headers</span>
+                      <button
+                        onClick={() => onCopy(JSON.stringify(testResult.response_headers, null, 2), 'Response headers')}
+                        className="text-purple-600 hover:text-purple-500 p-1"
+                        title="Copy to clipboard"
+                      >
+                        <svg className="h-4 w-4" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
+                          <path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                        </svg>
+                      </button>
+                    </div>
                     <pre className="text-xs text-gray-900 bg-white p-2 rounded border overflow-x-auto max-h-32">
                       {JSON.stringify(testResult.response_headers, null, 2)}
                     </pre>
                   </div>
                 )}
                 <div>
-                  <span className="text-xs font-medium text-gray-500 uppercase">Body</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-500 uppercase">Body</span>
+                    {testResult.response_body && (
+                      <button
+                        onClick={() => {
+                          try {
+                            onCopy(JSON.stringify(JSON.parse(testResult.response_body!), null, 2), 'Response body');
+                          } catch {
+                            onCopy(testResult.response_body!, 'Response body');
+                          }
+                        }}
+                        className="text-purple-600 hover:text-purple-500 p-1"
+                        title="Copy to clipboard"
+                      >
+                        <svg className="h-4 w-4" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
+                          <path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                   {testResult.response_body ? (
                     <pre className="text-xs text-gray-900 bg-white p-2 rounded border overflow-x-auto max-h-48">
                       {(() => {
