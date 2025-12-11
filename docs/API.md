@@ -865,45 +865,154 @@ View webhook delivery logs.
 
 ## Webhook Payload Format
 
-When a webhook event occurs, CoinPay sends a POST request to your configured URL:
+When a webhook event occurs, CoinPay sends a POST request to your configured URL with the following structure:
+
+### Headers
+
+```
+Content-Type: application/json
+X-CoinPay-Signature: t=1702234567,v1=5d41402abc4b2a76b9719d911017c592
+User-Agent: CoinPay-Webhook/1.0
+```
+
+The `X-CoinPay-Signature` header contains:
+- `t` - Unix timestamp when the signature was generated
+- `v1` - HMAC-SHA256 signature of `{timestamp}.{payload}`
+
+### Payload Structure
 
 ```json
 {
-  "event": "payment.confirmed",
-  "timestamp": "2024-01-01T00:00:00.000Z",
+  "id": "evt_abc123def456",
+  "type": "payment.confirmed",
   "data": {
-    "payment": {
-      "id": "uuid",
-      "business_id": "uuid",
-      "amount": 100.00,
-      "currency": "USD",
-      "crypto_amount": "0.0456",
-      "crypto_currency": "ETH",
-      "status": "confirmed",
-      "tx_hash": "0xabc...def",
-      "confirmations": 12,
-      "metadata": {
-        "order_id": "ORDER-123"
-      }
+    "payment_id": "pay_xyz789",
+    "amount_crypto": "0.0456",
+    "amount_usd": "100.00",
+    "currency": "ETH",
+    "status": "confirmed",
+    "confirmations": 12,
+    "tx_hash": "0xabc...def",
+    "metadata": {
+      "order_id": "ORDER-123"
     }
   },
-  "signature": "sha256_hmac_signature"
+  "created_at": "2024-01-01T00:00:00.000Z",
+  "business_id": "biz_xyz789"
 }
 ```
 
+### Webhook Event Types
+
+| Event | Description |
+|-------|-------------|
+| `payment.detected` | Payment detected on blockchain (unconfirmed) |
+| `payment.confirmed` | Payment confirmed with required confirmations |
+| `payment.forwarded` | Funds forwarded to merchant wallet |
+| `payment.failed` | Payment failed |
+| `payment.expired` | Payment request expired |
+| `test.webhook` | Test webhook (sent from dashboard) |
+
 ### Verifying Webhook Signatures
 
-```javascript
-const crypto = require('crypto');
+The signature is computed as `HMAC-SHA256(timestamp.payload, secret)` where:
+- `timestamp` is the Unix timestamp from the `t=` part of the signature header
+- `payload` is the raw JSON body as a string
+- `secret` is your webhook secret
 
-function verifyWebhook(payload, signature, secret) {
-  const hmac = crypto.createHmac('sha256', secret);
-  const digest = hmac.update(JSON.stringify(payload)).digest('hex');
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(digest)
-  );
+**JavaScript Example:**
+```javascript
+import crypto from 'crypto';
+
+function verifyWebhookSignature(payload, signatureHeader, secret, tolerance = 300) {
+  // Parse signature header (format: t=timestamp,v1=signature)
+  const parts = signatureHeader.split(',');
+  const signatureParts = {};
+  
+  for (const part of parts) {
+    const [key, value] = part.split('=');
+    signatureParts[key] = value;
+  }
+
+  const timestamp = signatureParts.t;
+  const expectedSignature = signatureParts.v1;
+
+  if (!timestamp || !expectedSignature) {
+    return false;
+  }
+
+  // Check timestamp tolerance (prevent replay attacks)
+  const timestampAge = Math.floor(Date.now() / 1000) - parseInt(timestamp, 10);
+  if (Math.abs(timestampAge) > tolerance) {
+    return false;
+  }
+
+  // Compute expected signature
+  const signedPayload = `${timestamp}.${payload}`;
+  const computedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(signedPayload)
+    .digest('hex');
+
+  // Timing-safe comparison
+  const expectedBuffer = Buffer.from(expectedSignature, 'hex');
+  const computedBuffer = Buffer.from(computedSignature, 'hex');
+
+  if (expectedBuffer.length !== computedBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(expectedBuffer, computedBuffer);
 }
+
+// Usage in Express/Node.js
+app.post('/webhooks/coinpay', express.raw({ type: 'application/json' }), (req, res) => {
+  const payload = req.body.toString();
+  const signature = req.headers['x-coinpay-signature'];
+  
+  if (!verifyWebhookSignature(payload, signature, process.env.COINPAY_WEBHOOK_SECRET)) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+  
+  const event = JSON.parse(payload);
+  // Handle event...
+  
+  res.json({ received: true });
+});
+```
+
+**Using the SDK:**
+```javascript
+import { verifyWebhookSignature, parseWebhookPayload } from '@profullstack/coinpay';
+
+app.post('/webhooks/coinpay', express.raw({ type: 'application/json' }), (req, res) => {
+  const payload = req.body.toString();
+  const signature = req.headers['x-coinpay-signature'];
+  
+  const isValid = verifyWebhookSignature({
+    payload,
+    signature,
+    secret: process.env.COINPAY_WEBHOOK_SECRET
+  });
+  
+  if (!isValid) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+  
+  const event = parseWebhookPayload(payload);
+  
+  switch (event.type) {
+    case 'payment.confirmed':
+      // Handle confirmed payment
+      console.log('Payment confirmed:', event.data.payment_id);
+      break;
+    case 'payment.forwarded':
+      // Funds received in your wallet
+      break;
+  }
+  
+  res.json({ received: true });
+});
 ```
 
 ## Subscription & Entitlements Endpoints
@@ -1155,13 +1264,18 @@ function CryptoPayment({ orderId, blockchain }) {
 **3. Webhook Handler**
 ```javascript
 // routes/webhooks.js
-import { verifyWebhookSignature } from '@profullstack/coinpay';
+import express from 'express';
+import { verifyWebhookSignature, parseWebhookPayload } from '@profullstack/coinpay';
 
-app.post('/webhooks/coinpay', async (req, res) => {
+// Important: Use express.raw() to get the raw body for signature verification
+app.post('/webhooks/coinpay', express.raw({ type: 'application/json' }), async (req, res) => {
+  const payload = req.body.toString();
+  const signature = req.headers['x-coinpay-signature'];
+  
   // Verify signature
   const isValid = verifyWebhookSignature({
-    payload: req.rawBody,
-    signature: req.headers['x-coinpay-signature'],
+    payload,
+    signature,
     secret: process.env.COINPAY_WEBHOOK_SECRET
   });
   
@@ -1169,26 +1283,28 @@ app.post('/webhooks/coinpay', async (req, res) => {
     return res.status(401).json({ error: 'Invalid signature' });
   }
   
-  const { event, data } = req.body;
+  // Parse the webhook payload
+  const event = parseWebhookPayload(payload);
+  // event = { id, type, data, createdAt, businessId }
   
-  switch (event) {
+  switch (event.type) {
     case 'payment.confirmed':
       // Payment confirmed - fulfill order
-      const { orderId } = data.payment.metadata;
-      await db.orders.update(orderId, { status: 'paid' });
-      await sendOrderConfirmationEmail(orderId);
+      const { metadata } = event.data;
+      await db.orders.update(metadata.orderId, { status: 'paid' });
+      await sendOrderConfirmationEmail(metadata.orderId);
       break;
       
     case 'payment.forwarded':
       // Funds received in your wallet
-      await db.orders.update(data.payment.metadata.orderId, {
+      await db.orders.update(event.data.metadata.orderId, {
         fundsReceived: true
       });
       break;
       
     case 'payment.expired':
       // Payment expired - notify customer
-      await sendPaymentExpiredEmail(data.payment.metadata.orderId);
+      await sendPaymentExpiredEmail(event.data.metadata.orderId);
       break;
   }
   
