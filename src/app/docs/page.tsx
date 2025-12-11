@@ -346,7 +346,9 @@ console.log(data.payment.status);`}
                 { event: 'payment.detected', description: 'Payment detected on blockchain (0 confirmations)' },
                 { event: 'payment.confirmed', description: 'Payment confirmed (sufficient confirmations)' },
                 { event: 'payment.forwarded', description: 'Payment forwarded to merchant wallet' },
-                { event: 'payment.failed', description: 'Payment failed or expired' },
+                { event: 'payment.failed', description: 'Payment failed' },
+                { event: 'payment.expired', description: 'Payment request expired' },
+                { event: 'test.webhook', description: 'Test webhook (sent from dashboard)' },
               ].map((webhook) => (
                 <div key={webhook.event} className="p-4 rounded-lg bg-slate-800/50">
                   <code className="text-purple-400 font-mono">{webhook.event}</code>
@@ -355,25 +357,87 @@ console.log(data.payment.status);`}
               ))}
             </div>
 
+            <h3 className="text-xl font-semibold text-white mb-4">Webhook Headers</h3>
+            <CodeBlock>
+{`Content-Type: application/json
+X-CoinPay-Signature: t=1702234567,v1=5d41402abc4b2a76b9719d911017c592
+User-Agent: CoinPay-Webhook/1.0`}
+            </CodeBlock>
+            <p className="text-gray-400 text-sm mt-2 mb-6">
+              The <code className="text-purple-400">X-CoinPay-Signature</code> header contains: <code className="text-purple-400">t</code> (Unix timestamp) and <code className="text-purple-400">v1</code> (HMAC-SHA256 signature)
+            </p>
+
             <h3 className="text-xl font-semibold text-white mb-4">Webhook Payload Example</h3>
             <CodeBlock>
 {`{
-  "event": "payment.confirmed",
-  "payment_id": "payment-456",
-  "business_id": "business-123",
-  "amount_crypto": "0.00234567",
-  "amount_usd": "100.00",
-  "currency": "btc",
-  "status": "confirmed",
-  "confirmations": 3,
-  "tx_hash": "abc123...",
-  "timestamp": "2024-01-01T12:05:00Z"
+  "id": "evt_abc123def456",
+  "type": "payment.confirmed",
+  "data": {
+    "payment_id": "pay_xyz789",
+    "amount_crypto": "0.00234567",
+    "amount_usd": "100.00",
+    "currency": "BTC",
+    "status": "confirmed",
+    "confirmations": 3,
+    "tx_hash": "abc123...",
+    "metadata": {
+      "order_id": "ORDER-123"
+    }
+  },
+  "created_at": "2024-01-01T12:05:00Z",
+  "business_id": "business-123"
+}`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mt-8 mb-4">Verifying Webhook Signatures</h3>
+            <p className="text-gray-300 mb-4">
+              The signature is computed as <code className="text-purple-400">HMAC-SHA256(timestamp.payload, secret)</code>
+            </p>
+            <CodeBlock title="JavaScript Example" language="javascript">
+{`import crypto from 'crypto';
+
+function verifyWebhookSignature(payload, signatureHeader, secret) {
+  // Parse signature header (format: t=timestamp,v1=signature)
+  const parts = signatureHeader.split(',');
+  const signatureParts = {};
+  for (const part of parts) {
+    const [key, value] = part.split('=');
+    signatureParts[key] = value;
+  }
+
+  const timestamp = signatureParts.t;
+  const expectedSignature = signatureParts.v1;
+
+  // Check timestamp tolerance (300 seconds)
+  const timestampAge = Math.floor(Date.now() / 1000) - parseInt(timestamp, 10);
+  if (Math.abs(timestampAge) > 300) {
+    return false; // Reject old webhooks
+  }
+
+  // Compute expected signature
+  const signedPayload = \`\${timestamp}.\${payload}\`;
+  const computedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(signedPayload)
+    .digest('hex');
+
+  // Timing-safe comparison
+  return crypto.timingSafeEqual(
+    Buffer.from(expectedSignature, 'hex'),
+    Buffer.from(computedSignature, 'hex')
+  );
 }`}
             </CodeBlock>
 
             <div className="mt-6 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
               <p className="text-yellow-300 text-sm">
-                <strong>Note:</strong> Webhook payloads are signed with HMAC-SHA256. Verify the signature using your webhook secret.
+                <strong>Important:</strong> Always verify webhook signatures before processing. Use <code className="text-yellow-200">express.raw()</code> or equivalent to get the raw body for signature verification.
+              </p>
+            </div>
+
+            <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+              <p className="text-blue-300 text-sm">
+                <strong>SDK Support:</strong> Use <code className="text-blue-200">verifyWebhookSignature()</code> and <code className="text-blue-200">parseWebhookPayload()</code> from the <a href="/docs/sdk" className="underline">CoinPay SDK</a> for easier integration.
               </p>
             </div>
           </DocSection>
