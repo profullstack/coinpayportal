@@ -113,6 +113,11 @@ export async function GET(request: NextRequest) {
       status: p.status,
       created_at: p.created_at,
       payment_address: p.payment_address,
+      merchant_wallet_address: p.merchant_wallet_address,
+      merchant_amount: p.merchant_amount,
+      fee_amount: p.fee_amount,
+      forward_tx_hash: p.forward_tx_hash,
+      forwarded_at: p.forwarded_at,
     })) || [];
 
     return NextResponse.json({
