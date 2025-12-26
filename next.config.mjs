@@ -5,7 +5,6 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '2mb',
     },
-    instrumentationHook: true,
   },
   env: {
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || `http://localhost:${process.env.PORT || 3000}`,
