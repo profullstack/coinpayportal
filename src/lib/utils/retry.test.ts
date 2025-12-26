@@ -110,19 +110,18 @@ describe('fetchWithRetry', () => {
         .mockResolvedValueOnce(failResponse)
         .mockResolvedValueOnce(failResponse);
 
-      const fetchPromise = fetchWithRetry('https://api.example.com/test');
+      // Attach catch handler immediately to prevent unhandled rejection
+      let caughtError: unknown;
+      const fetchPromise = fetchWithRetry('https://api.example.com/test').catch((error) => {
+        caughtError = error;
+      });
 
-      // Advance timers for all retry delays and await the promise rejection
+      // Advance timers for all retry delays
       await vi.advanceTimersByTimeAsync(100); // First retry
       await vi.advanceTimersByTimeAsync(200); // Second retry
 
-      // Use try/catch to properly handle the rejection
-      let caughtError: unknown;
-      try {
-        await fetchPromise;
-      } catch (error) {
-        caughtError = error;
-      }
+      // Wait for the promise to settle
+      await fetchPromise;
 
       expect(caughtError).toBeInstanceOf(RetryError);
       expect(fetch).toHaveBeenCalledTimes(3);
@@ -136,17 +135,17 @@ describe('fetchWithRetry', () => {
         .mockResolvedValueOnce(failResponse)
         .mockResolvedValueOnce(failResponse);
 
-      const fetchPromise = fetchWithRetry('https://api.example.com/test');
+      // Attach catch handler immediately to prevent unhandled rejection
+      let caughtError: unknown;
+      const fetchPromise = fetchWithRetry('https://api.example.com/test').catch((error) => {
+        caughtError = error;
+      });
 
       await vi.advanceTimersByTimeAsync(100);
       await vi.advanceTimersByTimeAsync(200);
 
-      let caughtError: unknown;
-      try {
-        await fetchPromise;
-      } catch (error) {
-        caughtError = error;
-      }
+      // Wait for the promise to settle
+      await fetchPromise;
 
       expect(caughtError).toBeInstanceOf(RetryError);
       expect((caughtError as RetryError).attempts).toBe(3);
@@ -215,7 +214,12 @@ describe('fetchWithRetry', () => {
         .mockResolvedValueOnce(failResponse);
 
       const config: RetryConfig = { maxRetries: 3, baseDelayMs: 100 };
-      const fetchPromise = fetchWithRetry('https://api.example.com/test', {}, config);
+      
+      // Attach catch handler immediately to prevent unhandled rejection
+      let caughtError: unknown;
+      const fetchPromise = fetchWithRetry('https://api.example.com/test', {}, config).catch((error) => {
+        caughtError = error;
+      });
 
       // First retry after 100ms (100 * 2^0)
       await vi.advanceTimersByTimeAsync(100);
@@ -225,13 +229,8 @@ describe('fetchWithRetry', () => {
       await vi.advanceTimersByTimeAsync(200);
       expect(fetch).toHaveBeenCalledTimes(3);
 
-      // Properly handle the rejection
-      let caughtError: unknown;
-      try {
-        await fetchPromise;
-      } catch (error) {
-        caughtError = error;
-      }
+      // Wait for the promise to settle
+      await fetchPromise;
 
       expect(caughtError).toBeInstanceOf(RetryError);
     });
