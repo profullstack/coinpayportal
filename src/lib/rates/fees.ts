@@ -1,7 +1,7 @@
 /**
  * Tatum API Fee Estimation Service
  * Provides real-time network fee estimates for various blockchains
- * 
+ *
  * Tatum API Documentation:
  * - Gas Price: https://apidoc.tatum.io/tag/Gas-pump
  * - Bitcoin Fee: https://apidoc.tatum.io/tag/Bitcoin#operation/BtcGetFee
@@ -9,8 +9,18 @@
  */
 
 import { getExchangeRate } from './tatum';
+import { fetchWithRetry, RetryError } from '../utils/retry';
 
 const TATUM_API_BASE = 'https://api.tatum.io';
+
+/**
+ * Retry configuration for Tatum API calls
+ * 3 attempts with 100ms base delay (100ms, 200ms, 400ms)
+ */
+const TATUM_RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelayMs: 100,
+};
 
 /**
  * Fee cache to minimize API calls
@@ -61,118 +71,115 @@ function isCacheValid(cached: CachedFee): boolean {
 
 /**
  * Estimate Bitcoin transaction fee in USD
- * Uses Tatum's recommended fee endpoint
+ * Uses Tatum's recommended fee endpoint with retry logic
  */
 async function estimateBitcoinFee(): Promise<number> {
-  try {
-    const apiKey = getApiKey();
-    
-    // Get recommended fee in satoshis per byte
-    const response = await fetch(`${TATUM_API_BASE}/v3/bitcoin/info`, {
+  const apiKey = getApiKey();
+  
+  // Get recommended fee in satoshis per byte with retry
+  const response = await fetchWithRetry(
+    `${TATUM_API_BASE}/v3/bitcoin/info`,
+    {
       method: 'GET',
       headers: {
         'x-api-key': apiKey,
         'Content-Type': 'application/json',
       },
-    });
+    },
+    TATUM_RETRY_CONFIG
+  );
 
-    if (!response.ok) {
-      throw new Error(`Tatum API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Average transaction size is ~250 bytes
-    // Fee = satoshis_per_byte * 250 bytes
-    const satoshisPerByte = data.feePerByte || 20; // Default to 20 sat/byte
-    const avgTxSize = 250;
-    const feeInSatoshis = satoshisPerByte * avgTxSize;
-    const feeInBtc = feeInSatoshis / 100000000;
-    
-    // Convert to USD
-    const btcPrice = await getExchangeRate('BTC', 'USD');
-    return feeInBtc * btcPrice;
-  } catch (error) {
-    console.warn('[Fee] Bitcoin fee estimation failed, using fallback:', error);
-    return FALLBACK_FEES_USD['BTC'];
+  if (!response.ok) {
+    throw new Error(`Tatum API error: ${response.status}`);
   }
+
+  const data = await response.json() as { feePerByte?: number };
+  
+  // Average transaction size is ~250 bytes
+  // Fee = satoshis_per_byte * 250 bytes
+  const satoshisPerByte = data.feePerByte ?? 20; // Default to 20 sat/byte
+  const avgTxSize = 250;
+  const feeInSatoshis = satoshisPerByte * avgTxSize;
+  const feeInBtc = feeInSatoshis / 100000000;
+  
+  // Convert to USD
+  const btcPrice = await getExchangeRate('BTC', 'USD');
+  return feeInBtc * btcPrice;
 }
 
 /**
  * Estimate Ethereum transaction fee in USD
- * Uses Tatum's gas price endpoint
+ * Uses Tatum's gas price endpoint with retry logic
  */
 async function estimateEthereumFee(): Promise<number> {
-  try {
-    const apiKey = getApiKey();
-    
-    // Get current gas price
-    const response = await fetch(`${TATUM_API_BASE}/v3/ethereum/gas`, {
+  const apiKey = getApiKey();
+  
+  // Get current gas price with retry
+  const response = await fetchWithRetry(
+    `${TATUM_API_BASE}/v3/ethereum/gas`,
+    {
       method: 'GET',
       headers: {
         'x-api-key': apiKey,
         'Content-Type': 'application/json',
       },
-    });
+    },
+    TATUM_RETRY_CONFIG
+  );
 
-    if (!response.ok) {
-      throw new Error(`Tatum API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Gas price is in Gwei, standard transfer uses 21000 gas
-    // For token transfers, use ~65000 gas
-    const gasPriceGwei = parseFloat(data.gasPrice || data.fast || '30');
-    const gasLimit = 65000; // Use higher estimate for token transfers
-    const feeInGwei = gasPriceGwei * gasLimit;
-    const feeInEth = feeInGwei / 1000000000;
-    
-    // Convert to USD
-    const ethPrice = await getExchangeRate('ETH', 'USD');
-    return feeInEth * ethPrice;
-  } catch (error) {
-    console.warn('[Fee] Ethereum fee estimation failed, using fallback:', error);
-    return FALLBACK_FEES_USD['ETH'];
+  if (!response.ok) {
+    throw new Error(`Tatum API error: ${response.status}`);
   }
+
+  const data = await response.json() as { gasPrice?: string; fast?: string };
+  
+  // Gas price is in Gwei, standard transfer uses 21000 gas
+  // For token transfers, use ~65000 gas
+  const gasPriceGwei = parseFloat(data.gasPrice ?? data.fast ?? '30');
+  const gasLimit = 65000; // Use higher estimate for token transfers
+  const feeInGwei = gasPriceGwei * gasLimit;
+  const feeInEth = feeInGwei / 1000000000;
+  
+  // Convert to USD
+  const ethPrice = await getExchangeRate('ETH', 'USD');
+  return feeInEth * ethPrice;
 }
 
 /**
  * Estimate Polygon transaction fee in USD
- * Uses Tatum's gas price endpoint for Polygon
+ * Uses Tatum's gas price endpoint for Polygon with retry logic
  */
 async function estimatePolygonFee(): Promise<number> {
-  try {
-    const apiKey = getApiKey();
-    
-    // Get current gas price for Polygon
-    const response = await fetch(`${TATUM_API_BASE}/v3/polygon/gas`, {
+  const apiKey = getApiKey();
+  
+  // Get current gas price for Polygon with retry
+  const response = await fetchWithRetry(
+    `${TATUM_API_BASE}/v3/polygon/gas`,
+    {
       method: 'GET',
       headers: {
         'x-api-key': apiKey,
         'Content-Type': 'application/json',
       },
-    });
+    },
+    TATUM_RETRY_CONFIG
+  );
 
-    if (!response.ok) {
-      throw new Error(`Tatum API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Gas price is in Gwei
-    const gasPriceGwei = parseFloat(data.gasPrice || data.fast || '100');
-    const gasLimit = 65000;
-    const feeInGwei = gasPriceGwei * gasLimit;
-    const feeInMatic = feeInGwei / 1000000000;
-    
-    // Convert to USD (POL is the new symbol for Polygon's native token)
-    const polPrice = await getExchangeRate('POL', 'USD');
-    return feeInMatic * polPrice;
-  } catch (error) {
-    console.warn('[Fee] Polygon fee estimation failed, using fallback:', error);
-    return FALLBACK_FEES_USD['POL'];
+  if (!response.ok) {
+    throw new Error(`Tatum API error: ${response.status}`);
   }
+
+  const data = await response.json() as { gasPrice?: string; fast?: string };
+  
+  // Gas price is in Gwei
+  const gasPriceGwei = parseFloat(data.gasPrice ?? data.fast ?? '100');
+  const gasLimit = 65000;
+  const feeInGwei = gasPriceGwei * gasLimit;
+  const feeInMatic = feeInGwei / 1000000000;
+  
+  // Convert to USD (POL is the new symbol for Polygon's native token)
+  const polPrice = await getExchangeRate('POL', 'USD');
+  return feeInMatic * polPrice;
 }
 
 /**
@@ -282,8 +289,15 @@ export async function getEstimatedNetworkFee(blockchain: string): Promise<number
     console.log(`[Fee] Estimated ${baseChain} fee: $${fee}`);
     return fee;
   } catch (error) {
-    console.warn(`[Fee] Failed to estimate ${baseChain} fee, using fallback:`, error);
-    return FALLBACK_FEES_USD[baseChain] || 0.10;
+    if (error instanceof RetryError) {
+      console.warn(
+        `[Fee] ${baseChain} fee estimation failed after ${error.attempts} attempts ` +
+        `(last status: ${error.lastStatus ?? 'N/A'}), using fallback: $${FALLBACK_FEES_USD[baseChain] ?? 0.10}`
+      );
+    } else {
+      console.warn(`[Fee] Failed to estimate ${baseChain} fee, using fallback:`, error);
+    }
+    return FALLBACK_FEES_USD[baseChain] ?? 0.10;
   }
 }
 

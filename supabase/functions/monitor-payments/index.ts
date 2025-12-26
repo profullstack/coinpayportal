@@ -213,6 +213,8 @@ async function checkBalance(address: string, blockchain: string): Promise<number
 
 /**
  * Send webhook notification for payment status change
+ * Uses SDK-compliant payload format: { id, type, data, created_at, business_id }
+ * Signature format: t=timestamp,v1=signature (matching SDK expectations)
  */
 async function sendWebhook(
   supabase: ReturnType<typeof createClient>,
@@ -233,21 +235,32 @@ async function sendWebhook(
       return;
     }
     
+    const now = new Date();
+    const timestamp = Math.floor(now.getTime() / 1000);
+    
+    // SDK-compliant payload format (matches WebhookPayload interface)
     const payload = {
-      event,
-      payment_id: payment.id,
-      status: payment.status,
-      blockchain: payment.blockchain,
-      amount: payment.crypto_amount,
-      payment_address: payment.payment_address,
-      timestamp: new Date().toISOString(),
-      ...additionalData,
+      id: `evt_${payment.id}_${timestamp}`,
+      type: event,
+      data: {
+        payment_id: payment.id,
+        status: payment.status,
+        blockchain: payment.blockchain,
+        amount_crypto: String(payment.crypto_amount),
+        payment_address: payment.payment_address,
+        ...additionalData,
+      },
+      created_at: now.toISOString(),
+      business_id: payment.business_id,
     };
     
-    // Create HMAC signature if webhook secret exists
+    const payloadString = JSON.stringify(payload);
+    
+    // Create HMAC signature in SDK format: t=timestamp,v1=signature
     let signature = '';
     if (business.webhook_secret) {
       const encoder = new TextEncoder();
+      const signedPayload = `${timestamp}.${payloadString}`;
       const key = await crypto.subtle.importKey(
         'raw',
         encoder.encode(business.webhook_secret),
@@ -258,11 +271,12 @@ async function sendWebhook(
       const signatureBuffer = await crypto.subtle.sign(
         'HMAC',
         key,
-        encoder.encode(JSON.stringify(payload))
+        encoder.encode(signedPayload)
       );
-      signature = Array.from(new Uint8Array(signatureBuffer))
+      const signatureHex = Array.from(new Uint8Array(signatureBuffer))
         .map(b => b.toString(16).padStart(2, '0'))
         .join('');
+      signature = `t=${timestamp},v1=${signatureHex}`;
     }
     
     // Send webhook
@@ -271,20 +285,23 @@ async function sendWebhook(
       headers: {
         'Content-Type': 'application/json',
         'X-CoinPay-Signature': signature,
-        'X-CoinPay-Event': event,
+        'User-Agent': 'CoinPay-Webhook/1.0',
       },
-      body: JSON.stringify(payload),
+      body: payloadString,
     });
     
     // Log webhook delivery
     await supabase.from('webhook_logs').insert({
       business_id: payment.business_id,
       payment_id: payment.id,
-      url: business.webhook_url,
-      payload,
-      response_status: response.status,
-      response_body: await response.text().catch(() => ''),
-      attempt: 1,
+      event,
+      webhook_url: business.webhook_url,
+      success: response.ok,
+      status_code: response.status,
+      error_message: response.ok ? null : `HTTP ${response.status}`,
+      attempt_number: 1,
+      response_time_ms: 0,
+      created_at: now.toISOString(),
     });
     
     console.log(`Webhook sent for payment ${payment.id}: ${event} -> ${response.status}`);

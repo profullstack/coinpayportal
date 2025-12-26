@@ -41,18 +41,18 @@ describe('Tatum Fee Estimation Service', () => {
     // In production, the API would be called for real-time estimates
     
     describe('fallback behavior (no API key)', () => {
-      it('should return fee for BTC with 20% buffer', async () => {
+      it('should return fallback fee for BTC when API key is missing', async () => {
         const fee = await getEstimatedNetworkFee('BTC');
         
-        // Fallback is $2.00, with 20% buffer = $2.40
-        expect(fee).toBe(2.40);
+        // Fallback is $2.00 (returned as-is when API fails)
+        expect(fee).toBe(2.00);
       });
 
-      it('should return fee for ETH with 20% buffer', async () => {
+      it('should return fallback fee for ETH when API key is missing', async () => {
         const fee = await getEstimatedNetworkFee('ETH');
         
-        // Fallback is $3.00, with 20% buffer = $3.60
-        expect(fee).toBe(3.60);
+        // Fallback is $3.00 (returned as-is when API fails)
+        expect(fee).toBe(3.00);
       });
 
       it('should return fee for POL with minimum $0.01', async () => {
