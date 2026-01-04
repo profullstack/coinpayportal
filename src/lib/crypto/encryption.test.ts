@@ -155,6 +155,9 @@ describe('Encryption Utilities', () => {
   });
 
   describe('hashPassword and verifyPassword', () => {
+    // bcrypt is computationally expensive, so we need longer timeouts
+    const BCRYPT_TIMEOUT = 30000; // 30 seconds
+
     it('should hash a password', async () => {
       const password = 'SecurePassword123!';
       const hash = await hashPassword(password);
@@ -162,7 +165,7 @@ describe('Encryption Utilities', () => {
       expect(hash).toBeTruthy();
       expect(hash).not.toBe(password);
       expect(hash).toMatch(/^\$2[aby]\$/); // bcrypt hash format
-    });
+    }, BCRYPT_TIMEOUT);
 
     it('should verify correct password', async () => {
       const password = 'SecurePassword123!';
@@ -170,7 +173,7 @@ describe('Encryption Utilities', () => {
       const isValid = await verifyPassword(password, hash);
       
       expect(isValid).toBe(true);
-    });
+    }, BCRYPT_TIMEOUT);
 
     it('should reject incorrect password', async () => {
       const password = 'SecurePassword123!';
@@ -178,7 +181,7 @@ describe('Encryption Utilities', () => {
       const isValid = await verifyPassword('WrongPassword', hash);
       
       expect(isValid).toBe(false);
-    });
+    }, BCRYPT_TIMEOUT);
 
     it('should produce different hashes for same password', async () => {
       const password = 'SecurePassword123!';
@@ -191,11 +194,11 @@ describe('Encryption Utilities', () => {
       // But both should verify correctly
       expect(await verifyPassword(password, hash1)).toBe(true);
       expect(await verifyPassword(password, hash2)).toBe(true);
-    });
+    }, BCRYPT_TIMEOUT);
 
     it('should handle empty password', async () => {
       await expect(hashPassword('')).rejects.toThrow();
-    });
+    }, BCRYPT_TIMEOUT);
 
     it('should handle very long passwords', async () => {
       const longPassword = 'a'.repeat(100);
@@ -203,7 +206,7 @@ describe('Encryption Utilities', () => {
       const isValid = await verifyPassword(longPassword, hash);
       
       expect(isValid).toBe(true);
-    });
+    }, BCRYPT_TIMEOUT);
 
     it('should handle special characters in password', async () => {
       const password = '!@#$%^&*()_+-=[]{}|;:,.<>?';
@@ -211,7 +214,7 @@ describe('Encryption Utilities', () => {
       const isValid = await verifyPassword(password, hash);
       
       expect(isValid).toBe(true);
-    });
+    }, BCRYPT_TIMEOUT);
 
     it('should handle unicode characters in password', async () => {
       const password = 'Pässwörd123🔐';
@@ -219,7 +222,7 @@ describe('Encryption Utilities', () => {
       const isValid = await verifyPassword(password, hash);
       
       expect(isValid).toBe(true);
-    });
+    }, BCRYPT_TIMEOUT);
 
     it('should return false for invalid hash format', async () => {
       const password = 'test';
@@ -227,7 +230,7 @@ describe('Encryption Utilities', () => {
       
       const isValid = await verifyPassword(password, invalidHash);
       expect(isValid).toBe(false);
-    });
+    }, BCRYPT_TIMEOUT);
   });
 
   describe('Integration: Encrypt with derived key', () => {

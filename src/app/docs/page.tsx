@@ -55,6 +55,7 @@ export default function DocsPage() {
               { name: 'Authentication', href: '#authentication' },
               { name: 'Subscriptions & Entitlements', href: '#subscriptions' },
               { name: 'Businesses', href: '#businesses' },
+              { name: 'Supported Coins', href: '#supported-coins' },
               { name: 'Payments', href: '#payments' },
               { name: 'Business Collection', href: '#business-collection' },
               { name: 'Dashboard', href: '#dashboard' },
@@ -131,6 +132,105 @@ const data = await response.json();`}
 
             <ApiEndpoint method="PATCH" path="/api/businesses/:id" description="Update an existing business." />
             <ApiEndpoint method="DELETE" path="/api/businesses/:id" description="Delete a business." />
+          </DocSection>
+        </div>
+
+        {/* Supported Coins */}
+        <div id="supported-coins">
+          <DocSection title="Supported Coins">
+            <p className="text-gray-300 mb-6">
+              Get the list of supported cryptocurrencies (wallets) configured for a business. This endpoint is useful for displaying available payment options to customers.
+            </p>
+
+            <ApiEndpoint method="GET" path="/api/supported-coins" description="Get supported cryptocurrencies for a business.">
+              <h4 className="text-lg font-semibold text-white mb-2">Query Parameters</h4>
+              <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto mb-4">
+                <div className="space-y-2 text-sm text-gray-300">
+                  <p><code className="text-purple-400">business_id</code> - Business UUID (required for JWT auth, not needed with API key)</p>
+                  <p><code className="text-purple-400">active_only</code> - If &quot;true&quot;, only return active wallets (optional)</p>
+                </div>
+              </div>
+
+              <CodeBlock title="cURL Example (API Key)" language="curl">
+{`curl https://coinpayportal.com/api/supported-coins \\
+  -H "Authorization: Bearer cp_live_your_api_key"`}
+              </CodeBlock>
+
+              <CodeBlock title="cURL Example (JWT with business_id)" language="curl">
+{`curl "https://coinpayportal.com/api/supported-coins?business_id=your-business-uuid" \\
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"`}
+              </CodeBlock>
+
+              <CodeBlock title="Response">
+{`{
+  "success": true,
+  "coins": [
+    {
+      "symbol": "BTC",
+      "name": "Bitcoin",
+      "is_active": true,
+      "has_wallet": true
+    },
+    {
+      "symbol": "ETH",
+      "name": "Ethereum",
+      "is_active": true,
+      "has_wallet": true
+    },
+    {
+      "symbol": "SOL",
+      "name": "Solana",
+      "is_active": false,
+      "has_wallet": true
+    }
+  ],
+  "business_id": "your-business-uuid",
+  "total": 3
+}`}
+              </CodeBlock>
+
+              <CodeBlock title="Node.js Example" language="javascript">
+{`const response = await fetch('https://coinpayportal.com/api/supported-coins', {
+  headers: {
+    'Authorization': 'Bearer cp_live_your_api_key'
+  }
+});
+const data = await response.json();
+
+// Display available payment options to customers
+data.coins.filter(c => c.is_active).forEach(coin => {
+  console.log(\`Accept \${coin.name} (\${coin.symbol})\`);
+});`}
+              </CodeBlock>
+            </ApiEndpoint>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Available Cryptocurrency Symbols</h3>
+            <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
+              {[
+                { symbol: 'BTC', name: 'Bitcoin' },
+                { symbol: 'BCH', name: 'Bitcoin Cash' },
+                { symbol: 'ETH', name: 'Ethereum' },
+                { symbol: 'POL', name: 'Polygon' },
+                { symbol: 'SOL', name: 'Solana' },
+                { symbol: 'USDT', name: 'Tether' },
+                { symbol: 'USDC', name: 'USD Coin' },
+                { symbol: 'BNB', name: 'BNB' },
+                { symbol: 'XRP', name: 'XRP' },
+                { symbol: 'ADA', name: 'Cardano' },
+                { symbol: 'DOGE', name: 'Dogecoin' },
+              ].map((crypto) => (
+                <div key={crypto.symbol} className="p-3 rounded-lg bg-slate-800/50 border border-white/10">
+                  <code className="text-purple-400 font-mono">{crypto.symbol}</code>
+                  <p className="text-gray-300 text-sm mt-1">{crypto.name}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+              <p className="text-blue-300 text-sm">
+                <strong>Tip:</strong> Use this endpoint to dynamically show customers which cryptocurrencies your business accepts. Only coins with <code className="text-blue-200">is_active: true</code> should be offered as payment options.
+              </p>
+            </div>
           </DocSection>
         </div>
 

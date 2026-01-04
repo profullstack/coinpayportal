@@ -303,6 +303,138 @@ Delete a business (soft delete).
 }
 ```
 
+## Supported Coins Endpoint
+
+### Get Supported Coins
+
+Get the list of supported cryptocurrencies (wallets) configured for a business. This endpoint is useful for displaying available payment options to customers.
+
+**Endpoint:** `GET /api/supported-coins`
+
+**Headers:** `Authorization: Bearer cp_live_your_api_key` or `Authorization: Bearer jwt_token`
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `business_id` | string | Yes (JWT only) | Business UUID. Required when using JWT authentication. Not needed with API key auth. |
+| `active_only` | boolean | No | If `true`, only return active wallets. Default: `false` |
+
+**Response:**
+```json
+{
+  "success": true,
+  "coins": [
+    {
+      "symbol": "BTC",
+      "name": "Bitcoin",
+      "is_active": true,
+      "has_wallet": true
+    },
+    {
+      "symbol": "ETH",
+      "name": "Ethereum",
+      "is_active": true,
+      "has_wallet": true
+    },
+    {
+      "symbol": "SOL",
+      "name": "Solana",
+      "is_active": false,
+      "has_wallet": true
+    }
+  ],
+  "business_id": "your-business-uuid",
+  "total": 3
+}
+```
+
+**Supported Cryptocurrency Symbols:**
+
+| Symbol | Name |
+|--------|------|
+| `BTC` | Bitcoin |
+| `BCH` | Bitcoin Cash |
+| `ETH` | Ethereum |
+| `POL` | Polygon |
+| `SOL` | Solana |
+| `USDT` | Tether |
+| `USDC` | USD Coin |
+| `BNB` | BNB |
+| `XRP` | XRP |
+| `ADA` | Cardano |
+| `DOGE` | Dogecoin |
+
+**Example - cURL with API Key:**
+```bash
+curl https://coinpayportal.com/api/supported-coins \
+  -H "Authorization: Bearer cp_live_your_api_key"
+```
+
+**Example - cURL with JWT (requires business_id):**
+```bash
+curl "https://coinpayportal.com/api/supported-coins?business_id=your-business-uuid" \
+  -H "Authorization: Bearer your_jwt_token"
+```
+
+**Example - Get only active coins:**
+```bash
+curl "https://coinpayportal.com/api/supported-coins?active_only=true" \
+  -H "Authorization: Bearer cp_live_your_api_key"
+```
+
+**Example - JavaScript (fetch):**
+```javascript
+const response = await fetch('https://coinpayportal.com/api/supported-coins', {
+  headers: {
+    'Authorization': 'Bearer cp_live_your_api_key',
+  },
+});
+
+const data = await response.json();
+// data.coins contains the list of supported cryptocurrencies
+// Use this to display payment options to customers
+```
+
+**Example - Node.js SDK:**
+```javascript
+import { CoinPayClient } from '@profullstack/coinpay';
+
+const client = new CoinPayClient({ apiKey: 'cp_live_your_api_key' });
+
+// Get all supported coins
+const coins = await client.getSupportedCoins();
+
+// Get only active coins
+const activeCoins = await client.getSupportedCoins({ activeOnly: true });
+```
+
+**Error Responses:**
+
+*Authentication Required (401):*
+```json
+{
+  "success": false,
+  "error": "Authentication required"
+}
+```
+
+*Missing business_id for JWT auth (400):*
+```json
+{
+  "success": false,
+  "error": "business_id is required when using JWT authentication"
+}
+```
+
+*Business not found (404):*
+```json
+{
+  "success": false,
+  "error": "Business not found or access denied"
+}
+```
+
 ## Payment Endpoints
 
 ### Create Payment
