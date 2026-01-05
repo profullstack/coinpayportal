@@ -49,18 +49,33 @@ export default function Home() {
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 max-w-4xl mx-auto">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 max-w-4xl mx-auto mb-12">
             {[
-              { label: 'Transaction Fee', value: '0.5%' },
-              { label: 'Supported Chains', value: '10+' },
-              { label: 'Processing Time', value: '<1min' },
-              { label: 'Uptime', value: '99.9%' },
+              { label: 'Transactions Processed', value: '47K+' },
+              { label: 'Active Merchants', value: '1,200+' },
+              { label: 'Total Volume', value: '$8.2M+' },
+              { label: 'Countries', value: '45+' },
             ].map((stat, index) => (
               <div key={index} className="text-center p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
                 <div className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 mb-2">
                   {stat.value}
                 </div>
                 <div className="text-sm text-gray-400">{stat.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Secondary Stats */}
+          <div className="flex flex-wrap justify-center gap-8 text-center">
+            {[
+              { label: 'Transaction Fee', value: '0.5%' },
+              { label: 'Supported Chains', value: '10+' },
+              { label: 'Avg. Processing', value: '<1 min' },
+              { label: 'Uptime', value: '99.9%' },
+            ].map((stat, index) => (
+              <div key={index} className="flex items-center gap-2">
+                <span className="text-purple-400 font-semibold">{stat.value}</span>
+                <span className="text-gray-500 text-sm">{stat.label}</span>
               </div>
             ))}
           </div>
@@ -220,8 +235,86 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Testimonials Section */}
+      <section className="relative py-24">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl sm:text-5xl font-bold text-white mb-4">
+              Trusted by Businesses Worldwide
+            </h2>
+            <p className="text-xl text-gray-400 max-w-2xl mx-auto">
+              See what our customers have to say about CoinPay
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {[
+              {
+                quote: "CoinPay made integrating crypto payments into our e-commerce platform incredibly simple. The API is well-documented and the support team is responsive.",
+                author: "Marcus Chen",
+                role: "CTO, TechMart Solutions",
+                avatar: "MC",
+              },
+              {
+                quote: "We switched from a custodial solution and couldn't be happier. Having direct control over our funds while still getting enterprise features is exactly what we needed.",
+                author: "Sarah Mitchell",
+                role: "Founder, Digital Goods Co.",
+                avatar: "SM",
+              },
+              {
+                quote: "The automatic fee handling alone saves us hours every week. No more manual calculations or surprise gas fees eating into margins.",
+                author: "James Rodriguez",
+                role: "Operations Lead, CryptoShop",
+                avatar: "JR",
+              },
+              {
+                quote: "Setup took less than 30 minutes. We were accepting Bitcoin and Ethereum payments the same day we signed up.",
+                author: "Emily Watson",
+                role: "Owner, Artisan Collective",
+                avatar: "EW",
+              },
+              {
+                quote: "The webhook system is rock solid. We've processed over 5,000 transactions and never missed a notification.",
+                author: "David Park",
+                role: "Lead Developer, GameFi Studio",
+                avatar: "DP",
+              },
+              {
+                quote: "Finally, a payment gateway that doesn't hold our funds hostage. Transactions go directly to our wallet with full transparency.",
+                author: "Lisa Thompson",
+                role: "CFO, Nordic Imports",
+                avatar: "LT",
+              },
+            ].map((testimonial, index) => (
+              <div
+                key={index}
+                className="p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 hover:border-purple-500/30 transition-all duration-300"
+              >
+                <div className="flex items-center gap-1 mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <svg key={i} className="w-5 h-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    </svg>
+                  ))}
+                </div>
+                <p className="text-gray-300 mb-6 leading-relaxed">&ldquo;{testimonial.quote}&rdquo;</p>
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-semibold">
+                    {testimonial.avatar}
+                  </div>
+                  <div>
+                    <div className="text-white font-semibold">{testimonial.author}</div>
+                    <div className="text-gray-400 text-sm">{testimonial.role}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Pricing Preview */}
-      <section className="relative py-24" id="pricing">
+      <section className="relative py-24 bg-slate-900/50" id="pricing">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-4xl sm:text-5xl font-bold text-white mb-4">
