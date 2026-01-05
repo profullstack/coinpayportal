@@ -70,7 +70,7 @@ describe('QR Code Generator', () => {
       );
     });
 
-    it('should generate Ethereum payment QR code', async () => {
+    it('should generate Ethereum payment QR code with EIP-681 format', async () => {
       const mockDataURL = 'data:image/png;base64,test';
       vi.mocked(QRCode.toDataURL).mockResolvedValueOnce(mockDataURL);
 
@@ -81,8 +81,9 @@ describe('QR Code Generator', () => {
       });
 
       expect(result).toBe(mockDataURL);
+      // EIP-681 format: ethereum:address@chainId?value=amountInWei
       expect(QRCode.toDataURL).toHaveBeenCalledWith(
-        expect.stringContaining('ethereum:0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'),
+        expect.stringMatching(/ethereum:0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb@1\?value=500000000000000000/),
         expect.any(Object)
       );
     });
@@ -192,30 +193,66 @@ describe('QR Code Generator', () => {
       ).rejects.toThrow();
     });
 
-    it('should support USDC on different chains', async () => {
+    it('should support USDC on different chains with EIP-681 ERC-20 transfer format', async () => {
       const mockDataURL = 'data:image/png;base64,test';
-      
-      // USDC on Ethereum
+
+      // USDC on Ethereum - EIP-681 format with contract address and transfer function
       vi.mocked(QRCode.toDataURL).mockResolvedValueOnce(mockDataURL);
       await generatePaymentQR({
         blockchain: 'USDC_ETH',
         address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         amount: 100,
       });
+      // Should use USDC contract address on ETH mainnet (chain ID 1)
       expect(QRCode.toDataURL).toHaveBeenCalledWith(
-        expect.stringContaining('ethereum:'),
+        expect.stringMatching(/ethereum:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48@1\/transfer\?address=0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb&uint256=100000000/),
         expect.any(Object)
       );
 
-      // USDC on Polygon
+      // USDC on Polygon - EIP-681 format (all EVM chains use ethereum: scheme)
       vi.mocked(QRCode.toDataURL).mockResolvedValueOnce(mockDataURL);
       await generatePaymentQR({
         blockchain: 'USDC_POL',
         address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         amount: 100,
       });
+      // Should use USDC contract address on Polygon (chain ID 137)
       expect(QRCode.toDataURL).toHaveBeenCalledWith(
-        expect.stringContaining('polygon:'),
+        expect.stringMatching(/ethereum:0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359@137\/transfer\?address=0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb&uint256=100000000/),
+        expect.any(Object)
+      );
+    });
+
+    it('should generate Polygon payment QR code with EIP-681 format', async () => {
+      const mockDataURL = 'data:image/png;base64,test';
+      vi.mocked(QRCode.toDataURL).mockResolvedValueOnce(mockDataURL);
+
+      await generatePaymentQR({
+        blockchain: 'POL',
+        address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
+        amount: 1,
+      });
+
+      // EIP-681: all EVM chains use ethereum: scheme with chain ID
+      expect(QRCode.toDataURL).toHaveBeenCalledWith(
+        expect.stringMatching(/ethereum:0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb@137\?value=1000000000000000000/),
+        expect.any(Object)
+      );
+    });
+
+    it('should generate USDC on Solana with SPL token format', async () => {
+      const mockDataURL = 'data:image/png;base64,test';
+      vi.mocked(QRCode.toDataURL).mockResolvedValueOnce(mockDataURL);
+
+      await generatePaymentQR({
+        blockchain: 'USDC_SOL',
+        address: '7EqQdEULxWcraVx3mXKFjc84LhCkMGZCkRuDpvcMwJeK',
+        amount: 50,
+      });
+
+      // Solana Pay format with SPL token
+      expect(QRCode.toDataURL).toHaveBeenCalledWith(
+        expect.stringMatching(/solana:7EqQdEULxWcraVx3mXKFjc84LhCkMGZCkRuDpvcMwJeK\?amount=50&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/),
         expect.any(Object)
       );
     });
