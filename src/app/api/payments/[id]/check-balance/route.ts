@@ -506,6 +506,7 @@ export async function POST(
           received_amount: balance.toString(),
           confirmed_at: now,
           payment_address: payment.payment_address,
+          tx_hash: payment.tx_hash || undefined,
         });
         console.log(`Webhook sent for payment ${paymentId} confirmation`);
       } catch (webhookError) {

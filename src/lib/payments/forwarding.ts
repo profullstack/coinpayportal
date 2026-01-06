@@ -212,6 +212,7 @@ export async function forwardPayment(
         status: 'forwarded',
         merchant_amount: merchantAmount,
         platform_fee: platformFee,
+        tx_hash: merchantTxHash,
         merchant_tx_hash: merchantTxHash,
         platform_tx_hash: platformTxHash,
       });
