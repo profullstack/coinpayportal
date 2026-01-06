@@ -2,10 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getCryptoPrice } from '../rates/tatum';
 import { z } from 'zod';
 import { generatePaymentAddress, type SystemBlockchain } from '../wallets/system-wallet';
-import { ESTIMATED_NETWORK_FEES_USD, getEstimatedNetworkFee, getEstimatedNetworkFeeSync } from './network-fees';
+import { STATIC_NETWORK_FEES_USD, getEstimatedNetworkFee, getStaticNetworkFee } from './network-fees';
 
-// Re-export network fee utilities for backward compatibility
-export { ESTIMATED_NETWORK_FEES_USD, getEstimatedNetworkFee, getEstimatedNetworkFeeSync };
+// Re-export network fee utilities
+export { STATIC_NETWORK_FEES_USD, getEstimatedNetworkFee, getStaticNetworkFee };
 
 /**
  * Supported blockchains

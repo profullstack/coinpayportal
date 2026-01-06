@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { calculateFee, calculateMerchantAmount, calculatePlatformFee, FEE_PERCENTAGE } from './fees';
 import {
-  ESTIMATED_NETWORK_FEES_USD,
-  getEstimatedNetworkFeeSync,
+  STATIC_NETWORK_FEES_USD,
+  getStaticNetworkFee,
   type Blockchain
 } from './network-fees';
 
@@ -88,7 +88,7 @@ describe('Payment Fee Calculations', () => {
       const total = 100;
       const fee = calculateFee(total);
       const merchant = calculateMerchantAmount(total);
-      
+
       expect(merchant + fee).toBeCloseTo(total, 10);
     });
   });
@@ -110,7 +110,7 @@ describe('Payment Fee Calculations', () => {
       const totalAmount = 1000;
       const platformFee = calculatePlatformFee(totalAmount);
       const merchantAmount = calculateMerchantAmount(totalAmount);
-      
+
       expect(platformFee).toBe(5);
       expect(merchantAmount).toBe(995);
       expect(platformFee + merchantAmount).toBeCloseTo(totalAmount, 10);
@@ -120,7 +120,7 @@ describe('Payment Fee Calculations', () => {
       const totalCrypto = 0.5; // 0.5 ETH
       const platformFee = calculatePlatformFee(totalCrypto);
       const merchantAmount = calculateMerchantAmount(totalCrypto);
-      
+
       expect(platformFee).toBeCloseTo(0.0025, 8);
       expect(merchantAmount).toBeCloseTo(0.4975, 8);
       expect(platformFee + merchantAmount).toBeCloseTo(totalCrypto, 10);
@@ -130,7 +130,7 @@ describe('Payment Fee Calculations', () => {
       const totalCrypto = 0.00001; // Very small amount
       const platformFee = calculatePlatformFee(totalCrypto);
       const merchantAmount = calculateMerchantAmount(totalCrypto);
-      
+
       expect(platformFee).toBeGreaterThan(0);
       expect(merchantAmount).toBeGreaterThan(0);
       expect(platformFee + merchantAmount).toBeCloseTo(totalCrypto, 10);
@@ -140,190 +140,91 @@ describe('Payment Fee Calculations', () => {
       const totalFiat = 999999.99;
       const platformFee = calculatePlatformFee(totalFiat);
       const merchantAmount = calculateMerchantAmount(totalFiat);
-      
+
       expect(platformFee).toBeCloseTo(5000, 1);
       expect(merchantAmount).toBeCloseTo(995000, 1);
       expect(platformFee + merchantAmount).toBeCloseTo(totalFiat, 2);
     });
   });
 
-  describe('Network Fee Estimates', () => {
-    describe('ESTIMATED_NETWORK_FEES_USD (fallback values)', () => {
-      it('should have fee estimates for all supported blockchains', () => {
-        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('BTC');
-        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('BCH');
-        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('ETH');
-        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('POL');
-        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('SOL');
-        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('DOGE');
-        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('XRP');
-        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('ADA');
-        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('BNB');
-        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('USDT');
-        expect(ESTIMATED_NETWORK_FEES_USD).toHaveProperty('USDC');
+  describe('Static Network Fees', () => {
+    describe('STATIC_NETWORK_FEES_USD (for low-fee chains)', () => {
+      it('should have fee estimates for chains with predictable fees', () => {
+        expect(STATIC_NETWORK_FEES_USD).toHaveProperty('BCH');
+        expect(STATIC_NETWORK_FEES_USD).toHaveProperty('DOGE');
+        expect(STATIC_NETWORK_FEES_USD).toHaveProperty('XRP');
+        expect(STATIC_NETWORK_FEES_USD).toHaveProperty('ADA');
+        expect(STATIC_NETWORK_FEES_USD).toHaveProperty('BNB');
+      });
+
+      it('should NOT have fees for chains that use dynamic lookup', () => {
+        // These chains should use real-time API estimation
+        expect(STATIC_NETWORK_FEES_USD).not.toHaveProperty('BTC');
+        expect(STATIC_NETWORK_FEES_USD).not.toHaveProperty('ETH');
+        expect(STATIC_NETWORK_FEES_USD).not.toHaveProperty('POL');
+        expect(STATIC_NETWORK_FEES_USD).not.toHaveProperty('SOL');
       });
 
       it('should have reasonable fee estimates', () => {
-        // Bitcoin: $0.50-3.00 range, estimate $2.00
-        expect(ESTIMATED_NETWORK_FEES_USD['BTC']).toBe(2.00);
-        
         // Bitcoin Cash: very low fees
-        expect(ESTIMATED_NETWORK_FEES_USD['BCH']).toBe(0.01);
-        
-        // Ethereum: $0.50-5.00 range, estimate $3.00
-        expect(ESTIMATED_NETWORK_FEES_USD['ETH']).toBe(3.00);
-        
-        // Polygon: very low fees
-        expect(ESTIMATED_NETWORK_FEES_USD['POL']).toBe(0.01);
-        
-        // Solana: extremely low fees
-        expect(ESTIMATED_NETWORK_FEES_USD['SOL']).toBe(0.001);
-        
+        expect(STATIC_NETWORK_FEES_USD['BCH']).toBe(0.01);
+
         // Dogecoin: low fees
-        expect(ESTIMATED_NETWORK_FEES_USD['DOGE']).toBe(0.05);
-        
+        expect(STATIC_NETWORK_FEES_USD['DOGE']).toBe(0.05);
+
         // XRP: very low fees
-        expect(ESTIMATED_NETWORK_FEES_USD['XRP']).toBe(0.001);
-        
+        expect(STATIC_NETWORK_FEES_USD['XRP']).toBe(0.001);
+
         // Cardano: moderate fees
-        expect(ESTIMATED_NETWORK_FEES_USD['ADA']).toBe(0.20);
-        
+        expect(STATIC_NETWORK_FEES_USD['ADA']).toBe(0.20);
+
         // BNB Smart Chain: low fees
-        expect(ESTIMATED_NETWORK_FEES_USD['BNB']).toBe(0.10);
-        
-        // USDT (ERC-20): same as ETH
-        expect(ESTIMATED_NETWORK_FEES_USD['USDT']).toBe(3.00);
-        
-        // USDC (ERC-20): same as ETH
-        expect(ESTIMATED_NETWORK_FEES_USD['USDC']).toBe(3.00);
+        expect(STATIC_NETWORK_FEES_USD['BNB']).toBe(0.10);
       });
 
       it('should have all fees as positive numbers', () => {
-        for (const [chain, fee] of Object.entries(ESTIMATED_NETWORK_FEES_USD)) {
+        for (const [chain, fee] of Object.entries(STATIC_NETWORK_FEES_USD)) {
           expect(fee).toBeGreaterThan(0);
           expect(typeof fee).toBe('number');
         }
       });
     });
 
-    describe('getEstimatedNetworkFeeSync (synchronous fallback)', () => {
-      it('should return correct fee for BTC', () => {
-        expect(getEstimatedNetworkFeeSync('BTC')).toBe(2.00);
-      });
-
-      it('should return correct fee for ETH', () => {
-        expect(getEstimatedNetworkFeeSync('ETH')).toBe(3.00);
-      });
-
-      it('should return correct fee for POL', () => {
-        expect(getEstimatedNetworkFeeSync('POL')).toBe(0.01);
-      });
-
-      it('should return correct fee for SOL', () => {
-        expect(getEstimatedNetworkFeeSync('SOL')).toBe(0.001);
-      });
-
+    describe('getStaticNetworkFee (synchronous for low-fee chains)', () => {
       it('should return correct fee for BCH', () => {
-        expect(getEstimatedNetworkFeeSync('BCH')).toBe(0.01);
+        expect(getStaticNetworkFee('BCH')).toBe(0.01);
       });
 
       it('should return correct fee for DOGE', () => {
-        expect(getEstimatedNetworkFeeSync('DOGE' as Blockchain)).toBe(0.05);
+        expect(getStaticNetworkFee('DOGE' as Blockchain)).toBe(0.05);
       });
 
       it('should return correct fee for XRP', () => {
-        expect(getEstimatedNetworkFeeSync('XRP' as Blockchain)).toBe(0.001);
+        expect(getStaticNetworkFee('XRP' as Blockchain)).toBe(0.001);
       });
 
       it('should return correct fee for ADA', () => {
-        expect(getEstimatedNetworkFeeSync('ADA' as Blockchain)).toBe(0.20);
+        expect(getStaticNetworkFee('ADA' as Blockchain)).toBe(0.20);
       });
 
       it('should return correct fee for BNB', () => {
-        expect(getEstimatedNetworkFeeSync('BNB' as Blockchain)).toBe(0.10);
+        expect(getStaticNetworkFee('BNB' as Blockchain)).toBe(0.10);
       });
 
-      it('should return correct fee for USDT', () => {
-        expect(getEstimatedNetworkFeeSync('USDT' as Blockchain)).toBe(3.00);
+      it('should return undefined for chains requiring dynamic lookup', () => {
+        // These chains need real-time API estimation
+        expect(getStaticNetworkFee('BTC')).toBeUndefined();
+        expect(getStaticNetworkFee('ETH')).toBeUndefined();
+        expect(getStaticNetworkFee('POL')).toBeUndefined();
+        expect(getStaticNetworkFee('SOL')).toBeUndefined();
       });
 
-      it('should return correct fee for USDC', () => {
-        expect(getEstimatedNetworkFeeSync('USDC' as Blockchain)).toBe(3.00);
-      });
-
-      it('should handle USDC variants by using base chain fee', () => {
-        // USDC on Ethereum should use ETH fee
-        expect(getEstimatedNetworkFeeSync('USDC_ETH' as Blockchain)).toBe(3.00);
-        
-        // USDC on Polygon should use POL fee
-        expect(getEstimatedNetworkFeeSync('USDC_POL' as Blockchain)).toBe(0.01);
-        
-        // USDC on Solana should use SOL fee
-        expect(getEstimatedNetworkFeeSync('USDC_SOL' as Blockchain)).toBe(0.001);
-      });
-
-      it('should return default fee for unknown blockchain', () => {
-        expect(getEstimatedNetworkFeeSync('UNKNOWN' as Blockchain)).toBe(0.01);
-      });
-    });
-
-    describe('Integration: Total payment with network fees', () => {
-      it('should calculate total payment amount including network fee', () => {
-        const baseAmount = 100; // $100 payment
-        const blockchain: Blockchain = 'ETH';
-        const networkFee = getEstimatedNetworkFeeSync(blockchain);
-        const totalAmount = baseAmount + networkFee;
-        
-        expect(totalAmount).toBe(103); // $100 + $3 ETH fee
-      });
-
-      it('should calculate total for Solana with minimal fee impact', () => {
-        const baseAmount = 10; // $10 payment
-        const blockchain: Blockchain = 'SOL';
-        const networkFee = getEstimatedNetworkFeeSync(blockchain);
-        const totalAmount = baseAmount + networkFee;
-        
-        expect(totalAmount).toBeCloseTo(10.001, 3); // $10 + $0.001 SOL fee
-      });
-
-      it('should calculate total for Bitcoin with higher fee', () => {
-        const baseAmount = 50; // $50 payment
-        const blockchain: Blockchain = 'BTC';
-        const networkFee = getEstimatedNetworkFeeSync(blockchain);
-        const totalAmount = baseAmount + networkFee;
-        
-        expect(totalAmount).toBe(52); // $50 + $2 BTC fee
-      });
-
-      it('should ensure merchant receives base amount after forwarding', () => {
-        const baseAmount = 100;
-        const blockchain: Blockchain = 'ETH';
-        const networkFee = getEstimatedNetworkFeeSync(blockchain);
-        const totalPaid = baseAmount + networkFee; // Customer pays this
-        
-        // After forwarding, network fee is deducted
-        const afterNetworkFee = totalPaid - networkFee;
-        expect(afterNetworkFee).toBe(baseAmount);
-        
-        // Then platform fee is deducted
-        const platformFee = calculatePlatformFee(afterNetworkFee);
-        const merchantReceives = calculateMerchantAmount(afterNetworkFee);
-        
-        expect(platformFee).toBe(0.5); // 0.5% of $100
-        expect(merchantReceives).toBe(99.5); // $100 - $0.50
-      });
-
-      it('should handle small payments with proportionally larger fees', () => {
-        const baseAmount = 5; // $5 payment
-        const blockchain: Blockchain = 'ETH';
-        const networkFee = getEstimatedNetworkFeeSync(blockchain);
-        const totalPaid = baseAmount + networkFee;
-        
-        // For small payments, network fee is a larger percentage
-        const feePercentage = (networkFee / baseAmount) * 100;
-        expect(feePercentage).toBe(60); // $3 is 60% of $5
-        
-        expect(totalPaid).toBe(8); // $5 + $3
+      it('should handle USDC variants by using base chain', () => {
+        // USDC on BCH would use BCH static fee (if supported)
+        // But ETH, POL, SOL don't have static fees
+        expect(getStaticNetworkFee('USDC_ETH' as Blockchain)).toBeUndefined();
+        expect(getStaticNetworkFee('USDC_POL' as Blockchain)).toBeUndefined();
+        expect(getStaticNetworkFee('USDC_SOL' as Blockchain)).toBeUndefined();
       });
     });
   });

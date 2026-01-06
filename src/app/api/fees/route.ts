@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getEstimatedNetworkFee, getEstimatedNetworkFees, getFallbackFees } from '@/lib/rates/fees';
+import { getEstimatedNetworkFee, getEstimatedNetworkFees } from '@/lib/rates/fees';
 
 /**
  * Supported blockchains for fee estimation
@@ -90,19 +90,13 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Fee estimation error:', error);
 
-    // Return fallback fees on error
-    const fallbackFees = getFallbackFees();
-
-    return NextResponse.json({
-      success: true,
-      fees: Object.entries(fallbackFees).map(([blockchain, fee]) => ({
-        blockchain,
-        fee_usd: fee,
-        display: fee < 0.01 ? `~$${fee.toFixed(4)}` : fee < 1 ? `~$${fee.toFixed(2)}` : `~$${fee.toFixed(2)}`,
-        fallback: true,
-      })),
-      fallback: true,
-      timestamp: new Date().toISOString(),
-    });
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to estimate network fees',
+        timestamp: new Date().toISOString(),
+      },
+      { status: 500 }
+    );
   }
 }

@@ -9,19 +9,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/rates/fees', () => ({
   getEstimatedNetworkFee: vi.fn(),
   getEstimatedNetworkFees: vi.fn(),
-  getFallbackFees: vi.fn(() => ({
-    BTC: 2.00,
-    ETH: 3.00,
-    POL: 0.01,
-    SOL: 0.001,
-    USDC_POL: 0.01,
-    USDC_SOL: 0.001,
-    USDC_ETH: 3.00,
-  })),
 }));
 
 import { GET } from './route';
-import { getEstimatedNetworkFee, getEstimatedNetworkFees, getFallbackFees } from '@/lib/rates/fees';
+import { getEstimatedNetworkFee, getEstimatedNetworkFees } from '@/lib/rates/fees';
 
 describe('GET /api/fees', () => {
   beforeEach(() => {
@@ -177,19 +168,29 @@ describe('GET /api/fees', () => {
     });
   });
 
-  describe('Error handling and fallback', () => {
-    it('should return fallback fees on error', async () => {
-      (getEstimatedNetworkFees as any).mockRejectedValue(new Error('API error'));
+  describe('Error handling', () => {
+    it('should return 500 error when fee estimation fails', async () => {
+      (getEstimatedNetworkFees as any).mockRejectedValue(new Error('TATUM_API_KEY environment variable is not set'));
 
       const request = new Request('http://localhost/api/fees');
       const response = await GET(request as any);
       const data = await response.json();
 
-      expect(response.status).toBe(200); // Still returns 200 with fallback
-      expect(data.success).toBe(true);
-      expect(data.fallback).toBe(true);
-      expect(data.fees.length).toBeGreaterThan(0);
-      expect(data.fees[0].fallback).toBe(true);
+      expect(response.status).toBe(500);
+      expect(data.success).toBe(false);
+      expect(data.error).toBe('TATUM_API_KEY environment variable is not set');
+    });
+
+    it('should return error message from API failure', async () => {
+      (getEstimatedNetworkFees as any).mockRejectedValue(new Error('Tatum API error: 401'));
+
+      const request = new Request('http://localhost/api/fees');
+      const response = await GET(request as any);
+      const data = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(data.success).toBe(false);
+      expect(data.error).toBe('Tatum API error: 401');
     });
   });
 
