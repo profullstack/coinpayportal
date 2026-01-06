@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { sendPaymentWebhook } from '@/lib/webhooks/service';
 
 import * as bitcoin from 'bitcoinjs-lib';
 
@@ -491,9 +492,26 @@ export async function POST(
           updated_at: now,
         })
         .eq('id', paymentId);
-      
+
       console.log(`Payment ${paymentId} confirmed with balance ${balance}`);
-      
+
+      // Send payment.confirmed webhook to notify merchant
+      try {
+        await sendPaymentWebhook(supabase, payment.business_id, paymentId, 'payment.confirmed', {
+          amount_usd: payment.amount?.toString() || '0',
+          amount_crypto: payment.crypto_amount?.toString() || '0',
+          currency: payment.blockchain,
+          status: 'confirmed',
+          received_amount: balance.toString(),
+          confirmed_at: now,
+          payment_address: payment.payment_address,
+        });
+        console.log(`Webhook sent for payment ${paymentId} confirmation`);
+      } catch (webhookError) {
+        // Log but don't fail the request - webhook failures shouldn't block payment flow
+        console.error(`Failed to send webhook for payment ${paymentId}:`, webhookError);
+      }
+
       // Trigger forwarding
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
       const internalApiKey = process.env.INTERNAL_API_KEY;
