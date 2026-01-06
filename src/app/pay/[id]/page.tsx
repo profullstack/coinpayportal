@@ -321,8 +321,9 @@ export default function PublicPaymentPage() {
   }, [payment?.id, payment?.created_at, paymentStatus, pollPaymentStatus, calculateTimeRemaining, checkBlockchainBalance]);
 
   // Auto-redirect when payment is complete and redirect_url is configured
+  // Include 'forwarding' status since customer has already paid - they don't need to wait for internal forwarding
   useEffect(() => {
-    const isComplete = paymentStatus === 'confirmed' || paymentStatus === 'forwarded';
+    const isComplete = paymentStatus === 'confirmed' || paymentStatus === 'forwarding' || paymentStatus === 'forwarded';
     const redirectUrl = payment?.metadata?.redirect_url;
 
     if (isComplete && redirectUrl) {
@@ -389,9 +390,10 @@ export default function PublicPaymentPage() {
     );
   }
 
-  const isPaymentComplete = paymentStatus === 'confirmed' || paymentStatus === 'forwarded';
+  // Customer's payment is complete once confirmed - forwarding is internal and shouldn't affect their experience
+  const isPaymentComplete = paymentStatus === 'confirmed' || paymentStatus === 'forwarding' || paymentStatus === 'forwarded';
   const isPaymentFailed = paymentStatus === 'expired' || paymentStatus === 'failed';
-  const isPaymentPending = paymentStatus === 'pending' || paymentStatus === 'detected' || paymentStatus === 'forwarding';
+  const isPaymentPending = paymentStatus === 'pending' || paymentStatus === 'detected';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 py-8 px-4">
@@ -441,14 +443,17 @@ export default function PublicPaymentPage() {
                     {isPaymentComplete ? 'Payment Complete!' :
                      isPaymentFailed ? (paymentStatus === 'expired' ? 'Payment Expired' : 'Payment Failed') :
                      paymentStatus === 'detected' ? 'Payment Detected!' :
-                     paymentStatus === 'forwarding' ? 'Processing...' :
                      'Awaiting Payment'}
                   </h2>
                   {isPaymentPending && (
                     <p className="text-sm text-gray-300">
-                      {paymentStatus === 'detected' ? 'Confirming your payment...' :
-                       paymentStatus === 'forwarding' ? 'Forwarding to merchant...' :
+                      {paymentStatus === 'detected' ? 'Waiting for blockchain confirmation...' :
                        'Send the exact amount below'}
+                    </p>
+                  )}
+                  {isPaymentComplete && (
+                    <p className="text-sm text-gray-300">
+                      Thank you! Your payment has been received.
                     </p>
                   )}
                 </div>
@@ -468,7 +473,7 @@ export default function PublicPaymentPage() {
               <div className="mt-3 w-full bg-gray-700 rounded-full h-1.5">
                 <div
                   className={`h-1.5 rounded-full transition-all duration-1000 ${
-                    paymentStatus === 'detected' || paymentStatus === 'forwarding' ? 'bg-blue-500' : 'bg-purple-500'
+                    paymentStatus === 'detected' ? 'bg-blue-500' : 'bg-purple-500'
                   }`}
                   style={{ width: `${(timeRemaining / (PAYMENT_EXPIRY_MINUTES * 60)) * 100}%` }}
                 ></div>

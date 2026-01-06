@@ -379,7 +379,8 @@ describe('PublicPaymentPage', () => {
       });
     });
 
-    it('should show processing status for forwarding', async () => {
+    it('should show payment complete for forwarding status', async () => {
+      // Forwarding status means customer has already paid - show as complete
       vi.mocked(fetch).mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -391,7 +392,7 @@ describe('PublicPaymentPage', () => {
       render(<PublicPaymentPage />);
 
       await waitFor(() => {
-        expect(screen.getByText(/processing/i)).toBeInTheDocument();
+        expect(screen.getByText(/Payment Complete/i)).toBeInTheDocument();
       });
     });
   });
