@@ -197,8 +197,15 @@ export async function forwardPayment(
         platformFee,
       });
 
+      // Get business_id from payment for webhook
+      const { data: paymentData } = await supabase
+        .from('payments')
+        .select('business_id')
+        .eq('id', input.paymentId)
+        .single();
+
       // Send webhook notification
-      await sendPaymentWebhook(supabase, input.paymentId, input.paymentId, 'payment.forwarded', {
+      await sendPaymentWebhook(supabase, paymentData?.business_id || '', input.paymentId, 'payment.forwarded', {
         amount_crypto: input.totalAmount.toString(),
         amount_usd: '0', // Would need to calculate from exchange rate
         currency: input.blockchain,

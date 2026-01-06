@@ -303,3 +303,126 @@ describe('Blockchain to Crypto Mapping', () => {
     expect(blockchainToCrypto('USDC_SOL')).toBe('USDC');
   });
 });
+
+describe('Payment Metadata with redirect_url', () => {
+  /**
+   * Helper function that mirrors the metadata building logic in the API route
+   */
+  function buildPaymentMetadata(
+    metadata?: Record<string, any>,
+    description?: string,
+    redirect_url?: string
+  ): Record<string, any> | undefined {
+    const paymentMetadata: Record<string, any> = { ...metadata };
+    if (description) {
+      paymentMetadata.description = description;
+    }
+    if (redirect_url) {
+      paymentMetadata.redirect_url = redirect_url;
+    }
+    return Object.keys(paymentMetadata).length > 0 ? paymentMetadata : undefined;
+  }
+
+  it('should include redirect_url in metadata when provided', () => {
+    const result = buildPaymentMetadata(undefined, undefined, 'https://example.com/success');
+
+    expect(result).toBeDefined();
+    expect(result?.redirect_url).toBe('https://example.com/success');
+  });
+
+  it('should include description in metadata when provided', () => {
+    const result = buildPaymentMetadata(undefined, 'Test payment', undefined);
+
+    expect(result).toBeDefined();
+    expect(result?.description).toBe('Test payment');
+  });
+
+  it('should include both redirect_url and description when provided', () => {
+    const result = buildPaymentMetadata(undefined, 'Test payment', 'https://example.com/success');
+
+    expect(result).toBeDefined();
+    expect(result?.redirect_url).toBe('https://example.com/success');
+    expect(result?.description).toBe('Test payment');
+  });
+
+  it('should merge with existing metadata', () => {
+    const existingMetadata = { order_id: 'order-123', customer_email: 'test@example.com' };
+    const result = buildPaymentMetadata(existingMetadata, 'Test payment', 'https://example.com/success');
+
+    expect(result).toBeDefined();
+    expect(result?.order_id).toBe('order-123');
+    expect(result?.customer_email).toBe('test@example.com');
+    expect(result?.description).toBe('Test payment');
+    expect(result?.redirect_url).toBe('https://example.com/success');
+  });
+
+  it('should return undefined when no metadata provided', () => {
+    const result = buildPaymentMetadata(undefined, undefined, undefined);
+
+    expect(result).toBeUndefined();
+  });
+
+  it('should return undefined for empty metadata object', () => {
+    const result = buildPaymentMetadata({}, undefined, undefined);
+
+    expect(result).toBeUndefined();
+  });
+
+  it('should handle various redirect_url formats', () => {
+    const urls = [
+      'https://example.com/success',
+      'https://example.com/success?order=123',
+      'https://example.com/success?order=123&status=paid',
+      'http://localhost:3000/callback',
+    ];
+
+    urls.forEach(url => {
+      const result = buildPaymentMetadata(undefined, undefined, url);
+      expect(result?.redirect_url).toBe(url);
+    });
+  });
+});
+
+describe('USDC Chain Options', () => {
+  /**
+   * Tests for chain-specific USDC options (USDC_ETH, USDC_POL, USDC_SOL)
+   */
+  function mapCurrencyToBlockchain(currency: string): string | null {
+    const mapping: Record<string, string> = {
+      'btc': 'BTC',
+      'bch': 'BCH',
+      'eth': 'ETH',
+      'pol': 'POL',
+      'sol': 'SOL',
+      'doge': 'DOGE',
+      'xrp': 'XRP',
+      'ada': 'ADA',
+      'bnb': 'BNB',
+      'usdt': 'USDT',
+      'usdc': 'USDC',
+      'usdc_eth': 'USDC_ETH',
+      'usdc_pol': 'USDC_POL',
+      'usdc_sol': 'USDC_SOL',
+    };
+    return mapping[currency.toLowerCase()] || null;
+  }
+
+  it('should map usdc_pol to USDC_POL for cheap Polygon fees', () => {
+    expect(mapCurrencyToBlockchain('usdc_pol')).toBe('USDC_POL');
+    expect(mapCurrencyToBlockchain('USDC_POL')).toBe('USDC_POL');
+  });
+
+  it('should map usdc_sol to USDC_SOL for cheap Solana fees', () => {
+    expect(mapCurrencyToBlockchain('usdc_sol')).toBe('USDC_SOL');
+    expect(mapCurrencyToBlockchain('USDC_SOL')).toBe('USDC_SOL');
+  });
+
+  it('should map usdc_eth to USDC_ETH for Ethereum', () => {
+    expect(mapCurrencyToBlockchain('usdc_eth')).toBe('USDC_ETH');
+    expect(mapCurrencyToBlockchain('USDC_ETH')).toBe('USDC_ETH');
+  });
+
+  it('should still support generic usdc for backwards compatibility', () => {
+    expect(mapCurrencyToBlockchain('usdc')).toBe('USDC');
+  });
+});

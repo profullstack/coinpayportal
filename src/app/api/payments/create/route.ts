@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     
     // Transform frontend data to service format
-    const { business_id, amount_usd, amount, currency, blockchain, description, metadata } = body;
+    const { business_id, amount_usd, amount, currency, blockchain, description, metadata, redirect_url } = body;
     
     // Determine the blockchain type
     const blockchainType = blockchain
@@ -159,6 +159,15 @@ export async function POST(request: NextRequest) {
       );
     }
     
+    // Build metadata with optional redirect_url and description
+    const paymentMetadata: Record<string, any> = { ...metadata };
+    if (description) {
+      paymentMetadata.description = description;
+    }
+    if (redirect_url) {
+      paymentMetadata.redirect_url = redirect_url;
+    }
+
     // Create the payment with transformed data
     const result = await createPayment(supabase, {
       business_id,
@@ -166,7 +175,7 @@ export async function POST(request: NextRequest) {
       currency: 'USD', // Always USD for now
       blockchain: blockchainType,
       merchant_wallet_address: wallet.wallet_address,
-      metadata: metadata || (description ? { description } : undefined),
+      metadata: Object.keys(paymentMetadata).length > 0 ? paymentMetadata : undefined,
     });
 
     if (!result.success) {

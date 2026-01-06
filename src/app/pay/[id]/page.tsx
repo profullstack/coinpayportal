@@ -23,6 +23,12 @@ interface Payment {
   expires_at?: string;
   tx_hash?: string;
   forward_tx_hash?: string;
+  metadata?: {
+    network_fee_usd?: number;
+    total_amount_usd?: number;
+    description?: string;
+    redirect_url?: string;
+  };
 }
 
 interface Business {
@@ -314,6 +320,21 @@ export default function PublicPaymentPage() {
     }
   }, [payment?.id, payment?.created_at, paymentStatus, pollPaymentStatus, calculateTimeRemaining, checkBlockchainBalance]);
 
+  // Auto-redirect when payment is complete and redirect_url is configured
+  useEffect(() => {
+    const isComplete = paymentStatus === 'confirmed' || paymentStatus === 'forwarded';
+    const redirectUrl = payment?.metadata?.redirect_url;
+
+    if (isComplete && redirectUrl) {
+      // Wait 5 seconds before redirecting to let user see the success message
+      const redirectTimeout = setTimeout(() => {
+        window.location.href = redirectUrl;
+      }, 5000);
+
+      return () => clearTimeout(redirectTimeout);
+    }
+  }, [paymentStatus, payment?.metadata?.redirect_url]);
+
   // Format time remaining as MM:SS
   const formatTimeRemaining = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -473,9 +494,29 @@ export default function PublicPaymentPage() {
                   </p>
                 </div>
               </div>
-              <p className="text-gray-400">
-                ≈ ${payment.amount ? parseFloat(payment.amount).toFixed(2) : 'N/A'} USD
-              </p>
+
+              {/* Fee Breakdown */}
+              {payment.metadata?.network_fee_usd ? (
+                <div className="bg-gray-900/50 rounded-lg p-3 mt-2 text-sm">
+                  <div className="flex justify-between text-gray-400">
+                    <span>Product price:</span>
+                    <span>${parseFloat(payment.amount).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-400">
+                    <span>Network fee:</span>
+                    <span>${payment.metadata.network_fee_usd.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-white font-medium border-t border-gray-700 pt-2 mt-2">
+                    <span>Total:</span>
+                    <span>${payment.metadata.total_amount_usd?.toFixed(2) || (parseFloat(payment.amount) + payment.metadata.network_fee_usd).toFixed(2)}</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-gray-400">
+                  ≈ ${payment.amount ? parseFloat(payment.amount).toFixed(2) : 'N/A'} USD
+                </p>
+              )}
+
               {payment.crypto_amount && (
                 <button
                   onClick={() => copyToClipboard(parseFloat(payment.crypto_amount).toFixed(8), 'amount')}
@@ -602,6 +643,24 @@ export default function PublicPaymentPage() {
                     </a>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Return to Merchant Button (for completed payments with redirect_url) */}
+            {isPaymentComplete && payment.metadata?.redirect_url && (
+              <div className="text-center">
+                <a
+                  href={payment.metadata.redirect_url}
+                  className="inline-flex items-center justify-center gap-2 w-full px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white font-medium rounded-xl transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                  Return to Merchant
+                </a>
+                <p className="text-xs text-gray-500 mt-2">
+                  You will be redirected automatically in a few seconds...
+                </p>
               </div>
             )}
 

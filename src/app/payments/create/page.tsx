@@ -273,6 +273,9 @@ export default function CreatePaymentPage() {
       ethereum: `https://etherscan.io/tx/${txHash}`,
       usdt: `https://etherscan.io/tx/${txHash}`,
       usdc: `https://etherscan.io/tx/${txHash}`,
+      usdc_eth: `https://etherscan.io/tx/${txHash}`,
+      usdc_pol: `https://polygonscan.com/tx/${txHash}`,
+      usdc_sol: `https://solscan.io/tx/${txHash}`,
       bnb: `https://bscscan.com/tx/${txHash}`,
       pol: `https://polygonscan.com/tx/${txHash}`,
       polygon: `https://polygonscan.com/tx/${txHash}`,
@@ -290,24 +293,28 @@ export default function CreatePaymentPage() {
 
   // All supported currencies with their fee info
   const allCurrencies = [
-    { value: 'btc', label: 'Bitcoin (BTC)', networkFee: '$0.50-3.00', estimatedFee: 2.00 },
-    { value: 'bch', label: 'Bitcoin Cash (BCH)', networkFee: '~$0.01', estimatedFee: 0.01 },
-    { value: 'eth', label: 'Ethereum (ETH)', networkFee: '$0.50-5.00', estimatedFee: 3.00 },
-    { value: 'usdt', label: 'Tether (USDT)', networkFee: '$0.50-5.00', estimatedFee: 3.00 },
-    { value: 'usdc', label: 'USD Coin (USDC)', networkFee: '$0.50-5.00', estimatedFee: 3.00 },
-    { value: 'bnb', label: 'Binance Coin (BNB)', networkFee: '$0.05-0.20', estimatedFee: 0.10 },
-    { value: 'sol', label: 'Solana (SOL)', networkFee: '~$0.001', estimatedFee: 0.001 },
-    { value: 'xrp', label: 'Ripple (XRP)', networkFee: '~$0.001', estimatedFee: 0.001 },
-    { value: 'ada', label: 'Cardano (ADA)', networkFee: '~$0.20', estimatedFee: 0.20 },
-    { value: 'doge', label: 'Dogecoin (DOGE)', networkFee: '~$0.05', estimatedFee: 0.05 },
-    { value: 'pol', label: 'Polygon (POL)', networkFee: '$0.001-0.01', estimatedFee: 0.01 },
+    { value: 'btc', label: 'Bitcoin (BTC)', networkFee: '$0.50-3.00', estimatedFee: 2.00, walletType: 'BTC' },
+    { value: 'bch', label: 'Bitcoin Cash (BCH)', networkFee: '~$0.01', estimatedFee: 0.01, walletType: 'BCH' },
+    { value: 'eth', label: 'Ethereum (ETH)', networkFee: '$0.50-5.00', estimatedFee: 3.00, walletType: 'ETH' },
+    { value: 'usdt', label: 'Tether (USDT)', networkFee: '$0.50-5.00', estimatedFee: 3.00, walletType: 'USDT' },
+    // Chain-specific USDC options - Polygon is cheapest!
+    { value: 'usdc_pol', label: 'USDC (Polygon) - Recommended', networkFee: '~$0.01', estimatedFee: 0.01, walletType: 'USDC' },
+    { value: 'usdc_sol', label: 'USDC (Solana)', networkFee: '~$0.001', estimatedFee: 0.001, walletType: 'USDC' },
+    { value: 'usdc_eth', label: 'USDC (Ethereum)', networkFee: '$0.50-5.00', estimatedFee: 3.00, walletType: 'USDC' },
+    { value: 'bnb', label: 'Binance Coin (BNB)', networkFee: '$0.05-0.20', estimatedFee: 0.10, walletType: 'BNB' },
+    { value: 'sol', label: 'Solana (SOL)', networkFee: '~$0.001', estimatedFee: 0.001, walletType: 'SOL' },
+    { value: 'xrp', label: 'Ripple (XRP)', networkFee: '~$0.001', estimatedFee: 0.001, walletType: 'XRP' },
+    { value: 'ada', label: 'Cardano (ADA)', networkFee: '~$0.20', estimatedFee: 0.20, walletType: 'ADA' },
+    { value: 'doge', label: 'Dogecoin (DOGE)', networkFee: '~$0.05', estimatedFee: 0.05, walletType: 'DOGE' },
+    { value: 'pol', label: 'Polygon (POL)', networkFee: '$0.001-0.01', estimatedFee: 0.01, walletType: 'POL' },
   ];
 
   // Filter currencies to only show those with configured wallets
+  // Uses walletType to match (e.g., USDC wallet enables all USDC chain options)
   const availableCurrencies = businessWallets.length > 0
     ? allCurrencies.filter(currency =>
         businessWallets.some(wallet =>
-          wallet.cryptocurrency.toLowerCase() === currency.value.toLowerCase() && wallet.is_active
+          wallet.cryptocurrency.toUpperCase() === currency.walletType && wallet.is_active
         )
       )
     : [];
@@ -349,13 +356,20 @@ export default function CreatePaymentPage() {
         // Auto-select first available currency if current selection is not available
         const activeWallets = (data.wallets || []).filter((w: BusinessWallet) => w.is_active);
         if (activeWallets.length > 0) {
+          // Find the walletType for current selection
+          const currentCurrency = allCurrencies.find(c => c.value === formData.currency);
+          const currentWalletType = currentCurrency?.walletType || formData.currency.toUpperCase();
           const currentCurrencyAvailable = activeWallets.some(
-            (w: BusinessWallet) => w.cryptocurrency.toLowerCase() === formData.currency.toLowerCase()
+            (w: BusinessWallet) => w.cryptocurrency.toUpperCase() === currentWalletType
           );
           if (!currentCurrencyAvailable) {
+            // Find the first currency that matches an active wallet
+            const firstAvailable = allCurrencies.find(c =>
+              activeWallets.some((w: BusinessWallet) => w.cryptocurrency.toUpperCase() === c.walletType)
+            );
             setFormData(prev => ({
               ...prev,
-              currency: activeWallets[0].cryptocurrency.toLowerCase(),
+              currency: firstAvailable?.value || activeWallets[0].cryptocurrency.toLowerCase(),
             }));
           }
         } else {

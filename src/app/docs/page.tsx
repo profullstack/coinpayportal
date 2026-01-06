@@ -242,19 +242,49 @@ data.coins.filter(c => c.is_active).forEach(coin => {
 {`{
   "business_id": "business-123",
   "amount_usd": 100.00,
-  "currency": "btc",  // btc, eth, pol, sol
-  "description": "Order #12345"  // optional
+  "currency": "usdc_pol",  // See currency options below
+  "description": "Order #12345",  // optional
+  "redirect_url": "https://yoursite.com/success"  // optional - redirect after payment
 }`}
               </CodeBlock>
 
-              <CodeBlock title="cURL Example" language="curl">
+              <h4 className="text-lg font-semibold text-white mb-2 mt-4">Currency Options</h4>
+              <div className="grid md:grid-cols-2 gap-4 mb-4">
+                <div className="p-3 rounded-lg bg-slate-800/50">
+                  <h5 className="font-semibold text-green-400 mb-2">Low Fee Options (Recommended)</h5>
+                  <div className="space-y-1 text-sm text-gray-300">
+                    <p><code className="text-purple-400">usdc_pol</code> - USDC on Polygon (~$0.01 fee)</p>
+                    <p><code className="text-purple-400">usdc_sol</code> - USDC on Solana (~$0.001 fee)</p>
+                    <p><code className="text-purple-400">pol</code> - Polygon native (~$0.01 fee)</p>
+                    <p><code className="text-purple-400">sol</code> - Solana native (~$0.001 fee)</p>
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-slate-800/50">
+                  <h5 className="font-semibold text-yellow-400 mb-2">Higher Fee Options</h5>
+                  <div className="space-y-1 text-sm text-gray-300">
+                    <p><code className="text-purple-400">btc</code> - Bitcoin (~$2-3 fee)</p>
+                    <p><code className="text-purple-400">eth</code> - Ethereum (~$3-5 fee)</p>
+                    <p><code className="text-purple-400">usdc_eth</code> - USDC on Ethereum (~$3-5 fee)</p>
+                    <p><code className="text-purple-400">usdt</code> - USDT on Ethereum (~$3-5 fee)</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                <p className="text-blue-300 text-sm">
+                  <strong>Tip:</strong> Network fees are added to ensure merchants receive the full amount. Use <code className="text-blue-200">usdc_pol</code> or <code className="text-blue-200">usdc_sol</code> for the lowest customer fees while still accepting stablecoins.
+                </p>
+              </div>
+
+              <CodeBlock title="cURL Example with redirect_url" language="curl">
 {`curl -X POST https://coinpayportal.com/api/payments/create \\
   -H "Authorization: Bearer YOUR_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{
     "business_id": "business-123",
     "amount_usd": 100.00,
-    "currency": "btc"
+    "currency": "usdc_pol",
+    "redirect_url": "https://yoursite.com/order/success?id=12345"
   }'`}
               </CodeBlock>
 
@@ -265,15 +295,27 @@ data.coins.filter(c => c.is_active).forEach(coin => {
     "id": "payment-456",
     "business_id": "business-123",
     "amount_usd": "100.00",
-    "amount_crypto": "0.00234567",
-    "currency": "btc",
-    "payment_address": "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+    "amount_crypto": "100.50",
+    "currency": "usdc_pol",
+    "payment_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
     "status": "pending",
+    "metadata": {
+      "network_fee_usd": 0.50,
+      "total_amount_usd": 100.50,
+      "redirect_url": "https://yoursite.com/order/success?id=12345"
+    },
     "created_at": "2024-01-01T12:00:00Z",
-    "expires_at": "2024-01-01T13:00:00Z"
+    "expires_at": "2024-01-01T12:15:00Z"
   }
 }`}
               </CodeBlock>
+
+              <div className="mt-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+                <h4 className="font-semibold text-green-400 mb-2">Auto-Redirect After Payment</h4>
+                <p className="text-green-300 text-sm">
+                  When <code className="text-green-200">redirect_url</code> is provided, customers are automatically redirected back to your site 5 seconds after payment completion. A &quot;Return to Merchant&quot; button is also shown for immediate redirect.
+                </p>
+              </div>
             </ApiEndpoint>
 
             <ApiEndpoint method="GET" path="/api/payments/:id" description="Retrieve payment details by ID.">
@@ -416,20 +458,45 @@ console.log(data.payment.status);`}
 
         {/* Supported Cryptocurrencies */}
         <DocSection title="Supported Cryptocurrencies">
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <h3 className="text-xl font-semibold text-white mb-4">Native Cryptocurrencies</h3>
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             {[
-              { name: 'Bitcoin', symbol: 'BTC', code: 'btc', confirmations: 3 },
-              { name: 'Ethereum', symbol: 'ETH', code: 'eth', confirmations: 12 },
-              { name: 'Polygon', symbol: 'POL', code: 'pol', confirmations: 128 },
-              { name: 'Solana', symbol: 'SOL', code: 'sol', confirmations: 32 },
+              { name: 'Bitcoin', symbol: 'BTC', code: 'btc', confirmations: 3, fee: '~$2-3' },
+              { name: 'Ethereum', symbol: 'ETH', code: 'eth', confirmations: 12, fee: '~$3-5' },
+              { name: 'Polygon', symbol: 'POL', code: 'pol', confirmations: 128, fee: '~$0.01' },
+              { name: 'Solana', symbol: 'SOL', code: 'sol', confirmations: 32, fee: '~$0.001' },
             ].map((crypto) => (
               <div key={crypto.symbol} className="p-4 rounded-lg bg-slate-800/50 border border-white/10">
                 <div className="font-semibold text-white mb-1">{crypto.name}</div>
                 <div className="text-purple-400 font-mono text-sm mb-2">{crypto.symbol}</div>
                 <div className="text-gray-400 text-xs">Code: <code className="text-purple-300">{crypto.code}</code></div>
                 <div className="text-gray-400 text-xs">Confirmations: {crypto.confirmations}</div>
+                <div className="text-gray-400 text-xs">Network Fee: <span className="text-green-400">{crypto.fee}</span></div>
               </div>
             ))}
+          </div>
+
+          <h3 className="text-xl font-semibold text-white mb-4">USDC Stablecoin (Multi-Chain)</h3>
+          <div className="grid md:grid-cols-3 gap-4 mb-4">
+            {[
+              { name: 'USDC on Polygon', code: 'usdc_pol', fee: '~$0.01', recommended: true },
+              { name: 'USDC on Solana', code: 'usdc_sol', fee: '~$0.001', recommended: true },
+              { name: 'USDC on Ethereum', code: 'usdc_eth', fee: '~$3-5', recommended: false },
+            ].map((crypto) => (
+              <div key={crypto.code} className={`p-4 rounded-lg border ${crypto.recommended ? 'bg-green-500/10 border-green-500/30' : 'bg-slate-800/50 border-white/10'}`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="font-semibold text-white">{crypto.name}</div>
+                  {crypto.recommended && <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded">Low Fee</span>}
+                </div>
+                <div className="text-purple-400 font-mono text-sm mb-2">{crypto.code}</div>
+                <div className="text-gray-400 text-xs">Network Fee: <span className={crypto.recommended ? 'text-green-400' : 'text-yellow-400'}>{crypto.fee}</span></div>
+              </div>
+            ))}
+          </div>
+          <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+            <p className="text-blue-300 text-sm">
+              <strong>Recommendation:</strong> Use <code className="text-blue-200">usdc_pol</code> or <code className="text-blue-200">usdc_sol</code> for the lowest fees while accepting stable USD-pegged payments.
+            </p>
           </div>
         </DocSection>
 

@@ -289,7 +289,7 @@ export async function forwardPaymentSecurely(
       }
 
       // Send webhook notification
-      await sendPaymentWebhook(supabase, paymentId, paymentId, 'payment.forwarded', {
+      await sendPaymentWebhook(supabase, payment.business_id, paymentId, 'payment.forwarded', {
         amount_crypto: payment.crypto_amount.toString(),
         currency: addressData.cryptocurrency,
         status: 'forwarded',
