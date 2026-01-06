@@ -37,6 +37,8 @@ export default function CreatePaymentPage() {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number>(PAYMENT_EXPIRY_MINUTES * 60);
   const [paymentStatus, setPaymentStatus] = useState<string>('pending');
+  const [networkFees, setNetworkFees] = useState<Record<string, number>>({});
+  const [feesLoading, setFeesLoading] = useState(true);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const balanceCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -52,6 +54,36 @@ export default function CreatePaymentPage() {
       console.error('Failed to copy:', err);
     }
   };
+
+  // Fetch real-time network fees from API
+  const fetchNetworkFees = useCallback(async () => {
+    try {
+      setFeesLoading(true);
+      const response = await fetch('/api/fees');
+      const data = await response.json();
+
+      if (data.success && data.fees) {
+        const feesMap: Record<string, number> = {};
+        data.fees.forEach((fee: { blockchain: string; fee_usd: number }) => {
+          feesMap[fee.blockchain.toLowerCase()] = fee.fee_usd;
+        });
+        setNetworkFees(feesMap);
+      }
+    } catch (err) {
+      console.error('Failed to fetch network fees:', err);
+      // Fallback fees will be used from the static list
+    } finally {
+      setFeesLoading(false);
+    }
+  }, []);
+
+  // Fetch fees on component mount
+  useEffect(() => {
+    fetchNetworkFees();
+    // Refresh fees every 2 minutes
+    const interval = setInterval(fetchNetworkFees, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [fetchNetworkFees]);
 
   // Check blockchain balance directly
   const checkBlockchainBalance = useCallback(async (paymentId: string) => {
@@ -291,23 +323,35 @@ export default function CreatePaymentPage() {
     return explorers[blockchain?.toLowerCase()] || `https://blockchair.com/search?q=${txHash}`;
   };
 
-  // All supported currencies with their fee info
-  const allCurrencies = [
-    { value: 'btc', label: 'Bitcoin (BTC)', networkFee: '$0.50-3.00', estimatedFee: 2.00, walletType: 'BTC' },
-    { value: 'bch', label: 'Bitcoin Cash (BCH)', networkFee: '~$0.01', estimatedFee: 0.01, walletType: 'BCH' },
-    { value: 'eth', label: 'Ethereum (ETH)', networkFee: '$0.50-5.00', estimatedFee: 3.00, walletType: 'ETH' },
-    { value: 'usdt', label: 'Tether (USDT)', networkFee: '$0.50-5.00', estimatedFee: 3.00, walletType: 'USDT' },
+  // Base currency definitions (fees will be fetched from API)
+  const baseCurrencies = [
+    { value: 'btc', label: 'Bitcoin (BTC)', walletType: 'BTC', fallbackFee: 2.00 },
+    { value: 'bch', label: 'Bitcoin Cash (BCH)', walletType: 'BCH', fallbackFee: 0.01 },
+    { value: 'eth', label: 'Ethereum (ETH)', walletType: 'ETH', fallbackFee: 3.00 },
+    { value: 'usdt', label: 'Tether (USDT)', walletType: 'USDT', fallbackFee: 3.00 },
     // Chain-specific USDC options - Polygon is cheapest!
-    { value: 'usdc_pol', label: 'USDC (Polygon) - Recommended', networkFee: '~$0.01', estimatedFee: 0.01, walletType: 'USDC' },
-    { value: 'usdc_sol', label: 'USDC (Solana)', networkFee: '~$0.001', estimatedFee: 0.001, walletType: 'USDC' },
-    { value: 'usdc_eth', label: 'USDC (Ethereum)', networkFee: '$0.50-5.00', estimatedFee: 3.00, walletType: 'USDC' },
-    { value: 'bnb', label: 'Binance Coin (BNB)', networkFee: '$0.05-0.20', estimatedFee: 0.10, walletType: 'BNB' },
-    { value: 'sol', label: 'Solana (SOL)', networkFee: '~$0.001', estimatedFee: 0.001, walletType: 'SOL' },
-    { value: 'xrp', label: 'Ripple (XRP)', networkFee: '~$0.001', estimatedFee: 0.001, walletType: 'XRP' },
-    { value: 'ada', label: 'Cardano (ADA)', networkFee: '~$0.20', estimatedFee: 0.20, walletType: 'ADA' },
-    { value: 'doge', label: 'Dogecoin (DOGE)', networkFee: '~$0.05', estimatedFee: 0.05, walletType: 'DOGE' },
-    { value: 'pol', label: 'Polygon (POL)', networkFee: '$0.001-0.01', estimatedFee: 0.01, walletType: 'POL' },
+    { value: 'usdc_pol', label: 'USDC (Polygon) - Recommended', walletType: 'USDC', fallbackFee: 0.01 },
+    { value: 'usdc_sol', label: 'USDC (Solana)', walletType: 'USDC', fallbackFee: 0.001 },
+    { value: 'usdc_eth', label: 'USDC (Ethereum)', walletType: 'USDC', fallbackFee: 3.00 },
+    { value: 'bnb', label: 'Binance Coin (BNB)', walletType: 'BNB', fallbackFee: 0.10 },
+    { value: 'sol', label: 'Solana (SOL)', walletType: 'SOL', fallbackFee: 0.001 },
+    { value: 'xrp', label: 'Ripple (XRP)', walletType: 'XRP', fallbackFee: 0.001 },
+    { value: 'ada', label: 'Cardano (ADA)', walletType: 'ADA', fallbackFee: 0.20 },
+    { value: 'doge', label: 'Dogecoin (DOGE)', walletType: 'DOGE', fallbackFee: 0.05 },
+    { value: 'pol', label: 'Polygon (POL)', walletType: 'POL', fallbackFee: 0.01 },
   ];
+
+  // Build currencies with real-time fees
+  const allCurrencies = baseCurrencies.map(currency => {
+    // Get fee from API (use lowercase key) or fallback
+    const fee = networkFees[currency.value] ?? currency.fallbackFee;
+    const networkFee = fee < 0.01 ? `~$${fee.toFixed(4)}` : fee < 1 ? `~$${fee.toFixed(2)}` : `~$${fee.toFixed(2)}`;
+    return {
+      ...currency,
+      networkFee,
+      estimatedFee: fee,
+    };
+  });
 
   // Filter currencies to only show those with configured wallets
   // Uses walletType to match (e.g., USDC wallet enables all USDC chain options)

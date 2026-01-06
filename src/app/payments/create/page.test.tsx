@@ -15,6 +15,22 @@ vi.mock('next/navigation', () => ({
 // Mock fetch globally
 global.fetch = vi.fn();
 
+// Mock fees response for all tests
+const mockFeesResponse = {
+  success: true,
+  fees: [
+    { blockchain: 'BTC', fee_usd: 2.00, display: '~$2.00' },
+    { blockchain: 'BCH', fee_usd: 0.01, display: '~$0.01' },
+    { blockchain: 'ETH', fee_usd: 3.00, display: '~$3.00' },
+    { blockchain: 'POL', fee_usd: 0.01, display: '~$0.01' },
+    { blockchain: 'SOL', fee_usd: 0.001, display: '~$0.0010' },
+    { blockchain: 'USDC_ETH', fee_usd: 3.00, display: '~$3.00' },
+    { blockchain: 'USDC_POL', fee_usd: 0.01, display: '~$0.01' },
+    { blockchain: 'USDC_SOL', fee_usd: 0.001, display: '~$0.0010' },
+  ],
+  timestamp: new Date().toISOString(),
+};
+
 describe('CreatePaymentPage', () => {
   const mockPush = vi.fn();
   const mockRouter = {
@@ -43,11 +59,49 @@ describe('CreatePaymentPage', () => {
     { id: 'wallet-5', cryptocurrency: 'BCH', wallet_address: 'bitcoincash:qpat0gmrdrlhrq2r9f467f42u55kazdknyml9aaj76', is_active: true },
   ];
 
+  // Helper to create URL-aware mock fetch
+  const createMockFetch = (responses: Record<string, any>) => {
+    return vi.fn((url: string) => {
+      const urlStr = typeof url === 'string' ? url : url.toString();
+
+      if (urlStr.includes('/api/fees')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => responses.fees || mockFeesResponse,
+        } as Response);
+      }
+      if (urlStr.includes('/api/businesses') && urlStr.includes('/wallets')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => responses.wallets || { success: true, wallets: mockWallets },
+        } as Response);
+      }
+      if (urlStr.includes('/api/businesses')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => responses.businesses || { success: true, businesses: mockBusinesses },
+        } as Response);
+      }
+      if (urlStr.includes('/api/payments')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => responses.payments || { success: true },
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({}),
+      } as Response);
+    });
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useRouter).mockReturnValue(mockRouter);
     localStorage.clear();
     localStorage.setItem('auth_token', 'test-token');
+    // Default mock that handles fees
+    vi.mocked(fetch).mockImplementation(createMockFetch({}));
   });
 
   describe('Loading State', () => {
@@ -64,13 +118,9 @@ describe('CreatePaymentPage', () => {
 
   describe('No Businesses State', () => {
     it('should show message when no businesses exist', async () => {
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          businesses: [],
-        }),
-      } as Response);
+      vi.mocked(fetch).mockImplementation(createMockFetch({
+        businesses: { success: true, businesses: [] },
+      }));
 
       render(<CreatePaymentPage />);
 
@@ -84,13 +134,9 @@ describe('CreatePaymentPage', () => {
     });
 
     it('should have button to create business', async () => {
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          businesses: [],
-        }),
-      } as Response);
+      vi.mocked(fetch).mockImplementation(createMockFetch({
+        businesses: { success: true, businesses: [] },
+      }));
 
       render(<CreatePaymentPage />);
 
@@ -103,22 +149,8 @@ describe('CreatePaymentPage', () => {
 
   describe('Payment Form', () => {
     beforeEach(async () => {
-      // Mock businesses fetch
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          businesses: mockBusinesses,
-        }),
-      } as Response);
-      // Mock wallets fetch for first business
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          wallets: mockWallets,
-        }),
-      } as Response);
+      // Use the URL-aware mock that handles fees, businesses, and wallets
+      vi.mocked(fetch).mockImplementation(createMockFetch({}));
     });
 
     it('should render payment creation form', async () => {
@@ -178,25 +210,10 @@ describe('CreatePaymentPage', () => {
     });
 
     it('should show BCH option when BCH wallet is configured', async () => {
-      // Reset mocks
-      vi.mocked(fetch).mockReset();
-      
-      // Mock businesses fetch
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          businesses: mockBusinesses,
-        }),
-      } as Response);
-      // Mock wallets fetch with BCH
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          wallets: mockWalletsWithBCH,
-        }),
-      } as Response);
+      // Use URL-aware mock with BCH wallet
+      vi.mocked(fetch).mockImplementation(createMockFetch({
+        wallets: { success: true, wallets: mockWalletsWithBCH },
+      }));
 
       render(<CreatePaymentPage />);
 
@@ -209,55 +226,25 @@ describe('CreatePaymentPage', () => {
     });
 
     it('should show message when no wallets are configured', async () => {
-      // Reset mocks
-      vi.mocked(fetch).mockReset();
-      
-      // Mock businesses fetch
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          businesses: mockBusinesses,
-        }),
-      } as Response);
-      // Mock wallets fetch with empty wallets
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          wallets: [],
-        }),
-      } as Response);
+      // Use URL-aware mock with empty wallets
+      vi.mocked(fetch).mockImplementation(createMockFetch({
+        wallets: { success: true, wallets: [] },
+      }));
 
       render(<CreatePaymentPage />);
 
       await waitFor(() => {
         expect(screen.getByText(/no wallets configured/i)).toBeInTheDocument();
       });
-      
+
       expect(screen.getByText(/add a wallet address/i)).toBeInTheDocument();
     });
 
     it('should disable submit button when no wallets are configured', async () => {
-      // Reset mocks
-      vi.mocked(fetch).mockReset();
-      
-      // Mock businesses fetch
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          businesses: mockBusinesses,
-        }),
-      } as Response);
-      // Mock wallets fetch with empty wallets
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          wallets: [],
-        }),
-      } as Response);
+      // Use URL-aware mock with empty wallets
+      vi.mocked(fetch).mockImplementation(createMockFetch({
+        wallets: { success: true, wallets: [] },
+      }));
 
       render(<CreatePaymentPage />);
 
@@ -270,22 +257,8 @@ describe('CreatePaymentPage', () => {
 
   describe('Create Payment', () => {
     beforeEach(async () => {
-      // Mock businesses fetch
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          businesses: mockBusinesses,
-        }),
-      } as Response);
-      // Mock wallets fetch
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          wallets: mockWallets,
-        }),
-      } as Response);
+      // Use the URL-aware mock that handles fees, businesses, and wallets
+      vi.mocked(fetch).mockImplementation(createMockFetch({}));
     });
 
     it.skip('should create payment successfully', async () => {
@@ -498,22 +471,8 @@ describe('CreatePaymentPage', () => {
 
   describe('Form Validation', () => {
     beforeEach(async () => {
-      // Mock businesses fetch
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          businesses: mockBusinesses,
-        }),
-      } as Response);
-      // Mock wallets fetch
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          wallets: mockWallets,
-        }),
-      } as Response);
+      // Use the URL-aware mock that handles fees, businesses, and wallets
+      vi.mocked(fetch).mockImplementation(createMockFetch({}));
     });
 
     it('should require amount field', async () => {
