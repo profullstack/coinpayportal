@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { decrypt, deriveKey } from '../crypto/encryption';
 
 /**
  * Webhook event types
@@ -273,20 +274,39 @@ export async function sendPaymentWebhook(
   paymentData: any
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // Get business webhook configuration
+    // Get business webhook configuration including merchant_id for decryption
     const { data: business, error: businessError } = await supabase
       .from('businesses')
-      .select('webhook_url, webhook_secret')
+      .select('webhook_url, webhook_secret, merchant_id')
       .eq('id', businessId)
       .single();
 
     if (businessError || !business) {
+      console.error(`[Webhook] Business not found: ${businessId}`, businessError);
       return { success: false, error: 'Business not found' };
     }
 
     if (!business.webhook_url) {
       // No webhook configured, skip silently
+      console.log(`[Webhook] No webhook_url configured for business ${businessId}`);
       return { success: true };
+    }
+
+    // Decrypt webhook secret if it exists
+    let decryptedSecret = '';
+    if (business.webhook_secret && business.merchant_id) {
+      try {
+        const encryptionKey = process.env.ENCRYPTION_KEY;
+        if (encryptionKey) {
+          const derivedKey = deriveKey(encryptionKey, business.merchant_id);
+          decryptedSecret = decrypt(business.webhook_secret, derivedKey);
+        } else {
+          console.warn('[Webhook] ENCRYPTION_KEY not set, using empty secret');
+        }
+      } catch (decryptError) {
+        console.error(`[Webhook] Failed to decrypt webhook secret for business ${businessId}:`, decryptError);
+        // Continue with empty secret - webhook will be sent but signature may not verify
+      }
     }
 
     // Prepare webhook payload
@@ -302,11 +322,13 @@ export async function sendPaymentWebhook(
       tx_hash: paymentData.tx_hash,
     };
 
+    console.log(`[Webhook] Sending ${event} webhook for payment ${paymentId} to ${business.webhook_url}`);
+
     // Deliver webhook with retries
     const result = await retryFailedWebhook(
       business.webhook_url,
       payload,
-      business.webhook_secret || '',
+      decryptedSecret,
       3
     );
 
@@ -322,11 +344,18 @@ export async function sendPaymentWebhook(
       attempt_number: result.attempts || 1,
     });
 
+    if (result.success) {
+      console.log(`[Webhook] Successfully delivered ${event} webhook for payment ${paymentId}`);
+    } else {
+      console.error(`[Webhook] Failed to deliver ${event} webhook for payment ${paymentId}: ${result.error}`);
+    }
+
     return {
       success: result.success,
       error: result.error,
     };
   } catch (error) {
+    console.error(`[Webhook] Error sending webhook for payment ${paymentId}:`, error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

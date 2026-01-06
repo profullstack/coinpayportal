@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
 import {
   signWebhookPayload,
@@ -7,11 +7,26 @@ import {
   retryFailedWebhook,
   logWebhookAttempt,
   getWebhookLogs,
+  sendPaymentWebhook,
 } from './service';
 
 // Mock Supabase
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(),
+}));
+
+// Mock the encryption module
+vi.mock('../crypto/encryption', () => ({
+  decrypt: vi.fn((encrypted: string, key: string) => {
+    // Simulate decryption - return a predictable secret based on input
+    if (encrypted === 'encrypted-webhook-secret') {
+      return 'decrypted-webhook-secret';
+    }
+    throw new Error('Decryption failed');
+  }),
+  deriveKey: vi.fn((encryptionKey: string, merchantId: string) => {
+    return `derived-${merchantId}`;
+  }),
 }));
 
 // Mock fetch
@@ -395,6 +410,275 @@ describe('Webhook Service', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('Database error');
+    });
+  });
+
+  describe('sendPaymentWebhook', () => {
+    const originalEnv = process.env;
+
+    beforeEach(() => {
+      process.env = { ...originalEnv, ENCRYPTION_KEY: 'test-encryption-key' };
+    });
+
+    afterEach(() => {
+      process.env = originalEnv;
+    });
+
+    it('should send webhook with decrypted secret', async () => {
+      const mockChain = (mockSupabase as any)._chain;
+
+      // Mock business lookup with encrypted webhook_secret
+      mockChain.single.mockResolvedValueOnce({
+        data: {
+          webhook_url: 'https://example.com/webhook',
+          webhook_secret: 'encrypted-webhook-secret',
+          merchant_id: 'merchant-123',
+        },
+        error: null,
+      });
+
+      // Mock successful webhook delivery
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+      });
+
+      // Mock webhook log insert
+      mockChain.insert.mockResolvedValueOnce({ error: null });
+
+      const result = await sendPaymentWebhook(
+        mockSupabase,
+        'business-123',
+        'payment-123',
+        'payment.confirmed',
+        {
+          amount_crypto: '0.1',
+          amount_usd: '100',
+          currency: 'ETH',
+          status: 'confirmed',
+        }
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockSupabase.from).toHaveBeenCalledWith('businesses');
+      expect(mockChain.select).toHaveBeenCalledWith('webhook_url, webhook_secret, merchant_id');
+    });
+
+    it('should return success when no webhook_url configured', async () => {
+      const mockChain = (mockSupabase as any)._chain;
+
+      mockChain.single.mockResolvedValueOnce({
+        data: {
+          webhook_url: null,
+          webhook_secret: null,
+          merchant_id: 'merchant-123',
+        },
+        error: null,
+      });
+
+      const result = await sendPaymentWebhook(
+        mockSupabase,
+        'business-123',
+        'payment-123',
+        'payment.confirmed',
+        { amount_crypto: '0.1', amount_usd: '100', currency: 'ETH', status: 'confirmed' }
+      );
+
+      expect(result.success).toBe(true);
+      // fetch should not have been called since no webhook URL
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('should return error when business not found', async () => {
+      const mockChain = (mockSupabase as any)._chain;
+
+      mockChain.single.mockResolvedValueOnce({
+        data: null,
+        error: { message: 'Business not found' },
+      });
+
+      const result = await sendPaymentWebhook(
+        mockSupabase,
+        'nonexistent-business',
+        'payment-123',
+        'payment.confirmed',
+        { amount_crypto: '0.1', amount_usd: '100', currency: 'ETH', status: 'confirmed' }
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Business not found');
+    });
+
+    it('should continue with empty secret when decryption fails', async () => {
+      const mockChain = (mockSupabase as any)._chain;
+
+      // Use a secret that will fail decryption
+      mockChain.single.mockResolvedValueOnce({
+        data: {
+          webhook_url: 'https://example.com/webhook',
+          webhook_secret: 'invalid-encrypted-secret',
+          merchant_id: 'merchant-123',
+        },
+        error: null,
+      });
+
+      // Mock successful webhook delivery
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+      });
+
+      // Mock webhook log insert
+      mockChain.insert.mockResolvedValueOnce({ error: null });
+
+      const result = await sendPaymentWebhook(
+        mockSupabase,
+        'business-123',
+        'payment-123',
+        'payment.confirmed',
+        { amount_crypto: '0.1', amount_usd: '100', currency: 'ETH', status: 'confirmed' }
+      );
+
+      // Should still succeed - decryption failure is logged but doesn't block webhook
+      expect(result.success).toBe(true);
+    });
+
+    it('should warn when ENCRYPTION_KEY not set', async () => {
+      delete process.env.ENCRYPTION_KEY;
+
+      const mockChain = (mockSupabase as any)._chain;
+
+      mockChain.single.mockResolvedValueOnce({
+        data: {
+          webhook_url: 'https://example.com/webhook',
+          webhook_secret: 'encrypted-webhook-secret',
+          merchant_id: 'merchant-123',
+        },
+        error: null,
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+      });
+
+      mockChain.insert.mockResolvedValueOnce({ error: null });
+
+      const result = await sendPaymentWebhook(
+        mockSupabase,
+        'business-123',
+        'payment-123',
+        'payment.confirmed',
+        { amount_crypto: '0.1', amount_usd: '100', currency: 'ETH', status: 'confirmed' }
+      );
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should use merchant_id to derive decryption key', async () => {
+      const { deriveKey } = await import('../crypto/encryption');
+
+      const mockChain = (mockSupabase as any)._chain;
+
+      mockChain.single.mockResolvedValueOnce({
+        data: {
+          webhook_url: 'https://example.com/webhook',
+          webhook_secret: 'encrypted-webhook-secret',
+          merchant_id: 'merchant-456',
+        },
+        error: null,
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+      });
+
+      mockChain.insert.mockResolvedValueOnce({ error: null });
+
+      await sendPaymentWebhook(
+        mockSupabase,
+        'business-123',
+        'payment-123',
+        'payment.confirmed',
+        { amount_crypto: '0.1', amount_usd: '100', currency: 'ETH', status: 'confirmed' }
+      );
+
+      // Verify deriveKey was called with correct merchant_id
+      expect(deriveKey).toHaveBeenCalledWith('test-encryption-key', 'merchant-456');
+    });
+
+    it('should log webhook attempt to database', async () => {
+      const mockChain = (mockSupabase as any)._chain;
+
+      mockChain.single.mockResolvedValueOnce({
+        data: {
+          webhook_url: 'https://example.com/webhook',
+          webhook_secret: 'encrypted-webhook-secret',
+          merchant_id: 'merchant-123',
+        },
+        error: null,
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+      });
+
+      mockChain.insert.mockResolvedValueOnce({ error: null });
+
+      await sendPaymentWebhook(
+        mockSupabase,
+        'business-123',
+        'payment-123',
+        'payment.confirmed',
+        { amount_crypto: '0.1', amount_usd: '100', currency: 'ETH', status: 'confirmed' }
+      );
+
+      // Verify webhook_logs insert was called
+      expect(mockSupabase.from).toHaveBeenCalledWith('webhook_logs');
+      expect(mockChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          business_id: 'business-123',
+          payment_id: 'payment-123',
+          event: 'payment.confirmed',
+          webhook_url: 'https://example.com/webhook',
+          success: true,
+        })
+      );
+    });
+
+    it('should return error when webhook delivery fails', async () => {
+      const mockChain = (mockSupabase as any)._chain;
+
+      mockChain.single.mockResolvedValueOnce({
+        data: {
+          webhook_url: 'https://example.com/webhook',
+          webhook_secret: 'encrypted-webhook-secret',
+          merchant_id: 'merchant-123',
+        },
+        error: null,
+      });
+
+      // Mock failed webhook delivery (all retries fail)
+      (global.fetch as any).mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+      });
+
+      mockChain.insert.mockResolvedValue({ error: null });
+
+      const result = await sendPaymentWebhook(
+        mockSupabase,
+        'business-123',
+        'payment-123',
+        'payment.confirmed',
+        { amount_crypto: '0.1', amount_usd: '100', currency: 'ETH', status: 'confirmed' }
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('500');
     });
   });
 });
