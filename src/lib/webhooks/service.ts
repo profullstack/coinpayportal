@@ -310,8 +310,10 @@ export async function sendPaymentWebhook(
     }
 
     // Prepare webhook payload
+    // Include both 'event' and 'type' for compatibility with different receiver implementations
     const payload: WebhookPayload = {
       event,
+      type: event, // Alias for compatibility
       payment_id: paymentId,
       business_id: businessId,
       amount_crypto: paymentData.amount_crypto,
