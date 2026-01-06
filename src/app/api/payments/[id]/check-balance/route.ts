@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendPaymentWebhook } from '@/lib/webhooks/service';
+import { forwardPaymentSecurely } from '@/lib/wallets/secure-forwarding';
 
 import * as bitcoin from 'bitcoinjs-lib';
 
@@ -512,31 +513,18 @@ export async function POST(
         console.error(`Failed to send webhook for payment ${paymentId}:`, webhookError);
       }
 
-      // Trigger forwarding
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
-      const internalApiKey = process.env.INTERNAL_API_KEY;
-      
-      if (internalApiKey) {
-        try {
-          const forwardResponse = await fetch(`${appUrl}/api/payments/${paymentId}/forward`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${internalApiKey}`,
-            },
-          });
-          
-          if (!forwardResponse.ok) {
-            const errorText = await forwardResponse.text();
-            console.error(`Failed to trigger forwarding for ${paymentId}: ${forwardResponse.status} - ${errorText}`);
-          } else {
-            console.log(`Forwarding triggered for payment ${paymentId}`);
-          }
-        } catch (forwardError) {
-          console.error(`Error triggering forwarding for ${paymentId}:`, forwardError);
+      // Trigger forwarding directly (avoid HTTP self-call timeout issues)
+      try {
+        console.log(`Triggering forwarding for payment ${paymentId}...`);
+        const forwardResult = await forwardPaymentSecurely(supabase, paymentId);
+
+        if (forwardResult.success) {
+          console.log(`Forwarding completed for payment ${paymentId}: merchantTx=${forwardResult.merchantTxHash}`);
+        } else {
+          console.error(`Forwarding failed for ${paymentId}: ${forwardResult.error}`);
         }
-      } else {
-        console.warn('INTERNAL_API_KEY not set, skipping automatic forwarding');
+      } catch (forwardError) {
+        console.error(`Error during forwarding for ${paymentId}:`, forwardError);
       }
       
       return NextResponse.json({

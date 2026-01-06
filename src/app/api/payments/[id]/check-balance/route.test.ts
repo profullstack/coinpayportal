@@ -10,6 +10,10 @@ vi.mock('@/lib/webhooks/service', () => ({
   sendPaymentWebhook: vi.fn().mockResolvedValue({ success: true }),
 }));
 
+vi.mock('@/lib/wallets/secure-forwarding', () => ({
+  forwardPaymentSecurely: vi.fn().mockResolvedValue({ success: true, merchantTxHash: 'mock-tx-hash' }),
+}));
+
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({
     from: vi.fn(() => ({
