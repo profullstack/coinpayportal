@@ -510,11 +510,9 @@ console.log(data.payment.status);`}
             <h3 className="text-xl font-semibold text-white mb-4">Webhook Events</h3>
             <div className="space-y-4 mb-8">
               {[
-                { event: 'payment.detected', description: 'Payment detected on blockchain (0 confirmations)' },
-                { event: 'payment.confirmed', description: 'Payment confirmed (sufficient confirmations)' },
-                { event: 'payment.forwarded', description: 'Payment forwarded to merchant wallet' },
-                { event: 'payment.failed', description: 'Payment failed' },
-                { event: 'payment.expired', description: 'Payment request expired' },
+                { event: 'payment.confirmed', description: 'Payment confirmed on blockchain - safe to fulfill order' },
+                { event: 'payment.forwarded', description: 'Funds forwarded to your merchant wallet' },
+                { event: 'payment.expired', description: 'Payment request expired (15 minute window)' },
                 { event: 'test.webhook', description: 'Test webhook (sent from dashboard)' },
               ].map((webhook) => (
                 <div key={webhook.event} className="p-4 rounded-lg bg-slate-800/50">
@@ -522,6 +520,31 @@ console.log(data.payment.status);`}
                   <p className="text-gray-300 mt-2">{webhook.description}</p>
                 </div>
               ))}
+            </div>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Base Payload Fields</h3>
+            <p className="text-gray-300 mb-4">All webhook events include these fields:</p>
+            <div className="overflow-x-auto mb-6">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left py-2 text-gray-300">Field</th>
+                    <th className="text-left py-2 text-gray-300">Type</th>
+                    <th className="text-left py-2 text-gray-300">Description</th>
+                  </tr>
+                </thead>
+                <tbody className="text-gray-400">
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">event</code></td><td>string</td><td>Event type</td></tr>
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">type</code></td><td>string</td><td>Alias for event</td></tr>
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">payment_id</code></td><td>string</td><td>Payment identifier</td></tr>
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">business_id</code></td><td>string</td><td>Your business ID</td></tr>
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">amount_crypto</code></td><td>string</td><td>Amount in crypto</td></tr>
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">amount_usd</code></td><td>string</td><td>Amount in USD</td></tr>
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">currency</code></td><td>string</td><td>Blockchain (ETH, BTC, etc.)</td></tr>
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">status</code></td><td>string</td><td>Payment status</td></tr>
+                  <tr><td className="py-2"><code className="text-purple-400">timestamp</code></td><td>string</td><td>ISO 8601 timestamp</td></tr>
+                </tbody>
+              </table>
             </div>
 
             <h3 className="text-xl font-semibold text-white mb-4">Webhook Headers</h3>
@@ -534,25 +557,62 @@ User-Agent: CoinPay-Webhook/1.0`}
               The <code className="text-purple-400">X-CoinPay-Signature</code> header contains: <code className="text-purple-400">t</code> (Unix timestamp) and <code className="text-purple-400">v1</code> (HMAC-SHA256 signature)
             </p>
 
-            <h3 className="text-xl font-semibold text-white mb-4">Webhook Payload Example</h3>
+            <h3 className="text-xl font-semibold text-white mb-4">payment.confirmed Payload</h3>
+            <p className="text-gray-400 text-sm mb-2">Sent when payment is confirmed. Safe to fulfill the order.</p>
             <CodeBlock>
 {`{
-  "id": "evt_abc123def456",
+  "event": "payment.confirmed",
   "type": "payment.confirmed",
-  "data": {
-    "payment_id": "pay_xyz789",
-    "amount_crypto": "0.00234567",
-    "amount_usd": "100.00",
-    "currency": "BTC",
-    "status": "confirmed",
-    "confirmations": 3,
-    "tx_hash": "abc123...",
-    "metadata": {
-      "order_id": "ORDER-123"
-    }
-  },
-  "created_at": "2024-01-01T12:05:00Z",
-  "business_id": "business-123"
+  "payment_id": "pay_abc123",
+  "business_id": "biz_xyz789",
+  "amount_crypto": "0.05",
+  "amount_usd": "150.00",
+  "currency": "ETH",
+  "status": "confirmed",
+  "received_amount": "0.05",
+  "confirmed_at": "2024-01-15T10:30:00Z",
+  "payment_address": "0x1234...5678",
+  "tx_hash": "0xabc...def",
+  "timestamp": "2024-01-15T10:30:00Z"
+}`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mt-6 mb-4">payment.forwarded Payload</h3>
+            <p className="text-gray-400 text-sm mb-2">Sent when funds are forwarded to your wallet. Includes transaction hashes.</p>
+            <CodeBlock>
+{`{
+  "event": "payment.forwarded",
+  "type": "payment.forwarded",
+  "payment_id": "pay_abc123",
+  "business_id": "biz_xyz789",
+  "amount_crypto": "0.05",
+  "amount_usd": "150.00",
+  "currency": "ETH",
+  "status": "forwarded",
+  "merchant_amount": 0.049,
+  "platform_fee": 0.001,
+  "tx_hash": "0xmerchant123...",
+  "merchant_tx_hash": "0xmerchant123...",
+  "platform_tx_hash": "0xplatform456...",
+  "timestamp": "2024-01-15T10:35:00Z"
+}`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mt-6 mb-4">payment.expired Payload</h3>
+            <p className="text-gray-400 text-sm mb-2">Sent when payment expires without receiving funds.</p>
+            <CodeBlock>
+{`{
+  "event": "payment.expired",
+  "type": "payment.expired",
+  "payment_id": "pay_abc123",
+  "business_id": "biz_xyz789",
+  "amount_crypto": "0.05",
+  "amount_usd": "150.00",
+  "currency": "ETH",
+  "status": "expired",
+  "reason": "Payment window expired (15 minutes)",
+  "expired_at": "2024-01-15T10:45:00Z",
+  "timestamp": "2024-01-15T10:45:00Z"
 }`}
             </CodeBlock>
 

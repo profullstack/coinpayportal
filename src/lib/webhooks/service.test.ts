@@ -824,8 +824,61 @@ describe('Webhook Service', () => {
       const fetchCall = (global.fetch as any).mock.calls[0];
       const body = JSON.parse(fetchCall[1].body);
       expect(body.tx_hash).toBe('0xmerchant123');
-      // Note: merchant_tx_hash and platform_tx_hash are passed in paymentData
-      // but the webhook service only maps specific fields to the payload
+      expect(body.merchant_tx_hash).toBe('0xmerchant123');
+      expect(body.platform_tx_hash).toBe('0xplatform456');
+      expect(body.merchant_amount).toBe(0.095);
+      expect(body.platform_fee).toBe(0.005);
+    });
+
+    it('should include confirmed payment fields like received_amount and payment_address', async () => {
+      const mockChain = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({
+          data: {
+            webhook_url: 'https://example.com/webhook',
+            webhook_secret: null,
+            merchant_id: 'merchant-123',
+          },
+          error: null,
+        }),
+        insert: vi.fn().mockResolvedValue({ error: null }),
+      };
+
+      const mockSupabase = {
+        from: vi.fn().mockReturnValue(mockChain),
+      } as unknown as SupabaseClient;
+
+      // Mock successful fetch
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+      });
+
+      await sendPaymentWebhook(
+        mockSupabase,
+        'business-123',
+        'payment-123',
+        'payment.confirmed',
+        {
+          amount_crypto: '0.1',
+          amount_usd: '100',
+          currency: 'ETH',
+          status: 'confirmed',
+          received_amount: '0.1',
+          confirmed_at: '2024-01-01T12:00:00Z',
+          payment_address: '0x1234567890abcdef',
+        }
+      );
+
+      // Verify fetch was called with all confirmed payment fields
+      expect(global.fetch).toHaveBeenCalled();
+      const fetchCall = (global.fetch as any).mock.calls[0];
+      const body = JSON.parse(fetchCall[1].body);
+      expect(body.received_amount).toBe('0.1');
+      expect(body.confirmed_at).toBe('2024-01-01T12:00:00Z');
+      expect(body.payment_address).toBe('0x1234567890abcdef');
     });
   });
 });

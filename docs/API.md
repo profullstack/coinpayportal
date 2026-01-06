@@ -1038,12 +1038,114 @@ The `X-CoinPay-Signature` header contains:
 
 | Event | Description |
 |-------|-------------|
-| `payment.detected` | Payment detected on blockchain (unconfirmed) |
 | `payment.confirmed` | Payment confirmed with required confirmations |
 | `payment.forwarded` | Funds forwarded to merchant wallet |
-| `payment.failed` | Payment failed |
 | `payment.expired` | Payment request expired |
 | `test.webhook` | Test webhook (sent from dashboard) |
+
+### Webhook Payload Structure
+
+All webhooks include these base fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `event` | string | Event type (e.g., `payment.confirmed`) |
+| `type` | string | Alias for `event` (for compatibility) |
+| `payment_id` | string | Unique payment identifier |
+| `business_id` | string | Your business identifier |
+| `amount_crypto` | string | Amount in cryptocurrency |
+| `amount_usd` | string | Amount in USD |
+| `currency` | string | Blockchain/currency code (e.g., `ETH`, `BTC`) |
+| `status` | string | Payment status |
+| `timestamp` | string | ISO 8601 timestamp |
+
+#### payment.confirmed
+
+Sent when payment is confirmed on the blockchain.
+
+```json
+{
+  "event": "payment.confirmed",
+  "type": "payment.confirmed",
+  "payment_id": "pay_abc123",
+  "business_id": "biz_xyz789",
+  "amount_crypto": "0.05",
+  "amount_usd": "150.00",
+  "currency": "ETH",
+  "status": "confirmed",
+  "received_amount": "0.05",
+  "confirmed_at": "2024-01-15T10:30:00Z",
+  "payment_address": "0x1234...5678",
+  "tx_hash": "0xabc...def",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+**Additional fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `received_amount` | string | Actual amount received |
+| `confirmed_at` | string | Confirmation timestamp |
+| `payment_address` | string | Address where payment was received |
+| `tx_hash` | string | Incoming transaction hash (if available) |
+
+#### payment.forwarded
+
+Sent when funds are forwarded to your merchant wallet.
+
+```json
+{
+  "event": "payment.forwarded",
+  "type": "payment.forwarded",
+  "payment_id": "pay_abc123",
+  "business_id": "biz_xyz789",
+  "amount_crypto": "0.05",
+  "amount_usd": "150.00",
+  "currency": "ETH",
+  "status": "forwarded",
+  "merchant_amount": 0.049,
+  "platform_fee": 0.001,
+  "tx_hash": "0xmerchant123...",
+  "merchant_tx_hash": "0xmerchant123...",
+  "platform_tx_hash": "0xplatform456...",
+  "timestamp": "2024-01-15T10:35:00Z"
+}
+```
+
+**Additional fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `merchant_amount` | number | Amount sent to your wallet (after fees) |
+| `platform_fee` | number | Platform fee amount (2%) |
+| `tx_hash` | string | Forwarding transaction hash |
+| `merchant_tx_hash` | string | Transaction hash for merchant payment |
+| `platform_tx_hash` | string | Transaction hash for platform fee |
+
+#### payment.expired
+
+Sent when a payment request expires without receiving funds.
+
+```json
+{
+  "event": "payment.expired",
+  "type": "payment.expired",
+  "payment_id": "pay_abc123",
+  "business_id": "biz_xyz789",
+  "amount_crypto": "0.05",
+  "amount_usd": "150.00",
+  "currency": "ETH",
+  "status": "expired",
+  "reason": "Payment window expired (15 minutes)",
+  "expired_at": "2024-01-15T10:45:00Z",
+  "timestamp": "2024-01-15T10:45:00Z"
+}
+```
+
+**Additional fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `reason` | string | Expiration reason |
+| `expired_at` | string | Expiration timestamp |
 
 ### Verifying Webhook Signatures
 

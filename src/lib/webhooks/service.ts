@@ -6,9 +6,9 @@ import { decrypt, deriveKey } from '../crypto/encryption';
  * Webhook event types
  */
 export type WebhookEvent =
-  | 'payment.detected'
   | 'payment.confirmed'
   | 'payment.forwarded'
+  | 'payment.expired'
   | 'payment.failed';
 
 /**
@@ -311,6 +311,7 @@ export async function sendPaymentWebhook(
 
     // Prepare webhook payload
     // Include both 'event' and 'type' for compatibility with different receiver implementations
+    // Spread all paymentData fields to include merchant_tx_hash, platform_tx_hash, etc.
     const payload: WebhookPayload = {
       event,
       type: event, // Alias for compatibility
@@ -322,6 +323,14 @@ export async function sendPaymentWebhook(
       status: paymentData.status,
       confirmations: paymentData.confirmations,
       tx_hash: paymentData.tx_hash,
+      // Include additional fields from paymentData
+      ...(paymentData.merchant_tx_hash && { merchant_tx_hash: paymentData.merchant_tx_hash }),
+      ...(paymentData.platform_tx_hash && { platform_tx_hash: paymentData.platform_tx_hash }),
+      ...(paymentData.merchant_amount !== undefined && { merchant_amount: paymentData.merchant_amount }),
+      ...(paymentData.platform_fee !== undefined && { platform_fee: paymentData.platform_fee }),
+      ...(paymentData.received_amount && { received_amount: paymentData.received_amount }),
+      ...(paymentData.confirmed_at && { confirmed_at: paymentData.confirmed_at }),
+      ...(paymentData.payment_address && { payment_address: paymentData.payment_address }),
     };
 
     console.log(`[Webhook] Sending ${event} webhook for payment ${paymentId} to ${business.webhook_url}`);
