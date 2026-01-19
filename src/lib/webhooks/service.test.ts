@@ -172,7 +172,7 @@ describe('Webhook Service', () => {
       expect(callArgs[0]).toBe(webhookUrl);
       expect(callArgs[1].method).toBe('POST');
       expect(callArgs[1].headers['Content-Type']).toBe('application/json');
-      expect(callArgs[1].headers['X-Webhook-Signature']).toBeDefined();
+      expect(callArgs[1].headers['X-CoinPay-Signature']).toBeDefined();
       expect(callArgs[1].headers['User-Agent']).toBe('CoinPay-Webhook/1.0');
       
       const sentPayload = JSON.parse(callArgs[1].body);

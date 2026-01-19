@@ -54,39 +54,80 @@ export interface WebhookLogEntry {
 }
 
 /**
- * Sign webhook payload with HMAC-SHA256
+ * Generate webhook signature with timestamp
+ *
+ * Format: t=timestamp,v1=hmac_sha256_hex
+ * The HMAC is computed as: HMAC-SHA256(timestamp.payload, secret)
  */
 export function signWebhookPayload(
   payload: Partial<WebhookPayload> | Record<string, any>,
-  secret: string
+  secret: string,
+  timestamp?: number
 ): string {
+  const ts = timestamp ?? Math.floor(Date.now() / 1000);
   const payloadString = JSON.stringify(payload);
-  const hmac = createHmac('sha256', secret);
-  hmac.update(payloadString);
-  return hmac.digest('hex');
+  const signedPayload = `${ts}.${payloadString}`;
+
+  const signature = createHmac('sha256', secret)
+    .update(signedPayload)
+    .digest('hex');
+
+  return `t=${ts},v1=${signature}`;
 }
 
 /**
  * Verify webhook signature
+ *
+ * Parses the timestamped format: t=timestamp,v1=signature
+ * Verifies timestamp is within tolerance and signature matches
  */
 export function verifyWebhookSignature(
   payload: Partial<WebhookPayload> | Record<string, any>,
   signature: string,
-  secret: string
+  secret: string,
+  tolerance: number = 300
 ): boolean {
   try {
-    const expectedSignature = signWebhookPayload(payload, secret);
-    
-    // Use timing-safe comparison to prevent timing attacks
-    const signatureBuffer = Buffer.from(signature, 'hex');
-    const expectedBuffer = Buffer.from(expectedSignature, 'hex');
-    
-    if (signatureBuffer.length !== expectedBuffer.length) {
+    // Parse signature header (format: t=timestamp,v1=signature)
+    const parts: Record<string, string> = {};
+    for (const part of signature.split(',')) {
+      const [key, value] = part.split('=');
+      if (key && value) {
+        parts[key] = value;
+      }
+    }
+
+    const timestamp = parts['t'];
+    const receivedSig = parts['v1'];
+
+    if (!timestamp || !receivedSig) {
       return false;
     }
-    
-    return timingSafeEqual(signatureBuffer, expectedBuffer);
-  } catch (error) {
+
+    // Check timestamp is within tolerance (default 5 minutes)
+    const timestampNum = parseInt(timestamp, 10);
+    const now = Math.floor(Date.now() / 1000);
+    if (Math.abs(now - timestampNum) > tolerance) {
+      return false;
+    }
+
+    // Compute expected signature: HMAC-SHA256(timestamp.payload, secret)
+    const payloadString = JSON.stringify(payload);
+    const signedPayload = `${timestamp}.${payloadString}`;
+    const expectedSig = createHmac('sha256', secret)
+      .update(signedPayload)
+      .digest('hex');
+
+    // Timing-safe comparison
+    const receivedBuffer = Buffer.from(receivedSig, 'hex');
+    const expectedBuffer = Buffer.from(expectedSig, 'hex');
+
+    if (receivedBuffer.length !== expectedBuffer.length) {
+      return false;
+    }
+
+    return timingSafeEqual(receivedBuffer, expectedBuffer);
+  } catch {
     return false;
   }
 }
@@ -116,14 +157,14 @@ export async function deliverWebhook(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Webhook-Signature': signature,
+        'X-CoinPay-Signature': signature,
         'User-Agent': 'CoinPay-Webhook/1.0',
       },
       body: JSON.stringify(payloadWithTimestamp),
       signal: AbortSignal.timeout(timeout),
     });
 
-    const responseTime = Date.now() - startTime;
+    const _responseTime = Date.now() - startTime;
 
     if (response.ok) {
       return {
