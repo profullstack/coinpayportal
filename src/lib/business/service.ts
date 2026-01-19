@@ -6,9 +6,10 @@ import { z } from 'zod';
 
 /**
  * Generate a secure webhook secret
+ * Prefixed with 'whsecret_' to make it identifiable
  */
 function generateWebhookSecret(): string {
-  return randomBytes(32).toString('hex');
+  return `whsecret_${randomBytes(32).toString('hex')}`;
 }
 
 /**
@@ -364,24 +365,44 @@ export async function updateBusiness(
       }
     }
 
+    // Fetch current business to check if webhook URL has changed
+    const { data: currentBusiness, error: fetchError } = await supabase
+      .from('businesses')
+      .select('webhook_url, webhook_secret')
+      .eq('id', businessId)
+      .eq('merchant_id', merchantId)
+      .single();
+
+    if (fetchError || !currentBusiness) {
+      return {
+        success: false,
+        error: fetchError?.message || 'Business not found',
+      };
+    }
+
     // Prepare update data
     const updateData: any = {};
-    
+
     if (input.name !== undefined) updateData.name = input.name;
     if (input.description !== undefined) updateData.description = input.description;
     if (input.webhook_url !== undefined) updateData.webhook_url = input.webhook_url;
     if (input.webhook_events !== undefined) updateData.webhook_events = input.webhook_events;
     if (input.active !== undefined) updateData.active = input.active;
 
-    // Generate and encrypt webhook secret if webhook URL is being added/updated
-    if (input.webhook_url) {
+    // Only generate new webhook secret if:
+    // 1. A new webhook_url is being set and there's no existing secret, OR
+    // 2. The webhook_url is actually changing to a different value
+    const webhookUrlChanged = input.webhook_url && input.webhook_url !== currentBusiness.webhook_url;
+    const needsNewSecret = webhookUrlChanged || (input.webhook_url && !currentBusiness.webhook_secret);
+
+    if (needsNewSecret) {
       // Use provided secret or generate a new one
       const webhookSecret = input.webhook_secret || generateWebhookSecret();
       const encryptionKey = getEncryptionKey();
       const derivedKey = deriveKey(encryptionKey, merchantId);
       updateData.webhook_secret = encrypt(webhookSecret, derivedKey);
     } else if (input.webhook_secret) {
-      // If only secret is being updated (webhook_url already exists)
+      // If only secret is being explicitly updated
       const encryptionKey = getEncryptionKey();
       const derivedKey = deriveKey(encryptionKey, merchantId);
       updateData.webhook_secret = encrypt(input.webhook_secret, derivedKey);

@@ -282,6 +282,16 @@ describe('Business Service', () => {
   describe('updateBusiness', () => {
     it('should update business successfully', async () => {
       mockSupabase.from = vi.fn(() => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              single: vi.fn().mockResolvedValue({
+                data: { webhook_url: null, webhook_secret: null },
+                error: null,
+              }),
+            })),
+          })),
+        })),
         update: vi.fn(() => ({
           eq: vi.fn(() => ({
             eq: vi.fn(() => ({
@@ -311,6 +321,16 @@ describe('Business Service', () => {
 
     it('should encrypt webhook secret when updating', async () => {
       mockSupabase.from = vi.fn(() => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              single: vi.fn().mockResolvedValue({
+                data: { webhook_url: 'https://example.com/webhook', webhook_secret: 'existing-secret' },
+                error: null,
+              }),
+            })),
+          })),
+        })),
         update: vi.fn(() => ({
           eq: vi.fn(() => ({
             eq: vi.fn(() => ({
@@ -453,7 +473,8 @@ describe('Business Service', () => {
 
       expect(result.success).toBe(true);
       expect(result.secret).toBeDefined();
-      expect(result.secret?.length).toBe(64); // 32 bytes = 64 hex characters
+      expect(result.secret?.startsWith('whsecret_')).toBe(true); // Should have prefix
+      expect(result.secret?.length).toBe(73); // 'whsecret_' (9 chars) + 32 bytes (64 hex chars) = 73
       expect(encryption.encrypt).toHaveBeenCalled();
     });
 

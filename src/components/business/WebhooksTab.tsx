@@ -25,6 +25,75 @@ interface WebhooksTabProps {
   onCopy: (text: string, label: string) => void;
 }
 
+function formatTestResultAsMarkdown(result: WebhookTestResult): string {
+  const lines: string[] = [];
+
+  lines.push('# Webhook Test Result');
+  lines.push('');
+
+  // Status
+  lines.push('## Status');
+  lines.push(`- **Delivered:** ${result.delivered ? 'Yes' : 'No'}`);
+  if (result.status_code !== null) {
+    lines.push(`- **HTTP Status:** ${result.status_code} ${result.status_text || ''}`);
+  }
+  lines.push(`- **Response Time:** ${result.response_time_ms}ms`);
+  if (result.error) {
+    lines.push(`- **Error:** ${result.error}`);
+  }
+  lines.push('');
+
+  // Request
+  lines.push('## Request');
+  lines.push('');
+  lines.push('### Endpoint');
+  lines.push(`- **URL:** ${result.request.url}`);
+  lines.push(`- **Method:** ${result.request.method}`);
+  lines.push('');
+
+  lines.push('### Headers');
+  lines.push('```json');
+  lines.push(JSON.stringify(result.request.headers, null, 2));
+  lines.push('```');
+  lines.push('');
+
+  lines.push('### Body');
+  lines.push('```json');
+  lines.push(JSON.stringify(result.request.body, null, 2));
+  lines.push('```');
+  lines.push('');
+
+  // Response
+  lines.push('## Response');
+  lines.push('');
+  lines.push(`- **Status:** ${result.status_code !== null ? `${result.status_code} ${result.status_text}` : 'No response (connection failed)'}`);
+  lines.push('');
+
+  if (result.response_headers && Object.keys(result.response_headers).length > 0) {
+    lines.push('### Headers');
+    lines.push('```json');
+    lines.push(JSON.stringify(result.response_headers, null, 2));
+    lines.push('```');
+    lines.push('');
+  }
+
+  if (result.response_body) {
+    lines.push('### Body');
+    lines.push('```json');
+    try {
+      lines.push(JSON.stringify(JSON.parse(result.response_body), null, 2));
+    } catch {
+      lines.push(result.response_body);
+    }
+    lines.push('```');
+  } else {
+    lines.push('### Body');
+    lines.push('*No response body*');
+  }
+
+  return lines.join('\n');
+}
+
 export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
   const [formData, setFormData] = useState({
     webhook_url: business.webhook_url || '',
@@ -285,6 +354,22 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
         {/* Test Result Display */}
         {testResult && (
           <div className="mt-6 space-y-4">
+            {/* Copy as Markdown Button */}
+            <div className="flex justify-end">
+              <button
+                onClick={() => {
+                  const markdown = formatTestResultAsMarkdown(testResult);
+                  onCopy(markdown, 'Webhook test result (Markdown)');
+                }}
+                className="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 flex items-center space-x-2"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>Copy as Markdown</span>
+              </button>
+            </div>
+
             {/* Status Banner */}
             <div
               className={`p-4 rounded-lg ${
