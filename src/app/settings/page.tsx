@@ -342,6 +342,54 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* Global Wallets Card */}
+        <div className="bg-white rounded-lg shadow-md overflow-hidden mt-8">
+          <div className="p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="p-3 bg-purple-100 rounded-full">
+                  <svg
+                    className="h-6 w-6 text-purple-600"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    Global Wallet Addresses
+                  </h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Define wallet addresses once and import them into any business
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => router.push('/settings/wallets')}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+              >
+                Manage Wallets
+                <svg
+                  className="ml-2 h-4 w-4"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path d="M9 5l7 7-7 7"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* Additional Info */}
         <div className="mt-6 text-center text-sm text-gray-500">
           <p>

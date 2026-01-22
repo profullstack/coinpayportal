@@ -135,6 +135,13 @@ export default function Header() {
                           Dashboard
                         </Link>
                         <Link
+                          href="/settings/wallets"
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          onClick={() => setUserMenuOpen(false)}
+                        >
+                          Global Wallets
+                        </Link>
+                        <Link
                           href="/settings"
                           className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                           onClick={() => setUserMenuOpen(false)}
@@ -249,6 +256,13 @@ export default function Header() {
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Dashboard
+                  </Link>
+                  <Link
+                    href="/settings/wallets"
+                    className="block px-3 py-2 text-base font-medium text-gray-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Global Wallets
                   </Link>
                   <Link
                     href="/settings"
