@@ -875,4 +875,157 @@ describe('Webhook Service', () => {
       expect(body.data.payment_address).toBe('0x1234567890abcdef');
     });
   });
+
+  describe('metadata in webhook payload', () => {
+    it('should include metadata in webhook payload when provided', async () => {
+      const mockChain = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({
+          data: {
+            webhook_url: 'https://example.com/webhook',
+            webhook_secret: 'test-webhook-secret',
+          },
+          error: null,
+        }),
+        insert: vi.fn().mockResolvedValue({ error: null }),
+      };
+
+      const mockSupabase = {
+        from: vi.fn().mockReturnValue(mockChain),
+      } as unknown as SupabaseClient;
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+      });
+
+      await sendPaymentWebhook(
+        mockSupabase,
+        'business-123',
+        'payment-123',
+        'payment.confirmed',
+        {
+          amount_crypto: '0.1',
+          amount_usd: '100',
+          currency: 'ETH',
+          status: 'confirmed',
+          metadata: {
+            order_id: 'order_12345',
+            customer_email: 'test@example.com',
+          },
+        }
+      );
+
+      // Verify fetch was called with payload containing metadata in nested data
+      expect(global.fetch).toHaveBeenCalled();
+      const fetchCall = (global.fetch as any).mock.calls[0];
+      const body = JSON.parse(fetchCall[1].body);
+      expect(body.data.metadata).toEqual({
+        order_id: 'order_12345',
+        customer_email: 'test@example.com',
+      });
+    });
+
+    it('should handle missing metadata gracefully', async () => {
+      const mockChain = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({
+          data: {
+            webhook_url: 'https://example.com/webhook',
+            webhook_secret: 'test-webhook-secret',
+          },
+          error: null,
+        }),
+        insert: vi.fn().mockResolvedValue({ error: null }),
+      };
+
+      const mockSupabase = {
+        from: vi.fn().mockReturnValue(mockChain),
+      } as unknown as SupabaseClient;
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+      });
+
+      const result = await sendPaymentWebhook(
+        mockSupabase,
+        'business-123',
+        'payment-123',
+        'payment.confirmed',
+        {
+          amount_crypto: '0.1',
+          amount_usd: '100',
+          currency: 'ETH',
+          status: 'confirmed',
+          // No metadata provided
+        }
+      );
+
+      // Webhook should still succeed without metadata
+      expect(result.success).toBe(true);
+      expect(global.fetch).toHaveBeenCalled();
+      const fetchCall = (global.fetch as any).mock.calls[0];
+      const body = JSON.parse(fetchCall[1].body);
+      expect(body.data.metadata).toBeUndefined();
+    });
+
+    it('should include metadata in payment.forwarded webhook', async () => {
+      const mockChain = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({
+          data: {
+            webhook_url: 'https://example.com/webhook',
+            webhook_secret: 'test-webhook-secret',
+          },
+          error: null,
+        }),
+        insert: vi.fn().mockResolvedValue({ error: null }),
+      };
+
+      const mockSupabase = {
+        from: vi.fn().mockReturnValue(mockChain),
+      } as unknown as SupabaseClient;
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+      });
+
+      await sendPaymentWebhook(
+        mockSupabase,
+        'business-123',
+        'payment-123',
+        'payment.forwarded',
+        {
+          amount_crypto: '0.1',
+          amount_usd: '100',
+          currency: 'ETH',
+          status: 'forwarded',
+          merchant_tx_hash: '0xmerchant123',
+          platform_tx_hash: '0xplatform456',
+          metadata: {
+            order_id: 'order_67890',
+            subscription_id: 'sub_abc',
+          },
+        }
+      );
+
+      // Verify metadata is included in forwarded webhook
+      expect(global.fetch).toHaveBeenCalled();
+      const fetchCall = (global.fetch as any).mock.calls[0];
+      const body = JSON.parse(fetchCall[1].body);
+      expect(body.type).toBe('payment.forwarded');
+      expect(body.data.metadata).toEqual({
+        order_id: 'order_67890',
+        subscription_id: 'sub_abc',
+      });
+    });
+  });
 });

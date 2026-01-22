@@ -197,10 +197,10 @@ export async function forwardPayment(
         platformFee,
       });
 
-      // Get business_id from payment for webhook
+      // Get business_id and metadata from payment for webhook
       const { data: paymentData } = await supabase
         .from('payments')
-        .select('business_id')
+        .select('business_id, metadata')
         .eq('id', input.paymentId)
         .single();
 
@@ -215,6 +215,7 @@ export async function forwardPayment(
         tx_hash: merchantTxHash,
         merchant_tx_hash: merchantTxHash,
         platform_tx_hash: platformTxHash,
+        metadata: paymentData?.metadata || undefined,
       });
 
       return {

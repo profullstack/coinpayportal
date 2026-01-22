@@ -299,6 +299,7 @@ export async function forwardPaymentSecurely(
         tx_hash: merchantTxHash,
         merchant_tx_hash: merchantTxHash,
         platform_tx_hash: platformTxHash,
+        metadata: payment.metadata || undefined,
       });
 
       return {

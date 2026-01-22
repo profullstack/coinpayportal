@@ -560,7 +560,8 @@ console.log(data.payment.status);`}
                   <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">amount_usd</code></td><td>string</td><td>Amount in USD</td></tr>
                   <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">currency</code></td><td>string</td><td>Blockchain (ETH, BTC, etc.)</td></tr>
                   <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">payment_address</code></td><td>string</td><td>Payment address</td></tr>
-                  <tr><td className="py-2"><code className="text-purple-400">tx_hash</code></td><td>string</td><td>Transaction hash (when available)</td></tr>
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">tx_hash</code></td><td>string</td><td>Transaction hash (when available)</td></tr>
+                  <tr><td className="py-2"><code className="text-purple-400">metadata</code></td><td>object</td><td>Custom data passed during payment creation (order_id, customer info, etc.)</td></tr>
                 </tbody>
               </table>
             </div>
@@ -590,7 +591,11 @@ User-Agent: CoinPay-Webhook/1.0`}
     "payment_address": "0x1234...5678",
     "tx_hash": "0xabc...def",
     "received_amount": "0.05",
-    "confirmed_at": "2024-01-15T10:30:00Z"
+    "confirmed_at": "2024-01-15T10:30:00Z",
+    "metadata": {
+      "order_id": "order_12345",
+      "customer_email": "customer@example.com"
+    }
   },
   "created_at": "2024-01-15T10:30:00Z",
   "business_id": "biz_xyz789"
@@ -613,7 +618,11 @@ User-Agent: CoinPay-Webhook/1.0`}
     "platform_fee": 0.001,
     "tx_hash": "0xmerchant123...",
     "merchant_tx_hash": "0xmerchant123...",
-    "platform_tx_hash": "0xplatform456..."
+    "platform_tx_hash": "0xplatform456...",
+    "metadata": {
+      "order_id": "order_12345",
+      "customer_email": "customer@example.com"
+    }
   },
   "created_at": "2024-01-15T10:35:00Z",
   "business_id": "biz_xyz789"

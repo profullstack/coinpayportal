@@ -427,6 +427,8 @@ export async function sendPaymentWebhook(
         ...(paymentData.platform_fee !== undefined && { platform_fee: paymentData.platform_fee }),
         ...(paymentData.received_amount && { received_amount: paymentData.received_amount }),
         ...(paymentData.confirmed_at && { confirmed_at: paymentData.confirmed_at }),
+        // Include metadata if present (merchant's custom data passed during payment creation)
+        ...(paymentData.metadata && { metadata: paymentData.metadata }),
       },
       created_at: now.toISOString(),
       business_id: businessId,

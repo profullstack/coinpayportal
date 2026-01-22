@@ -507,6 +507,7 @@ export async function POST(
           confirmed_at: now,
           payment_address: payment.payment_address,
           tx_hash: payment.tx_hash || undefined,
+          metadata: payment.metadata || undefined,
         });
         console.log(`Webhook sent for payment ${paymentId} confirmation`);
       } catch (webhookError) {
