@@ -461,7 +461,7 @@ describe('Webhook Service', () => {
 
       expect(result.success).toBe(true);
       expect(mockSupabase.from).toHaveBeenCalledWith('businesses');
-      expect(mockChain.select).toHaveBeenCalledWith('webhook_url, webhook_secret, merchant_id');
+      expect(mockChain.select).toHaveBeenCalledWith('webhook_url, webhook_secret');
     });
 
     it('should return success when no webhook_url configured', async () => {
@@ -575,16 +575,13 @@ describe('Webhook Service', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should use merchant_id to derive decryption key', async () => {
-      const { deriveKey } = await import('../crypto/encryption');
-
+    it('should use webhook_secret directly without decryption', async () => {
       const mockChain = (mockSupabase as any)._chain;
 
       mockChain.single.mockResolvedValueOnce({
         data: {
           webhook_url: 'https://example.com/webhook',
-          webhook_secret: 'encrypted-webhook-secret',
-          merchant_id: 'merchant-456',
+          webhook_secret: 'plain-webhook-secret',
         },
         error: null,
       });
@@ -596,7 +593,7 @@ describe('Webhook Service', () => {
 
       mockChain.insert.mockResolvedValueOnce({ error: null });
 
-      await sendPaymentWebhook(
+      const result = await sendPaymentWebhook(
         mockSupabase,
         'business-123',
         'payment-123',
@@ -604,8 +601,9 @@ describe('Webhook Service', () => {
         { amount_crypto: '0.1', amount_usd: '100', currency: 'ETH', status: 'confirmed' }
       );
 
-      // Verify deriveKey was called with correct merchant_id
-      expect(deriveKey).toHaveBeenCalledWith('test-encryption-key', 'merchant-456');
+      // Verify webhook was sent successfully using the secret directly
+      expect(result.success).toBe(true);
+      expect(global.fetch).toHaveBeenCalled();
     });
 
     it('should log webhook attempt to database', async () => {
@@ -690,8 +688,7 @@ describe('Webhook Service', () => {
         single: vi.fn().mockResolvedValue({
           data: {
             webhook_url: 'https://example.com/webhook',
-            webhook_secret: null,
-            merchant_id: 'merchant-123',
+            webhook_secret: 'test-webhook-secret',
           },
           error: null,
         }),
@@ -723,11 +720,11 @@ describe('Webhook Service', () => {
         }
       );
 
-      // Verify fetch was called with payload containing tx_hash
+      // Verify fetch was called with payload containing tx_hash in nested data
       expect(global.fetch).toHaveBeenCalled();
       const fetchCall = (global.fetch as any).mock.calls[0];
       const body = JSON.parse(fetchCall[1].body);
-      expect(body.tx_hash).toBe('0xabc123def456');
+      expect(body.data.tx_hash).toBe('0xabc123def456');
     });
 
     it('should handle missing tx_hash gracefully', async () => {
@@ -737,8 +734,7 @@ describe('Webhook Service', () => {
         single: vi.fn().mockResolvedValue({
           data: {
             webhook_url: 'https://example.com/webhook',
-            webhook_secret: null,
-            merchant_id: 'merchant-123',
+            webhook_secret: 'test-webhook-secret',
           },
           error: null,
         }),
@@ -782,8 +778,7 @@ describe('Webhook Service', () => {
         single: vi.fn().mockResolvedValue({
           data: {
             webhook_url: 'https://example.com/webhook',
-            webhook_secret: null,
-            merchant_id: 'merchant-123',
+            webhook_secret: 'test-webhook-secret',
           },
           error: null,
         }),
@@ -819,15 +814,15 @@ describe('Webhook Service', () => {
         }
       );
 
-      // Verify fetch was called with all tx fields
+      // Verify fetch was called with all tx fields in nested data
       expect(global.fetch).toHaveBeenCalled();
       const fetchCall = (global.fetch as any).mock.calls[0];
       const body = JSON.parse(fetchCall[1].body);
-      expect(body.tx_hash).toBe('0xmerchant123');
-      expect(body.merchant_tx_hash).toBe('0xmerchant123');
-      expect(body.platform_tx_hash).toBe('0xplatform456');
-      expect(body.merchant_amount).toBe(0.095);
-      expect(body.platform_fee).toBe(0.005);
+      expect(body.data.tx_hash).toBe('0xmerchant123');
+      expect(body.data.merchant_tx_hash).toBe('0xmerchant123');
+      expect(body.data.platform_tx_hash).toBe('0xplatform456');
+      expect(body.data.merchant_amount).toBe(0.095);
+      expect(body.data.platform_fee).toBe(0.005);
     });
 
     it('should include confirmed payment fields like received_amount and payment_address', async () => {
@@ -837,8 +832,7 @@ describe('Webhook Service', () => {
         single: vi.fn().mockResolvedValue({
           data: {
             webhook_url: 'https://example.com/webhook',
-            webhook_secret: null,
-            merchant_id: 'merchant-123',
+            webhook_secret: 'test-webhook-secret',
           },
           error: null,
         }),
@@ -872,13 +866,13 @@ describe('Webhook Service', () => {
         }
       );
 
-      // Verify fetch was called with all confirmed payment fields
+      // Verify fetch was called with all confirmed payment fields in nested data
       expect(global.fetch).toHaveBeenCalled();
       const fetchCall = (global.fetch as any).mock.calls[0];
       const body = JSON.parse(fetchCall[1].body);
-      expect(body.received_amount).toBe('0.1');
-      expect(body.confirmed_at).toBe('2024-01-01T12:00:00Z');
-      expect(body.payment_address).toBe('0x1234567890abcdef');
+      expect(body.data.received_amount).toBe('0.1');
+      expect(body.data.confirmed_at).toBe('2024-01-01T12:00:00Z');
+      expect(body.data.payment_address).toBe('0x1234567890abcdef');
     });
   });
 });

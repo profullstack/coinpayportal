@@ -522,8 +522,8 @@ console.log(data.payment.status);`}
               ))}
             </div>
 
-            <h3 className="text-xl font-semibold text-white mb-4">Base Payload Fields</h3>
-            <p className="text-gray-300 mb-4">All webhook events include these fields:</p>
+            <h3 className="text-xl font-semibold text-white mb-4">Payload Structure</h3>
+            <p className="text-gray-300 mb-4">All webhook events use this SDK-compliant nested structure:</p>
             <div className="overflow-x-auto mb-6">
               <table className="w-full text-sm">
                 <thead>
@@ -534,15 +534,33 @@ console.log(data.payment.status);`}
                   </tr>
                 </thead>
                 <tbody className="text-gray-400">
-                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">event</code></td><td>string</td><td>Event type</td></tr>
-                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">type</code></td><td>string</td><td>Alias for event</td></tr>
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">id</code></td><td>string</td><td>Unique event ID (evt_paymentId_timestamp)</td></tr>
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">type</code></td><td>string</td><td>Event type (payment.confirmed, etc.)</td></tr>
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">data</code></td><td>object</td><td>Event data (see below)</td></tr>
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">created_at</code></td><td>string</td><td>ISO 8601 timestamp</td></tr>
+                  <tr><td className="py-2"><code className="text-purple-400">business_id</code></td><td>string</td><td>Your business ID</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h4 className="text-lg font-semibold text-white mb-2">Data Object Fields</h4>
+            <div className="overflow-x-auto mb-6">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left py-2 text-gray-300">Field</th>
+                    <th className="text-left py-2 text-gray-300">Type</th>
+                    <th className="text-left py-2 text-gray-300">Description</th>
+                  </tr>
+                </thead>
+                <tbody className="text-gray-400">
                   <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">payment_id</code></td><td>string</td><td>Payment identifier</td></tr>
-                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">business_id</code></td><td>string</td><td>Your business ID</td></tr>
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">status</code></td><td>string</td><td>Payment status</td></tr>
                   <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">amount_crypto</code></td><td>string</td><td>Amount in crypto</td></tr>
                   <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">amount_usd</code></td><td>string</td><td>Amount in USD</td></tr>
                   <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">currency</code></td><td>string</td><td>Blockchain (ETH, BTC, etc.)</td></tr>
-                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">status</code></td><td>string</td><td>Payment status</td></tr>
-                  <tr><td className="py-2"><code className="text-purple-400">timestamp</code></td><td>string</td><td>ISO 8601 timestamp</td></tr>
+                  <tr className="border-b border-slate-800"><td className="py-2"><code className="text-purple-400">payment_address</code></td><td>string</td><td>Payment address</td></tr>
+                  <tr><td className="py-2"><code className="text-purple-400">tx_hash</code></td><td>string</td><td>Transaction hash (when available)</td></tr>
                 </tbody>
               </table>
             </div>
@@ -561,19 +579,21 @@ User-Agent: CoinPay-Webhook/1.0`}
             <p className="text-gray-400 text-sm mb-2">Sent when payment is confirmed. Safe to fulfill the order.</p>
             <CodeBlock>
 {`{
-  "event": "payment.confirmed",
+  "id": "evt_pay_abc123_1705315800",
   "type": "payment.confirmed",
-  "payment_id": "pay_abc123",
-  "business_id": "biz_xyz789",
-  "amount_crypto": "0.05",
-  "amount_usd": "150.00",
-  "currency": "ETH",
-  "status": "confirmed",
-  "received_amount": "0.05",
-  "confirmed_at": "2024-01-15T10:30:00Z",
-  "payment_address": "0x1234...5678",
-  "tx_hash": "0xabc...def",
-  "timestamp": "2024-01-15T10:30:00Z"
+  "data": {
+    "payment_id": "pay_abc123",
+    "status": "confirmed",
+    "amount_crypto": "0.05",
+    "amount_usd": "150.00",
+    "currency": "ETH",
+    "payment_address": "0x1234...5678",
+    "tx_hash": "0xabc...def",
+    "received_amount": "0.05",
+    "confirmed_at": "2024-01-15T10:30:00Z"
+  },
+  "created_at": "2024-01-15T10:30:00Z",
+  "business_id": "biz_xyz789"
 }`}
             </CodeBlock>
 
@@ -581,20 +601,22 @@ User-Agent: CoinPay-Webhook/1.0`}
             <p className="text-gray-400 text-sm mb-2">Sent when funds are forwarded to your wallet. Includes transaction hashes.</p>
             <CodeBlock>
 {`{
-  "event": "payment.forwarded",
+  "id": "evt_pay_abc123_1705316100",
   "type": "payment.forwarded",
-  "payment_id": "pay_abc123",
-  "business_id": "biz_xyz789",
-  "amount_crypto": "0.05",
-  "amount_usd": "150.00",
-  "currency": "ETH",
-  "status": "forwarded",
-  "merchant_amount": 0.049,
-  "platform_fee": 0.001,
-  "tx_hash": "0xmerchant123...",
-  "merchant_tx_hash": "0xmerchant123...",
-  "platform_tx_hash": "0xplatform456...",
-  "timestamp": "2024-01-15T10:35:00Z"
+  "data": {
+    "payment_id": "pay_abc123",
+    "status": "forwarded",
+    "amount_crypto": "0.05",
+    "amount_usd": "150.00",
+    "currency": "ETH",
+    "merchant_amount": 0.049,
+    "platform_fee": 0.001,
+    "tx_hash": "0xmerchant123...",
+    "merchant_tx_hash": "0xmerchant123...",
+    "platform_tx_hash": "0xplatform456..."
+  },
+  "created_at": "2024-01-15T10:35:00Z",
+  "business_id": "biz_xyz789"
 }`}
             </CodeBlock>
 
@@ -602,28 +624,30 @@ User-Agent: CoinPay-Webhook/1.0`}
             <p className="text-gray-400 text-sm mb-2">Sent when payment expires without receiving funds.</p>
             <CodeBlock>
 {`{
-  "event": "payment.expired",
+  "id": "evt_pay_abc123_1705316700",
   "type": "payment.expired",
-  "payment_id": "pay_abc123",
-  "business_id": "biz_xyz789",
-  "amount_crypto": "0.05",
-  "amount_usd": "150.00",
-  "currency": "ETH",
-  "status": "expired",
-  "reason": "Payment window expired (15 minutes)",
-  "expired_at": "2024-01-15T10:45:00Z",
-  "timestamp": "2024-01-15T10:45:00Z"
+  "data": {
+    "payment_id": "pay_abc123",
+    "status": "expired",
+    "amount_crypto": "0.05",
+    "amount_usd": "150.00",
+    "currency": "ETH",
+    "reason": "Payment window expired (15 minutes)",
+    "expired_at": "2024-01-15T10:45:00Z"
+  },
+  "created_at": "2024-01-15T10:45:00Z",
+  "business_id": "biz_xyz789"
 }`}
             </CodeBlock>
 
             <h3 className="text-xl font-semibold text-white mt-8 mb-4">Verifying Webhook Signatures</h3>
             <p className="text-gray-300 mb-4">
-              The signature is computed as <code className="text-purple-400">HMAC-SHA256(timestamp.payload, secret)</code>
+              The signature is computed as <code className="text-purple-400">HMAC-SHA256(timestamp.rawBody, secret)</code> where rawBody is the exact JSON string received.
             </p>
-            <CodeBlock title="JavaScript Example" language="javascript">
+            <CodeBlock title="JavaScript/Node.js Example" language="javascript">
 {`import crypto from 'crypto';
 
-function verifyWebhookSignature(payload, signatureHeader, secret) {
+function verifyWebhookSignature(rawBody, signatureHeader, secret) {
   // Parse signature header (format: t=timestamp,v1=signature)
   const parts = signatureHeader.split(',');
   const signatureParts = {};
@@ -641,8 +665,8 @@ function verifyWebhookSignature(payload, signatureHeader, secret) {
     return false; // Reject old webhooks
   }
 
-  // Compute expected signature
-  const signedPayload = \`\${timestamp}.\${payload}\`;
+  // Compute expected signature using raw body string
+  const signedPayload = \`\${timestamp}.\${rawBody}\`;
   const computedSignature = crypto
     .createHmac('sha256', secret)
     .update(signedPayload)
@@ -653,12 +677,38 @@ function verifyWebhookSignature(payload, signatureHeader, secret) {
     Buffer.from(expectedSignature, 'hex'),
     Buffer.from(computedSignature, 'hex')
   );
-}`}
+}
+
+// Express.js example
+app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+  const rawBody = req.body.toString();
+  const signature = req.headers['x-coinpay-signature'];
+
+  if (!verifyWebhookSignature(rawBody, signature, process.env.WEBHOOK_SECRET)) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
+  const event = JSON.parse(rawBody);
+
+  // Handle the event
+  switch (event.type) {
+    case 'payment.confirmed':
+      // Fulfill the order
+      console.log('Payment confirmed:', event.data.payment_id);
+      break;
+    case 'payment.forwarded':
+      // Funds forwarded to your wallet
+      console.log('Funds forwarded:', event.data.merchant_tx_hash);
+      break;
+  }
+
+  res.json({ received: true });
+});`}
             </CodeBlock>
 
             <div className="mt-6 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
               <p className="text-yellow-300 text-sm">
-                <strong>Important:</strong> Always verify webhook signatures before processing. Use <code className="text-yellow-200">express.raw()</code> or equivalent to get the raw body for signature verification.
+                <strong>Important:</strong> Always use the <strong>raw request body string</strong> for signature verification. Do not parse and re-stringify the JSON, as whitespace differences will cause signature mismatches. Use <code className="text-yellow-200">express.raw()</code> or equivalent middleware.
               </p>
             </div>
 

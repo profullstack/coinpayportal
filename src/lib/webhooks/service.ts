@@ -1,6 +1,5 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { decrypt, deriveKey } from '../crypto/encryption';
 
 /**
  * Webhook event types
@@ -196,17 +195,17 @@ export async function retryFailedWebhook(
   maxRetries: number = 3
 ): Promise<WebhookDeliveryResult> {
   let lastResult: WebhookDeliveryResult = { success: false };
-  
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     lastResult = await deliverWebhook(webhookUrl, payload, secret);
-    
+
     if (lastResult.success) {
       return {
         ...lastResult,
         attempts: attempt,
       };
     }
-    
+
     // Don't wait after the last attempt
     if (attempt < maxRetries) {
       // Exponential backoff: 1s, 2s, 4s, 8s, etc.
@@ -214,7 +213,66 @@ export async function retryFailedWebhook(
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }
-  
+
+  return {
+    ...lastResult,
+    attempts: maxRetries,
+  };
+}
+
+/**
+ * Deliver webhook with pre-computed signature and payload string
+ * This is used by sendPaymentWebhook to ensure consistent signing with test webhooks
+ */
+export async function deliverWebhookDirect(
+  webhookUrl: string,
+  payloadString: string,
+  signature: string,
+  maxRetries: number = 3,
+  timeout: number = 30000
+): Promise<WebhookDeliveryResult> {
+  let lastResult: WebhookDeliveryResult = { success: false };
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CoinPay-Signature': signature,
+          'User-Agent': 'CoinPay-Webhook/1.0',
+        },
+        body: payloadString,
+        signal: AbortSignal.timeout(timeout),
+      });
+
+      if (response.ok) {
+        return {
+          success: true,
+          statusCode: response.status,
+          attempts: attempt,
+        };
+      } else {
+        lastResult = {
+          success: false,
+          statusCode: response.status,
+          error: `HTTP ${response.status}: ${response.statusText}`,
+        };
+      }
+    } catch (error) {
+      lastResult = {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+
+    // Don't wait after the last attempt
+    if (attempt < maxRetries) {
+      const delayMs = Math.pow(2, attempt - 1) * 1000;
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+
   return {
     ...lastResult,
     attempts: maxRetries,
@@ -306,6 +364,12 @@ export async function getWebhookLogs(
 
 /**
  * Send webhook for payment event
+ *
+ * Uses SDK-compliant payload format: { id, type, data, created_at, business_id }
+ * Signature format: t=timestamp,v1=signature (HMAC-SHA256)
+ *
+ * IMPORTANT: The webhook_secret is used directly (not decrypted) to match
+ * the test webhook behavior and SDK expectations.
  */
 export async function sendPaymentWebhook(
   supabase: SupabaseClient,
@@ -315,10 +379,11 @@ export async function sendPaymentWebhook(
   paymentData: any
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // Get business webhook configuration including merchant_id for decryption
+    // Get business webhook configuration
+    // Note: webhook_secret is used directly (not decrypted) to match test webhook behavior
     const { data: business, error: businessError } = await supabase
       .from('businesses')
-      .select('webhook_url, webhook_secret, merchant_id')
+      .select('webhook_url, webhook_secret')
       .eq('id', businessId)
       .single();
 
@@ -333,54 +398,53 @@ export async function sendPaymentWebhook(
       return { success: true };
     }
 
-    // Decrypt webhook secret if it exists
-    let decryptedSecret = '';
-    if (business.webhook_secret && business.merchant_id) {
-      try {
-        const encryptionKey = process.env.ENCRYPTION_KEY;
-        if (encryptionKey) {
-          const derivedKey = deriveKey(encryptionKey, business.merchant_id);
-          decryptedSecret = decrypt(business.webhook_secret, derivedKey);
-        } else {
-          console.warn('[Webhook] ENCRYPTION_KEY not set, using empty secret');
-        }
-      } catch (decryptError) {
-        console.error(`[Webhook] Failed to decrypt webhook secret for business ${businessId}:`, decryptError);
-        // Continue with empty secret - webhook will be sent but signature may not verify
-      }
+    if (!business.webhook_secret) {
+      console.log(`[Webhook] No webhook_secret configured for business ${businessId}`);
+      return { success: true };
     }
 
-    // Prepare webhook payload
-    // Include both 'event' and 'type' for compatibility with different receiver implementations
-    // Spread all paymentData fields to include merchant_tx_hash, platform_tx_hash, etc.
-    const payload: WebhookPayload = {
-      event,
-      type: event, // Alias for compatibility
-      payment_id: paymentId,
+    const timestamp = Math.floor(Date.now() / 1000);
+    const now = new Date();
+
+    // Build SDK-compliant nested payload format (matches test webhook)
+    // This format is expected by verifyWebhookSignature() and parseWebhookPayload() in SDK
+    const payload = {
+      id: `evt_${paymentId}_${timestamp}`,
+      type: event,
+      data: {
+        payment_id: paymentId,
+        status: paymentData.status,
+        amount_crypto: paymentData.amount_crypto,
+        amount_usd: paymentData.amount_usd,
+        currency: paymentData.currency,
+        confirmations: paymentData.confirmations,
+        payment_address: paymentData.payment_address,
+        tx_hash: paymentData.tx_hash,
+        // Include additional fields if present
+        ...(paymentData.merchant_tx_hash && { merchant_tx_hash: paymentData.merchant_tx_hash }),
+        ...(paymentData.platform_tx_hash && { platform_tx_hash: paymentData.platform_tx_hash }),
+        ...(paymentData.merchant_amount !== undefined && { merchant_amount: paymentData.merchant_amount }),
+        ...(paymentData.platform_fee !== undefined && { platform_fee: paymentData.platform_fee }),
+        ...(paymentData.received_amount && { received_amount: paymentData.received_amount }),
+        ...(paymentData.confirmed_at && { confirmed_at: paymentData.confirmed_at }),
+      },
+      created_at: now.toISOString(),
       business_id: businessId,
-      amount_crypto: paymentData.amount_crypto,
-      amount_usd: paymentData.amount_usd,
-      currency: paymentData.currency,
-      status: paymentData.status,
-      confirmations: paymentData.confirmations,
-      tx_hash: paymentData.tx_hash,
-      // Include additional fields from paymentData
-      ...(paymentData.merchant_tx_hash && { merchant_tx_hash: paymentData.merchant_tx_hash }),
-      ...(paymentData.platform_tx_hash && { platform_tx_hash: paymentData.platform_tx_hash }),
-      ...(paymentData.merchant_amount !== undefined && { merchant_amount: paymentData.merchant_amount }),
-      ...(paymentData.platform_fee !== undefined && { platform_fee: paymentData.platform_fee }),
-      ...(paymentData.received_amount && { received_amount: paymentData.received_amount }),
-      ...(paymentData.confirmed_at && { confirmed_at: paymentData.confirmed_at }),
-      ...(paymentData.payment_address && { payment_address: paymentData.payment_address }),
     };
+
+    const payloadString = JSON.stringify(payload);
+
+    // Generate signature using the same method as test webhook (SDK format)
+    // IMPORTANT: Use webhook_secret directly (not decrypted) to match test webhook
+    const signature = signWebhookPayload(payload, business.webhook_secret, timestamp);
 
     console.log(`[Webhook] Sending ${event} webhook for payment ${paymentId} to ${business.webhook_url}`);
 
     // Deliver webhook with retries
-    const result = await retryFailedWebhook(
+    const result = await deliverWebhookDirect(
       business.webhook_url,
-      payload,
-      decryptedSecret,
+      payloadString,
+      signature,
       3
     );
 
