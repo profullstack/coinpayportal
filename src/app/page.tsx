@@ -68,7 +68,7 @@ export default function Home() {
           {/* Secondary Stats */}
           <div className="flex flex-wrap justify-center gap-8 text-center">
             {[
-              { label: 'Transaction Fee', value: '0.5%' },
+              { label: 'Transaction Fee', value: '0.5-1%' },
               { label: 'Supported Chains', value: '10+' },
               { label: 'Avg. Processing', value: '<1 min' },
               { label: 'Uptime', value: '99.9%' },
@@ -332,6 +332,7 @@ export default function Home() {
                 price: 'Free',
                 description: 'Perfect for testing and small projects',
                 features: [
+                  '1% transaction fee',
                   'Up to 100 transactions/month',
                   'All supported chains',
                   'Basic API access',
@@ -344,6 +345,7 @@ export default function Home() {
                 period: '/month',
                 description: 'For growing businesses',
                 features: [
+                  '0.5% transaction fee (50% savings!)',
                   'Unlimited transactions',
                   'Priority support',
                   'Advanced analytics',
@@ -356,6 +358,7 @@ export default function Home() {
                 price: 'Custom',
                 description: 'For large-scale operations',
                 features: [
+                  'Custom transaction fees',
                   'Everything in Professional',
                   'White-label option',
                   'Dedicated account manager',
