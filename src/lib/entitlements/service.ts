@@ -488,14 +488,81 @@ export async function requireTransactionCapacity(
   merchantId: string
 ): Promise<void> {
   const result = await checkTransactionLimit(supabase, merchantId);
-  
+
   if (!result.success) {
     throw new Error(result.error || 'Failed to check transaction limit');
   }
-  
+
   if (!result.allowed) {
     throw new Error(
       `Monthly transaction limit reached (${result.currentUsage}/${result.limit}). Please upgrade to Professional for unlimited transactions.`
     );
+  }
+}
+
+/**
+ * Check if a merchant has a paid subscription tier
+ * Used for tiered commission rates: paid tier = 0.5%, free tier = 1%
+ *
+ * @param supabase - Supabase client
+ * @param merchantId - Merchant ID
+ * @returns true if merchant is on Professional plan, false for Starter/free plan
+ */
+export async function isPaidTier(
+  supabase: SupabaseClient,
+  merchantId: string
+): Promise<boolean> {
+  try {
+    const subscriptionResult = await getMerchantSubscription(supabase, merchantId);
+
+    if (!subscriptionResult.success || !subscriptionResult.subscription) {
+      // Default to free tier if subscription lookup fails
+      console.warn(`[Entitlements] Could not get subscription for merchant ${merchantId}, defaulting to free tier`);
+      return false;
+    }
+
+    const { subscription } = subscriptionResult;
+
+    // Professional plan = paid tier, anything else = free tier
+    const isPaid = subscription.plan.name.toLowerCase() === 'professional' &&
+                   subscription.status === 'active';
+
+    return isPaid;
+  } catch (error) {
+    console.error(`[Entitlements] Error checking paid tier for merchant ${merchantId}:`, error);
+    // Default to free tier on error
+    return false;
+  }
+}
+
+/**
+ * Check if a business has a paid subscription tier
+ * Wrapper that gets merchant_id from business_id
+ *
+ * @param supabase - Supabase client
+ * @param businessId - Business ID
+ * @returns true if merchant is on Professional plan, false for Starter/free plan
+ */
+export async function isBusinessPaidTier(
+  supabase: SupabaseClient,
+  businessId: string
+): Promise<boolean> {
+  try {
+    // Get merchant_id from business
+    const { data: business, error } = await supabase
+      .from('businesses')
+      .select('merchant_id')
+      .eq('id', businessId)
+      .single();
+
+    if (error || !business?.merchant_id) {
+      console.warn(`[Entitlements] Could not get merchant_id for business ${businessId}, defaulting to free tier`);
+      return false;
+    }
+
+    return isPaidTier(supabase, business.merchant_id);
+  } catch (error) {
+    console.error(`[Entitlements] Error checking paid tier for business ${businessId}:`, error);
+    return false;
   }
 }

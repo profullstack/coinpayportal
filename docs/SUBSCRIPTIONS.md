@@ -8,6 +8,7 @@ CoinPay Portal offers two subscription tiers:
 
 | Feature | Starter (Free) | Professional ($49/month) |
 |---------|----------------|--------------------------|
+| **Platform Fee** | **1%** | **0.5%** (50% savings!) |
 | Monthly Transactions | Up to 100 | Unlimited |
 | All Supported Chains | ✅ | ✅ |
 | Basic API Access | ✅ | ✅ |
@@ -16,6 +17,8 @@ CoinPay Portal offers two subscription tiers:
 | White-label Option | ❌ | ✅ |
 | Priority Support | ❌ | ✅ |
 | Email Support | ✅ | ✅ |
+
+**Note**: The platform fee is deducted from each payment before forwarding to the merchant's wallet. Professional tier users save 50% on platform fees compared to Starter tier.
 
 **Payment Method**: All subscription payments are processed using cryptocurrency through our internal payment gateway. Supported blockchains: BTC, BCH, ETH, POL, SOL.
 

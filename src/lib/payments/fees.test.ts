@@ -1,5 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { calculateFee, calculateMerchantAmount, calculatePlatformFee, FEE_PERCENTAGE } from './fees';
+import {
+  calculateFee,
+  calculateMerchantAmount,
+  calculatePlatformFee,
+  FEE_PERCENTAGE,
+  FEE_PERCENTAGE_FREE,
+  FEE_PERCENTAGE_PAID,
+  getFeePercentage,
+  calculateTieredFee,
+  calculateTieredMerchantAmount,
+  splitTieredPayment,
+  getTieredFeePercentageString,
+} from './fees';
 import {
   STATIC_NETWORK_FEES_USD,
   getStaticNetworkFee,
@@ -225,6 +237,178 @@ describe('Payment Fee Calculations', () => {
         expect(getStaticNetworkFee('USDC_ETH' as Blockchain)).toBeUndefined();
         expect(getStaticNetworkFee('USDC_POL' as Blockchain)).toBeUndefined();
         expect(getStaticNetworkFee('USDC_SOL' as Blockchain)).toBeUndefined();
+      });
+    });
+  });
+
+  describe('Tiered Commission Rates', () => {
+    describe('Fee percentage constants', () => {
+      it('should have 1% fee for free tier (Starter)', () => {
+        expect(FEE_PERCENTAGE_FREE).toBe(0.01);
+      });
+
+      it('should have 0.5% fee for paid tier (Professional)', () => {
+        expect(FEE_PERCENTAGE_PAID).toBe(0.005);
+      });
+
+      it('should have legacy constant equal to paid tier for backward compatibility', () => {
+        expect(FEE_PERCENTAGE).toBe(FEE_PERCENTAGE_PAID);
+      });
+
+      it('should have free tier fee be exactly 2x paid tier fee', () => {
+        expect(FEE_PERCENTAGE_FREE).toBe(FEE_PERCENTAGE_PAID * 2);
+      });
+    });
+
+    describe('getFeePercentage', () => {
+      it('should return 0.5% for paid tier', () => {
+        expect(getFeePercentage(true)).toBe(0.005);
+      });
+
+      it('should return 1% for free tier', () => {
+        expect(getFeePercentage(false)).toBe(0.01);
+      });
+    });
+
+    describe('calculateTieredFee', () => {
+      it('should calculate 0.5% fee for paid tier', () => {
+        const fee = calculateTieredFee(100, true);
+        expect(fee).toBe(0.5); // 100 * 0.005
+      });
+
+      it('should calculate 1% fee for free tier', () => {
+        const fee = calculateTieredFee(100, false);
+        expect(fee).toBe(1); // 100 * 0.01
+      });
+
+      it('should handle decimal amounts for paid tier', () => {
+        const fee = calculateTieredFee(123.45, true);
+        expect(fee).toBeCloseTo(0.61725, 6);
+      });
+
+      it('should handle decimal amounts for free tier', () => {
+        const fee = calculateTieredFee(123.45, false);
+        expect(fee).toBeCloseTo(1.2345, 6);
+      });
+
+      it('should handle crypto amounts with paid tier', () => {
+        const fee = calculateTieredFee(0.5, true); // 0.5 ETH
+        expect(fee).toBeCloseTo(0.0025, 8);
+      });
+
+      it('should handle crypto amounts with free tier', () => {
+        const fee = calculateTieredFee(0.5, false); // 0.5 ETH
+        expect(fee).toBeCloseTo(0.005, 8);
+      });
+
+      it('should throw error for zero amount', () => {
+        expect(() => calculateTieredFee(0, true)).toThrow();
+        expect(() => calculateTieredFee(0, false)).toThrow();
+      });
+
+      it('should throw error for negative amount', () => {
+        expect(() => calculateTieredFee(-100, true)).toThrow();
+        expect(() => calculateTieredFee(-100, false)).toThrow();
+      });
+    });
+
+    describe('calculateTieredMerchantAmount', () => {
+      it('should calculate 99.5% for paid tier (Professional)', () => {
+        const merchantAmount = calculateTieredMerchantAmount(100, true);
+        expect(merchantAmount).toBe(99.5);
+      });
+
+      it('should calculate 99% for free tier (Starter)', () => {
+        const merchantAmount = calculateTieredMerchantAmount(100, false);
+        expect(merchantAmount).toBe(99);
+      });
+
+      it('should ensure merchant + fee = total for paid tier', () => {
+        const total = 100;
+        const fee = calculateTieredFee(total, true);
+        const merchant = calculateTieredMerchantAmount(total, true);
+        expect(merchant + fee).toBeCloseTo(total, 10);
+      });
+
+      it('should ensure merchant + fee = total for free tier', () => {
+        const total = 100;
+        const fee = calculateTieredFee(total, false);
+        const merchant = calculateTieredMerchantAmount(total, false);
+        expect(merchant + fee).toBeCloseTo(total, 10);
+      });
+    });
+
+    describe('splitTieredPayment', () => {
+      it('should return correct split for paid tier', () => {
+        const result = splitTieredPayment(100, true);
+        expect(result.merchantAmount).toBe(99.5);
+        expect(result.platformFee).toBe(0.5);
+        expect(result.total).toBe(100);
+        expect(result.feePercentage).toBe(0.005);
+      });
+
+      it('should return correct split for free tier', () => {
+        const result = splitTieredPayment(100, false);
+        expect(result.merchantAmount).toBe(99);
+        expect(result.platformFee).toBe(1);
+        expect(result.total).toBe(100);
+        expect(result.feePercentage).toBe(0.01);
+      });
+
+      it('should handle crypto amounts for paid tier', () => {
+        const result = splitTieredPayment(0.5, true); // 0.5 ETH
+        expect(result.merchantAmount).toBeCloseTo(0.4975, 8);
+        expect(result.platformFee).toBeCloseTo(0.0025, 8);
+        expect(result.total).toBe(0.5);
+      });
+
+      it('should handle crypto amounts for free tier', () => {
+        const result = splitTieredPayment(0.5, false); // 0.5 ETH
+        expect(result.merchantAmount).toBeCloseTo(0.495, 8);
+        expect(result.platformFee).toBeCloseTo(0.005, 8);
+        expect(result.total).toBe(0.5);
+      });
+
+      it('should ensure parts sum to total for any amount', () => {
+        const amounts = [1, 10, 100, 1000, 0.00123, 12345.67];
+        for (const amount of amounts) {
+          for (const isPaid of [true, false]) {
+            const result = splitTieredPayment(amount, isPaid);
+            expect(result.merchantAmount + result.platformFee).toBeCloseTo(result.total, 8);
+          }
+        }
+      });
+    });
+
+    describe('getTieredFeePercentageString', () => {
+      it('should return "0.5%" for paid tier', () => {
+        expect(getTieredFeePercentageString(true)).toBe('0.5%');
+      });
+
+      it('should return "1%" for free tier', () => {
+        expect(getTieredFeePercentageString(false)).toBe('1%');
+      });
+    });
+
+    describe('Comparison: Paid vs Free tier savings', () => {
+      it('should show 50% savings on paid tier', () => {
+        const amount = 1000;
+        const freeTierFee = calculateTieredFee(amount, false);
+        const paidTierFee = calculateTieredFee(amount, true);
+
+        expect(paidTierFee).toBe(freeTierFee / 2);
+        expect(paidTierFee).toBe(5);
+        expect(freeTierFee).toBe(10);
+      });
+
+      it('should give merchant 0.5% more on paid tier', () => {
+        const amount = 10000;
+        const freeMerchant = calculateTieredMerchantAmount(amount, false);
+        const paidMerchant = calculateTieredMerchantAmount(amount, true);
+
+        expect(paidMerchant - freeMerchant).toBe(50); // 0.5% of 10000
+        expect(paidMerchant).toBe(9950); // 99.5%
+        expect(freeMerchant).toBe(9900); // 99%
       });
     });
   });

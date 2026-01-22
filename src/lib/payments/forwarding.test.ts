@@ -24,6 +24,11 @@ vi.mock('../blockchain/providers', () => ({
   getRpcUrl: vi.fn(() => 'https://mock-rpc.com'),
 }));
 
+// Mock the entitlements service - default to paid tier for backward compatibility
+vi.mock('../entitlements/service', () => ({
+  isBusinessPaidTier: vi.fn().mockResolvedValue(true),
+}));
+
 // Mock Supabase
 const mockSupabase = {
   from: vi.fn(() => ({

@@ -48,8 +48,9 @@ CoinPay uses a Supabase Edge Function-based payment monitoring system that conti
 │  │                      ▼                                        │
 │  │              ┌───────────────┐                               │
 │  │              │ Split Payment │                               │
-│  │              │ 99.5% Merchant│                               │
-│  │              │ 0.5% Platform │                               │
+│  │              │ Tiered Fees:  │                               │
+│  │              │ Starter: 1%   │                               │
+│  │              │ Pro: 0.5%     │                               │
 │  │              └───────┬───────┘                               │
 │  │                      │                                        │
 │  ▼                      ▼                                        │

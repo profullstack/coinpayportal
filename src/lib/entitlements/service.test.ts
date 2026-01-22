@@ -8,6 +8,8 @@ import {
   hasFeature,
   checkTransactionLimit,
   getEntitlements,
+  isPaidTier,
+  isBusinessPaidTier,
   PLAN_FEATURES,
   type SubscriptionPlan,
   type MerchantSubscription,
@@ -481,6 +483,206 @@ describe('Entitlements Service', () => {
       expect(result.entitlements?.usage.currentMonth).toBe(500);
       expect(result.entitlements?.usage.limit).toBeNull();
       expect(result.entitlements?.usage.remaining).toBeNull();
+    });
+  });
+
+  describe('isPaidTier', () => {
+    it('should return true for active Professional subscription', async () => {
+      mockSupabase.from.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: {
+                id: 'merchant-123',
+                subscription_plan_id: 'professional',
+                subscription_status: 'active',
+                subscription_started_at: '2025-01-01T00:00:00Z',
+                subscription_plans: {
+                  id: 'professional',
+                  name: 'Professional',
+                  price_monthly: 49,
+                  monthly_transaction_limit: null,
+                  all_chains_supported: true,
+                  basic_api_access: true,
+                  advanced_analytics: true,
+                  custom_webhooks: true,
+                  white_label: true,
+                  priority_support: true,
+                  is_active: true,
+                },
+              },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      const result = await isPaidTier(mockSupabase as any, 'merchant-123');
+      expect(result).toBe(true);
+    });
+
+    it('should return false for Starter subscription', async () => {
+      mockSupabase.from.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: {
+                id: 'merchant-123',
+                subscription_plan_id: 'starter',
+                subscription_status: 'active',
+                subscription_started_at: '2025-01-01T00:00:00Z',
+                subscription_plans: {
+                  id: 'starter',
+                  name: 'Starter',
+                  price_monthly: 0,
+                  monthly_transaction_limit: 100,
+                  all_chains_supported: true,
+                  basic_api_access: true,
+                  advanced_analytics: false,
+                  custom_webhooks: false,
+                  white_label: false,
+                  priority_support: false,
+                  is_active: true,
+                },
+              },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      const result = await isPaidTier(mockSupabase as any, 'merchant-123');
+      expect(result).toBe(false);
+    });
+
+    it('should return false for Professional with cancelled status', async () => {
+      mockSupabase.from.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: {
+                id: 'merchant-123',
+                subscription_plan_id: 'professional',
+                subscription_status: 'cancelled',
+                subscription_started_at: '2025-01-01T00:00:00Z',
+                subscription_plans: {
+                  id: 'professional',
+                  name: 'Professional',
+                  price_monthly: 49,
+                  monthly_transaction_limit: null,
+                  all_chains_supported: true,
+                  basic_api_access: true,
+                  advanced_analytics: true,
+                  custom_webhooks: true,
+                  white_label: true,
+                  priority_support: true,
+                  is_active: true,
+                },
+              },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      const result = await isPaidTier(mockSupabase as any, 'merchant-123');
+      expect(result).toBe(false);
+    });
+
+    it('should return false when subscription lookup fails', async () => {
+      mockSupabase.from.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: null,
+              error: { message: 'Not found' },
+            }),
+          }),
+        }),
+      });
+
+      const result = await isPaidTier(mockSupabase as any, 'merchant-123');
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('isBusinessPaidTier', () => {
+    it('should return true for business with Professional merchant subscription', async () => {
+      // First call for business lookup
+      mockSupabase.from.mockReturnValueOnce({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: { merchant_id: 'merchant-123' },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      // Second call for merchant subscription
+      mockSupabase.from.mockReturnValueOnce({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: {
+                id: 'merchant-123',
+                subscription_plan_id: 'professional',
+                subscription_status: 'active',
+                subscription_plans: {
+                  id: 'professional',
+                  name: 'Professional',
+                  price_monthly: 49,
+                  monthly_transaction_limit: null,
+                  all_chains_supported: true,
+                  basic_api_access: true,
+                  advanced_analytics: true,
+                  custom_webhooks: true,
+                  white_label: true,
+                  priority_support: true,
+                  is_active: true,
+                },
+              },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      const result = await isBusinessPaidTier(mockSupabase as any, 'business-456');
+      expect(result).toBe(true);
+    });
+
+    it('should return false when business has no merchant_id', async () => {
+      mockSupabase.from.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: { merchant_id: null },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      const result = await isBusinessPaidTier(mockSupabase as any, 'business-456');
+      expect(result).toBe(false);
+    });
+
+    it('should return false when business lookup fails', async () => {
+      mockSupabase.from.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: null,
+              error: { message: 'Business not found' },
+            }),
+          }),
+        }),
+      });
+
+      const result = await isBusinessPaidTier(mockSupabase as any, 'business-456');
+      expect(result).toBe(false);
     });
   });
 });

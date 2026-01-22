@@ -1,7 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { splitPayment, validateSplit } from './fees';
+import { splitTieredPayment, validateSplit } from './fees';
 import { getProvider, getRpcUrl, type BlockchainType } from '../blockchain/providers';
 import { sendPaymentWebhook } from '../webhooks/service';
+import { isBusinessPaidTier } from '../entitlements/service';
 
 /**
  * Supported blockchains for forwarding
@@ -56,14 +57,17 @@ export interface ValidationResult {
 }
 
 /**
- * Calculate forwarding amounts (wrapper around splitPayment for consistency)
+ * Calculate forwarding amounts based on subscription tier
+ * @param totalAmount - Total payment amount
+ * @param isPaidTier - Whether merchant has a paid subscription (default: true for backward compatibility)
  */
-export function calculateForwardingAmounts(totalAmount: number): {
+export function calculateForwardingAmounts(totalAmount: number, isPaidTier: boolean = true): {
   merchantAmount: number;
   platformFee: number;
   total: number;
+  feePercentage: number;
 } {
-  return splitPayment(totalAmount);
+  return splitTieredPayment(totalAmount, isPaidTier);
 }
 
 /**
@@ -141,8 +145,23 @@ export async function forwardPayment(
       };
     }
 
-    // Calculate split amounts
-    const { merchantAmount, platformFee, total } = calculateForwardingAmounts(input.totalAmount);
+    // Get payment to determine business_id for subscription tier check
+    const { data: paymentForTier } = await supabase
+      .from('payments')
+      .select('business_id')
+      .eq('id', input.paymentId)
+      .single();
+
+    // Check if merchant has a paid subscription tier for commission rate
+    // Paid tier (Professional) = 0.5% commission, Free tier (Starter) = 1% commission
+    const isPaidTier = paymentForTier?.business_id
+      ? await isBusinessPaidTier(supabase, paymentForTier.business_id)
+      : true; // Default to paid tier for backward compatibility
+
+    // Calculate split amounts based on subscription tier
+    const { merchantAmount, platformFee, total, feePercentage } = calculateForwardingAmounts(input.totalAmount, isPaidTier);
+
+    console.log(`[Forwarding] Commission rate: ${feePercentage * 100}% (${isPaidTier ? 'paid' : 'free'} tier)`);
 
     // Validate the split
     validateSplit(merchantAmount, platformFee, total);

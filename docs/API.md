@@ -885,10 +885,14 @@ Get details of a specific business collection payment.
 
 | Feature | Regular Payments | Business Collection |
 |---------|-----------------|---------------------|
-| Forward Split | 99.5% merchant / 0.5% platform | 100% platform |
+| Forward Split | 99-99.5% merchant / 0.5-1% platform* | 100% platform |
 | Destination | Merchant wallet | Platform wallet from .env |
 | Use Case | Customer payments | Business fees/subscriptions |
 | Webhook Event | `payment.forwarded` | `business_collection.forwarded` |
+
+*Platform fee varies by subscription tier:
+- **Starter (Free)**: 1% platform fee (99% to merchant)
+- **Professional (Paid)**: 0.5% platform fee (99.5% to merchant) - 50% savings!
 
 ## Webhook Endpoints
 

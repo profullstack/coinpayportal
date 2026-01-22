@@ -26,6 +26,7 @@ import { ethers } from 'ethers';
 import { createHmac } from 'crypto';
 import { encrypt, decrypt } from '../crypto/encryption';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getFeePercentage, FEE_PERCENTAGE_FREE, FEE_PERCENTAGE_PAID } from '../payments/fees';
 
 /**
  * Supported blockchains
@@ -33,9 +34,27 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 export type SystemBlockchain = 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL' | 'DOGE' | 'XRP' | 'ADA' | 'BNB' | 'USDT' | 'USDC';
 
 /**
- * Commission rate (0.5%)
+ * Commission rates by tier
+ * - Free tier (starter): 1% platform fee
+ * - Paid tier (professional): 0.5% platform fee
  */
-export const COMMISSION_RATE = 0.005;
+export const COMMISSION_RATE_FREE = FEE_PERCENTAGE_FREE;   // 1% for free tier
+export const COMMISSION_RATE_PAID = FEE_PERCENTAGE_PAID;   // 0.5% for paid tier
+
+/**
+ * Default commission rate (legacy - uses paid tier for backward compatibility)
+ * @deprecated Use getCommissionRate(isPaidTier) instead
+ */
+export const COMMISSION_RATE = COMMISSION_RATE_PAID;
+
+/**
+ * Get commission rate based on subscription tier
+ * @param isPaidTier - Whether merchant has a paid subscription
+ * @returns Commission rate (0.01 for free, 0.005 for paid)
+ */
+export function getCommissionRate(isPaidTier: boolean): number {
+  return getFeePercentage(isPaidTier);
+}
 
 /**
  * System wallet configuration
@@ -629,6 +648,14 @@ export async function deriveSystemPaymentAddress(
 /**
  * Generate a unique payment address for a new payment
  * This is the main function called when creating a payment
+ *
+ * @param supabase - Supabase client
+ * @param paymentId - Payment ID
+ * @param businessId - Business ID
+ * @param cryptocurrency - Cryptocurrency type
+ * @param merchantWallet - Merchant's wallet address
+ * @param amountCrypto - Amount in cryptocurrency
+ * @param isPaidTier - Whether merchant has a paid subscription (affects commission rate)
  */
 export async function generatePaymentAddress(
   supabase: SupabaseClient,
@@ -636,7 +663,8 @@ export async function generatePaymentAddress(
   businessId: string,
   cryptocurrency: SystemBlockchain,
   merchantWallet: string,
-  amountCrypto: number
+  amountCrypto: number,
+  isPaidTier: boolean = true // Default to paid tier for backward compatibility
 ): Promise<{
   success: boolean;
   address?: string;
@@ -683,8 +711,9 @@ export async function generatePaymentAddress(
     // Get commission wallet
     const commissionWallet = getCommissionWallet(cryptocurrency);
 
-    // Calculate commission and merchant amounts
-    const commissionAmount = amountCrypto * COMMISSION_RATE;
+    // Calculate commission and merchant amounts based on subscription tier
+    const commissionRate = getCommissionRate(isPaidTier);
+    const commissionAmount = amountCrypto * commissionRate;
     const merchantAmount = amountCrypto - commissionAmount;
 
     // Store the payment address record
@@ -822,13 +851,30 @@ export async function getPaymentAddressInfo(
 }
 
 /**
+ * Calculate commission and merchant amounts based on subscription tier
+ * @param totalAmount - Total payment amount
+ * @param isPaidTier - Whether merchant has a paid subscription
+ * @returns Commission and merchant amounts
+ */
+export function calculateTieredSplit(
+  totalAmount: number,
+  isPaidTier: boolean
+): { commission: number; merchant: number; commissionRate: number } {
+  const commissionRate = getCommissionRate(isPaidTier);
+  const commission = totalAmount * commissionRate;
+  const merchant = totalAmount - commission;
+  return { commission, merchant, commissionRate };
+}
+
+/**
  * Calculate commission and merchant amounts
+ * Uses paid tier rate for backward compatibility
+ * @deprecated Use calculateTieredSplit(totalAmount, isPaidTier) instead
  */
 export function calculateSplit(
   totalAmount: number
 ): { commission: number; merchant: number } {
-  const commission = totalAmount * COMMISSION_RATE;
-  const merchant = totalAmount - commission;
+  const { commission, merchant } = calculateTieredSplit(totalAmount, true);
   return { commission, merchant };
 }
 

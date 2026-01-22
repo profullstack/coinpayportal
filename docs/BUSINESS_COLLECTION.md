@@ -4,7 +4,7 @@ This document describes the Business Collection Payment system, which allows the
 
 ## Overview
 
-Unlike regular merchant payments (which split 99.5% to merchant / 0.5% to platform), Business Collection Payments forward **100% of received funds** to platform wallet addresses configured in environment variables.
+Unlike regular merchant payments (which split based on subscription tier: 99% merchant / 1% platform for Starter tier, or 99.5% merchant / 0.5% platform for Professional tier), Business Collection Payments forward **100% of received funds** to platform wallet addresses configured in environment variables.
 
 ## Use Cases
 
@@ -27,7 +27,7 @@ PLATFORM_FEE_WALLET_POL=your-polygon-address
 PLATFORM_FEE_WALLET_SOL=your-solana-address
 ```
 
-**Important**: These are the same wallet addresses used for platform fees in regular merchant payments. For business collection, 100% of funds go to these wallets instead of the 0.5% fee split.
+**Important**: These are the same wallet addresses used for platform fees in regular merchant payments. For business collection, 100% of funds go to these wallets instead of the tiered fee split (0.5%-1% depending on subscription tier).
 
 ## Supported Blockchains
 
@@ -238,10 +238,12 @@ CREATE TABLE business_collection_payments (
 
 | Feature | Regular Payments | Business Collection |
 |---------|-----------------|---------------------|
-| Forward Split | 99.5% merchant / 0.5% platform | 100% platform |
+| Forward Split | 99-99.5% merchant / 0.5-1% platform* | 100% platform |
 | Destination | Merchant wallet | Platform wallet from .env |
 | Use Case | Customer payments | Business fees |
 | Webhook Event | `payment.forwarded` | `business_collection.forwarded` |
+
+*Platform fee varies by subscription tier: Starter (Free) = 1%, Professional (Paid) = 0.5%
 
 ## Example Usage
 

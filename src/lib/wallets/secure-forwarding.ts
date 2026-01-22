@@ -17,8 +17,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { decrypt } from '../crypto/encryption';
 import { getProvider, getRpcUrl, type BlockchainType, SolanaProvider, BitcoinProvider, EthereumProvider } from '../blockchain/providers';
-import { splitPayment } from '../payments/fees';
+import { splitTieredPayment } from '../payments/fees';
 import { sendPaymentWebhook } from '../webhooks/service';
+import { isBusinessPaidTier } from '../entitlements/service';
 
 /**
  * Result of a secure forwarding operation
@@ -179,8 +180,14 @@ export async function forwardPaymentSecurely(
       .update({ status: 'forwarding', updated_at: new Date().toISOString() })
       .eq('id', paymentId);
 
-    // Calculate split amounts
-    const { merchantAmount, platformFee } = splitPayment(payment.crypto_amount);
+    // Check if merchant has a paid subscription tier for commission rate
+    // Paid tier (Professional) = 0.5% commission, Free tier (Starter) = 1% commission
+    const isPaidTier = await isBusinessPaidTier(supabase, payment.business_id);
+
+    // Calculate split amounts based on subscription tier
+    const { merchantAmount, platformFee, feePercentage } = splitTieredPayment(payment.crypto_amount, isPaidTier);
+
+    console.log(`[SECURE] Commission rate for business ${payment.business_id}: ${feePercentage * 100}% (${isPaidTier ? 'paid' : 'free'} tier)`);
 
     // Get blockchain provider
     const rpcUrl = getRpcUrl(addressData.cryptocurrency);

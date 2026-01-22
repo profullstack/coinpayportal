@@ -143,20 +143,28 @@ export default function PricingPage() {
 
   const getFeatureList = (plan: Plan) => {
     const features = [];
-    
+    const isProfessional = plan.id === 'professional';
+
+    // Platform fee - highlight the 50% savings on Professional
+    if (isProfessional) {
+      features.push({ name: '0.5% platform fee (50% less!)', included: true });
+    } else {
+      features.push({ name: '1% platform fee', included: true });
+    }
+
     if (plan.limits.is_unlimited) {
       features.push({ name: 'Unlimited transactions', included: true });
     } else {
       features.push({ name: `Up to ${plan.limits.monthly_transactions} transactions/month`, included: true });
     }
-    
+
     features.push({ name: 'All supported blockchains', included: plan.features.all_chains_supported });
     features.push({ name: 'Basic API access', included: plan.features.basic_api_access });
     features.push({ name: 'Advanced analytics', included: plan.features.advanced_analytics });
     features.push({ name: 'Custom webhooks', included: plan.features.custom_webhooks });
     features.push({ name: 'White-label option', included: plan.features.white_label });
     features.push({ name: 'Priority support', included: plan.features.priority_support });
-    
+
     return features;
   };
 
@@ -185,7 +193,7 @@ export default function PricingPage() {
             Choose the plan that's right for your business. Start free and upgrade as you grow.
           </p>
           <p className="mt-2 text-sm text-gray-500">
-            All plans include a 0.5% platform fee per transaction. Blockchain network fees are additional and vary by network.
+            Platform fees: <span className="font-semibold">1% on Starter</span>, <span className="font-semibold text-green-600">0.5% on Professional</span> (50% savings!). Blockchain network fees are additional.
           </p>
         </div>
 

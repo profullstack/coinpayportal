@@ -3,6 +3,7 @@ import { getCryptoPrice } from '../rates/tatum';
 import { z } from 'zod';
 import { generatePaymentAddress, type SystemBlockchain } from '../wallets/system-wallet';
 import { STATIC_NETWORK_FEES_USD, getEstimatedNetworkFee, getStaticNetworkFee } from './network-fees';
+import { isBusinessPaidTier } from '../entitlements/service';
 
 // Re-export network fee utilities
 export { STATIC_NETWORK_FEES_USD, getEstimatedNetworkFee, getStaticNetworkFee };
@@ -175,17 +176,22 @@ export async function createPayment(
     const baseBlockchain = input.blockchain.startsWith('USDC_')
       ? input.blockchain.replace('USDC_', '') as SystemBlockchain
       : input.blockchain as SystemBlockchain;
-    
+
     // Only generate system wallet address for supported blockchains
     const supportedBlockchains: SystemBlockchain[] = ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'DOGE', 'XRP', 'ADA', 'BNB', 'USDT', 'USDC'];
     if (supportedBlockchains.includes(baseBlockchain)) {
+      // Check if merchant has a paid subscription tier for commission rate
+      // Paid tier (Professional) = 0.5% commission, Free tier (Starter) = 1% commission
+      const isPaidTier = await isBusinessPaidTier(supabase, input.business_id);
+
       const addressResult = await generatePaymentAddress(
         supabase,
         payment.id,
         input.business_id,
         baseBlockchain,
         input.merchant_wallet_address || '', // Merchant's wallet for forwarding
-        cryptoAmount
+        cryptoAmount,
+        isPaidTier // Pass subscription tier for tiered commission rates
       );
 
       if (!addressResult.success) {
