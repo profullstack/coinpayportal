@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Papa from 'papaparse';
 import { useRealtimePayments, type RealtimePayment } from '@/lib/realtime/useRealtimePayments';
 
 interface DashboardStats {
@@ -12,6 +13,7 @@ interface DashboardStats {
   failed_payments: number;
   total_volume: string;
   total_volume_usd: number;
+  total_commission_usd: string;
 }
 
 interface RecentPayment {
@@ -29,44 +31,12 @@ interface RecentPayment {
   forwarded_at?: string;
 }
 
-// Blockchain explorer URLs
-const EXPLORER_URLS: Record<string, { address: string; tx: string }> = {
-  btc: {
-    address: 'https://blockstream.info/address/',
-    tx: 'https://blockstream.info/tx/',
-  },
-  bch: {
-    address: 'https://blockchair.com/bitcoin-cash/address/',
-    tx: 'https://blockchair.com/bitcoin-cash/transaction/',
-  },
-  eth: {
-    address: 'https://etherscan.io/address/',
-    tx: 'https://etherscan.io/tx/',
-  },
-  pol: {
-    address: 'https://polygonscan.com/address/',
-    tx: 'https://polygonscan.com/tx/',
-  },
-  sol: {
-    address: 'https://solscan.io/account/',
-    tx: 'https://solscan.io/tx/',
-  },
-};
-
-// Platform fee wallet addresses (for display purposes)
-const PLATFORM_FEE_WALLETS: Record<string, string> = {
-  btc: process.env.NEXT_PUBLIC_PLATFORM_FEE_WALLET_BTC || '',
-  bch: process.env.NEXT_PUBLIC_PLATFORM_FEE_WALLET_BCH || '',
-  eth: process.env.NEXT_PUBLIC_PLATFORM_FEE_WALLET_ETH || '',
-  pol: process.env.NEXT_PUBLIC_PLATFORM_FEE_WALLET_POL || '',
-  sol: process.env.NEXT_PUBLIC_PLATFORM_FEE_WALLET_SOL || '',
-};
-
 export default function DashboardPage() {
   const router = useRouter();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentPayments, setRecentPayments] = useState<RecentPayment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
   const [notification, setNotification] = useState<string | null>(null);
 
@@ -190,43 +160,11 @@ export default function DashboardPage() {
     });
   };
 
-  const formatAddress = (address: string, short: boolean = false) => {
-    if (!address) return 'N/A';
-    if (short) {
-      return `${address.slice(0, 6)}...${address.slice(-4)}`;
-    }
-    return `${address.slice(0, 10)}...${address.slice(-8)}`;
-  };
-
   const formatAmount = (amount: string | null | undefined, decimals: number = 8) => {
     if (amount === null || amount === undefined || amount === '') return '0';
     const parsed = parseFloat(amount);
     if (isNaN(parsed)) return '0';
     return parsed.toFixed(decimals);
-  };
-
-  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
-  const [expandedPayment, setExpandedPayment] = useState<string | null>(null);
-
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedAddress(text);
-      setTimeout(() => setCopiedAddress(null), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  };
-
-  const getExplorerUrl = (currency: string, type: 'address' | 'tx', value: string) => {
-    const currencyLower = currency?.toLowerCase() || '';
-    const explorer = EXPLORER_URLS[currencyLower];
-    if (!explorer || !value) return null;
-    return `${explorer[type]}${value}`;
-  };
-
-  const togglePaymentExpand = (paymentId: string) => {
-    setExpandedPayment(expandedPayment === paymentId ? null : paymentId);
   };
 
   // Calculate fee split for display (0.5% platform fee)
@@ -235,6 +173,82 @@ export default function DashboardPage() {
     const platformFee = total * 0.005; // 0.5%
     const merchantAmount = total - platformFee;
     return { total, platformFee, merchantAmount };
+  };
+
+  // Export ALL payments as CSV (fetches from API)
+  const exportToCSV = async () => {
+    try {
+      setExporting(true);
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        setError('Please log in to export payments');
+        return;
+      }
+
+      // Fetch ALL payments from the API
+      const response = await fetch('/api/payments', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        setError(result.error || 'Failed to fetch payments for export');
+        return;
+      }
+
+      const payments = result.payments || [];
+      if (payments.length === 0) {
+        setNotification('No payments to export');
+        setTimeout(() => setNotification(null), 3000);
+        return;
+      }
+
+      const data = payments.map((payment: {
+        id: string;
+        business_name?: string;
+        amount_crypto: string;
+        amount_usd: string;
+        currency: string;
+        fee_amount?: string;
+        merchant_amount?: string;
+        status: string;
+        created_at: string;
+        tx_hash?: string;
+      }) => {
+        const split = calculateSplit(payment.amount_crypto);
+        return {
+          'Payment ID': payment.id,
+          'Business': payment.business_name || 'Unknown',
+          'Total Amount': formatAmount(payment.amount_crypto, 8),
+          'Currency': payment.currency?.toUpperCase() || '',
+          'USD Amount': formatAmount(payment.amount_usd, 2),
+          'Commission': payment.fee_amount ? formatAmount(payment.fee_amount, 8) : formatAmount(split.platformFee.toString(), 8),
+          'Take Home': payment.merchant_amount ? formatAmount(payment.merchant_amount, 8) : formatAmount(split.merchantAmount.toString(), 8),
+          'Status': payment.status,
+          'TX Hash': payment.tx_hash || '',
+          'Date': formatDate(payment.created_at),
+        };
+      });
+
+      const csv = Papa.unparse(data);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `payments-${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+
+      setNotification(`Exported ${payments.length} payments`);
+      setTimeout(() => setNotification(null), 3000);
+    } catch (err) {
+      console.error('Export error:', err);
+      setError('Failed to export payments');
+    } finally {
+      setExporting(false);
+    }
   };
 
   if (loading) {
@@ -391,7 +405,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Volume Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg shadow-md p-6 text-white">
             <p className="text-sm font-medium opacity-90">Total Volume (USD)</p>
             <p className="mt-2 text-4xl font-bold">
@@ -399,6 +413,16 @@ export default function DashboardPage() {
             </p>
             <p className="mt-2 text-sm opacity-75">
               From completed payments
+            </p>
+          </div>
+
+          <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg shadow-md p-6 text-white">
+            <p className="text-sm font-medium opacity-90">Commission Paid</p>
+            <p className="mt-2 text-4xl font-bold">
+              ${parseFloat(stats?.total_commission_usd || '0').toLocaleString()}
+            </p>
+            <p className="mt-2 text-sm opacity-75">
+              0.5% platform fee
             </p>
           </div>
 
@@ -464,10 +488,40 @@ export default function DashboardPage() {
 
         {/* Recent Payments */}
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
+          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
             <h2 className="text-xl font-semibold text-gray-900">
               Recent Payments
             </h2>
+            <button
+              onClick={exportToCSV}
+              disabled={exporting}
+              className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {exporting ? (
+                <>
+                  <svg className="animate-spin h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <svg
+                    className="h-4 w-4 mr-1.5"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Export All CSV
+                </>
+              )}
+            </button>
           </div>
           <div className="overflow-x-auto">
             {recentPayments.length === 0 ? (
@@ -517,10 +571,13 @@ export default function DashboardPage() {
                       Payment ID
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Amount / Split
+                      Total
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Currency
+                      Commission
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Take Home
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
@@ -536,11 +593,7 @@ export default function DashboardPage() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {recentPayments.map((payment) => {
                     const split = calculateSplit(payment.amount_crypto);
-                    const isExpanded = expandedPayment === payment.id;
-                    const explorerAddressUrl = getExplorerUrl(payment.currency, 'address', payment.payment_address);
-                    const explorerMerchantUrl = getExplorerUrl(payment.currency, 'address', payment.merchant_wallet_address || '');
-                    const explorerTxUrl = getExplorerUrl(payment.currency, 'tx', payment.forward_tx_hash || '');
-                    
+
                     return (
                       <tr key={payment.id} className="hover:bg-gray-50">
                         <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
@@ -552,193 +605,30 @@ export default function DashboardPage() {
                           </Link>
                         </td>
                         <td className="px-4 py-4 text-sm text-gray-900">
-                          <div className="space-y-2">
-                            {/* Total Amount */}
-                            <div className="flex items-center gap-2">
-                              <div>
-                                <div className="font-medium">
-                                  {formatAmount(payment.amount_crypto, 8)} {payment.currency?.toUpperCase()}
-                                </div>
-                                <div className="text-gray-500 text-xs">
-                                  ${formatAmount(payment.amount_usd, 2)} USD
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => togglePaymentExpand(payment.id)}
-                                className="ml-2 text-purple-500 hover:text-purple-700 transition-colors"
-                                title={isExpanded ? 'Hide split details' : 'Show split details'}
-                              >
-                                <svg
-                                  className={`w-4 h-4 transform transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                </svg>
-                              </button>
-                            </div>
-                            
-                            {/* Expanded Split Details */}
-                            {isExpanded && (
-                              <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200 text-xs space-y-3">
-                                {/* Payment Address */}
-                                <div>
-                                  <div className="text-gray-500 font-medium mb-1">Payment Address:</div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-mono" title={payment.payment_address}>
-                                      {formatAddress(payment.payment_address, true)}
-                                    </span>
-                                    {payment.payment_address && (
-                                      <>
-                                        <button
-                                          onClick={() => copyToClipboard(payment.payment_address)}
-                                          className="text-gray-400 hover:text-gray-600 transition-colors"
-                                          title="Copy address"
-                                        >
-                                          {copiedAddress === payment.payment_address ? (
-                                            <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                            </svg>
-                                          ) : (
-                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                            </svg>
-                                          )}
-                                        </button>
-                                        {explorerAddressUrl && (
-                                          <a
-                                            href={explorerAddressUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-blue-500 hover:text-blue-700 transition-colors"
-                                            title="View on blockchain explorer"
-                                          >
-                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                            </svg>
-                                          </a>
-                                        )}
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {/* Merchant Split */}
-                                <div className="border-t border-gray-200 pt-2">
-                                  <div className="text-green-600 font-medium mb-1">
-                                    → Merchant (99.5%):
-                                  </div>
-                                  <div className="flex items-center justify-between">
-                                    <span className="font-semibold text-green-700">
-                                      {payment.merchant_amount
-                                        ? formatAmount(payment.merchant_amount, 8)
-                                        : formatAmount(split.merchantAmount.toString(), 8)
-                                      } {payment.currency?.toUpperCase()}
-                                    </span>
-                                  </div>
-                                  {payment.merchant_wallet_address && (
-                                    <div className="flex items-center gap-2 mt-1">
-                                      <span className="font-mono text-gray-600" title={payment.merchant_wallet_address}>
-                                        {formatAddress(payment.merchant_wallet_address, true)}
-                                      </span>
-                                      <button
-                                        onClick={() => copyToClipboard(payment.merchant_wallet_address!)}
-                                        className="text-gray-400 hover:text-gray-600 transition-colors"
-                                        title="Copy merchant address"
-                                      >
-                                        {copiedAddress === payment.merchant_wallet_address ? (
-                                          <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                          </svg>
-                                        ) : (
-                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                          </svg>
-                                        )}
-                                      </button>
-                                      {explorerMerchantUrl && (
-                                        <a
-                                          href={explorerMerchantUrl}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="text-blue-500 hover:text-blue-700 transition-colors"
-                                          title="View on blockchain explorer"
-                                        >
-                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                          </svg>
-                                        </a>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* Platform Fee Split */}
-                                <div className="border-t border-gray-200 pt-2">
-                                  <div className="text-orange-600 font-medium mb-1">
-                                    → Platform Fee (0.5%):
-                                  </div>
-                                  <div className="flex items-center justify-between">
-                                    <span className="font-semibold text-orange-700">
-                                      {payment.fee_amount
-                                        ? formatAmount(payment.fee_amount, 8)
-                                        : formatAmount(split.platformFee.toString(), 8)
-                                      } {payment.currency?.toUpperCase()}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {/* Forward Transaction */}
-                                {payment.forward_tx_hash && (
-                                  <div className="border-t border-gray-200 pt-2">
-                                    <div className="text-gray-500 font-medium mb-1">Forward TX:</div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-mono text-gray-600" title={payment.forward_tx_hash}>
-                                        {formatAddress(payment.forward_tx_hash, true)}
-                                      </span>
-                                      <button
-                                        onClick={() => copyToClipboard(payment.forward_tx_hash!)}
-                                        className="text-gray-400 hover:text-gray-600 transition-colors"
-                                        title="Copy transaction hash"
-                                      >
-                                        {copiedAddress === payment.forward_tx_hash ? (
-                                          <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                          </svg>
-                                        ) : (
-                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                          </svg>
-                                        )}
-                                      </button>
-                                      {explorerTxUrl && (
-                                        <a
-                                          href={explorerTxUrl}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="text-blue-500 hover:text-blue-700 transition-colors"
-                                          title="View transaction on explorer"
-                                        >
-                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                          </svg>
-                                        </a>
-                                      )}
-                                    </div>
-                                    {payment.forwarded_at && (
-                                      <div className="text-gray-400 mt-1">
-                                        Forwarded: {formatDate(payment.forwarded_at)}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            )}
+                          <div className="font-medium">
+                            {formatAmount(payment.amount_crypto, 8)} {payment.currency?.toUpperCase()}
+                          </div>
+                          <div className="text-gray-500 text-xs">
+                            ${formatAmount(payment.amount_usd, 2)} USD
                           </div>
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {payment.currency?.toUpperCase() || 'N/A'}
+                        <td className="px-4 py-4 text-sm text-orange-600">
+                          <div className="font-medium">
+                            {payment.fee_amount
+                              ? formatAmount(payment.fee_amount, 8)
+                              : formatAmount(split.platformFee.toString(), 8)
+                            } {payment.currency?.toUpperCase()}
+                          </div>
+                          <div className="text-orange-400 text-xs">0.5%</div>
+                        </td>
+                        <td className="px-4 py-4 text-sm text-green-600">
+                          <div className="font-medium">
+                            {payment.merchant_amount
+                              ? formatAmount(payment.merchant_amount, 8)
+                              : formatAmount(split.merchantAmount.toString(), 8)
+                            } {payment.currency?.toUpperCase()}
+                          </div>
+                          <div className="text-green-400 text-xs">99.5%</div>
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap">
                           <span

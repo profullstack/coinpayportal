@@ -96,19 +96,28 @@ export async function GET(request: NextRequest) {
     // Calculate total volume (sum of completed payments)
     const completedPayments = payments?.filter((p) => p.status === 'completed') || [];
     const total_volume = completedPayments.reduce(
-      (sum, p) => sum + parseFloat(p.amount_crypto || '0'),
+      (sum, p) => sum + parseFloat(p.crypto_amount || '0'),
       0
     );
     const total_volume_usd = completedPayments.reduce(
-      (sum, p) => sum + parseFloat(p.amount_usd || '0'),
+      (sum, p) => sum + parseFloat(p.amount || '0'),
+      0
+    );
+
+    // Calculate total commission paid (from forwarded and completed payments)
+    const processedPayments = payments?.filter((p) =>
+      p.status === 'completed' || p.status === 'forwarded' || p.status === 'forwarding'
+    ) || [];
+    const total_commission_usd = processedPayments.reduce(
+      (sum, p) => sum + parseFloat(p.fee_amount || '0'),
       0
     );
 
     // Get recent payments (last 10)
     const recent_payments = payments?.slice(0, 10).map((p) => ({
       id: p.id,
-      amount_crypto: p.amount_crypto,
-      amount_usd: p.amount_usd,
+      amount_crypto: p.crypto_amount,
+      amount_usd: p.amount,
       currency: p.currency,
       status: p.status,
       created_at: p.created_at,
@@ -129,6 +138,7 @@ export async function GET(request: NextRequest) {
         failed_payments,
         total_volume: total_volume.toFixed(8),
         total_volume_usd: total_volume_usd.toFixed(2),
+        total_commission_usd: total_commission_usd.toFixed(2),
       },
       recent_payments,
     });

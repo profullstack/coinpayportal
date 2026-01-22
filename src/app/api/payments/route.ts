@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Build query
+    // Build query - include business name via join
     let query = supabase
       .from('payments')
       .select(`
@@ -97,7 +97,12 @@ export async function GET(request: NextRequest) {
         confirmations,
         metadata,
         created_at,
-        expires_at
+        expires_at,
+        fee_amount,
+        merchant_amount,
+        businesses (
+          name
+        )
       `)
       .in('business_id', userBusinessIds)
       .order('created_at', { ascending: false });
@@ -137,19 +142,35 @@ export async function GET(request: NextRequest) {
     }
 
     // Transform payments to match expected format
-    const transformedPayments = (payments || []).map(payment => ({
-      id: payment.id,
-      business_id: payment.business_id,
-      amount_crypto: payment.crypto_amount?.toString() || '0',
-      amount_usd: payment.amount?.toString() || '0',
-      currency: payment.blockchain || payment.crypto_currency || 'unknown',
-      status: payment.status,
-      payment_address: payment.payment_address || '',
-      tx_hash: payment.tx_hash,
-      confirmations: payment.confirmations || 0,
-      created_at: payment.created_at,
-      expires_at: payment.expires_at,
-    }));
+    const transformedPayments = (payments || []).map(payment => {
+      // Handle businesses - can be object or array depending on Supabase response
+      const businesses = payment.businesses;
+      let businessName = 'Unknown';
+      if (businesses) {
+        if (Array.isArray(businesses) && businesses.length > 0) {
+          businessName = businesses[0]?.name || 'Unknown';
+        } else if (typeof businesses === 'object' && 'name' in businesses) {
+          businessName = (businesses as { name: string }).name || 'Unknown';
+        }
+      }
+
+      return {
+        id: payment.id,
+        business_id: payment.business_id,
+        business_name: businessName,
+        amount_crypto: payment.crypto_amount?.toString() || '0',
+        amount_usd: payment.amount?.toString() || '0',
+        currency: payment.blockchain || payment.crypto_currency || 'unknown',
+        status: payment.status,
+        payment_address: payment.payment_address || '',
+        tx_hash: payment.tx_hash,
+        confirmations: payment.confirmations || 0,
+        created_at: payment.created_at,
+        expires_at: payment.expires_at,
+        fee_amount: payment.fee_amount?.toString() || null,
+        merchant_amount: payment.merchant_amount?.toString() || null,
+      };
+    });
 
     return NextResponse.json(
       { success: true, payments: transformedPayments },

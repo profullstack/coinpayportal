@@ -261,8 +261,9 @@ describe('DashboardPage', () => {
 
       await waitFor(() => {
         // The third payment has null amounts - should show "0" not "NaN"
-        // Look for "0 BTC" pattern
-        expect(screen.getByText(/0 BTC/)).toBeInTheDocument();
+        // Look for "0 BTC" pattern (appears in Total, Commission, Take Home columns)
+        const btcElements = screen.getAllByText(/0.*BTC/);
+        expect(btcElements.length).toBeGreaterThan(0);
       });
 
       // Verify NaN is not displayed
@@ -273,9 +274,13 @@ describe('DashboardPage', () => {
       render(<DashboardPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('ETH')).toBeInTheDocument();
-        expect(screen.getByText('SOL')).toBeInTheDocument();
-        expect(screen.getByText('BTC')).toBeInTheDocument();
+        // Currencies appear multiple times per row (Total, Commission, Take Home columns)
+        const ethElements = screen.getAllByText(/ETH/);
+        const solElements = screen.getAllByText(/SOL/);
+        const btcElements = screen.getAllByText(/BTC/);
+        expect(ethElements.length).toBeGreaterThan(0);
+        expect(solElements.length).toBeGreaterThan(0);
+        expect(btcElements.length).toBeGreaterThan(0);
       });
     });
 
@@ -289,13 +294,13 @@ describe('DashboardPage', () => {
       });
     });
 
-    it('should display expand button for payment split details', async () => {
+    it('should display commission and take home columns', async () => {
       render(<DashboardPage />);
 
       await waitFor(() => {
-        // Each payment row should have an expand button
-        const expandButtons = document.querySelectorAll('button[title*="split details"]');
-        expect(expandButtons.length).toBe(3);
+        // Table should have Commission and Take Home headers
+        expect(screen.getByText('Commission')).toBeInTheDocument();
+        expect(screen.getByText('Take Home')).toBeInTheDocument();
       });
     });
 
@@ -312,14 +317,15 @@ describe('DashboardPage', () => {
       render(<DashboardPage />);
 
       await waitFor(() => {
-        // Currency column shows N/A for undefined currency
         // The third payment has null payment_address but BTC currency
-        expect(screen.getByText('BTC')).toBeInTheDocument();
+        // BTC appears multiple times (Total, Commission, Take Home columns)
+        const btcElements = screen.getAllByText(/BTC/);
+        expect(btcElements.length).toBeGreaterThan(0);
       });
     });
   });
 
-  describe('Copy Functionality', () => {
+  describe('Commission and Take Home Display', () => {
     beforeEach(() => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
@@ -331,63 +337,39 @@ describe('DashboardPage', () => {
       } as Response);
     });
 
-    it('should copy address to clipboard when copy button clicked in expanded view', async () => {
+    it('should display commission amounts in table', async () => {
       render(<DashboardPage />);
 
       await waitFor(() => {
-        screen.getByText(/0\.05000000/);
+        // Should show the fee amount from the API (0.00025 for first payment)
+        expect(screen.getByText(/0\.00025000/)).toBeInTheDocument();
       });
-
-      // Expand the first payment to see the address
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        screen.getByText(/Payment Address:/i);
-      });
-
-      // Find copy buttons in expanded view
-      const copyButtons = screen.getAllByTitle(/copy address/i);
-      expect(copyButtons.length).toBeGreaterThan(0);
-
-      await act(async () => {
-        fireEvent.click(copyButtons[0]);
-      });
-
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        '0x1234567890abcdef1234567890abcdef12345678'
-      );
     });
 
-    it('should show checkmark after copying', async () => {
+    it('should display take home amounts in table', async () => {
       render(<DashboardPage />);
 
       await waitFor(() => {
-        screen.getByText(/0\.05000000/);
+        // Should show the merchant amount from the API (0.04975 for first payment)
+        expect(screen.getByText(/0\.04975000/)).toBeInTheDocument();
       });
+    });
 
-      // Expand the first payment
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
+    it('should show 0.5% label for commission', async () => {
+      render(<DashboardPage />);
 
       await waitFor(() => {
-        screen.getByText(/Payment Address:/i);
+        const labels = screen.getAllByText(/0\.5%/);
+        expect(labels.length).toBeGreaterThan(0);
       });
+    });
 
-      const copyButtons = screen.getAllByTitle(/copy address/i);
-      
-      await act(async () => {
-        fireEvent.click(copyButtons[0]);
-      });
+    it('should show 99.5% label for take home', async () => {
+      render(<DashboardPage />);
 
-      // After clicking, the checkmark should appear
       await waitFor(() => {
-        const checkmarks = document.querySelectorAll('svg path[d*="M5 13l4 4L19 7"]');
-        expect(checkmarks.length).toBeGreaterThan(0);
+        const labels = screen.getAllByText(/99\.5%/);
+        expect(labels.length).toBeGreaterThan(0);
       });
     });
   });
@@ -626,12 +608,15 @@ describe('DashboardPage', () => {
       render(<DashboardPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('N/A')).toBeInTheDocument();
+        // Should display amounts without currency suffix when currency is undefined
+        expect(screen.getByText(/1\.00000000/)).toBeInTheDocument();
+        // Verify NaN is not displayed
+        expect(screen.queryByText('NaN')).not.toBeInTheDocument();
       });
     });
   });
 
-  describe('Payment Split Breakdown', () => {
+  describe('Payment Split Calculation', () => {
     beforeEach(() => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
@@ -643,100 +628,13 @@ describe('DashboardPage', () => {
       } as Response);
     });
 
-    it('should display expand/collapse button for each payment', async () => {
+    it('should display commission and take home for payments with API values', async () => {
       render(<DashboardPage />);
 
       await waitFor(() => {
-        // Each payment row should have an expand button (chevron)
-        const expandButtons = document.querySelectorAll('button[title*="split details"]');
-        expect(expandButtons.length).toBe(3);
-      });
-    });
-
-    it('should expand payment details when clicking expand button', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      // Find and click the expand button for the first payment
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      // After expanding, should show merchant split info
-      await waitFor(() => {
-        expect(screen.getByText(/Merchant \(99\.5%\)/)).toBeInTheDocument();
-      });
-    });
-
-    it('should display merchant amount in expanded view', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        // Should show the merchant amount from the API
-        expect(screen.getByText(/0\.04975000/)).toBeInTheDocument();
-      });
-    });
-
-    it('should display platform fee in expanded view', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText(/Platform Fee \(0\.5%\)/)).toBeInTheDocument();
-        // Should show the fee amount from the API
-        expect(screen.getByText(/0\.00025000/)).toBeInTheDocument();
-      });
-    });
-
-    it('should collapse expanded view when clicking again', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      // Expand
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText(/Merchant \(99\.5%\)/)).toBeInTheDocument();
-      });
-
-      // Collapse
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        expect(screen.queryByText(/Merchant \(99\.5%\)/)).not.toBeInTheDocument();
+        // First payment has merchant_amount and fee_amount from API
+        expect(screen.getByText(/0\.04975000/)).toBeInTheDocument(); // merchant amount
+        expect(screen.getByText(/0\.00025000/)).toBeInTheDocument(); // fee amount
       });
     });
 
@@ -744,17 +642,7 @@ describe('DashboardPage', () => {
       render(<DashboardPage />);
 
       await waitFor(() => {
-        screen.getByText(/0\.10000000/);
-      });
-
-      // Expand the second payment (which has null merchant_amount and fee_amount)
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[1]);
-      });
-
-      await waitFor(() => {
+        // Second payment has null merchant_amount and fee_amount
         // Should calculate: 0.1 * 0.995 = 0.0995 for merchant
         expect(screen.getByText(/0\.09950000/)).toBeInTheDocument();
         // Should calculate: 0.1 * 0.005 = 0.0005 for platform fee
@@ -763,355 +651,4 @@ describe('DashboardPage', () => {
     });
   });
 
-  describe('Merchant Wallet Address Display', () => {
-    beforeEach(() => {
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          stats: mockStats,
-          recent_payments: mockRecentPayments,
-        }),
-      } as Response);
-    });
-
-    it('should display truncated merchant wallet address in expanded view', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        // Merchant address should be truncated (short format: 6...4)
-        expect(screen.getByText(/0xabcd\.\.\.ef12/)).toBeInTheDocument();
-      });
-    });
-
-    it('should copy merchant wallet address when copy button clicked', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        screen.getByText(/0xabcd\.\.\.ef12/);
-      });
-
-      // Find and click the copy button for merchant address
-      const copyButtons = screen.getAllByTitle(/copy merchant address/i);
-      
-      await act(async () => {
-        fireEvent.click(copyButtons[0]);
-      });
-
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        '0xabcdef1234567890abcdef1234567890abcdef12'
-      );
-    });
-  });
-
-  describe('Blockchain Explorer Links', () => {
-    beforeEach(() => {
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          stats: mockStats,
-          recent_payments: mockRecentPayments,
-        }),
-      } as Response);
-    });
-
-    it('should display explorer link for payment address', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        // Should have explorer link for ETH address
-        const explorerLinks = screen.getAllByTitle(/view on blockchain explorer/i);
-        expect(explorerLinks.length).toBeGreaterThan(0);
-        
-        // Check the link points to etherscan
-        const etherscanLink = explorerLinks.find(link =>
-          link.getAttribute('href')?.includes('etherscan.io')
-        );
-        expect(etherscanLink).toBeInTheDocument();
-      });
-    });
-
-    it('should display explorer link for merchant wallet address', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        const explorerLinks = screen.getAllByTitle(/view on blockchain explorer/i);
-        // Should have links for both payment address and merchant address
-        expect(explorerLinks.length).toBeGreaterThanOrEqual(2);
-      });
-    });
-
-    it('should display explorer link for forward transaction hash', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        // Should show forward TX section
-        expect(screen.getByText(/Forward TX/i)).toBeInTheDocument();
-        
-        // Should have explorer link for transaction
-        const txExplorerLinks = screen.getAllByTitle(/view transaction on explorer/i);
-        expect(txExplorerLinks.length).toBeGreaterThan(0);
-      });
-    });
-
-    it('should open explorer links in new tab', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        const explorerLinks = screen.getAllByTitle(/view on blockchain explorer/i);
-        explorerLinks.forEach(link => {
-          expect(link).toHaveAttribute('target', '_blank');
-          expect(link).toHaveAttribute('rel', 'noopener noreferrer');
-        });
-      });
-    });
-
-    it('should use correct explorer URL for SOL currency', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.10000000/);
-      });
-
-      // Expand the SOL payment (second one)
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[1]);
-      });
-
-      await waitFor(() => {
-        const explorerLinks = screen.getAllByTitle(/view on blockchain explorer/i);
-        const solscanLink = explorerLinks.find(link =>
-          link.getAttribute('href')?.includes('solscan.io')
-        );
-        expect(solscanLink).toBeInTheDocument();
-      });
-    });
-  });
-
-  describe('Forward Transaction Display', () => {
-    beforeEach(() => {
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          stats: mockStats,
-          recent_payments: mockRecentPayments,
-        }),
-      } as Response);
-    });
-
-    it('should display forward transaction hash when available', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText(/Forward TX/i)).toBeInTheDocument();
-        // TX hash should be truncated
-        expect(screen.getByText(/0xtxha\.\.\.90ab/)).toBeInTheDocument();
-      });
-    });
-
-    it('should display forwarded timestamp when available', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText(/Forwarded:/i)).toBeInTheDocument();
-      });
-    });
-
-    it('should not display forward TX section when no transaction hash', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.10000000/);
-      });
-
-      // Expand the second payment (which has no forward_tx_hash)
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[1]);
-      });
-
-      await waitFor(() => {
-        // Should show merchant split but not forward TX
-        expect(screen.getByText(/Merchant \(99\.5%\)/)).toBeInTheDocument();
-      });
-
-      // Forward TX section should not be present
-      const forwardTxElements = screen.queryAllByText(/Forward TX/i);
-      expect(forwardTxElements.length).toBe(0);
-    });
-
-    it('should copy forward transaction hash when copy button clicked', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        screen.getByText(/Forward TX/i);
-      });
-
-      // Find and click the copy button for transaction hash
-      const copyButtons = screen.getAllByTitle(/copy transaction hash/i);
-      
-      await act(async () => {
-        fireEvent.click(copyButtons[0]);
-      });
-
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        '0xtxhash1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab'
-      );
-    });
-  });
-
-  describe('Payment Address in Expanded View', () => {
-    beforeEach(() => {
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          stats: mockStats,
-          recent_payments: mockRecentPayments,
-        }),
-      } as Response);
-    });
-
-    it('should display payment address section in expanded view', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText(/Payment Address:/i)).toBeInTheDocument();
-      });
-    });
-
-    it('should copy payment address from expanded view', async () => {
-      render(<DashboardPage />);
-
-      await waitFor(() => {
-        screen.getByText(/0\.05000000/);
-      });
-
-      const expandButtons = document.querySelectorAll('button[title*="split details"]');
-      
-      await act(async () => {
-        fireEvent.click(expandButtons[0]);
-      });
-
-      await waitFor(() => {
-        screen.getByText(/Payment Address:/i);
-      });
-
-      // Find copy button in the expanded payment address section
-      const copyButtons = screen.getAllByTitle(/copy address/i);
-      
-      await act(async () => {
-        fireEvent.click(copyButtons[0]);
-      });
-
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        '0x1234567890abcdef1234567890abcdef12345678'
-      );
-    });
-  });
 });
