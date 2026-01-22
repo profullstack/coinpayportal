@@ -133,11 +133,9 @@ export async function GET(request: NextRequest) {
       0
     );
 
-    // Calculate total commission paid (from forwarded and completed payments)
-    const total_commission_usd = successfulPayments.reduce(
-      (sum, p) => sum + parseFloat(p.fee_amount || '0'),
-      0
-    );
+    // Calculate total commission paid in USD (0.5% of USD volume)
+    // Note: fee_amount in DB is stored in crypto, not USD, so we calculate from USD volume
+    const total_commission_usd = total_volume_usd * 0.005;
 
     // Get recent payments (last 10)
     const recent_payments = payments?.slice(0, 10).map((p) => ({
