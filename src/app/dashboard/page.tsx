@@ -12,7 +12,7 @@ interface DashboardStats {
   pending_payments: number;
   failed_payments: number;
   total_volume: string;
-  total_volume_usd: number;
+  total_volume_usd: string;
   total_commission_usd: string;
 }
 
@@ -31,10 +31,17 @@ interface RecentPayment {
   forwarded_at?: string;
 }
 
+interface Business {
+  id: string;
+  name: string;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentPayments, setRecentPayments] = useState<RecentPayment[]>([]);
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [selectedBusinessId, setSelectedBusinessId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
@@ -77,7 +84,7 @@ export default function DashboardPage() {
         ...prev,
         successful_payments: prev.successful_payments + 1,
         pending_payments: Math.max(0, prev.pending_payments - 1),
-        total_volume_usd: prev.total_volume_usd + parseFloat(payment.amount_usd),
+        total_volume_usd: (parseFloat(prev.total_volume_usd || '0') + parseFloat(payment.amount_usd)).toFixed(2),
       } : prev);
     },
     onPaymentExpired: (payment) => {
@@ -103,7 +110,14 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, []);
 
-  const fetchDashboardData = async () => {
+  // Refetch when business filter changes
+  useEffect(() => {
+    if (businesses.length > 0) {
+      fetchDashboardData(selectedBusinessId);
+    }
+  }, [selectedBusinessId]);
+
+  const fetchDashboardData = async (businessId?: string) => {
     try {
       const token = localStorage.getItem('auth_token');
       if (!token) {
@@ -111,7 +125,13 @@ export default function DashboardPage() {
         return;
       }
 
-      const response = await fetch('/api/dashboard/stats', {
+      // Build URL with optional business_id filter
+      let url = '/api/dashboard/stats';
+      if (businessId) {
+        url += `?business_id=${businessId}`;
+      }
+
+      const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -125,6 +145,11 @@ export default function DashboardPage() {
         return;
       }
 
+      // Only set businesses on first load (when we get the full list)
+      if (data.businesses && businesses.length === 0) {
+        setBusinesses(data.businesses);
+      }
+
       setStats(data.stats);
       setRecentPayments(data.recent_payments);
       setLoading(false);
@@ -132,6 +157,10 @@ export default function DashboardPage() {
       setError('Failed to load dashboard data');
       setLoading(false);
     }
+  };
+
+  const handleBusinessChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedBusinessId(e.target.value);
   };
 
   const getStatusColor = (status: string) => {
@@ -175,7 +204,7 @@ export default function DashboardPage() {
     return { total, platformFee, merchantAmount };
   };
 
-  // Export ALL payments as CSV (fetches from API)
+  // Export ALL payments as CSV (fetches from API, respects current filter)
   const exportToCSV = async () => {
     try {
       setExporting(true);
@@ -185,8 +214,14 @@ export default function DashboardPage() {
         return;
       }
 
-      // Fetch ALL payments from the API
-      const response = await fetch('/api/payments', {
+      // Build URL with optional business_id filter
+      let url = '/api/payments';
+      if (selectedBusinessId) {
+        url += `?business_id=${selectedBusinessId}`;
+      }
+
+      // Fetch payments from the API (respects current business filter)
+      const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -237,11 +272,18 @@ export default function DashboardPage() {
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = `payments-${new Date().toISOString().split('T')[0]}.csv`;
+
+      // Include business name in filename if filtered
+      const selectedBusiness = businesses.find(b => b.id === selectedBusinessId);
+      const businessSuffix = selectedBusiness ? `-${selectedBusiness.name.replace(/[^a-zA-Z0-9]/g, '_')}` : '';
+      link.download = `payments${businessSuffix}-${new Date().toISOString().split('T')[0]}.csv`;
       link.click();
       URL.revokeObjectURL(link.href);
 
-      setNotification(`Exported ${payments.length} payments`);
+      const exportMsg = selectedBusiness
+        ? `Exported ${payments.length} payments from ${selectedBusiness.name}`
+        : `Exported ${payments.length} payments`;
+      setNotification(exportMsg);
       setTimeout(() => setNotification(null), 3000);
     } catch (err) {
       console.error('Export error:', err);
@@ -266,19 +308,42 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
             <p className="mt-2 text-gray-600">
               Overview of your payment activity
             </p>
           </div>
-          {/* Connection Status */}
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-sm text-gray-500">
-              {isConnected ? 'Live updates' : 'Reconnecting...'}
-            </span>
+          <div className="flex items-center gap-4">
+            {/* Business Filter */}
+            {businesses.length > 0 && (
+              <div className="flex items-center gap-2">
+                <label htmlFor="business-filter" className="text-sm font-medium text-gray-700">
+                  Business:
+                </label>
+                <select
+                  id="business-filter"
+                  value={selectedBusinessId}
+                  onChange={handleBusinessChange}
+                  className="block w-48 rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 text-sm"
+                >
+                  <option value="">All Businesses</option>
+                  {businesses.map((business) => (
+                    <option key={business.id} value={business.id}>
+                      {business.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {/* Connection Status */}
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+              <span className="text-sm text-gray-500">
+                {isConnected ? 'Live updates' : 'Reconnecting...'}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -409,7 +474,7 @@ export default function DashboardPage() {
           <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg shadow-md p-6 text-white">
             <p className="text-sm font-medium opacity-90">Total Volume (USD)</p>
             <p className="mt-2 text-4xl font-bold">
-              ${stats?.total_volume_usd.toLocaleString() || '0.00'}
+              ${parseFloat(stats?.total_volume_usd || '0').toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
             <p className="mt-2 text-sm opacity-75">
               From completed payments
