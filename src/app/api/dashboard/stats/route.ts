@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/server';
 import { verifyToken } from '@/lib/auth/jwt';
+import { getEntitlements } from '@/lib/entitlements/service';
 
 const JWT_SECRET = process.env.JWT_SECRET!;
+
+// Commission rates by plan
+const COMMISSION_RATES = {
+  starter: 0.01, // 1%
+  professional: 0.005, // 0.5%
+} as const;
 
 /**
  * GET /api/dashboard/stats
@@ -133,9 +140,26 @@ export async function GET(request: NextRequest) {
       0
     );
 
-    // Calculate total commission paid in USD (0.5% of USD volume)
-    // Note: fee_amount in DB is stored in crypto, not USD, so we calculate from USD volume
-    const total_commission_usd = total_volume_usd * 0.005;
+    // Get merchant's subscription plan for display purposes
+    const entitlementsResult = await getEntitlements(supabaseAdmin, merchantId);
+    const planId = entitlementsResult.success && entitlementsResult.entitlements
+      ? entitlementsResult.entitlements.plan.id
+      : 'starter';
+    const commissionRate = COMMISSION_RATES[planId as keyof typeof COMMISSION_RATES] || COMMISSION_RATES.starter;
+
+    // Calculate total commission paid in USD from actual transaction fees
+    // fee_amount is stored in crypto, so convert to USD proportionally
+    const total_commission_usd = successfulPayments.reduce((sum, p) => {
+      const feeAmount = parseFloat(p.fee_amount || '0');
+      const cryptoAmount = parseFloat(p.crypto_amount || '0');
+      const usdAmount = parseFloat(p.amount || '0');
+
+      // If we have fee_amount and crypto_amount, calculate the USD equivalent
+      if (feeAmount > 0 && cryptoAmount > 0 && usdAmount > 0) {
+        return sum + (feeAmount / cryptoAmount) * usdAmount;
+      }
+      return sum;
+    }, 0);
 
     // Get recent payments (last 10)
     const recent_payments = payments?.slice(0, 10).map((p) => ({
@@ -156,6 +180,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       businesses: businesses?.map((b) => ({ id: b.id, name: b.name })) || [],
+      plan: {
+        id: planId,
+        commission_rate: commissionRate,
+        commission_percent: `${(commissionRate * 100).toFixed(1)}%`,
+      },
       stats: {
         total_payments,
         successful_payments,

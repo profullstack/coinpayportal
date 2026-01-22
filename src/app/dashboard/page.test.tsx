@@ -48,6 +48,13 @@ describe('DashboardPage', () => {
     failed_payments: 5,
     total_volume: '1.50000000',
     total_volume_usd: '5000.00',
+    total_commission_usd: '25.00',
+  };
+
+  const mockPlan = {
+    id: 'starter',
+    commission_rate: 0.01,
+    commission_percent: '1.0%',
   };
 
   const mockRecentPayments = [
@@ -623,6 +630,7 @@ describe('DashboardPage', () => {
         json: async () => ({
           success: true,
           stats: mockStats,
+          plan: mockPlan,
           recent_payments: mockRecentPayments,
         }),
       } as Response);
@@ -643,10 +651,10 @@ describe('DashboardPage', () => {
 
       await waitFor(() => {
         // Second payment has null merchant_amount and fee_amount
-        // Should calculate: 0.1 * 0.995 = 0.0995 for merchant
-        expect(screen.getByText(/0\.09950000/)).toBeInTheDocument();
-        // Should calculate: 0.1 * 0.005 = 0.0005 for platform fee
-        expect(screen.getByText(/0\.00050000/)).toBeInTheDocument();
+        // Should calculate with 1% fee (starter plan): 0.1 * 0.99 = 0.099 for merchant
+        expect(screen.getByText(/0\.09900000/)).toBeInTheDocument();
+        // Should calculate: 0.1 * 0.01 = 0.001 for platform fee
+        expect(screen.getByText(/0\.00100000/)).toBeInTheDocument();
       });
     });
   });

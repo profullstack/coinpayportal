@@ -36,11 +36,18 @@ interface Business {
   name: string;
 }
 
+interface PlanInfo {
+  id: string;
+  commission_rate: number;
+  commission_percent: string;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentPayments, setRecentPayments] = useState<RecentPayment[]>([]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [planInfo, setPlanInfo] = useState<PlanInfo | null>(null);
   const [selectedBusinessId, setSelectedBusinessId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -150,6 +157,11 @@ export default function DashboardPage() {
         setBusinesses(data.businesses);
       }
 
+      // Set plan info for commission rate display
+      if (data.plan) {
+        setPlanInfo(data.plan);
+      }
+
       setStats(data.stats);
       setRecentPayments(data.recent_payments);
       setLoading(false);
@@ -196,10 +208,11 @@ export default function DashboardPage() {
     return parsed.toFixed(decimals);
   };
 
-  // Calculate fee split for display (0.5% platform fee)
+  // Calculate fee split for display (uses plan's commission rate)
   const calculateSplit = (amountCrypto: string) => {
     const total = parseFloat(amountCrypto) || 0;
-    const platformFee = total * 0.005; // 0.5%
+    const rate = planInfo?.commission_rate || 0.01; // Default to 1% (starter) if plan not loaded
+    const platformFee = total * rate;
     const merchantAmount = total - platformFee;
     return { total, platformFee, merchantAmount };
   };
@@ -484,10 +497,15 @@ export default function DashboardPage() {
           <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg shadow-md p-6 text-white">
             <p className="text-sm font-medium opacity-90">Commission Paid</p>
             <p className="mt-2 text-4xl font-bold">
-              ${parseFloat(stats?.total_commission_usd || '0').toLocaleString()}
+              ${parseFloat(stats?.total_commission_usd || '0').toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
             <p className="mt-2 text-sm opacity-75">
-              0.5% platform fee
+              {planInfo?.commission_percent || '1%'} platform fee
+              {planInfo?.id === 'starter' && (
+                <Link href="/pricing" className="ml-1 underline hover:no-underline">
+                  (upgrade to 0.5%)
+                </Link>
+              )}
             </p>
           </div>
 
