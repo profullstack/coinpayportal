@@ -1,8 +1,10 @@
 # Credit Card Processing Decision Document
 
-**Date**: January 22, 2025  
-**Status**: Pending Provider Approval  
+**Date**: January 22, 2025
+**Status**: Pending Checkout.com Approval
 **Decision Makers**: CoinPay Team
+
+> **Update (Jan 22, 2025)**: Adyen rejected our application. Checkout.com is now our only option for the marketplace/PayFac model.
 
 ---
 
@@ -56,8 +58,8 @@ After comprehensive research into credit card processing options for CoinPay, we
 
 | Provider | Marketplace Support | Self-Service | International | Fraud Included | Decision |
 |----------|---------------------|--------------|---------------|----------------|----------|
-| **Checkout.com** | ✅ Excellent | ❌ Sales call | ✅ 150+ countries | ✅ Yes | **PRIMARY** |
-| **Adyen** | ✅ Excellent | ❌ Sales call | ✅ Global | ✅ Yes | **BACKUP** |
+| **Checkout.com** | ✅ Excellent | ❌ Sales call | ✅ 150+ countries | ✅ Yes | **ONLY OPTION** |
+| ~~Adyen~~ | ~~✅ Excellent~~ | ~~❌ Sales call~~ | ~~✅ Global~~ | ~~✅ Yes~~ | ❌ **REJECTED US** |
 | Finix | ✅ Good | ❌ Sales call | ⚠️ US/Canada/EU | ✅ Yes | Considered |
 | Payrix | ✅ Good | ❌ Sales call | ⚠️ Limited | ✅ Yes | Considered |
 | Braintree | ✅ Good | ✅ Yes | ✅ 45+ countries | ✅ Yes | Rejected - PayPal owned |
@@ -117,20 +119,20 @@ After comprehensive research into credit card processing options for CoinPay, we
 
 ---
 
-## Backup Solution: Adyen for Platforms
+## ~~Backup Solution: Adyen for Platforms~~ - REJECTED
 
-### Why Adyen as Backup?
+> **Status**: ❌ Adyen rejected our application on January 22, 2025.
 
-1. **Global Leader**: Powers Uber, Spotify, eBay
-2. **Enterprise-Grade**: Excellent for high volume
-3. **Strong Fraud Protection**: RevenueProtect included
-4. **Similar Features**: Split payments, sub-merchant support
+Adyen was our backup option but they declined to work with us. This leaves Checkout.com as our only viable option for the marketplace/PayFac model with our requirements.
 
-### When to Use Adyen Instead
+### Alternative Backup Options (If Checkout.com Fails)
 
-- If Checkout.com has unfavorable terms
-- If we need stronger enterprise features
-- If Checkout.com approval is delayed significantly
+If Checkout.com also rejects us, we would need to consider:
+
+1. **Finix** - PayFac-as-a-Service, but requires high volume (~$1M/month)
+2. **Payrix** - Lower volume requirements, but limited international
+3. **Reconsider Stripe Connect** - Despite UX issues, it works
+4. **Full PayFac** - Expensive but gives full control
 
 ---
 
@@ -211,11 +213,11 @@ New endpoints:
 | Step | Status | Notes |
 |------|--------|-------|
 | Research complete | ✅ Done | |
-| Provider selected | ✅ Done | Checkout.com primary, Adyen backup |
+| Provider selected | ✅ Done | Checkout.com only - Adyen rejected us |
 | Implementation plan | ✅ Done | See /plans/checkout-com-implementation.md |
 | Contact Checkout.com | 🔄 In Progress | Awaiting response |
-| Contact Adyen | 🔄 In Progress | Awaiting response |
-| Receive sandbox access | ⏳ Pending | |
+| ~~Contact Adyen~~ | ❌ Rejected | Adyen declined our application |
+| Receive sandbox access | ⏳ Pending | Waiting on Checkout.com |
 | Begin implementation | ⏳ Pending | Blocked on sandbox access |
 
 ---
@@ -231,15 +233,16 @@ New endpoints:
 
 ## Contact Information
 
-### Checkout.com
+### Checkout.com (Pending)
 - **Website**: https://www.checkout.com
 - **Product**: Marketplaces
 - **How to Contact**: Click "Get in touch" on website
+- **Status**: 🔄 Awaiting response
 
-### Adyen
+### ~~Adyen~~ (Rejected)
 - **Website**: https://www.adyen.com
 - **Product**: SaaS Platforms
-- **How to Contact**: Menu → Businesses we serve → SaaS Platforms → Get in touch
+- **Status**: ❌ Application rejected on January 22, 2025
 
 ---
 
