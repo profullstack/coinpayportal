@@ -36,6 +36,24 @@ vi.mock('@/lib/web-wallet/service', () => ({
   deactivateAddress: (...args: any[]) => mockDeactivateAddress(...args),
 }));
 
+// Mock balance service
+const mockGetWalletBalances = vi.fn();
+const mockGetAddressBalance = vi.fn();
+
+vi.mock('@/lib/web-wallet/balance', () => ({
+  getWalletBalances: (...args: any[]) => mockGetWalletBalances(...args),
+  getAddressBalance: (...args: any[]) => mockGetAddressBalance(...args),
+}));
+
+// Mock transaction service
+const mockGetTransactionHistory = vi.fn();
+const mockGetTransaction = vi.fn();
+
+vi.mock('@/lib/web-wallet/transactions', () => ({
+  getTransactionHistory: (...args: any[]) => mockGetTransactionHistory(...args),
+  getTransaction: (...args: any[]) => mockGetTransaction(...args),
+}));
+
 // Mock wallet auth
 const mockAuthenticateWalletRequest = vi.fn();
 vi.mock('@/lib/web-wallet/auth', () => ({
@@ -497,6 +515,359 @@ describe('Web Wallet Route Handlers', () => {
         headers: { authorization: 'Bearer token' },
       });
       const res = await DELETE(req, { params: Promise.resolve({ id: 'w1', address_id: 'bad' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(404);
+      expect(body.success).toBe(false);
+    });
+  });
+
+  // ────────────────────────────────────
+  // Get Wallet Balances
+  // ────────────────────────────────────
+  describe('GET /api/web-wallet/:id/balances', () => {
+    it('should return 401 without auth', async () => {
+      const { GET } = await import('./[id]/balances/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: false,
+        error: 'Missing authorization header',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/balances');
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(401);
+      expect(body.success).toBe(false);
+    });
+
+    it('should return 403 when accessing different wallet', async () => {
+      const { GET } = await import('./[id]/balances/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'other-wallet',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/balances', {
+        headers: { authorization: 'Bearer token' },
+      });
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(403);
+      expect(body.success).toBe(false);
+    });
+
+    it('should return balances on success', async () => {
+      const { GET } = await import('./[id]/balances/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockGetWalletBalances.mockResolvedValue({
+        success: true,
+        data: [
+          { balance: '1.5', chain: 'ETH', address: '0xabc', updatedAt: '2026-01-31T00:00:00Z' },
+          { balance: '0.5', chain: 'BTC', address: '1BTC', updatedAt: '2026-01-31T00:00:00Z' },
+        ],
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/balances', {
+        headers: { authorization: 'Bearer token' },
+      });
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.data.balances).toHaveLength(2);
+      expect(body.data.balances[0].balance).toBe('1.5');
+    });
+
+    it('should pass chain filter to service', async () => {
+      const { GET } = await import('./[id]/balances/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockGetWalletBalances.mockResolvedValue({
+        success: true,
+        data: [],
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/balances?chain=ETH', {
+        headers: { authorization: 'Bearer token' },
+      });
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1' }) });
+
+      expect(res.status).toBe(200);
+      // Verify chain option was passed
+      expect(mockGetWalletBalances).toHaveBeenCalledWith(
+        expect.anything(),
+        'w1',
+        expect.objectContaining({ chain: 'ETH' })
+      );
+    });
+  });
+
+  // ────────────────────────────────────
+  // Get Single Address Balance
+  // ────────────────────────────────────
+  describe('GET /api/web-wallet/:id/addresses/:address_id/balance', () => {
+    it('should return 401 without auth', async () => {
+      const { GET } = await import('./[id]/addresses/[address_id]/balance/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: false,
+        error: 'Missing authorization header',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/addresses/a1/balance');
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1', address_id: 'a1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(401);
+      expect(body.success).toBe(false);
+    });
+
+    it('should return balance on success', async () => {
+      const { GET } = await import('./[id]/addresses/[address_id]/balance/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockGetAddressBalance.mockResolvedValue({
+        success: true,
+        data: {
+          balance: '2.5',
+          chain: 'ETH',
+          address: '0xabc',
+          updatedAt: '2026-01-31T00:00:00Z',
+        },
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/addresses/a1/balance', {
+        headers: { authorization: 'Bearer token' },
+      });
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1', address_id: 'a1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.data.balance).toBe('2.5');
+      expect(body.data.chain).toBe('ETH');
+    });
+
+    it('should return 404 for nonexistent address', async () => {
+      const { GET } = await import('./[id]/addresses/[address_id]/balance/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockGetAddressBalance.mockResolvedValue({
+        success: false,
+        error: 'Address not found',
+        code: 'ADDRESS_NOT_FOUND',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/addresses/bad/balance', {
+        headers: { authorization: 'Bearer token' },
+      });
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1', address_id: 'bad' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(404);
+      expect(body.success).toBe(false);
+    });
+
+    it('should pass refresh flag to service', async () => {
+      const { GET } = await import('./[id]/addresses/[address_id]/balance/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockGetAddressBalance.mockResolvedValue({
+        success: true,
+        data: { balance: '1', chain: 'SOL', address: 'abc', updatedAt: '2026-01-31T00:00:00Z' },
+      });
+
+      const req = makeRequest(
+        'http://localhost:3000/api/web-wallet/w1/addresses/a1/balance?refresh=true',
+        { headers: { authorization: 'Bearer token' } }
+      );
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1', address_id: 'a1' }) });
+
+      expect(res.status).toBe(200);
+      expect(mockGetAddressBalance).toHaveBeenCalledWith(
+        expect.anything(),
+        'w1',
+        'a1',
+        true
+      );
+    });
+  });
+
+  // ────────────────────────────────────
+  // Get Transaction History
+  // ────────────────────────────────────
+  describe('GET /api/web-wallet/:id/transactions', () => {
+    it('should return 401 without auth', async () => {
+      const { GET } = await import('./[id]/transactions/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: false,
+        error: 'Missing authorization header',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/transactions');
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(401);
+      expect(body.success).toBe(false);
+    });
+
+    it('should return 403 when accessing different wallet', async () => {
+      const { GET } = await import('./[id]/transactions/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'other-wallet',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/transactions', {
+        headers: { authorization: 'Bearer token' },
+      });
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(403);
+      expect(body.success).toBe(false);
+    });
+
+    it('should return transactions on success', async () => {
+      const { GET } = await import('./[id]/transactions/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockGetTransactionHistory.mockResolvedValue({
+        success: true,
+        data: {
+          transactions: [
+            { id: 'tx1', chain: 'ETH', tx_hash: '0xabc', direction: 'incoming', amount: '1.5' },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        },
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/transactions', {
+        headers: { authorization: 'Bearer token' },
+      });
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.data.transactions).toHaveLength(1);
+      expect(body.data.total).toBe(1);
+    });
+
+    it('should pass filter params to service', async () => {
+      const { GET } = await import('./[id]/transactions/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockGetTransactionHistory.mockResolvedValue({
+        success: true,
+        data: { transactions: [], total: 0, limit: 10, offset: 0 },
+      });
+
+      const req = makeRequest(
+        'http://localhost:3000/api/web-wallet/w1/transactions?chain=ETH&direction=incoming&limit=10&offset=5',
+        { headers: { authorization: 'Bearer token' } }
+      );
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1' }) });
+
+      expect(res.status).toBe(200);
+      expect(mockGetTransactionHistory).toHaveBeenCalledWith(
+        expect.anything(),
+        'w1',
+        expect.objectContaining({
+          chain: 'ETH',
+          direction: 'incoming',
+          limit: 10,
+          offset: 5,
+        })
+      );
+    });
+  });
+
+  // ────────────────────────────────────
+  // Get Transaction Detail
+  // ────────────────────────────────────
+  describe('GET /api/web-wallet/:id/transactions/:tx_id', () => {
+    it('should return 401 without auth', async () => {
+      const { GET } = await import('./[id]/transactions/[tx_id]/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: false,
+        error: 'Missing authorization header',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/transactions/tx1');
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1', tx_id: 'tx1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(401);
+      expect(body.success).toBe(false);
+    });
+
+    it('should return transaction on success', async () => {
+      const { GET } = await import('./[id]/transactions/[tx_id]/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockGetTransaction.mockResolvedValue({
+        success: true,
+        data: {
+          id: 'tx1',
+          chain: 'ETH',
+          tx_hash: '0xabc',
+          direction: 'incoming',
+          status: 'confirmed',
+          amount: '1.5',
+        },
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/transactions/tx1', {
+        headers: { authorization: 'Bearer token' },
+      });
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1', tx_id: 'tx1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.data.tx_hash).toBe('0xabc');
+      expect(body.data.status).toBe('confirmed');
+    });
+
+    it('should return 404 for nonexistent transaction', async () => {
+      const { GET } = await import('./[id]/transactions/[tx_id]/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockGetTransaction.mockResolvedValue({
+        success: false,
+        error: 'Transaction not found',
+        code: 'TX_NOT_FOUND',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/transactions/bad', {
+        headers: { authorization: 'Bearer token' },
+      });
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1', tx_id: 'bad' }) });
       const body = await res.json();
 
       expect(res.status).toBe(404);

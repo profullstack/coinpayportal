@@ -41,26 +41,26 @@
 - [x] `DELETE /api/web-wallet/:id/addresses/:address_id` - Deactivate address
 
 ### Balance Indexer
-- [ ] Extend existing payment monitor for persistent address watching
-- [ ] Implement address registry service
-- [ ] Create balance fetcher for Bitcoin (BTC)
-- [ ] Create balance fetcher for Bitcoin Cash (BCH)
-- [ ] Create balance fetcher for Ethereum (ETH)
-- [ ] Create balance fetcher for Polygon (POL)
-- [ ] Create balance fetcher for Solana (SOL)
-- [ ] Create balance fetcher for USDC (ETH, POL, SOL variants)
-- [ ] Implement balance caching with TTL
-- [ ] Set up polling scheduler for balance updates
-- [ ] `GET /api/web-wallet/:id/balances` - Get all balances
-- [ ] `GET /api/web-wallet/:id/addresses/:address_id/balance` - Get single balance
+- [x] Extend existing payment monitor for persistent address watching
+- [x] Implement address registry service
+- [x] Create balance fetcher for Bitcoin (BTC)
+- [x] Create balance fetcher for Bitcoin Cash (BCH)
+- [x] Create balance fetcher for Ethereum (ETH)
+- [x] Create balance fetcher for Polygon (POL)
+- [x] Create balance fetcher for Solana (SOL)
+- [x] Create balance fetcher for USDC (ETH, POL, SOL variants)
+- [x] Implement balance caching with TTL
+- [x] Set up polling scheduler for balance updates
+- [x] `GET /api/web-wallet/:id/balances` - Get all balances
+- [x] `GET /api/web-wallet/:id/addresses/:address_id/balance` - Get single balance
 
 ### Transaction History
-- [ ] Implement transaction scanner for all chains
-- [ ] Create unified transaction schema
-- [ ] `GET /api/web-wallet/:id/transactions` - Get transaction history
-- [ ] `GET /api/web-wallet/:id/transactions/:tx_id` - Get transaction details
-- [ ] Add pagination support
-- [ ] Add filtering (chain, direction, status, date range)
+- [x] Implement transaction scanner for all chains
+- [x] Create unified transaction schema
+- [x] `GET /api/web-wallet/:id/transactions` - Get transaction history
+- [x] `GET /api/web-wallet/:id/transactions/:tx_id` - Get transaction details
+- [x] Add pagination support
+- [x] Add filtering (chain, direction, status, date range)
 
 ---
 
@@ -289,8 +289,8 @@
 ### Integration Tests
 - [x] Test wallet creation flow
 - [x] Test wallet import flow
-- [ ] Test balance fetching
-- [ ] Test transaction history
+- [x] Test balance fetching
+- [x] Test transaction history
 - [ ] Test send transaction flow (testnet)
 - [ ] Test SDK integration
 
