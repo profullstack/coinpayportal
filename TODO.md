@@ -1,271 +1,386 @@
-# CoinPay - Implementation TODO
+# CoinPayPortal Web Wallet - Launch Checklist
 
-## Phase 1: Foundation & Core Infrastructure ✅
-
-### Database & Authentication
-- [x] Initialize Supabase database schema
-- [x] Set up Supabase client configuration
-- [x] Implement authentication API routes
-  - [x] POST /api/auth/register (with tests - 14 tests)
-  - [x] POST /api/auth/login (with tests)
-  - [x] POST /api/auth/logout (created)
-  - [x] GET /api/auth/me (session verification)
-- [x] Add JWT token management utilities (with tests - 24 tests)
-
-## Phase 2: Crypto & Blockchain Core ✅
-
-### Encryption & Security
-- [x] Implement AES-256-GCM encryption utilities (with tests - 28 tests)
-  - [x] `encrypt(data, key)` function
-  - [x] `decrypt(encryptedData, key)` function
-  - [x] Key derivation from master key (PBKDF2)
-- [x] Add bcrypt password hashing utilities (with tests)
-- [x] Create secure key storage service (with tests - 35 tests)
-
-### Wallet Generation
-- [x] Implement HD wallet generation service (implemented, tests excluded*)
-  - [x] Bitcoin (BTC) wallet generation
-  - [x] Bitcoin Cash (BCH) wallet generation
-  - [x] Ethereum (ETH) wallet generation
-  - [x] Polygon (POL) wallet generation
-  - [x] Solana (SOL) wallet generation
-- [x] Create mnemonic generation and validation (implemented)
-- [x] Implement derivation path utilities (implemented)
-
-### Payment Address Generation
-- [x] Create payment address generation service (implemented)
-  - [x] Generate unique addresses per payment
-  - [x] Store encrypted private keys
-  - [x] Track address usage and status
-- [x] Implement address validation utilities (implemented)
-
-### System Wallet Service (NEW)
-- [x] Create system-owned HD wallet service (src/lib/wallets/system-wallet.ts)
-  - [x] System owns all payment addresses (not merchants)
-  - [x] SLIP-0010 Ed25519 derivation for Solana
-  - [x] BIP44 derivation for BTC, ETH, POL
-  - [x] 0.5% commission split (system wallet)
-  - [x] 99.5% forwarding to merchant wallet
-- [x] Database migration for system wallet indexes (20251127040000)
-- [x] Payment address tracking with commission amounts
-
-*Note: Blockchain tests are excluded due to ws/CommonJS ESM incompatibility with ethers.js and @solana/web3.js in vitest
-
-## Phase 3: Payment Processing ✅
-
-### Exchange Rates
-- [x] Integrate Tatum API for exchange rates (with tests - 15 tests)
-  - [x] Fetch real-time crypto prices
-  - [x] Cache exchange rates (5-minute TTL)
-  - [x] Handle API failures gracefully
-- [x] Create exchange rate calculation utilities (with tests)
-- [x] Implement GET /api/rates endpoint (with tests)
-- [x] Implement POST /api/rates/batch endpoint (with tests)
-
-### Payment Creation
-- [x] Implement POST /api/payments/create endpoint (with tests - 10 tests)
-  - [x] Validate payment request
-  - [x] Generate payment address
-  - [x] Calculate amounts with 2% fee
-  - [x] Store payment in database
-  - [x] Return payment details
-- [x] Create payment validation utilities (with tests)
-- [x] Add payment expiration logic (with tests)
-
-### QR Code Generation
-- [x] Implement QR code generation service (with tests - 15 tests)
-  - [x] Generate QR codes for payment addresses
-  - [x] Support multiple formats (PNG, SVG)
-  - [x] Include payment amount in QR data
-- [x] Create GET /api/payments/:id/qr endpoint (with tests)
-
-### Blockchain Monitoring
-- [x] Implement blockchain monitoring service (implemented, tests excluded*)
-  - [x] Monitor Bitcoin transactions
-  - [x] Monitor Ethereum transactions
-  - [x] Monitor Polygon transactions
-  - [x] Monitor Solana transactions
-- [x] Create confirmation tracking (implemented)
-  - [x] BTC: 3 confirmations
-  - [x] BCH: 6 confirmations
-  - [x] ETH: 12 confirmations
-  - [x] POL: 128 confirmations
-  - [x] SOL: 32 confirmations
-- [x] Implement payment status updates (implemented)
-
-### Payment Forwarding
-- [x] Implement payment forwarding service (with tests - 23 tests)
-  - [x] Calculate 2% platform fee
-  - [x] Split payment (98% merchant, 2% platform)
-  - [x] Execute blockchain transactions
-  - [x] Handle gas/transaction fees
-- [x] Create transaction retry logic (with tests)
-- [x] Add forwarding status tracking (with tests)
-
-## Phase 4: Webhooks & Notifications ✅
-
-### Webhook System
-- [x] Implement webhook delivery service (with tests - 21 tests)
-  - [x] Sign webhook payloads (HMAC-SHA256)
-  - [x] Retry failed deliveries (exponential backoff)
-  - [x] Log all webhook attempts
-- [x] Create POST /api/webhooks endpoint (with tests)
-- [x] Implement POST /api/webhooks/test endpoint (with tests)
-- [x] Create GET /api/webhooks/logs endpoint (with tests)
-- [x] Add webhook signature verification utilities (with tests)
-
-## Phase 5: Business Management ✅
-
-### Business API
-- [x] Implement GET /api/businesses endpoint (with tests - 19 tests)
-- [x] Implement POST /api/businesses endpoint (with tests)
-- [x] Implement GET /api/businesses/:id endpoint (with tests)
-- [x] Implement PATCH /api/businesses/:id endpoint (with tests)
-- [x] Implement DELETE /api/businesses/:id endpoint (with tests)
-- [x] Add business validation utilities (with tests)
-
-### Payment History
-- [x] Implement GET /api/payments endpoint (with tests)
-  - [x] Filter by business
-  - [x] Filter by status
-  - [x] Filter by date range
-  - [x] Pagination support
-- [x] Implement GET /api/payments/:id endpoint (with tests)
-- [x] Add payment analytics utilities (with tests - 11 tests)
-
-## Phase 6: Frontend Development ✅
-
-### Landing Page
-- [x] Create landing page with demo
-- [x] Add feature showcase
-- [x] Implement live demo payment flow (with real QR codes and confirmation progress)
-- [x] Add documentation links
-
-### Merchant Dashboard
-- [x] Create dashboard layout
-- [x] Implement business selector
-- [x] Add payment statistics
-- [x] Create payment history table
-- [x] Add real-time payment updates (SSE with useRealtimePayments hook)
-
-### Wallet Connection
-- [x] Integrate MetaMask connection (EVM Provider)
-- [x] Integrate WalletConnect v2
-- [x] Integrate Phantom Wallet (Solana Provider)
-- [x] Add wallet connection UI
-- [x] Implement wallet disconnection
-
-### Business Management UI
-- [x] Create business creation form
-- [x] Implement business settings page
-- [x] Add wallet address management
-- [x] Create webhook configuration UI
-
-## Phase 7: Testing & Quality ✅
-
-### Unit Tests
-- [x] Crypto utilities tests (28 tests - encryption.test.ts)
-- [x] Key storage tests (35 tests - keyStorage.test.ts)
-- [x] Payment processing tests (10 tests - service.test.ts)
-- [x] API endpoint tests (multiple test files)
-- [x] Webhook system tests (21 tests - webhooks/service.test.ts)
-
-### Integration Tests
-- [x] End-to-end payment flow tests
-- [x] Blockchain monitoring tests (implemented, excluded from vitest)
-- [x] Payment forwarding tests (23 tests)
-- [x] Webhook delivery tests
-
-### E2E Tests (Playwright)
-- [ ] User registration and login flow
-- [ ] Business creation flow
-- [ ] Payment creation and monitoring
-- [ ] Dashboard navigation
-
-### Performance & Security
-- [ ] Load testing (API endpoints)
-- [ ] Security audit
-- [ ] Penetration testing
-- [ ] Performance optimization
-
-## Phase 8: CLI & SDK ✅
-
-### CLI Tool
-- [x] Create CLI package structure (packages/sdk/bin/coinpay.js)
-- [x] Implement `coinpay config` command (set/get API key and base URL)
-- [x] Implement `coinpay business list/get` commands
-- [x] Implement `coinpay payment create/get/list` commands
-- [x] Implement `coinpay rates get` command
-- [x] Implement `coinpay webhook verify` command
-- [x] Pure ESM with Node.js built-in modules (no external CLI framework)
-
-### SDK/ESM Module
-- [x] Create SDK package structure (packages/sdk/)
-- [x] Implement CoinPayClient class with full API coverage
-- [x] Implement payment creation/retrieval SDK
-- [x] Implement webhook signature verification SDK
-- [x] Add SDK documentation (packages/sdk/README.md)
-- [x] Combined SDK + CLI in single @coinpay/sdk package
-
-## Phase 9: Deployment & DevOps ✅
-
-### Production Setup
-- [x] Configure production environment variables
-- [x] Set up Railway deployment (railway.toml configured)
-- [x] Configure custom domain
-- [x] Set up SSL certificates
-
-### Monitoring & Logging
-- [ ] Implement error tracking (Sentry)
-- [ ] Set up application monitoring
-- [ ] Configure log aggregation
-- [ ] Create alerting rules
-
-### CI/CD
-- [ ] Set up GitHub Actions
-- [ ] Configure automated testing
-- [ ] Implement automated deployment
-- [ ] Add deployment rollback strategy
-
-## Current Status: Phase 1-6, 8-9 Complete, Phase 7 In Progress
-
-**Completed:**
-- ✅ Phase 1: Foundation & Core Infrastructure (Auth, Database)
-- ✅ Phase 2: Crypto & Blockchain Core (Encryption, Wallets, Key Storage)
-- ✅ Phase 3: Payment Processing (Rates, Payments, QR, Forwarding)
-- ✅ Phase 4: Webhooks & Notifications
-- ✅ Phase 5: Business Management
-- ✅ Phase 6: Frontend Development (Live demo, Real-time updates)
-- ✅ Phase 8: CLI & SDK (@profullstack/coinpay package ready for npm)
-- ✅ Phase 9: Deployment & DevOps (Railway deployment configured)
-
-**In Progress:**
-- 🔄 Phase 7: Testing & Quality (unit tests complete, E2E pending)
-
-**Pending:**
-- ⏳ Publish @profullstack/coinpay to npm
-
-**Test Summary:**
-- 28 test files passing
-- 532 tests passing (8 skipped)
-- Key test coverage:
-  - Encryption: 28 tests
-  - Key Storage: 35 tests
-  - JWT: 24 tests
-  - Auth Middleware: 24 tests
-  - Business Service: 19 tests
-  - Payment Forwarding: 23 tests
-  - Webhooks: 21 tests
-  - Tatum Rates: 15 tests
-  - SDK Client: 20 tests
-  - SDK Webhooks: 27 tests
-  - SDK Index: 11 tests
-
-**Known Limitations:**
-- Blockchain tests (providers, wallets, monitor, system-wallet) excluded due to ws/CommonJS ESM incompatibility with ethers.js and @solana/web3.js in vitest
+> **Goal**: Launch a fully functional anonymous multi-chain wallet that works for both human users (browser) and bots (API/SDK).
 
 ---
 
-**Test Coverage Goal:** >80% overall, >90% for critical paths
-**Testing Framework:** Vitest with React Testing Library
-**Code Quality:** ESLint + Prettier, TypeScript strict mode
+## Phase 1: Foundation (Read-Only Wallet)
+
+### Database & Infrastructure
+- [ ] Create `wallets` table migration
+- [ ] Create `wallet_addresses` table migration
+- [ ] Create `wallet_transactions` table migration
+- [ ] Create `wallet_auth_challenges` table migration
+- [ ] Create `wallet_settings` table migration
+- [ ] Create `wallet_nonces` table migration
+- [ ] Add database indexes for performance
+- [ ] Set up Row Level Security (RLS) policies
+- [ ] Create database helper functions
+
+### Wallet Identity System
+- [ ] Implement BIP39 mnemonic generation (12/24 words)
+- [ ] Implement BIP32/BIP44 HD key derivation
+- [ ] Create secp256k1 key derivation (BTC, BCH, ETH, POL)
+- [ ] Create ed25519 key derivation (SOL)
+- [ ] Implement public key validation
+
+### Authentication (Auth-Lite)
+- [ ] Create challenge generation endpoint (`GET /api/web-wallet/auth/challenge`)
+- [ ] Create signature verification endpoint (`POST /api/web-wallet/auth/verify`)
+- [ ] Implement per-request signature authentication
+- [ ] Implement JWT token authentication (optional convenience)
+- [ ] Add replay attack prevention (timestamp + nonce tracking)
+- [ ] Add rate limiting for auth endpoints
+
+### Wallet API - Core Endpoints
+- [ ] `POST /api/web-wallet/create` - Register new wallet (public keys only)
+- [ ] `POST /api/web-wallet/import` - Import existing wallet with proof of ownership
+- [ ] `GET /api/web-wallet/:id` - Get wallet info
+- [ ] `POST /api/web-wallet/:id/derive` - Derive new address
+- [ ] `GET /api/web-wallet/:id/addresses` - List all addresses
+- [ ] `DELETE /api/web-wallet/:id/addresses/:address_id` - Deactivate address
+
+### Balance Indexer
+- [ ] Extend existing payment monitor for persistent address watching
+- [ ] Implement address registry service
+- [ ] Create balance fetcher for Bitcoin (BTC)
+- [ ] Create balance fetcher for Bitcoin Cash (BCH)
+- [ ] Create balance fetcher for Ethereum (ETH)
+- [ ] Create balance fetcher for Polygon (POL)
+- [ ] Create balance fetcher for Solana (SOL)
+- [ ] Create balance fetcher for USDC (ETH, POL, SOL variants)
+- [ ] Implement balance caching with TTL
+- [ ] Set up polling scheduler for balance updates
+- [ ] `GET /api/web-wallet/:id/balances` - Get all balances
+- [ ] `GET /api/web-wallet/:id/addresses/:address_id/balance` - Get single balance
+
+### Transaction History
+- [ ] Implement transaction scanner for all chains
+- [ ] Create unified transaction schema
+- [ ] `GET /api/web-wallet/:id/transactions` - Get transaction history
+- [ ] `GET /api/web-wallet/:id/transactions/:tx_id` - Get transaction details
+- [ ] Add pagination support
+- [ ] Add filtering (chain, direction, status, date range)
+
+---
+
+## Phase 2: Send Transactions
+
+### Transaction Preparation
+- [ ] Implement nonce management for ETH/POL
+- [ ] Implement UTXO selection for BTC/BCH
+- [ ] Implement blockhash fetching for SOL
+- [ ] Build unsigned transaction for ETH (EIP-1559)
+- [ ] Build unsigned transaction for POL (EIP-1559)
+- [ ] Build unsigned transaction for BTC (P2WPKH)
+- [ ] Build unsigned transaction for BCH
+- [ ] Build unsigned transaction for SOL
+- [ ] Build unsigned transaction for USDC transfers (ERC-20, SPL)
+- [ ] `POST /api/web-wallet/:id/prepare-tx` - Prepare unsigned transaction
+- [ ] Add transaction expiration (5 minute TTL)
+
+### Fee Estimation
+- [ ] Implement gas estimation for ETH/POL
+- [ ] Implement fee rate fetching for BTC/BCH
+- [ ] Implement priority fee estimation for SOL
+- [ ] `POST /api/web-wallet/:id/estimate-fee` - Get fee estimates
+- [ ] Support low/medium/high priority options
+
+### Client-Side Signing (Library)
+- [ ] Create unified signing interface
+- [ ] Implement Ethereum transaction signing
+- [ ] Implement Polygon transaction signing
+- [ ] Implement Bitcoin transaction signing (PSBT)
+- [ ] Implement Bitcoin Cash transaction signing
+- [ ] Implement Solana transaction signing
+- [ ] Implement ERC-20 token transfer signing
+- [ ] Implement SPL token transfer signing
+- [ ] Add memory clearing after signing
+
+### Relay Service
+- [ ] `POST /api/web-wallet/:id/broadcast` - Broadcast signed transaction
+- [ ] Implement signature verification (signer matches wallet)
+- [ ] Implement transaction validation
+- [ ] Create broadcaster for ETH/POL
+- [ ] Create broadcaster for BTC/BCH
+- [ ] Create broadcaster for SOL
+- [ ] Add retry logic for failed broadcasts
+- [ ] Track transaction status after broadcast
+- [ ] Update confirmation tracking
+
+### Security Controls
+- [ ] Implement spend limit checks
+- [ ] Implement address whitelist checks
+- [ ] `GET /api/web-wallet/:id/settings` - Get wallet settings
+- [ ] `PATCH /api/web-wallet/:id/settings` - Update wallet settings
+
+---
+
+## Phase 3: Bot SDK
+
+### SDK Core
+- [ ] Create `@coinpayportal/wallet-sdk` package structure
+- [ ] Implement `Wallet.create()` - Create new wallet
+- [ ] Implement `Wallet.fromSeed()` - Import from seed
+- [ ] Implement `Wallet.fromWalletId()` - Read-only mode
+- [ ] Implement `wallet.getAddress()` - Get address for chain
+- [ ] Implement `wallet.getAddresses()` - Get all addresses
+- [ ] Implement `wallet.deriveAddress()` - Derive new address
+
+### SDK Balance & History
+- [ ] Implement `wallet.getBalance()` - Get balance for chain
+- [ ] Implement `wallet.getBalances()` - Get all balances
+- [ ] Implement `wallet.getTotalBalanceUSD()` - Get total in USD
+- [ ] Implement `wallet.getTransactions()` - Get transaction history
+- [ ] Implement `wallet.getTransaction()` - Get single transaction
+
+### SDK Transactions
+- [ ] Implement `wallet.send()` - Send transaction (full flow)
+- [ ] Implement `wallet.estimateFee()` - Estimate fees
+- [ ] Implement local signing within SDK
+- [ ] Add automatic retry logic
+
+### SDK Events
+- [ ] Implement `wallet.on('transaction.incoming')` - Incoming tx event
+- [ ] Implement `wallet.on('transaction.confirmed')` - Confirmation event
+- [ ] Implement `wallet.on('balance.changed')` - Balance change event
+- [ ] Implement webhook registration for events
+
+### SDK Utilities
+- [ ] Implement `isValidAddress()` - Address validation
+- [ ] Implement `retry()` - Retry helper
+- [ ] Create error classes (InsufficientFundsError, InvalidAddressError, etc.)
+- [ ] Add TypeScript type definitions
+
+### SDK CLI Tool
+- [ ] Create `coinpay-wallet create` command
+- [ ] Create `coinpay-wallet import` command
+- [ ] Create `coinpay-wallet balance` command
+- [ ] Create `coinpay-wallet send` command
+- [ ] Create `coinpay-wallet address` command
+- [ ] Create `coinpay-wallet history` command
+- [ ] Support environment variable configuration
+- [ ] Support config file
+
+### SDK Documentation
+- [ ] Write SDK README with quick start
+- [ ] Document all API methods
+- [ ] Create usage examples
+- [ ] Publish to npm
+
+---
+
+## Phase 4: Web Wallet UI
+
+### Core Pages
+- [ ] Create `/web-wallet` landing page
+- [ ] Create `/web-wallet/create` - Create wallet flow
+- [ ] Create `/web-wallet/import` - Import wallet flow
+- [ ] Create `/web-wallet/unlock` - Unlock screen
+- [ ] Create `/web-wallet` dashboard (authenticated)
+- [ ] Create `/web-wallet/send` - Send transaction
+- [ ] Create `/web-wallet/receive` - Receive addresses
+- [ ] Create `/web-wallet/history` - Transaction history
+- [ ] Create `/web-wallet/settings` - Wallet settings
+- [ ] Create `/web-wallet/tx/[hash]` - Transaction details
+
+### Wallet Creation Flow
+- [ ] Implement seed phrase generation UI
+- [ ] Implement seed phrase display (numbered grid)
+- [ ] Implement seed backup verification (select random words)
+- [ ] Implement password creation with strength indicator
+- [ ] Implement seed encryption with AES-256-GCM
+- [ ] Store encrypted seed in localStorage
+
+### Wallet Import Flow
+- [ ] Implement seed phrase input UI
+- [ ] Implement seed validation
+- [ ] Implement address discovery (gap limit scan)
+- [ ] Implement password creation
+- [ ] Store encrypted seed in localStorage
+
+### Dashboard
+- [ ] Display total balance in USD
+- [ ] Display asset list with balances
+- [ ] Display recent transactions
+- [ ] Add Send/Receive quick actions
+- [ ] Implement real-time balance updates
+
+### Send Flow
+- [ ] Implement chain/asset selector
+- [ ] Implement recipient address input with validation
+- [ ] Implement amount input with USD conversion
+- [ ] Implement Max button
+- [ ] Implement fee priority selector
+- [ ] Implement transaction confirmation screen
+- [ ] Implement password entry for signing
+- [ ] Implement transaction submission
+- [ ] Display transaction result
+
+### Receive Flow
+- [ ] Implement chain/asset selector
+- [ ] Display QR code for address
+- [ ] Display address with copy button
+- [ ] Implement "Generate New Address" button
+- [ ] Show chain-specific warnings
+
+### Transaction History
+- [ ] Display transaction list
+- [ ] Implement filters (chain, direction, status)
+- [ ] Implement date range filter
+- [ ] Implement pagination/infinite scroll
+- [ ] Link to transaction details
+
+### Settings
+- [ ] Implement auto-lock timeout setting
+- [ ] Implement password change
+- [ ] Implement daily spend limit setting
+- [ ] Implement address whitelist management
+- [ ] Implement "View Recovery Phrase" (password protected)
+- [ ] Implement "Delete Wallet from Device"
+
+### Security UX
+- [ ] Implement auto-lock on inactivity
+- [ ] Implement lock on tab close (optional)
+- [ ] Clear sensitive data from memory
+- [ ] Add screenshot warning for seed display
+- [ ] Implement password entry for sensitive actions
+
+### UI Components
+- [ ] Create `WalletHeader` component
+- [ ] Create `BalanceCard` component
+- [ ] Create `AssetList` component
+- [ ] Create `TransactionList` component
+- [ ] Create `TransactionItem` component
+- [ ] Create `AddressDisplay` component
+- [ ] Create `QRCode` component
+- [ ] Create `ChainSelector` component
+- [ ] Create `AmountInput` component
+- [ ] Create `FeeSelector` component
+- [ ] Create `PasswordInput` component
+- [ ] Create `SeedDisplay` component
+- [ ] Create `SeedInput` component
+
+### Responsive Design
+- [ ] Implement mobile layout
+- [ ] Implement tablet layout
+- [ ] Add bottom navigation for mobile
+- [ ] Test on various screen sizes
+
+### Accessibility
+- [ ] Add keyboard navigation
+- [ ] Add screen reader support
+- [ ] Ensure color contrast (4.5:1 minimum)
+- [ ] Add focus indicators
+- [ ] Add ARIA labels
+
+---
+
+## Phase 5: Testing & Security
+
+### Unit Tests
+- [ ] Test key derivation for all chains
+- [ ] Test address validation for all chains
+- [ ] Test transaction building for all chains
+- [ ] Test signature verification
+- [ ] Test encryption/decryption
+- [ ] Test SDK methods
+
+### Integration Tests
+- [ ] Test wallet creation flow
+- [ ] Test wallet import flow
+- [ ] Test balance fetching
+- [ ] Test transaction history
+- [ ] Test send transaction flow (testnet)
+- [ ] Test SDK integration
+
+### E2E Tests
+- [ ] Test UI wallet creation
+- [ ] Test UI wallet import
+- [ ] Test UI send flow
+- [ ] Test UI receive flow
+- [ ] Test UI settings
+
+### Security Audit
+- [ ] Review key management code
+- [ ] Review authentication code
+- [ ] Review transaction signing code
+- [ ] Check for XSS vulnerabilities
+- [ ] Check for CSRF vulnerabilities
+- [ ] Verify CSP headers
+- [ ] Verify HTTPS enforcement
+- [ ] Review rate limiting
+
+### Load Testing
+- [ ] Test indexer under load
+- [ ] Test API under load
+- [ ] Test concurrent wallet operations
+
+---
+
+## Phase 6: Documentation & Launch
+
+### Documentation
+- [ ] Update API documentation
+- [ ] Write SDK getting started guide
+- [ ] Create integration examples
+- [ ] Write security best practices guide
+- [ ] Create troubleshooting guide
+- [ ] Add FAQ section
+
+### Deployment
+- [ ] Deploy database migrations
+- [ ] Deploy API endpoints
+- [ ] Deploy indexer service
+- [ ] Deploy web wallet UI
+- [ ] Publish SDK to npm
+- [ ] Set up monitoring dashboards
+- [ ] Set up alerting
+
+### Launch Checklist
+- [ ] Internal testing complete
+- [ ] Beta user testing complete
+- [ ] Security audit complete
+- [ ] Documentation complete
+- [ ] Monitoring in place
+- [ ] Rollback plan ready
+- [ ] Support channels ready
+
+---
+
+## Success Criteria
+
+### Technical
+- [ ] Wallet creation < 500ms
+- [ ] Transaction broadcast < 2s
+- [ ] Balance query < 1s
+- [ ] 99.9% API uptime
+- [ ] Indexer lag < 30 seconds
+
+### Functional
+- [ ] Can create wallet from seed (all chains)
+- [ ] Can import existing wallet (all chains)
+- [ ] Can view balances (all chains)
+- [ ] Can send transactions (all chains)
+- [ ] Can receive transactions (all chains)
+- [ ] SDK works in Node.js
+- [ ] SDK works in browser
+- [ ] UI works on desktop
+- [ ] UI works on mobile
+
+### Security
+- [ ] Private keys never leave client
+- [ ] No PII stored on server
+- [ ] Signature authentication working
+- [ ] Rate limiting enforced
+- [ ] Spend limits enforced (when set)
+
+---
+
+## Notes
+
+- **Non-custodial**: Server NEVER stores private keys or seed phrases
+- **Anonymous**: No email, no password, no KYC - seed = identity
+- **Multi-chain**: BTC, BCH, ETH, POL, SOL, USDC variants
+- **Dual interface**: Browser UI for humans, SDK/API for bots
+- **Backward compatible**: Existing payment gateway unchanged
