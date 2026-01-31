@@ -87,15 +87,15 @@
 - [x] Support low/medium/high priority options
 
 ### Client-Side Signing (Library)
-- [ ] Create unified signing interface
-- [ ] Implement Ethereum transaction signing
-- [ ] Implement Polygon transaction signing
-- [ ] Implement Bitcoin transaction signing (PSBT)
-- [ ] Implement Bitcoin Cash transaction signing
-- [ ] Implement Solana transaction signing
-- [ ] Implement ERC-20 token transfer signing
-- [ ] Implement SPL token transfer signing
-- [ ] Add memory clearing after signing
+- [x] Create unified signing interface
+- [x] Implement Ethereum transaction signing
+- [x] Implement Polygon transaction signing
+- [x] Implement Bitcoin transaction signing (PSBT)
+- [x] Implement Bitcoin Cash transaction signing
+- [x] Implement Solana transaction signing
+- [x] Implement ERC-20 token transfer signing
+- [x] Implement SPL token transfer signing
+- [x] Add memory clearing after signing
 
 ### Relay Service
 - [x] `POST /api/web-wallet/:id/broadcast` - Broadcast signed transaction
@@ -104,7 +104,7 @@
 - [x] Create broadcaster for ETH/POL
 - [x] Create broadcaster for BTC/BCH
 - [x] Create broadcaster for SOL
-- [ ] Add retry logic for failed broadcasts
+- [x] Add retry logic for failed broadcasts
 - [x] Track transaction status after broadcast
 - [x] Update confirmation tracking
 
@@ -283,7 +283,7 @@
 - [x] Test address validation for all chains
 - [x] Test transaction building for all chains
 - [x] Test signature verification
-- [ ] Test encryption/decryption
+- [x] Test encryption/decryption
 - [ ] Test SDK methods
 
 ### Integration Tests

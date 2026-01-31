@@ -57,6 +57,50 @@ function getRpcEndpoints(): Record<string, string> {
 }
 
 // ──────────────────────────────────────────────
+// Retry Logic
+// ──────────────────────────────────────────────
+
+/** Max number of broadcast retries */
+const MAX_RETRIES = 3;
+
+/** Base delay between retries (ms). Doubled on each retry. */
+const RETRY_BASE_DELAY_MS = 1000;
+
+/**
+ * Retry an async operation with exponential backoff.
+ * Only retries on transient errors (network failures, 5xx).
+ * Does NOT retry on validation errors (4xx, RPC errors like "nonce too low").
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  retries = MAX_RETRIES
+): Promise<T> {
+  let lastError: Error | undefined;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastError = err;
+      const msg = err.message || '';
+      // Don't retry validation / permanent errors
+      if (
+        msg.includes('nonce too low') ||
+        msg.includes('already known') ||
+        msg.includes('insufficient funds') ||
+        msg.includes('TATUM_API_KEY required') ||
+        msg.includes('Invalid transaction') ||
+        attempt === retries
+      ) {
+        throw err;
+      }
+      // Wait with exponential backoff
+      await new Promise((r) => setTimeout(r, RETRY_BASE_DELAY_MS * Math.pow(2, attempt)));
+    }
+  }
+  throw lastError;
+}
+
+// ──────────────────────────────────────────────
 // Chain-specific Broadcasters
 // ──────────────────────────────────────────────
 
@@ -220,22 +264,22 @@ export async function broadcastTransaction(
   try {
     switch (chain) {
       case 'BTC':
-        txHash = await broadcastBTC(input.signed_tx);
+        txHash = await withRetry(() => broadcastBTC(input.signed_tx));
         break;
       case 'BCH':
-        txHash = await broadcastBCH(input.signed_tx);
+        txHash = await withRetry(() => broadcastBCH(input.signed_tx));
         break;
       case 'ETH':
       case 'USDC_ETH':
-        txHash = await broadcastEVM(input.signed_tx, rpc.ETH);
+        txHash = await withRetry(() => broadcastEVM(input.signed_tx, rpc.ETH));
         break;
       case 'POL':
       case 'USDC_POL':
-        txHash = await broadcastEVM(input.signed_tx, rpc.POL);
+        txHash = await withRetry(() => broadcastEVM(input.signed_tx, rpc.POL));
         break;
       case 'SOL':
       case 'USDC_SOL':
-        txHash = await broadcastSOL(input.signed_tx, rpc.SOL);
+        txHash = await withRetry(() => broadcastSOL(input.signed_tx, rpc.SOL));
         break;
       default:
         return { success: false, error: `Unsupported chain: ${chain}`, code: 'UNSUPPORTED_CHAIN' };
@@ -277,4 +321,4 @@ export async function broadcastTransaction(
 }
 
 // Export for testing
-export { EXPLORER_URLS };
+export { EXPLORER_URLS, withRetry, MAX_RETRIES, RETRY_BASE_DELAY_MS };

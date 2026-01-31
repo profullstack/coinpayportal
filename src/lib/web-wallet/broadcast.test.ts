@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { broadcastTransaction, EXPLORER_URLS } from './broadcast';
+import { broadcastTransaction, EXPLORER_URLS, withRetry } from './broadcast';
 
 // ──────────────────────────────────────────────
 // Mock fetch
@@ -343,7 +343,7 @@ describe('broadcastTransaction', () => {
         ok: true,
         json: async () => ({
           jsonrpc: '2.0',
-          error: { code: -32002, message: 'Blockhash not found' },
+          error: { code: -32002, message: 'insufficient funds for rent' },
           id: 1,
         }),
       });
@@ -355,7 +355,7 @@ describe('broadcastTransaction', () => {
       });
 
       expect(result.success).toBe(false);
-      if (!result.success) expect(result.error).toContain('Blockhash not found');
+      if (!result.success) expect(result.error).toContain('insufficient funds for rent');
     });
   });
 
@@ -409,5 +409,45 @@ describe('EXPLORER_URLS', () => {
     expect(EXPLORER_URLS.USDC_ETH).toContain('etherscan');
     expect(EXPLORER_URLS.USDC_POL).toContain('polygonscan');
     expect(EXPLORER_URLS.USDC_SOL).toContain('solana');
+  });
+});
+
+// ──────────────────────────────────────────────
+// withRetry
+// ──────────────────────────────────────────────
+
+describe('withRetry', () => {
+  it('should succeed on first try', async () => {
+    const fn = vi.fn().mockResolvedValue('ok');
+    const result = await withRetry(fn, 3);
+    expect(result).toBe('ok');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('should retry on transient error and succeed', async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new Error('network timeout'))
+      .mockResolvedValueOnce('ok');
+    const result = await withRetry(fn, 3);
+    expect(result).toBe('ok');
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('should not retry on permanent error (nonce too low)', async () => {
+    const fn = vi.fn().mockRejectedValue(new Error('nonce too low'));
+    await expect(withRetry(fn, 3)).rejects.toThrow('nonce too low');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not retry on permanent error (insufficient funds)', async () => {
+    const fn = vi.fn().mockRejectedValue(new Error('insufficient funds'));
+    await expect(withRetry(fn, 3)).rejects.toThrow('insufficient funds');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('should give up after max retries', async () => {
+    const fn = vi.fn().mockRejectedValue(new Error('server error'));
+    await expect(withRetry(fn, 2)).rejects.toThrow('server error');
+    expect(fn).toHaveBeenCalledTimes(3); // initial + 2 retries
   });
 });
