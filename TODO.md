@@ -67,24 +67,24 @@
 ## Phase 2: Send Transactions
 
 ### Transaction Preparation
-- [ ] Implement nonce management for ETH/POL
-- [ ] Implement UTXO selection for BTC/BCH
-- [ ] Implement blockhash fetching for SOL
-- [ ] Build unsigned transaction for ETH (EIP-1559)
-- [ ] Build unsigned transaction for POL (EIP-1559)
-- [ ] Build unsigned transaction for BTC (P2WPKH)
-- [ ] Build unsigned transaction for BCH
-- [ ] Build unsigned transaction for SOL
-- [ ] Build unsigned transaction for USDC transfers (ERC-20, SPL)
-- [ ] `POST /api/web-wallet/:id/prepare-tx` - Prepare unsigned transaction
-- [ ] Add transaction expiration (5 minute TTL)
+- [x] Implement nonce management for ETH/POL
+- [x] Implement UTXO selection for BTC/BCH
+- [x] Implement blockhash fetching for SOL
+- [x] Build unsigned transaction for ETH (EIP-1559)
+- [x] Build unsigned transaction for POL (EIP-1559)
+- [x] Build unsigned transaction for BTC (P2WPKH)
+- [x] Build unsigned transaction for BCH
+- [x] Build unsigned transaction for SOL
+- [x] Build unsigned transaction for USDC transfers (ERC-20, SPL)
+- [x] `POST /api/web-wallet/:id/prepare-tx` - Prepare unsigned transaction
+- [x] Add transaction expiration (5 minute TTL)
 
 ### Fee Estimation
-- [ ] Implement gas estimation for ETH/POL
-- [ ] Implement fee rate fetching for BTC/BCH
-- [ ] Implement priority fee estimation for SOL
-- [ ] `POST /api/web-wallet/:id/estimate-fee` - Get fee estimates
-- [ ] Support low/medium/high priority options
+- [x] Implement gas estimation for ETH/POL
+- [x] Implement fee rate fetching for BTC/BCH
+- [x] Implement priority fee estimation for SOL
+- [x] `POST /api/web-wallet/:id/estimate-fee` - Get fee estimates
+- [x] Support low/medium/high priority options
 
 ### Client-Side Signing (Library)
 - [ ] Create unified signing interface
@@ -98,21 +98,21 @@
 - [ ] Add memory clearing after signing
 
 ### Relay Service
-- [ ] `POST /api/web-wallet/:id/broadcast` - Broadcast signed transaction
-- [ ] Implement signature verification (signer matches wallet)
-- [ ] Implement transaction validation
-- [ ] Create broadcaster for ETH/POL
-- [ ] Create broadcaster for BTC/BCH
-- [ ] Create broadcaster for SOL
+- [x] `POST /api/web-wallet/:id/broadcast` - Broadcast signed transaction
+- [x] Implement signature verification (signer matches wallet)
+- [x] Implement transaction validation
+- [x] Create broadcaster for ETH/POL
+- [x] Create broadcaster for BTC/BCH
+- [x] Create broadcaster for SOL
 - [ ] Add retry logic for failed broadcasts
-- [ ] Track transaction status after broadcast
-- [ ] Update confirmation tracking
+- [x] Track transaction status after broadcast
+- [x] Update confirmation tracking
 
 ### Security Controls
-- [ ] Implement spend limit checks
-- [ ] Implement address whitelist checks
-- [ ] `GET /api/web-wallet/:id/settings` - Get wallet settings
-- [ ] `PATCH /api/web-wallet/:id/settings` - Update wallet settings
+- [x] Implement spend limit checks
+- [x] Implement address whitelist checks
+- [x] `GET /api/web-wallet/:id/settings` - Get wallet settings
+- [x] `PATCH /api/web-wallet/:id/settings` - Update wallet settings
 
 ---
 
@@ -281,7 +281,7 @@
 ### Unit Tests
 - [x] Test key derivation for all chains
 - [x] Test address validation for all chains
-- [ ] Test transaction building for all chains
+- [x] Test transaction building for all chains
 - [x] Test signature verification
 - [ ] Test encryption/decryption
 - [ ] Test SDK methods

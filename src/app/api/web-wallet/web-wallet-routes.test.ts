@@ -54,6 +54,45 @@ vi.mock('@/lib/web-wallet/transactions', () => ({
   getTransaction: (...args: any[]) => mockGetTransaction(...args),
 }));
 
+// Mock prepare-tx service
+const mockPrepareTransaction = vi.fn();
+
+vi.mock('@/lib/web-wallet/prepare-tx', () => ({
+  prepareTransaction: (...args: any[]) => mockPrepareTransaction(...args),
+}));
+
+// Mock fees service
+const mockEstimateFees = vi.fn();
+
+vi.mock('@/lib/web-wallet/fees', () => ({
+  estimateFees: (...args: any[]) => mockEstimateFees(...args),
+}));
+
+// Mock broadcast service
+const mockBroadcastTransaction = vi.fn();
+
+vi.mock('@/lib/web-wallet/broadcast', () => ({
+  broadcastTransaction: (...args: any[]) => mockBroadcastTransaction(...args),
+}));
+
+// Mock settings service
+const mockGetSettings = vi.fn();
+const mockUpdateSettings = vi.fn();
+const mockCheckTransactionAllowed = vi.fn();
+
+vi.mock('@/lib/web-wallet/settings', () => ({
+  getSettings: (...args: any[]) => mockGetSettings(...args),
+  updateSettings: (...args: any[]) => mockUpdateSettings(...args),
+  checkTransactionAllowed: (...args: any[]) => mockCheckTransactionAllowed(...args),
+}));
+
+// Mock identity
+vi.mock('@/lib/web-wallet/identity', () => ({
+  isValidChain: (chain: string) => ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL'].includes(chain),
+  validateAddress: () => true,
+  VALID_CHAINS: ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL'],
+}));
+
 // Mock wallet auth
 const mockAuthenticateWalletRequest = vi.fn();
 vi.mock('@/lib/web-wallet/auth', () => ({
@@ -872,6 +911,440 @@ describe('Web Wallet Route Handlers', () => {
 
       expect(res.status).toBe(404);
       expect(body.success).toBe(false);
+    });
+  });
+
+  // ────────────────────────────────────
+  // Prepare Transaction
+  // ────────────────────────────────────
+  describe('POST /api/web-wallet/:id/prepare-tx', () => {
+    it('should return 401 without auth', async () => {
+      const { POST } = await import('./[id]/prepare-tx/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: false,
+        error: 'Missing authorization header',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/prepare-tx', {
+        method: 'POST',
+        body: JSON.stringify({ from_address: '0xa', to_address: '0xb', chain: 'ETH', amount: '1' }),
+        headers: { 'content-type': 'application/json' },
+      });
+      const res = await POST(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(401);
+      expect(body.success).toBe(false);
+    });
+
+    it('should return 403 when accessing different wallet', async () => {
+      const { POST } = await import('./[id]/prepare-tx/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'other-wallet',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/prepare-tx', {
+        method: 'POST',
+        body: JSON.stringify({ from_address: '0xa', to_address: '0xb', chain: 'ETH', amount: '1' }),
+        headers: { 'content-type': 'application/json', authorization: 'Bearer token' },
+      });
+      const res = await POST(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(403);
+      expect(body.success).toBe(false);
+    });
+
+    it('should return 400 if required fields missing', async () => {
+      const { POST } = await import('./[id]/prepare-tx/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/prepare-tx', {
+        method: 'POST',
+        body: JSON.stringify({ from_address: '0xa' }),
+        headers: { 'content-type': 'application/json', authorization: 'Bearer token' },
+      });
+      const res = await POST(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(body.error.code).toBe('MISSING_FIELDS');
+    });
+
+    it('should return 201 on success', async () => {
+      const { POST } = await import('./[id]/prepare-tx/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockCheckTransactionAllowed.mockResolvedValue({ allowed: true });
+      mockPrepareTransaction.mockResolvedValue({
+        success: true,
+        data: {
+          tx_id: 'tx-123',
+          chain: 'ETH',
+          from_address: '0xa',
+          to_address: '0xb',
+          amount: '1',
+          fee: { fee: '0.001', feeCurrency: 'ETH', priority: 'medium' },
+          expires_at: '2026-01-31T01:00:00Z',
+          unsigned_tx: { type: 'evm', chainId: 1, nonce: 5 },
+        },
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/prepare-tx', {
+        method: 'POST',
+        body: JSON.stringify({ from_address: '0xa', to_address: '0xb', chain: 'ETH', amount: '1' }),
+        headers: { 'content-type': 'application/json', authorization: 'Bearer token' },
+      });
+      const res = await POST(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(201);
+      expect(body.success).toBe(true);
+      expect(body.data.tx_id).toBe('tx-123');
+      expect(body.data.unsigned_tx.type).toBe('evm');
+    });
+
+    it('should return 400 when security check fails', async () => {
+      const { POST } = await import('./[id]/prepare-tx/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockCheckTransactionAllowed.mockResolvedValue({
+        allowed: false,
+        reason: 'Daily spend limit exceeded',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/prepare-tx', {
+        method: 'POST',
+        body: JSON.stringify({ from_address: '0xa', to_address: '0xb', chain: 'ETH', amount: '1000' }),
+        headers: { 'content-type': 'application/json', authorization: 'Bearer token' },
+      });
+      const res = await POST(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(body.error.code).toBe('SECURITY_CHECK_FAILED');
+    });
+  });
+
+  // ────────────────────────────────────
+  // Estimate Fee
+  // ────────────────────────────────────
+  describe('POST /api/web-wallet/:id/estimate-fee', () => {
+    it('should return 401 without auth', async () => {
+      const { POST } = await import('./[id]/estimate-fee/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: false,
+        error: 'Missing authorization header',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/estimate-fee', {
+        method: 'POST',
+        body: JSON.stringify({ chain: 'ETH' }),
+        headers: { 'content-type': 'application/json' },
+      });
+      const res = await POST(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(401);
+      expect(body.success).toBe(false);
+    });
+
+    it('should return 400 if chain missing', async () => {
+      const { POST } = await import('./[id]/estimate-fee/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/estimate-fee', {
+        method: 'POST',
+        body: JSON.stringify({}),
+        headers: { 'content-type': 'application/json', authorization: 'Bearer token' },
+      });
+      const res = await POST(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(body.error.code).toBe('MISSING_FIELDS');
+    });
+
+    it('should return 400 for invalid chain', async () => {
+      const { POST } = await import('./[id]/estimate-fee/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/estimate-fee', {
+        method: 'POST',
+        body: JSON.stringify({ chain: 'DOGE' }),
+        headers: { 'content-type': 'application/json', authorization: 'Bearer token' },
+      });
+      const res = await POST(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(body.error.code).toBe('INVALID_CHAIN');
+    });
+
+    it('should return fee estimates on success', async () => {
+      const { POST } = await import('./[id]/estimate-fee/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockEstimateFees.mockResolvedValue({
+        low: { fee: '0.0001', priority: 'low' },
+        medium: { fee: '0.0002', priority: 'medium' },
+        high: { fee: '0.0003', priority: 'high' },
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/estimate-fee', {
+        method: 'POST',
+        body: JSON.stringify({ chain: 'ETH' }),
+        headers: { 'content-type': 'application/json', authorization: 'Bearer token' },
+      });
+      const res = await POST(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.data.chain).toBe('ETH');
+      expect(body.data.estimates.low.fee).toBe('0.0001');
+      expect(body.data.estimates.medium.fee).toBe('0.0002');
+      expect(body.data.estimates.high.fee).toBe('0.0003');
+    });
+  });
+
+  // ────────────────────────────────────
+  // Broadcast Transaction
+  // ────────────────────────────────────
+  describe('POST /api/web-wallet/:id/broadcast', () => {
+    it('should return 401 without auth', async () => {
+      const { POST } = await import('./[id]/broadcast/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: false,
+        error: 'Missing authorization header',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/broadcast', {
+        method: 'POST',
+        body: JSON.stringify({ tx_id: 'tx1', signed_tx: '0x...', chain: 'ETH' }),
+        headers: { 'content-type': 'application/json' },
+      });
+      const res = await POST(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(401);
+      expect(body.success).toBe(false);
+    });
+
+    it('should return 400 if required fields missing', async () => {
+      const { POST } = await import('./[id]/broadcast/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/broadcast', {
+        method: 'POST',
+        body: JSON.stringify({ tx_id: 'tx1' }),
+        headers: { 'content-type': 'application/json', authorization: 'Bearer token' },
+      });
+      const res = await POST(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(body.error.code).toBe('MISSING_FIELDS');
+    });
+
+    it('should return broadcast result on success', async () => {
+      const { POST } = await import('./[id]/broadcast/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockBroadcastTransaction.mockResolvedValue({
+        success: true,
+        data: {
+          tx_hash: '0xETHhash',
+          chain: 'ETH',
+          status: 'confirming',
+          explorer_url: 'https://etherscan.io/tx/0xETHhash',
+        },
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/broadcast', {
+        method: 'POST',
+        body: JSON.stringify({ tx_id: 'tx1', signed_tx: '0xf86c...', chain: 'ETH' }),
+        headers: { 'content-type': 'application/json', authorization: 'Bearer token' },
+      });
+      const res = await POST(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.data.tx_hash).toBe('0xETHhash');
+      expect(body.data.status).toBe('confirming');
+      expect(body.data.explorer_url).toContain('etherscan.io');
+    });
+
+    it('should return 404 when tx not found', async () => {
+      const { POST } = await import('./[id]/broadcast/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockBroadcastTransaction.mockResolvedValue({
+        success: false,
+        error: 'Prepared transaction not found',
+        code: 'TX_NOT_FOUND',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/broadcast', {
+        method: 'POST',
+        body: JSON.stringify({ tx_id: 'bad', signed_tx: '0x...', chain: 'ETH' }),
+        headers: { 'content-type': 'application/json', authorization: 'Bearer token' },
+      });
+      const res = await POST(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(404);
+      expect(body.success).toBe(false);
+    });
+  });
+
+  // ────────────────────────────────────
+  // Wallet Settings
+  // ────────────────────────────────────
+  describe('GET /api/web-wallet/:id/settings', () => {
+    it('should return 401 without auth', async () => {
+      const { GET } = await import('./[id]/settings/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: false,
+        error: 'Missing authorization header',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/settings');
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(401);
+      expect(body.success).toBe(false);
+    });
+
+    it('should return settings on success', async () => {
+      const { GET } = await import('./[id]/settings/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockGetSettings.mockResolvedValue({
+        success: true,
+        data: {
+          wallet_id: 'w1',
+          daily_spend_limit: 100,
+          whitelist_addresses: [],
+          whitelist_enabled: false,
+          require_confirmation: false,
+          confirmation_delay_seconds: 0,
+        },
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/settings', {
+        headers: { authorization: 'Bearer token' },
+      });
+      const res = await GET(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.data.daily_spend_limit).toBe(100);
+    });
+  });
+
+  describe('PATCH /api/web-wallet/:id/settings', () => {
+    it('should return 401 without auth', async () => {
+      const { PATCH } = await import('./[id]/settings/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: false,
+        error: 'Missing authorization header',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ daily_spend_limit: 50 }),
+        headers: { 'content-type': 'application/json' },
+      });
+      const res = await PATCH(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(401);
+      expect(body.success).toBe(false);
+    });
+
+    it('should update settings on success', async () => {
+      const { PATCH } = await import('./[id]/settings/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockUpdateSettings.mockResolvedValue({
+        success: true,
+        data: {
+          wallet_id: 'w1',
+          daily_spend_limit: 50,
+          whitelist_addresses: ['0xabc'],
+          whitelist_enabled: true,
+          require_confirmation: false,
+          confirmation_delay_seconds: 0,
+        },
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ daily_spend_limit: 50, whitelist_addresses: ['0xabc'], whitelist_enabled: true }),
+        headers: { 'content-type': 'application/json', authorization: 'Bearer token' },
+      });
+      const res = await PATCH(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.data.daily_spend_limit).toBe(50);
+      expect(body.data.whitelist_enabled).toBe(true);
+    });
+
+    it('should return 400 for invalid settings', async () => {
+      const { PATCH } = await import('./[id]/settings/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: true,
+        walletId: 'w1',
+      });
+      mockUpdateSettings.mockResolvedValue({
+        success: false,
+        error: 'Invalid daily spend limit',
+        code: 'INVALID_LIMIT',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/web-wallet/w1/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ daily_spend_limit: -10 }),
+        headers: { 'content-type': 'application/json', authorization: 'Bearer token' },
+      });
+      const res = await PATCH(req, { params: Promise.resolve({ id: 'w1' }) });
+      const body = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(body.error.code).toBe('INVALID_LIMIT');
     });
   });
 });

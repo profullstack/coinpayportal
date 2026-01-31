@@ -31,6 +31,8 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'tx_history': { limit: 30, windowSeconds: 60 },             // 30/min
   'prepare_tx': { limit: 20, windowSeconds: 60 },             // 20/min
   'broadcast_tx': { limit: 10, windowSeconds: 60 },           // 10/min
+  'estimate_fee': { limit: 60, windowSeconds: 60 },           // 60/min
+  'settings': { limit: 30, windowSeconds: 60 },               // 30/min
 };
 
 /** In-memory rate limit store */
