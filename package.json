@@ -20,6 +20,7 @@
     "@coinbase/wallet-sdk": "^4.3.7",
     "@metamask/sdk": "^0.34.0",
     "@noble/curves": "^2.0.1",
+    "@noble/hashes": "^2.0.1",
     "@profullstack/coinpay": "workspace:*",
     "@reown/appkit": "^1.8.14",
     "@reown/appkit-adapter-wagmi": "^1.8.14",

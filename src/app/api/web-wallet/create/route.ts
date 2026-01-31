@@ -2,15 +2,24 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createWallet } from '@/lib/web-wallet/service';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
+import { checkRateLimit } from '@/lib/web-wallet/rate-limit';
 
 /**
  * POST /api/web-wallet/create
  * Register a new wallet with the server.
  * Client generates seed locally and only sends public keys.
  * Public endpoint - no authentication required.
+ * Rate limited: 5 requests/hour per IP.
  */
 export async function POST(request: NextRequest) {
   try {
+    // Rate limit by IP
+    const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    const rateCheck = checkRateLimit(clientIp, 'wallet_creation');
+    if (!rateCheck.allowed) {
+      return WalletErrors.rateLimited(rateCheck.resetAt - Math.floor(Date.now() / 1000));
+    }
+
     const body = await request.json();
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

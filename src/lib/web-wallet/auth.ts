@@ -11,6 +11,7 @@ import { secp256k1 } from '@noble/curves/secp256k1';
 import { createHash, randomBytes } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { generateToken, verifyToken } from '../auth/jwt';
+import { checkAndRecordSignature } from './rate-limit';
 
 /** Auth result for wallet requests */
 export interface WalletAuthResult {
@@ -89,6 +90,12 @@ async function authenticateWithSignature(
     const now = Math.floor(Date.now() / 1000);
     if (Math.abs(now - timestamp) > TIMESTAMP_WINDOW_SECONDS) {
       return { success: false, error: 'Request timestamp expired' };
+    }
+
+    // Replay prevention: check if this exact signature was already used
+    const sigKey = `${walletId}:${signatureHex}:${timestampStr}`;
+    if (!checkAndRecordSignature(sigKey)) {
+      return { success: false, error: 'Replay detected: signature already used' };
     }
 
     // Get wallet from database

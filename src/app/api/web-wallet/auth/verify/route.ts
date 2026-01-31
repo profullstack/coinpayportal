@@ -2,14 +2,23 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyAuthChallenge } from '@/lib/web-wallet/service';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
+import { checkRateLimit } from '@/lib/web-wallet/rate-limit';
 
 /**
  * POST /api/web-wallet/auth/verify
  * Verify a signed challenge and get a JWT auth token.
  * Public endpoint - no authentication required.
+ * Rate limited: 10 requests/minute per IP.
  */
 export async function POST(request: NextRequest) {
   try {
+    // Rate limit by IP
+    const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    const rateCheck = checkRateLimit(clientIp, 'auth_verify');
+    if (!rateCheck.allowed) {
+      return WalletErrors.rateLimited(rateCheck.resetAt - Math.floor(Date.now() / 1000));
+    }
+
     const body = await request.json();
 
     if (!body.wallet_id || !body.challenge_id || !body.signature) {

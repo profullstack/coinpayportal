@@ -18,10 +18,10 @@
 - [x] Create database helper functions
 
 ### Wallet Identity System
-- [ ] Implement BIP39 mnemonic generation (12/24 words)
-- [ ] Implement BIP32/BIP44 HD key derivation
-- [ ] Create secp256k1 key derivation (BTC, BCH, ETH, POL)
-- [ ] Create ed25519 key derivation (SOL)
+- [x] Implement BIP39 mnemonic generation (12/24 words)
+- [x] Implement BIP32/BIP44 HD key derivation
+- [x] Create secp256k1 key derivation (BTC, BCH, ETH, POL)
+- [x] Create ed25519 key derivation (SOL)
 - [x] Implement public key validation
 
 ### Authentication (Auth-Lite)
@@ -29,8 +29,8 @@
 - [x] Create signature verification endpoint (`POST /api/web-wallet/auth/verify`)
 - [x] Implement per-request signature authentication
 - [x] Implement JWT token authentication (optional convenience)
-- [ ] Add replay attack prevention (timestamp + nonce tracking)
-- [ ] Add rate limiting for auth endpoints
+- [x] Add replay attack prevention (timestamp + nonce tracking)
+- [x] Add rate limiting for auth endpoints
 
 ### Wallet API - Core Endpoints
 - [x] `POST /api/web-wallet/create` - Register new wallet (public keys only)
@@ -279,7 +279,7 @@
 ## Phase 5: Testing & Security
 
 ### Unit Tests
-- [ ] Test key derivation for all chains
+- [x] Test key derivation for all chains
 - [x] Test address validation for all chains
 - [ ] Test transaction building for all chains
 - [x] Test signature verification
