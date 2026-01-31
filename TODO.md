@@ -7,38 +7,38 @@
 ## Phase 1: Foundation (Read-Only Wallet)
 
 ### Database & Infrastructure
-- [ ] Create `wallets` table migration
-- [ ] Create `wallet_addresses` table migration
-- [ ] Create `wallet_transactions` table migration
-- [ ] Create `wallet_auth_challenges` table migration
-- [ ] Create `wallet_settings` table migration
-- [ ] Create `wallet_nonces` table migration
-- [ ] Add database indexes for performance
-- [ ] Set up Row Level Security (RLS) policies
-- [ ] Create database helper functions
+- [x] Create `wallets` table migration
+- [x] Create `wallet_addresses` table migration
+- [x] Create `wallet_transactions` table migration
+- [x] Create `wallet_auth_challenges` table migration
+- [x] Create `wallet_settings` table migration
+- [x] Create `wallet_nonces` table migration
+- [x] Add database indexes for performance
+- [x] Set up Row Level Security (RLS) policies
+- [x] Create database helper functions
 
 ### Wallet Identity System
 - [ ] Implement BIP39 mnemonic generation (12/24 words)
 - [ ] Implement BIP32/BIP44 HD key derivation
 - [ ] Create secp256k1 key derivation (BTC, BCH, ETH, POL)
 - [ ] Create ed25519 key derivation (SOL)
-- [ ] Implement public key validation
+- [x] Implement public key validation
 
 ### Authentication (Auth-Lite)
-- [ ] Create challenge generation endpoint (`GET /api/web-wallet/auth/challenge`)
-- [ ] Create signature verification endpoint (`POST /api/web-wallet/auth/verify`)
-- [ ] Implement per-request signature authentication
-- [ ] Implement JWT token authentication (optional convenience)
+- [x] Create challenge generation endpoint (`GET /api/web-wallet/auth/challenge`)
+- [x] Create signature verification endpoint (`POST /api/web-wallet/auth/verify`)
+- [x] Implement per-request signature authentication
+- [x] Implement JWT token authentication (optional convenience)
 - [ ] Add replay attack prevention (timestamp + nonce tracking)
 - [ ] Add rate limiting for auth endpoints
 
 ### Wallet API - Core Endpoints
-- [ ] `POST /api/web-wallet/create` - Register new wallet (public keys only)
-- [ ] `POST /api/web-wallet/import` - Import existing wallet with proof of ownership
-- [ ] `GET /api/web-wallet/:id` - Get wallet info
-- [ ] `POST /api/web-wallet/:id/derive` - Derive new address
-- [ ] `GET /api/web-wallet/:id/addresses` - List all addresses
-- [ ] `DELETE /api/web-wallet/:id/addresses/:address_id` - Deactivate address
+- [x] `POST /api/web-wallet/create` - Register new wallet (public keys only)
+- [x] `POST /api/web-wallet/import` - Import existing wallet with proof of ownership
+- [x] `GET /api/web-wallet/:id` - Get wallet info
+- [x] `POST /api/web-wallet/:id/derive` - Derive new address
+- [x] `GET /api/web-wallet/:id/addresses` - List all addresses
+- [x] `DELETE /api/web-wallet/:id/addresses/:address_id` - Deactivate address
 
 ### Balance Indexer
 - [ ] Extend existing payment monitor for persistent address watching
@@ -280,15 +280,15 @@
 
 ### Unit Tests
 - [ ] Test key derivation for all chains
-- [ ] Test address validation for all chains
+- [x] Test address validation for all chains
 - [ ] Test transaction building for all chains
-- [ ] Test signature verification
+- [x] Test signature verification
 - [ ] Test encryption/decryption
 - [ ] Test SDK methods
 
 ### Integration Tests
-- [ ] Test wallet creation flow
-- [ ] Test wallet import flow
+- [x] Test wallet creation flow
+- [x] Test wallet import flow
 - [ ] Test balance fetching
 - [ ] Test transaction history
 - [ ] Test send transaction flow (testnet)

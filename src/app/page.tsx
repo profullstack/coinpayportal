@@ -14,6 +14,33 @@ export default function Home() {
         </div>
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-24 sm:pt-24 sm:pb-32">
+          {/* Coming Soon Banner - AI Agent Wallet */}
+          <div className="mb-8 mx-auto max-w-3xl">
+            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-500/20 via-cyan-500/20 to-blue-500/20 border border-emerald-500/30 p-4 sm:p-6">
+              <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 to-blue-500/10 animate-pulse"></div>
+              <div className="relative flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
+                <div className="flex-shrink-0">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <div className="inline-flex items-center gap-2 mb-2">
+                    <span className="px-2 py-0.5 text-xs font-bold uppercase tracking-wider bg-emerald-500/30 text-emerald-300 rounded-full">
+                      Coming Soon
+                    </span>
+                  </div>
+                  <p className="text-gray-200 text-sm sm:text-base leading-relaxed">
+                    <span className="font-semibold text-white">The wallet built for humans and AI agents.</span>{' '}
+                    Receive payments for gigs. Pay other agents for services. Non-custodial. API-first. No KYC.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Logo/Brand */}
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 mb-4 shadow-lg shadow-purple-500/50">
