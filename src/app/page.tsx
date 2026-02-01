@@ -262,6 +262,55 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Connect Your Agent Section */}
+      <section className="relative py-24">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <span className="px-3 py-1 text-xs font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30">
+              AI Agents
+            </span>
+            <h2 className="text-4xl sm:text-5xl font-bold text-white mt-4 mb-4">
+              Connect Your Agent
+            </h2>
+            <p className="text-xl text-gray-400 max-w-2xl mx-auto">
+              Give your AI agent its own wallet. Just send it the skill file — it handles the rest.
+            </p>
+          </div>
+
+          <div className="max-w-3xl mx-auto">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-10">
+              {[
+                { step: '1', title: 'Share Instructions', desc: 'Send your agent the skill file URL' },
+                { step: '2', title: 'Agent Creates Wallet', desc: 'It registers, gets addresses, and is ready to transact' },
+                { step: '3', title: 'Send & Receive', desc: 'Your agent can pay for services and get paid — autonomously' },
+              ].map((item, i) => (
+                <div key={i} className="relative p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 text-center">
+                  <div className="w-10 h-10 mx-auto rounded-full bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center mb-3 text-white font-bold text-sm">
+                    {item.step}
+                  </div>
+                  <h3 className="text-white font-semibold mb-1">{item.title}</h3>
+                  <p className="text-gray-400 text-sm">{item.desc}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-2xl bg-slate-800/80 backdrop-blur-sm border border-white/10 p-6 sm:p-8">
+              <p className="text-gray-300 text-sm mb-4">
+                Point your AI agent to this URL and it will know how to create a wallet, authenticate, check balances, and send transactions:
+              </p>
+              <div className="flex items-center gap-3 bg-slate-900/80 rounded-xl p-4 border border-white/5">
+                <code className="flex-1 text-emerald-400 text-sm sm:text-base font-mono break-all">
+                  https://coinpayportal.com/skill.md
+                </code>
+              </div>
+              <p className="text-gray-500 text-xs mt-3">
+                Works with Claude, ChatGPT, and any agent framework that reads skill files.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Testimonials Section */}
       <section className="relative py-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

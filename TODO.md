@@ -119,38 +119,38 @@
 ## Phase 3: Bot SDK
 
 ### SDK Core
-- [ ] Create `@coinpayportal/wallet-sdk` package structure
-- [ ] Implement `Wallet.create()` - Create new wallet
-- [ ] Implement `Wallet.fromSeed()` - Import from seed
-- [ ] Implement `Wallet.fromWalletId()` - Read-only mode
-- [ ] Implement `wallet.getAddress()` - Get address for chain
-- [ ] Implement `wallet.getAddresses()` - Get all addresses
-- [ ] Implement `wallet.deriveAddress()` - Derive new address
+- [x] Create `@coinpayportal/wallet-sdk` package structure
+- [x] Implement `Wallet.create()` - Create new wallet
+- [x] Implement `Wallet.fromSeed()` - Import from seed
+- [x] Implement `Wallet.fromWalletId()` - Read-only mode
+- [x] Implement `wallet.getAddress()` - Get address for chain
+- [x] Implement `wallet.getAddresses()` - Get all addresses
+- [x] Implement `wallet.deriveAddress()` - Derive new address
 
 ### SDK Balance & History
-- [ ] Implement `wallet.getBalance()` - Get balance for chain
-- [ ] Implement `wallet.getBalances()` - Get all balances
+- [x] Implement `wallet.getBalance()` - Get balance for chain
+- [x] Implement `wallet.getBalances()` - Get all balances
 - [ ] Implement `wallet.getTotalBalanceUSD()` - Get total in USD
-- [ ] Implement `wallet.getTransactions()` - Get transaction history
-- [ ] Implement `wallet.getTransaction()` - Get single transaction
+- [x] Implement `wallet.getTransactions()` - Get transaction history
+- [x] Implement `wallet.getTransaction()` - Get single transaction
 
 ### SDK Transactions
-- [ ] Implement `wallet.send()` - Send transaction (full flow)
-- [ ] Implement `wallet.estimateFee()` - Estimate fees
-- [ ] Implement local signing within SDK
-- [ ] Add automatic retry logic
+- [x] Implement `wallet.send()` - Send transaction (full flow)
+- [x] Implement `wallet.estimateFee()` - Estimate fees
+- [x] Implement local signing within SDK
+- [x] Add automatic retry logic
 
 ### SDK Events
-- [ ] Implement `wallet.on('transaction.incoming')` - Incoming tx event
-- [ ] Implement `wallet.on('transaction.confirmed')` - Confirmation event
-- [ ] Implement `wallet.on('balance.changed')` - Balance change event
+- [x] Implement `wallet.on('transaction.incoming')` - Incoming tx event
+- [x] Implement `wallet.on('transaction.confirmed')` - Confirmation event
+- [x] Implement `wallet.on('balance.changed')` - Balance change event
 - [ ] Implement webhook registration for events
 
 ### SDK Utilities
-- [ ] Implement `isValidAddress()` - Address validation
-- [ ] Implement `retry()` - Retry helper
-- [ ] Create error classes (InsufficientFundsError, InvalidAddressError, etc.)
-- [ ] Add TypeScript type definitions
+- [x] Implement `isValidAddress()` - Address validation
+- [x] Implement `retry()` - Retry helper
+- [x] Create error classes (InsufficientFundsError, InvalidAddressError, etc.)
+- [x] Add TypeScript type definitions
 
 ### SDK CLI Tool
 - [ ] Create `coinpay-wallet create` command
@@ -284,7 +284,7 @@
 - [x] Test transaction building for all chains
 - [x] Test signature verification
 - [x] Test encryption/decryption
-- [ ] Test SDK methods
+- [x] Test SDK methods
 
 ### Integration Tests
 - [x] Test wallet creation flow
