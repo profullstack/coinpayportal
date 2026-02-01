@@ -39,6 +39,7 @@ beforeEach(() => {
     isUnlocked: true,
     deleteWallet: mockDeleteWallet,
     lock: mockLock,
+    changePassword: vi.fn().mockResolvedValue(true),
   };
 });
 

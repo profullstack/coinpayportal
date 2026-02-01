@@ -7,6 +7,7 @@ import { useWebWallet } from '@/components/web-wallet/WalletContext';
 import { WalletHeader } from '@/components/web-wallet/WalletHeader';
 import { ChainSelector } from '@/components/web-wallet/ChainSelector';
 import { AddressDisplay } from '@/components/web-wallet/AddressDisplay';
+import { QRCode } from '@/components/web-wallet/QRCode';
 
 interface WalletAddress {
   id: string;
@@ -14,6 +15,17 @@ interface WalletAddress {
   address: string;
   index: number;
 }
+
+const CHAIN_WARNINGS: Record<string, string> = {
+  BTC: 'Only send Bitcoin (BTC) to this address. Sending other assets will result in permanent loss.',
+  BCH: 'Only send Bitcoin Cash (BCH) to this address. BTC and BCH addresses may look similar but are not compatible.',
+  ETH: 'Only send Ethereum (ETH) or ERC-20 tokens to this address.',
+  POL: 'Only send Polygon (POL) or tokens on the Polygon network to this address. Do not send assets from other networks.',
+  SOL: 'Only send Solana (SOL) or SPL tokens to this address.',
+  USDC_ETH: 'Only send USDC on Ethereum to this address. USDC on other networks is not compatible.',
+  USDC_POL: 'Only send USDC on Polygon to this address. USDC on other networks is not compatible.',
+  USDC_SOL: 'Only send USDC on Solana to this address. USDC on other networks is not compatible.',
+};
 
 export default function ReceivePage() {
   const router = useRouter();
@@ -99,15 +111,27 @@ export default function ReceivePage() {
             label="Filter by chain"
           />
 
+          {/* Chain-specific warning */}
+          {selectedChain && CHAIN_WARNINGS[selectedChain] && (
+            <div
+              className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3"
+              role="alert"
+            >
+              <p className="text-xs text-yellow-400">
+                {CHAIN_WARNINGS[selectedChain]}
+              </p>
+            </div>
+          )}
+
           {error && (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3">
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3" role="alert">
               <p className="text-sm text-red-400">{error}</p>
             </div>
           )}
 
           {/* Address list */}
           {isLoading ? (
-            <div className="space-y-3">
+            <div className="space-y-3" aria-busy="true" aria-label="Loading addresses">
               {Array.from({ length: 2 }).map((_, i) => (
                 <div
                   key={i}
@@ -132,13 +156,13 @@ export default function ReceivePage() {
                     truncate={false}
                   />
 
-                  {/* QR-like display area */}
-                  <div className="mt-3 flex items-center justify-center rounded-lg bg-white p-4">
-                    <div className="text-center">
-                      <p className="text-xs text-gray-600 font-mono break-all">
-                        {addr.address}
-                      </p>
-                    </div>
+                  {/* QR Code */}
+                  <div className="mt-3 flex items-center justify-center">
+                    <QRCode
+                      value={addr.address}
+                      size={180}
+                      label={`${addr.chain} address`}
+                    />
                   </div>
                 </div>
               ))}
@@ -161,6 +185,7 @@ export default function ReceivePage() {
             <button
               onClick={handleDeriveAddress}
               disabled={isDeriving}
+              aria-busy={isDeriving}
               className="w-full rounded-xl border border-purple-500/30 bg-purple-500/10 px-6 py-3 text-sm font-medium text-purple-400 hover:bg-purple-500/20 transition-colors disabled:opacity-50"
             >
               {isDeriving

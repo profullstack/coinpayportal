@@ -7,8 +7,12 @@ import { useWebWallet } from '@/components/web-wallet/WalletContext';
 import { WalletHeader } from '@/components/web-wallet/WalletHeader';
 import { ChainSelector } from '@/components/web-wallet/ChainSelector';
 import { AmountInput } from '@/components/web-wallet/AmountInput';
+import {
+  decryptWithPassword,
+  loadWalletFromStorage,
+} from '@/lib/web-wallet/client-crypto';
 
-type Step = 'form' | 'confirm' | 'sending' | 'success' | 'error';
+type Step = 'form' | 'confirm' | 'password' | 'sending' | 'success' | 'error';
 type Priority = 'low' | 'medium' | 'high';
 
 interface FeeInfo {
@@ -40,6 +44,8 @@ export default function SendPage() {
   const [error, setError] = useState('');
   const [addressError, setAddressError] = useState('');
   const [amountError, setAmountError] = useState('');
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
 
   useEffect(() => {
     if (!isUnlocked) {
@@ -131,6 +137,36 @@ export default function SendPage() {
     setStep('confirm');
   };
 
+  const handleConfirmSend = () => {
+    setPassword('');
+    setPasswordError('');
+    setStep('password');
+  };
+
+  const handlePasswordSubmit = async () => {
+    if (!password) {
+      setPasswordError('Password is required');
+      return;
+    }
+
+    // Verify password by attempting to decrypt
+    const stored = loadWalletFromStorage();
+    if (!stored) {
+      setPasswordError('Wallet data not found');
+      return;
+    }
+
+    const result = await decryptWithPassword(stored.encrypted, password);
+    if (!result) {
+      setPasswordError('Incorrect password');
+      return;
+    }
+
+    // Password verified, proceed with send
+    setPassword('');
+    await handleSend();
+  };
+
   const handleSend = async () => {
     if (!wallet) return;
     setStep('sending');
@@ -199,11 +235,12 @@ export default function SendPage() {
                   From Address
                 </label>
                 {loadingAddrs ? (
-                  <div className="h-12 rounded-lg bg-white/5 animate-pulse" />
+                  <div className="h-12 rounded-lg bg-white/5 animate-pulse" aria-busy="true" />
                 ) : addresses.length > 0 ? (
                   <select
                     value={fromAddress}
                     onChange={(e) => setFromAddress(e.target.value)}
+                    aria-label="From address"
                     className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white font-mono text-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 appearance-none"
                   >
                     {addresses.map((a) => (
@@ -213,7 +250,7 @@ export default function SendPage() {
                     ))}
                   </select>
                 ) : (
-                  <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3">
+                  <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3" role="alert">
                     <p className="text-xs text-yellow-400">
                       No {chain} addresses found.{' '}
                       <Link
@@ -229,10 +266,11 @@ export default function SendPage() {
             )}
 
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-300">
+              <label htmlFor="recipient-address" className="block text-sm font-medium text-gray-300">
                 Recipient Address
               </label>
               <input
+                id="recipient-address"
                 type="text"
                 value={toAddress}
                 onChange={(e) => {
@@ -247,9 +285,11 @@ export default function SendPage() {
                 }`}
                 autoComplete="off"
                 spellCheck={false}
+                aria-invalid={!!addressError}
+                aria-describedby={addressError ? 'address-error' : undefined}
               />
               {addressError && (
-                <p className="text-xs text-red-400">{addressError}</p>
+                <p id="address-error" className="text-xs text-red-400" role="alert">{addressError}</p>
               )}
             </div>
 
@@ -271,13 +311,15 @@ export default function SendPage() {
                   Transaction Speed
                 </label>
                 {loadingFees ? (
-                  <div className="h-16 rounded-lg bg-white/5 animate-pulse" />
+                  <div className="h-16 rounded-lg bg-white/5 animate-pulse" aria-busy="true" />
                 ) : (
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Transaction speed">
                     {(['low', 'medium', 'high'] as const).map((level) => (
                       <button
                         key={level}
                         type="button"
+                        role="radio"
+                        aria-checked={priority === level}
                         onClick={() => setPriority(level)}
                         className={`rounded-lg border p-3 text-center transition-colors ${
                           priority === level
@@ -343,7 +385,7 @@ export default function SendPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-4">
+            <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-4" role="alert">
               <p className="text-xs text-yellow-400">
                 Please verify the address carefully. Transactions cannot be reversed.
               </p>
@@ -357,7 +399,7 @@ export default function SendPage() {
                 Edit
               </button>
               <button
-                onClick={handleSend}
+                onClick={handleConfirmSend}
                 className="flex-1 rounded-xl bg-purple-600 px-6 py-3 text-sm font-semibold text-white hover:bg-purple-500 transition-colors"
               >
                 Send Now
@@ -366,8 +408,71 @@ export default function SendPage() {
           </div>
         )}
 
+        {step === 'password' && (
+          <div className="space-y-6">
+            <div className="rounded-xl border border-white/10 bg-white/5 p-6 space-y-4">
+              <h2 className="text-lg font-semibold text-white">
+                Enter Password
+              </h2>
+              <p className="text-sm text-gray-400">
+                Enter your wallet password to authorize this transaction.
+              </p>
+
+              <div className="space-y-2">
+                <label htmlFor="send-password" className="block text-sm font-medium text-gray-300">
+                  Password
+                </label>
+                <input
+                  id="send-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setPasswordError('');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handlePasswordSubmit();
+                  }}
+                  placeholder="Enter your password"
+                  className={`w-full rounded-lg border bg-white/5 px-4 py-3 text-white placeholder-gray-500 text-sm focus:outline-none focus:ring-1 ${
+                    passwordError
+                      ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
+                      : 'border-white/10 focus:border-purple-500 focus:ring-purple-500'
+                  }`}
+                  autoFocus
+                  aria-invalid={!!passwordError}
+                  aria-describedby={passwordError ? 'password-error' : undefined}
+                />
+                {passwordError && (
+                  <p id="password-error" className="text-xs text-red-400" role="alert">{passwordError}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setPassword('');
+                  setPasswordError('');
+                  setStep('confirm');
+                }}
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 px-6 py-3 text-sm text-gray-300 hover:bg-white/10 transition-colors"
+              >
+                Back
+              </button>
+              <button
+                onClick={handlePasswordSubmit}
+                disabled={!password}
+                className="flex-1 rounded-xl bg-purple-600 px-6 py-3 text-sm font-semibold text-white hover:bg-purple-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Authorize & Send
+              </button>
+            </div>
+          </div>
+        )}
+
         {step === 'sending' && (
-          <div className="flex flex-col items-center justify-center py-16 space-y-4">
+          <div className="flex flex-col items-center justify-center py-16 space-y-4" aria-busy="true">
             <div className="h-12 w-12 animate-spin rounded-full border-3 border-purple-500 border-t-transparent" />
             <p className="text-sm text-gray-400">Signing & broadcasting...</p>
           </div>
@@ -382,6 +487,7 @@ export default function SendPage() {
                 viewBox="0 0 24 24"
                 stroke="currentColor"
                 strokeWidth={2}
+                aria-hidden="true"
               >
                 <path
                   strokeLinecap="round"
@@ -427,6 +533,7 @@ export default function SendPage() {
                 viewBox="0 0 24 24"
                 stroke="currentColor"
                 strokeWidth={2}
+                aria-hidden="true"
               >
                 <path
                   strokeLinecap="round"

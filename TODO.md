@@ -204,7 +204,7 @@
 - [x] Display asset list with balances
 - [x] Display recent transactions
 - [x] Add Send/Receive quick actions
-- [ ] Implement real-time balance updates
+- [x] Implement real-time balance updates
 
 ### Send Flow
 - [x] Implement chain/asset selector
@@ -213,7 +213,7 @@
 - [x] Implement Max button
 - [x] Implement fee priority selector
 - [x] Implement transaction confirmation screen
-- [ ] Implement password entry for signing
+- [x] Implement password entry for signing
 - [x] Implement transaction submission
 - [x] Display transaction result
 
@@ -222,18 +222,18 @@
 - [x] Display QR code for address
 - [x] Display address with copy button
 - [x] Implement "Generate New Address" button
-- [ ] Show chain-specific warnings
+- [x] Show chain-specific warnings
 
 ### Transaction History
 - [x] Display transaction list
 - [x] Implement filters (chain, direction, status)
-- [ ] Implement date range filter
+- [x] Implement date range filter
 - [x] Implement pagination/infinite scroll
 - [x] Link to transaction details
 
 ### Settings
 - [x] Implement auto-lock timeout setting
-- [ ] Implement password change
+- [x] Implement password change
 - [ ] Implement daily spend limit setting
 - [ ] Implement address whitelist management
 - [x] Implement "View Recovery Phrase" (password protected)
@@ -241,10 +241,10 @@
 
 ### Security UX
 - [x] Implement auto-lock on inactivity
-- [ ] Implement lock on tab close (optional)
+- [x] Implement lock on tab close (optional)
 - [x] Clear sensitive data from memory
 - [x] Add screenshot warning for seed display
-- [ ] Implement password entry for sensitive actions
+- [x] Implement password entry for sensitive actions
 
 ### UI Components
 - [x] Create `WalletHeader` component
@@ -253,7 +253,7 @@
 - [x] Create `TransactionList` component
 - [x] Create `TransactionItem` component
 - [x] Create `AddressDisplay` component
-- [ ] Create `QRCode` component
+- [x] Create `QRCode` component
 - [x] Create `ChainSelector` component
 - [x] Create `AmountInput` component
 - [x] Create `FeeSelector` component
@@ -269,10 +269,10 @@
 
 ### Accessibility
 - [x] Add keyboard navigation
-- [ ] Add screen reader support
+- [x] Add screen reader support
 - [ ] Ensure color contrast (4.5:1 minimum)
 - [x] Add focus indicators
-- [ ] Add ARIA labels
+- [x] Add ARIA labels
 
 ---
 

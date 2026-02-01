@@ -8,6 +8,8 @@
  * - SDK instance with auth
  * - Auto-lock on inactivity
  * - Lock/unlock state
+ * - Real-time balance polling
+ * - Lock on tab close (visibility change)
  */
 
 import {
@@ -30,6 +32,11 @@ import {
   type StoredWallet,
 } from '@/lib/web-wallet/client-crypto';
 
+interface BalanceInfo {
+  totalUsd: number;
+  lastUpdated: number;
+}
+
 interface WalletState {
   /** Whether a wallet exists in localStorage */
   hasWallet: boolean;
@@ -45,6 +52,8 @@ interface WalletState {
   isLoading: boolean;
   /** Error message */
   error: string | null;
+  /** Cached balance info for real-time updates */
+  balanceInfo: BalanceInfo | null;
 }
 
 interface WalletActions {
@@ -67,6 +76,13 @@ interface WalletActions {
   deleteWallet: () => void;
   /** Reset error */
   clearError: () => void;
+  /** Change the wallet password */
+  changePassword: (
+    currentPassword: string,
+    newPassword: string
+  ) => Promise<boolean>;
+  /** Refresh balance data */
+  refreshBalance: () => Promise<void>;
 }
 
 type WalletContextType = WalletState & WalletActions;
@@ -75,6 +91,7 @@ const WalletContext = createContext<WalletContextType | null>(null);
 
 const DEFAULT_CHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL'];
 const AUTO_LOCK_MS = 15 * 60 * 1000; // 15 minutes
+const BALANCE_POLL_MS = 30_000; // 30 seconds
 
 function getBaseUrl(): string {
   if (typeof window !== 'undefined') {
@@ -92,10 +109,12 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
     chains: [],
     isLoading: true,
     error: null,
+    balanceInfo: null,
   });
 
   const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activityRef = useRef<number>(Date.now());
+  const balancePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Check for stored wallet on mount
   useEffect(() => {
@@ -125,6 +144,7 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
             isUnlocked: false,
             wallet: null,
             error: null,
+            balanceInfo: null,
           };
         }
         return s;
@@ -147,6 +167,76 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
       if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
     };
   }, [state.isUnlocked, resetLockTimer]);
+
+  // Lock on tab close / visibility change
+  useEffect(() => {
+    if (!state.isUnlocked) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        setState((s) => {
+          if (s.isUnlocked) {
+            s.wallet?.destroy();
+            return {
+              ...s,
+              isUnlocked: false,
+              wallet: null,
+              error: null,
+              balanceInfo: null,
+            };
+          }
+          return s;
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [state.isUnlocked]);
+
+  // Real-time balance polling
+  const refreshBalance = useCallback(async () => {
+    const w = state.wallet;
+    if (!w) return;
+
+    try {
+      const data = await w.getTotalBalanceUSD();
+      setState((s) => ({
+        ...s,
+        balanceInfo: {
+          totalUsd: data.totalUsd,
+          lastUpdated: Date.now(),
+        },
+      }));
+    } catch {
+      // Silently fail — old balance stays displayed
+    }
+  }, [state.wallet]);
+
+  useEffect(() => {
+    if (!state.isUnlocked || !state.wallet) {
+      if (balancePollRef.current) {
+        clearInterval(balancePollRef.current);
+        balancePollRef.current = null;
+      }
+      return;
+    }
+
+    // Initial fetch
+    refreshBalance();
+
+    // Start polling
+    balancePollRef.current = setInterval(refreshBalance, BALANCE_POLL_MS);
+
+    return () => {
+      if (balancePollRef.current) {
+        clearInterval(balancePollRef.current);
+        balancePollRef.current = null;
+      }
+    };
+  }, [state.isUnlocked, state.wallet, refreshBalance]);
 
   const createWallet = useCallback(
     async (
@@ -298,6 +388,7 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
       isUnlocked: false,
       wallet: null,
       error: null,
+      balanceInfo: null,
     }));
   }, [state.wallet]);
 
@@ -312,12 +403,37 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
       chains: [],
       isLoading: false,
       error: null,
+      balanceInfo: null,
     });
   }, [state.wallet]);
 
   const clearError = useCallback(() => {
     setState((s) => ({ ...s, error: null }));
   }, []);
+
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string): Promise<boolean> => {
+      const stored = loadWalletFromStorage();
+      if (!stored) return false;
+
+      // Verify current password
+      const mnemonic = await decryptWithPassword(
+        stored.encrypted,
+        currentPassword
+      );
+      if (!mnemonic) return false;
+
+      // Re-encrypt with new password
+      const newEncrypted = await encryptWithPassword(mnemonic, newPassword);
+      const updated: StoredWallet = {
+        ...stored,
+        encrypted: newEncrypted,
+      };
+      saveWalletToStorage(updated);
+      return true;
+    },
+    []
+  );
 
   return (
     <WalletContext.Provider
@@ -329,6 +445,8 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
         lock,
         deleteWallet,
         clearError,
+        changePassword,
+        refreshBalance,
       }}
     >
       {children}
