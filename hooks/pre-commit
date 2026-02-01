@@ -1,0 +1,25 @@
+#!/bin/sh
+
+# CoinPay Pre-commit Hook
+# Runs build and tests before allowing commit
+
+echo "Running pre-commit checks..."
+
+# Run build
+echo "Building project..."
+pnpm build
+if [ $? -ne 0 ]; then
+  echo "❌ Build failed. Please fix errors before committing."
+  exit 1
+fi
+
+# Run tests
+echo "Running tests..."
+pnpm run pre-commit
+if [ $? -ne 0 ]; then
+  echo "❌ Tests failed. Please fix failing tests before committing."
+  exit 1
+fi
+
+echo "✅ All pre-commit checks passed!"
+exit 0
