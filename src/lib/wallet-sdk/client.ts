@@ -18,7 +18,7 @@ import {
 } from './errors';
 
 export interface RequestOptions {
-  method: 'GET' | 'POST' | 'PATCH';
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   path: string;
   body?: unknown;
   authenticated?: boolean;
@@ -183,7 +183,7 @@ export class WalletAPIClient {
       response = await this.fetchFn(url, {
         method,
         headers,
-        body: method !== 'GET' ? bodyStr || undefined : undefined,
+        body: method !== 'GET' && method !== 'DELETE' ? bodyStr || undefined : undefined,
       });
     } catch (err) {
       throw new NetworkError(

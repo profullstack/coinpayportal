@@ -14,7 +14,8 @@
     "type-check": "tsc --noEmit",
     "pre-commit": "pnpm build && vitest run",
     "generate-wallet": "node scripts/generate-hd-wallets.mjs",
-    "decrypt-wallet": "node scripts/decrypt-wallet-backup.mjs"
+    "decrypt-wallet": "node scripts/decrypt-wallet-backup.mjs",
+    "coinpay-wallet": "node --import tsx scripts/coinpay-wallet.mjs"
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",

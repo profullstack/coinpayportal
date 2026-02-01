@@ -35,6 +35,11 @@ import type {
   UpdateSettingsInput,
   FeeEstimateResult,
   WalletEventType,
+  TotalBalanceUSD,
+  BalanceWithUSD,
+  WebhookRegistration,
+  RegisterWebhookInput,
+  RegisterWebhookResult,
 } from './types';
 
 type EventCallback = (...args: any[]) => void;
@@ -509,6 +514,59 @@ export class Wallet {
     return mapSettings(data);
   }
 
+  // ── Total Balance USD ──
+
+  async getTotalBalanceUSD(): Promise<TotalBalanceUSD> {
+    const data = await this.client.request<any>({
+      method: 'GET',
+      path: `/api/web-wallet/${this._walletId}/balances/total-usd`,
+      authenticated: true,
+    });
+
+    return {
+      totalUsd: data.total_usd,
+      balances: (data.balances || []).map((b: any): BalanceWithUSD => ({
+        chain: b.chain,
+        address: b.address,
+        balance: b.balance,
+        usdValue: b.usd_value,
+        rate: b.rate,
+        updatedAt: b.updated_at,
+      })),
+    };
+  }
+
+  // ── Webhooks ──
+
+  async registerWebhook(input: RegisterWebhookInput): Promise<RegisterWebhookResult> {
+    const data = await this.client.request<any>({
+      method: 'POST',
+      path: `/api/web-wallet/${this._walletId}/webhooks`,
+      body: { url: input.url, events: input.events },
+      authenticated: true,
+    });
+
+    return mapWebhook(data) as RegisterWebhookResult;
+  }
+
+  async listWebhooks(): Promise<WebhookRegistration[]> {
+    const data = await this.client.request<any>({
+      method: 'GET',
+      path: `/api/web-wallet/${this._walletId}/webhooks`,
+      authenticated: true,
+    });
+
+    return (data.webhooks || []).map(mapWebhook);
+  }
+
+  async deleteWebhook(webhookId: string): Promise<void> {
+    await this.client.request<any>({
+      method: 'DELETE',
+      path: `/api/web-wallet/${this._walletId}/webhooks/${webhookId}`,
+      authenticated: true,
+    });
+  }
+
   // ── Events ──
 
   on(event: WalletEventType, callback: EventCallback): void {
@@ -594,5 +652,19 @@ function mapSettings(data: any): WalletSettings {
     whitelistEnabled: data.whitelist_enabled,
     requireConfirmation: data.require_confirmation,
     confirmationDelaySeconds: data.confirmation_delay_seconds,
+  };
+}
+
+function mapWebhook(raw: any): WebhookRegistration {
+  return {
+    id: raw.id,
+    url: raw.url,
+    events: raw.events || [],
+    isActive: raw.is_active ?? true,
+    secret: raw.secret,
+    lastDeliveredAt: raw.last_delivered_at ?? null,
+    lastError: raw.last_error ?? null,
+    consecutiveFailures: raw.consecutive_failures ?? 0,
+    createdAt: raw.created_at,
   };
 }

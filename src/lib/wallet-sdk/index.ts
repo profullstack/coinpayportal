@@ -34,4 +34,9 @@ export type {
   WalletEvent,
   TransactionEvent,
   BalanceChangedEvent,
+  TotalBalanceUSD,
+  BalanceWithUSD,
+  WebhookRegistration,
+  RegisterWebhookInput,
+  RegisterWebhookResult,
 } from './types';

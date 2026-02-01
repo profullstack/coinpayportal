@@ -205,3 +205,43 @@ export interface BalanceChangedEvent {
   previousBalance: string;
   newBalance: string;
 }
+
+// ── Total Balance USD ──
+
+export interface BalanceWithUSD {
+  chain: WalletChain;
+  address: string;
+  balance: string;
+  usdValue: number;
+  rate: number;
+  updatedAt: string;
+}
+
+export interface TotalBalanceUSD {
+  totalUsd: number;
+  balances: BalanceWithUSD[];
+}
+
+// ── Webhooks ──
+
+export interface WebhookRegistration {
+  id: string;
+  url: string;
+  events: string[];
+  isActive: boolean;
+  secret?: string;
+  lastDeliveredAt: string | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+  createdAt: string;
+}
+
+export interface RegisterWebhookInput {
+  url: string;
+  events?: string[];
+}
+
+export interface RegisterWebhookResult extends WebhookRegistration {
+  /** The signing secret — only returned on creation. Store it securely. */
+  secret: string;
+}

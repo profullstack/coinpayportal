@@ -130,7 +130,7 @@
 ### SDK Balance & History
 - [x] Implement `wallet.getBalance()` - Get balance for chain
 - [x] Implement `wallet.getBalances()` - Get all balances
-- [ ] Implement `wallet.getTotalBalanceUSD()` - Get total in USD
+- [x] Implement `wallet.getTotalBalanceUSD()` - Get total in USD
 - [x] Implement `wallet.getTransactions()` - Get transaction history
 - [x] Implement `wallet.getTransaction()` - Get single transaction
 
@@ -144,7 +144,7 @@
 - [x] Implement `wallet.on('transaction.incoming')` - Incoming tx event
 - [x] Implement `wallet.on('transaction.confirmed')` - Confirmation event
 - [x] Implement `wallet.on('balance.changed')` - Balance change event
-- [ ] Implement webhook registration for events
+- [x] Implement webhook registration for events
 
 ### SDK Utilities
 - [x] Implement `isValidAddress()` - Address validation
@@ -153,14 +153,14 @@
 - [x] Add TypeScript type definitions
 
 ### SDK CLI Tool
-- [ ] Create `coinpay-wallet create` command
-- [ ] Create `coinpay-wallet import` command
-- [ ] Create `coinpay-wallet balance` command
-- [ ] Create `coinpay-wallet send` command
-- [ ] Create `coinpay-wallet address` command
-- [ ] Create `coinpay-wallet history` command
-- [ ] Support environment variable configuration
-- [ ] Support config file
+- [x] Create `coinpay-wallet create` command
+- [x] Create `coinpay-wallet import` command
+- [x] Create `coinpay-wallet balance` command
+- [x] Create `coinpay-wallet send` command
+- [x] Create `coinpay-wallet address` command
+- [x] Create `coinpay-wallet history` command
+- [x] Support environment variable configuration
+- [x] Support config file
 
 ### SDK Documentation
 - [ ] Write SDK README with quick start

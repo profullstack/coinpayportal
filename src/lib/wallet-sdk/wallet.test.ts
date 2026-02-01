@@ -666,6 +666,150 @@ describe('Wallet', () => {
     });
   });
 
+  describe('getTotalBalanceUSD()', () => {
+    it('should fetch total balance in USD with per-address breakdown', async () => {
+      const wallet = Wallet.fromWalletId('w1', {
+        ...SDK_CONFIG,
+        authToken: 'jwt',
+        authTokenExpiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      });
+
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          total_usd: 5250.75,
+          balances: [
+            {
+              chain: 'ETH',
+              address: '0xabc',
+              balance: '1.5',
+              usd_value: 5000.25,
+              rate: 3333.50,
+              updated_at: '2024-01-01T00:00:00Z',
+            },
+            {
+              chain: 'BTC',
+              address: '1abc',
+              balance: '0.005',
+              usd_value: 250.50,
+              rate: 50100.00,
+              updated_at: '2024-01-01T00:00:00Z',
+            },
+          ],
+        })
+      );
+
+      const result = await wallet.getTotalBalanceUSD();
+
+      expect(result.totalUsd).toBe(5250.75);
+      expect(result.balances).toHaveLength(2);
+      expect(result.balances[0].chain).toBe('ETH');
+      expect(result.balances[0].usdValue).toBe(5000.25);
+      expect(result.balances[0].rate).toBe(3333.50);
+      expect(result.balances[1].chain).toBe('BTC');
+      expect(mockFetch.mock.calls[0][0]).toContain('/balances/total-usd');
+    });
+  });
+
+  describe('registerWebhook()', () => {
+    it('should register a webhook and return secret', async () => {
+      const wallet = Wallet.fromWalletId('w1', {
+        ...SDK_CONFIG,
+        authToken: 'jwt',
+        authTokenExpiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      });
+
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          id: 'wh-1',
+          url: 'https://example.com/hook',
+          events: ['transaction.incoming', 'balance.changed'],
+          is_active: true,
+          secret: 'webhook-secret-123',
+          last_delivered_at: null,
+          last_error: null,
+          consecutive_failures: 0,
+          created_at: '2024-01-01T00:00:00Z',
+        })
+      );
+
+      const result = await wallet.registerWebhook({
+        url: 'https://example.com/hook',
+        events: ['transaction.incoming', 'balance.changed'],
+      });
+
+      expect(result.id).toBe('wh-1');
+      expect(result.url).toBe('https://example.com/hook');
+      expect(result.secret).toBe('webhook-secret-123');
+      expect(result.events).toEqual(['transaction.incoming', 'balance.changed']);
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.url).toBe('https://example.com/hook');
+    });
+  });
+
+  describe('listWebhooks()', () => {
+    it('should list all webhooks for the wallet', async () => {
+      const wallet = Wallet.fromWalletId('w1', {
+        ...SDK_CONFIG,
+        authToken: 'jwt',
+        authTokenExpiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      });
+
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          webhooks: [
+            {
+              id: 'wh-1',
+              url: 'https://example.com/hook1',
+              events: ['transaction.incoming'],
+              is_active: true,
+              last_delivered_at: null,
+              last_error: null,
+              consecutive_failures: 0,
+              created_at: '2024-01-01T00:00:00Z',
+            },
+            {
+              id: 'wh-2',
+              url: 'https://example.com/hook2',
+              events: ['balance.changed'],
+              is_active: false,
+              last_delivered_at: '2024-01-02T00:00:00Z',
+              last_error: 'HTTP 500',
+              consecutive_failures: 3,
+              created_at: '2024-01-01T00:00:00Z',
+            },
+          ],
+        })
+      );
+
+      const webhooks = await wallet.listWebhooks();
+
+      expect(webhooks).toHaveLength(2);
+      expect(webhooks[0].url).toBe('https://example.com/hook1');
+      expect(webhooks[0].isActive).toBe(true);
+      expect(webhooks[1].isActive).toBe(false);
+      expect(webhooks[1].consecutiveFailures).toBe(3);
+    });
+  });
+
+  describe('deleteWebhook()', () => {
+    it('should delete a webhook', async () => {
+      const wallet = Wallet.fromWalletId('w1', {
+        ...SDK_CONFIG,
+        authToken: 'jwt',
+        authTokenExpiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      });
+
+      mockFetch.mockResolvedValueOnce(okResponse({ deleted: true }));
+
+      await wallet.deleteWebhook('wh-1');
+
+      expect(mockFetch.mock.calls[0][0]).toContain('/webhooks/wh-1');
+      const opts = mockFetch.mock.calls[0][1];
+      expect(opts.method).toBe('DELETE');
+    });
+  });
+
   describe('destroy()', () => {
     it('should clear mnemonic and private keys', async () => {
       mockFetch.mockResolvedValueOnce(
