@@ -173,105 +173,105 @@
 ## Phase 4: Web Wallet UI
 
 ### Core Pages
-- [ ] Create `/web-wallet` landing page
-- [ ] Create `/web-wallet/create` - Create wallet flow
-- [ ] Create `/web-wallet/import` - Import wallet flow
-- [ ] Create `/web-wallet/unlock` - Unlock screen
-- [ ] Create `/web-wallet` dashboard (authenticated)
-- [ ] Create `/web-wallet/send` - Send transaction
-- [ ] Create `/web-wallet/receive` - Receive addresses
-- [ ] Create `/web-wallet/history` - Transaction history
-- [ ] Create `/web-wallet/settings` - Wallet settings
-- [ ] Create `/web-wallet/tx/[hash]` - Transaction details
+- [x] Create `/web-wallet` landing page
+- [x] Create `/web-wallet/create` - Create wallet flow
+- [x] Create `/web-wallet/import` - Import wallet flow
+- [x] Create `/web-wallet/unlock` - Unlock screen
+- [x] Create `/web-wallet` dashboard (authenticated)
+- [x] Create `/web-wallet/send` - Send transaction
+- [x] Create `/web-wallet/receive` - Receive addresses
+- [x] Create `/web-wallet/history` - Transaction history
+- [x] Create `/web-wallet/settings` - Wallet settings
+- [x] Create `/web-wallet/tx/[hash]` - Transaction details
 
 ### Wallet Creation Flow
-- [ ] Implement seed phrase generation UI
-- [ ] Implement seed phrase display (numbered grid)
-- [ ] Implement seed backup verification (select random words)
-- [ ] Implement password creation with strength indicator
-- [ ] Implement seed encryption with AES-256-GCM
-- [ ] Store encrypted seed in localStorage
+- [x] Implement seed phrase generation UI
+- [x] Implement seed phrase display (numbered grid)
+- [x] Implement seed backup verification (select random words)
+- [x] Implement password creation with strength indicator
+- [x] Implement seed encryption with AES-256-GCM
+- [x] Store encrypted seed in localStorage
 
 ### Wallet Import Flow
-- [ ] Implement seed phrase input UI
-- [ ] Implement seed validation
-- [ ] Implement address discovery (gap limit scan)
-- [ ] Implement password creation
-- [ ] Store encrypted seed in localStorage
+- [x] Implement seed phrase input UI
+- [x] Implement seed validation
+- [x] Implement address discovery (gap limit scan)
+- [x] Implement password creation
+- [x] Store encrypted seed in localStorage
 
 ### Dashboard
-- [ ] Display total balance in USD
-- [ ] Display asset list with balances
-- [ ] Display recent transactions
-- [ ] Add Send/Receive quick actions
+- [x] Display total balance in USD
+- [x] Display asset list with balances
+- [x] Display recent transactions
+- [x] Add Send/Receive quick actions
 - [ ] Implement real-time balance updates
 
 ### Send Flow
-- [ ] Implement chain/asset selector
-- [ ] Implement recipient address input with validation
-- [ ] Implement amount input with USD conversion
-- [ ] Implement Max button
-- [ ] Implement fee priority selector
-- [ ] Implement transaction confirmation screen
+- [x] Implement chain/asset selector
+- [x] Implement recipient address input with validation
+- [x] Implement amount input with USD conversion
+- [x] Implement Max button
+- [x] Implement fee priority selector
+- [x] Implement transaction confirmation screen
 - [ ] Implement password entry for signing
-- [ ] Implement transaction submission
-- [ ] Display transaction result
+- [x] Implement transaction submission
+- [x] Display transaction result
 
 ### Receive Flow
-- [ ] Implement chain/asset selector
-- [ ] Display QR code for address
-- [ ] Display address with copy button
-- [ ] Implement "Generate New Address" button
+- [x] Implement chain/asset selector
+- [x] Display QR code for address
+- [x] Display address with copy button
+- [x] Implement "Generate New Address" button
 - [ ] Show chain-specific warnings
 
 ### Transaction History
-- [ ] Display transaction list
-- [ ] Implement filters (chain, direction, status)
+- [x] Display transaction list
+- [x] Implement filters (chain, direction, status)
 - [ ] Implement date range filter
-- [ ] Implement pagination/infinite scroll
-- [ ] Link to transaction details
+- [x] Implement pagination/infinite scroll
+- [x] Link to transaction details
 
 ### Settings
-- [ ] Implement auto-lock timeout setting
+- [x] Implement auto-lock timeout setting
 - [ ] Implement password change
 - [ ] Implement daily spend limit setting
 - [ ] Implement address whitelist management
-- [ ] Implement "View Recovery Phrase" (password protected)
-- [ ] Implement "Delete Wallet from Device"
+- [x] Implement "View Recovery Phrase" (password protected)
+- [x] Implement "Delete Wallet from Device"
 
 ### Security UX
-- [ ] Implement auto-lock on inactivity
+- [x] Implement auto-lock on inactivity
 - [ ] Implement lock on tab close (optional)
-- [ ] Clear sensitive data from memory
-- [ ] Add screenshot warning for seed display
+- [x] Clear sensitive data from memory
+- [x] Add screenshot warning for seed display
 - [ ] Implement password entry for sensitive actions
 
 ### UI Components
-- [ ] Create `WalletHeader` component
-- [ ] Create `BalanceCard` component
-- [ ] Create `AssetList` component
-- [ ] Create `TransactionList` component
-- [ ] Create `TransactionItem` component
-- [ ] Create `AddressDisplay` component
+- [x] Create `WalletHeader` component
+- [x] Create `BalanceCard` component
+- [x] Create `AssetList` component
+- [x] Create `TransactionList` component
+- [x] Create `TransactionItem` component
+- [x] Create `AddressDisplay` component
 - [ ] Create `QRCode` component
-- [ ] Create `ChainSelector` component
-- [ ] Create `AmountInput` component
-- [ ] Create `FeeSelector` component
-- [ ] Create `PasswordInput` component
-- [ ] Create `SeedDisplay` component
-- [ ] Create `SeedInput` component
+- [x] Create `ChainSelector` component
+- [x] Create `AmountInput` component
+- [x] Create `FeeSelector` component
+- [x] Create `PasswordInput` component
+- [x] Create `SeedDisplay` component
+- [x] Create `SeedInput` component
 
 ### Responsive Design
-- [ ] Implement mobile layout
-- [ ] Implement tablet layout
-- [ ] Add bottom navigation for mobile
+- [x] Implement mobile layout
+- [x] Implement tablet layout
+- [x] Add bottom navigation for mobile
 - [ ] Test on various screen sizes
 
 ### Accessibility
-- [ ] Add keyboard navigation
+- [x] Add keyboard navigation
 - [ ] Add screen reader support
 - [ ] Ensure color contrast (4.5:1 minimum)
-- [ ] Add focus indicators
+- [x] Add focus indicators
 - [ ] Add ARIA labels
 
 ---
