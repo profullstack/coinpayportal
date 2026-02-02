@@ -1,9 +1,10 @@
 {
   "name": "@profullstack/coinpay",
   "version": "0.2.0",
-  "description": "CoinPay SDK & CLI - Cryptocurrency payment integration for Node.js",
+  "description": "CoinPay SDK & CLI — Accept cryptocurrency payments (BTC, ETH, SOL, POL, BCH, USDC) in your Node.js application",
   "type": "module",
   "main": "./src/index.js",
+  "types": "./src/index.d.ts",
   "bin": {
     "coinpay": "./bin/coinpay.js"
   },
@@ -24,28 +25,44 @@
   "files": [
     "src",
     "bin",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src bin test",
-    "format": "prettier --write src bin test"
+    "format": "prettier --write src bin test",
+    "prepublishOnly": "npm run test && npm run lint"
   },
   "keywords": [
     "coinpay",
     "profullstack",
     "cryptocurrency",
+    "crypto",
     "payments",
     "bitcoin",
     "ethereum",
     "solana",
     "polygon",
+    "usdc",
+    "stablecoin",
+    "non-custodial",
+    "wallet",
     "sdk",
-    "cli"
+    "cli",
+    "web3",
+    "blockchain",
+    "payment-gateway",
+    "merchant"
   ],
   "author": "Profullstack, Inc.",
   "license": "MIT",
+  "homepage": "https://coinpayportal.com",
+  "bugs": {
+    "url": "https://github.com/profullstack/coinpayportal/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/profullstack/coinpayportal.git",
