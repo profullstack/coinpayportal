@@ -48,7 +48,7 @@ export function PasswordInput({
         <button
           type="button"
           onClick={() => setVisible(!visible)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 transition-colors"
           tabIndex={-1}
         >
           {visible ? 'Hide' : 'Show'}
@@ -66,7 +66,7 @@ export function PasswordInput({
               />
             ))}
           </div>
-          <p className="text-xs text-gray-500">{strength.label}</p>
+          <p className="text-xs text-gray-400">{strength.label}</p>
         </div>
       )}
     </div>

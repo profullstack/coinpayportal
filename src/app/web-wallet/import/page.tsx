@@ -56,7 +56,7 @@ export default function ImportWalletPage() {
       <div className="mb-8">
         <Link
           href="/web-wallet"
-          className="text-sm text-gray-500 hover:text-gray-300 transition-colors"
+          className="text-sm text-gray-400 hover:text-gray-200 transition-colors"
         >
           &larr; Back
         </Link>

@@ -84,7 +84,7 @@ function LandingView() {
           </Link>
         </div>
 
-        <div className="space-y-2 text-xs text-gray-600">
+        <div className="space-y-2 text-xs text-gray-400">
           <p>No email. No KYC. No tracking.</p>
           <p>Your seed phrase is your identity.</p>
         </div>
@@ -159,33 +159,33 @@ function DashboardView() {
         <BalanceCard totalUsd={totalUsd} isLoading={loadingBalances} />
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
           <Link
             href="/web-wallet/send"
-            className="flex flex-col items-center gap-2 rounded-xl border border-white/5 bg-white/5 p-4 hover:bg-white/10 transition-colors"
+            className="flex flex-col items-center gap-1.5 sm:gap-2 rounded-xl border border-white/5 bg-white/5 p-3 sm:p-4 hover:bg-white/10 transition-colors"
           >
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-600/20 text-purple-400">
+            <span className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-purple-600/20 text-purple-400">
               &uarr;
             </span>
-            <span className="text-sm text-gray-300">Send</span>
+            <span className="text-xs sm:text-sm text-gray-300">Send</span>
           </Link>
           <Link
             href="/web-wallet/receive"
-            className="flex flex-col items-center gap-2 rounded-xl border border-white/5 bg-white/5 p-4 hover:bg-white/10 transition-colors"
+            className="flex flex-col items-center gap-1.5 sm:gap-2 rounded-xl border border-white/5 bg-white/5 p-3 sm:p-4 hover:bg-white/10 transition-colors"
           >
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-green-600/20 text-green-400">
+            <span className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-green-600/20 text-green-400">
               &darr;
             </span>
-            <span className="text-sm text-gray-300">Receive</span>
+            <span className="text-xs sm:text-sm text-gray-300">Receive</span>
           </Link>
           <Link
             href="/web-wallet/history"
-            className="flex flex-col items-center gap-2 rounded-xl border border-white/5 bg-white/5 p-4 hover:bg-white/10 transition-colors"
+            className="flex flex-col items-center gap-1.5 sm:gap-2 rounded-xl border border-white/5 bg-white/5 p-3 sm:p-4 hover:bg-white/10 transition-colors"
           >
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600/20 text-blue-400">
+            <span className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-blue-600/20 text-blue-400">
               &#x2630;
             </span>
-            <span className="text-sm text-gray-300">History</span>
+            <span className="text-xs sm:text-sm text-gray-300">History</span>
           </Link>
         </div>
 
@@ -195,7 +195,7 @@ function DashboardView() {
             <h2 className="text-lg font-semibold text-white">Assets</h2>
             <button
               onClick={fetchData}
-              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
             >
               Refresh
             </button>

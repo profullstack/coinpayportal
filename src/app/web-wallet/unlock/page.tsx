@@ -46,7 +46,7 @@ export default function UnlockWalletPage() {
           </div>
           <h1 className="text-2xl font-bold text-white">Unlock Wallet</h1>
           {walletId && (
-            <p className="mt-1 text-xs text-gray-500 font-mono">
+            <p className="mt-1 text-xs text-gray-400 font-mono">
               {walletId.slice(0, 8)}...{walletId.slice(-4)}
             </p>
           )}
@@ -79,7 +79,7 @@ export default function UnlockWalletPage() {
         <div className="space-y-3 pt-4 border-t border-white/10">
           <Link
             href="/web-wallet/import"
-            className="block text-center text-sm text-gray-500 hover:text-gray-300 transition-colors"
+            className="block text-center text-sm text-gray-400 hover:text-gray-200 transition-colors"
           >
             Import different wallet
           </Link>
@@ -87,7 +87,7 @@ export default function UnlockWalletPage() {
           {!showDelete ? (
             <button
               onClick={() => setShowDelete(true)}
-              className="block w-full text-center text-sm text-red-500/50 hover:text-red-400 transition-colors"
+              className="block w-full text-center text-sm text-red-400/70 hover:text-red-400 transition-colors"
             >
               Delete wallet from this device
             </button>

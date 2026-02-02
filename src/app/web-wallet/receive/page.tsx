@@ -93,7 +93,7 @@ export default function ReceivePage() {
         <div className="mb-6">
           <Link
             href="/web-wallet"
-            className="text-sm text-gray-500 hover:text-gray-300 transition-colors"
+            className="text-sm text-gray-400 hover:text-gray-200 transition-colors"
           >
             &larr; Dashboard
           </Link>
@@ -169,12 +169,12 @@ export default function ReceivePage() {
             </div>
           ) : (
             <div className="rounded-xl border border-white/5 bg-white/5 p-8 text-center">
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-400">
                 {selectedChain
                   ? `No ${selectedChain} addresses yet`
                   : 'No addresses yet'}
               </p>
-              <p className="mt-1 text-xs text-gray-600">
+              <p className="mt-1 text-xs text-gray-400">
                 Derive an address to get started
               </p>
             </div>

@@ -49,7 +49,7 @@ export function TransactionList({
   if (transactions.length === 0) {
     return (
       <div className="rounded-xl border border-white/5 bg-white/5 p-8 text-center">
-        <p className="text-sm text-gray-500">{emptyMessage}</p>
+        <p className="text-sm text-gray-400">{emptyMessage}</p>
       </div>
     );
   }
@@ -80,7 +80,7 @@ export function TransactionList({
               <ChainBadge chain={tx.chain} />
               <StatusBadge status={tx.status} />
             </div>
-            <p className="truncate text-xs text-gray-500 font-mono">
+            <p className="truncate text-xs text-gray-400 font-mono">
               {tx.type === 'send'
                 ? `To: ${tx.toAddress?.slice(0, 10)}...`
                 : `From: ${tx.fromAddress?.slice(0, 10)}...`}
@@ -96,7 +96,7 @@ export function TransactionList({
               {tx.type === 'send' ? '-' : '+'}
               {tx.amount}
             </p>
-            <p className="text-xs text-gray-600">
+            <p className="text-xs text-gray-400">
               {formatRelativeTime(tx.createdAt)}
             </p>
           </div>

@@ -209,7 +209,7 @@ export default function SendPage() {
         <div className="mb-6">
           <Link
             href="/web-wallet"
-            className="text-sm text-gray-500 hover:text-gray-300 transition-colors"
+            className="text-sm text-gray-400 hover:text-gray-200 transition-colors"
           >
             &larr; Dashboard
           </Link>
@@ -331,7 +331,7 @@ export default function SendPage() {
                           {priorityLabels[level]}
                         </p>
                         {fees && (
-                          <p className="mt-1 text-[10px] text-gray-500">
+                          <p className="mt-1 text-[10px] text-gray-400">
                             {fees[level].fee} {fees[level].feeCurrency}
                           </p>
                         )}
@@ -503,7 +503,7 @@ export default function SendPage() {
               </p>
             </div>
             {txHash && (
-              <p className="text-xs text-gray-500 font-mono break-all">
+              <p className="text-xs text-gray-400 font-mono break-all">
                 TX: {txHash}
               </p>
             )}
@@ -570,7 +570,7 @@ function Row({
 }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-sm text-gray-500">{label}</span>
+      <span className="text-sm text-gray-400">{label}</span>
       <span
         className={`text-sm text-white ${mono ? 'font-mono' : ''}`}
       >

@@ -48,7 +48,7 @@ export function AmountInput({
           onChange={(e) => handleChange(e.target.value)}
           placeholder="0.00"
           disabled={disabled}
-          className={`w-full rounded-lg border bg-white/5 px-4 py-3 pr-20 text-lg text-white placeholder-gray-600 focus:outline-none focus:ring-1 disabled:opacity-50 ${
+          className={`w-full rounded-lg border bg-white/5 px-4 py-3 pr-20 text-lg text-white placeholder-gray-500 focus:outline-none focus:ring-1 disabled:opacity-50 ${
             error
               ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
               : 'border-white/10 focus:border-purple-500 focus:ring-purple-500'
@@ -65,13 +65,13 @@ export function AmountInput({
             </button>
           )}
           {symbol && (
-            <span className="text-sm text-gray-500">{symbol}</span>
+            <span className="text-sm text-gray-400">{symbol}</span>
           )}
         </div>
       </div>
       <div className="flex items-center justify-between">
         {usdValue && (
-          <p className="text-xs text-gray-500">&asymp; ${usdValue} USD</p>
+          <p className="text-xs text-gray-400">&asymp; ${usdValue} USD</p>
         )}
         {error && <p className="text-xs text-red-400">{error}</p>}
       </div>

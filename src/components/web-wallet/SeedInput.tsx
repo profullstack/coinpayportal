@@ -77,17 +77,17 @@ export function SeedInput({
           spellCheck={false}
         />
       ) : (
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {Array.from({ length: wordCount }).map((_, i) => (
             <div key={i} className="flex items-center gap-1">
-              <span className="text-xs text-gray-500 font-mono w-5 text-right">
+              <span className="text-xs text-gray-400 font-mono w-5 text-right">
                 {i + 1}.
               </span>
               <input
                 type="text"
                 value={words[i] || ''}
                 onChange={(e) => handleWordChange(i, e.target.value)}
-                className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-white font-mono placeholder-gray-600 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-white font-mono placeholder-gray-500 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
                 autoComplete="off"
                 spellCheck={false}
               />
@@ -97,7 +97,7 @@ export function SeedInput({
       )}
 
       <div className="flex items-center justify-between">
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-gray-400">
           {words.length} / {wordCount} words
         </p>
         {error && <p className="text-xs text-red-400">{error}</p>}

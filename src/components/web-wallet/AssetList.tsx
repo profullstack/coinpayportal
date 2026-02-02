@@ -39,8 +39,8 @@ export function AssetList({ assets, isLoading, onSelect }: AssetListProps) {
   if (assets.length === 0) {
     return (
       <div className="rounded-xl border border-white/5 bg-white/5 p-8 text-center">
-        <p className="text-sm text-gray-500">No assets yet</p>
-        <p className="mt-1 text-xs text-gray-600">
+        <p className="text-sm text-gray-400">No assets yet</p>
+        <p className="mt-1 text-xs text-gray-400">
           Derive an address to get started
         </p>
       </div>
@@ -60,7 +60,7 @@ export function AssetList({ assets, isLoading, onSelect }: AssetListProps) {
             <p className="text-sm font-medium text-white">
               {asset.balance} {getSymbol(asset.chain)}
             </p>
-            <p className="truncate text-xs text-gray-500 font-mono">
+            <p className="truncate text-xs text-gray-400 font-mono">
               {asset.address.slice(0, 10)}...{asset.address.slice(-6)}
             </p>
           </div>

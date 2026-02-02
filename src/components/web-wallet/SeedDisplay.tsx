@@ -24,7 +24,7 @@ export function SeedDisplay({ mnemonic, onConfirmed }: SeedDisplayProps) {
         <p className="text-sm font-medium text-yellow-400">
           Write down your recovery phrase
         </p>
-        <p className="mt-1 text-xs text-yellow-400/70">
+        <p className="mt-1 text-xs text-yellow-500">
           Store it in a safe place. Anyone with this phrase can access your funds.
           Never share it with anyone.
         </p>
@@ -39,13 +39,13 @@ export function SeedDisplay({ mnemonic, onConfirmed }: SeedDisplayProps) {
         </button>
       ) : (
         <div className="space-y-3">
-          <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/10 bg-white/5 p-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-xl border border-white/10 bg-white/5 p-4">
             {words.map((word, i) => (
               <div
                 key={i}
                 className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2"
               >
-                <span className="text-xs text-gray-500 font-mono w-5 text-right">
+                <span className="text-xs text-gray-400 font-mono w-5 text-right">
                   {i + 1}.
                 </span>
                 <span className="text-sm text-white font-mono">{word}</span>

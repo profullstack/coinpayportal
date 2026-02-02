@@ -69,7 +69,7 @@ export function QRCode({ value, size = 200, label }: QRCodeProps) {
         />
       </div>
       {label && (
-        <p className="text-xs text-gray-500">{label}</p>
+        <p className="text-xs text-gray-400">{label}</p>
       )}
     </div>
   );

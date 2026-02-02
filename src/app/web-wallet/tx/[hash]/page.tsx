@@ -86,7 +86,7 @@ export default function TransactionDetailPage({
         <div className="mb-6">
           <Link
             href="/web-wallet/history"
-            className="text-sm text-gray-500 hover:text-gray-300 transition-colors"
+            className="text-sm text-gray-400 hover:text-gray-200 transition-colors"
           >
             &larr; History
           </Link>
@@ -137,7 +137,7 @@ export default function TransactionDetailPage({
               </p>
               <div className="mt-2 flex items-center justify-center gap-2">
                 <ChainBadge chain={tx.chain} />
-                <span className="text-sm text-gray-500 capitalize">{tx.type}</span>
+                <span className="text-sm text-gray-400 capitalize">{tx.type}</span>
               </div>
             </div>
 
@@ -145,14 +145,14 @@ export default function TransactionDetailPage({
             <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-4">
               {tx.fromAddress && (
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">From</p>
+                  <p className="text-xs text-gray-400 mb-1">From</p>
                   <AddressDisplay address={tx.fromAddress} truncate={false} />
                 </div>
               )}
 
               {tx.toAddress && (
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">To</p>
+                  <p className="text-xs text-gray-400 mb-1">To</p>
                   <AddressDisplay address={tx.toAddress} truncate={false} />
                 </div>
               )}
@@ -193,7 +193,7 @@ function DetailRow({
 }) {
   return (
     <div className="flex items-start justify-between gap-4">
-      <span className="shrink-0 text-sm text-gray-500">{label}</span>
+      <span className="shrink-0 text-sm text-gray-400">{label}</span>
       <span
         className={`text-sm text-white text-right break-all ${
           mono ? 'font-mono text-xs' : ''

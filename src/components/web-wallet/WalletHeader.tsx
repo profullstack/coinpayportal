@@ -27,7 +27,7 @@ export function WalletHeader() {
             </nav>
 
             <div className="flex items-center gap-3">
-              <span className="hidden md:block text-xs text-gray-500 font-mono">
+              <span className="hidden md:block text-xs text-gray-400 font-mono">
                 {walletId?.slice(0, 8)}...
               </span>
               <button

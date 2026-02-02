@@ -31,7 +31,7 @@ export function AddressDisplay({
     <div className="flex items-center gap-2">
       {chain && <ChainBadge chain={chain} />}
       <div className="min-w-0 flex-1">
-        {label && <p className="text-xs text-gray-500">{label}</p>}
+        {label && <p className="text-xs text-gray-400">{label}</p>}
         <p className="truncate font-mono text-sm text-gray-300" title={address}>
           {displayed}
         </p>

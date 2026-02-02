@@ -82,7 +82,7 @@ export function ChainMultiSelect({
           {label}
         </label>
       )}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
         {ALL_CHAINS.map((chain) => {
           const selected = value.includes(chain.id);
           return (
@@ -97,7 +97,7 @@ export function ChainMultiSelect({
               }`}
             >
               <span className="font-medium">{chain.symbol}</span>
-              <span className="ml-1 text-xs text-gray-500">{chain.name}</span>
+              <span className="ml-1 text-xs text-gray-400">{chain.name}</span>
             </button>
           );
         })}
