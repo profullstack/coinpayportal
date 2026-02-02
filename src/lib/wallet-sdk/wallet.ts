@@ -107,11 +107,9 @@ export class Wallet {
       wallet._privateKeys.set(addr.address, addr.privateKey);
     }
 
-    const secp256k1Addr = bundle.addresses.find((a) =>
-      ['ETH', 'BTC', 'BCH', 'POL'].includes(a.chain)
-    );
-    if (secp256k1Addr) {
-      client.setSignatureAuth(result.wallet_id, secp256k1Addr.privateKey);
+    // Use master account key for per-request signature auth (matches stored public key)
+    if (bundle.privateKeySecp256k1) {
+      client.setSignatureAuth(result.wallet_id, bundle.privateKeySecp256k1);
     }
 
     return wallet;
@@ -143,10 +141,7 @@ export class Wallet {
     ];
     const bundle = await deriveWalletBundle(mnemonic, chains);
 
-    const secp256k1Addr = bundle.addresses.find((a) =>
-      ['ETH', 'BTC', 'BCH', 'POL'].includes(a.chain)
-    );
-    if (!secp256k1Addr) {
+    if (!bundle.privateKeySecp256k1) {
       throw new WalletSDKError(
         'NO_SECP256K1_KEY',
         'Cannot derive proof-of-ownership key',
@@ -154,10 +149,12 @@ export class Wallet {
       );
     }
 
+    // Sign proof with the master account key (m/44'/60'/0') that matches
+    // the public_key_secp256k1 stored on the wallet record
     const proofMessage = `coinpayportal:import:${Date.now()}`;
     const messageBytes = new TextEncoder().encode(proofMessage);
-    const privateKeyBytes = hexToUint8Array(secp256k1Addr.privateKey);
-    const signatureBytes = secp256k1.sign(messageBytes, privateKeyBytes);
+    const masterPrivKeyBytes = hexToUint8Array(bundle.privateKeySecp256k1);
+    const signatureBytes = secp256k1.sign(messageBytes, masterPrivKeyBytes);
     const signatureHex = uint8ArrayToHex(signatureBytes);
 
     const result = await client.request<{
@@ -191,7 +188,8 @@ export class Wallet {
       wallet._privateKeys.set(addr.address, addr.privateKey);
     }
 
-    client.setSignatureAuth(result.wallet_id, secp256k1Addr.privateKey);
+    // Use master key for per-request signature auth too
+    client.setSignatureAuth(result.wallet_id, bundle.privateKeySecp256k1);
     return wallet;
   }
 

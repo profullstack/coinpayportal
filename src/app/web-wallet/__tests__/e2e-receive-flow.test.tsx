@@ -151,7 +151,7 @@ describe('E2E: Receive Flow', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'BTC' } });
 
     await waitFor(() => {
-      expect(screen.getByText(/Derive New BTC Address/)).toBeInTheDocument();
+      expect(screen.getByText(/Generate Additional BTC Address/)).toBeInTheDocument();
     });
   });
 
@@ -167,10 +167,10 @@ describe('E2E: Receive Flow', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'BTC' } });
 
     await waitFor(() => {
-      expect(screen.getByText(/Derive New BTC Address/)).toBeInTheDocument();
+      expect(screen.getByText(/Generate Additional BTC Address/)).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText(/Derive New BTC Address/));
+    fireEvent.click(screen.getByText(/Generate Additional BTC Address/));
 
     // After derive, getAddresses should be called again
     await waitFor(() => {
@@ -186,10 +186,10 @@ describe('E2E: Receive Flow', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'ETH' } });
 
     await waitFor(() => {
-      expect(screen.getByText(/Derive New ETH Address/)).toBeInTheDocument();
+      expect(screen.getByText(/Generate Additional ETH Address/)).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText(/Derive New ETH Address/));
+    fireEvent.click(screen.getByText(/Generate Additional ETH Address/));
 
     await waitFor(() => {
       expect(screen.getByText('Derivation limit reached')).toBeInTheDocument();

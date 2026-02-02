@@ -44,6 +44,7 @@ export interface DerivedKey {
 export interface WalletKeyBundle {
   mnemonic: string;
   publicKeySecp256k1: string; // hex, compressed
+  privateKeySecp256k1: string; // hex, master account key for signing proofs
   publicKeyEd25519: string; // base58
   addresses: DerivedKey[];
 }
@@ -94,10 +95,13 @@ export async function deriveWalletBundle(
   const seed = mnemonicToSeedSync(mnemonic);
   const hdKey = HDKey.fromMasterSeed(seed);
 
-  // Derive master secp256k1 public key (from ETH path account root)
+  // Derive master secp256k1 key pair (from ETH path account root)
   const masterSecp = hdKey.derive("m/44'/60'/0'");
   const publicKeySecp256k1 = masterSecp.publicKey
     ? Buffer.from(masterSecp.publicKey).toString('hex')
+    : '';
+  const privateKeySecp256k1 = masterSecp.privateKey
+    ? Buffer.from(masterSecp.privateKey).toString('hex')
     : '';
 
   // Derive ed25519 key for Solana (index 0)
@@ -114,6 +118,7 @@ export async function deriveWalletBundle(
   return {
     mnemonic,
     publicKeySecp256k1,
+    privateKeySecp256k1,
     publicKeyEd25519,
     addresses,
   };
