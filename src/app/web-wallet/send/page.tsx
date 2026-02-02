@@ -64,7 +64,7 @@ export default function SendPage() {
     try {
       const data = await wallet.getAddresses({ chain: chain as any });
       const mapped = data.map((a: any) => ({
-        id: a.id,
+        id: a.addressId || a.id,
         address: a.address,
         chain: a.chain,
       }));

@@ -430,7 +430,7 @@ export async function listAddresses(
 ): Promise<ServiceResult> {
   let query = supabase
     .from('wallet_addresses')
-    .select('id, chain, address, derivation_index, is_active, cached_balance, balance_updated_at')
+    .select('id, chain, address, derivation_index, is_active, cached_balance, cached_balance_updated_at')
     .eq('wallet_id', walletId)
     .order('created_at', { ascending: true });
 
@@ -457,7 +457,7 @@ export async function listAddresses(
         derivation_index: a.derivation_index,
         is_active: a.is_active,
         cached_balance: a.cached_balance,
-        balance_updated_at: a.balance_updated_at,
+        balance_updated_at: a.cached_balance_updated_at,
       })),
       total: addresses?.length || 0,
     },
