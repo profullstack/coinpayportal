@@ -180,8 +180,8 @@ export default function ReceivePage() {
             </div>
           )}
 
-          {/* Derive new address */}
-          {selectedChain && (
+          {/* Derive additional address */}
+          {selectedChain && filteredAddresses.length > 0 && (
             <button
               onClick={handleDeriveAddress}
               disabled={isDeriving}
@@ -190,7 +190,7 @@ export default function ReceivePage() {
             >
               {isDeriving
                 ? 'Deriving...'
-                : `Derive New ${selectedChain} Address`}
+                : `Generate Additional ${selectedChain} Address`}
             </button>
           )}
         </div>

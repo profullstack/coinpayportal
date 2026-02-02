@@ -11,7 +11,7 @@ import { checkPasswordStrength } from '@/lib/web-wallet/client-crypto';
 
 type Step = 'password' | 'seed' | 'verify';
 
-const DEFAULT_CHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL'];
+const DEFAULT_CHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL'];
 
 export default function CreateWalletPage() {
   const router = useRouter();

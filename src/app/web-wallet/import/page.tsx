@@ -9,7 +9,7 @@ import { SeedInput } from '@/components/web-wallet/SeedInput';
 import { ChainMultiSelect } from '@/components/web-wallet/ChainSelector';
 import { checkPasswordStrength } from '@/lib/web-wallet/client-crypto';
 
-const DEFAULT_CHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL'];
+const DEFAULT_CHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL'];
 
 export default function ImportWalletPage() {
   const router = useRouter();
