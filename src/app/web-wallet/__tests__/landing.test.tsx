@@ -126,7 +126,7 @@ describe('WebWalletPage', () => {
       expect(screen.getByTestId('wallet-header')).toBeInTheDocument();
     });
 
-    it('should show quick action buttons', async () => {
+    it('should show assets section', async () => {
       const mockWallet = {
         getTotalBalanceUSD: vi.fn().mockResolvedValue({
           totalUsd: 0,
@@ -147,11 +147,7 @@ describe('WebWalletPage', () => {
 
       render(<WebWalletPage />);
 
-      const sendLink = screen.getByText('Send').closest('a');
-      expect(sendLink).toHaveAttribute('href', '/web-wallet/send');
-
-      const receiveLink = screen.getByText('Receive').closest('a');
-      expect(receiveLink).toHaveAttribute('href', '/web-wallet/receive');
+      expect(screen.getByText('Assets')).toBeInTheDocument();
     });
   });
 });

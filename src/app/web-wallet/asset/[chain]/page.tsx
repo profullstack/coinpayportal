@@ -214,7 +214,7 @@ function AssetDetailView({ chain }: { chain: WalletChain }) {
 
         {/* Tab content */}
         {activeTab === 'send' && (
-          <SendTab chain={chain} onSuccess={fetchBalance} />
+          <SendTab chain={chain} onSuccess={fetchBalance} onSwitchToReceive={() => setActiveTab('receive')} />
         )}
         {activeTab === 'receive' && (
           <ReceiveTab chain={chain} />
@@ -229,7 +229,7 @@ function AssetDetailView({ chain }: { chain: WalletChain }) {
 
 // ── Send Tab ──
 
-function SendTab({ chain, onSuccess }: { chain: WalletChain; onSuccess: () => void }) {
+function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; onSuccess: () => void; onSwitchToReceive: () => void }) {
   const router = useRouter();
   const { wallet } = useWebWallet();
 
@@ -467,12 +467,12 @@ function SendTab({ chain, onSuccess }: { chain: WalletChain; onSuccess: () => vo
             <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3" role="alert">
               <p className="text-xs text-yellow-400">
                 No {chain} addresses found.{' '}
-                <Link
-                  href="/web-wallet/receive"
+                <button
+                  onClick={onSwitchToReceive}
                   className="underline hover:text-yellow-300"
                 >
                   Derive one first
-                </Link>
+                </button>
               </p>
             </div>
           )}

@@ -85,10 +85,10 @@ export default function TransactionDetailPage({
       <div className="mx-auto max-w-lg px-4 py-6">
         <div className="mb-6">
           <Link
-            href="/web-wallet/history"
+            href="/web-wallet"
             className="text-sm text-gray-400 hover:text-gray-200 transition-colors"
           >
-            &larr; History
+            &larr; Dashboard
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-white">
             Transaction Details

@@ -41,7 +41,7 @@ describe('WalletHeader', () => {
     render(<WalletHeader />);
 
     expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
-    expect(screen.queryByText('Send')).not.toBeInTheDocument();
+    expect(screen.queryByText('Settings')).not.toBeInTheDocument();
     expect(screen.queryByText('Lock')).not.toBeInTheDocument();
   });
 
@@ -58,11 +58,8 @@ describe('WalletHeader', () => {
     const dashboardLinks = screen.getAllByText('Dashboard');
     expect(dashboardLinks.length).toBeGreaterThan(0);
 
-    const sendLinks = screen.getAllByText('Send');
-    expect(sendLinks.length).toBeGreaterThan(0);
-
-    const receiveLinks = screen.getAllByText('Receive');
-    expect(receiveLinks.length).toBeGreaterThan(0);
+    const settingsLinks = screen.getAllByText('Settings');
+    expect(settingsLinks.length).toBeGreaterThan(0);
   });
 
   it('should show wallet ID snippet when unlocked', () => {

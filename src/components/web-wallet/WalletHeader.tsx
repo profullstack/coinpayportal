@@ -20,9 +20,6 @@ export function WalletHeader() {
           <div className="flex items-center gap-4">
             <nav className="hidden sm:flex items-center gap-1">
               <NavLink href="/web-wallet">Dashboard</NavLink>
-              <NavLink href="/web-wallet/send">Send</NavLink>
-              <NavLink href="/web-wallet/receive">Receive</NavLink>
-              <NavLink href="/web-wallet/history">History</NavLink>
               <NavLink href="/web-wallet/settings">Settings</NavLink>
             </nav>
 
@@ -45,9 +42,6 @@ export function WalletHeader() {
       {isUnlocked && (
         <div className="flex sm:hidden border-t border-white/5 overflow-x-auto">
           <NavLink href="/web-wallet" mobile>Dashboard</NavLink>
-          <NavLink href="/web-wallet/send" mobile>Send</NavLink>
-          <NavLink href="/web-wallet/receive" mobile>Receive</NavLink>
-          <NavLink href="/web-wallet/history" mobile>History</NavLink>
           <NavLink href="/web-wallet/settings" mobile>Settings</NavLink>
         </div>
       )}

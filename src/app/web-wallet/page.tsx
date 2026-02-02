@@ -183,37 +183,6 @@ function DashboardView() {
       <div className="mx-auto max-w-5xl px-4 py-6 space-y-6">
         <BalanceCard totalUsd={totalUsd} isLoading={loadingBalances} />
 
-        {/* Quick Actions */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
-          <Link
-            href="/web-wallet/send"
-            className="flex flex-col items-center gap-1.5 sm:gap-2 rounded-xl border border-white/5 bg-white/5 p-3 sm:p-4 hover:bg-white/10 transition-colors"
-          >
-            <span className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-purple-600/20 text-purple-400">
-              &uarr;
-            </span>
-            <span className="text-xs sm:text-sm text-gray-300">Send</span>
-          </Link>
-          <Link
-            href="/web-wallet/receive"
-            className="flex flex-col items-center gap-1.5 sm:gap-2 rounded-xl border border-white/5 bg-white/5 p-3 sm:p-4 hover:bg-white/10 transition-colors"
-          >
-            <span className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-green-600/20 text-green-400">
-              &darr;
-            </span>
-            <span className="text-xs sm:text-sm text-gray-300">Receive</span>
-          </Link>
-          <Link
-            href="/web-wallet/history"
-            className="flex flex-col items-center gap-1.5 sm:gap-2 rounded-xl border border-white/5 bg-white/5 p-3 sm:p-4 hover:bg-white/10 transition-colors"
-          >
-            <span className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-blue-600/20 text-blue-400">
-              &#x2630;
-            </span>
-            <span className="text-xs sm:text-sm text-gray-300">History</span>
-          </Link>
-        </div>
-
         {/* Assets */}
         <section>
           <div className="mb-3 flex items-center justify-between">
@@ -240,12 +209,12 @@ function DashboardView() {
             <h2 className="text-lg font-semibold text-white">
               Recent Transactions
             </h2>
-            <Link
-              href="/web-wallet/history"
-              className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+            <button
+              onClick={fetchData}
+              className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
             >
-              View all
-            </Link>
+              Refresh
+            </button>
           </div>
           <TransactionList
             transactions={transactions}
