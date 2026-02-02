@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useWebWallet } from '@/components/web-wallet/WalletContext';
@@ -47,6 +47,10 @@ export default function SendPage() {
   const [amountError, setAmountError] = useState('');
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [txStatus, setTxStatus] = useState<'pending' | 'confirming' | 'confirmed' | 'failed'>('pending');
+  const [txConfirmations, setTxConfirmations] = useState(0);
+  const [redirectCountdown, setRedirectCountdown] = useState(0);
+  const txPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!isUnlocked) {
@@ -190,6 +194,78 @@ export default function SendPage() {
       setStep('error');
     }
   };
+
+  // Poll for tx confirmation after broadcast
+  useEffect(() => {
+    if (step !== 'success' || !wallet || !txHash) return;
+
+    const TX_POLL_MS = 10_000;
+    const REDIRECT_AFTER_MS = 5_000;
+
+    const pollTxStatus = async () => {
+      try {
+        // Find the tx by looking at recent outgoing transactions
+        const txData = await wallet.getTransactions({
+          limit: 5,
+          direction: 'outgoing',
+        });
+        const tx = txData.transactions.find((t) => t.txHash === txHash);
+        if (tx) {
+          setTxStatus(tx.status as typeof txStatus);
+          setTxConfirmations(tx.confirmations);
+
+          if (tx.status === 'confirmed') {
+            // Stop polling once confirmed
+            if (txPollRef.current) {
+              clearInterval(txPollRef.current);
+              txPollRef.current = null;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to poll tx status:', err);
+      }
+    };
+
+    // Initial check
+    pollTxStatus();
+    txPollRef.current = setInterval(pollTxStatus, TX_POLL_MS);
+
+    return () => {
+      if (txPollRef.current) {
+        clearInterval(txPollRef.current);
+        txPollRef.current = null;
+      }
+    };
+  }, [step, wallet, txHash]);
+
+  // Auto-redirect countdown after success
+  useEffect(() => {
+    if (step !== 'success') return;
+
+    const REDIRECT_DELAY_MS = 5_000;
+    const seconds = Math.ceil(REDIRECT_DELAY_MS / 1000);
+    setRedirectCountdown(seconds);
+
+    const countdownInterval = setInterval(() => {
+      setRedirectCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(countdownInterval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    const redirectTimer = setTimeout(() => {
+      router.push('/web-wallet');
+    }, REDIRECT_DELAY_MS);
+
+    return () => {
+      clearInterval(countdownInterval);
+      clearTimeout(redirectTimer);
+    };
+  }, [step, router]);
 
   const getSymbol = (c: string) => {
     const map: Record<string, string> = {
@@ -505,11 +581,48 @@ export default function SendPage() {
                 {amount} {getSymbol(chain)} sent successfully
               </p>
             </div>
+
+            {/* Live tx status */}
+            <div className="flex items-center justify-center gap-2">
+              {txStatus === 'confirmed' ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 border border-green-500/30 px-3 py-1 text-xs font-medium text-green-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+                  Confirmed ({txConfirmations} {txConfirmations === 1 ? 'confirmation' : 'confirmations'})
+                </span>
+              ) : txStatus === 'confirming' ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-3 py-1 text-xs font-medium text-yellow-400">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-yellow-400 opacity-75" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-yellow-400" />
+                  </span>
+                  Confirming... ({txConfirmations} {txConfirmations === 1 ? 'confirmation' : 'confirmations'})
+                </span>
+              ) : txStatus === 'failed' ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 border border-red-500/30 px-3 py-1 text-xs font-medium text-red-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                  Failed
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-500/10 border border-purple-500/30 px-3 py-1 text-xs font-medium text-purple-400">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-purple-400 opacity-75" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-purple-400" />
+                  </span>
+                  Pending...
+                </span>
+              )}
+            </div>
+
             {txHash && (
               <p className="text-xs text-gray-400 font-mono break-all">
                 TX: {txHash}
               </p>
             )}
+
+            <p className="text-xs text-gray-500">
+              Redirecting to dashboard in {redirectCountdown}s...
+            </p>
+
             <div className="flex gap-3">
               <Link
                 href="/web-wallet"
