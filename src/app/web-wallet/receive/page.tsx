@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useWebWallet } from '@/components/web-wallet/WalletContext';
@@ -10,11 +10,20 @@ import { AddressDisplay } from '@/components/web-wallet/AddressDisplay';
 import { QRCode } from '@/components/web-wallet/QRCode';
 import type { WalletChain } from '@/lib/web-wallet/identity';
 
+const DEPOSIT_POLL_MS = 10_000; // Poll every 10 seconds
+const REDIRECT_DELAY_MS = 4_000; // Show success for 4 seconds before redirect
+
 interface WalletAddress {
   id: string;
   chain: string;
   address: string;
   index: number;
+}
+
+interface DepositDetected {
+  chain: string;
+  address: string;
+  amount: string;
 }
 
 const CHAIN_WARNINGS: Record<string, string> = {
@@ -28,6 +37,11 @@ const CHAIN_WARNINGS: Record<string, string> = {
   USDC_SOL: 'Only send USDC on Solana to this address. USDC on other networks is not compatible.',
 };
 
+const CHAIN_SYMBOLS: Record<string, string> = {
+  BTC: 'BTC', BCH: 'BCH', ETH: 'ETH', POL: 'POL', SOL: 'SOL',
+  USDC_ETH: 'USDC', USDC_POL: 'USDC', USDC_SOL: 'USDC',
+};
+
 export default function ReceivePage() {
   const router = useRouter();
   const { wallet, chains, isUnlocked } = useWebWallet();
@@ -36,6 +50,12 @@ export default function ReceivePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isDeriving, setIsDeriving] = useState(false);
   const [error, setError] = useState('');
+  const [deposit, setDeposit] = useState<DepositDetected | null>(null);
+  const [redirectCountdown, setRedirectCountdown] = useState(0);
+
+  // Track balances for deposit detection
+  const balancesRef = useRef<Map<string, string>>(new Map());
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!isUnlocked) {
@@ -69,6 +89,118 @@ export default function ReceivePage() {
   useEffect(() => {
     fetchAddresses();
   }, [fetchAddresses]);
+
+  // Initialize baseline balances when addresses load
+  const initializeBalances = useCallback(async () => {
+    if (!wallet || addresses.length === 0) return;
+
+    try {
+      const balances = await wallet.getBalances({
+        chain: selectedChain ? (selectedChain as WalletChain) : undefined,
+        refresh: true,
+      });
+
+      const map = new Map<string, string>();
+      for (const b of balances) {
+        const key = `${b.chain}:${b.address}`;
+        map.set(key, b.balance);
+      }
+      balancesRef.current = map;
+    } catch (err) {
+      console.error('Failed to initialize balances:', err);
+    }
+  }, [wallet, addresses, selectedChain]);
+
+  useEffect(() => {
+    initializeBalances();
+  }, [initializeBalances]);
+
+  // Poll for deposit changes
+  const checkForDeposits = useCallback(async () => {
+    if (!wallet || addresses.length === 0 || deposit) return;
+
+    try {
+      const balances = await wallet.getBalances({
+        chain: selectedChain ? (selectedChain as WalletChain) : undefined,
+        refresh: true,
+      });
+
+      for (const b of balances) {
+        const key = `${b.chain}:${b.address}`;
+        const previous = balancesRef.current.get(key);
+
+        if (previous !== undefined) {
+          const prevAmount = parseFloat(previous);
+          const newAmount = parseFloat(b.balance);
+
+          if (newAmount > prevAmount && newAmount > 0) {
+            const depositAmount = (newAmount - prevAmount).toString();
+            console.log(
+              `[Receive] Deposit detected: ${depositAmount} ${b.chain} at ${b.address.slice(0, 8)}...${b.address.slice(-4)}`
+            );
+            setDeposit({
+              chain: b.chain,
+              address: b.address,
+              amount: depositAmount,
+            });
+            return;
+          }
+        }
+
+        // Update baseline
+        balancesRef.current.set(key, b.balance);
+      }
+    } catch (err) {
+      console.error('Deposit check failed:', err);
+    }
+  }, [wallet, addresses, selectedChain, deposit]);
+
+  // Start/stop polling
+  useEffect(() => {
+    if (addresses.length === 0 || deposit) {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+
+    pollRef.current = setInterval(checkForDeposits, DEPOSIT_POLL_MS);
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [addresses, checkForDeposits, deposit]);
+
+  // Handle redirect countdown after deposit detected
+  useEffect(() => {
+    if (!deposit) return;
+
+    const seconds = Math.ceil(REDIRECT_DELAY_MS / 1000);
+    setRedirectCountdown(seconds);
+
+    const countdownInterval = setInterval(() => {
+      setRedirectCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(countdownInterval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    const redirectTimer = setTimeout(() => {
+      router.push('/web-wallet');
+    }, REDIRECT_DELAY_MS);
+
+    return () => {
+      clearInterval(countdownInterval);
+      clearTimeout(redirectTimer);
+    };
+  }, [deposit, router]);
 
   const handleDeriveAddress = async () => {
     if (!wallet || !selectedChain) return;
@@ -105,16 +237,58 @@ export default function ReceivePage() {
           </p>
         </div>
 
+        {/* Deposit detected banner */}
+        {deposit && (
+          <div className="mb-6 rounded-xl border border-green-500/30 bg-green-500/10 p-4 animate-pulse" role="alert">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500/20">
+                <svg
+                  className="h-5 w-5 text-green-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-green-400">
+                  Deposit Received!
+                </p>
+                <p className="text-xs text-green-300/80">
+                  +{deposit.amount} {CHAIN_SYMBOLS[deposit.chain] || deposit.chain}
+                </p>
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-gray-400">
+              Redirecting to dashboard in {redirectCountdown}s...
+            </p>
+          </div>
+        )}
+
+        {/* Polling indicator */}
+        {!deposit && filteredAddresses.length > 0 && (
+          <div className="mb-4 flex items-center gap-2 text-xs text-gray-500">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+            </span>
+            Watching for incoming deposits...
+          </div>
+        )}
+
         <div className="space-y-6">
           <ChainSelector
             value={selectedChain}
             onChange={setSelectedChain}
             chains={chains}
             label="Filter by chain"
+            disabled={!!deposit}
           />
 
           {/* Chain-specific warning */}
-          {selectedChain && CHAIN_WARNINGS[selectedChain] && (
+          {selectedChain && CHAIN_WARNINGS[selectedChain] && !deposit && (
             <div
               className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3"
               role="alert"
@@ -149,7 +323,11 @@ export default function ReceivePage() {
               {filteredAddresses.map((addr) => (
                 <div
                   key={addr.id}
-                  className="rounded-xl border border-white/5 bg-white/5 p-4"
+                  className={`rounded-xl border p-4 transition-colors ${
+                    deposit?.address === addr.address
+                      ? 'border-green-500/30 bg-green-500/5'
+                      : 'border-white/5 bg-white/5'
+                  }`}
                 >
                   <AddressDisplay
                     address={addr.address}
@@ -183,7 +361,7 @@ export default function ReceivePage() {
           )}
 
           {/* Derive additional address */}
-          {selectedChain && filteredAddresses.length > 0 && (
+          {selectedChain && filteredAddresses.length > 0 && !deposit && (
             <button
               onClick={handleDeriveAddress}
               disabled={isDeriving}
