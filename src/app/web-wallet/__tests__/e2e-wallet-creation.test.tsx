@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import CreateWalletPage from '../create/page';
 
 // ── Mocks ──
@@ -61,7 +61,8 @@ describe('E2E: Wallet Creation Flow', () => {
     expect(screen.getByLabelText('Confirm Password')).toBeInTheDocument();
 
     // Step 2: Fill in passwords
-    const [pwInput, confirmInput] = screen.getAllByPlaceholderText(/password/i);
+    const pwInput = screen.getByLabelText('Password');
+    const confirmInput = screen.getByLabelText('Confirm Password');
     fireEvent.change(pwInput, { target: { value: 'Str0ng!Pass123' } });
     fireEvent.change(confirmInput, { target: { value: 'Str0ng!Pass123' } });
 
@@ -83,7 +84,8 @@ describe('E2E: Wallet Creation Flow', () => {
   it('should prevent creation with weak password', () => {
     render(<CreateWalletPage />);
 
-    const [pwInput, confirmInput] = screen.getAllByPlaceholderText(/password/i);
+    const pwInput = screen.getByLabelText('Password');
+    const confirmInput = screen.getByLabelText('Confirm Password');
     fireEvent.change(pwInput, { target: { value: 'abc' } });
     fireEvent.change(confirmInput, { target: { value: 'abc' } });
 
@@ -94,7 +96,8 @@ describe('E2E: Wallet Creation Flow', () => {
   it('should prevent creation with mismatched passwords', () => {
     render(<CreateWalletPage />);
 
-    const [pwInput, confirmInput] = screen.getAllByPlaceholderText(/password/i);
+    const pwInput = screen.getByLabelText('Password');
+    const confirmInput = screen.getByLabelText('Confirm Password');
     fireEvent.change(pwInput, { target: { value: 'Str0ng!Pass123' } });
     fireEvent.change(confirmInput, { target: { value: 'DifferentPass456!' } });
 
@@ -107,8 +110,8 @@ describe('E2E: Wallet Creation Flow', () => {
     mockState = { ...mockState, isLoading: true };
     render(<CreateWalletPage />);
 
-    // When loading, the button should be disabled
-    const createBtn = screen.getByText('Create Wallet');
+    // When loading, the button text changes to "Creating..." and it should be disabled
+    const createBtn = screen.getByText('Creating...');
     expect(createBtn).toBeDisabled();
   });
 

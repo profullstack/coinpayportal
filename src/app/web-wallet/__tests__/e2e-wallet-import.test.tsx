@@ -48,7 +48,9 @@ describe('E2E: Wallet Import Flow', () => {
   it('should render the import page with seed input', () => {
     render(<ImportWalletPage />);
 
-    expect(screen.getByText('Import Wallet')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Import Wallet' })).toBeInTheDocument();
+    // Should show the seed textarea in paste mode by default
+    expect(screen.getByPlaceholderText(/Enter your 12-word recovery phrase/)).toBeInTheDocument();
   });
 
   it('should accept a 12-word seed phrase and proceed', async () => {
@@ -58,14 +60,16 @@ describe('E2E: Wallet Import Flow', () => {
 
     render(<ImportWalletPage />);
 
-    // Find the textarea and enter seed phrase
-    const textarea = screen.getByPlaceholderText(/Enter.*seed.*phrase|Enter.*recovery.*phrase|word/i) ||
-      screen.getByRole('textbox');
+    // Find the textarea (paste mode is default)
+    const textarea = screen.getByPlaceholderText(/Enter your 12-word recovery phrase/);
 
     const testSeed = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
     fireEvent.change(textarea, { target: { value: testSeed } });
 
-    // The page should show the next step or import button
+    // The word count should update
+    expect(screen.getByText('12 / 12 words')).toBeInTheDocument();
+
+    // The page should show buttons
     await waitFor(() => {
       const buttons = screen.getAllByRole('button');
       expect(buttons.length).toBeGreaterThan(0);
@@ -85,12 +89,9 @@ describe('E2E: Wallet Import Flow', () => {
     mockState = { ...mockState, isLoading: true };
     render(<ImportWalletPage />);
 
-    // Loading state should disable interactions
-    const buttons = screen.getAllByRole('button');
-    const importBtn = buttons.find((b) => b.textContent?.toLowerCase().includes('import'));
-    if (importBtn) {
-      expect(importBtn).toBeDisabled();
-    }
+    // Loading state should show "Importing..." and be disabled
+    const importBtn = screen.getByText('Importing...');
+    expect(importBtn).toBeDisabled();
   });
 
   it('should have back link to wallet landing', () => {
