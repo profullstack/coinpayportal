@@ -16,7 +16,7 @@
     "generate-wallet": "node scripts/generate-hd-wallets.mjs",
     "decrypt-wallet": "node scripts/decrypt-wallet-backup.mjs",
     "coinpay-wallet": "node --import tsx scripts/coinpay-wallet.mjs",
-    "postinstall": "git config core.hooksPath hooks"
+    "postinstall": "git config core.hooksPath hooks 2>/dev/null || true"
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",
