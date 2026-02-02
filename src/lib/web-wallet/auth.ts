@@ -50,12 +50,20 @@ export async function authenticateWalletRequest(
 
   // Per-request signature: "Wallet <wallet_id>:<signature>:<timestamp>"
   if (authHeader.startsWith('Wallet ')) {
-    return authenticateWithSignature(supabase, authHeader, method, path, body);
+    const result = await authenticateWithSignature(supabase, authHeader, method, path, body);
+    if (!result.success) {
+      console.error(`[Auth] Signature auth failed: ${result.error}`);
+    }
+    return result;
   }
 
   // JWT bearer token: "Bearer <token>"
   if (authHeader.startsWith('Bearer ')) {
-    return authenticateWithWalletJWT(supabase, authHeader);
+    const result = await authenticateWithWalletJWT(supabase, authHeader);
+    if (!result.success) {
+      console.error(`[Auth] JWT auth failed: ${result.error}`);
+    }
+    return result;
   }
 
   return { success: false, error: 'Invalid authorization format' };
@@ -187,6 +195,7 @@ async function authenticateWithWalletJWT(
 export function generateChallenge(): string {
   const timestamp = Math.floor(Date.now() / 1000);
   const random = randomBytes(16).toString('hex');
+  console.log(`[Auth] Generated challenge at timestamp=${timestamp}`);
   return `coinpayportal:auth:${timestamp}:${random}`;
 }
 
@@ -213,8 +222,11 @@ export function verifyChallengeSignature(
 export function generateWalletToken(walletId: string): string {
   const jwtSecret = process.env.JWT_SECRET;
   if (!jwtSecret) {
+    console.error('[Auth] JWT_SECRET not configured');
     throw new Error('JWT_SECRET not configured');
   }
+
+  console.log(`[Auth] Generating JWT for wallet ${walletId}`);
 
   return generateToken(
     {

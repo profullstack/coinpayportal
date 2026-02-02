@@ -9,6 +9,12 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { WalletChain } from './identity';
 import { isValidChain } from './identity';
 
+/** Truncate an address for safe logging */
+function truncAddr(addr: string): string {
+  if (!addr || addr.length <= 12) return addr || '';
+  return `${addr.slice(0, 8)}...${addr.slice(-4)}`;
+}
+
 // ──────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────
@@ -222,7 +228,10 @@ export async function broadcastTransaction(
   walletId: string,
   input: BroadcastInput
 ): Promise<{ success: true; data: BroadcastResult } | { success: false; error: string; code?: string }> {
+  console.log(`[Broadcast] Broadcasting tx ${input.tx_id} on ${input.chain} for wallet ${walletId}`);
+
   if (!isValidChain(input.chain)) {
+    console.error(`[Broadcast] Invalid chain: ${input.chain}`);
     return { success: false, error: `Unsupported chain: ${input.chain}`, code: 'INVALID_CHAIN' };
   }
   const chain = input.chain as WalletChain;
@@ -244,6 +253,7 @@ export async function broadcastTransaction(
   }
 
   if (txRecord.status !== 'pending') {
+    console.error(`[Broadcast] Tx ${input.tx_id} already processed (status=${txRecord.status})`);
     return { success: false, error: 'Transaction already broadcast or failed', code: 'TX_ALREADY_PROCESSED' };
   }
 
@@ -294,8 +304,11 @@ export async function broadcastTransaction(
       })
       .eq('id', input.tx_id);
 
+    console.error(`[Broadcast] Failed for tx ${input.tx_id} on ${chain}: ${err.message}`);
     return { success: false, error: `Broadcast failed: ${err.message}`, code: 'BROADCAST_FAILED' };
   }
+
+  console.log(`[Broadcast] Success: tx ${input.tx_id} → hash ${txHash} on ${chain} (from=${truncAddr(txRecord.from_address || '')} to=${truncAddr(txRecord.to_address || '')} amount=${txRecord.amount})`);
 
   // Update DB with real tx hash and confirming status
   await supabase

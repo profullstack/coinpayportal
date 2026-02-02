@@ -16,6 +16,8 @@ export async function POST(
   try {
     const { id } = await params;
 
+    console.log(`[Derive] POST /derive for wallet ${id}`);
+
     // Read raw body text FIRST so signature verification uses the exact bytes the client signed
     const rawBody = await request.text();
     const body = JSON.parse(rawBody);

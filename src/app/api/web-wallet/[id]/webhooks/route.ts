@@ -20,6 +20,8 @@ export async function POST(
   try {
     const { id } = await params;
 
+    console.log(`[Webhooks] POST /webhooks for wallet ${id}`);
+
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
     const rateCheck = checkRateLimit(clientIp, 'wallet_mutation');
     if (!rateCheck.allowed) {

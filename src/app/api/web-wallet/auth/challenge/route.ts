@@ -16,10 +16,12 @@ export async function GET(request: NextRequest) {
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
     const rateCheck = checkRateLimit(clientIp, 'auth_challenge');
     if (!rateCheck.allowed) {
+      console.log(`[Auth] GET /auth/challenge rate limited for IP ${clientIp}`);
       return WalletErrors.rateLimited(rateCheck.resetAt - Math.floor(Date.now() / 1000));
     }
 
     const walletId = request.nextUrl.searchParams.get('wallet_id');
+    console.log(`[Auth] GET /auth/challenge for wallet ${walletId || '(missing)'} from IP ${clientIp}`);
     if (!walletId) {
       return WalletErrors.badRequest('MISSING_PARAM', 'wallet_id is required');
     }

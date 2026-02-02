@@ -16,8 +16,11 @@ export async function POST(request: NextRequest) {
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
     const rateCheck = checkRateLimit(clientIp, 'auth_verify');
     if (!rateCheck.allowed) {
+      console.log(`[Auth] POST /auth/verify rate limited for IP ${clientIp}`);
       return WalletErrors.rateLimited(rateCheck.resetAt - Math.floor(Date.now() / 1000));
     }
+
+    console.log(`[Auth] POST /auth/verify from IP ${clientIp}`);
 
     const body = await request.json();
 

@@ -40,6 +40,8 @@ export async function getSettings(
   supabase: SupabaseClient,
   walletId: string
 ): Promise<{ success: true; data: WalletSettings } | { success: false; error: string; code?: string }> {
+  console.log(`[Settings] Loading settings for wallet ${walletId}`);
+
   const { data, error } = await supabase
     .from('wallet_settings')
     .select('*')
@@ -103,6 +105,8 @@ export async function updateSettings(
     }
   }
 
+  console.log(`[Settings] Updating settings for wallet ${walletId}:`, Object.keys(input).filter(k => (input as any)[k] !== undefined).join(', '));
+
   // Build update object (only include fields that were provided)
   const updates: Record<string, any> = {};
   if (input.daily_spend_limit !== undefined) updates.daily_spend_limit = input.daily_spend_limit;
@@ -123,8 +127,11 @@ export async function updateSettings(
     .single();
 
   if (error || !data) {
+    console.error(`[Settings] Update failed for wallet ${walletId}:`, error?.message);
     return { success: false, error: 'Failed to update settings', code: 'DB_ERROR' };
   }
+
+  console.log(`[Settings] Settings updated for wallet ${walletId}`);
 
   return {
     success: true,
@@ -161,6 +168,7 @@ export async function checkTransactionAllowed(
       (addr) => addr.toLowerCase() === toAddress.toLowerCase()
     );
     if (!isWhitelisted) {
+      console.log(`[Settings] Transaction blocked: address not whitelisted for wallet ${walletId}`);
       return { allowed: false, reason: 'Recipient address not in whitelist' };
     }
   }
@@ -181,6 +189,7 @@ export async function checkTransactionAllowed(
     if (!error && todayTxs) {
       const todayTotal = todayTxs.reduce((sum, tx) => sum + parseFloat(tx.amount || '0'), 0);
       if (todayTotal + amount > settings.daily_spend_limit) {
+        console.log(`[Settings] Transaction blocked: daily spend limit exceeded for wallet ${walletId} (limit=${settings.daily_spend_limit}, spent=${todayTotal.toFixed(8)}, requested=${amount})`);
         return {
           allowed: false,
           reason: `Daily spend limit exceeded. Limit: ${settings.daily_spend_limit}, spent today: ${todayTotal.toFixed(8)}, requested: ${amount}`,

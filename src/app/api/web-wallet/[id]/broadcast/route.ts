@@ -27,8 +27,11 @@ export async function POST(
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
     const rateCheck = checkRateLimit(clientIp, 'broadcast_tx');
     if (!rateCheck.allowed) {
+      console.log(`[Broadcast] POST /broadcast rate limited for IP ${clientIp}`);
       return WalletErrors.rateLimited(rateCheck.resetAt - Math.floor(Date.now() / 1000));
     }
+
+    console.log(`[Broadcast] POST /broadcast for wallet ${id}`);
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

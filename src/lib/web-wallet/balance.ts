@@ -11,6 +11,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { WalletChain } from './identity';
 
+/** Truncate an address for safe logging */
+function truncAddr(addr: string): string {
+  if (!addr || addr.length <= 12) return addr || '';
+  return `${addr.slice(0, 8)}...${addr.slice(-4)}`;
+}
+
 // ──────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────
@@ -291,6 +297,7 @@ async function fetchSPLTokenBalance(
  * Makes a direct API/RPC call — no caching.
  */
 export async function fetchBalance(address: string, chain: WalletChain): Promise<string> {
+  console.log(`[Balance] Fetching live balance for ${chain} address ${truncAddr(address)}`);
   const rpc = getRpcEndpoints();
 
   switch (chain) {
@@ -338,6 +345,7 @@ export async function getAddressBalance(
     .single();
 
   if (error || !addr) {
+    console.error(`[Balance] Address ${addressId} not found for wallet ${walletId}`);
     return { success: false, error: 'Address not found', code: 'ADDRESS_NOT_FOUND' };
   }
 
@@ -349,6 +357,7 @@ export async function getAddressBalance(
   const isFresh = !forceRefresh && (now - cachedAt < CACHE_TTL_SECONDS * 1000);
 
   if (isFresh && addr.cached_balance !== null) {
+    console.log(`[Balance] Cache hit for ${addr.chain} ${truncAddr(addr.address)}: ${addr.cached_balance}`);
     return {
       success: true,
       data: {
@@ -364,6 +373,8 @@ export async function getAddressBalance(
   try {
     const balance = await fetchBalance(addr.address, addr.chain as WalletChain);
     const updatedAt = new Date().toISOString();
+
+    console.log(`[Balance] Fetched ${addr.chain} ${truncAddr(addr.address)}: ${balance}`);
 
     // Update cache in DB
     await supabase
@@ -396,6 +407,7 @@ export async function getAddressBalance(
         },
       };
     }
+    console.error(`[Balance] Fetch failed for ${addr.chain} ${truncAddr(addr.address)}: ${fetchError.message}`);
     return { success: false, error: `Balance fetch failed: ${fetchError.message}`, code: 'FETCH_ERROR' };
   }
 }
@@ -429,6 +441,8 @@ export async function getWalletBalances(
   if (!addresses || addresses.length === 0) {
     return { success: true, data: [] };
   }
+
+  console.log(`[Balance] Fetching balances for wallet ${walletId}: ${addresses.length} addresses${options.chain ? ` (chain=${options.chain})` : ''}`);
 
   const now = Date.now();
   const results: BalanceResult[] = [];
@@ -487,6 +501,7 @@ export async function getWalletBalances(
 
   // Wait for all refreshes (with timeout)
   if (refreshPromises.length > 0) {
+    console.log(`[Balance] Refreshing ${refreshPromises.length} stale balances for wallet ${walletId}`);
     await Promise.allSettled(refreshPromises);
   }
 
@@ -508,8 +523,11 @@ export async function refreshChainBalances(
     .eq('is_active', true);
 
   if (error || !addresses) {
+    console.error(`[Balance] refreshChainBalances: failed to load ${chain} addresses`);
     return { updated: 0, errors: 0 };
   }
+
+  console.log(`[Balance] Refreshing ${addresses.length} ${chain} addresses`);
 
   let updated = 0;
   let errors = 0;

@@ -52,8 +52,11 @@ export async function registerWebhook(
   walletId: string,
   input: RegisterWebhookInput
 ): Promise<{ success: true; data: WebhookRegistration & { secret: string } } | { success: false; error: string; code?: string }> {
+  console.log(`[Webhooks] Registering webhook for wallet ${walletId}: ${input.url}`);
+
   // Validate URL
   if (!input.url || !isValidWebhookUrl(input.url)) {
+    console.error(`[Webhooks] Invalid webhook URL: ${input.url}`);
     return { success: false, error: 'Webhook URL must be a valid HTTPS URL', code: 'INVALID_URL' };
   }
 
@@ -91,10 +94,14 @@ export async function registerWebhook(
 
   if (error) {
     if (error.code === '23505') {
+      console.error(`[Webhooks] Duplicate URL for wallet ${walletId}: ${input.url}`);
       return { success: false, error: 'Webhook URL already registered for this wallet', code: 'DUPLICATE_URL' };
     }
+    console.error(`[Webhooks] DB error registering webhook for wallet ${walletId}:`, error.message);
     return { success: false, error: 'Failed to register webhook', code: 'DB_ERROR' };
   }
+
+  console.log(`[Webhooks] Webhook registered: ${data.id} for wallet ${walletId}, events=[${events.join(', ')}]`);
 
   return {
     success: true,
@@ -136,6 +143,8 @@ export async function deleteWebhook(
   walletId: string,
   webhookId: string
 ): Promise<{ success: true } | { success: false; error: string; code?: string }> {
+  console.log(`[Webhooks] Deleting webhook ${webhookId} for wallet ${walletId}`);
+
   const { error, count } = await supabase
     .from('wallet_webhooks')
     .delete({ count: 'exact' })
@@ -147,9 +156,11 @@ export async function deleteWebhook(
   }
 
   if (count === 0) {
+    console.error(`[Webhooks] Webhook ${webhookId} not found for wallet ${walletId}`);
     return { success: false, error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' };
   }
 
+  console.log(`[Webhooks] Webhook ${webhookId} deleted`);
   return { success: true };
 }
 
@@ -167,6 +178,8 @@ export async function deliverWebhook(
   event: WebhookEventType,
   payload: Record<string, unknown>
 ): Promise<{ delivered: number; failed: number }> {
+  console.log(`[Webhooks] Delivering "${event}" event for wallet ${walletId}`);
+
   // Get active webhooks for this wallet that listen for this event
   const { data: webhooks, error } = await supabase
     .from('wallet_webhooks')
@@ -225,6 +238,8 @@ export async function deliverWebhook(
       failed++;
       const errorMsg = err.message || 'Unknown error';
       const failures = (webhook.consecutive_failures || 0) + 1;
+      console.error(`[Webhooks] Delivery failed to ${webhook.url}: ${errorMsg} (failures=${failures})`);
+
 
       await supabase
         .from('wallet_webhooks')
@@ -237,6 +252,8 @@ export async function deliverWebhook(
         .eq('id', webhook.id);
     }
   }
+
+  console.log(`[Webhooks] Delivery complete for "${event}": ${delivered} delivered, ${failed} failed`);
 
   return { delivered, failed };
 }

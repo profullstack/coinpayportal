@@ -32,8 +32,11 @@ export async function POST(
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
     const rateCheck = checkRateLimit(clientIp, 'prepare_tx');
     if (!rateCheck.allowed) {
+      console.log(`[PrepareTx] POST /prepare-tx rate limited for IP ${clientIp}`);
       return WalletErrors.rateLimited(rateCheck.resetAt - Math.floor(Date.now() / 1000));
     }
+
+    console.log(`[PrepareTx] POST /prepare-tx for wallet ${id}`);
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

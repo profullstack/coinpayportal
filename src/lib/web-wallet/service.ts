@@ -18,6 +18,12 @@ import {
 } from './identity';
 import { generateChallenge, verifyChallengeSignature, generateWalletToken } from './auth';
 
+/** Truncate an address for safe logging: first 8 + last 4 chars */
+function truncAddr(addr: string): string {
+  if (!addr || addr.length <= 12) return addr || '';
+  return `${addr.slice(0, 8)}...${addr.slice(-4)}`;
+}
+
 // ──────────────────────────────────────────────
 // Validation schemas
 // ──────────────────────────────────────────────
@@ -83,11 +89,15 @@ export async function createWallet(
 
   const { public_key_secp256k1, public_key_ed25519, initial_addresses } = parsed.data;
 
+  console.log(`[WebWallet] Creating wallet with ${initial_addresses.length} initial addresses`);
+
   // Validate public keys
   if (public_key_secp256k1 && !validateSecp256k1PublicKey(public_key_secp256k1)) {
+    console.error('[WebWallet] Create failed: invalid secp256k1 public key');
     return { success: false, error: 'Invalid secp256k1 public key', code: 'INVALID_KEY' };
   }
   if (public_key_ed25519 && !validateEd25519PublicKey(public_key_ed25519)) {
+    console.error('[WebWallet] Create failed: invalid ed25519 public key');
     return { success: false, error: 'Invalid ed25519 public key', code: 'INVALID_KEY' };
   }
 
@@ -137,8 +147,11 @@ export async function createWallet(
     .single();
 
   if (walletError || !wallet) {
+    console.error('[WebWallet] Create failed: DB insert error', walletError?.message);
     return { success: false, error: walletError?.message || 'Failed to create wallet', code: 'INTERNAL_ERROR' };
   }
+
+  console.log(`[WebWallet] Wallet created: ${wallet.id}`);
 
   // Insert initial addresses
   const addressResults = [];
@@ -166,6 +179,8 @@ export async function createWallet(
   // Create default settings
   await supabase.from('wallet_settings').insert({ wallet_id: wallet.id });
 
+  console.log(`[WebWallet] Wallet ${wallet.id} created with ${addressResults.length} addresses`);
+
   return {
     success: true,
     data: {
@@ -187,11 +202,15 @@ export async function importWallet(
 
   const { public_key_secp256k1, public_key_ed25519, addresses, proof_of_ownership } = parsed.data;
 
+  console.log(`[WebWallet] Importing wallet with ${addresses.length} addresses`);
+
   // Validate public keys
   if (public_key_secp256k1 && !validateSecp256k1PublicKey(public_key_secp256k1)) {
+    console.error('[WebWallet] Import failed: invalid secp256k1 public key');
     return { success: false, error: 'Invalid secp256k1 public key', code: 'INVALID_KEY' };
   }
   if (public_key_ed25519 && !validateEd25519PublicKey(public_key_ed25519)) {
+    console.error('[WebWallet] Import failed: invalid ed25519 public key');
     return { success: false, error: 'Invalid ed25519 public key', code: 'INVALID_KEY' };
   }
 
@@ -203,6 +222,7 @@ export async function importWallet(
       public_key_secp256k1
     );
     if (!valid) {
+      console.error('[WebWallet] Import failed: invalid proof of ownership signature');
       return { success: false, error: 'Invalid proof of ownership signature', code: 'INVALID_SIGNATURE' };
     }
   }
@@ -215,6 +235,7 @@ export async function importWallet(
       .eq('public_key_secp256k1', public_key_secp256k1)
       .single();
     if (existing) {
+      console.log(`[WebWallet] Import: wallet ${existing.id} already exists, registering new addresses`);
       // Wallet exists — register any missing addresses (e.g. USDC variants added later)
       let newAddresses = 0;
       for (const addr of addresses) {
@@ -288,6 +309,8 @@ export async function importWallet(
   // Create default settings
   await supabase.from('wallet_settings').insert({ wallet_id: wallet.id });
 
+  console.log(`[WebWallet] Wallet imported: ${wallet.id} with ${addressCount} addresses`);
+
   return {
     success: true,
     data: {
@@ -360,6 +383,8 @@ export async function deriveAddress(
 
   const { chain, address, derivation_index, derivation_path } = parsed.data;
 
+  console.log(`[Derive] Registering ${chain} address index=${derivation_index} for wallet ${walletId}`);
+
   // Validate address format
   if (!validateAddress(address, chain as WalletChain)) {
     return { success: false, error: `Invalid ${chain} address`, code: 'INVALID_ADDRESS' };
@@ -407,8 +432,11 @@ export async function deriveAddress(
     .single();
 
   if (addrError || !addrData) {
+    console.error(`[Derive] Failed to insert ${chain} address for wallet ${walletId}:`, addrError?.message);
     return { success: false, error: addrError?.message || 'Failed to derive address', code: 'INTERNAL_ERROR' };
   }
+
+  console.log(`[Derive] Registered ${chain} address ${truncAddr(addrData.address)} (index=${addrData.derivation_index}) for wallet ${walletId}`);
 
   return {
     success: true,
@@ -428,6 +456,8 @@ export async function listAddresses(
   walletId: string,
   options: { chain?: string; active_only?: boolean }
 ): Promise<ServiceResult> {
+  console.log(`[Derive] Listing addresses for wallet ${walletId}${options.chain ? ` chain=${options.chain}` : ''}`);
+
   let query = supabase
     .from('wallet_addresses')
     .select('id, chain, address, derivation_index, is_active, cached_balance, cached_balance_updated_at')
@@ -469,6 +499,8 @@ export async function deactivateAddress(
   walletId: string,
   addressId: string
 ): Promise<ServiceResult> {
+  console.log(`[Derive] Deactivating address ${addressId} for wallet ${walletId}`);
+
   const { data, error } = await supabase
     .from('wallet_addresses')
     .update({ is_active: false })
@@ -507,6 +539,7 @@ export async function createAuthChallenge(
     .single();
 
   if (!wallet) {
+    console.error(`[Auth] Challenge failed: wallet ${walletId} not found`);
     return { success: false, error: 'Wallet not found', code: 'WALLET_NOT_FOUND' };
   }
 
@@ -524,8 +557,11 @@ export async function createAuthChallenge(
     .single();
 
   if (error || !data) {
+    console.error(`[Auth] Failed to create challenge for wallet ${walletId}:`, error?.message);
     return { success: false, error: error?.message || 'Failed to create challenge', code: 'INTERNAL_ERROR' };
   }
+
+  console.log(`[Auth] Challenge created for wallet ${walletId}, expires ${data.expires_at}`);
 
   return {
     success: true,
@@ -547,6 +583,8 @@ export async function verifyAuthChallenge(
   }
 ): Promise<ServiceResult> {
   const { wallet_id, challenge_id, signature, public_key_type = 'secp256k1' } = body;
+
+  console.log(`[Auth] Verifying challenge ${challenge_id} for wallet ${wallet_id} (key_type=${public_key_type})`);
 
   // Get challenge
   const { data: challengeRecord, error: challengeError } = await supabase
@@ -598,6 +636,7 @@ export async function verifyAuthChallenge(
   // TODO: Add ed25519 verification when needed
 
   if (!isValid) {
+    console.error(`[Auth] Verify failed: invalid signature for wallet ${wallet_id}`);
     return { success: false, error: 'Invalid signature', code: 'INVALID_SIGNATURE' };
   }
 
@@ -610,6 +649,8 @@ export async function verifyAuthChallenge(
   // Generate JWT token
   const token = generateWalletToken(wallet_id);
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+  console.log(`[Auth] Challenge verified, JWT issued for wallet ${wallet_id}`);
 
   return {
     success: true,

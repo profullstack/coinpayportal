@@ -8,6 +8,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { WalletChain } from './identity';
 
+/** Truncate an address for safe logging */
+function truncAddr(addr: string): string {
+  if (!addr || addr.length <= 12) return addr || '';
+  return `${addr.slice(0, 8)}...${addr.slice(-4)}`;
+}
+
 // ──────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────
@@ -279,6 +285,7 @@ export async function scanTransactions(
   address: string,
   chain: WalletChain
 ): Promise<RawTransaction[]> {
+  console.log(`[Transactions] Scanning ${chain} transactions for ${truncAddr(address)}`);
   const rpc = getRpcEndpoints();
 
   switch (chain) {
@@ -316,6 +323,8 @@ export async function upsertTransactions(
   address: string,
   rawTxs: RawTransaction[]
 ): Promise<{ inserted: number; updated: number }> {
+  console.log(`[Transactions] Upserting ${rawTxs.length} ${chain} txs for ${truncAddr(address)}`);
+
   let inserted = 0;
   let updated = 0;
 
@@ -405,8 +414,11 @@ export async function getTransactionHistory(
   const { data, count, error } = await query;
 
   if (error) {
+    console.error(`[Transactions] Failed to load history for wallet ${walletId}:`, error.message);
     return { success: false, error: 'Failed to load transactions', code: 'DB_ERROR' };
   }
+
+  console.log(`[Transactions] Loaded ${data?.length || 0} of ${count || 0} transactions for wallet ${walletId}`);
 
   return {
     success: true,

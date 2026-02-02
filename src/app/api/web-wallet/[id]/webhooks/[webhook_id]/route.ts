@@ -17,6 +17,8 @@ export async function DELETE(
   try {
     const { id, webhook_id } = await params;
 
+    console.log(`[Webhooks] DELETE /webhooks/${webhook_id} for wallet ${id}`);
+
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
     const rateCheck = checkRateLimit(clientIp, 'wallet_mutation');
     if (!rateCheck.allowed) {

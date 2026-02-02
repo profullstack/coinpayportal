@@ -13,6 +13,12 @@ import type { WalletChain } from './identity';
 import { isValidChain, validateAddress } from './identity';
 import { estimateFees, type FeeEstimate } from './fees';
 
+/** Truncate an address for safe logging */
+function truncAddr(addr: string): string {
+  if (!addr || addr.length <= 12) return addr || '';
+  return `${addr.slice(0, 8)}...${addr.slice(-4)}`;
+}
+
 // ──────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────
@@ -386,8 +392,11 @@ export async function prepareTransaction(
   walletId: string,
   input: PrepareTransactionInput
 ): Promise<{ success: true; data: PreparedTransaction } | { success: false; error: string; code?: string }> {
+  console.log(`[PrepareTx] Preparing ${input.chain} tx: ${truncAddr(input.from_address)} → ${truncAddr(input.to_address)}, amount=${input.amount}, priority=${input.priority || 'medium'}`);
+
   // Validate chain
   if (!isValidChain(input.chain)) {
+    console.error(`[PrepareTx] Invalid chain: ${input.chain}`);
     return { success: false, error: `Unsupported chain: ${input.chain}`, code: 'INVALID_CHAIN' };
   }
   const chain = input.chain as WalletChain;
@@ -455,6 +464,7 @@ export async function prepareTransaction(
         return { success: false, error: `Unsupported chain: ${chain}`, code: 'UNSUPPORTED_CHAIN' };
     }
   } catch (err: any) {
+    console.error(`[PrepareTx] Failed for ${chain}: ${err.message}`);
     return { success: false, error: err.message, code: 'PREPARE_FAILED' };
   }
 
@@ -484,8 +494,11 @@ export async function prepareTransaction(
     .single();
 
   if (insertError || !txRecord) {
+    console.error(`[PrepareTx] DB insert failed for wallet ${walletId}:`, insertError?.message);
     return { success: false, error: 'Failed to store prepared transaction', code: 'DB_ERROR' };
   }
+
+  console.log(`[PrepareTx] Prepared tx ${txRecord.id} on ${chain}, fee=${fee.fee} ${fee.feeCurrency}, expires ${expiresAt}`);
 
   return {
     success: true,

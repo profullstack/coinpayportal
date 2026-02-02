@@ -313,8 +313,11 @@ export async function estimateFees(chain: WalletChain): Promise<FeeEstimateResul
   // Check cache
   const cached = feeCache.get(chain);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    console.log(`[Fees] Cache hit for ${chain}`);
     return cached.result;
   }
+
+  console.log(`[Fees] Estimating fees for ${chain}`);
 
   const rpc = getRpcEndpoints();
   let result: FeeEstimateResult;
@@ -342,6 +345,7 @@ export async function estimateFees(chain: WalletChain): Promise<FeeEstimateResul
       throw new Error(`Unsupported chain: ${chain}`);
   }
 
+  console.log(`[Fees] ${chain} estimates: low=${result.low.fee}, med=${result.medium.fee}, high=${result.high.fee} ${result.low.feeCurrency}`);
   feeCache.set(chain, { result, timestamp: Date.now() });
   return result;
 }

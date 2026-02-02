@@ -17,8 +17,11 @@ export async function POST(request: NextRequest) {
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
     const rateCheck = checkRateLimit(clientIp, 'wallet_creation');
     if (!rateCheck.allowed) {
+      console.log(`[WebWallet] POST /create rate limited for IP ${clientIp}`);
       return WalletErrors.rateLimited(rateCheck.resetAt - Math.floor(Date.now() / 1000));
     }
+
+    console.log(`[WebWallet] POST /create from IP ${clientIp}`);
 
     const body = await request.json();
 
