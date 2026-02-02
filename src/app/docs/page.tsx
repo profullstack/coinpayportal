@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { AuthenticationDocs } from '@/components/docs/AuthenticationDocs';
 import { SubscriptionsDocs } from '@/components/docs/SubscriptionsDocs';
+import { WebWalletDocs } from '@/components/docs/WebWalletDocs';
 import { DocSection } from '@/components/docs/DocSection';
 import { ApiEndpoint } from '@/components/docs/ApiEndpoint';
 import { CodeBlock } from '@/components/docs/CodeBlock';
@@ -46,12 +47,34 @@ export default function DocsPage() {
           </div>
         </div>
 
+        {/* Web Wallet Banner */}
+        <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 border border-emerald-500/30">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white mb-2">🔐 Non-Custodial Web Wallet</h2>
+              <p className="text-gray-300 text-sm">
+                Multi-chain wallet for humans and AI agents — no signup, no KYC, API-first
+              </p>
+            </div>
+            <a
+              href="#web-wallet"
+              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              View Docs
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </a>
+          </div>
+        </div>
+
         {/* Table of Contents */}
         <nav className="mb-12 p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
           <h2 className="text-xl font-bold text-white mb-4">Quick Navigation</h2>
           <div className="grid md:grid-cols-3 gap-4">
             {[
               { name: 'SDK Documentation', href: '/docs/sdk', external: true },
+              { name: 'Web Wallet API', href: '#web-wallet' },
               { name: 'Authentication', href: '#authentication' },
               { name: 'Subscriptions & Entitlements', href: '#subscriptions' },
               { name: 'Businesses', href: '#businesses' },
@@ -83,6 +106,11 @@ export default function DocsPage() {
             ))}
           </div>
         </nav>
+
+        {/* Web Wallet API */}
+        <div id="web-wallet">
+          <WebWalletDocs />
+        </div>
 
         {/* Authentication */}
         <div id="authentication">
