@@ -68,27 +68,25 @@ When rate limited, responses include:
 
 Register a new wallet. The client generates the seed phrase and HD keys locally, then sends only public keys.
 
+> **💡 Auto-derive all chains:** Include `initial_addresses` for all 8 supported chains. Addresses are ready immediately — no separate `/derive` calls needed. The SDK does this automatically.
+
 **Auth required:** No  
 **Rate limit:** 5/hour per IP
 
 **Request:**
 ```json
 {
-  "identity_public_key": "04a1b2c3d4...",
-  "label": "My Wallet",
-  "addresses": [
-    {
-      "chain": "BTC",
-      "address": "bc1qxy2kgdygjrs...",
-      "public_key": "02abc123...",
-      "derivation_path": "m/84'/0'/0'/0/0"
-    },
-    {
-      "chain": "ETH",
-      "address": "0x1234567890abcdef...",
-      "public_key": "04def456...",
-      "derivation_path": "m/44'/60'/0'/0/0"
-    }
+  "public_key_secp256k1": "04a1b2c3d4...",
+  "public_key_ed25519": "abc123...",
+  "initial_addresses": [
+    { "chain": "BTC", "address": "bc1q...", "derivation_path": "m/44'/0'/0'/0/0" },
+    { "chain": "BCH", "address": "bitcoincash:q...", "derivation_path": "m/44'/145'/0'/0/0" },
+    { "chain": "ETH", "address": "0x...", "derivation_path": "m/44'/60'/0'/0/0" },
+    { "chain": "POL", "address": "0x...", "derivation_path": "m/44'/60'/0'/0/0" },
+    { "chain": "SOL", "address": "ABC...", "derivation_path": "m/44'/501'/0'/0'" },
+    { "chain": "USDC_ETH", "address": "0x...", "derivation_path": "m/44'/60'/0'/0/0" },
+    { "chain": "USDC_POL", "address": "0x...", "derivation_path": "m/44'/60'/0'/0/0" },
+    { "chain": "USDC_SOL", "address": "ABC...", "derivation_path": "m/44'/501'/0'/0'" }
   ]
 }
 ```
@@ -254,7 +252,7 @@ Get wallet info.
 
 ### POST /api/web-wallet/:id/derive
 
-Derive and register a new address for the wallet.
+Derive an **additional** address for a chain. Not needed after wallet creation — initial addresses are auto-generated for all chains. Use this to create fresh receive addresses (e.g. for BTC privacy).
 
 **Auth required:** Yes (Wallet JWT)
 

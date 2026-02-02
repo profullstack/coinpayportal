@@ -53,25 +53,60 @@ export function WebWalletDocs() {
         </ol>
       </div>
 
+      {/* Quick Start for Agents */}
+      <h3 className="text-xl font-semibold text-white mb-4">Quick Start for AI Agents</h3>
+      <div className="mb-8 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+        <p className="text-blue-300 text-sm mb-3">
+          The fastest way to integrate is with the <strong className="text-white">SDK</strong>. One call creates a wallet with addresses for all 8 chains — ready to send and receive immediately.
+        </p>
+        <CodeBlock title="Node.js SDK — Create Wallet (All Chains)" language="javascript">
+{`import { Wallet } from '@coinpayportal/wallet-sdk';
+
+// Creates wallet + derives addresses for BTC, BCH, ETH, POL, SOL, USDC×3
+const wallet = await Wallet.create({
+  baseUrl: 'https://coinpayportal.com',
+  chains: ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL'],
+});
+
+// All addresses are ready immediately
+const addresses = await wallet.getAddresses();
+console.log(addresses);
+// [{ chain: 'BTC', address: 'bc1q...' }, { chain: 'ETH', address: '0x...' }, ...]
+
+// Check balances
+const balances = await wallet.getBalances();
+
+// Send a transaction
+const tx = await wallet.send({
+  chain: 'SOL', to: 'recipient...', amount: '0.1'
+});
+
+// Derive additional addresses if needed (e.g. fresh BTC receive address)
+const newAddr = await wallet.deriveAddress('BTC');`}
+        </CodeBlock>
+      </div>
+
       {/* Wallet Creation */}
-      <ApiEndpoint method="POST" path="/api/web-wallet/create" description="Register a new wallet. Client generates seed phrase and HD keys locally, then sends only public keys.">
+      <ApiEndpoint method="POST" path="/api/web-wallet/create" description="Register a new wallet. Client generates seed phrase and HD keys locally, then sends only public keys. Include initial_addresses for all chains to have addresses ready immediately — no separate derive calls needed.">
+        <div className="mb-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+          <p className="text-green-300 text-sm">
+            <strong>💡 Auto-derive all chains:</strong> Include <code className="text-green-200">initial_addresses</code> for all 8 supported chains in the create request. 
+            The SDK does this automatically. Addresses are ready to use immediately — no separate derive calls needed.
+          </p>
+        </div>
         <CodeBlock title="Request Body">
 {`{
-  "identity_public_key": "04a1b2c3d4...",
-  "label": "My Wallet",
-  "addresses": [
-    {
-      "chain": "BTC",
-      "address": "bc1qxy2kgdygjrs...",
-      "public_key": "02abc123...",
-      "derivation_path": "m/84'/0'/0'/0/0"
-    },
-    {
-      "chain": "ETH",
-      "address": "0x1234567890abcdef...",
-      "public_key": "04def456...",
-      "derivation_path": "m/44'/60'/0'/0/0"
-    }
+  "public_key_secp256k1": "04a1b2c3d4...",
+  "public_key_ed25519": "abc123...",
+  "initial_addresses": [
+    { "chain": "BTC", "address": "bc1q...", "derivation_path": "m/44'/0'/0'/0/0" },
+    { "chain": "BCH", "address": "bitcoincash:q...", "derivation_path": "m/44'/145'/0'/0/0" },
+    { "chain": "ETH", "address": "0x...", "derivation_path": "m/44'/60'/0'/0/0" },
+    { "chain": "POL", "address": "0x...", "derivation_path": "m/44'/60'/0'/0/0" },
+    { "chain": "SOL", "address": "ABC...", "derivation_path": "m/44'/501'/0'/0'" },
+    { "chain": "USDC_ETH", "address": "0x...", "derivation_path": "m/44'/60'/0'/0/0" },
+    { "chain": "USDC_POL", "address": "0x...", "derivation_path": "m/44'/60'/0'/0/0" },
+    { "chain": "USDC_SOL", "address": "ABC...", "derivation_path": "m/44'/501'/0'/0'" }
   ]
 }`}
         </CodeBlock>
@@ -80,11 +115,16 @@ export function WebWalletDocs() {
   "ok": true,
   "data": {
     "wallet_id": "550e8400-e29b-41d4-a716-446655440000",
-    "label": "My Wallet",
-    "status": "active",
     "created_at": "2025-01-15T10:30:00.000Z",
     "addresses": [
-      { "id": "addr_123", "chain": "BTC", "address": "bc1q...", "is_active": true }
+      { "chain": "BTC", "address": "bc1q...", "derivation_index": 0 },
+      { "chain": "BCH", "address": "bitcoincash:q...", "derivation_index": 0 },
+      { "chain": "ETH", "address": "0x...", "derivation_index": 0 },
+      { "chain": "POL", "address": "0x...", "derivation_index": 0 },
+      { "chain": "SOL", "address": "ABC...", "derivation_index": 0 },
+      { "chain": "USDC_ETH", "address": "0x...", "derivation_index": 0 },
+      { "chain": "USDC_POL", "address": "0x...", "derivation_index": 0 },
+      { "chain": "USDC_SOL", "address": "ABC...", "derivation_index": 0 }
     ]
   }
 }`}
@@ -145,7 +185,7 @@ export function WebWalletDocs() {
       <ApiEndpoint method="GET" path="/api/web-wallet/:id" description="Get wallet info. Requires wallet JWT." />
 
       {/* Derive Address */}
-      <ApiEndpoint method="POST" path="/api/web-wallet/:id/derive" description="Derive and register a new address for the wallet.">
+      <ApiEndpoint method="POST" path="/api/web-wallet/:id/derive" description="Derive an additional address for a chain. Not needed after wallet creation — initial addresses are auto-generated. Use this to create fresh receive addresses (e.g. for privacy on BTC).">
         <CodeBlock title="Request Body">
 {`{
   "chain": "ETH",
@@ -328,7 +368,7 @@ export function WebWalletDocs() {
       </div>
 
       {/* Try It */}
-      <div className="p-6 bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 border border-emerald-500/20 rounded-xl">
+      <div className="p-6 bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 border border-emerald-500/20 rounded-xl mb-8">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
             <h3 className="text-lg font-bold text-white mb-1">Try the Web Wallet</h3>
@@ -344,6 +384,18 @@ export function WebWalletDocs() {
             </svg>
           </Link>
         </div>
+      </div>
+
+      {/* Agent Integration */}
+      <div className="p-6 bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20 rounded-xl">
+        <h3 className="text-lg font-bold text-white mb-2">🤖 For AI Agents</h3>
+        <p className="text-gray-300 text-sm mb-3">
+          Install the SDK, create a wallet, and start sending/receiving crypto in 3 lines of code. 
+          All chain addresses are auto-generated — no manual setup needed.
+        </p>
+        <CodeBlock title="npm install" language="bash">
+{`npm install @coinpayportal/wallet-sdk`}
+        </CodeBlock>
       </div>
     </DocSection>
   );
