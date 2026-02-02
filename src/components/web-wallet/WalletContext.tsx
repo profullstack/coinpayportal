@@ -22,6 +22,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Wallet } from '@/lib/wallet-sdk';
+import type { WalletChain } from '@/lib/web-wallet/identity';
 import {
   encryptWithPassword,
   decryptWithPassword,
@@ -245,7 +246,7 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
     ) => {
       setState((s) => ({ ...s, isLoading: true, error: null }));
       try {
-        const chains = (options?.chains || DEFAULT_CHAINS) as any[];
+        const chains = (options?.chains || DEFAULT_CHAINS) as WalletChain[];
         const wallet = await Wallet.create({
           baseUrl: getBaseUrl(),
           chains,
@@ -274,11 +275,11 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
         }));
 
         return { mnemonic, walletId: wallet.walletId };
-      } catch (err: any) {
+      } catch (err: unknown) {
         setState((s) => ({
           ...s,
           isLoading: false,
-          error: err.message || 'Failed to create wallet',
+          error: err instanceof Error ? err.message : 'Failed to create wallet',
         }));
         throw err;
       }
@@ -294,7 +295,7 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
     ) => {
       setState((s) => ({ ...s, isLoading: true, error: null }));
       try {
-        const chains = (options?.chains || DEFAULT_CHAINS) as any[];
+        const chains = (options?.chains || DEFAULT_CHAINS) as WalletChain[];
         const wallet = await Wallet.fromSeed(mnemonic, {
           baseUrl: getBaseUrl(),
           chains,
@@ -320,11 +321,11 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
         }));
 
         return { walletId: wallet.walletId };
-      } catch (err: any) {
+      } catch (err: unknown) {
         setState((s) => ({
           ...s,
           isLoading: false,
-          error: err.message || 'Failed to import wallet',
+          error: err instanceof Error ? err.message : 'Failed to import wallet',
         }));
         throw err;
       }
@@ -357,7 +358,7 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
 
       const wallet = await Wallet.fromSeed(mnemonic, {
         baseUrl: getBaseUrl(),
-        chains: stored.chains as any[],
+        chains: stored.chains as WalletChain[],
       });
 
       setState((s) => ({
@@ -371,11 +372,11 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
       }));
 
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
       setState((s) => ({
         ...s,
         isLoading: false,
-        error: err.message || 'Failed to unlock wallet',
+        error: err instanceof Error ? err.message : 'Failed to unlock wallet',
       }));
       return false;
     }

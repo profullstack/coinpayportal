@@ -11,6 +11,7 @@ import {
   decryptWithPassword,
   loadWalletFromStorage,
 } from '@/lib/web-wallet/client-crypto';
+import type { WalletChain } from '@/lib/web-wallet/identity';
 
 type Step = 'form' | 'confirm' | 'password' | 'sending' | 'success' | 'error';
 type Priority = 'low' | 'medium' | 'high';
@@ -62,9 +63,9 @@ export default function SendPage() {
     }
     setLoadingAddrs(true);
     try {
-      const data = await wallet.getAddresses({ chain: chain as any });
-      const mapped = data.map((a: any) => ({
-        id: a.addressId || a.id,
+      const data = await wallet.getAddresses({ chain: chain as WalletChain });
+      const mapped = data.map((a) => ({
+        id: a.addressId,
         address: a.address,
         chain: a.chain,
       }));
@@ -91,7 +92,7 @@ export default function SendPage() {
     if (!wallet || !chain) return;
     setLoadingFees(true);
     try {
-      const estimate = await wallet.estimateFee(chain as any);
+      const estimate = await wallet.estimateFee(chain as WalletChain);
       setFees({
         low: { fee: estimate.low.fee, feeCurrency: estimate.low.feeCurrency },
         medium: { fee: estimate.medium.fee, feeCurrency: estimate.medium.feeCurrency },
@@ -174,7 +175,7 @@ export default function SendPage() {
 
     try {
       const result = await wallet.send({
-        chain: chain as any,
+        chain: chain as WalletChain,
         fromAddress,
         toAddress: toAddress.trim(),
         amount,
@@ -182,8 +183,8 @@ export default function SendPage() {
       });
       setTxHash(result.txHash);
       setStep('success');
-    } catch (err: any) {
-      setError(err.message || 'Transaction failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Transaction failed');
       setStep('error');
     }
   };

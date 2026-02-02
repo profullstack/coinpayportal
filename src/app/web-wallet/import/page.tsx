@@ -44,8 +44,9 @@ export default function ImportWalletPage() {
     try {
       await importWallet(mnemonic.trim(), password, { chains });
       router.push('/web-wallet');
-    } catch (err: any) {
-      if (err.message?.includes('mnemonic') || err.message?.includes('invalid')) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '';
+      if (message.includes('mnemonic') || message.includes('invalid')) {
         setSeedError('Invalid recovery phrase. Please check and try again.');
       }
     }

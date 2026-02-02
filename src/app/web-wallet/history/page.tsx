@@ -10,6 +10,8 @@ import {
   TransactionList,
   type TransactionItem,
 } from '@/components/web-wallet/TransactionList';
+import type { WalletChain } from '@/lib/web-wallet/identity';
+import type { TransactionListOptions } from '@/lib/wallet-sdk/types';
 
 const PAGE_SIZE = 20;
 
@@ -36,17 +38,17 @@ export default function HistoryPage() {
     if (!wallet) return;
     setIsLoading(true);
     try {
-      const opts: any = {
+      const opts: TransactionListOptions = {
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       };
-      if (chain) opts.chain = chain;
-      if (statusFilter) opts.status = statusFilter;
-      if (dateFrom) opts.startDate = dateFrom;
-      if (dateTo) opts.endDate = dateTo;
+      if (chain) opts.chain = chain as WalletChain;
+      if (statusFilter) opts.status = statusFilter as TransactionListOptions['status'];
+      if (dateFrom) opts.fromDate = dateFrom;
+      if (dateTo) opts.toDate = dateTo;
 
       const data = await wallet.getTransactions(opts);
-      const mapped = data.transactions.map((tx: any): TransactionItem => ({
+      const mapped = data.transactions.map((tx): TransactionItem => ({
         id: tx.id,
         txHash: tx.txHash || tx.id,
         chain: tx.chain,

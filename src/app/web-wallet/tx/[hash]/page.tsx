@@ -63,8 +63,8 @@ export default function TransactionDetailPage({
           createdAt: data.createdAt,
           confirmedAt: data.blockTimestamp || null,
         });
-      } catch (err: any) {
-        setError(err.message || 'Failed to load transaction');
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to load transaction');
       } finally {
         setIsLoading(false);
       }

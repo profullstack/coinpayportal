@@ -11,6 +11,7 @@ import {
   TransactionList,
   type TransactionItem,
 } from '@/components/web-wallet/TransactionList';
+import type { WalletChain } from '@/lib/web-wallet/identity';
 
 export default function WebWalletPage() {
   const router = useRouter();
@@ -160,7 +161,7 @@ function DashboardView() {
       const walletChains = chains.length > 0 ? chains : ['BTC', 'BCH', 'ETH', 'POL', 'SOL'];
       for (const chain of walletChains) {
         try {
-          await wallet.deriveAddress(chain as any);
+          await wallet.deriveAddress(chain as WalletChain);
         } catch {
           // May already exist or fail for individual chains — continue
         }

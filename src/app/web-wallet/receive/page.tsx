@@ -8,6 +8,7 @@ import { WalletHeader } from '@/components/web-wallet/WalletHeader';
 import { ChainSelector } from '@/components/web-wallet/ChainSelector';
 import { AddressDisplay } from '@/components/web-wallet/AddressDisplay';
 import { QRCode } from '@/components/web-wallet/QRCode';
+import type { WalletChain } from '@/lib/web-wallet/identity';
 
 interface WalletAddress {
   id: string;
@@ -47,14 +48,14 @@ export default function ReceivePage() {
     setIsLoading(true);
     try {
       const data = await wallet.getAddresses(
-        selectedChain ? { chain: selectedChain as any } : undefined
+        selectedChain ? { chain: selectedChain as WalletChain } : undefined
       );
       setAddresses(
-        data.map((a: any) => ({
-          id: a.id,
+        data.map((a) => ({
+          id: a.addressId,
           chain: a.chain,
           address: a.address,
-          index: a.derivation_index ?? a.index ?? 0,
+          index: a.derivationIndex ?? 0,
         }))
       );
     } catch {
@@ -73,10 +74,10 @@ export default function ReceivePage() {
     setIsDeriving(true);
     setError('');
     try {
-      await wallet.deriveAddress(selectedChain as any);
+      await wallet.deriveAddress(selectedChain as WalletChain);
       await fetchAddresses();
-    } catch (err: any) {
-      setError(err.message || 'Failed to derive address');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to derive address');
     } finally {
       setIsDeriving(false);
     }
