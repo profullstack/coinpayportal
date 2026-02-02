@@ -94,32 +94,58 @@ function LandingView() {
 }
 
 function DashboardView() {
-  const { wallet } = useWebWallet();
+  const { wallet, chains } = useWebWallet();
   const [totalUsd, setTotalUsd] = useState(0);
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [loadingBalances, setLoadingBalances] = useState(true);
   const [loadingTx, setLoadingTx] = useState(true);
+  const [isDeriving, setIsDeriving] = useState(false);
 
   const fetchData = useCallback(async () => {
     if (!wallet) return;
 
-    // Fetch balances
+    // Fetch balances — try getTotalBalanceUSD first, fall back to getAddresses
     try {
       setLoadingBalances(true);
       const balanceData = await wallet.getTotalBalanceUSD();
       setTotalUsd(balanceData.totalUsd);
-      setAssets(
-        balanceData.balances.map((b) => ({
-          chain: b.chain,
-          address: b.address,
-          balance: b.balance,
-          usdValue: b.usdValue,
-        }))
-      );
+      const balanceAssets = balanceData.balances.map((b) => ({
+        chain: b.chain,
+        address: b.address,
+        balance: b.balance,
+        usdValue: b.usdValue,
+      }));
+
+      if (balanceAssets.length > 0) {
+        setAssets(balanceAssets);
+      } else {
+        // Balance API returned empty — try loading addresses directly
+        const addresses = await wallet.getAddresses();
+        setAssets(
+          addresses.map((a: any) => ({
+            chain: a.chain,
+            address: a.address,
+            balance: '0',
+            usdValue: 0,
+          }))
+        );
+      }
     } catch {
-      // Balances may fail if no addresses derived yet
-      setAssets([]);
+      // Balance API failed entirely — try loading addresses as fallback
+      try {
+        const addresses = await wallet.getAddresses();
+        setAssets(
+          addresses.map((a: any) => ({
+            chain: a.chain,
+            address: a.address,
+            balance: '0',
+            usdValue: 0,
+          }))
+        );
+      } catch {
+        setAssets([]);
+      }
     } finally {
       setLoadingBalances(false);
     }
@@ -151,6 +177,26 @@ function DashboardView() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const handleDeriveAll = useCallback(async () => {
+    if (!wallet || isDeriving) return;
+    setIsDeriving(true);
+    try {
+      const walletChains = chains.length > 0 ? chains : ['BTC', 'BCH', 'ETH', 'POL', 'SOL'];
+      for (const chain of walletChains) {
+        try {
+          await wallet.deriveAddress(chain as any);
+        } catch {
+          // May already exist or fail for individual chains — continue
+        }
+      }
+      await fetchData();
+    } catch {
+      // Swallow — individual errors handled above
+    } finally {
+      setIsDeriving(false);
+    }
+  }, [wallet, chains, isDeriving, fetchData]);
 
   return (
     <>
@@ -200,7 +246,7 @@ function DashboardView() {
               Refresh
             </button>
           </div>
-          <AssetList assets={assets} isLoading={loadingBalances} />
+          <AssetList assets={assets} isLoading={loadingBalances} onDeriveAll={handleDeriveAll} isDeriving={isDeriving} />
         </section>
 
         {/* Recent Transactions */}

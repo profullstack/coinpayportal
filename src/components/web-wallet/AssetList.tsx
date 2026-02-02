@@ -13,9 +13,11 @@ interface AssetListProps {
   assets: AssetItem[];
   isLoading?: boolean;
   onSelect?: (asset: AssetItem) => void;
+  onDeriveAll?: () => void;
+  isDeriving?: boolean;
 }
 
-export function AssetList({ assets, isLoading, onSelect }: AssetListProps) {
+export function AssetList({ assets, isLoading, onSelect, onDeriveAll, isDeriving }: AssetListProps) {
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -40,9 +42,18 @@ export function AssetList({ assets, isLoading, onSelect }: AssetListProps) {
     return (
       <div className="rounded-xl border border-white/5 bg-white/5 p-8 text-center">
         <p className="text-sm text-gray-400">No assets yet</p>
-        <p className="mt-1 text-xs text-gray-400">
-          Derive an address to get started
+        <p className="mt-1 text-xs text-gray-500">
+          Derive addresses for your wallet chains to get started
         </p>
+        {onDeriveAll && (
+          <button
+            onClick={onDeriveAll}
+            disabled={isDeriving}
+            className="mt-4 rounded-xl bg-purple-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-purple-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isDeriving ? 'Deriving Addresses...' : 'Derive Addresses'}
+          </button>
+        )}
       </div>
     );
   }
