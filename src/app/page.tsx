@@ -14,7 +14,7 @@ export default function Home() {
         </div>
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-24 sm:pt-24 sm:pb-32">
-          {/* Coming Soon Banner - AI Agent Wallet */}
+          {/* New Feature Banner - AI Agent Wallet */}
           <div className="mb-8 mx-auto max-w-3xl">
             <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-500/20 via-cyan-500/20 to-blue-500/20 border border-emerald-500/30 p-4 sm:p-6">
               <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 to-blue-500/10 animate-pulse"></div>
@@ -29,7 +29,7 @@ export default function Home() {
                 <div className="flex-1">
                   <div className="inline-flex items-center gap-2 mb-2">
                     <span className="px-2 py-0.5 text-xs font-bold uppercase tracking-wider bg-emerald-500/30 text-emerald-300 rounded-full">
-                      Coming Soon
+                      New Feature
                     </span>
                   </div>
                   <p className="text-gray-200 text-sm sm:text-base leading-relaxed">
