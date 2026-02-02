@@ -158,6 +158,8 @@ export async function createWallet(
 
     if (addrData) {
       addressResults.push(addrData);
+    } else if (addrError) {
+      console.warn(`Failed to insert ${addr.chain} address: ${addrError.message}`);
     }
   }
 
@@ -213,12 +215,29 @@ export async function importWallet(
       .eq('public_key_secp256k1', public_key_secp256k1)
       .single();
     if (existing) {
+      // Wallet exists — register any missing addresses (e.g. USDC variants added later)
+      let newAddresses = 0;
+      for (const addr of addresses) {
+        if (!validateAddress(addr.address, addr.chain as WalletChain)) continue;
+        const { error: addrError } = await supabase
+          .from('wallet_addresses')
+          .upsert({
+            wallet_id: existing.id,
+            chain: addr.chain,
+            address: addr.address,
+            derivation_path: addr.derivation_path,
+            derivation_index: extractDerivationIndex(addr.derivation_path),
+            is_active: true,
+          }, { onConflict: 'address,chain', ignoreDuplicates: true });
+        if (!addrError) newAddresses++;
+      }
       return {
         success: true,
         data: {
           wallet_id: existing.id,
           imported: false,
           already_exists: true,
+          addresses_registered: newAddresses,
         },
       };
     }
@@ -250,19 +269,19 @@ export async function importWallet(
     return { success: false, error: walletError?.message || 'Failed to create wallet', code: 'INTERNAL_ERROR' };
   }
 
-  // Insert addresses
+  // Insert addresses (upsert to handle duplicate address+chain gracefully)
   let addressCount = 0;
   for (const addr of addresses) {
     const { error: addrError } = await supabase
       .from('wallet_addresses')
-      .insert({
+      .upsert({
         wallet_id: wallet.id,
         chain: addr.chain,
         address: addr.address,
         derivation_path: addr.derivation_path,
         derivation_index: extractDerivationIndex(addr.derivation_path),
         is_active: true,
-      });
+      }, { onConflict: 'address,chain', ignoreDuplicates: true });
     if (!addrError) addressCount++;
   }
 
