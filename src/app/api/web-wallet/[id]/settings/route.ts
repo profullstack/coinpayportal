@@ -98,13 +98,17 @@ export async function PATCH(
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // Read raw body for signature verification
+    const rawBody = await request.text();
+
     // Authenticate
     const authHeader = request.headers.get('authorization');
     const auth = await authenticateWalletRequest(
       supabase,
       authHeader,
       'PATCH',
-      `/api/web-wallet/${id}/settings`
+      `/api/web-wallet/${id}/settings`,
+      rawBody
     );
 
     if (!auth.success) {
@@ -116,7 +120,7 @@ export async function PATCH(
     }
 
     // Parse body
-    const body = await request.json();
+    const body = JSON.parse(rawBody);
     const {
       daily_spend_limit,
       whitelist_addresses,

@@ -15,7 +15,10 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const body = await request.json();
+
+    // Read raw body text FIRST so signature verification uses the exact bytes the client signed
+    const rawBody = await request.text();
+    const body = JSON.parse(rawBody);
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -25,14 +28,14 @@ export async function POST(
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Authenticate
+    // Authenticate using the raw body string (not re-serialized)
     const authHeader = request.headers.get('authorization');
     const auth = await authenticateWalletRequest(
       supabase,
       authHeader,
       'POST',
       `/api/web-wallet/${id}/derive`,
-      JSON.stringify(body)
+      rawBody
     );
 
     if (!auth.success) {

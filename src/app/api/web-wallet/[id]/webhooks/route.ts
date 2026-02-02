@@ -34,12 +34,16 @@ export async function POST(
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // Read raw body for signature verification
+    const rawBody = await request.text();
+
     const authHeader = request.headers.get('authorization');
     const auth = await authenticateWalletRequest(
       supabase,
       authHeader,
       'POST',
-      `/api/web-wallet/${id}/webhooks`
+      `/api/web-wallet/${id}/webhooks`,
+      rawBody
     );
 
     if (!auth.success) {
@@ -50,7 +54,7 @@ export async function POST(
       return WalletErrors.forbidden('Cannot modify another wallet');
     }
 
-    const body = await request.json();
+    const body = JSON.parse(rawBody);
     const result = await registerWebhook(supabase, id, {
       url: body.url,
       events: body.events,

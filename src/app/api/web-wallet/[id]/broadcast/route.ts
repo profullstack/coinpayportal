@@ -38,13 +38,17 @@ export async function POST(
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // Read raw body for signature verification
+    const rawBody = await request.text();
+
     // Authenticate
     const authHeader = request.headers.get('authorization');
     const auth = await authenticateWalletRequest(
       supabase,
       authHeader,
       'POST',
-      `/api/web-wallet/${id}/broadcast`
+      `/api/web-wallet/${id}/broadcast`,
+      rawBody
     );
 
     if (!auth.success) {
@@ -56,7 +60,7 @@ export async function POST(
     }
 
     // Parse body
-    const body = await request.json();
+    const body = JSON.parse(rawBody);
     const { tx_id, signed_tx, chain } = body;
 
     if (!tx_id || !signed_tx || !chain) {
