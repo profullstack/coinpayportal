@@ -43,8 +43,9 @@ export default function CreateWalletPage() {
       const words = result.mnemonic.split(' ');
       setVerifyIndex(Math.floor(Math.random() * words.length));
       setStep('seed');
-    } catch {
-      // Error is set via context
+    } catch (err) {
+      console.error('Failed to create wallet:', err);
+      // Error is also set via context for UI display
     }
   };
 

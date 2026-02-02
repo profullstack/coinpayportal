@@ -58,7 +58,8 @@ export default function ReceivePage() {
           index: a.derivationIndex ?? 0,
         }))
       );
-    } catch {
+    } catch (err) {
+      console.error('Failed to fetch addresses:', err);
       setAddresses([]);
     } finally {
       setIsLoading(false);

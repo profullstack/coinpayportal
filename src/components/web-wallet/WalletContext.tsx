@@ -211,8 +211,9 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
           lastUpdated: Date.now(),
         },
       }));
-    } catch {
-      // Silently fail — old balance stays displayed
+    } catch (err) {
+      console.error('Balance poll failed:', err);
+      // Old balance stays displayed
     }
   }, [state.wallet]);
 

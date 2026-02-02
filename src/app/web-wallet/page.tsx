@@ -143,7 +143,8 @@ function DashboardView() {
           createdAt: tx.createdAt,
         }))
       );
-    } catch {
+    } catch (err) {
+      console.error('Failed to fetch recent transactions:', err);
       setTransactions([]);
     } finally {
       setLoadingTx(false);
@@ -162,13 +163,14 @@ function DashboardView() {
       for (const chain of walletChains) {
         try {
           await wallet.deriveAddress(chain as WalletChain);
-        } catch {
+        } catch (err) {
+          console.error(`Failed to derive address for ${chain}:`, err);
           // May already exist or fail for individual chains — continue
         }
       }
       await fetchData();
-    } catch {
-      // Swallow — individual errors handled above
+    } catch (err) {
+      console.error('Failed during derive-all:', err);
     } finally {
       setIsDeriving(false);
     }

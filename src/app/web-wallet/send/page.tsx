@@ -75,7 +75,8 @@ export default function SendPage() {
       } else {
         setFromAddress('');
       }
-    } catch {
+    } catch (err) {
+      console.error('Failed to fetch addresses:', err);
       setAddresses([]);
       setFromAddress('');
     } finally {
@@ -98,7 +99,8 @@ export default function SendPage() {
         medium: { fee: estimate.medium.fee, feeCurrency: estimate.medium.feeCurrency },
         high: { fee: estimate.high.fee, feeCurrency: estimate.high.feeCurrency },
       });
-    } catch {
+    } catch (err) {
+      console.error('Failed to fetch fee estimates:', err);
       setFees(null);
     } finally {
       setLoadingFees(false);

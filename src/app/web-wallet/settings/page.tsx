@@ -81,7 +81,8 @@ export default function SettingsPage() {
         : '');
       setWhitelistEnabled(data.whitelistEnabled);
       setWhitelistAddresses(data.whitelistAddresses || []);
-    } catch {
+    } catch (err) {
+      console.error('Failed to load security settings:', err);
       setSettingsError('Failed to load security settings');
     } finally {
       setSettingsLoading(false);
@@ -146,7 +147,8 @@ export default function SettingsPage() {
       } else {
         setPwChangeError('Incorrect current password');
       }
-    } catch {
+    } catch (err) {
+      console.error('Failed to change password:', err);
       setPwChangeError('Failed to change password');
     } finally {
       setPwChanging(false);
@@ -177,7 +179,8 @@ export default function SettingsPage() {
       // Reload settings to confirm
       await loadSettings();
       setTimeout(() => setSpendLimitSuccess(false), 3000);
-    } catch {
+    } catch (err) {
+      console.error('Failed to update spend limit:', err);
       setSpendLimitError('Failed to update spend limit');
     } finally {
       setSpendLimitSaving(false);
@@ -225,7 +228,8 @@ export default function SettingsPage() {
       setWhitelistSuccess(true);
       await loadSettings();
       setTimeout(() => setWhitelistSuccess(false), 3000);
-    } catch {
+    } catch (err) {
+      console.error('Failed to update whitelist:', err);
       setWhitelistError('Failed to update whitelist');
     } finally {
       setWhitelistSaving(false);

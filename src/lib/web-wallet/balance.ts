@@ -99,7 +99,9 @@ async function fetchBCHBalance(address: string): Promise<string> {
         const outgoing = parseFloat(data.outgoing || '0');
         return (incoming - outgoing).toString();
       }
-    } catch { /* fall through */ }
+    } catch (err) {
+      console.error('BCH Tatum balance fetch failed, trying next provider:', err);
+    }
   }
 
   // Try CryptoAPIs
@@ -116,7 +118,9 @@ async function fetchBCHBalance(address: string): Promise<string> {
         const data = await resp.json();
         return data.data?.item?.confirmedBalance?.amount || '0';
       }
-    } catch { /* fall through */ }
+    } catch (err) {
+      console.error('BCH CryptoAPIs balance fetch failed, trying next provider:', err);
+    }
   }
 
   // Fallback: fullstack.cash
@@ -129,7 +133,9 @@ async function fetchBCHBalance(address: string): Promise<string> {
         return (sats / 1e8).toString();
       }
     }
-  } catch { /* fall through */ }
+  } catch (err) {
+    console.error('BCH fullstack.cash balance fetch failed:', err);
+  }
 
   throw new Error('All BCH balance APIs failed');
 }

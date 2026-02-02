@@ -99,13 +99,15 @@ async function indexChain(supabase: SupabaseClient, chain: WalletChain): Promise
           );
           state.stats.transactionsFound += result.inserted;
         }
-      } catch {
+      } catch (err) {
+        console.error(`[Indexer] Transaction scan failed for ${addr.address} on ${chain}:`, err);
         state.stats.errors++;
       }
     }
 
     state.lastRun.set(chain, Date.now());
-  } catch {
+  } catch (err) {
+    console.error(`[Indexer] Chain indexing failed for ${chain}:`, err);
     state.stats.errors++;
   }
 }

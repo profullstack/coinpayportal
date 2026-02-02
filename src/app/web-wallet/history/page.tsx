@@ -66,7 +66,8 @@ export default function HistoryPage() {
         setTransactions((prev) => [...prev, ...mapped]);
       }
       setHasMore(mapped.length === PAGE_SIZE);
-    } catch {
+    } catch (err) {
+      console.error('Failed to fetch transactions:', err);
       if (page === 0) setTransactions([]);
     } finally {
       setIsLoading(false);

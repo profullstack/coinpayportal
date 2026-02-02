@@ -178,7 +178,8 @@ export function loadWalletFromStorage(): StoredWallet | null {
   if (!raw) return null;
   try {
     return JSON.parse(raw);
-  } catch {
+  } catch (err) {
+    console.error('Failed to parse stored wallet data:', err);
     return null;
   }
 }

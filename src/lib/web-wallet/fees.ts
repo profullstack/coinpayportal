@@ -99,7 +99,9 @@ async function estimateBTCFees(): Promise<FeeEstimateResult> {
         high: makeBTCFee(data.fastestFee || 20, 'high', 600),
       };
     }
-  } catch { /* fall through */ }
+  } catch (err) {
+    console.error('BTC mempool.space fee fetch failed, trying next provider:', err);
+  }
 
   // Try Tatum API fallback
   const tatumKey = process.env.TATUM_API_KEY;
@@ -116,7 +118,9 @@ async function estimateBTCFees(): Promise<FeeEstimateResult> {
           high: makeBTCFee(data.fast || 20, 'high', 600),
         };
       }
-    } catch { /* fall through */ }
+    } catch (err) {
+      console.error('BTC Tatum fee fetch failed, using defaults:', err);
+    }
   }
 
   // Default fallback
@@ -264,7 +268,9 @@ async function estimateSOLFees(
         priorityFee = sorted[Math.floor(sorted.length / 2)] || 0;
       }
     }
-  } catch { /* use default */ }
+  } catch (err) {
+    console.error('SOL priority fee fetch failed, using default:', err);
+  }
 
   // For USDC_SOL, account for token program invocation (more compute units)
   const signatures = chain === 'USDC_SOL' ? 1 : 1;
