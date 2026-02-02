@@ -95,6 +95,7 @@ function LandingView() {
 }
 
 function DashboardView() {
+  const router = useRouter();
   const { wallet, chains } = useWebWallet();
   const [totalUsd, setTotalUsd] = useState(0);
   const [assets, setAssets] = useState<AssetItem[]>([]);
@@ -224,7 +225,13 @@ function DashboardView() {
               Refresh
             </button>
           </div>
-          <AssetList assets={assets} isLoading={loadingBalances} onDeriveAll={handleDeriveAll} isDeriving={isDeriving} />
+          <AssetList
+            assets={assets}
+            isLoading={loadingBalances}
+            onSelect={(asset) => router.push(`/web-wallet/asset/${asset.chain}`)}
+            onDeriveAll={handleDeriveAll}
+            isDeriving={isDeriving}
+          />
         </section>
 
         {/* Recent Transactions */}
