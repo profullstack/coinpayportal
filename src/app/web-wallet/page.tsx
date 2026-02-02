@@ -105,47 +105,22 @@ function DashboardView() {
   const fetchData = useCallback(async () => {
     if (!wallet) return;
 
-    // Fetch balances — try getTotalBalanceUSD first, fall back to getAddresses
+    // Fetch balances
     try {
       setLoadingBalances(true);
       const balanceData = await wallet.getTotalBalanceUSD();
       setTotalUsd(balanceData.totalUsd);
-      const balanceAssets = balanceData.balances.map((b) => ({
-        chain: b.chain,
-        address: b.address,
-        balance: b.balance,
-        usdValue: b.usdValue,
-      }));
-
-      if (balanceAssets.length > 0) {
-        setAssets(balanceAssets);
-      } else {
-        // Balance API returned empty — try loading addresses directly
-        const addresses = await wallet.getAddresses();
-        setAssets(
-          addresses.map((a: any) => ({
-            chain: a.chain,
-            address: a.address,
-            balance: '0',
-            usdValue: 0,
-          }))
-        );
-      }
-    } catch {
-      // Balance API failed entirely — try loading addresses as fallback
-      try {
-        const addresses = await wallet.getAddresses();
-        setAssets(
-          addresses.map((a: any) => ({
-            chain: a.chain,
-            address: a.address,
-            balance: '0',
-            usdValue: 0,
-          }))
-        );
-      } catch {
-        setAssets([]);
-      }
+      setAssets(
+        balanceData.balances.map((b) => ({
+          chain: b.chain,
+          address: b.address,
+          balance: b.balance,
+          usdValue: b.usdValue,
+        }))
+      );
+    } catch (err) {
+      console.error('Failed to fetch balances:', err);
+      setAssets([]);
     } finally {
       setLoadingBalances(false);
     }
