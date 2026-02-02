@@ -20,8 +20,11 @@ import {
 import { wordlist } from '@scure/bip39/wordlists/english';
 import { HDKey } from '@scure/bip32';
 import { secp256k1 } from '@noble/curves/secp256k1';
+import { ed25519 } from '@noble/curves/ed25519.js';
 import * as bitcoin from 'bitcoinjs-lib';
-import { createHash, createHmac } from 'crypto';
+import { hmac } from '@noble/hashes/hmac.js';
+import { sha512 } from '@noble/hashes/sha2.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { keccak_256 } from '@noble/hashes/sha3.js';
 import type { WalletChain } from './identity';
 
@@ -289,11 +292,9 @@ function slip0010DeriveKey(
   seed: Uint8Array,
   path: string
 ): { key: Buffer; chainCode: Buffer } {
-  const hmac = createHmac('sha512', 'ed25519 seed');
-  hmac.update(Buffer.from(seed));
-  const I = hmac.digest();
-  let key = I.subarray(0, 32);
-  let chainCode = I.subarray(32);
+  const I = hmac(sha512, new TextEncoder().encode('ed25519 seed'), seed);
+  let key = Buffer.from(I.subarray(0, 32));
+  let chainCode = Buffer.from(I.subarray(32));
 
   const segments = path.split('/').slice(1); // Remove 'm'
 
@@ -309,11 +310,9 @@ function slip0010DeriveKey(
     key.copy(data, 1);
     data.writeUInt32BE(idx + 0x80000000, 33);
 
-    const hmacChild = createHmac('sha512', chainCode);
-    hmacChild.update(data);
-    const childI = hmacChild.digest();
-    key = childI.subarray(0, 32);
-    chainCode = childI.subarray(32);
+    const childI = hmac(sha512, chainCode, data);
+    key = Buffer.from(childI.subarray(0, 32));
+    chainCode = Buffer.from(childI.subarray(32));
   }
 
   return { key, chainCode };
@@ -329,21 +328,8 @@ async function deriveEd25519(
   const path = `m/44'/501'/${index}'/0'`;
   const { key } = slip0010DeriveKey(seed, path);
 
-  // Get Ed25519 public key via Node.js crypto
-  const { createPrivateKey, createPublicKey } = await import('crypto');
-
-  const privateKeyObj = createPrivateKey({
-    key: Buffer.concat([
-      Buffer.from('302e020100300506032b657004220420', 'hex'), // ASN.1 DER prefix
-      key,
-    ]),
-    format: 'der',
-    type: 'pkcs8',
-  });
-
-  const publicKeyObj = createPublicKey(privateKeyObj);
-  const publicKeyDer = publicKeyObj.export({ format: 'der', type: 'spki' });
-  const rawPubKey = Buffer.from(publicKeyDer.subarray(-32));
+  // Get Ed25519 public key using @noble/curves (browser-compatible)
+  const rawPubKey = Buffer.from(ed25519.getPublicKey(key));
 
   const address = base58Encode(rawPubKey);
 
