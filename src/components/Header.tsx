@@ -64,12 +64,14 @@ export default function Header() {
 
   const navigation = [
     { name: 'Home', href: '/' },
+    { name: 'Wallet', href: '/web-wallet' },
     { name: 'API', href: '/docs' },
     { name: 'Pricing', href: '/pricing' },
   ];
 
   const loggedInNavigation = [
     { name: 'Dashboard', href: '/dashboard' },
+    { name: 'Wallet', href: '/web-wallet' },
     { name: 'API', href: '/docs' },
   ];
 

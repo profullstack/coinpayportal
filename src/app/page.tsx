@@ -15,8 +15,8 @@ export default function Home() {
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-24 sm:pt-24 sm:pb-32">
           {/* New Feature Banner - AI Agent Wallet */}
-          <div className="mb-8 mx-auto max-w-3xl">
-            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-500/20 via-cyan-500/20 to-blue-500/20 border border-emerald-500/30 p-4 sm:p-6">
+          <Link href="/web-wallet" className="block mb-8 mx-auto max-w-3xl group">
+            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-500/20 via-cyan-500/20 to-blue-500/20 border border-emerald-500/30 p-4 sm:p-6 transition-all group-hover:border-emerald-400/50 group-hover:shadow-lg group-hover:shadow-emerald-500/10">
               <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 to-blue-500/10 animate-pulse"></div>
               <div className="relative flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
                 <div className="flex-shrink-0">
@@ -31,6 +31,7 @@ export default function Home() {
                     <span className="px-2 py-0.5 text-xs font-bold uppercase tracking-wider bg-emerald-500/30 text-emerald-300 rounded-full">
                       New Feature
                     </span>
+                    <span className="text-emerald-400 text-xs group-hover:translate-x-1 transition-transform">→ Try it now</span>
                   </div>
                   <p className="text-gray-200 text-sm sm:text-base leading-relaxed">
                     <span className="font-semibold text-white">The wallet built for humans and AI agents.</span>{' '}
@@ -39,7 +40,7 @@ export default function Home() {
                 </div>
               </div>
             </div>
-          </div>
+          </Link>
 
           {/* Logo/Brand */}
           <div className="text-center mb-8">
