@@ -2,6 +2,40 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Local KHTeka fonts — override @reown/appkit remote loading */
+@font-face {
+  font-family: 'KHTeka';
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/khteka/KHTeka-Light.woff2') format('woff2'),
+       url('/fonts/khteka/KHTeka-Light.woff') format('woff');
+}
+@font-face {
+  font-family: 'KHTeka';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/khteka/KHTeka-Regular.woff2') format('woff2'),
+       url('/fonts/khteka/KHTeka-Regular.woff') format('woff');
+}
+@font-face {
+  font-family: 'KHTeka';
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/khteka/KHTeka-Medium.woff2') format('woff2'),
+       url('/fonts/khteka/KHTeka-Medium.woff') format('woff');
+}
+@font-face {
+  font-family: 'KHTeka Mono';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/khteka/KHTekaMono-Regular.woff2') format('woff2'),
+       url('/fonts/khteka/KHTekaMono-Regular.woff') format('woff');
+}
+
 :root {
   --foreground-rgb: 255, 255, 255;
   --background-start-rgb: 15, 23, 42;
