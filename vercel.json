@@ -3,10 +3,6 @@
     {
       "path": "/api/cron/monitor-payments",
       "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/monitor-wallet-transactions",
-      "schedule": "* * * * *"
     }
   ]
 }
