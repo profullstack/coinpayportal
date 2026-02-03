@@ -112,14 +112,19 @@ function DashboardView() {
       setLoadingBalances(true);
       const balanceData = await wallet.getTotalBalanceUSD();
       setTotalUsd(balanceData.totalUsd);
-      setAssets(
-        balanceData.balances.map((b) => ({
+      const CHAIN_ORDER: Record<string, number> = {
+        BTC: 0, ETH: 1, SOL: 2, POL: 3, BCH: 4,
+        USDC_ETH: 5, USDC_SOL: 6, USDC_POL: 7,
+      };
+      const sorted = balanceData.balances
+        .map((b) => ({
           chain: b.chain,
           address: b.address,
           balance: b.balance,
           usdValue: b.usdValue,
         }))
-      );
+        .sort((a, b) => (CHAIN_ORDER[a.chain] ?? 99) - (CHAIN_ORDER[b.chain] ?? 99));
+      setAssets(sorted);
     } catch (err) {
       console.error('Failed to fetch balances:', err);
       setAssets([]);
