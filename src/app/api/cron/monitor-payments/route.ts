@@ -126,7 +126,15 @@ const RPC_ENDPOINTS: Record<string, string> = {
 
 // API keys
 const CRYPTO_APIS_KEY = process.env.CRYPTO_APIS_KEY || '';
-const CRON_SECRET = process.env.CRON_SECRET || process.env.INTERNAL_API_KEY;
+
+/**
+ * Cron secret for authenticating cron requests.
+ * Must be set via CRON_SECRET or INTERNAL_API_KEY env var.
+ * If not set, only Vercel Cron requests (with x-vercel-cron header) are allowed.
+ */
+function getCronSecret(): string | undefined {
+  return process.env.CRON_SECRET || process.env.INTERNAL_API_KEY;
+}
 
 interface Payment {
   id: string;
@@ -521,19 +529,30 @@ async function sendWebhook(
  */
 export async function GET(request: NextRequest) {
   try {
-    // Verify cron secret for security
-    const authHeader = request.headers.get('authorization');
-    const cronSecret = authHeader?.replace('Bearer ', '');
-    
     // Allow requests from Vercel Cron (they include a special header)
     const isVercelCron = request.headers.get('x-vercel-cron') === '1';
     
-    if (!isVercelCron && cronSecret !== CRON_SECRET) {
-      console.warn('Unauthorized cron request');
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+    if (!isVercelCron) {
+      // Verify cron secret for non-Vercel requests
+      const cronSecret = getCronSecret();
+      if (!cronSecret) {
+        console.error('CRON_SECRET or INTERNAL_API_KEY not configured');
+        return NextResponse.json(
+          { error: 'Cron endpoint not configured' },
+          { status: 500 }
+        );
+      }
+      
+      const authHeader = request.headers.get('authorization');
+      const providedSecret = authHeader?.replace('Bearer ', '');
+      
+      if (providedSecret !== cronSecret) {
+        console.warn('Unauthorized cron request');
+        return NextResponse.json(
+          { error: 'Unauthorized' },
+          { status: 401 }
+        );
+      }
     }
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey);

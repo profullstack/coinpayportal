@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getPayment } from '@/lib/payments/service';
+import { getPaymentPublic } from '@/lib/payments/service';
 
 /**
  * GET /api/payments/[id]
- * Get a payment by ID
+ * Get a payment by ID (public endpoint - returns limited fields only).
+ * For full payment data, use authenticated merchant endpoints.
  */
 export async function GET(
   request: NextRequest,
@@ -23,7 +24,7 @@ export async function GET(
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
-    const result = await getPayment(supabase, id);
+    const result = await getPaymentPublic(supabase, id);
 
     if (!result.success) {
       return NextResponse.json(
