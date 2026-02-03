@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
-const VERSION = '0.1.0';
+const VERSION = '0.3.1';
 const CONFIG_FILE = join(homedir(), '.coinpay.json');
 
 // ANSI colors
