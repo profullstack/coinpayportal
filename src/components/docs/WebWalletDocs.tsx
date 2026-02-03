@@ -41,8 +41,83 @@ export function WebWalletDocs() {
         ))}
       </div>
 
+      {/* Installation */}
+      <h3 className="text-xl font-semibold text-white mb-4">Installation</h3>
+      <div className="grid md:grid-cols-2 gap-6 mb-8">
+        <div>
+          <h4 className="text-lg font-semibold text-white mb-3">SDK (npm)</h4>
+          <CodeBlock title="Install" language="bash">
+{`# Payment gateway SDK + CLI
+npm install -g @profullstack/coinpay
+
+# Configure
+coinpay config set apiKey YOUR_API_KEY
+coinpay config set apiUrl https://coinpayportal.com`}
+          </CodeBlock>
+        </div>
+        <div>
+          <h4 className="text-lg font-semibold text-white mb-3">Wallet CLI (from source)</h4>
+          <CodeBlock title="Install" language="bash">
+{`git clone https://github.com/profullstack/coinpayportal
+cd coinpayportal && pnpm install
+
+# Create a wallet
+pnpm coinpay-wallet create --chains BTC,ETH,SOL`}
+          </CodeBlock>
+        </div>
+      </div>
+
+      {/* CLI Reference */}
+      <h3 className="text-xl font-semibold text-white mb-4">Wallet CLI Commands</h3>
+      <div className="mb-8 space-y-3">
+        {[
+          { cmd: 'create', args: '--words 12|24 --chains BTC,ETH,...', desc: 'Create a new wallet with mnemonic' },
+          { cmd: 'import', args: '<mnemonic> --chains BTC,ETH,...', desc: 'Import wallet from seed phrase' },
+          { cmd: 'balance', args: '<wallet-id>', desc: 'Show balances with USD values' },
+          { cmd: 'address', args: '<wallet-id> --chain ETH', desc: 'List or filter addresses' },
+          { cmd: 'send', args: '<wallet-id> --from <addr> --to <addr> --chain ETH --amount 0.5', desc: 'Send a transaction' },
+          { cmd: 'history', args: '<wallet-id> --chain BTC --limit 20', desc: 'View transaction history' },
+          { cmd: 'sync', args: '<wallet-id> --chain SOL', desc: 'Sync on-chain deposits into history' },
+        ].map((c) => (
+          <div key={c.cmd} className="flex items-start gap-4 p-3 rounded-lg bg-slate-800/50">
+            <code className="text-purple-400 font-mono text-sm whitespace-nowrap shrink-0">coinpay-wallet {c.cmd}</code>
+            <div className="min-w-0">
+              <code className="text-gray-500 text-xs break-all">{c.args}</code>
+              <p className="text-gray-300 text-sm mt-0.5">{c.desc}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mb-8 p-4 bg-slate-800/50 rounded-lg">
+        <h4 className="text-white font-semibold text-sm mb-2">Environment Variables</h4>
+        <div className="space-y-1 text-sm text-gray-300">
+          <p><code className="text-purple-400">COINPAY_API_URL</code> — API base URL (default: <code>http://localhost:8080</code>)</p>
+          <p><code className="text-purple-400">COINPAY_AUTH_TOKEN</code> — JWT token for read-only operations</p>
+          <p><code className="text-purple-400">COINPAY_MNEMONIC</code> — Mnemonic phrase (required for <code>send</code>)</p>
+        </div>
+        <p className="text-gray-500 text-xs mt-2">Or use a config file: <code>~/.coinpayrc.json</code></p>
+      </div>
+
       {/* Auth Flow */}
-      <h3 className="text-xl font-semibold text-white mb-4">Authentication Flow</h3>
+      <h3 className="text-xl font-semibold text-white mb-4">Authentication</h3>
+
+      <h4 className="text-lg font-semibold text-white mb-3">Option 1: Signature Auth (per-request)</h4>
+      <div className="mb-6 p-4 rounded-lg bg-slate-800/50">
+        <p className="text-gray-300 text-sm mb-3">Sign each request with your secp256k1 key. No tokens to manage or refresh.</p>
+        <CodeBlock title="Authorization Header">
+{`Authorization: Wallet <wallet_id>:<signature>:<timestamp>:<nonce>
+
+Message to sign: {METHOD}:{PATH}:{UNIX_TIMESTAMP}:{BODY}
+Example: GET:/api/web-wallet/abc123/balances:1706432100:
+
+Nonce: random string (e.g. crypto.randomUUID().slice(0,8))
+       Prevents replay when firing concurrent requests in the same second.
+       Optional for backwards compatibility but recommended.`}
+        </CodeBlock>
+      </div>
+
+      <h4 className="text-lg font-semibold text-white mb-3">Option 2: Challenge → JWT (session-based)</h4>
       <div className="mb-8 p-4 rounded-lg bg-slate-800/50">
         <ol className="space-y-2 text-gray-300 text-sm list-decimal list-inside">
           <li>Client requests a challenge: <code className="text-purple-400">GET /api/web-wallet/auth/challenge?wallet_id=UUID</code></li>
@@ -308,6 +383,21 @@ const newAddr = await wallet.deriveAddress('BTC');`}
       {/* Transaction Detail */}
       <ApiEndpoint method="GET" path="/api/web-wallet/:id/transactions/:tx_id" description="Get details of a specific transaction." />
 
+      {/* Sync History */}
+      <ApiEndpoint method="POST" path="/api/web-wallet/:id/sync-history" description="Sync on-chain transaction history from blockchain explorers. Detects external deposits not initiated through the app. A background daemon also runs server-side every 15 seconds to finalize pending/confirming transactions.">
+        <CodeBlock title="Request Body (chain is optional)">
+{`{
+  "chain": "BTC"
+}`}
+        </CodeBlock>
+        <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+          <p className="text-blue-300 text-sm">
+            <strong>Background daemon:</strong> The server automatically checks pending/confirming transactions every 15 seconds and updates their status. 
+            Transactions are finalized even if the client disconnects. Daemon-finalized txs are tagged with <code className="text-blue-200">metadata.finalized_by: &quot;daemon&quot;</code>.
+          </p>
+        </div>
+      </ApiEndpoint>
+
       {/* Settings */}
       <ApiEndpoint method="GET" path="/api/web-wallet/:id/settings" description="Get wallet security settings (spend limits, whitelist, confirmation delay)." />
       <ApiEndpoint method="PATCH" path="/api/web-wallet/:id/settings" description="Update wallet security settings.">
@@ -359,6 +449,8 @@ const newAddr = await wallet.deriveAddress('BTC');`}
           { endpoint: 'Transaction prep', limit: '20/min per IP' },
           { endpoint: 'Broadcast', limit: '10/min per IP' },
           { endpoint: 'Fee estimation', limit: '60/min per IP' },
+          { endpoint: 'Sync history', limit: '10/min per IP' },
+          { endpoint: 'Settings', limit: '30/min per IP' },
         ].map((r) => (
           <div key={r.endpoint} className="flex justify-between items-center p-3 rounded-lg bg-slate-800/50">
             <span className="text-gray-300 text-sm">{r.endpoint}</span>
