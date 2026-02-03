@@ -47,13 +47,26 @@ export async function POST(
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Authenticate
+    // Read body first (needed for both auth verification and chain filter)
+    let rawBody = '';
+    let parsedBody: { chain?: string } = {};
+    try {
+      rawBody = await request.text();
+      if (rawBody) {
+        parsedBody = JSON.parse(rawBody);
+      }
+    } catch {
+      // Empty or invalid body is fine
+    }
+
+    // Authenticate (pass body for signature verification)
     const authHeader = request.headers.get('authorization');
     const auth = await authenticateWalletRequest(
       supabase,
       authHeader,
       'POST',
-      `/api/web-wallet/${id}/sync-history`
+      `/api/web-wallet/${id}/sync-history`,
+      rawBody
     );
 
     if (!auth.success) {
@@ -82,20 +95,15 @@ export async function POST(
       );
     }
 
-    // Parse optional chain filter from body
+    // Parse chain filter from body
     let chainFilter: WalletChain | undefined;
-    try {
-      const body: { chain?: string } = await request.json().catch(() => ({}));
-      if (body.chain) {
-        if (!isValidChain(body.chain)) {
-          return WalletErrors.invalidChain(
-            `Unsupported chain: ${body.chain}`
-          );
-        }
-        chainFilter = body.chain;
+    if (parsedBody.chain) {
+      if (!isValidChain(parsedBody.chain)) {
+        return WalletErrors.invalidChain(
+          `Unsupported chain: ${parsedBody.chain}`
+        );
       }
-    } catch {
-      // Empty body is fine — sync all chains
+      chainFilter = parsedBody.chain;
     }
 
     // Perform sync
