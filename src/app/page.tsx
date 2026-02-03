@@ -576,6 +576,125 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Web Wallet & CLI Section */}
+      <section className="relative py-24" id="wallet">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <span className="px-3 py-1 text-xs font-bold uppercase tracking-wider bg-cyan-500/20 text-cyan-300 rounded-full border border-cyan-500/30">
+              Web Wallet &amp; CLI
+            </span>
+            <h2 className="text-4xl sm:text-5xl font-bold text-white mt-4 mb-4">
+              Your Keys. Your Coins.
+            </h2>
+            <p className="text-xl text-gray-400 max-w-2xl mx-auto">
+              Non-custodial multi-chain wallet with a full CLI and REST API. Works for humans and AI agents alike.
+            </p>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-12">
+            {/* CLI Examples */}
+            <div className="space-y-6">
+              <h3 className="text-2xl font-bold text-white mb-4">Command Line</h3>
+              <div className="rounded-2xl bg-slate-800/80 backdrop-blur-sm border border-white/10 overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-3 bg-slate-800/80 border-b border-white/10">
+                  <div className="w-3 h-3 rounded-full bg-red-500" />
+                  <div className="w-3 h-3 rounded-full bg-yellow-500" />
+                  <div className="w-3 h-3 rounded-full bg-green-500" />
+                  <span className="ml-2 text-sm text-gray-400">coinpay-wallet</span>
+                </div>
+                <pre className="p-4 text-sm overflow-x-auto">
+                  <code className="text-gray-300">
+{`# Create a new wallet
+$ coinpay-wallet create --chains BTC,ETH,SOL
+✓ Wallet created: d10b1358
+  Mnemonic: word1 word2 ... word12
+  BTC: 1A1zP1eP5QGefi2DMPTfTL...
+  ETH: 0xCC3b072391AE7a8d10cF00...
+  SOL: 7xKXtg2CW87d97TXJSDpbD...
+
+# Check balances
+$ coinpay-wallet balance d10b1358
+  BTC    0.00100000   $62.40
+  ETH    1.50000000   $4,875.00
+  SOL    25.0000000   $3,375.00
+
+# Send a transaction
+$ coinpay-wallet send d10b1358 \\
+    --from 0xCC3b... --to 0x1234... \\
+    --chain ETH --amount 0.5
+
+# Sync on-chain deposits
+$ coinpay-wallet sync d10b1358 --chain BTC
+
+# View transaction history
+$ coinpay-wallet history d10b1358 --limit 10`}
+                  </code>
+                </pre>
+              </div>
+            </div>
+
+            {/* Feature List */}
+            <div className="space-y-6">
+              <h3 className="text-2xl font-bold text-white mb-4">Features</h3>
+              <div className="space-y-4">
+                {[
+                  {
+                    title: '8 Assets, 5 Blockchains',
+                    desc: 'BTC, ETH, SOL, POL, BCH, and USDC on Ethereum, Polygon, and Solana.',
+                  },
+                  {
+                    title: 'Signature Authentication',
+                    desc: 'Every request signed with your secp256k1 key. No passwords, no tokens to leak.',
+                  },
+                  {
+                    title: 'Background Transaction Finalization',
+                    desc: 'Server-side daemon confirms transactions even if you close the browser.',
+                  },
+                  {
+                    title: 'On-Chain Indexer',
+                    desc: 'External deposits are automatically detected and synced to your history.',
+                  },
+                  {
+                    title: 'CLI + REST API + Web UI',
+                    desc: 'Use the command line, call the API directly, or use the web wallet — your choice.',
+                  },
+                  {
+                    title: 'AI Agent Ready',
+                    desc: 'Point your agent to /skill.md and it can create wallets, send payments, and check balances autonomously.',
+                  },
+                ].map((feature, index) => (
+                  <div key={index} className="flex items-start gap-4 p-4 rounded-xl bg-white/5 border border-white/5">
+                    <div className="w-8 h-8 shrink-0 rounded-lg bg-cyan-500/20 flex items-center justify-center mt-0.5">
+                      <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h4 className="text-white font-semibold text-sm">{feature.title}</h4>
+                      <p className="text-gray-400 text-sm mt-0.5">{feature.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-4 pt-2">
+                <Link
+                  href="/web-wallet"
+                  className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/50 hover:scale-105 transition-all duration-200 text-sm"
+                >
+                  Open Web Wallet
+                </Link>
+                <Link
+                  href="/skill.md"
+                  className="px-6 py-3 bg-white/10 backdrop-blur-sm text-white font-semibold rounded-xl border border-white/20 hover:bg-white/20 hover:scale-105 transition-all duration-200 text-sm"
+                >
+                  View skill.md
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section className="relative py-24">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
