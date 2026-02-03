@@ -24,7 +24,12 @@ interface RateLimitConfig {
 
 /** Default rate limit configs per endpoint category */
 export const RATE_LIMITS: Record<string, RateLimitConfig> = {
-  'wallet_creation': { limit: 5, windowSeconds: 3600 },      // 5/hour
+  // Merchant auth endpoints (strict limits to prevent brute-force)
+  'merchant_login': { limit: 5, windowSeconds: 300 },         // 5/5min per IP
+  'merchant_login_email': { limit: 10, windowSeconds: 3600 }, // 10/hour per email
+  'merchant_register': { limit: 3, windowSeconds: 3600 },     // 3/hour per IP
+  // Web wallet endpoints
+  'wallet_creation': { limit: 5, windowSeconds: 3600 },       // 5/hour
   'auth_challenge': { limit: 10, windowSeconds: 60 },         // 10/min
   'auth_verify': { limit: 10, windowSeconds: 60 },            // 10/min
   'balance_query': { limit: 60, windowSeconds: 60 },          // 60/min
@@ -33,7 +38,7 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'broadcast_tx': { limit: 10, windowSeconds: 60 },           // 10/min
   'estimate_fee': { limit: 60, windowSeconds: 60 },           // 60/min
   'settings': { limit: 30, windowSeconds: 60 },               // 30/min
-  'sync_history': { limit: 10, windowSeconds: 60 },            // 10/min
+  'sync_history': { limit: 10, windowSeconds: 60 },           // 10/min
 };
 
 /** In-memory rate limit store */

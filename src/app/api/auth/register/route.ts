@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { register } from '@/lib/auth/service';
+import { checkRateLimit } from '@/lib/web-wallet/rate-limit';
 import { z } from 'zod';
 
 /**
@@ -13,11 +14,46 @@ const registerSchema = z.object({
 });
 
 /**
+ * Get client IP from request headers
+ */
+function getClientIp(request: NextRequest): string {
+  return (
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
+
+/**
  * POST /api/auth/register
  * Register a new merchant account
  */
 export async function POST(request: NextRequest) {
   try {
+    // Get client IP for rate limiting
+    const clientIp = getClientIp(request);
+
+    // Check rate limit (prevents mass account creation)
+    const rateCheck = checkRateLimit(clientIp, 'merchant_register');
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Too many registration attempts. Please try again later.',
+          retryAfter: rateCheck.resetAt - Math.floor(Date.now() / 1000),
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(rateCheck.resetAt - Math.floor(Date.now() / 1000)),
+            'X-RateLimit-Limit': String(rateCheck.limit),
+            'X-RateLimit-Remaining': '0',
+            'X-RateLimit-Reset': String(rateCheck.resetAt),
+          },
+        }
+      );
+    }
+
     // Parse request body
     const body = await request.json();
 
