@@ -5,6 +5,10 @@ description: Non-custodial multi-chain wallet for AI agents. Send and receive BT
 homepage: https://coinpayportal.com
 ---
 
+```bash
+curl -s https://coinpayportal.com/skill.md
+```
+
 # CoinPayPortal Wallet SDK
 
 Non-custodial multi-chain wallet for AI agents. Create wallets, check balances, send transactions, and receive payments across BTC, ETH, SOL, POL, BCH, and USDC — no KYC required.
