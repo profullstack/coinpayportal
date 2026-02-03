@@ -99,6 +99,39 @@ function error(msg) {
   process.exit(1);
 }
 
+// ── Auth Helper ──
+
+/**
+ * Get an authenticated wallet instance.
+ * Uses COINPAY_MNEMONIC (signature auth) or COINPAY_AUTH_TOKEN (JWT).
+ */
+async function getAuthenticatedWallet(walletId, config) {
+  const { Wallet } = await import('../src/lib/wallet-sdk/index.ts');
+
+  const mnemonic = process.env.COINPAY_MNEMONIC;
+  if (mnemonic) {
+    // fromSeed re-derives keys and uses signature auth — no JWT needed
+    const wallet = await Wallet.fromSeed(mnemonic, {
+      baseUrl: config.apiUrl,
+      chains: [], // no new addresses needed
+    });
+    if (wallet.walletId !== walletId) {
+      error(`Mnemonic wallet ID (${wallet.walletId}) doesn't match requested ID (${walletId})`);
+    }
+    return wallet;
+  }
+
+  if (config.authToken) {
+    return Wallet.fromWalletId(walletId, {
+      baseUrl: config.apiUrl,
+      authToken: config.authToken,
+      authTokenExpiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    });
+  }
+
+  error('Authentication required. Set COINPAY_MNEMONIC or COINPAY_AUTH_TOKEN.');
+}
+
 // ── Commands ──
 
 async function cmdCreate(flags, config) {
@@ -155,20 +188,12 @@ async function cmdImport(positional, flags, config) {
 }
 
 async function cmdBalance(positional, config) {
-  const { Wallet } = await import('../src/lib/wallet-sdk/index.ts');
-
   const walletId = positional[0];
   if (!walletId) {
     error('Usage: coinpay-wallet balance <wallet-id>');
   }
 
-  const wallet = Wallet.fromWalletId(walletId, {
-    baseUrl: config.apiUrl,
-    authToken: config.authToken,
-    authTokenExpiresAt: config.authToken
-      ? new Date(Date.now() + 3600_000).toISOString()
-      : undefined,
-  });
+  const wallet = await getAuthenticatedWallet(walletId, config);
 
   console.log(`\nFetching balances for wallet ${walletId}...\n`);
 
@@ -205,8 +230,6 @@ async function cmdBalance(positional, config) {
 }
 
 async function cmdSend(positional, flags, config) {
-  const { Wallet } = await import('../src/lib/wallet-sdk/index.ts');
-
   const walletId = positional[0];
   if (!walletId || !flags.from || !flags.to || !flags.chain || !flags.amount) {
     error(
@@ -220,19 +243,7 @@ async function cmdSend(positional, flags, config) {
   console.log(`  Chain:  ${flags.chain}`);
   console.log(`  Amount: ${flags.amount}\n`);
 
-  // For sending, we need the mnemonic. Read from stdin or env.
-  const mnemonic = process.env.COINPAY_MNEMONIC;
-  if (!mnemonic) {
-    error(
-      'Set COINPAY_MNEMONIC environment variable to send transactions.\n' +
-      '  Example: COINPAY_MNEMONIC="word1 word2 ..." pnpm coinpay-wallet send ...'
-    );
-  }
-
-  const wallet = await Wallet.fromSeed(mnemonic, {
-    baseUrl: config.apiUrl,
-    chains: [flags.chain.toUpperCase()],
-  });
+  const wallet = await getAuthenticatedWallet(walletId, config);
 
   const result = await wallet.send({
     fromAddress: flags.from,
@@ -249,20 +260,12 @@ async function cmdSend(positional, flags, config) {
 }
 
 async function cmdAddress(positional, flags, config) {
-  const { Wallet } = await import('../src/lib/wallet-sdk/index.ts');
-
   const walletId = positional[0];
   if (!walletId) {
     error('Usage: coinpay-wallet address <wallet-id> [--chain <chain>]');
   }
 
-  const wallet = Wallet.fromWalletId(walletId, {
-    baseUrl: config.apiUrl,
-    authToken: config.authToken,
-    authTokenExpiresAt: config.authToken
-      ? new Date(Date.now() + 3600_000).toISOString()
-      : undefined,
-  });
+  const wallet = await getAuthenticatedWallet(walletId, config);
 
   console.log(`\nAddresses for wallet ${walletId}:\n`);
 
@@ -283,20 +286,12 @@ async function cmdAddress(positional, flags, config) {
 }
 
 async function cmdHistory(positional, flags, config) {
-  const { Wallet } = await import('../src/lib/wallet-sdk/index.ts');
-
   const walletId = positional[0];
   if (!walletId) {
     error('Usage: coinpay-wallet history <wallet-id> [--chain <chain>] [--limit <n>]');
   }
 
-  const wallet = Wallet.fromWalletId(walletId, {
-    baseUrl: config.apiUrl,
-    authToken: config.authToken,
-    authTokenExpiresAt: config.authToken
-      ? new Date(Date.now() + 3600_000).toISOString()
-      : undefined,
-  });
+  const wallet = await getAuthenticatedWallet(walletId, config);
 
   const limit = parseInt(flags.limit || '20', 10);
   console.log(`\nTransaction history for wallet ${walletId}:\n`);
@@ -323,20 +318,12 @@ async function cmdHistory(positional, flags, config) {
 }
 
 async function cmdSync(positional, flags, config) {
-  const { Wallet } = await import('../src/lib/wallet-sdk/index.ts');
-
   const walletId = positional[0];
   if (!walletId) {
     error('Usage: coinpay-wallet sync <wallet-id> [--chain <chain>]');
   }
 
-  const wallet = Wallet.fromWalletId(walletId, {
-    baseUrl: config.apiUrl,
-    authToken: config.authToken,
-    authTokenExpiresAt: config.authToken
-      ? new Date(Date.now() + 3600_000).toISOString()
-      : undefined,
-  });
+  const wallet = await getAuthenticatedWallet(walletId, config);
 
   const chain = flags.chain?.toUpperCase();
   console.log(`\nSyncing on-chain history for wallet ${walletId}${chain ? ` (${chain})` : ' (all chains)'}...\n`);
