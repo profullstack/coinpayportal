@@ -29,10 +29,6 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Write .env.prod
-        run: echo "${{ secrets.ENV_FILE }}" > .env.prod
-        working-directory: .
-
       - name: Install dependencies
         run: npm install
 
@@ -50,10 +46,9 @@ jobs:
         run: npm run build --if-present
 
       - name: Publish to npm
-        run: |
-          source ../../.env.prod
-          export NODE_AUTH_TOKEN=$NPM_TOKEN
-          npm publish --access public --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --ignore-scripts
 
       - name: Push version bump
         run: |
