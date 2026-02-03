@@ -1,6 +1,6 @@
 ---
 name: coinpayportal
-version: 2.0.0
+version: 2.1.0
 description: Non-custodial multi-chain wallet for AI agents. Send and receive BTC, ETH, SOL, POL, BCH, and USDC.
 homepage: https://coinpayportal.com
 ---
@@ -10,6 +10,33 @@ homepage: https://coinpayportal.com
 Non-custodial multi-chain wallet for AI agents. Create wallets, check balances, send transactions, and receive payments across BTC, ETH, SOL, POL, BCH, and USDC — no KYC required.
 
 **Base URL:** `https://coinpayportal.com/api/web-wallet`
+**npm:** `@profullstack/coinpay`
+
+## SDK Installation
+
+```bash
+npm install @profullstack/coinpay
+# or
+pnpm add @profullstack/coinpay
+```
+
+```typescript
+import { CoinPaySDK } from '@profullstack/coinpay';
+
+const sdk = new CoinPaySDK({
+  baseUrl: 'https://coinpayportal.com',
+  apiKey: 'your-api-key' // for merchant API
+});
+
+// Create a payment
+const payment = await sdk.createPayment({
+  cryptocurrency: 'ETH',
+  amount_usd: 100,
+  metadata: { orderId: '123' }
+});
+```
+
+The SDK provides typed interfaces for the merchant payment API. For the web-wallet API (non-custodial), use the REST endpoints below.
 
 ## Quick Start
 
