@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/coinpay",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "CoinPay SDK & CLI — Accept cryptocurrency payments (BTC, ETH, SOL, POL, BCH, USDC) in your Node.js application",
   "type": "module",
   "main": "./src/index.js",
