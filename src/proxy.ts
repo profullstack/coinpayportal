@@ -2,10 +2,10 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 /**
- * Security headers middleware
+ * Security headers proxy
  * Adds OWASP-recommended security headers to all responses
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const response = NextResponse.next();
 
   // Strict-Transport-Security: Force HTTPS for 1 year, include subdomains
