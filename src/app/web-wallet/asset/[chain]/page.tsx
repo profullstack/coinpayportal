@@ -999,8 +999,10 @@ function HistoryTab({ chain }: { chain: WalletChain }) {
 
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const hasSyncedRef = useRef(false);
 
   const fetchTransactions = useCallback(async () => {
     if (!wallet) return;
@@ -1038,15 +1040,58 @@ function HistoryTab({ chain }: { chain: WalletChain }) {
     }
   }, [wallet, chain, page]);
 
+  // Sync on-chain history once when the tab first renders, then fetch transactions
   useEffect(() => {
-    fetchTransactions();
-  }, [fetchTransactions]);
+    if (!wallet || hasSyncedRef.current) {
+      fetchTransactions();
+      return;
+    }
+
+    let cancelled = false;
+    hasSyncedRef.current = true;
+
+    const syncThenFetch = async () => {
+      setIsSyncing(true);
+      try {
+        await wallet.syncHistory(chain);
+      } catch (err: unknown) {
+        // Don't block UI if sync fails — just log and continue
+        console.error('History sync failed (non-blocking):', err);
+      } finally {
+        if (!cancelled) {
+          setIsSyncing(false);
+          fetchTransactions();
+        }
+      }
+    };
+
+    syncThenFetch();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet, chain]);
+
+  // Fetch transactions when page changes (after initial sync)
+  useEffect(() => {
+    if (page > 0) {
+      fetchTransactions();
+    }
+  }, [page, fetchTransactions]);
 
   return (
     <div className="space-y-4">
+      {isSyncing && (
+        <div className="flex items-center gap-2 rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+          <span className="text-xs text-blue-400">Syncing on-chain history...</span>
+        </div>
+      )}
+
       <TransactionList
         transactions={transactions}
-        isLoading={isLoading && page === 0}
+        isLoading={isLoading && page === 0 && !isSyncing}
         emptyMessage={`No ${chain} transactions yet.`}
       />
 

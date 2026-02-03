@@ -380,6 +380,31 @@ export class Wallet {
     return mapTransaction(data);
   }
 
+  // ── Sync History (on-chain indexing) ──
+
+  async syncHistory(
+    chain?: WalletChain
+  ): Promise<{ newTransactions: number }> {
+    const data = await this.client.request<{
+      new_transactions: number;
+      results: Array<{
+        chain: string;
+        address: string;
+        new_transactions: number;
+        errors: string[];
+      }>;
+    }>({
+      method: 'POST',
+      path: `/api/web-wallet/${this._walletId}/sync-history`,
+      body: chain ? { chain } : {},
+      authenticated: true,
+    });
+
+    return {
+      newTransactions: data.new_transactions,
+    };
+  }
+
   // ── Fee Estimation ──
 
   async estimateFee(chain: WalletChain): Promise<FeeEstimateResult> {
