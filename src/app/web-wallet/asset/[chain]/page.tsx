@@ -708,10 +708,12 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
             Send Another
           </button>
           <Link
-            href={`/web-wallet/tx/${txHash}`}
+            href={`/web-wallet/tx/${chain}:${txHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
             className="flex-1 rounded-xl bg-purple-600 px-6 py-3 text-sm font-semibold text-white hover:bg-purple-500 transition-colors text-center"
           >
-            View Details
+            View on Explorer ↗
           </Link>
         </div>
       </div>

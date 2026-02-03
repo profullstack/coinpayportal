@@ -75,8 +75,8 @@ describe('TransactionList', () => {
     render(<TransactionList transactions={mockTransactions} />);
 
     const links = screen.getAllByRole('link');
-    expect(links[0]).toHaveAttribute('href', '/web-wallet/tx/0xabc123');
-    expect(links[1]).toHaveAttribute('href', '/web-wallet/tx/0xdef456');
+    expect(links[0]).toHaveAttribute('href', '/web-wallet/tx/ETH:0xabc123');
+    expect(links[1]).toHaveAttribute('href', '/web-wallet/tx/BTC:0xdef456');
   });
 
   it('should show loading skeleton', () => {

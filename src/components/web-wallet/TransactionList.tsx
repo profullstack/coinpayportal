@@ -56,52 +56,71 @@ export function TransactionList({
 
   return (
     <div className="space-y-1">
-      {transactions.map((tx) => (
-        <Link
-          key={tx.id}
-          href={`/web-wallet/tx/${tx.txHash}`}
-          className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/5 p-4 hover:bg-white/10 transition-colors"
-        >
-          <div
-            className={`flex h-8 w-8 items-center justify-center rounded-full ${
-              tx.type === 'send'
-                ? 'bg-red-500/10 text-red-400'
-                : 'bg-green-500/10 text-green-400'
-            }`}
-          >
-            {tx.type === 'send' ? '\u2191' : '\u2193'}
-          </div>
+      {transactions.map((tx) => {
+        // Only link to explorer if we have a real tx hash (not a UUID fallback)
+        const hasRealHash = tx.txHash && tx.txHash !== tx.id && !tx.txHash.includes('-');
 
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-medium text-white capitalize">
-                {tx.type}
-              </p>
-              <ChainBadge chain={tx.chain} />
-              <StatusBadge status={tx.status} />
-            </div>
-            <p className="truncate text-xs text-gray-400 font-mono">
-              {tx.type === 'send'
-                ? `To: ${tx.toAddress?.slice(0, 10)}...`
-                : `From: ${tx.fromAddress?.slice(0, 10)}...`}
-            </p>
-          </div>
-
-          <div className="text-right">
-            <p
-              className={`text-sm font-medium ${
-                tx.type === 'send' ? 'text-red-400' : 'text-green-400'
+        const content = (
+          <>
+            <div
+              className={`flex h-8 w-8 items-center justify-center rounded-full ${
+                tx.type === 'send'
+                  ? 'bg-red-500/10 text-red-400'
+                  : 'bg-green-500/10 text-green-400'
               }`}
             >
-              {tx.type === 'send' ? '-' : '+'}
-              {tx.amount}
-            </p>
-            <p className="text-xs text-gray-400">
-              {formatRelativeTime(tx.createdAt)}
-            </p>
+              {tx.type === 'send' ? '\u2191' : '\u2193'}
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-white capitalize">
+                  {tx.type}
+                </p>
+                <ChainBadge chain={tx.chain} />
+                <StatusBadge status={tx.status} />
+              </div>
+              <p className="truncate text-xs text-gray-400 font-mono">
+                {tx.type === 'send'
+                  ? `To: ${tx.toAddress?.slice(0, 10)}...`
+                  : `From: ${tx.fromAddress?.slice(0, 10)}...`}
+              </p>
+            </div>
+
+            <div className="text-right">
+              <p
+                className={`text-sm font-medium ${
+                  tx.type === 'send' ? 'text-red-400' : 'text-green-400'
+                }`}
+              >
+                {tx.type === 'send' ? '-' : '+'}
+                {tx.amount}
+              </p>
+              <p className="text-xs text-gray-400">
+                {formatRelativeTime(tx.createdAt)}
+              </p>
+            </div>
+          </>
+        );
+
+        const className = "flex items-center gap-3 rounded-xl border border-white/5 bg-white/5 p-4 hover:bg-white/10 transition-colors";
+
+        return hasRealHash ? (
+          <Link
+            key={tx.id}
+            href={`/web-wallet/tx/${tx.chain}:${tx.txHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={className}
+          >
+            {content}
+          </Link>
+        ) : (
+          <div key={tx.id} className={className}>
+            {content}
           </div>
-        </Link>
-      ))}
+        );
+      })}
     </div>
   );
 }
