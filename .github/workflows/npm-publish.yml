@@ -29,6 +29,10 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Write .env.prod
+        run: echo "${{ secrets.ENV_FILE }}" > .env.prod
+        working-directory: .
+
       - name: Install dependencies
         run: npm install
 
