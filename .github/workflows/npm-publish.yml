@@ -1,0 +1,53 @@
+name: Publish SDK to npm
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'packages/sdk/**'
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type (patch/minor/major) or leave empty to publish current version'
+        required: false
+        default: ''
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/sdk
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Bump version (if specified)
+        if: ${{ github.event.inputs.version_bump != '' }}
+        run: npm version ${{ github.event.inputs.version_bump }} --no-git-tag-version
+
+      - name: Build (if build script exists)
+        run: npm run build --if-present
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Commit version bump
+        if: ${{ github.event.inputs.version_bump != '' }}
+        run: |
+          cd ../..
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/sdk/package.json
+          git commit -m "chore(sdk): bump version to $(node -p "require('./packages/sdk/package.json').version")"
+          git push
