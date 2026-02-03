@@ -322,6 +322,29 @@ async function cmdHistory(positional, flags, config) {
   console.log(`\n  Showing ${result.transactions.length} of ${result.total} transactions\n`);
 }
 
+async function cmdSync(positional, flags, config) {
+  const { Wallet } = await import('../src/lib/wallet-sdk/index.ts');
+
+  const walletId = positional[0];
+  if (!walletId) {
+    error('Usage: coinpay-wallet sync <wallet-id> [--chain <chain>]');
+  }
+
+  const wallet = Wallet.fromWalletId(walletId, {
+    baseUrl: config.apiUrl,
+    authToken: config.authToken,
+    authTokenExpiresAt: config.authToken
+      ? new Date(Date.now() + 3600_000).toISOString()
+      : undefined,
+  });
+
+  const chain = flags.chain?.toUpperCase();
+  console.log(`\nSyncing on-chain history for wallet ${walletId}${chain ? ` (${chain})` : ' (all chains)'}...\n`);
+
+  const result = await wallet.syncHistory(chain);
+  console.log(`  Synced: ${JSON.stringify(result)}\n`);
+}
+
 // ── Help ──
 
 function showHelp() {
@@ -354,6 +377,9 @@ Commands:
   history <wallet-id>   Show transaction history
     --chain <chain>     Filter by chain
     --limit <n>         Number of transactions (default: 20)
+
+  sync <wallet-id>      Sync on-chain transaction history
+    --chain <chain>     Sync specific chain only
 
 Environment Variables:
   COINPAY_API_URL       API base URL (default: http://localhost:8080)
@@ -395,6 +421,9 @@ async function main() {
         break;
       case 'history':
         await cmdHistory(positional, flags, config);
+        break;
+      case 'sync':
+        await cmdSync(positional, flags, config);
         break;
       default:
         error(`Unknown command: ${command}\nRun 'coinpay-wallet help' for usage.`);

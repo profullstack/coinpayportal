@@ -202,6 +202,43 @@ Transactions are also synced from the blockchain via the indexer — external de
 | POL / USDC_POL | 128 |
 | SOL / USDC_SOL | 32 |
 
+## CLI
+
+The wallet CLI provides command-line access to all wallet operations:
+
+```bash
+# Install / setup
+cd coinpayportal
+echo '{ "apiUrl": "https://coinpayportal.com" }' > ~/.coinpayrc.json
+
+# Create a new wallet (outputs wallet_id + mnemonic)
+pnpm coinpay-wallet create --words 12 --chains BTC,ETH,SOL
+
+# Import from mnemonic
+pnpm coinpay-wallet import "word1 word2 ... word12" --chains BTC,ETH,SOL,POL,BCH
+
+# Check balances
+pnpm coinpay-wallet balance <wallet-id>
+
+# List addresses
+pnpm coinpay-wallet address <wallet-id> --chain ETH
+
+# Send transaction
+pnpm coinpay-wallet send <wallet-id> \
+  --from 0xYourAddr --to 0xRecipient --chain ETH --amount 0.1 --priority medium
+
+# Transaction history
+pnpm coinpay-wallet history <wallet-id> --chain BTC --limit 10
+
+# Sync on-chain deposits
+pnpm coinpay-wallet sync <wallet-id> --chain SOL
+```
+
+**Environment variables:**
+- `COINPAY_API_URL` — API base URL (default: `http://localhost:8080`)
+- `COINPAY_AUTH_TOKEN` — JWT token for read-only operations
+- `COINPAY_MNEMONIC` — Mnemonic phrase (required for `send`)
+
 ## Rate Limits
 
 | Endpoint | Limit |
