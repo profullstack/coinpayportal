@@ -592,42 +592,70 @@ export default function Home() {
           </div>
 
           <div className="grid lg:grid-cols-2 gap-12">
-            {/* CLI Examples */}
+            {/* Install & CLI Examples */}
             <div className="space-y-6">
-              <h3 className="text-2xl font-bold text-white mb-4">Command Line</h3>
+              <h3 className="text-2xl font-bold text-white mb-4">Install</h3>
+
+              {/* SDK install */}
               <div className="rounded-2xl bg-slate-800/80 backdrop-blur-sm border border-white/10 overflow-hidden">
                 <div className="flex items-center gap-2 px-4 py-3 bg-slate-800/80 border-b border-white/10">
                   <div className="w-3 h-3 rounded-full bg-red-500" />
                   <div className="w-3 h-3 rounded-full bg-yellow-500" />
                   <div className="w-3 h-3 rounded-full bg-green-500" />
-                  <span className="ml-2 text-sm text-gray-400">coinpay-wallet</span>
+                  <span className="ml-2 text-sm text-gray-400">SDK &amp; Payment Gateway CLI</span>
                 </div>
                 <pre className="p-4 text-sm overflow-x-auto">
                   <code className="text-gray-300">
-{`# Create a new wallet
-$ coinpay-wallet create --chains BTC,ETH,SOL
+{`# Install the SDK + coinpay CLI globally
+npm install -g @profullstack/coinpay
+
+# Or add to your project
+npm install @profullstack/coinpay
+
+# Configure
+coinpay config set apiKey YOUR_API_KEY
+coinpay config set apiUrl https://coinpayportal.com
+
+# Create a payment
+coinpay create --amount 100 --currency USD --crypto ETH`}
+                  </code>
+                </pre>
+              </div>
+
+              {/* Wallet CLI */}
+              <div className="rounded-2xl bg-slate-800/80 backdrop-blur-sm border border-white/10 overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-3 bg-slate-800/80 border-b border-white/10">
+                  <div className="w-3 h-3 rounded-full bg-red-500" />
+                  <div className="w-3 h-3 rounded-full bg-yellow-500" />
+                  <div className="w-3 h-3 rounded-full bg-green-500" />
+                  <span className="ml-2 text-sm text-gray-400">Web Wallet CLI</span>
+                </div>
+                <pre className="p-4 text-sm overflow-x-auto">
+                  <code className="text-gray-300">
+{`# Clone and install
+git clone https://github.com/profullstack/coinpayportal
+cd coinpayportal && pnpm install
+
+# Create a wallet
+pnpm coinpay-wallet create --chains BTC,ETH,SOL
 ✓ Wallet created: d10b1358
-  Mnemonic: word1 word2 ... word12
   BTC: 1A1zP1eP5QGefi2DMPTfTL...
   ETH: 0xCC3b072391AE7a8d10cF00...
   SOL: 7xKXtg2CW87d97TXJSDpbD...
 
 # Check balances
-$ coinpay-wallet balance d10b1358
-  BTC    0.00100000   $62.40
-  ETH    1.50000000   $4,875.00
-  SOL    25.0000000   $3,375.00
+pnpm coinpay-wallet balance d10b1358
 
-# Send a transaction
-$ coinpay-wallet send d10b1358 \\
-    --from 0xCC3b... --to 0x1234... \\
-    --chain ETH --amount 0.5
+# Send
+pnpm coinpay-wallet send d10b1358 \\
+  --from 0xCC3b... --to 0x1234... \\
+  --chain ETH --amount 0.5
 
 # Sync on-chain deposits
-$ coinpay-wallet sync d10b1358 --chain BTC
+pnpm coinpay-wallet sync d10b1358 --chain BTC
 
-# View transaction history
-$ coinpay-wallet history d10b1358 --limit 10`}
+# Transaction history
+pnpm coinpay-wallet history d10b1358`}
                   </code>
                 </pre>
               </div>
