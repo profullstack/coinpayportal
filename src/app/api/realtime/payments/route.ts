@@ -5,7 +5,13 @@ import { verifyToken, getUserIdFromToken } from '@/lib/auth/jwt';
 const connections = new Map<string, Set<ReadableStreamDefaultController>>();
 
 // Get JWT secret from environment
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET environment variable is required');
+  }
+  return secret;
+}
 
 /**
  * Server-Sent Events endpoint for real-time payment updates
@@ -24,7 +30,7 @@ export async function GET(request: NextRequest) {
 
   let merchantId: string;
   try {
-    const payload = verifyToken(token, JWT_SECRET);
+    const payload = verifyToken(token, getJwtSecret());
     merchantId = payload.userId || payload.sub || '';
     if (!merchantId) {
       return new Response('Invalid token payload', { status: 401 });

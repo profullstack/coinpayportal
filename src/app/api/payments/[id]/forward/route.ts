@@ -4,7 +4,13 @@ import { verifyToken } from '@/lib/auth/jwt';
 import { getForwardingStatus } from '@/lib/payments/forwarding';
 import { forwardPaymentSecurely, retryForwardingSecurely } from '@/lib/wallets/secure-forwarding';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET environment variable is required');
+  }
+  return secret;
+}
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
 /**
@@ -47,7 +53,7 @@ export async function POST(
     if (!isInternal) {
       // For non-internal requests, verify JWT and admin access
       const token = authHeader.substring(7);
-      const payload = verifyToken(token, JWT_SECRET);
+      const payload = verifyToken(token, getJwtSecret());
 
       if (!payload) {
         return NextResponse.json(
@@ -144,7 +150,7 @@ export async function GET(
     }
 
     const token = authHeader.substring(7);
-    const payload = verifyToken(token, JWT_SECRET);
+    const payload = verifyToken(token, getJwtSecret());
 
     if (!payload) {
       return NextResponse.json(

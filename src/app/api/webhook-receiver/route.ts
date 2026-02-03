@@ -71,7 +71,14 @@ export async function POST(request: NextRequest) {
 
     // Get the webhook secret from environment
     // In production, this would be the secret provided when configuring webhooks
-    const webhookSecret = process.env.WEBHOOK_SECRET || 'test-webhook-secret';
+    const webhookSecret = process.env.WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      console.error('WEBHOOK_SECRET environment variable is not set');
+      return NextResponse.json(
+        { success: false, error: 'Webhook receiver not configured' },
+        { status: 500 }
+      );
+    }
 
     // Verify the webhook signature using the SDK
     // The SDK expects: payload (string), signature (format: t=timestamp,v1=hash), secret
