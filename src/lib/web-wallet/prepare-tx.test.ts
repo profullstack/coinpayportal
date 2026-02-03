@@ -75,7 +75,8 @@ function createMockSupabase(overrides: {
     error: overrides.addressError ?? null,
   });
   const eqActive = vi.fn().mockReturnValue({ single: singleAddr });
-  const eqAddr = vi.fn().mockReturnValue({ eq: eqActive });
+  const eqChain = vi.fn().mockReturnValue({ eq: eqActive });
+  const eqAddr = vi.fn().mockReturnValue({ eq: eqChain });
   const eqWallet = vi.fn().mockReturnValue({ eq: eqAddr });
   const selectAddr = vi.fn().mockReturnValue({ eq: eqWallet });
 

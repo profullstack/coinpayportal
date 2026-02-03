@@ -413,11 +413,13 @@ export async function prepareTransaction(
   }
 
   // Verify from_address belongs to this wallet
+  // Filter by chain too — EVM addresses can be shared across ETH/POL/USDC_* chains
   const { data: addrRecord, error: addrError } = await supabase
     .from('wallet_addresses')
     .select('id, address, chain')
     .eq('wallet_id', walletId)
     .eq('address', input.from_address)
+    .eq('chain', chain)
     .eq('is_active', true)
     .single();
 
