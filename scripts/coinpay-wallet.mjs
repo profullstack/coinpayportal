@@ -111,9 +111,10 @@ async function getAuthenticatedWallet(walletId, config) {
   const mnemonic = process.env.COINPAY_MNEMONIC;
   if (mnemonic) {
     // fromSeed re-derives keys and uses signature auth — no JWT needed
+    // Must pass chains to derive private keys for signing transactions
     const wallet = await Wallet.fromSeed(mnemonic, {
       baseUrl: config.apiUrl,
-      chains: [], // no new addresses needed
+      chains: ['BTC', 'BCH', 'ETH', 'POL', 'SOL'],
     });
     if (wallet.walletId !== walletId) {
       error(`Mnemonic wallet ID (${wallet.walletId}) doesn't match requested ID (${walletId})`);
