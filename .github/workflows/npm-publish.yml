@@ -53,7 +53,7 @@ jobs:
         run: |
           source ../../.env.prod
           export NODE_AUTH_TOKEN=$NPM_TOKEN
-          npm publish --access public
+          npm publish --access public --ignore-scripts
 
       - name: Push version bump
         run: |
