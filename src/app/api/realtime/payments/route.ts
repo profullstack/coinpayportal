@@ -1,17 +1,9 @@
 import { NextRequest } from 'next/server';
 import { verifyToken, getUserIdFromToken } from '@/lib/auth/jwt';
+import { getJwtSecret } from '@/lib/secrets';
 
 // Store active connections for broadcasting
 const connections = new Map<string, Set<ReadableStreamDefaultController>>();
-
-// Get JWT secret from environment
-function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    throw new Error('JWT_SECRET environment variable is required');
-  }
-  return secret;
-}
 
 /**
  * Server-Sent Events endpoint for real-time payment updates

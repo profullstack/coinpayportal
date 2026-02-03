@@ -3,23 +3,16 @@ import { supabaseAdmin } from '@/lib/supabase/server';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getForwardingStatus } from '@/lib/payments/forwarding';
 import { forwardPaymentSecurely, retryForwardingSecurely } from '@/lib/wallets/secure-forwarding';
-
-function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    throw new Error('JWT_SECRET environment variable is required');
-  }
-  return secret;
-}
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
+import { getJwtSecret, getSecret } from '@/lib/secrets';
 
 /**
  * Verify if the request is from an internal service (monitor function)
  */
 function isInternalRequest(authHeader: string | null): boolean {
-  if (!INTERNAL_API_KEY) return false;
+  const internalApiKey = getSecret('INTERNAL_API_KEY') || process.env.INTERNAL_API_KEY;
+  if (!internalApiKey) return false;
   if (!authHeader?.startsWith('Bearer ')) return false;
-  return authHeader.substring(7) === INTERNAL_API_KEY;
+  return authHeader.substring(7) === internalApiKey;
 }
 
 /**

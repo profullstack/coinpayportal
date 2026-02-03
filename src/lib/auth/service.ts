@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hashPassword, verifyPassword } from '../crypto/encryption';
 import { generateToken, verifyToken } from './jwt';
+import { getSecret } from '../secrets';
 import { z } from 'zod';
 
 /**
@@ -40,10 +41,11 @@ export interface AuthResult {
 }
 
 /**
- * Get JWT secret from environment
+ * Get JWT secret from secure secrets store.
+ * Falls back to process.env if secrets not initialized (e.g., tests).
  */
 function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
+  const secret = getSecret('JWT_SECRET') || process.env.JWT_SECRET;
   if (!secret) {
     throw new Error('JWT_SECRET environment variable is not set');
   }
