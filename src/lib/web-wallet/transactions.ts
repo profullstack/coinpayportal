@@ -439,6 +439,7 @@ export async function getTransaction(
   walletId: string,
   transactionId: string
 ): Promise<{ success: true; data: TransactionRecord } | { success: false; error: string; code?: string }> {
+  // Try by UUID first
   const { data, error } = await supabase
     .from('wallet_transactions')
     .select('*')
@@ -446,11 +447,23 @@ export async function getTransaction(
     .eq('wallet_id', walletId)
     .single();
 
-  if (error || !data) {
-    return { success: false, error: 'Transaction not found', code: 'TX_NOT_FOUND' };
+  if (!error && data) {
+    return { success: true, data: data as TransactionRecord };
   }
 
-  return { success: true, data: data as TransactionRecord };
+  // Fall back to tx_hash lookup (URLs use the on-chain hash, not the UUID)
+  const { data: byHash, error: hashError } = await supabase
+    .from('wallet_transactions')
+    .select('*')
+    .eq('tx_hash', transactionId)
+    .eq('wallet_id', walletId)
+    .single();
+
+  if (!hashError && byHash) {
+    return { success: true, data: byHash as TransactionRecord };
+  }
+
+  return { success: false, error: 'Transaction not found', code: 'TX_NOT_FOUND' };
 }
 
 // Export for testing
