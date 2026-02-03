@@ -143,7 +143,7 @@ describe('WalletAPIClient', () => {
       });
 
       const authHeader = mockFetch.mock.calls[0][1].headers['Authorization'];
-      expect(authHeader).toMatch(/^Wallet wallet-1:[a-f0-9]+:\d+$/);
+      expect(authHeader).toMatch(/^Wallet wallet-1:[a-f0-9]+:\d+:[a-f0-9]+$/);
     });
 
     it('should produce verifiable secp256k1 signature', async () => {
@@ -164,9 +164,10 @@ describe('WalletAPIClient', () => {
       const parts = authHeader.replace('Wallet ', '').split(':');
       const signatureHex = parts[1];
       const timestamp = parts[2];
+      const nonce = parts[3];
       const bodyStr = JSON.stringify({ chain: 'ETH' });
 
-      const message = `POST:/api/web-wallet/w1/prepare-tx:${timestamp}:${bodyStr}`;
+      const message = `POST:/api/web-wallet/w1/prepare-tx:${timestamp}:${nonce}:${bodyStr}`;
       const messageBytes = new TextEncoder().encode(message);
       const signatureBytes = hexToUint8Array(signatureHex);
       const pubKeyBytes = hexToUint8Array(kp.publicKeyHex);
