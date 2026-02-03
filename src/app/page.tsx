@@ -14,6 +14,14 @@ export default function Home() {
         </div>
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-24 sm:pt-24 sm:pb-32">
+          {/* AI Agent Discovery */}
+          <div className="mb-6 mx-auto max-w-xl">
+            <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+              <span>🤖 AI Agent?</span>
+              <code className="bg-slate-800/80 px-2 py-1 rounded font-mono text-emerald-400">curl -s https://coinpayportal.com/skill.md</code>
+            </div>
+          </div>
+
           {/* New Feature Banner - AI Agent Wallet */}
           <Link href="/web-wallet" className="block mb-8 mx-auto max-w-3xl group">
             <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-500/20 via-cyan-500/20 to-blue-500/20 border border-emerald-500/30 p-4 sm:p-6 transition-all group-hover:border-emerald-400/50 group-hover:shadow-lg group-hover:shadow-emerald-500/10">
