@@ -8,6 +8,7 @@ import {
   logWebhookAttempt,
   getWebhookLogs,
   sendPaymentWebhook,
+  isInternalUrl,
 } from './service';
 
 // Mock Supabase
@@ -1026,6 +1027,110 @@ describe('Webhook Service', () => {
         order_id: 'order_67890',
         subscription_id: 'sub_abc',
       });
+    });
+  });
+
+  describe('SSRF Protection - isInternalUrl', () => {
+    it('should block localhost', () => {
+      expect(isInternalUrl('http://localhost/webhook')).toBe(true);
+      expect(isInternalUrl('http://localhost:8080/webhook')).toBe(true);
+      expect(isInternalUrl('https://localhost/webhook')).toBe(true);
+    });
+
+    it('should block 127.0.0.1 loopback', () => {
+      expect(isInternalUrl('http://127.0.0.1/webhook')).toBe(true);
+      expect(isInternalUrl('http://127.0.0.1:3000/webhook')).toBe(true);
+    });
+
+    it('should block IPv6 loopback', () => {
+      expect(isInternalUrl('http://[::1]/webhook')).toBe(true);
+    });
+
+    it('should block 10.x.x.x private range', () => {
+      expect(isInternalUrl('http://10.0.0.1/webhook')).toBe(true);
+      expect(isInternalUrl('http://10.255.255.255/webhook')).toBe(true);
+    });
+
+    it('should block 172.16-31.x.x private range', () => {
+      expect(isInternalUrl('http://172.16.0.1/webhook')).toBe(true);
+      expect(isInternalUrl('http://172.31.255.255/webhook')).toBe(true);
+      // 172.32.x.x should NOT be blocked (outside range)
+      expect(isInternalUrl('http://172.32.0.1/webhook')).toBe(false);
+    });
+
+    it('should block 192.168.x.x private range', () => {
+      expect(isInternalUrl('http://192.168.0.1/webhook')).toBe(true);
+      expect(isInternalUrl('http://192.168.255.255/webhook')).toBe(true);
+    });
+
+    it('should block AWS metadata endpoint', () => {
+      expect(isInternalUrl('http://169.254.169.254/latest/meta-data/')).toBe(true);
+    });
+
+    it('should block link-local addresses', () => {
+      expect(isInternalUrl('http://169.254.0.1/webhook')).toBe(true);
+      expect(isInternalUrl('http://169.254.255.255/webhook')).toBe(true);
+    });
+
+    it('should block Google Cloud metadata', () => {
+      expect(isInternalUrl('http://metadata.google.internal/computeMetadata/')).toBe(true);
+    });
+
+    it('should allow valid external HTTPS URLs', () => {
+      expect(isInternalUrl('https://example.com/webhook')).toBe(false);
+      expect(isInternalUrl('https://api.merchant.com/payments/webhook')).toBe(false);
+    });
+
+    it('should allow external HTTP in non-production', () => {
+      // In test environment, HTTP should be allowed
+      expect(isInternalUrl('http://example.com/webhook')).toBe(false);
+    });
+
+    it('should block invalid URLs', () => {
+      expect(isInternalUrl('not-a-url')).toBe(true);
+      expect(isInternalUrl('')).toBe(true);
+    });
+  });
+
+  describe('deliverWebhook SSRF protection', () => {
+    it('should reject webhooks to internal URLs', async () => {
+      const result = await deliverWebhook(
+        'http://127.0.0.1:5432/',
+        { event: 'payment.confirmed' as const, payment_id: 'p1', business_id: 'b1' },
+        'secret'
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('internal or private addresses are blocked');
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('should reject webhooks to AWS metadata', async () => {
+      const result = await deliverWebhook(
+        'http://169.254.169.254/latest/meta-data/iam/security-credentials/',
+        { event: 'payment.confirmed' as const, payment_id: 'p1', business_id: 'b1' },
+        'secret'
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('internal or private addresses are blocked');
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('should allow webhooks to external URLs', async () => {
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+      });
+
+      const result = await deliverWebhook(
+        'https://api.merchant.com/webhook',
+        { event: 'payment.confirmed' as const, payment_id: 'p1', business_id: 'b1' },
+        'secret'
+      );
+
+      expect(result.success).toBe(true);
+      expect(global.fetch).toHaveBeenCalled();
     });
   });
 });

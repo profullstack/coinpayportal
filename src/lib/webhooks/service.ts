@@ -2,6 +2,68 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 /**
+ * SSRF Protection - validates webhook URLs before making requests
+ *
+ * Blocks:
+ * - Localhost and loopback addresses
+ * - Private IP ranges (10.x, 172.16-31.x, 192.168.x)
+ * - Link-local addresses (169.254.x.x)
+ * - AWS/cloud metadata endpoints
+ * - Non-HTTPS URLs in production
+ */
+export function isInternalUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Block localhost variants
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+      return true;
+    }
+
+    // Block IPv6 loopback
+    if (hostname === '[::1]') {
+      return true;
+    }
+
+    // Block private IPv4 ranges
+    // 10.0.0.0/8
+    if (/^10\./.test(hostname)) {
+      return true;
+    }
+    // 172.16.0.0/12
+    if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)) {
+      return true;
+    }
+    // 192.168.0.0/16
+    if (/^192\.168\./.test(hostname)) {
+      return true;
+    }
+
+    // Block link-local (AWS metadata, Azure IMDS, etc.)
+    // 169.254.0.0/16
+    if (/^169\.254\./.test(hostname)) {
+      return true;
+    }
+
+    // Block common cloud metadata hostnames
+    if (hostname === 'metadata.google.internal') {
+      return true;
+    }
+
+    // Block non-HTTPS in production (allows HTTP in dev/test)
+    if (parsed.protocol !== 'https:' && process.env.NODE_ENV === 'production') {
+      return true;
+    }
+
+    return false;
+  } catch {
+    // Invalid URL - block it
+    return true;
+  }
+}
+
+/**
  * Webhook event types
  */
 export type WebhookEvent =
@@ -141,6 +203,15 @@ export async function deliverWebhook(
   timeout: number = 30000
 ): Promise<WebhookDeliveryResult> {
   try {
+    // SSRF protection: block internal/dangerous URLs
+    if (isInternalUrl(webhookUrl)) {
+      console.warn(`[Webhook] SSRF protection: blocked request to internal URL`);
+      return {
+        success: false,
+        error: 'Webhook URL not allowed: internal or private addresses are blocked',
+      };
+    }
+
     // Add timestamp to payload
     const payloadWithTimestamp = {
       ...payload,
@@ -231,6 +302,15 @@ export async function deliverWebhookDirect(
   maxRetries: number = 3,
   timeout: number = 30000
 ): Promise<WebhookDeliveryResult> {
+  // SSRF protection: block internal/dangerous URLs
+  if (isInternalUrl(webhookUrl)) {
+    console.warn(`[Webhook] SSRF protection: blocked request to internal URL`);
+    return {
+      success: false,
+      error: 'Webhook URL not allowed: internal or private addresses are blocked',
+    };
+  }
+
   let lastResult: WebhookDeliveryResult = { success: false };
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
