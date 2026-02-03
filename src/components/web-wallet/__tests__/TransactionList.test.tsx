@@ -71,12 +71,14 @@ describe('TransactionList', () => {
     expect(screen.getByText('1h ago')).toBeInTheDocument();
   });
 
-  it('should link to transaction detail page', () => {
+  it('should link to blockchain explorer in new tab', () => {
     render(<TransactionList transactions={mockTransactions} />);
 
     const links = screen.getAllByRole('link');
-    expect(links[0]).toHaveAttribute('href', '/web-wallet/tx/ETH:0xabc123');
-    expect(links[1]).toHaveAttribute('href', '/web-wallet/tx/BTC:0xdef456');
+    expect(links[0]).toHaveAttribute('href', 'https://etherscan.io/tx/0xabc123');
+    expect(links[0]).toHaveAttribute('target', '_blank');
+    expect(links[1]).toHaveAttribute('href', 'https://blockstream.info/tx/0xdef456');
+    expect(links[1]).toHaveAttribute('target', '_blank');
   });
 
   it('should show loading skeleton', () => {

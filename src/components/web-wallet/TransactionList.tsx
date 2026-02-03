@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { ChainBadge } from './AddressDisplay';
 
 export interface TransactionItem {
@@ -19,6 +18,23 @@ interface TransactionListProps {
   transactions: TransactionItem[];
   isLoading?: boolean;
   emptyMessage?: string;
+}
+
+const EXPLORER_URLS: Record<string, string> = {
+  BTC: 'https://blockstream.info/tx/',
+  BCH: 'https://blockchair.com/bitcoin-cash/transaction/',
+  ETH: 'https://etherscan.io/tx/',
+  POL: 'https://polygonscan.com/tx/',
+  SOL: 'https://explorer.solana.com/tx/',
+  USDC_ETH: 'https://etherscan.io/tx/',
+  USDC_POL: 'https://polygonscan.com/tx/',
+  USDC_SOL: 'https://explorer.solana.com/tx/',
+};
+
+function getExplorerUrl(chain: string, txHash: string): string | null {
+  const base = EXPLORER_URLS[chain];
+  if (!base || !txHash) return null;
+  return base + txHash;
 }
 
 export function TransactionList({
@@ -104,17 +120,18 @@ export function TransactionList({
         );
 
         const className = "flex items-center gap-3 rounded-xl border border-white/5 bg-white/5 p-4 hover:bg-white/10 transition-colors";
+        const explorerUrl = hasRealHash ? getExplorerUrl(tx.chain, tx.txHash) : null;
 
-        return hasRealHash ? (
-          <Link
+        return explorerUrl ? (
+          <a
             key={tx.id}
-            href={`/web-wallet/tx/${tx.chain}:${tx.txHash}`}
+            href={explorerUrl}
             target="_blank"
             rel="noopener noreferrer"
             className={className}
           >
             {content}
-          </Link>
+          </a>
         ) : (
           <div key={tx.id} className={className}>
             {content}

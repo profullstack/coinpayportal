@@ -21,6 +21,17 @@ import type { WalletChain } from '@/lib/web-wallet/identity';
 import { isValidChain } from '@/lib/web-wallet/identity';
 import type { TransactionListOptions } from '@/lib/wallet-sdk/types';
 
+const EXPLORER_URLS: Record<string, string> = {
+  BTC: 'https://blockstream.info/tx/',
+  BCH: 'https://blockchair.com/bitcoin-cash/transaction/',
+  ETH: 'https://etherscan.io/tx/',
+  POL: 'https://polygonscan.com/tx/',
+  SOL: 'https://explorer.solana.com/tx/',
+  USDC_ETH: 'https://etherscan.io/tx/',
+  USDC_POL: 'https://polygonscan.com/tx/',
+  USDC_SOL: 'https://explorer.solana.com/tx/',
+};
+
 // ── Constants ──
 
 const CHAIN_NAMES: Record<string, string> = {
@@ -707,14 +718,14 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
           >
             Send Another
           </button>
-          <Link
-            href={`/web-wallet/tx/${chain}:${txHash}`}
+          <a
+            href={`${EXPLORER_URLS[chain] || '/web-wallet'}${txHash}`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex-1 rounded-xl bg-purple-600 px-6 py-3 text-sm font-semibold text-white hover:bg-purple-500 transition-colors text-center"
           >
             View on Explorer ↗
-          </Link>
+          </a>
         </div>
       </div>
     );
