@@ -159,13 +159,14 @@ export class WalletAPIClient {
     }
 
     const timestamp = Math.floor(Date.now() / 1000);
-    const message = `${method}:${path}:${timestamp}:${bodyStr}`;
+    const nonce = crypto.randomUUID().slice(0, 8);
+    const message = `${method}:${path}:${timestamp}:${nonce}:${bodyStr}`;
     const messageBytes = new TextEncoder().encode(message);
     const privateKeyBytes = hexToUint8Array(this.privateKeyHex);
     const signatureBytes = secp256k1.sign(messageBytes, privateKeyBytes);
     const signatureHex = uint8ArrayToHex(signatureBytes);
 
-    return `Wallet ${this.walletId}:${signatureHex}:${timestamp}`;
+    return `Wallet ${this.walletId}:${signatureHex}:${timestamp}:${nonce}`;
   }
 
   // ── Fetch with Rate Limit Retry ──

@@ -83,11 +83,14 @@ async function authenticateWithSignature(
     const credentials = authHeader.slice(7); // Remove "Wallet "
     const parts = credentials.split(':');
 
-    if (parts.length !== 3) {
+    if (parts.length !== 3 && parts.length !== 4) {
       return { success: false, error: 'Invalid wallet auth format' };
     }
 
-    const [walletId, signatureHex, timestampStr] = parts;
+    const walletId = parts[0];
+    const signatureHex = parts[1];
+    const timestampStr = parts[2];
+    const nonce = parts[3] || ''; // Optional nonce for replay prevention
 
     // Validate timestamp window
     const timestamp = parseInt(timestampStr, 10);
@@ -101,7 +104,7 @@ async function authenticateWithSignature(
     }
 
     // Replay prevention: check if this exact signature was already used
-    const sigKey = `${walletId}:${signatureHex}:${timestampStr}`;
+    const sigKey = `${walletId}:${signatureHex}:${timestampStr}:${nonce}`;
     if (!checkAndRecordSignature(sigKey)) {
       return { success: false, error: 'Replay detected: signature already used' };
     }
@@ -121,7 +124,9 @@ async function authenticateWithSignature(
     }
 
     // Reconstruct the signed message (raw bytes, prehash handled by noble-curves)
-    const message = `${method || 'GET'}:${path || '/'}:${timestamp}:${body || ''}`;
+    const message = nonce
+      ? `${method || 'GET'}:${path || '/'}:${timestamp}:${nonce}:${body || ''}`
+      : `${method || 'GET'}:${path || '/'}:${timestamp}:${body || ''}`;
     const messageBytes = new TextEncoder().encode(message);
 
     // Verify secp256k1 signature (prehash: true is the default - noble-curves hashes internally)
