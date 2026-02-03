@@ -41,6 +41,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyIncomingWebhook, WebhookEvent } from '@/lib/sdk';
+import { getWebhookSecret } from '@/lib/secrets';
 
 /**
  * POST /api/webhook-receiver
@@ -69,9 +70,9 @@ export async function POST(request: NextRequest) {
     // Get the raw request body as a string (required for signature verification)
     const rawBody = await request.text();
 
-    // Get the webhook secret from environment
+    // Get the webhook secret from secrets module
     // In production, this would be the secret provided when configuring webhooks
-    const webhookSecret = process.env.WEBHOOK_SECRET;
+    const webhookSecret = getWebhookSecret();
     if (!webhookSecret) {
       console.error('WEBHOOK_SECRET environment variable is not set');
       return NextResponse.json(

@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/server';
 import { getSettings, updateSettings } from '@/lib/settings/service';
 import { verifyToken } from '@/lib/auth/jwt';
-
-const JWT_SECRET = process.env.JWT_SECRET!;
+import { getJwtSecret } from '@/lib/secrets';
 
 /**
  * GET /api/settings
@@ -23,9 +22,17 @@ export async function GET(request: NextRequest) {
     const token = authHeader.substring(7);
     
     // Verify token
+    const jwtSecret = getJwtSecret();
+    if (!jwtSecret) {
+      return NextResponse.json(
+        { success: false, error: 'Server configuration error' },
+        { status: 500 }
+      );
+    }
+
     let payload;
     try {
-      payload = verifyToken(token, JWT_SECRET);
+      payload = verifyToken(token, jwtSecret);
     } catch (error) {
       return NextResponse.json(
         { success: false, error: 'Invalid or expired token' },
@@ -76,9 +83,17 @@ export async function PUT(request: NextRequest) {
     const token = authHeader.substring(7);
     
     // Verify token
+    const jwtSecret = getJwtSecret();
+    if (!jwtSecret) {
+      return NextResponse.json(
+        { success: false, error: 'Server configuration error' },
+        { status: 500 }
+      );
+    }
+
     let payload;
     try {
-      payload = verifyToken(token, JWT_SECRET);
+      payload = verifyToken(token, jwtSecret);
     } catch (error) {
       return NextResponse.json(
         { success: false, error: 'Invalid or expired token' },

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { listBusinesses } from '@/lib/business/service';
+import { getJwtSecret } from '@/lib/secrets';
 
 /**
  * GET /api/payments
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest) {
     const token = authHeader.substring(7);
     
     // Verify token
-    const jwtSecret = process.env.JWT_SECRET;
+    const jwtSecret = getJwtSecret();
     if (!jwtSecret) {
       return NextResponse.json(
         { success: false, error: 'Server configuration error' },

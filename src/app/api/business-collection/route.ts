@@ -12,17 +12,7 @@ import {
   createEntitlementErrorResponse,
 } from '@/lib/entitlements/middleware';
 import { incrementTransactionCount } from '@/lib/entitlements/service';
-
-/**
- * Get JWT secret from environment
- */
-function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    throw new Error('JWT_SECRET environment variable is not set');
-  }
-  return secret;
-}
+import { getJwtSecret } from '@/lib/secrets';
 
 /**
  * POST /api/business-collection
