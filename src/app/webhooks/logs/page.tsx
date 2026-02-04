@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { authFetch } from '@/lib/auth/client';
 
 interface WebhookLog {
   id: string;
@@ -48,19 +49,10 @@ export default function WebhookLogsPage() {
 
   const fetchBusinesses = async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
+      const result = await authFetch('/api/businesses', {}, router);
+      if (!result) return;
 
-      const response = await fetch('/api/businesses', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
+      const { data } = result;
       if (data.success) {
         setBusinesses(data.businesses);
         // Auto-select first business if available
@@ -80,23 +72,15 @@ export default function WebhookLogsPage() {
 
     try {
       setLoading(true);
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
 
       const params = new URLSearchParams({
         business_id: selectedBusiness,
       });
 
-      const response = await fetch(`/api/webhooks?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const result = await authFetch(`/api/webhooks?${params.toString()}`, {}, router);
+      if (!result) return;
 
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to load webhook logs');

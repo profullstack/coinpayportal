@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { authFetch } from '@/lib/auth/client';
 
 const PAYMENT_EXPIRY_MINUTES = 15;
 const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
@@ -117,18 +118,10 @@ export default function PaymentDetailPage() {
           setPaymentStatus(data.status);
           
           // Fetch full payment details
-          const token = localStorage.getItem('auth_token');
-          if (token) {
-            const paymentResponse = await fetch(`/api/payments/${paymentId}`, {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            });
-            if (paymentResponse.ok) {
-              const paymentData = await paymentResponse.json();
-              if (paymentData.success && paymentData.payment) {
-                setPayment(paymentData.payment);
-              }
+          const paymentResult = await authFetch(`/api/payments/${paymentId}`, {});
+          if (paymentResult && paymentResult.response.ok) {
+            if (paymentResult.data.success && paymentResult.data.payment) {
+              setPayment(paymentResult.data.payment);
             }
           }
           
@@ -157,17 +150,12 @@ export default function PaymentDetailPage() {
   // Poll for payment status
   const pollPaymentStatus = useCallback(async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) return;
+      const result = await authFetch(`/api/payments/${paymentId}`, {});
+      if (!result) return;
 
-      const response = await fetch(`/api/payments/${paymentId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const { response, data } = result;
 
       if (response.ok) {
-        const data = await response.json();
         if (data.success && data.payment) {
           setPayment(data.payment);
           setPaymentStatus(data.payment.status);
@@ -210,19 +198,10 @@ export default function PaymentDetailPage() {
   useEffect(() => {
     const fetchPayment = async () => {
       try {
-        const token = localStorage.getItem('auth_token');
-        if (!token) {
-          router.push('/login');
-          return;
-        }
+        const result = await authFetch(`/api/payments/${paymentId}`, {}, router);
+        if (!result) return;
 
-        const response = await fetch(`/api/payments/${paymentId}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        const data = await response.json();
+        const { response, data } = result;
 
         if (!response.ok || !data.success) {
           setError(data.error || 'Failed to load payment');

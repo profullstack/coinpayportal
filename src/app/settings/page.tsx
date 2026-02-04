@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { authFetch } from '@/lib/auth/client';
 
 interface Settings {
   notifications_enabled: boolean;
@@ -27,19 +28,10 @@ export default function SettingsPage() {
 
   const fetchSettings = async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
+      const result = await authFetch('/api/settings', {}, router);
+      if (!result) return;
 
-      const response = await fetch('/api/settings', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to load settings');
@@ -61,22 +53,14 @@ export default function SettingsPage() {
     setSaving(true);
 
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
-
-      const response = await fetch('/api/settings', {
+      const result = await authFetch('/api/settings', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
-      });
+      }, router);
+      if (!result) return;
 
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to save settings');

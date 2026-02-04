@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { authFetch } from '@/lib/auth/client';
 
 interface Business {
   id: string;
@@ -106,21 +107,13 @@ export default function CreatePaymentPage() {
           setPaymentStatus(data.status);
           
           // Fetch full payment details
-          const token = localStorage.getItem('auth_token');
-          if (token) {
-            const paymentResponse = await fetch(`/api/payments/${paymentId}`, {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            });
-            if (paymentResponse.ok) {
-              const paymentData = await paymentResponse.json();
-              if (paymentData.success && paymentData.payment) {
-                setCreatedPayment((prev: any) => ({
-                  ...prev,
-                  ...paymentData.payment,
-                }));
-              }
+          const paymentResult = await authFetch(`/api/payments/${paymentId}`, {});
+          if (paymentResult && paymentResult.response.ok) {
+            if (paymentResult.data.success && paymentResult.data.payment) {
+              setCreatedPayment((prev: any) => ({
+                ...prev,
+                ...paymentResult.data.payment,
+              }));
             }
           }
           
@@ -149,17 +142,12 @@ export default function CreatePaymentPage() {
   // Poll for payment status
   const pollPaymentStatus = useCallback(async (paymentId: string) => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) return;
+      const result = await authFetch(`/api/payments/${paymentId}`, {});
+      if (!result) return;
 
-      const response = await fetch(`/api/payments/${paymentId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const { response, data } = result;
 
       if (response.ok) {
-        const data = await response.json();
         if (data.success && data.payment) {
           setPaymentStatus(data.payment.status);
           // Update the full payment object including tx_hash
@@ -384,16 +372,10 @@ export default function CreatePaymentPage() {
 
     setLoadingWallets(true);
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) return;
+      const result = await authFetch(`/api/businesses/${businessId}/wallets`, {});
+      if (!result) return;
 
-      const response = await fetch(`/api/businesses/${businessId}/wallets`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
+      const { response, data } = result;
 
       if (response.ok && data.success) {
         setBusinessWallets(data.wallets || []);
@@ -450,19 +432,10 @@ export default function CreatePaymentPage() {
 
   const fetchBusinesses = async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
+      const result = await authFetch('/api/businesses', {}, router);
+      if (!result) return;
 
-      const response = await fetch('/api/businesses', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to load businesses');
@@ -492,27 +465,19 @@ export default function CreatePaymentPage() {
     setCreating(true);
 
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
-
-      const response = await fetch('/api/payments/create', {
+      const result = await authFetch('/api/payments/create', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           business_id: formData.business_id,
           amount_usd: parseFloat(formData.amount_usd),
           currency: formData.currency,
           description: formData.description || undefined,
         }),
-      });
+      }, router);
+      if (!result) return;
 
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to create payment');

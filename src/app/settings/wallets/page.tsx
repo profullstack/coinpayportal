@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { authFetch } from '@/lib/auth/client';
 
 interface MerchantWallet {
   id: string;
@@ -48,19 +49,10 @@ export default function GlobalWalletsPage() {
 
   const fetchWallets = async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
+      const result = await authFetch('/api/wallets', {}, router);
+      if (!result) return;
 
-      const response = await fetch('/api/wallets', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to load wallets');
@@ -83,17 +75,14 @@ export default function GlobalWalletsPage() {
     setSaving(true);
 
     try {
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch('/api/wallets', {
+      const result = await authFetch('/api/wallets', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
-      });
+      }, router);
+      if (!result) return;
 
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to add wallet');
@@ -122,15 +111,12 @@ export default function GlobalWalletsPage() {
     setSuccess('');
 
     try {
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch(`/api/wallets/${cryptocurrency}`, {
+      const result = await authFetch(`/api/wallets/${cryptocurrency}`, {
         method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      }, router);
+      if (!result) return;
 
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to delete wallet');

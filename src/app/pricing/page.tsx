@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { authFetch } from '@/lib/auth/client';
 
 interface Plan {
   id: string;
@@ -67,20 +68,16 @@ export default function PricingPage() {
   };
 
   const checkAuth = async () => {
-    const token = localStorage.getItem('auth_token');
-    if (!token) {
-      setIsAuthenticated(false);
-      setLoading(false);
-      return;
-    }
-
     try {
-      const response = await fetch('/api/entitlements', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      const data = await response.json();
+      // Don't pass router - this is a public page, don't redirect on missing/expired token
+      const result = await authFetch('/api/entitlements', {});
+      if (!result) {
+        setIsAuthenticated(false);
+        setLoading(false);
+        return;
+      }
+
+      const { data } = result;
       if (data.success) {
         setEntitlements(data.entitlements);
         setIsAuthenticated(true);
@@ -109,21 +106,18 @@ export default function PricingPage() {
     setUpgrading(true);
     
     try {
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch('/api/subscriptions/checkout', {
+      const result = await authFetch('/api/subscriptions/checkout', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           plan_id: planId,
           billing_period: billingPeriod,
           blockchain: selectedBlockchain,
         }),
-      });
+      }, router);
+      if (!result) return;
 
-      const data = await response.json();
+      const { data } = result;
       
       if (data.success && data.payment) {
         // Show payment modal with crypto address

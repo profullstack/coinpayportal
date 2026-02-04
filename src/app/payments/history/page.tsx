@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { authFetch } from '@/lib/auth/client';
 
 interface Payment {
   id: string;
@@ -45,19 +46,10 @@ export default function PaymentHistoryPage() {
 
   const fetchBusinesses = async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
+      const result = await authFetch('/api/businesses', {}, router);
+      if (!result) return;
 
-      const response = await fetch('/api/businesses', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
+      const { data } = result;
       if (data.success) {
         setBusinesses(data.businesses);
       }
@@ -68,12 +60,6 @@ export default function PaymentHistoryPage() {
 
   const fetchPayments = async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
-
       // Build query parameters
       const params = new URLSearchParams();
       if (selectedBusiness) params.append('business_id', selectedBusiness);
@@ -82,13 +68,10 @@ export default function PaymentHistoryPage() {
       if (dateFrom) params.append('date_from', dateFrom);
       if (dateTo) params.append('date_to', dateTo);
 
-      const response = await fetch(`/api/payments?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const result = await authFetch(`/api/payments?${params.toString()}`, {}, router);
+      if (!result) return;
 
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to load payments');

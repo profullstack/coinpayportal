@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Papa from 'papaparse';
 import { useRealtimePayments, type RealtimePayment } from '@/lib/realtime/useRealtimePayments';
+import { authFetch, requireAuth } from '@/lib/auth/client';
 
 interface DashboardStats {
   total_payments: number;
@@ -126,25 +127,16 @@ export default function DashboardPage() {
 
   const fetchDashboardData = async (businessId?: string) => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
-
       // Build URL with optional business_id filter
       let url = '/api/dashboard/stats';
       if (businessId) {
         url += `?business_id=${businessId}`;
       }
 
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const result = await authFetch(url, {}, router);
+      if (!result) return; // Redirected to login
 
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to load dashboard data');
@@ -221,11 +213,6 @@ export default function DashboardPage() {
   const exportToCSV = async () => {
     try {
       setExporting(true);
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        setError('Please log in to export payments');
-        return;
-      }
 
       // Build URL with optional business_id filter
       let url = '/api/payments';
@@ -234,13 +221,10 @@ export default function DashboardPage() {
       }
 
       // Fetch payments from the API (respects current business filter)
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const fetchResult = await authFetch(url, {}, router);
+      if (!fetchResult) return; // Redirected to login
 
-      const result = await response.json();
+      const { response, data: result } = fetchResult;
 
       if (!response.ok || !result.success) {
         setError(result.error || 'Failed to fetch payments for export');

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { authFetch } from '@/lib/auth/client';
 import { Business, Wallet, TabType } from '@/components/business/types';
 import { GeneralTab } from '@/components/business/GeneralTab';
 import { WalletsTab } from '@/components/business/WalletsTab';
@@ -29,19 +30,10 @@ export default function BusinessDetailPage() {
 
   const fetchBusiness = async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
+      const result = await authFetch(`/api/businesses/${businessId}`, {}, router);
+      if (!result) return;
 
-      const response = await fetch(`/api/businesses/${businessId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to load business');
@@ -59,16 +51,10 @@ export default function BusinessDetailPage() {
 
   const fetchWallets = async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) return;
+      const result = await authFetch(`/api/businesses/${businessId}/wallets`, {}, router);
+      if (!result) return;
 
-      const response = await fetch(`/api/businesses/${businessId}/wallets`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
+      const { response, data } = result;
 
       if (response.ok && data.success) {
         setWallets(data.wallets);
