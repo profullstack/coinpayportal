@@ -8,6 +8,7 @@ import { PasswordInput } from '@/components/web-wallet/PasswordInput';
 import { SeedDisplay } from '@/components/web-wallet/SeedDisplay';
 import { ChainMultiSelect } from '@/components/web-wallet/ChainSelector';
 import { checkPasswordStrength } from '@/lib/web-wallet/client-crypto';
+import { downloadEncryptedSeedPhrase } from '@/lib/web-wallet/seedphrase-backup';
 
 type Step = 'password' | 'seed' | 'verify';
 
@@ -15,7 +16,7 @@ const DEFAULT_CHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'USDC_ETH', 'USDC_POL
 
 export default function CreateWalletPage() {
   const router = useRouter();
-  const { createWallet, isLoading, error, clearError } = useWebWallet();
+  const { createWallet, isLoading, error, clearError, walletId: contextWalletId } = useWebWallet();
 
   const [step, setStep] = useState<Step>('password');
   const [password, setPassword] = useState('');
@@ -39,6 +40,15 @@ export default function CreateWalletPage() {
     try {
       const result = await createWallet(password, { chains });
       setMnemonic(result.mnemonic);
+
+      // Auto-download GPG-encrypted seed phrase backup (client-side only)
+      try {
+        await downloadEncryptedSeedPhrase(result.mnemonic, password, result.walletId);
+      } catch (dlErr) {
+        console.warn('Seed phrase backup download failed:', dlErr);
+        // Non-fatal — user can still copy manually
+      }
+
       // Pick a random word index for verification
       const words = result.mnemonic.split(' ');
       setVerifyIndex(Math.floor(Math.random() * words.length));
@@ -139,7 +149,12 @@ export default function CreateWalletPage() {
       )}
 
       {step === 'seed' && mnemonic && (
-        <SeedDisplay mnemonic={mnemonic} onConfirmed={handleSeedConfirmed} />
+        <SeedDisplay
+          mnemonic={mnemonic}
+          onConfirmed={handleSeedConfirmed}
+          password={password}
+          walletId={contextWalletId}
+        />
       )}
 
       {step === 'verify' && (

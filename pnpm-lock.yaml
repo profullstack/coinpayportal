@@ -86,6 +86,9 @@ importers:
       node-fetch:
         specifier: ^3.3.2
         version: 3.3.2
+      openpgp:
+        specifier: ^6.3.0
+        version: 6.3.0
       papaparse:
         specifier: ^5.5.3
         version: 5.5.3
@@ -5511,6 +5514,10 @@ packages:
 
   openapi-typescript-helpers@0.0.15:
     resolution: {integrity: sha512-opyTPaunsklCBpTK8JGef6mfPhLSnyy5a0IN9vKtx3+4aExf+KxEqYwIy3hqkedXIB97u357uLMJsOnm3GVjsw==}
+
+  openpgp@6.3.0:
+    resolution: {integrity: sha512-pLzCU8IgyKXPSO11eeharQkQ4GzOKNWhXq79pQarIRZEMt1/ssyr+MIuWBv1mNoenJLg04gvPx+fi4gcKZ4bag==}
+    engines: {node: '>= 18.0.0'}
 
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
@@ -14173,6 +14180,8 @@ snapshots:
       openapi-typescript-helpers: 0.0.15
 
   openapi-typescript-helpers@0.0.15: {}
+
+  openpgp@6.3.0: {}
 
   optionator@0.9.4:
     dependencies:

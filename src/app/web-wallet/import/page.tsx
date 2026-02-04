@@ -8,6 +8,7 @@ import { PasswordInput } from '@/components/web-wallet/PasswordInput';
 import { SeedInput } from '@/components/web-wallet/SeedInput';
 import { ChainMultiSelect } from '@/components/web-wallet/ChainSelector';
 import { checkPasswordStrength } from '@/lib/web-wallet/client-crypto';
+import { downloadEncryptedSeedPhrase } from '@/lib/web-wallet/seedphrase-backup';
 
 const DEFAULT_CHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL'];
 
@@ -42,7 +43,16 @@ export default function ImportWalletPage() {
     }
 
     try {
-      await importWallet(mnemonic.trim(), password, { chains });
+      const result = await importWallet(mnemonic.trim(), password, { chains });
+
+      // Auto-download GPG-encrypted seed phrase backup (client-side only)
+      try {
+        await downloadEncryptedSeedPhrase(mnemonic.trim(), password, result.walletId);
+      } catch (dlErr) {
+        console.warn('Seed phrase backup download failed:', dlErr);
+        // Non-fatal — user still has their phrase
+      }
+
       router.push('/web-wallet');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '';
