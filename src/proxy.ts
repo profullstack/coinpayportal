@@ -36,11 +36,11 @@ export function proxy(request: NextRequest) {
   // Relatively permissive to not break the web wallet UI
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Next.js requires unsafe-eval in dev
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://datafa.st", // Next.js requires unsafe-eval in dev
     "style-src 'self' 'unsafe-inline'", // Inline styles for UI components
     "img-src 'self' data: https: blob:",
     "font-src 'self' data:",
-    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.infura.io https://api.mainnet-beta.solana.com https://blockstream.info https://polygon-rpc.com https://api.tatum.io https://gasstation.polygon.technology",
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.infura.io https://api.mainnet-beta.solana.com https://blockstream.info https://polygon-rpc.com https://api.tatum.io https://gasstation.polygon.technology https://datafa.st",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
