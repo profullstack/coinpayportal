@@ -1,6 +1,7 @@
 export { Wallet } from './wallet';
 export { WalletAPIClient } from './client';
 export { WalletEventEmitter } from './events';
+export { encryptSeedPhrase, decryptSeedPhrase } from './backup';
 
 export {
   WalletSDKError,
@@ -40,3 +41,5 @@ export type {
   RegisterWebhookInput,
   RegisterWebhookResult,
 } from './types';
+
+export type { EncryptedBackup } from './backup';

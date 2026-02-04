@@ -17,6 +17,7 @@ import {
 } from '../web-wallet/keys';
 import { signTransaction } from '../web-wallet/signing';
 import { buildDerivationPath } from '../web-wallet/identity';
+import { encryptSeedPhrase, decryptSeedPhrase, type EncryptedBackup } from './backup';
 import type {
   WalletSDKConfig,
   WalletChain,
@@ -614,6 +615,43 @@ export class Wallet {
 
   getMnemonic(): string | null {
     return this._mnemonic;
+  }
+
+  // ── Seed Phrase Backup ──
+
+  /**
+   * Export an encrypted GPG backup of the seed phrase.
+   * Returns raw bytes that can be saved to a .gpg file.
+   * Decrypt with: gpg --decrypt wallet_<id>_seedphrase.txt.gpg
+   *
+   * @param password - Passphrase for GPG symmetric encryption
+   * @returns Encrypted backup with data, filename, and walletId
+   * @throws if wallet is read-only (no mnemonic)
+   */
+  async exportEncryptedBackup(password: string): Promise<EncryptedBackup> {
+    if (!this._mnemonic) {
+      throw new WalletSDKError(
+        'READ_ONLY',
+        'Cannot export backup in read-only mode — no mnemonic available',
+        400
+      );
+    }
+    return encryptSeedPhrase(this._mnemonic, password, this._walletId);
+  }
+
+  /**
+   * Decrypt a GPG-encrypted seed phrase backup.
+   * Static method — works without an instantiated wallet.
+   *
+   * @param encrypted - Raw GPG encrypted bytes
+   * @param password - The passphrase used during encryption
+   * @returns The decrypted seed phrase, or null if password is wrong
+   */
+  static async decryptBackup(
+    encrypted: Uint8Array,
+    password: string
+  ): Promise<string | null> {
+    return decryptSeedPhrase(encrypted, password);
   }
 
   // ── Cleanup ──
