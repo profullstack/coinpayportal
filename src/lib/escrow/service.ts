@@ -17,7 +17,7 @@ import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { generatePaymentAddress, type SystemBlockchain } from '../wallets/system-wallet';
 import { getFeePercentage } from '../payments/fees';
-import { getCryptoPrice } from '../rates/tatum';
+import { getExchangeRate } from '../rates/tatum';
 import { sendEscrowWebhook } from '../webhooks/service';
 import type {
   CreateEscrowInput,
@@ -126,9 +126,9 @@ export async function createEscrow(
     // Get USD price for reference
     let amountUsd: number | null = null;
     try {
-      const price = await getCryptoPrice(data.chain);
-      if (price) {
-        amountUsd = data.amount * price;
+      const rate = await getExchangeRate(data.chain, 'USD');
+      if (rate) {
+        amountUsd = data.amount * rate;
       }
     } catch {
       // Price lookup is non-critical

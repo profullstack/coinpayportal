@@ -122,22 +122,23 @@ export async function POST(
 
     if (provider.sendTransaction) {
       // Forward to destination (beneficiary or depositor)
-      const txResult = await provider.sendTransaction(
-        privateKey,
+      // sendTransaction signature: (from, to, amount, privateKey) → string
+      txHash = await provider.sendTransaction(
+        addressData.address,
         destinationAddress,
-        amountToSend
+        String(amountToSend),
+        privateKey
       );
-      txHash = txResult.txHash;
 
       // If release (not refund), also send platform fee to commission wallet
       if (action === 'release' && escrow.fee_amount > 0) {
         try {
-          const feeResult = await provider.sendTransaction(
-            privateKey,
+          feeTxHash = await provider.sendTransaction(
+            addressData.address,
             addressData.commission_wallet,
-            escrow.fee_amount
+            String(escrow.fee_amount),
+            privateKey
           );
-          feeTxHash = feeResult.txHash;
         } catch (feeError) {
           console.error(`Fee forwarding failed for escrow ${escrowId}:`, feeError);
           // Non-fatal — main settlement still succeeded

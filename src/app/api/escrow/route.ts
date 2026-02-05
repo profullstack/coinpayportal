@@ -34,10 +34,9 @@ export async function POST(request: NextRequest) {
 
     if (authHeader || apiKeyHeader) {
       try {
-        const auth = await authenticateRequest(request, supabase);
-        if (auth && isMerchantAuth(auth)) {
+        const authResult = await authenticateRequest(supabase, authHeader || apiKeyHeader);
+        if (authResult.success && authResult.context && isMerchantAuth(authResult.context)) {
           // Check if merchant has paid tier
-          const merchantId = auth.merchantId;
           if (body.business_id) {
             isPaidTier = await isBusinessPaidTier(supabase, body.business_id);
             businessId = body.business_id;
@@ -90,8 +89,8 @@ export async function GET(request: NextRequest) {
 
     if (authHeader || apiKeyHeader) {
       try {
-        const auth = await authenticateRequest(request, supabase);
-        if (auth && isMerchantAuth(auth)) {
+        const authResult = await authenticateRequest(supabase, authHeader || apiKeyHeader);
+        if (authResult.success && authResult.context && isMerchantAuth(authResult.context)) {
           filters.business_id = searchParams.get('business_id') || undefined;
         }
       } catch {
