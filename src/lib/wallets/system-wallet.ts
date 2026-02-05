@@ -31,7 +31,7 @@ import { getFeePercentage, FEE_PERCENTAGE_FREE, FEE_PERCENTAGE_PAID } from '../p
 /**
  * Supported blockchains
  */
-export type SystemBlockchain = 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL' | 'DOGE' | 'XRP' | 'ADA' | 'BNB' | 'USDT' | 'USDC';
+export type SystemBlockchain = 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL' | 'DOGE' | 'XRP' | 'ADA' | 'BNB' | 'USDT' | 'USDC' | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
 
 /**
  * Commission rates by tier
@@ -101,7 +101,18 @@ function getSystemMnemonic(cryptocurrency: SystemBlockchain): string {
   let envKey = `SYSTEM_MNEMONIC_${cryptocurrency}`;
   let mnemonic = process.env[envKey];
 
-  // POL (Polygon), BNB, USDT, USDC use the same derivation as ETH, so fall back to ETH mnemonic
+  // Chain-specific USDC falls back to the parent chain's mnemonic
+  if (!mnemonic && cryptocurrency === 'USDC_ETH') {
+    mnemonic = process.env['SYSTEM_MNEMONIC_ETH'];
+  }
+  if (!mnemonic && cryptocurrency === 'USDC_POL') {
+    mnemonic = process.env['SYSTEM_MNEMONIC_POL'] || process.env['SYSTEM_MNEMONIC_ETH'];
+  }
+  if (!mnemonic && cryptocurrency === 'USDC_SOL') {
+    mnemonic = process.env['SYSTEM_MNEMONIC_SOL'];
+  }
+
+  // POL, BNB, USDT, USDC (generic) use the same derivation as ETH, so fall back to ETH mnemonic
   if (!mnemonic && (cryptocurrency === 'POL' || cryptocurrency === 'BNB' || cryptocurrency === 'USDT' || cryptocurrency === 'USDC')) {
     envKey = 'SYSTEM_MNEMONIC_ETH';
     mnemonic = process.env[envKey];
@@ -129,7 +140,18 @@ export function getCommissionWallet(cryptocurrency: SystemBlockchain): string {
   let envKey = `PLATFORM_FEE_WALLET_${cryptocurrency}`;
   let wallet = process.env[envKey];
 
-  // POL, BNB, USDT, USDC use the same address as ETH (EVM compatible)
+  // Chain-specific USDC falls back to the parent chain's fee wallet
+  if (!wallet && cryptocurrency === 'USDC_ETH') {
+    wallet = process.env['PLATFORM_FEE_WALLET_ETH'];
+  }
+  if (!wallet && cryptocurrency === 'USDC_POL') {
+    wallet = process.env['PLATFORM_FEE_WALLET_POL'] || process.env['PLATFORM_FEE_WALLET_ETH'];
+  }
+  if (!wallet && cryptocurrency === 'USDC_SOL') {
+    wallet = process.env['PLATFORM_FEE_WALLET_SOL'];
+  }
+
+  // POL, BNB, USDT, USDC (generic) use the same address as ETH (EVM compatible)
   if (!wallet && (cryptocurrency === 'POL' || cryptocurrency === 'BNB' || cryptocurrency === 'USDT' || cryptocurrency === 'USDC')) {
     envKey = 'PLATFORM_FEE_WALLET_ETH';
     wallet = process.env[envKey];
@@ -613,10 +635,13 @@ export async function deriveSystemPaymentAddress(
     case 'BNB':
     case 'USDT':
     case 'USDC':
+    case 'USDC_ETH':
+    case 'USDC_POL':
       wallet = deriveEthereumWallet(mnemonic, index);
       derivationPath = `m/44'/60'/0'/0/${index}`;
       break;
     case 'SOL':
+    case 'USDC_SOL':
       wallet = await deriveSolanaWallet(mnemonic, index);
       derivationPath = `m/44'/501'/${index}'/0'`;
       break;
