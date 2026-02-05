@@ -1,7 +1,7 @@
 ---
 name: coinpayportal
-version: 2.1.0
-description: Non-custodial multi-chain wallet for AI agents. Send and receive BTC, ETH, SOL, POL, BCH, and USDC.
+version: 3.0.0
+description: Non-custodial payments, escrow, and wallets for AI agents. Send, receive, and hold funds in escrow across BTC, ETH, SOL, POL, BCH, and USDC.
 homepage: https://coinpayportal.com
 ---
 
@@ -9,9 +9,9 @@ homepage: https://coinpayportal.com
 curl -s https://coinpayportal.com/skill.md
 ```
 
-# CoinPayPortal Wallet SDK
+# CoinPayPortal — Payments, Escrow & Wallets
 
-Non-custodial multi-chain wallet for AI agents. Create wallets, check balances, send transactions, and receive payments across BTC, ETH, SOL, POL, BCH, and USDC — no KYC required.
+Non-custodial crypto infrastructure for AI agents and humans. Create wallets, send payments, hold funds in escrow, and receive payments across BTC, ETH, SOL, POL, BCH, and USDC — no KYC required.
 
 **Base URL:** `https://coinpayportal.com/api/web-wallet`
 **npm:** `@profullstack/coinpay`
@@ -269,6 +269,137 @@ pnpm coinpay-wallet sync <wallet-id> --chain SOL
 - `COINPAY_API_URL` — API base URL (default: `http://localhost:8080`)
 - `COINPAY_AUTH_TOKEN` — JWT token for read-only operations
 - `COINPAY_MNEMONIC` — Mnemonic phrase (required for `send`)
+
+## Escrow Service
+
+Create trustless escrows to hold funds until both parties are satisfied. No accounts required — authentication uses unique tokens.
+
+### Create Escrow
+
+```bash
+curl -X POST https://coinpayportal.com/api/escrow \
+  -H "Content-Type: application/json" \
+  -d '{
+    "chain": "ETH",
+    "amount": 0.5,
+    "depositor_address": "0xAlice...",
+    "beneficiary_address": "0xBob...",
+    "expires_in_hours": 48
+  }'
+```
+
+Response:
+```json
+{
+  "id": "uuid",
+  "escrow_address": "0xDeposit...",
+  "status": "created",
+  "release_token": "esc_abc123...",
+  "beneficiary_token": "esc_def456...",
+  "amount": 0.5,
+  "fee_amount": 0.005,
+  "expires_at": "2024-01-03T12:00:00Z"
+}
+```
+
+Save both tokens — they are only returned once. Depositor gets `release_token`, beneficiary gets `beneficiary_token`.
+
+### Escrow Flow
+
+1. **Create** → get deposit address + tokens
+2. **Fund** → depositor sends crypto to `escrow_address` (auto-detected)
+3. **Release** → depositor calls release, funds forwarded to beneficiary minus fee
+4. **OR Refund** → depositor calls refund, full amount returned (no fee)
+5. **OR Dispute** → either party opens dispute
+
+### Escrow Endpoints
+
+| Endpoint | Method | Auth | Purpose |
+|----------|--------|------|---------|
+| `/api/escrow` | POST | Optional | Create escrow |
+| `/api/escrow` | GET | Optional | List escrows (requires filter) |
+| `/api/escrow/:id` | GET | No | Get escrow details |
+| `/api/escrow/:id/release` | POST | Token | Release funds to beneficiary |
+| `/api/escrow/:id/refund` | POST | Token | Refund to depositor (no fee) |
+| `/api/escrow/:id/dispute` | POST | Token | Open dispute |
+| `/api/escrow/:id/events` | GET | No | Audit log |
+
+### Release Funds
+
+```bash
+curl -X POST https://coinpayportal.com/api/escrow/<id>/release \
+  -H "Content-Type: application/json" \
+  -d '{ "release_token": "esc_abc123..." }'
+```
+
+### Refund
+
+```bash
+curl -X POST https://coinpayportal.com/api/escrow/<id>/refund \
+  -H "Content-Type: application/json" \
+  -d '{ "release_token": "esc_abc123..." }'
+```
+
+### Dispute
+
+```bash
+curl -X POST https://coinpayportal.com/api/escrow/<id>/dispute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "token": "esc_def456...",
+    "reason": "Work not delivered as agreed"
+  }'
+```
+
+### Escrow Statuses
+
+| Status | Meaning |
+|--------|---------|
+| `created` | Awaiting deposit |
+| `funded` | Deposit received on-chain |
+| `released` | Depositor approved release |
+| `settled` | Funds forwarded to beneficiary |
+| `disputed` | Dispute opened |
+| `refunded` | Funds returned to depositor |
+| `expired` | Deposit window expired |
+
+### Escrow SDK
+
+```typescript
+const escrow = await client.createEscrow({
+  chain: 'SOL', amount: 10,
+  depositor_address: 'Alice...',
+  beneficiary_address: 'Bob...',
+});
+
+// Release
+await client.releaseEscrow(escrow.id, escrow.release_token);
+
+// Refund
+await client.refundEscrow(escrow.id, escrow.release_token);
+
+// Wait for settlement
+const settled = await client.waitForEscrow(escrow.id, 'settled');
+```
+
+### Escrow CLI
+
+```bash
+coinpay escrow create --chain SOL --amount 10 \
+  --depositor Alice... --beneficiary Bob...
+coinpay escrow get <id>
+coinpay escrow list --status funded
+coinpay escrow release <id> --token esc_abc...
+coinpay escrow refund <id> --token esc_abc...
+coinpay escrow dispute <id> --token esc_def... --reason "..."
+coinpay escrow events <id>
+```
+
+### Fees
+
+- **Free tier:** 1% on release
+- **Professional:** 0.5% on release
+- **Refunds:** No fee
 
 ## Rate Limits
 
