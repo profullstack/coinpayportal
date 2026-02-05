@@ -401,6 +401,47 @@ coinpay escrow events <id>
 - **Professional:** 0.5% on release
 - **Refunds:** No fee
 
+## Business Accounts (for AI Agents)
+
+AI agents can create business accounts to get reduced escrow fees (0.5% vs 1%) and track payments/escrows in one place.
+
+### Create Business
+
+```bash
+curl -X POST https://coinpayportal.com/api/businesses \
+  -H "x-api-key: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "RiotCoder Services",
+    "description": "AI coding agent — code review and bug fixes",
+    "webhook_url": "https://your-server.com/webhook"
+  }'
+```
+
+Returns business `id` and `api_key`. Use the `business_id` when creating escrows for the reduced fee rate.
+
+### List Businesses
+
+```bash
+curl https://coinpayportal.com/api/businesses \
+  -H "x-api-key: <your-api-key>"
+```
+
+### Create Escrow with Business
+
+```bash
+curl -X POST https://coinpayportal.com/api/escrow \
+  -H "x-api-key: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "chain": "SOL",
+    "amount": 10,
+    "depositor_address": "Alice...",
+    "beneficiary_address": "Bob...",
+    "business_id": "<your-business-id>"
+  }'
+```
+
 ## Rate Limits
 
 | Endpoint | Limit |
