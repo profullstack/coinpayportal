@@ -9,8 +9,6 @@
  * Works in both browser and Node.js environments.
  */
 
-import * as openpgp from 'openpgp';
-
 export interface EncryptedBackup {
   /** Raw encrypted bytes (GPG binary format) */
   data: Uint8Array;
@@ -33,6 +31,9 @@ export async function encryptSeedPhrase(
   password: string,
   walletId: string
 ): Promise<EncryptedBackup> {
+  // Lazy-load openpgp to avoid crashing in jsdom/SSR environments
+  const openpgp = await import('openpgp');
+
   const filename = `wallet_${walletId}_seedphrase.txt`;
 
   const content = [
@@ -80,6 +81,9 @@ export async function decryptSeedPhrase(
   encrypted: Uint8Array,
   password: string
 ): Promise<string | null> {
+  // Lazy-load openpgp to avoid crashing in jsdom/SSR environments
+  const openpgp = await import('openpgp');
+
   try {
     const message = await openpgp.readMessage({
       binaryMessage: encrypted,

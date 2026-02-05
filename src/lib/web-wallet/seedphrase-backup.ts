@@ -9,8 +9,6 @@
  * the browser. No server calls are made.
  */
 
-import * as openpgp from 'openpgp';
-
 /**
  * Encrypt a seed phrase with the user's password using OpenPGP symmetric encryption
  * and trigger a file download in the browser.
@@ -24,6 +22,9 @@ export async function downloadEncryptedSeedPhrase(
   password: string,
   walletId: string
 ): Promise<void> {
+  // Lazy-load openpgp to avoid crashing in jsdom/SSR environments
+  const openpgp = await import('openpgp');
+
   const filename = `wallet_${walletId}_seedphrase.txt`;
 
   // Create the plaintext content
