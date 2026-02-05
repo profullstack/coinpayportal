@@ -165,7 +165,12 @@ function DashboardView() {
     if (!wallet || isDeriving) return;
     setIsDeriving(true);
     try {
-      const walletChains = chains.length > 0 ? chains : ['BTC', 'BCH', 'ETH', 'POL', 'SOL'];
+      const walletChains = chains.length > 0 ? chains : [
+        'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+        'DOGE', 'XRP', 'ADA', 'BNB',
+        'USDT', 'USDC',
+        'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+      ];
       for (const chain of walletChains) {
         try {
           await wallet.deriveAddress(chain as WalletChain);

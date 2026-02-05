@@ -316,17 +316,18 @@ export default function CreatePaymentPage() {
     { value: 'btc', label: 'Bitcoin (BTC)', walletType: 'BTC', fallbackFee: 2.00 },
     { value: 'bch', label: 'Bitcoin Cash (BCH)', walletType: 'BCH', fallbackFee: 0.01 },
     { value: 'eth', label: 'Ethereum (ETH)', walletType: 'ETH', fallbackFee: 3.00 },
-    { value: 'usdt', label: 'Tether (USDT)', walletType: 'USDT', fallbackFee: 3.00 },
-    // Chain-specific USDC options - Polygon is cheapest!
-    { value: 'usdc_pol', label: 'USDC (Polygon) - Recommended', walletType: 'USDC', fallbackFee: 0.01 },
-    { value: 'usdc_sol', label: 'USDC (Solana)', walletType: 'USDC', fallbackFee: 0.001 },
-    { value: 'usdc_eth', label: 'USDC (Ethereum)', walletType: 'USDC', fallbackFee: 3.00 },
-    { value: 'bnb', label: 'Binance Coin (BNB)', walletType: 'BNB', fallbackFee: 0.10 },
+    { value: 'pol', label: 'Polygon (POL)', walletType: 'POL', fallbackFee: 0.01 },
     { value: 'sol', label: 'Solana (SOL)', walletType: 'SOL', fallbackFee: 0.001 },
+    { value: 'doge', label: 'Dogecoin (DOGE)', walletType: 'DOGE', fallbackFee: 0.05 },
     { value: 'xrp', label: 'Ripple (XRP)', walletType: 'XRP', fallbackFee: 0.001 },
     { value: 'ada', label: 'Cardano (ADA)', walletType: 'ADA', fallbackFee: 0.20 },
-    { value: 'doge', label: 'Dogecoin (DOGE)', walletType: 'DOGE', fallbackFee: 0.05 },
-    { value: 'pol', label: 'Polygon (POL)', walletType: 'POL', fallbackFee: 0.01 },
+    { value: 'bnb', label: 'BNB Chain (BNB)', walletType: 'BNB', fallbackFee: 0.10 },
+    { value: 'usdt', label: 'Tether (USDT)', walletType: 'USDT', fallbackFee: 3.00 },
+    { value: 'usdc', label: 'USD Coin (USDC)', walletType: 'USDC', fallbackFee: 3.00 },
+    // Chain-specific USDC options - Polygon is cheapest!
+    { value: 'usdc_eth', label: 'USDC (Ethereum)', walletType: 'USDC', fallbackFee: 3.00 },
+    { value: 'usdc_pol', label: 'USDC (Polygon) — Low Fees', walletType: 'USDC', fallbackFee: 0.01 },
+    { value: 'usdc_sol', label: 'USDC (Solana) — Low Fees', walletType: 'USDC', fallbackFee: 0.001 },
   ];
 
   // Build currencies with real-time fees

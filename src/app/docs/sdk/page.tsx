@@ -780,7 +780,7 @@ try {
 const result = await client.createPayment({
   businessId: 'biz_123',
   amount: 100,
-  blockchain: Blockchain.BTC,  // 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL' | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL'
+  blockchain: Blockchain.BTC,  // BTC, BCH, ETH, POL, SOL, DOGE, XRP, ADA, BNB, USDT, USDC, USDC_ETH, USDC_POL, USDC_SOL
 });
 
 // result.payment.status: 'pending' | 'detected' | 'confirmed' | 'forwarding' | 'forwarded' | 'expired' | 'failed'
