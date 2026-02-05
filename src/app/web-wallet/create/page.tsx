@@ -12,7 +12,12 @@ import { downloadEncryptedSeedPhrase } from '@/lib/web-wallet/seedphrase-backup'
 
 type Step = 'password' | 'seed' | 'verify';
 
-const DEFAULT_CHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL'];
+const DEFAULT_CHAINS = [
+  'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+  'DOGE', 'XRP', 'ADA', 'BNB',
+  'USDT', 'USDC',
+  'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+];
 
 export default function CreateWalletPage() {
   const router = useRouter();

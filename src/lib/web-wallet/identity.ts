@@ -8,11 +8,17 @@
 import { secp256k1 } from '@noble/curves/secp256k1';
 
 /** Supported chains for web wallet */
-export type WalletChain = 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL' | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
+export type WalletChain =
+  | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
+  | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
+  | 'USDT' | 'USDC'
+  | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
 
 /** All valid chain values */
 export const VALID_CHAINS: WalletChain[] = [
   'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+  'DOGE', 'XRP', 'ADA', 'BNB',
+  'USDT', 'USDC',
   'USDC_ETH', 'USDC_POL', 'USDC_SOL',
 ];
 
@@ -23,6 +29,12 @@ export const DERIVATION_PATHS: Record<string, string> = {
   ETH: "m/44'/60'/0'/0",
   POL: "m/44'/60'/0'/0",
   SOL: "m/44'/501'",
+  DOGE: "m/44'/3'/0'/0",
+  XRP: "m/44'/144'/0'/0",
+  ADA: "m/1852'/1815'/0'/0",
+  BNB: "m/44'/60'/0'/0",
+  USDT: "m/44'/60'/0'/0",
+  USDC: "m/44'/60'/0'/0",
   USDC_ETH: "m/44'/60'/0'/0",
   USDC_POL: "m/44'/60'/0'/0",
   USDC_SOL: "m/44'/501'",
@@ -86,6 +98,9 @@ export function validateAddress(address: string, chain: WalletChain): boolean {
         /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(address);
     case 'ETH':
     case 'POL':
+    case 'BNB':
+    case 'USDT':
+    case 'USDC':
     case 'USDC_ETH':
     case 'USDC_POL':
       // EVM address: 0x followed by 40 hex chars
@@ -94,6 +109,15 @@ export function validateAddress(address: string, chain: WalletChain): boolean {
     case 'USDC_SOL':
       // Solana: base58 encoded, 32-44 chars
       return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
+    case 'DOGE':
+      // Dogecoin: starts with D, A, or 9
+      return /^[DA9][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(address);
+    case 'XRP':
+      // XRP: starts with r
+      return /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(address);
+    case 'ADA':
+      // Cardano Shelley address: starts with addr1
+      return /^addr1[a-z0-9]{50,100}$/.test(address);
     default:
       return false;
   }
@@ -140,9 +164,18 @@ export function buildDerivationPath(chain: WalletChain, index: number): string {
       return `m/44'/145'/0'/0/${index}`;
     case 'ETH':
     case 'POL':
+    case 'BNB':
+    case 'USDT':
+    case 'USDC':
     case 'USDC_ETH':
     case 'USDC_POL':
       return `m/44'/60'/0'/0/${index}`;
+    case 'DOGE':
+      return `m/44'/3'/0'/0/${index}`;
+    case 'XRP':
+      return `m/44'/144'/0'/0/${index}`;
+    case 'ADA':
+      return `m/1852'/1815'/0'/0/${index}`;
     default:
       throw new Error(`Unsupported chain: ${chain}`);
   }

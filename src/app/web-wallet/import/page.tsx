@@ -10,7 +10,12 @@ import { ChainMultiSelect } from '@/components/web-wallet/ChainSelector';
 import { checkPasswordStrength } from '@/lib/web-wallet/client-crypto';
 import { downloadEncryptedSeedPhrase } from '@/lib/web-wallet/seedphrase-backup';
 
-const DEFAULT_CHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL'];
+const DEFAULT_CHAINS = [
+  'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+  'DOGE', 'XRP', 'ADA', 'BNB',
+  'USDT', 'USDC',
+  'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+];
 
 export default function ImportWalletPage() {
   const router = useRouter();

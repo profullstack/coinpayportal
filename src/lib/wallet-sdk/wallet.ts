@@ -74,11 +74,10 @@ export class Wallet {
   ): Promise<Wallet> {
     const client = new WalletAPIClient(options);
     const chains: WalletChain[] = options.chains || [
-      'BTC',
-      'BCH',
-      'ETH',
-      'POL',
-      'SOL',
+      'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+      'DOGE', 'XRP', 'ADA', 'BNB',
+      'USDT', 'USDC',
+      'USDC_ETH', 'USDC_POL', 'USDC_SOL',
     ];
     const mnemonic = generateMnemonic(options.words || 12);
     const bundle = await deriveWalletBundle(mnemonic, chains);
@@ -134,11 +133,10 @@ export class Wallet {
 
     const client = new WalletAPIClient(options);
     const chains: WalletChain[] = options.chains || [
-      'BTC',
-      'BCH',
-      'ETH',
-      'POL',
-      'SOL',
+      'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+      'DOGE', 'XRP', 'ADA', 'BNB',
+      'USDT', 'USDC',
+      'USDC_ETH', 'USDC_POL', 'USDC_SOL',
     ];
     const bundle = await deriveWalletBundle(mnemonic, chains);
 

@@ -86,7 +86,12 @@ export function mnemonicToSeed(mnemonic: string, passphrase?: string): Uint8Arra
  */
 export async function deriveWalletBundle(
   mnemonic: string,
-  chains: WalletChain[] = ['BTC', 'BCH', 'ETH', 'POL', 'SOL']
+  chains: WalletChain[] = [
+    'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+    'DOGE', 'XRP', 'ADA', 'BNB',
+    'USDT', 'USDC',
+    'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+  ]
 ): Promise<WalletKeyBundle> {
   if (!isValidMnemonic(mnemonic)) {
     throw new Error('Invalid mnemonic phrase');
