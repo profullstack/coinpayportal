@@ -67,7 +67,7 @@ describe('broadcastTransaction', () => {
       const result = await broadcastTransaction(supabase, 'w1', {
         tx_id: 'tx-123',
         signed_tx: '0xSIGNED',
-        chain: 'DOGE',
+        chain: 'FAKE_CHAIN',
       });
       expect(result.success).toBe(false);
       if (!result.success) expect(result.code).toBe('INVALID_CHAIN');

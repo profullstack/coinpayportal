@@ -3,7 +3,7 @@
  *
  * Encrypts the seed phrase using OpenPGP symmetric encryption (AES-256)
  * and triggers a browser download. The resulting .gpg file can be
- * decrypted with: gpg --decrypt wallet_<id>_seedphrase.txt.gpg
+ * decrypted with: gpg --decrypt wallet_coinpayportal_<id>_seedphrase.txt.gpg
  *
  * IMPORTANT: Everything runs client-side. The seed phrase never leaves
  * the browser. No server calls are made.
@@ -25,7 +25,7 @@ export async function downloadEncryptedSeedPhrase(
   // Lazy-load openpgp to avoid crashing in jsdom/SSR environments
   const openpgp = await import('openpgp');
 
-  const filename = `wallet_${walletId}_seedphrase.txt`;
+  const filename = `wallet_coinpayportal_${walletId}_seedphrase.txt`;
 
   // Create the plaintext content
   const content = [

@@ -548,7 +548,7 @@ describe('Broadcast Edge Cases', () => {
     const result = await broadcastTransaction(supabase, 'wallet-001', {
       tx_id: 'tx-001',
       signed_tx: '0x...',
-      chain: 'DOGE',
+      chain: 'FAKE_CHAIN',
     });
 
     expect(result.success).toBe(false);

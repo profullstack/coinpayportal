@@ -86,11 +86,10 @@ export function mnemonicToSeed(mnemonic: string, passphrase?: string): Uint8Arra
  */
 export async function deriveWalletBundle(
   mnemonic: string,
+  // Only include chains with implemented key derivation
+  // DOGE, XRP, ADA, BNB, USDT, USDC key derivation not yet implemented
   chains: WalletChain[] = [
     'BTC', 'BCH', 'ETH', 'POL', 'SOL',
-    'DOGE', 'XRP', 'ADA', 'BNB',
-    'USDT', 'USDC',
-    'USDC_ETH', 'USDC_POL', 'USDC_SOL',
   ]
 ): Promise<WalletKeyBundle> {
   if (!isValidMnemonic(mnemonic)) {

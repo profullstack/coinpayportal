@@ -132,10 +132,10 @@ export class Wallet {
     }
 
     const client = new WalletAPIClient(options);
+    // Only include chains with implemented key derivation
+    // DOGE, XRP, ADA, BNB, USDT, USDC key derivation not yet implemented
     const chains: WalletChain[] = options.chains || [
       'BTC', 'BCH', 'ETH', 'POL', 'SOL',
-      'DOGE', 'XRP', 'ADA', 'BNB',
-      'USDT', 'USDC',
       'USDC_ETH', 'USDC_POL', 'USDC_SOL',
     ];
     const bundle = await deriveWalletBundle(mnemonic, chains);

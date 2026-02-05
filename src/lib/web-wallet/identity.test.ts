@@ -187,8 +187,8 @@ describe('Web Wallet Identity', () => {
     });
 
     it('should reject invalid chains', () => {
-      expect(isValidChain('DOGE')).toBe(false);
-      expect(isValidChain('XRP')).toBe(false);
+      expect(isValidChain('FAKE_CHAIN')).toBe(false);
+      expect(isValidChain('INVALID')).toBe(false);
       expect(isValidChain('')).toBe(false);
       expect(isValidChain('eth')).toBe(false); // case sensitive
     });
@@ -225,7 +225,7 @@ describe('Web Wallet Identity', () => {
     });
 
     it('should throw for unsupported chain', () => {
-      expect(() => buildDerivationPath('DOGE' as any, 0)).toThrow('Unsupported chain');
+      expect(() => buildDerivationPath('FAKE_CHAIN' as any, 0)).toThrow('Unsupported chain');
     });
   });
 });

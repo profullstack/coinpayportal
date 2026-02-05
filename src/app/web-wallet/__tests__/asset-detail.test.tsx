@@ -229,7 +229,7 @@ describe('AssetDetailPage – page-level', () => {
   });
 
   it('should show the invalid chain name in the error message', () => {
-    mockParams = { chain: 'DOGE' };
+    mockParams = { chain: 'UNKNOWN_CHAIN' };
     mockState = {
       hasWallet: true,
       isUnlocked: true,
@@ -238,7 +238,7 @@ describe('AssetDetailPage – page-level', () => {
     };
 
     render(<AssetDetailPage />);
-    expect(screen.getByText(/DOGE/)).toBeInTheDocument();
+    expect(screen.getByText(/UNKNOWN_CHAIN/)).toBeInTheDocument();
   });
 
   it('should show "Back to Dashboard" link on unknown chain', () => {

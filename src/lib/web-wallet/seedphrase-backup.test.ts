@@ -64,7 +64,7 @@ describe('seedphrase-backup (web UI)', () => {
   it('should trigger a download with the correct filename', async () => {
     await downloadEncryptedSeedPhrase(testMnemonic, testPassword, testWalletId);
 
-    expect(capturedFilename).toBe(`wallet_${testWalletId}_seedphrase.txt.gpg`);
+    expect(capturedFilename).toBe(`wallet_coinpayportal_${testWalletId}_seedphrase.txt.gpg`);
     expect(global.URL.createObjectURL).toHaveBeenCalledTimes(1);
   });
 

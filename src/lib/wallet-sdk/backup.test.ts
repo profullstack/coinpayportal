@@ -18,7 +18,7 @@ describe('wallet-sdk/backup', () => {
     it('should return the correct filename format', async () => {
       const result = await encryptSeedPhrase(testMnemonic, testPassword, testWalletId);
 
-      expect(result.filename).toBe(`wallet_${testWalletId}_seedphrase.txt.gpg`);
+      expect(result.filename).toBe(`wallet_coinpayportal_${testWalletId}_seedphrase.txt.gpg`);
     });
 
     it('should return the walletId in the result', async () => {
@@ -32,8 +32,8 @@ describe('wallet-sdk/backup', () => {
       const result2 = await encryptSeedPhrase(testMnemonic, testPassword, 'wallet-2');
 
       expect(result1.filename).not.toBe(result2.filename);
-      expect(result1.filename).toBe('wallet_wallet-1_seedphrase.txt.gpg');
-      expect(result2.filename).toBe('wallet_wallet-2_seedphrase.txt.gpg');
+      expect(result1.filename).toBe('wallet_coinpayportal_wallet-1_seedphrase.txt.gpg');
+      expect(result2.filename).toBe('wallet_coinpayportal_wallet-2_seedphrase.txt.gpg');
     });
   });
 

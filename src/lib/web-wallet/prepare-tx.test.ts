@@ -104,7 +104,7 @@ describe('prepareTransaction', () => {
       const result = await prepareTransaction(supabase, 'w1', {
         from_address: '0xSENDER',
         to_address: '0xRECEIVER',
-        chain: 'DOGE',
+        chain: 'FAKE_CHAIN',
         amount: '1',
       });
       expect(result.success).toBe(false);

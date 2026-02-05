@@ -230,7 +230,7 @@ describe('Business Collection - Supported Blockchains', () => {
     });
   });
 
-  const unsupportedBlockchains = ['LTC', 'DOGE', 'XRP', 'ADA', 'DOT'];
+  const unsupportedBlockchains = ['LTC', 'DOT', 'FAKE', 'INVALID', 'UNKNOWN'];
 
   unsupportedBlockchains.forEach((blockchain) => {
     it(`should not support ${blockchain} blockchain`, () => {

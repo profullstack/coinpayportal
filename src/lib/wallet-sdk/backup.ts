@@ -4,7 +4,7 @@
  * Provides functions for encrypting seed phrases using OpenPGP symmetric
  * encryption (AES-256). Output is standard GPG-compatible — decrypt with:
  *
- *   gpg --decrypt wallet_<id>_seedphrase.txt.gpg
+ *   gpg --decrypt wallet_coinpayportal_<id>_seedphrase.txt.gpg
  *
  * Works in both browser and Node.js environments.
  */
@@ -34,7 +34,7 @@ export async function encryptSeedPhrase(
   // Lazy-load openpgp to avoid crashing in jsdom/SSR environments
   const openpgp = await import('openpgp');
 
-  const filename = `wallet_${walletId}_seedphrase.txt`;
+  const filename = `wallet_coinpayportal_${walletId}_seedphrase.txt`;
 
   const content = [
     '# CoinPayPortal Wallet Seed Phrase Backup',
