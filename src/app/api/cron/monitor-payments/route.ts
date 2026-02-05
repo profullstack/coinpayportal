@@ -650,6 +650,19 @@ export async function GET(request: NextRequest) {
           stats.confirmed++;
           console.log(`Payment ${payment.id} confirmed with balance ${balance}`);
           
+          // Skip forwarding for escrow-held addresses
+          // (escrow funds are only released via /api/escrow/:id/settle)
+          const { data: addrCheck } = await supabase
+            .from('payment_addresses')
+            .select('is_escrow')
+            .eq('address', payment.payment_address)
+            .single();
+          
+          if (addrCheck?.is_escrow) {
+            console.log(`Payment ${payment.id} is escrow-held — skipping auto-forward`);
+            continue;
+          }
+
           // Trigger forwarding
           const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
           const internalApiKey = process.env.INTERNAL_API_KEY;

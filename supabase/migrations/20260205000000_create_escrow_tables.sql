@@ -149,9 +149,17 @@ CREATE POLICY "Merchants can view their escrow events"
         )
     );
 
+-- ============================================================
+-- 5. Add is_escrow flag to payment_addresses
+--    Prevents escrow-held funds from being swept by payment forwarding
+-- ============================================================
+ALTER TABLE payment_addresses ADD COLUMN IF NOT EXISTS is_escrow BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE INDEX IF NOT EXISTS idx_payment_addresses_is_escrow ON payment_addresses(is_escrow);
+
 COMMENT ON TABLE escrows IS 'Anonymous crypto escrow — holds funds in platform HD wallet addresses until release/refund';
 COMMENT ON TABLE escrow_events IS 'Audit trail for escrow state changes';
 COMMENT ON COLUMN escrows.release_token IS 'Secret token for depositor to authorize release/refund';
 COMMENT ON COLUMN escrows.beneficiary_token IS 'Secret token for beneficiary to check status and dispute';
+COMMENT ON COLUMN payment_addresses.is_escrow IS 'True if this address holds escrow funds — must not be swept by payment forwarding';
 
 COMMIT;

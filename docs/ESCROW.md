@@ -298,11 +298,21 @@ Escrow addresses monitored by the same cron balance checker that monitors paymen
 
 ## Fee Structure
 
-Same as payments:
+Same as merchant payment transactions:
 - **Free tier**: 1% platform fee on settlement
-- **Paid tier**: 0.5% platform fee on settlement
-- Fee taken from the escrow amount before forwarding
+- **Paid tier (Professional)**: 0.5% platform fee on settlement
+- Fee taken from the escrow amount before forwarding to beneficiary
 - Gas/network fees borne by the escrow (deducted from settlement)
+- **No fee on refunds** — full deposited amount returned to depositor
+
+## Platform Wallet Protection
+
+Escrow addresses are marked `is_escrow = true` in `payment_addresses` to prevent them from being swept by the normal payment forwarding pipeline:
+
+- **Payment cron monitor**: Checks `is_escrow` before triggering auto-forward — skips escrow addresses
+- **Secure forwarding function**: Belt-and-suspenders guard rejects forwarding for `is_escrow` addresses
+- **Escrow settlement**: Only triggered via `/api/escrow/:id/settle` (internal API key auth) after explicit release or refund
+- Escrow addresses are only released when depositor approves (release) or requests refund — **never swept automatically**
 
 ## Implementation Order
 

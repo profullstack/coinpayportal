@@ -290,6 +290,7 @@ async function generateEscrowAddress(
         commission_amount: commissionAmount,
         merchant_amount: beneficiaryAmount,
         is_used: false,
+        is_escrow: true,
       })
       .select('id')
       .single();
