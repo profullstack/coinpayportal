@@ -276,7 +276,8 @@ async function generateEscrowAddress(
 
     // Store in payment_addresses (reuse existing table for escrow addresses too)
     // We use a special escrow reference pattern for payment_id
-    const escrowRef = `escrow_${crypto.randomUUID()}`;
+    // payment_id is UUID type — use a plain UUID and rely on is_escrow flag
+    const escrowRef = crypto.randomUUID();
 
     const { data: addrData, error: addrError } = await supabase
       .from('payment_addresses')
