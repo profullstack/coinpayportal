@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
@@ -30,6 +30,11 @@ const EXPIRY_OPTIONS = [
   { value: 720, label: '30 days' },
 ];
 
+interface Business {
+  id: string;
+  name: string;
+}
+
 interface CreatedEscrow {
   id: string;
   escrow_address: string;
@@ -39,12 +44,14 @@ interface CreatedEscrow {
   amount: number;
   amount_usd: number | null;
   fee_amount: number | null;
+  deposited_amount: number | null;
   status: string;
   release_token: string;
   beneficiary_token: string;
   expires_at: string;
   created_at: string;
   metadata: Record<string, unknown>;
+  business_id: string | null;
 }
 
 export default function CreateEscrowPage() {
@@ -53,6 +60,9 @@ export default function CreateEscrowPage() {
   const [error, setError] = useState('');
   const [createdEscrow, setCreatedEscrow] = useState<CreatedEscrow | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [loadingAuth, setLoadingAuth] = useState(true);
   const [formData, setFormData] = useState({
     chain: 'USDC_POL',
     amount: '',
@@ -61,7 +71,30 @@ export default function CreateEscrowPage() {
     arbiter_address: '',
     description: '',
     expires_in_hours: 168,
+    business_id: '',
   });
+
+  // Check if user is logged in and fetch their businesses
+  const fetchBusinesses = useCallback(async () => {
+    try {
+      const result = await authFetch('/api/businesses', {});
+      if (result && result.response.ok && result.data.success) {
+        setBusinesses(result.data.businesses || []);
+        setIsLoggedIn(true);
+        if (result.data.businesses?.length > 0) {
+          setFormData(prev => ({ ...prev, business_id: result.data.businesses[0].id }));
+        }
+      }
+    } catch {
+      // Not logged in — that's fine, escrow works anonymously
+    } finally {
+      setLoadingAuth(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBusinesses();
+  }, [fetchBusinesses]);
 
   const copyToClipboard = async (text: string, field: string) => {
     try {
@@ -93,47 +126,36 @@ export default function CreateEscrowPage() {
       if (formData.description.trim()) {
         body.metadata = { description: formData.description.trim() };
       }
-
-      // Try authenticated first, fall back to anonymous
-      let data: CreatedEscrow | null = null;
-
-      try {
-        const result = await authFetch('/api/escrow', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-
-        if (result && result.response.ok) {
-          data = result.data;
-        } else if (result) {
-          const errData = result.data;
-          setError(errData?.error || 'Failed to create escrow');
-          setCreating(false);
-          return;
-        }
-      } catch {
-        // authFetch may redirect to login — try anonymous
+      // Associate with business if logged in
+      if (formData.business_id) {
+        body.business_id = formData.business_id;
       }
 
-      if (!data) {
+      // Use authFetch to include credentials (for logged-in merchants)
+      const result = await authFetch('/api/escrow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (result && result.response.ok) {
+        setCreatedEscrow(result.data);
+      } else if (result) {
+        setError(result.data?.error || 'Failed to create escrow');
+      } else {
+        // authFetch returned null (redirect to login) — try anonymous
         const res = await fetch('/api/escrow', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           setError(errData?.error || `Failed to create escrow (${res.status})`);
-          setCreating(false);
-          return;
+        } else {
+          setCreatedEscrow(await res.json());
         }
-
-        data = await res.json();
       }
-
-      setCreatedEscrow(data);
     } catch (err) {
       setError('Failed to create escrow. Please try again.');
       console.error(err);
@@ -271,6 +293,15 @@ export default function CreateEscrowPage() {
                   <span className="text-gray-500 dark:text-gray-400">Platform Fee:</span>
                   <span className="ml-2 text-gray-900 dark:text-white">
                     {createdEscrow.fee_amount} {createdEscrow.chain}
+                    {createdEscrow.business_id && <span className="text-green-600 ml-1">(paid tier rate)</span>}
+                  </span>
+                </div>
+              )}
+              {createdEscrow.business_id && (
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">Business:</span>
+                  <span className="ml-2 text-gray-900 dark:text-white">
+                    {businesses.find(b => b.id === createdEscrow.business_id)?.name || createdEscrow.business_id}
                   </span>
                 </div>
               )}
@@ -287,15 +318,14 @@ export default function CreateEscrowPage() {
               <button
                 onClick={() => {
                   setCreatedEscrow(null);
-                  setFormData({
-                    chain: 'USDC_POL',
+                  setFormData(prev => ({
+                    ...prev,
                     amount: '',
                     depositor_address: '',
                     beneficiary_address: '',
                     arbiter_address: '',
                     description: '',
-                    expires_in_hours: 168,
-                  });
+                  }));
                 }}
                 className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
               >
@@ -329,6 +359,35 @@ export default function CreateEscrowPage() {
           {error && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
               {error}
+            </div>
+          )}
+
+          {/* Business selector (logged-in merchants only) */}
+          {!loadingAuth && isLoggedIn && businesses.length > 0 && (
+            <div>
+              <label htmlFor="business" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Business
+              </label>
+              <select
+                id="business"
+                value={formData.business_id}
+                onChange={(e) => setFormData({ ...formData, business_id: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+              >
+                <option value="">No business (anonymous)</option>
+                {businesses.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-green-600 dark:text-green-400">
+                ✓ Linked to your business — paid tier fee rate (0.5%) applies
+              </p>
+            </div>
+          )}
+
+          {!loadingAuth && !isLoggedIn && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-sm text-blue-700 dark:text-blue-300">
+              <Link href="/login" className="font-medium underline hover:text-blue-900">Log in</Link> to associate this escrow with your business and get reduced fees (0.5% vs 1%).
             </div>
           )}
 
@@ -385,9 +444,6 @@ export default function CreateEscrowPage() {
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm"
               placeholder="Your wallet address (sender)"
             />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              The wallet address that will deposit funds into escrow.
-            </p>
           </div>
 
           {/* Beneficiary Address */}
@@ -404,9 +460,6 @@ export default function CreateEscrowPage() {
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm"
               placeholder="Recipient wallet address"
             />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              The wallet address that will receive funds when the escrow is released.
-            </p>
           </div>
 
           {/* Arbiter Address (optional) */}
@@ -422,9 +475,6 @@ export default function CreateEscrowPage() {
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm"
               placeholder="Third-party dispute resolver (optional)"
             />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Optional: a trusted third party who can resolve disputes.
-            </p>
           </div>
 
           {/* Expiry */}
@@ -442,9 +492,6 @@ export default function CreateEscrowPage() {
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Escrow expires and funds can be reclaimed if not funded/released by this time.
-            </p>
           </div>
 
           {/* Description */}
@@ -472,7 +519,7 @@ export default function CreateEscrowPage() {
               <li>If there&apos;s a dispute, the arbiter (or platform) resolves it</li>
             </ol>
             <p className="text-xs text-blue-600 dark:text-blue-500 mt-2">
-              Platform fee: 1% (0.5% for paid tier merchants). No fee on refunds.
+              Platform fee: {isLoggedIn && formData.business_id ? '0.5% (paid tier)' : '1% (0.5% for logged-in merchants)'}. No fee on refunds.
             </p>
           </div>
 
