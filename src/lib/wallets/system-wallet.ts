@@ -125,7 +125,7 @@ function getSystemMnemonic(cryptocurrency: SystemBlockchain): string {
  * Get the system's platform fee wallet address (where commission is sent)
  * POL, BNB, USDT, USDC use the same address as ETH (EVM compatible)
  */
-function getCommissionWallet(cryptocurrency: SystemBlockchain): string {
+export function getCommissionWallet(cryptocurrency: SystemBlockchain): string {
   let envKey = `PLATFORM_FEE_WALLET_${cryptocurrency}`;
   let wallet = process.env[envKey];
 

@@ -49,6 +49,7 @@ interface PaymentAddressData {
   commission_amount: number;
   merchant_amount: number;
   is_used: boolean;
+  is_escrow?: boolean;
 }
 
 /**

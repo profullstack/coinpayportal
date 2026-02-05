@@ -621,9 +621,7 @@ export async function sendEscrowWebhook(
     };
 
     const payloadString = JSON.stringify(payload);
-    const signedPayload = `${timestamp}.${payloadString}`;
-    const signature = signWebhookPayload(signedPayload, business.webhook_secret);
-    const signatureHeader = `t=${timestamp},v1=${signature}`;
+    const signatureHeader = signWebhookPayload(payload, business.webhook_secret, timestamp);
 
     const result = await deliverWebhookDirect(
       business.webhook_url,
@@ -639,9 +637,9 @@ export async function sendEscrowWebhook(
       webhook_url: business.webhook_url,
       success: result.success,
       status_code: result.statusCode || 0,
-      error_message: result.error || null,
+      error_message: result.error || undefined,
       attempt_number: 1,
-      response_time_ms: result.responseTimeMs || 0,
+      response_time_ms: 0,
     });
 
     return { success: result.success, error: result.error };
