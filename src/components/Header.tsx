@@ -56,6 +56,7 @@ export default function Header() {
 
   const loggedInNavigation = [
     { name: 'Dashboard', href: '/dashboard' },
+    { name: 'Escrow', href: '/escrow' },
     { name: 'Wallet', href: '/web-wallet' },
     { name: 'API', href: '/docs' },
   ];

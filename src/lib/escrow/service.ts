@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { generatePaymentAddress, type SystemBlockchain } from '../wallets/system-wallet';
 import { getFeePercentage } from '../payments/fees';
 import { getCryptoPrice } from '../rates/tatum';
+import { sendEscrowWebhook } from '../webhooks/service';
 import type {
   CreateEscrowInput,
   Escrow,
@@ -193,6 +194,9 @@ export async function createEscrow(
       amount_usd: amountUsd,
       beneficiary: data.beneficiary_address,
     });
+
+    // Fire webhook if tied to a business
+    await sendEscrowWebhook(supabase, businessId || null, escrow.id, 'escrow.created', escrow);
 
     return {
       success: true,
@@ -460,8 +464,7 @@ export async function releaseEscrow(
     amount: escrow.deposited_amount || escrow.amount,
   });
 
-  // TODO: Trigger actual fund forwarding (same as payment forwarding)
-  // This will be handled by the settlement worker/cron
+  await sendEscrowWebhook(supabase, escrow.business_id, escrowId, 'escrow.released', updated);
 
   return { success: true, escrow: stripTokens(updated as Escrow) };
 }
@@ -517,7 +520,7 @@ export async function refundEscrow(
     amount: escrow.deposited_amount || escrow.amount,
   });
 
-  // TODO: Trigger refund forwarding to depositor address
+  await sendEscrowWebhook(supabase, escrow.business_id, escrowId, 'escrow.refunded', updated);
 
   return { success: true, escrow: stripTokens(updated as Escrow) };
 }
@@ -577,6 +580,8 @@ export async function disputeEscrow(
     reason,
   });
 
+  await sendEscrowWebhook(supabase, escrow.business_id, escrowId, 'escrow.disputed', updated);
+
   return { success: true, escrow: stripTokens(updated as Escrow) };
 }
 
@@ -611,6 +616,10 @@ export async function markEscrowFunded(
     tx_hash: txHash,
   });
 
+  // Fire webhook
+  const escrowFull = updated as Escrow;
+  await sendEscrowWebhook(supabase, escrowFull.business_id, escrowId, 'escrow.funded', updated);
+
   return { success: true, escrow: stripTokens(updated as Escrow) };
 }
 
@@ -644,6 +653,9 @@ export async function markEscrowSettled(
     settlement_tx_hash: settlementTxHash,
     fee_tx_hash: feeTxHash,
   });
+
+  const escrowFull = updated as Escrow;
+  await sendEscrowWebhook(supabase, escrowFull.business_id, escrowId, 'escrow.settled', updated);
 
   return { success: true, escrow: stripTokens(updated as Escrow) };
 }

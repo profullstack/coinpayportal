@@ -69,6 +69,48 @@ describe('@profullstack/coinpay SDK exports', () => {
     });
   });
 
+  describe('escrow exports', () => {
+    it('should export createEscrow function', () => {
+      expect(sdk.createEscrow).toBeDefined();
+      expect(typeof sdk.createEscrow).toBe('function');
+    });
+
+    it('should export getEscrow function', () => {
+      expect(sdk.getEscrow).toBeDefined();
+      expect(typeof sdk.getEscrow).toBe('function');
+    });
+
+    it('should export releaseEscrow function', () => {
+      expect(sdk.releaseEscrow).toBeDefined();
+      expect(typeof sdk.releaseEscrow).toBe('function');
+    });
+
+    it('should export refundEscrow function', () => {
+      expect(sdk.refundEscrow).toBeDefined();
+      expect(typeof sdk.refundEscrow).toBe('function');
+    });
+
+    it('should export disputeEscrow function', () => {
+      expect(sdk.disputeEscrow).toBeDefined();
+      expect(typeof sdk.disputeEscrow).toBe('function');
+    });
+
+    it('should export listEscrows function', () => {
+      expect(sdk.listEscrows).toBeDefined();
+      expect(typeof sdk.listEscrows).toBe('function');
+    });
+
+    it('should export getEscrowEvents function', () => {
+      expect(sdk.getEscrowEvents).toBeDefined();
+      expect(typeof sdk.getEscrowEvents).toBe('function');
+    });
+
+    it('should export waitForEscrow function', () => {
+      expect(sdk.waitForEscrow).toBeDefined();
+      expect(typeof sdk.waitForEscrow).toBe('function');
+    });
+  });
+
   describe('CoinPayClient instantiation', () => {
     it('should create client with API key', () => {
       const client = new sdk.CoinPayClient({ apiKey: 'cp_live_test_key_123456789' });

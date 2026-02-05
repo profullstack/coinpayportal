@@ -70,7 +70,15 @@ export type WebhookEvent =
   | 'payment.confirmed'
   | 'payment.forwarded'
   | 'payment.expired'
-  | 'payment.failed';
+  | 'payment.failed'
+  | 'escrow.created'
+  | 'escrow.funded'
+  | 'escrow.released'
+  | 'escrow.settled'
+  | 'escrow.disputed'
+  | 'escrow.resolved'
+  | 'escrow.refunded'
+  | 'escrow.expired';
 
 /**
  * Webhook payload structure
@@ -554,6 +562,91 @@ export async function sendPaymentWebhook(
     };
   } catch (error) {
     console.error(`[Webhook] Error sending webhook for payment ${paymentId}:`, error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Send webhook for escrow events.
+ * Only fires if the escrow is tied to a business with a webhook configured.
+ */
+export async function sendEscrowWebhook(
+  supabase: SupabaseClient,
+  businessId: string | null,
+  escrowId: string,
+  event: WebhookEvent,
+  escrowData: Record<string, any>
+): Promise<{ success: boolean; error?: string }> {
+  if (!businessId) {
+    // Anonymous escrow with no business — no webhook to send
+    return { success: true };
+  }
+
+  try {
+    const { data: business, error: businessError } = await supabase
+      .from('businesses')
+      .select('webhook_url, webhook_secret')
+      .eq('id', businessId)
+      .single();
+
+    if (businessError || !business?.webhook_url || !business?.webhook_secret) {
+      return { success: true }; // No webhook configured, skip silently
+    }
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const now = new Date();
+
+    const payload = {
+      id: `evt_esc_${escrowId}_${timestamp}`,
+      type: event,
+      data: {
+        escrow_id: escrowId,
+        status: escrowData.status,
+        chain: escrowData.chain,
+        amount: escrowData.amount,
+        escrow_address: escrowData.escrow_address,
+        depositor_address: escrowData.depositor_address,
+        beneficiary_address: escrowData.beneficiary_address,
+        deposited_amount: escrowData.deposited_amount,
+        deposit_tx_hash: escrowData.deposit_tx_hash,
+        settlement_tx_hash: escrowData.settlement_tx_hash,
+        dispute_reason: escrowData.dispute_reason,
+        metadata: escrowData.metadata,
+      },
+      created_at: now.toISOString(),
+      business_id: businessId,
+    };
+
+    const payloadString = JSON.stringify(payload);
+    const signedPayload = `${timestamp}.${payloadString}`;
+    const signature = signWebhookPayload(signedPayload, business.webhook_secret);
+    const signatureHeader = `t=${timestamp},v1=${signature}`;
+
+    const result = await deliverWebhookDirect(
+      business.webhook_url,
+      payloadString,
+      signatureHeader
+    );
+
+    // Log delivery
+    await logWebhookAttempt(supabase, {
+      business_id: businessId,
+      payment_id: escrowId, // reuse payment_id column for escrow_id
+      event,
+      webhook_url: business.webhook_url,
+      success: result.success,
+      status_code: result.statusCode || 0,
+      error_message: result.error || null,
+      attempt_number: 1,
+      response_time_ms: result.responseTimeMs || 0,
+    });
+
+    return { success: result.success, error: result.error };
+  } catch (error) {
+    console.error(`[Webhook] Error sending escrow webhook for ${escrowId}:`, error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

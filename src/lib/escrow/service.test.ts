@@ -40,6 +40,10 @@ vi.mock('../rates/tatum', () => ({
   getCryptoPrice: vi.fn().mockResolvedValue(3000), // $3000 per ETH
 }));
 
+vi.mock('../webhooks/service', () => ({
+  sendEscrowWebhook: vi.fn().mockResolvedValue({ success: true }),
+}));
+
 vi.mock('../payments/fees', () => ({
   getFeePercentage: vi.fn().mockReturnValue(0.01),
 }));
