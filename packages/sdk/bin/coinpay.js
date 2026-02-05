@@ -161,6 +161,15 @@ ${colors.cyan}Commands:${colors.reset}
     backup-seed           Encrypt seed phrase to GPG file
     decrypt-backup <file> Decrypt a GPG backup file
 
+  ${colors.bright}escrow${colors.reset}
+    create                Create a new escrow
+    get <id>              Get escrow status
+    list                  List escrows
+    release <id>          Release funds to beneficiary
+    refund <id>           Refund funds to depositor
+    dispute <id>          Open a dispute
+    events <id>           Get escrow audit log
+
   ${colors.bright}webhook${colors.reset}
     logs <business-id>    Get webhook logs
     test <business-id>    Send test webhook
@@ -732,6 +741,139 @@ async function main() {
     showHelp();
     return;
   }
+
+async function handleEscrow(subcommand, args, flags) {
+  const client = getClient();
+
+  switch (subcommand) {
+    case 'create': {
+      const chain = flags.chain || flags.blockchain;
+      const amount = parseFloat(flags.amount);
+      const depositor = flags.depositor || flags['depositor-address'];
+      const beneficiary = flags.beneficiary || flags['beneficiary-address'];
+
+      if (!chain || !amount || !depositor || !beneficiary) {
+        print.error('Required: --chain, --amount, --depositor, --beneficiary');
+        process.exit(1);
+      }
+
+      print.info(`Creating escrow: ${amount} ${chain}`);
+      print.info(`  Depositor: ${depositor}`);
+      print.info(`  Beneficiary: ${beneficiary}`);
+
+      const escrow = await client.createEscrow({
+        chain,
+        amount,
+        depositorAddress: depositor,
+        beneficiaryAddress: beneficiary,
+        metadata: flags.metadata ? JSON.parse(flags.metadata) : undefined,
+        expiresInHours: flags['expires-in'] ? parseFloat(flags['expires-in']) : undefined,
+      });
+
+      print.success(`Escrow created: ${escrow.id}`);
+      print.info(`  Deposit to: ${escrow.escrowAddress}`);
+      print.info(`  Status: ${escrow.status}`);
+      print.info(`  Expires: ${escrow.expiresAt}`);
+      print.warn(`  Release Token: ${escrow.releaseToken}`);
+      print.warn(`  Beneficiary Token: ${escrow.beneficiaryToken}`);
+      print.warn('  ⚠️  Save these tokens! They cannot be recovered.');
+
+      if (flags.json) console.log(JSON.stringify(escrow, null, 2));
+      break;
+    }
+
+    case 'get': {
+      const id = args[0];
+      if (!id) { print.error('Escrow ID required'); process.exit(1); }
+
+      const escrow = await client.getEscrow(id);
+      print.success(`Escrow ${escrow.id}`);
+      print.info(`  Status: ${escrow.status}`);
+      print.info(`  Chain: ${escrow.chain}`);
+      print.info(`  Amount: ${escrow.amount}`);
+      print.info(`  Escrow Address: ${escrow.escrowAddress}`);
+      print.info(`  Depositor: ${escrow.depositorAddress}`);
+      print.info(`  Beneficiary: ${escrow.beneficiaryAddress}`);
+      if (escrow.depositedAmount) print.info(`  Deposited: ${escrow.depositedAmount}`);
+      if (escrow.depositTxHash) print.info(`  Deposit TX: ${escrow.depositTxHash}`);
+      if (escrow.settlementTxHash) print.info(`  Settlement TX: ${escrow.settlementTxHash}`);
+
+      if (flags.json) console.log(JSON.stringify(escrow, null, 2));
+      break;
+    }
+
+    case 'list': {
+      const result = await client.listEscrows({
+        status: flags.status,
+        depositor: flags.depositor,
+        beneficiary: flags.beneficiary,
+        limit: flags.limit ? parseInt(flags.limit) : 20,
+      });
+
+      print.info(`Escrows (${result.total} total):`);
+      for (const e of result.escrows) {
+        console.log(`  ${e.id} | ${e.status} | ${e.amount} ${e.chain} | ${e.createdAt}`);
+      }
+
+      if (flags.json) console.log(JSON.stringify(result, null, 2));
+      break;
+    }
+
+    case 'release': {
+      const id = args[0];
+      const token = flags.token || flags['release-token'];
+      if (!id || !token) { print.error('Required: <id> --token <release_token>'); process.exit(1); }
+
+      const escrow = await client.releaseEscrow(id, token);
+      print.success(`Escrow ${id} released → ${escrow.beneficiaryAddress}`);
+      break;
+    }
+
+    case 'refund': {
+      const id = args[0];
+      const token = flags.token || flags['release-token'];
+      if (!id || !token) { print.error('Required: <id> --token <release_token>'); process.exit(1); }
+
+      const escrow = await client.refundEscrow(id, token);
+      print.success(`Escrow ${id} refunded → ${escrow.depositorAddress}`);
+      break;
+    }
+
+    case 'dispute': {
+      const id = args[0];
+      const token = flags.token || flags['release-token'] || flags['beneficiary-token'];
+      const reason = flags.reason;
+      if (!id || !token || !reason) {
+        print.error('Required: <id> --token <token> --reason "description"');
+        process.exit(1);
+      }
+
+      const escrow = await client.disputeEscrow(id, token, reason);
+      print.success(`Escrow ${id} disputed`);
+      print.info(`  Reason: ${escrow.disputeReason}`);
+      break;
+    }
+
+    case 'events': {
+      const id = args[0];
+      if (!id) { print.error('Escrow ID required'); process.exit(1); }
+
+      const events = await client.getEscrowEvents(id);
+      print.info(`Events for escrow ${id}:`);
+      for (const e of events) {
+        console.log(`  ${e.createdAt} | ${e.eventType} | ${e.actor || 'system'}`);
+      }
+
+      if (flags.json) console.log(JSON.stringify(events, null, 2));
+      break;
+    }
+
+    default:
+      print.error(`Unknown escrow command: ${subcommand}`);
+      print.info('Available: create, get, list, release, refund, dispute, events');
+      process.exit(1);
+  }
+}
   
   try {
     switch (command) {
@@ -751,6 +893,10 @@ async function main() {
         await handleRates(subcommand, args, flags);
         break;
         
+      case 'escrow':
+        await handleEscrow(subcommand, args, flags);
+        break;
+
       case 'webhook':
         await handleWebhook(subcommand, args, flags);
         break;

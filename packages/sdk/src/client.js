@@ -396,6 +396,93 @@ export class CoinPayClient {
       }),
     });
   }
+
+  // ── Escrow Methods ──────────────────────────────────────
+
+  /**
+   * Create a new escrow
+   * @param {Object} params - See escrow.js createEscrow for full params
+   * @returns {Promise<Object>} Created escrow with releaseToken
+   */
+  async createEscrow(params) {
+    const { createEscrow } = await import('./escrow.js');
+    return createEscrow(this, params);
+  }
+
+  /**
+   * Get escrow status
+   * @param {string} escrowId
+   * @returns {Promise<Object>}
+   */
+  async getEscrow(escrowId) {
+    const { getEscrow } = await import('./escrow.js');
+    return getEscrow(this, escrowId);
+  }
+
+  /**
+   * List escrows with filters
+   * @param {Object} [filters]
+   * @returns {Promise<Object>}
+   */
+  async listEscrows(filters) {
+    const { listEscrows } = await import('./escrow.js');
+    return listEscrows(this, filters);
+  }
+
+  /**
+   * Release escrow funds to beneficiary
+   * @param {string} escrowId
+   * @param {string} releaseToken
+   * @returns {Promise<Object>}
+   */
+  async releaseEscrow(escrowId, releaseToken) {
+    const { releaseEscrow } = await import('./escrow.js');
+    return releaseEscrow(this, escrowId, releaseToken);
+  }
+
+  /**
+   * Refund escrow to depositor
+   * @param {string} escrowId
+   * @param {string} releaseToken
+   * @returns {Promise<Object>}
+   */
+  async refundEscrow(escrowId, releaseToken) {
+    const { refundEscrow } = await import('./escrow.js');
+    return refundEscrow(this, escrowId, releaseToken);
+  }
+
+  /**
+   * Dispute an escrow
+   * @param {string} escrowId
+   * @param {string} token - release_token or beneficiary_token
+   * @param {string} reason - At least 10 characters
+   * @returns {Promise<Object>}
+   */
+  async disputeEscrow(escrowId, token, reason) {
+    const { disputeEscrow } = await import('./escrow.js');
+    return disputeEscrow(this, escrowId, token, reason);
+  }
+
+  /**
+   * Get escrow audit log
+   * @param {string} escrowId
+   * @returns {Promise<Array>}
+   */
+  async getEscrowEvents(escrowId) {
+    const { getEscrowEvents } = await import('./escrow.js');
+    return getEscrowEvents(this, escrowId);
+  }
+
+  /**
+   * Poll escrow until target status
+   * @param {string} escrowId
+   * @param {Object} [options] - { targetStatus, intervalMs, timeoutMs }
+   * @returns {Promise<Object>}
+   */
+  async waitForEscrow(escrowId, options) {
+    const { waitForEscrow } = await import('./escrow.js');
+    return waitForEscrow(this, escrowId, options);
+  }
 }
 
 export default CoinPayClient;

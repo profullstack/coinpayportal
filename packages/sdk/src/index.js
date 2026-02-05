@@ -36,6 +36,17 @@ import {
   WebhookEvent,
 } from './webhooks.js';
 
+import {
+  createEscrow,
+  getEscrow,
+  listEscrows,
+  releaseEscrow,
+  refundEscrow,
+  disputeEscrow,
+  getEscrowEvents,
+  waitForEscrow,
+} from './escrow.js';
+
 export {
   // Client
   CoinPayClient,
@@ -44,6 +55,16 @@ export {
   createPayment,
   getPayment,
   listPayments,
+  
+  // Escrow functions
+  createEscrow,
+  getEscrow,
+  listEscrows,
+  releaseEscrow,
+  refundEscrow,
+  disputeEscrow,
+  getEscrowEvents,
+  waitForEscrow,
   
   // Constants
   Blockchain,
