@@ -6,11 +6,6 @@ on:
     paths:
       - 'packages/sdk/**'
   workflow_dispatch:
-    inputs:
-      version_bump:
-        description: 'Version bump type (patch/minor/major)'
-        required: false
-        default: 'patch'
 
 jobs:
   publish:
@@ -21,8 +16,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
@@ -32,25 +25,33 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Configure git
+      - name: Check if version already published
+        id: check
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Bump version
-        run: |
-          BUMP_TYPE="${{ github.event.inputs.version_bump || 'patch' }}"
-          npm version $BUMP_TYPE -m "chore(sdk): bump to %s"
+          CURRENT=$(node -p "require('./package.json').version")
+          echo "version=$CURRENT" >> "$GITHUB_OUTPUT"
+          if npm view "@profullstack/coinpay@$CURRENT" version 2>/dev/null; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "⏭️  v$CURRENT already on npm — skipping publish"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "📦 v$CURRENT not on npm — will publish"
+          fi
 
       - name: Build (if build script exists)
+        if: steps.check.outputs.published == 'false'
         run: npm run build --if-present
 
       - name: Publish to npm
+        if: steps.check.outputs.published == 'false'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --ignore-scripts
 
-      - name: Push version bump
+      - name: Summary
         run: |
-          git push
-          git push --tags
+          if [ "${{ steps.check.outputs.published }}" == "true" ]; then
+            echo "### ⏭️ Skipped — v${{ steps.check.outputs.version }} already published" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ✅ Published @profullstack/coinpay@${{ steps.check.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          fi
