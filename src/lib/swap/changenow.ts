@@ -45,9 +45,13 @@ export interface ChangeNowExchange {
   payinExtraId?: string;
   fromCurrency: string;
   toCurrency: string;
-  fromNetwork: string;
-  toNetwork: string;
-  amount: number;
+  fromNetwork?: string;
+  toNetwork?: string;
+  amount?: number; // present on create, may be absent on status
+  amountTo?: number; // present on status
+  expectedReceiveAmount?: number;
+  actualReceiveAmount?: number;
+  expectedSendAmount?: number;
   status: ChangeNowStatus;
   createdAt: string;
 }
@@ -328,10 +332,10 @@ export async function createSwap(params: SwapCreateParams & {
     id: exchange.id,
     depositAddress: exchange.payinAddress,
     depositCoin: exchange.fromCurrency,
-    depositNetwork: exchange.fromNetwork,
-    depositAmount: exchange.amount.toString(),
+    depositNetwork: exchange.fromNetwork ?? fromMapping.network,
+    depositAmount: exchange.amount?.toString() ?? params.amount,
     settleCoin: exchange.toCurrency,
-    settleNetwork: exchange.toNetwork,
+    settleNetwork: exchange.toNetwork ?? toMapping.network,
     settleAddress: exchange.payoutAddress,
     settleAmount: '', // Filled when complete
     status: mapStatus(exchange.status),
@@ -343,16 +347,20 @@ export async function getSwapStatus(id: string): Promise<ShiftResponse> {
   const client = getChangeNowClient();
   const exchange = await client.getTransaction(id);
 
+  // Determine settle amount from various response fields
+  const settleAmount = exchange.actualReceiveAmount ?? exchange.amountTo ?? exchange.expectedReceiveAmount;
+  const depositAmount = exchange.amount ?? exchange.expectedSendAmount;
+
   return {
     id: exchange.id,
     depositAddress: exchange.payinAddress,
     depositCoin: exchange.fromCurrency,
-    depositNetwork: exchange.fromNetwork,
-    depositAmount: exchange.amount.toString(),
+    depositNetwork: exchange.fromNetwork ?? '',
+    depositAmount: depositAmount?.toString() ?? '',
     settleCoin: exchange.toCurrency,
-    settleNetwork: exchange.toNetwork,
+    settleNetwork: exchange.toNetwork ?? '',
     settleAddress: exchange.payoutAddress,
-    settleAmount: '',
+    settleAmount: settleAmount?.toString() ?? '',
     status: mapStatus(exchange.status),
     createdAt: exchange.createdAt,
   };
