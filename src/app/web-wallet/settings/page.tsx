@@ -79,7 +79,7 @@ export default function SettingsPage() {
   const [missingChains, setMissingChains] = useState<string[]>([]);
   const [missingChainsLoading, setMissingChainsLoading] = useState(false);
   const [derivingChains, setDerivingChains] = useState(false);
-  const [deriveSuccess, setDeriveSuccess] = useState(false);
+  const [deriveSuccess, setDeriveSuccess] = useState('');
   const [deriveError, setDeriveError] = useState('');
 
   useEffect(() => {
@@ -141,18 +141,21 @@ export default function SettingsPage() {
   const handleDeriveMissingChains = async () => {
     if (!wallet) return;
     setDeriveError('');
-    setDeriveSuccess(false);
+    setDeriveSuccess('');
     setDerivingChains(true);
 
     try {
       const results = await wallet.deriveMissingChains();
       if (results.length > 0) {
-        setDeriveSuccess(true);
+        const chains = results.map(r => r.chain).join(', ');
+        setDeriveSuccess(`Successfully derived ${results.length} address${results.length > 1 ? 'es' : ''}: ${chains}`);
         // Refresh stored chains list and UI
         await refreshChains();
         // Reload missing chains (should be empty now)
         await loadMissingChains();
-        setTimeout(() => setDeriveSuccess(false), 3000);
+        setTimeout(() => setDeriveSuccess(''), 5000);
+      } else {
+        setDeriveError('No new addresses were derived. Chains may already exist.');
       }
     } catch (err) {
       console.error('Failed to derive missing chains:', err);
@@ -419,7 +422,7 @@ export default function SettingsPage() {
                 )}
                 {deriveSuccess && (
                   <p className="text-xs text-green-400" role="status">
-                    Successfully derived addresses for missing chains!
+                    {deriveSuccess}
                   </p>
                 )}
 
