@@ -107,16 +107,41 @@ export function SwapHistory({ walletId, onSwapClick }: SwapHistoryProps) {
   return (
     <div className="space-y-3">
       {swaps.map((swap) => (
-        <SwapCard key={swap.id} swap={swap} onClick={() => onSwapClick?.(swap)} />
+        <SwapCard 
+          key={swap.id} 
+          swap={swap} 
+          onClick={() => onSwapClick?.(swap)} 
+          onRefresh={() => fetchHistory()}
+        />
       ))}
     </div>
   );
 }
 
-function SwapCard({ swap, onClick }: { swap: Swap; onClick?: () => void }) {
+function SwapCard({ swap, onClick, onRefresh }: { swap: Swap; onClick?: () => void; onRefresh?: (id: string) => void }) {
+  const [copied, setCopied] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const statusColor = STATUS_COLORS[swap.status] || 'text-gray-400 bg-gray-400/10';
   const statusLabel = STATUS_LABELS[swap.status] || swap.status;
   const isPending = ['pending', 'processing', 'settling'].includes(swap.status);
+
+  const copyId = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    await navigator.clipboard.writeText(swap.id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const checkStatus = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRefreshing(true);
+    try {
+      await fetch(`/api/swap/${swap.id}`);
+      onRefresh?.(swap.id);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <div
@@ -131,12 +156,31 @@ function SwapCard({ swap, onClick }: { swap: Swap; onClick?: () => void }) {
           </svg>
           <span className="font-semibold text-white">{swap.to_coin}</span>
         </div>
-        <span className={`text-xs px-2 py-1 rounded-full ${statusColor}`}>
+        <div className="flex items-center gap-2">
           {isPending && (
-            <span className="inline-block h-2 w-2 rounded-full bg-current animate-pulse mr-1" />
+            <button
+              onClick={checkStatus}
+              disabled={refreshing}
+              className="p-1 rounded hover:bg-white/10 transition-colors"
+              title="Check status"
+            >
+              <svg 
+                className={`h-4 w-4 text-gray-400 ${refreshing ? 'animate-spin' : ''}`} 
+                fill="none" 
+                viewBox="0 0 24 24" 
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
           )}
-          {statusLabel}
-        </span>
+          <span className={`text-xs px-2 py-1 rounded-full ${statusColor}`}>
+            {isPending && (
+              <span className="inline-block h-2 w-2 rounded-full bg-current animate-pulse mr-1" />
+            )}
+            {statusLabel}
+          </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 text-sm">
@@ -152,9 +196,24 @@ function SwapCard({ swap, onClick }: { swap: Swap; onClick?: () => void }) {
         </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
-        <span>{new Date(swap.created_at).toLocaleString()}</span>
-        <span className="font-mono">{swap.id.slice(0, 8)}...</span>
+      <div className="mt-3 flex items-center justify-between text-xs">
+        <span className="text-gray-500">{new Date(swap.created_at).toLocaleString()}</span>
+        <button
+          onClick={copyId}
+          className="flex items-center gap-1 font-mono text-gray-400 hover:text-white transition-colors"
+          title="Copy swap ID"
+        >
+          {swap.id}
+          {copied ? (
+            <svg className="h-3 w-3 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          ) : (
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          )}
+        </button>
       </div>
     </div>
   );
