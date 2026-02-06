@@ -11,6 +11,7 @@ import {
   TransactionList,
   type TransactionItem,
 } from '@/components/web-wallet/TransactionList';
+import { SwapForm } from '@/components/web-wallet/SwapForm';
 import type { WalletChain } from '@/lib/web-wallet/identity';
 
 export default function WebWalletPage() {
@@ -94,9 +95,12 @@ function LandingView() {
   );
 }
 
+type TabType = 'assets' | 'swap';
+
 function DashboardView() {
   const router = useRouter();
   const { wallet, chains } = useWebWallet();
+  const [activeTab, setActiveTab] = useState<TabType>('assets');
   const [totalUsd, setTotalUsd] = useState(0);
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
@@ -187,51 +191,107 @@ function DashboardView() {
     }
   }, [wallet, chains, isDeriving, fetchData]);
 
+  // Build address map for swap form
+  const addressMap: Record<string, string> = {};
+  assets.forEach((asset) => {
+    addressMap[asset.chain] = asset.address;
+  });
+
   return (
     <>
       <WalletHeader />
       <div className="mx-auto max-w-5xl px-4 py-6 space-y-6">
         <BalanceCard totalUsd={totalUsd} isLoading={loadingBalances} />
 
-        {/* Assets */}
-        <section>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-white">Assets</h2>
-            <button
-              onClick={fetchData}
-              className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
-            >
-              Refresh
-            </button>
-          </div>
-          <AssetList
-            assets={assets}
-            isLoading={loadingBalances}
-            onSelect={(asset) => router.push(`/web-wallet/asset/${asset.chain}`)}
-            onDeriveAll={handleDeriveAll}
-            isDeriving={isDeriving}
-          />
-        </section>
+        {/* Tab Navigation */}
+        <div className="flex gap-2 border-b border-white/10 pb-2">
+          <button
+            onClick={() => setActiveTab('assets')}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+              activeTab === 'assets'
+                ? 'text-white bg-white/10'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Assets
+          </button>
+          <button
+            onClick={() => setActiveTab('swap')}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors flex items-center gap-2 ${
+              activeTab === 'swap'
+                ? 'text-white bg-white/10'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+            </svg>
+            Swap
+          </button>
+        </div>
 
-        {/* Recent Transactions */}
-        <section>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-white">
-              Recent Transactions
-            </h2>
-            <button
-              onClick={fetchData}
-              className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
-            >
-              Refresh
-            </button>
-          </div>
-          <TransactionList
-            transactions={transactions}
-            isLoading={loadingTx}
-            emptyMessage="No transactions yet. Send or receive crypto to get started."
-          />
-        </section>
+        {activeTab === 'assets' && (
+          <>
+            {/* Assets */}
+            <section>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">Assets</h2>
+                <button
+                  onClick={fetchData}
+                  className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                >
+                  Refresh
+                </button>
+              </div>
+              <AssetList
+                assets={assets}
+                isLoading={loadingBalances}
+                onSelect={(asset) => router.push(`/web-wallet/asset/${asset.chain}`)}
+                onDeriveAll={handleDeriveAll}
+                isDeriving={isDeriving}
+              />
+            </section>
+
+            {/* Recent Transactions */}
+            <section>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">
+                  Recent Transactions
+                </h2>
+                <button
+                  onClick={fetchData}
+                  className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                >
+                  Refresh
+                </button>
+              </div>
+              <TransactionList
+                transactions={transactions}
+                isLoading={loadingTx}
+                emptyMessage="No transactions yet. Send or receive crypto to get started."
+              />
+            </section>
+          </>
+        )}
+
+        {activeTab === 'swap' && (
+          <section>
+            <div className="max-w-md mx-auto">
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-white">Swap Coins</h2>
+                <p className="text-sm text-gray-400">
+                  Exchange crypto instantly. No KYC required.
+                </p>
+              </div>
+              <SwapForm 
+                addresses={addressMap}
+                onSwapCreated={(swap) => {
+                  console.log('Swap created:', swap);
+                }}
+              />
+            </div>
+          </section>
+        )}
       </div>
     </>
   );

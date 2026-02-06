@@ -3,6 +3,9 @@
   "version": "0.1.1",
   "private": true,
   "type": "module",
+  "bin": {
+    "coinpay": "./bin/coinpay"
+  },
   "scripts": {
     "dev": "next dev -p 8080",
     "build": "next build",
