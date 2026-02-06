@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { authFetch } from '@/lib/auth/client';
 
 interface MerchantWallet {
   id: string;
@@ -17,14 +18,17 @@ const SUPPORTED_CRYPTOS = [
   { value: 'BTC', label: 'Bitcoin (BTC)' },
   { value: 'BCH', label: 'Bitcoin Cash (BCH)' },
   { value: 'ETH', label: 'Ethereum (ETH)' },
-  { value: 'USDT', label: 'Tether (USDT)' },
-  { value: 'USDC', label: 'USD Coin (USDC)' },
-  { value: 'BNB', label: 'Binance Coin (BNB)' },
+  { value: 'POL', label: 'Polygon (POL)' },
   { value: 'SOL', label: 'Solana (SOL)' },
+  { value: 'DOGE', label: 'Dogecoin (DOGE)' },
   { value: 'XRP', label: 'Ripple (XRP)' },
   { value: 'ADA', label: 'Cardano (ADA)' },
-  { value: 'DOGE', label: 'Dogecoin (DOGE)' },
-  { value: 'POL', label: 'Polygon (POL)' },
+  { value: 'BNB', label: 'BNB Chain (BNB)' },
+  { value: 'USDT', label: 'Tether (USDT)' },
+  { value: 'USDC', label: 'USD Coin (USDC)' },
+  { value: 'USDC_ETH', label: 'USDC (Ethereum)' },
+  { value: 'USDC_POL', label: 'USDC (Polygon) — Low Fees' },
+  { value: 'USDC_SOL', label: 'USDC (Solana) — Low Fees' },
 ];
 
 export default function GlobalWalletsPage() {
@@ -48,19 +52,10 @@ export default function GlobalWalletsPage() {
 
   const fetchWallets = async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
+      const result = await authFetch('/api/wallets', {}, router);
+      if (!result) return;
 
-      const response = await fetch('/api/wallets', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to load wallets');
@@ -83,17 +78,14 @@ export default function GlobalWalletsPage() {
     setSaving(true);
 
     try {
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch('/api/wallets', {
+      const result = await authFetch('/api/wallets', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
-      });
+      }, router);
+      if (!result) return;
 
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to add wallet');
@@ -122,15 +114,12 @@ export default function GlobalWalletsPage() {
     setSuccess('');
 
     try {
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch(`/api/wallets/${cryptocurrency}`, {
+      const result = await authFetch(`/api/wallets/${cryptocurrency}`, {
         method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      }, router);
+      if (!result) return;
 
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to delete wallet');

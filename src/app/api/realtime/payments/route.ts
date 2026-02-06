@@ -1,11 +1,9 @@
 import { NextRequest } from 'next/server';
 import { verifyToken, getUserIdFromToken } from '@/lib/auth/jwt';
+import { getJwtSecret } from '@/lib/secrets';
 
 // Store active connections for broadcasting
 const connections = new Map<string, Set<ReadableStreamDefaultController>>();
-
-// Get JWT secret from environment
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 /**
  * Server-Sent Events endpoint for real-time payment updates
@@ -24,7 +22,7 @@ export async function GET(request: NextRequest) {
 
   let merchantId: string;
   try {
-    const payload = verifyToken(token, JWT_SECRET);
+    const payload = verifyToken(token, getJwtSecret());
     merchantId = payload.userId || payload.sub || '';
     if (!merchantId) {
       return new Response('Invalid token payload', { status: 401 });

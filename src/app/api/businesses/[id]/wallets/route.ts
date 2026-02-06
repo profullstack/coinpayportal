@@ -6,6 +6,7 @@ import {
   listWallets,
   type CreateWalletInput,
 } from '@/lib/wallets/service';
+import { getJwtSecret } from '@/lib/secrets';
 
 /**
  * Helper to verify auth and get merchant ID
@@ -17,7 +18,7 @@ async function verifyAuth(request: NextRequest) {
   }
 
   const token = authHeader.substring(7);
-  const jwtSecret = process.env.JWT_SECRET;
+  const jwtSecret = getJwtSecret();
   
   if (!jwtSecret) {
     return { error: 'Server configuration error', status: 500 };

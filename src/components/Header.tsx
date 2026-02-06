@@ -3,21 +3,6 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import dynamic from 'next/dynamic';
-
-// Dynamically import ConnectButton with SSR disabled to avoid pino/thread-stream issues
-const ConnectButton = dynamic(
-  () => import('./wallet').then((mod) => mod.ConnectButton),
-  { 
-    ssr: false,
-    loading: () => (
-      <button className="inline-flex items-center justify-center rounded-lg bg-gray-700 px-3 py-1.5 text-sm font-medium text-gray-400">
-        Loading...
-      </button>
-    )
-  }
-);
-
 export default function Header() {
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -64,12 +49,15 @@ export default function Header() {
 
   const navigation = [
     { name: 'Home', href: '/' },
+    { name: 'Wallet', href: '/web-wallet' },
     { name: 'API', href: '/docs' },
     { name: 'Pricing', href: '/pricing' },
   ];
 
   const loggedInNavigation = [
     { name: 'Dashboard', href: '/dashboard' },
+    { name: 'Escrow', href: '/escrow' },
+    { name: 'Wallet', href: '/web-wallet' },
     { name: 'API', href: '/docs' },
   ];
 
@@ -108,9 +96,6 @@ export default function Header() {
               </div>
             ) : isLoggedIn ? (
               <div className="flex items-center space-x-4">
-                {/* Wallet Connect Button - Only for logged in users */}
-                <ConnectButton variant="secondary" size="sm" />
-                
                 <div className="relative">
                   <button
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
@@ -246,10 +231,6 @@ export default function Header() {
                 </div>
               ) : isLoggedIn ? (
                 <div className="pt-4 space-y-2 border-t border-gray-800 mt-4">
-                  {/* Mobile Wallet Connect - Only for logged in users */}
-                  <div className="px-3 py-2">
-                    <ConnectButton variant="secondary" size="sm" />
-                  </div>
                   <Link
                     href="/dashboard"
                     className="block px-3 py-2 text-base font-medium text-gray-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"

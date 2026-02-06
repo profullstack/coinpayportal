@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { AuthenticationDocs } from '@/components/docs/AuthenticationDocs';
 import { SubscriptionsDocs } from '@/components/docs/SubscriptionsDocs';
+import { WebWalletDocs } from '@/components/docs/WebWalletDocs';
 import { DocSection } from '@/components/docs/DocSection';
 import { ApiEndpoint } from '@/components/docs/ApiEndpoint';
 import { CodeBlock } from '@/components/docs/CodeBlock';
@@ -46,12 +47,56 @@ export default function DocsPage() {
           </div>
         </div>
 
+        {/* Web Wallet Banner */}
+        <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 border border-emerald-500/30">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white mb-2">🔐 Non-Custodial Web Wallet</h2>
+              <p className="text-gray-300 text-sm">
+                Multi-chain wallet for humans and AI agents — no signup, no KYC, API-first
+              </p>
+            </div>
+            <a
+              href="#web-wallet"
+              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              View Docs
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </a>
+          </div>
+        </div>
+
+        {/* Escrow Banner */}
+        <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white mb-2">🔐 Escrow Service</h2>
+              <p className="text-gray-300 text-sm">
+                Trustless crypto escrow — hold funds until both sides are satisfied. Token-based auth, no accounts needed.
+              </p>
+            </div>
+            <a
+              href="#escrow"
+              className="px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              View Docs
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </a>
+          </div>
+        </div>
+
         {/* Table of Contents */}
         <nav className="mb-12 p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
           <h2 className="text-xl font-bold text-white mb-4">Quick Navigation</h2>
           <div className="grid md:grid-cols-3 gap-4">
             {[
               { name: 'SDK Documentation', href: '/docs/sdk', external: true },
+              { name: 'Web Wallet API', href: '#web-wallet' },
+              { name: 'Escrow API', href: '#escrow' },
               { name: 'Authentication', href: '#authentication' },
               { name: 'Subscriptions & Entitlements', href: '#subscriptions' },
               { name: 'Businesses', href: '#businesses' },
@@ -83,6 +128,275 @@ export default function DocsPage() {
             ))}
           </div>
         </nav>
+
+        {/* Web Wallet API */}
+        <div id="web-wallet">
+          <WebWalletDocs />
+        </div>
+
+        {/* Escrow API */}
+        <div id="escrow">
+          <DocSection title="Escrow Service">
+            <p className="text-gray-300 mb-6">
+              Anonymous, trustless escrow for crypto transactions. Hold funds until both parties are satisfied. 
+              No accounts required — authentication is handled via unique tokens returned at creation time.
+            </p>
+
+            <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+              <h4 className="font-semibold text-amber-300 mb-2">How Escrow Works</h4>
+              <ol className="text-amber-200 text-sm space-y-1 list-decimal list-inside">
+                <li><strong>Create</strong> — Specify chain, amount, depositor &amp; beneficiary addresses. Get a deposit address + two auth tokens.</li>
+                <li><strong>Fund</strong> — Depositor sends crypto to the escrow address. Auto-detected by the balance monitor.</li>
+                <li><strong>Release or Dispute</strong> — Depositor releases funds (using <code className="text-amber-100">release_token</code>) or opens a dispute.</li>
+                <li><strong>Settlement</strong> — Funds forwarded on-chain to beneficiary (minus fee). Refunds return the full amount.</li>
+              </ol>
+            </div>
+
+            <div className="mb-8 grid md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-lg bg-slate-800/50 border border-white/10">
+                <h4 className="font-semibold text-white mb-2">Auth Tokens</h4>
+                <div className="text-gray-300 text-sm space-y-1">
+                  <p><code className="text-purple-400">release_token</code> — Given to depositor. Used to release or refund funds.</p>
+                  <p><code className="text-purple-400">beneficiary_token</code> — Given to beneficiary. Used to open disputes.</p>
+                </div>
+              </div>
+              <div className="p-4 rounded-lg bg-slate-800/50 border border-white/10">
+                <h4 className="font-semibold text-white mb-2">Fees</h4>
+                <div className="text-gray-300 text-sm space-y-1">
+                  <p><strong>Free tier:</strong> 1% on release</p>
+                  <p><strong>Professional:</strong> 0.5% on release</p>
+                  <p><strong>Refunds:</strong> No fee (full amount returned)</p>
+                </div>
+              </div>
+            </div>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Escrow Statuses</h3>
+            <div className="grid md:grid-cols-3 gap-4 mb-8">
+              {[
+                { status: 'created', desc: 'Awaiting deposit', color: 'yellow' },
+                { status: 'funded', desc: 'Deposit received on-chain', color: 'blue' },
+                { status: 'released', desc: 'Depositor released funds', color: 'green' },
+                { status: 'settled', desc: 'Funds forwarded to beneficiary', color: 'green' },
+                { status: 'disputed', desc: 'Dispute opened by either party', color: 'orange' },
+                { status: 'refunded', desc: 'Funds returned to depositor', color: 'purple' },
+                { status: 'expired', desc: 'Deposit window expired', color: 'red' },
+              ].map((item) => (
+                <div key={item.status} className="p-3 rounded-lg bg-slate-800/50">
+                  <code className={`text-${item.color}-400 font-mono`}>{item.status}</code>
+                  <p className="text-gray-300 text-sm mt-1">{item.desc}</p>
+                </div>
+              ))}
+            </div>
+
+            <ApiEndpoint method="POST" path="/api/escrow" description="Create a new escrow. No authentication required (anonymous). Optionally authenticate to associate with a business and get paid-tier fees.">
+              <CodeBlock title="Request Body">
+{`{
+  "chain": "ETH",              // BTC, BCH, ETH, POL, SOL, USDC, USDC_ETH, USDC_POL, USDC_SOL
+  "amount": 0.5,               // Amount in crypto
+  "depositor_address": "0xAlice...",     // Depositor's wallet
+  "beneficiary_address": "0xBob...",     // Beneficiary's wallet
+  "arbiter_address": "0xArbiter...",     // Optional: dispute arbiter
+  "expires_in_hours": 48,               // Optional: 1-720 hours (default: 24)
+  "metadata": { "order_id": "123" },    // Optional: custom metadata
+  "business_id": "uuid"                 // Optional: for merchant association
+}`}
+              </CodeBlock>
+
+              <CodeBlock title="cURL Example" language="curl">
+{`curl -X POST https://coinpayportal.com/api/escrow \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "chain": "ETH",
+    "amount": 0.5,
+    "depositor_address": "0xAlice...",
+    "beneficiary_address": "0xBob...",
+    "expires_in_hours": 48
+  }'`}
+              </CodeBlock>
+
+              <CodeBlock title="Response (201 Created)">
+{`{
+  "id": "a1b2c3d4-...",
+  "escrow_address": "0xEscrowAddr...",
+  "chain": "ETH",
+  "amount": 0.5,
+  "amount_usd": 1250.00,
+  "fee_amount": 0.005,
+  "status": "created",
+  "depositor_address": "0xAlice...",
+  "beneficiary_address": "0xBob...",
+  "expires_at": "2024-01-03T12:00:00Z",
+  "created_at": "2024-01-01T12:00:00Z",
+  "release_token": "esc_abc123...",
+  "beneficiary_token": "esc_def456...",
+  "metadata": {}
+}`}
+              </CodeBlock>
+
+              <div className="mt-4 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                <p className="text-yellow-300 text-sm">
+                  <strong>Important:</strong> Save the <code className="text-yellow-200">release_token</code> and <code className="text-yellow-200">beneficiary_token</code> — they are only returned once at creation time. The depositor needs <code className="text-yellow-200">release_token</code> to release or refund. The beneficiary needs <code className="text-yellow-200">beneficiary_token</code> to dispute.
+                </p>
+              </div>
+            </ApiEndpoint>
+
+            <ApiEndpoint method="GET" path="/api/escrow?status=funded&depositor=0x..." description="List escrows. Requires at least one filter: status, depositor, beneficiary, or business_id.">
+              <CodeBlock title="Query Parameters">
+{`status       — Filter by status (created, funded, released, settled, etc.)
+depositor    — Filter by depositor address
+beneficiary  — Filter by beneficiary address
+business_id  — Filter by business (requires auth)
+limit        — Results per page (default: 20)
+offset       — Pagination offset`}
+              </CodeBlock>
+
+              <CodeBlock title="Response">
+{`{
+  "escrows": [
+    {
+      "id": "a1b2c3d4-...",
+      "escrow_address": "0xEscrowAddr...",
+      "chain": "ETH",
+      "amount": 0.5,
+      "status": "funded",
+      "deposited_amount": 0.5,
+      "funded_at": "2024-01-01T13:00:00Z",
+      ...
+    }
+  ],
+  "total": 1,
+  "limit": 20,
+  "offset": 0
+}`}
+              </CodeBlock>
+            </ApiEndpoint>
+
+            <ApiEndpoint method="GET" path="/api/escrow/:id" description="Get escrow details by ID. Public endpoint — no auth required.">
+              <CodeBlock title="cURL Example" language="curl">
+{`curl https://coinpayportal.com/api/escrow/a1b2c3d4-...`}
+              </CodeBlock>
+            </ApiEndpoint>
+
+            <ApiEndpoint method="POST" path="/api/escrow/:id/release" description="Release funds to the beneficiary. Only the depositor (via release_token) can do this. Escrow must be in 'funded' or 'disputed' status.">
+              <CodeBlock title="Request Body">
+{`{
+  "release_token": "esc_abc123..."
+}`}
+              </CodeBlock>
+
+              <CodeBlock title="Response">
+{`{
+  "success": true,
+  "escrow": {
+    "id": "a1b2c3d4-...",
+    "status": "released",
+    "released_at": "2024-01-02T12:00:00Z",
+    ...
+  }
+}`}
+              </CodeBlock>
+              <p className="text-gray-400 text-sm mt-2">
+                After release, the cron monitor triggers on-chain settlement — funds are forwarded to the beneficiary minus the platform fee.
+              </p>
+            </ApiEndpoint>
+
+            <ApiEndpoint method="POST" path="/api/escrow/:id/refund" description="Request a refund. Only the depositor (via release_token) can do this. Escrow must be in 'funded' status. Full amount is returned (no fee).">
+              <CodeBlock title="Request Body">
+{`{
+  "release_token": "esc_abc123..."
+}`}
+              </CodeBlock>
+            </ApiEndpoint>
+
+            <ApiEndpoint method="POST" path="/api/escrow/:id/dispute" description="Open a dispute. Either party can do this (depositor via release_token, beneficiary via beneficiary_token). Escrow must be in 'funded' status.">
+              <CodeBlock title="Request Body">
+{`{
+  "token": "esc_abc123...",
+  "reason": "Work was not delivered as agreed upon in the contract"
+}`}
+              </CodeBlock>
+              <p className="text-gray-400 text-sm mt-2">
+                Dispute reason must be at least 10 characters. Disputed escrows can still be released by the depositor or resolved by an arbiter.
+              </p>
+            </ApiEndpoint>
+
+            <ApiEndpoint method="GET" path="/api/escrow/:id/events" description="Get the audit log for an escrow — all status changes, deposits, releases, disputes, and settlements.">
+              <CodeBlock title="Response">
+{`{
+  "success": true,
+  "events": [
+    {
+      "id": "evt-1",
+      "escrow_id": "a1b2c3d4-...",
+      "event_type": "created",
+      "actor": "0xAlice...",
+      "details": { "chain": "ETH", "amount": 0.5 },
+      "created_at": "2024-01-01T12:00:00Z"
+    },
+    {
+      "id": "evt-2",
+      "event_type": "funded",
+      "actor": "system",
+      "details": { "deposited_amount": 0.5, "tx_hash": "0x..." },
+      "created_at": "2024-01-01T13:00:00Z"
+    }
+  ]
+}`}
+              </CodeBlock>
+            </ApiEndpoint>
+
+            <h3 className="text-xl font-semibold text-white mt-8 mb-4">SDK &amp; CLI</h3>
+            <CodeBlock title="Node.js SDK" language="javascript">
+{`import { CoinPayClient } from '@profullstack/coinpay';
+
+const client = new CoinPayClient({ apiKey: 'YOUR_API_KEY' });
+
+// Create escrow
+const escrow = await client.createEscrow({
+  chain: 'SOL',
+  amount: 10,
+  depositor_address: 'Alice...',
+  beneficiary_address: 'Bob...',
+});
+console.log('Deposit to:', escrow.escrow_address);
+console.log('Release token:', escrow.release_token);
+
+// Check status
+const status = await client.getEscrow(escrow.id);
+
+// Release funds
+await client.releaseEscrow(escrow.id, escrow.release_token);
+
+// Wait for settlement
+const settled = await client.waitForEscrow(escrow.id, 'settled');`}
+            </CodeBlock>
+
+            <CodeBlock title="CLI" language="bash">
+{`# Create escrow
+coinpay escrow create --chain SOL --amount 10 \\
+  --depositor Alice... --beneficiary Bob...
+
+# Check status
+coinpay escrow get <escrow_id>
+
+# List escrows
+coinpay escrow list --status funded
+
+# Release funds
+coinpay escrow release <escrow_id> --token esc_abc123...
+
+# Refund
+coinpay escrow refund <escrow_id> --token esc_abc123...
+
+# Open dispute
+coinpay escrow dispute <escrow_id> --token esc_def456... \\
+  --reason "Work not delivered as agreed"
+
+# View audit log
+coinpay escrow events <escrow_id>`}
+            </CodeBlock>
+          </DocSection>
+        </div>
 
         {/* Authentication */}
         <div id="authentication">
@@ -510,9 +824,15 @@ console.log(data.payment.status);`}
             <h3 className="text-xl font-semibold text-white mb-4">Webhook Events</h3>
             <div className="space-y-4 mb-8">
               {[
-                { event: 'payment.confirmed', description: 'Payment confirmed on blockchain - safe to fulfill order' },
+                { event: 'payment.confirmed', description: 'Payment confirmed on blockchain — safe to fulfill order' },
                 { event: 'payment.forwarded', description: 'Funds forwarded to your merchant wallet' },
                 { event: 'payment.expired', description: 'Payment request expired (15 minute window)' },
+                { event: 'escrow.created', description: 'New escrow created' },
+                { event: 'escrow.funded', description: 'Escrow deposit detected on-chain' },
+                { event: 'escrow.released', description: 'Depositor released funds to beneficiary' },
+                { event: 'escrow.settled', description: 'Funds forwarded on-chain to beneficiary' },
+                { event: 'escrow.refunded', description: 'Funds returned to depositor' },
+                { event: 'escrow.disputed', description: 'Dispute opened on escrow' },
                 { event: 'test.webhook', description: 'Test webhook (sent from dashboard)' },
               ].map((webhook) => (
                 <div key={webhook.event} className="p-4 rounded-lg bg-slate-800/50">
@@ -743,7 +1063,9 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
             <div>
               <h3 className="text-xl font-semibold text-white mb-4">Platform Fees</h3>
               <div className="space-y-2 text-gray-300">
-                <p>• <strong>Platform Fee:</strong> 0.5% per transaction</p>
+                <p>• <strong>Starter (free):</strong> 1% per transaction &amp; escrow release</p>
+                <p>• <strong>Professional ($49/mo):</strong> 0.5% per transaction &amp; escrow release</p>
+                <p>• <strong>Escrow Refunds:</strong> No fee (full amount returned)</p>
                 <p>• <strong>Network Fees:</strong> Paid by customer</p>
                 <p>• <strong>Minimum Payment:</strong> $1.00 USD</p>
               </div>

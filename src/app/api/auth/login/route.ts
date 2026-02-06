@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { login } from '@/lib/auth/service';
+import { checkRateLimit } from '@/lib/web-wallet/rate-limit';
 import { z } from 'zod';
 
 /**
@@ -12,11 +13,46 @@ const loginSchema = z.object({
 });
 
 /**
+ * Get client IP from request headers
+ */
+function getClientIp(request: NextRequest): string {
+  return (
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
+
+/**
  * POST /api/auth/login
  * Authenticate a merchant
  */
 export async function POST(request: NextRequest) {
   try {
+    // Get client IP for rate limiting
+    const clientIp = getClientIp(request);
+
+    // Check IP-based rate limit (prevents distributed brute-force)
+    const ipRateCheck = checkRateLimit(clientIp, 'merchant_login');
+    if (!ipRateCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Too many login attempts. Please try again later.',
+          retryAfter: ipRateCheck.resetAt - Math.floor(Date.now() / 1000),
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(ipRateCheck.resetAt - Math.floor(Date.now() / 1000)),
+            'X-RateLimit-Limit': String(ipRateCheck.limit),
+            'X-RateLimit-Remaining': '0',
+            'X-RateLimit-Reset': String(ipRateCheck.resetAt),
+          },
+        }
+      );
+    }
+
     // Parse request body
     const body = await request.json();
 
@@ -29,6 +65,25 @@ export async function POST(request: NextRequest) {
           error: validation.error.errors[0].message,
         },
         { status: 400 }
+      );
+    }
+
+    // Check email-based rate limit (prevents brute-force on single account)
+    const emailKey = `email:${validation.data.email.toLowerCase()}`;
+    const emailRateCheck = checkRateLimit(emailKey, 'merchant_login_email');
+    if (!emailRateCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Too many login attempts for this account. Please try again later.',
+          retryAfter: emailRateCheck.resetAt - Math.floor(Date.now() / 1000),
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(emailRateCheck.resetAt - Math.floor(Date.now() / 1000)),
+          },
+        }
       );
     }
 

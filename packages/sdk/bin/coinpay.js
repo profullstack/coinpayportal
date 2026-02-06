@@ -8,10 +8,13 @@
 import { CoinPayClient } from '../src/client.js';
 import { PaymentStatus, Blockchain, FiatCurrency } from '../src/payments.js';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { execSync } from 'child_process';
+import { createInterface } from 'readline';
 import { homedir } from 'os';
 import { join } from 'path';
+import { tmpdir } from 'os';
 
-const VERSION = '0.1.0';
+const VERSION = '0.3.3';
 const CONFIG_FILE = join(homedir(), '.coinpay.json');
 
 // ANSI colors
@@ -95,8 +98,19 @@ function parseArgs(args) {
     const arg = args[i];
     
     if (arg.startsWith('--')) {
-      const [key, value] = arg.slice(2).split('=');
-      result.flags[key] = value ?? true;
+      const eqIdx = arg.indexOf('=');
+      if (eqIdx !== -1) {
+        result.flags[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
+      } else {
+        // Peek ahead: if next arg doesn't start with '-', it's the value
+        const next = args[i + 1];
+        if (next && !next.startsWith('-')) {
+          result.flags[arg.slice(2)] = next;
+          i++;
+        } else {
+          result.flags[arg.slice(2)] = true;
+        }
+      }
     } else if (arg.startsWith('-')) {
       result.flags[arg.slice(1)] = args[++i] ?? true;
     } else if (!result.command) {
@@ -143,6 +157,19 @@ ${colors.cyan}Commands:${colors.reset}
     get <crypto>          Get exchange rate
     list                  Get all exchange rates
 
+  ${colors.bright}wallet${colors.reset}
+    backup-seed           Encrypt seed phrase to GPG file
+    decrypt-backup <file> Decrypt a GPG backup file
+
+  ${colors.bright}escrow${colors.reset}
+    create                Create a new escrow
+    get <id>              Get escrow status
+    list                  List escrows
+    release <id>          Release funds to beneficiary
+    refund <id>           Refund funds to depositor
+    dispute <id>          Open a dispute
+    events <id>           Get escrow audit log
+
   ${colors.bright}webhook${colors.reset}
     logs <business-id>    Get webhook logs
     test <business-id>    Send test webhook
@@ -156,6 +183,10 @@ ${colors.cyan}Options:${colors.reset}
   --currency <code>       Fiat currency (USD, EUR, etc.) - default: USD
   --blockchain <code>     Blockchain (BTC, ETH, SOL, POL, BCH, USDC_ETH, USDC_POL, USDC_SOL)
   --description <text>    Payment description
+  --seed <phrase>         Seed phrase (or reads from stdin)
+  --password <pass>       GPG passphrase (or prompts interactively)
+  --wallet-id <id>        Wallet ID for backup filename
+  --output <path>         Output file path (default: wallet_<id>_seedphrase.txt.gpg)
 
 ${colors.cyan}Examples:${colors.reset}
   # Configure your API key (get it from your CoinPay dashboard)
@@ -178,6 +209,18 @@ ${colors.cyan}Examples:${colors.reset}
 
   # List your businesses
   coinpay business list
+
+  # Encrypt seed phrase to GPG backup file
+  coinpay wallet backup-seed --seed "word1 word2 ..." --password "mypass" --wallet-id "wid-abc"
+
+  # Encrypt seed phrase (interactive password prompt)
+  coinpay wallet backup-seed --seed "word1 word2 ..." --wallet-id "wid-abc"
+
+  # Pipe seed phrase from stdin
+  echo "word1 word2 ..." | coinpay wallet backup-seed --wallet-id "wid-abc" --password "mypass"
+
+  # Decrypt a backup file
+  coinpay wallet decrypt-backup wallet_wid-abc_seedphrase.txt.gpg --password "mypass"
 
 ${colors.cyan}Environment Variables:${colors.reset}
   COINPAY_API_KEY         API key (overrides config)
@@ -454,6 +497,235 @@ async function handleWebhook(subcommand, args, flags) {
 }
 
 /**
+ * Prompt for password interactively (hides input)
+ */
+function promptPassword(prompt = 'Password: ') {
+  return new Promise((resolve) => {
+    process.stdout.write(prompt);
+    
+    // If stdin is a TTY, read with hidden input
+    if (process.stdin.isTTY) {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      // Temporarily override output to hide password chars
+      const origWrite = process.stdout.write.bind(process.stdout);
+      process.stdout.write = (chunk) => {
+        // Only suppress characters that are the user's input
+        if (typeof chunk === 'string' && chunk !== prompt && chunk !== '\n' && chunk !== '\r\n') {
+          return true;
+        }
+        return origWrite(chunk);
+      };
+      
+      rl.question('', (answer) => {
+        process.stdout.write = origWrite;
+        process.stdout.write('\n');
+        rl.close();
+        resolve(answer);
+      });
+    } else {
+      // Pipe mode — read from stdin
+      const chunks = [];
+      process.stdin.on('data', (chunk) => chunks.push(chunk));
+      process.stdin.on('end', () => resolve(Buffer.concat(chunks).toString().trim()));
+      process.stdin.resume();
+    }
+  });
+}
+
+/**
+ * Check if gpg is available
+ */
+function hasGpg() {
+  try {
+    execSync('gpg --version', { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wallet commands
+ */
+async function handleWallet(subcommand, args, flags) {
+  switch (subcommand) {
+    case 'backup-seed': {
+      if (!hasGpg()) {
+        print.error('gpg is required but not found. Install it with:');
+        print.info('  Ubuntu/Debian: sudo apt install gnupg');
+        print.info('  macOS: brew install gnupg');
+        print.info('  Windows: https://www.gnupg.org/download/');
+        process.exit(1);
+      }
+
+      const walletId = flags['wallet-id'];
+      if (!walletId) {
+        print.error('Required: --wallet-id <id>');
+        return;
+      }
+
+      // Get seed phrase from --seed flag or stdin
+      let seed = flags.seed;
+      if (!seed) {
+        if (process.stdin.isTTY) {
+          print.error('Required: --seed <phrase> (or pipe via stdin)');
+          print.info('Example: coinpay wallet backup-seed --seed "word1 word2 ..." --wallet-id "wid-abc"');
+          return;
+        }
+        // Read from stdin
+        const chunks = [];
+        for await (const chunk of process.stdin) {
+          chunks.push(chunk);
+        }
+        seed = Buffer.concat(chunks).toString().trim();
+      }
+
+      if (!seed) {
+        print.error('Seed phrase is empty');
+        return;
+      }
+
+      // Get password from --password flag or prompt
+      let password = flags.password;
+      if (!password) {
+        if (!process.stdin.isTTY) {
+          print.error('Required: --password <pass> (cannot prompt in pipe mode)');
+          return;
+        }
+        password = await promptPassword('Encryption password: ');
+        const confirm = await promptPassword('Confirm password: ');
+        if (password !== confirm) {
+          print.error('Passwords do not match');
+          return;
+        }
+      }
+
+      if (!password) {
+        print.error('Password is empty');
+        return;
+      }
+
+      // Build the plaintext content
+      const filename = `wallet_${walletId}_seedphrase.txt`;
+      const content = [
+        '# CoinPayPortal Wallet Seed Phrase Backup',
+        `# Wallet ID: ${walletId}`,
+        `# Created: ${new Date().toISOString()}`,
+        '#',
+        '# KEEP THIS FILE SAFE. Anyone with this phrase can access your funds.',
+        `# Decrypt with: gpg --decrypt ${filename}.gpg`,
+        '',
+        seed,
+        '',
+      ].join('\n');
+
+      // Determine output path
+      const outputPath = flags.output || `${filename}.gpg`;
+
+      // Write plaintext to temp file, encrypt with gpg, remove temp
+      const tmpFile = join(tmpdir(), `coinpay-backup-${Date.now()}.txt`);
+      try {
+        writeFileSync(tmpFile, content, { mode: 0o600 });
+        
+        // Write passphrase to a temp file for gpg (avoids shell escaping issues)
+        const passFile = join(tmpdir(), `coinpay-pass-${Date.now()}`);
+        writeFileSync(passFile, password, { mode: 0o600 });
+        try {
+          execSync(
+            `gpg --batch --yes --passphrase-file "${passFile}" --pinentry-mode loopback --symmetric --cipher-algo AES256 --output "${outputPath}" "${tmpFile}"`,
+            { stdio: ['pipe', 'pipe', 'pipe'] }
+          );
+        } finally {
+          try { writeFileSync(passFile, Buffer.alloc(password.length, 0)); } catch {}
+          try { const { unlinkSync: u } = await import('fs'); u(passFile); } catch {}
+        }
+
+        print.success(`Encrypted backup saved to: ${outputPath}`);
+        print.info(`Decrypt with: gpg --decrypt ${outputPath}`);
+      } finally {
+        // Securely delete temp file
+        try {
+          writeFileSync(tmpFile, Buffer.alloc(content.length, 0));
+          const { unlinkSync } = await import('fs');
+          unlinkSync(tmpFile);
+        } catch {
+          // Best effort cleanup
+        }
+      }
+      break;
+    }
+
+    case 'decrypt-backup': {
+      if (!hasGpg()) {
+        print.error('gpg is required but not found.');
+        process.exit(1);
+      }
+
+      const filePath = args[0];
+      if (!filePath) {
+        print.error('Backup file path required');
+        print.info('Example: coinpay wallet decrypt-backup wallet_wid-abc_seedphrase.txt.gpg');
+        return;
+      }
+
+      if (!existsSync(filePath)) {
+        print.error(`File not found: ${filePath}`);
+        return;
+      }
+
+      // Get password
+      let password = flags.password;
+      if (!password) {
+        if (!process.stdin.isTTY) {
+          print.error('Required: --password <pass> (cannot prompt in pipe mode)');
+          return;
+        }
+        password = await promptPassword('Decryption password: ');
+      }
+
+      try {
+        const passFile = join(tmpdir(), `coinpay-pass-${Date.now()}`);
+        writeFileSync(passFile, password, { mode: 0o600 });
+        let result;
+        try {
+          result = execSync(
+            `gpg --batch --yes --passphrase-file "${passFile}" --pinentry-mode loopback --decrypt "${filePath}"`,
+            { stdio: ['pipe', 'pipe', 'pipe'] }
+          );
+        } finally {
+          try { writeFileSync(passFile, Buffer.alloc(password.length, 0)); } catch {}
+          try { const { unlinkSync: u } = await import('fs'); u(passFile); } catch {}
+        }
+
+        const output = result.toString();
+        // Extract just the mnemonic (skip comments)
+        const lines = output.split('\n');
+        const mnemonic = lines
+          .filter((l) => !l.startsWith('#') && l.trim().length > 0)
+          .join(' ')
+          .trim();
+
+        if (flags.json) {
+          print.json({ mnemonic, raw: output });
+        } else {
+          print.success('Backup decrypted successfully');
+          console.log(`\n${colors.bright}Seed Phrase:${colors.reset}`);
+          console.log(`${colors.yellow}${mnemonic}${colors.reset}\n`);
+          print.warn('This is sensitive data — do not share it with anyone.');
+        }
+      } catch (err) {
+        print.error('Decryption failed — wrong password or corrupted file');
+      }
+      break;
+    }
+
+    default:
+      print.error(`Unknown wallet command: ${subcommand}`);
+      print.info('Available: backup-seed, decrypt-backup');
+  }
+}
+
+/**
  * Main entry point
  */
 async function main() {
@@ -469,6 +741,139 @@ async function main() {
     showHelp();
     return;
   }
+
+async function handleEscrow(subcommand, args, flags) {
+  const client = getClient();
+
+  switch (subcommand) {
+    case 'create': {
+      const chain = flags.chain || flags.blockchain;
+      const amount = parseFloat(flags.amount);
+      const depositor = flags.depositor || flags['depositor-address'];
+      const beneficiary = flags.beneficiary || flags['beneficiary-address'];
+
+      if (!chain || !amount || !depositor || !beneficiary) {
+        print.error('Required: --chain, --amount, --depositor, --beneficiary');
+        process.exit(1);
+      }
+
+      print.info(`Creating escrow: ${amount} ${chain}`);
+      print.info(`  Depositor: ${depositor}`);
+      print.info(`  Beneficiary: ${beneficiary}`);
+
+      const escrow = await client.createEscrow({
+        chain,
+        amount,
+        depositorAddress: depositor,
+        beneficiaryAddress: beneficiary,
+        metadata: flags.metadata ? JSON.parse(flags.metadata) : undefined,
+        expiresInHours: flags['expires-in'] ? parseFloat(flags['expires-in']) : undefined,
+      });
+
+      print.success(`Escrow created: ${escrow.id}`);
+      print.info(`  Deposit to: ${escrow.escrowAddress}`);
+      print.info(`  Status: ${escrow.status}`);
+      print.info(`  Expires: ${escrow.expiresAt}`);
+      print.warn(`  Release Token: ${escrow.releaseToken}`);
+      print.warn(`  Beneficiary Token: ${escrow.beneficiaryToken}`);
+      print.warn('  ⚠️  Save these tokens! They cannot be recovered.');
+
+      if (flags.json) console.log(JSON.stringify(escrow, null, 2));
+      break;
+    }
+
+    case 'get': {
+      const id = args[0];
+      if (!id) { print.error('Escrow ID required'); process.exit(1); }
+
+      const escrow = await client.getEscrow(id);
+      print.success(`Escrow ${escrow.id}`);
+      print.info(`  Status: ${escrow.status}`);
+      print.info(`  Chain: ${escrow.chain}`);
+      print.info(`  Amount: ${escrow.amount}`);
+      print.info(`  Escrow Address: ${escrow.escrowAddress}`);
+      print.info(`  Depositor: ${escrow.depositorAddress}`);
+      print.info(`  Beneficiary: ${escrow.beneficiaryAddress}`);
+      if (escrow.depositedAmount) print.info(`  Deposited: ${escrow.depositedAmount}`);
+      if (escrow.depositTxHash) print.info(`  Deposit TX: ${escrow.depositTxHash}`);
+      if (escrow.settlementTxHash) print.info(`  Settlement TX: ${escrow.settlementTxHash}`);
+
+      if (flags.json) console.log(JSON.stringify(escrow, null, 2));
+      break;
+    }
+
+    case 'list': {
+      const result = await client.listEscrows({
+        status: flags.status,
+        depositor: flags.depositor,
+        beneficiary: flags.beneficiary,
+        limit: flags.limit ? parseInt(flags.limit) : 20,
+      });
+
+      print.info(`Escrows (${result.total} total):`);
+      for (const e of result.escrows) {
+        console.log(`  ${e.id} | ${e.status} | ${e.amount} ${e.chain} | ${e.createdAt}`);
+      }
+
+      if (flags.json) console.log(JSON.stringify(result, null, 2));
+      break;
+    }
+
+    case 'release': {
+      const id = args[0];
+      const token = flags.token || flags['release-token'];
+      if (!id || !token) { print.error('Required: <id> --token <release_token>'); process.exit(1); }
+
+      const escrow = await client.releaseEscrow(id, token);
+      print.success(`Escrow ${id} released → ${escrow.beneficiaryAddress}`);
+      break;
+    }
+
+    case 'refund': {
+      const id = args[0];
+      const token = flags.token || flags['release-token'];
+      if (!id || !token) { print.error('Required: <id> --token <release_token>'); process.exit(1); }
+
+      const escrow = await client.refundEscrow(id, token);
+      print.success(`Escrow ${id} refunded → ${escrow.depositorAddress}`);
+      break;
+    }
+
+    case 'dispute': {
+      const id = args[0];
+      const token = flags.token || flags['release-token'] || flags['beneficiary-token'];
+      const reason = flags.reason;
+      if (!id || !token || !reason) {
+        print.error('Required: <id> --token <token> --reason "description"');
+        process.exit(1);
+      }
+
+      const escrow = await client.disputeEscrow(id, token, reason);
+      print.success(`Escrow ${id} disputed`);
+      print.info(`  Reason: ${escrow.disputeReason}`);
+      break;
+    }
+
+    case 'events': {
+      const id = args[0];
+      if (!id) { print.error('Escrow ID required'); process.exit(1); }
+
+      const events = await client.getEscrowEvents(id);
+      print.info(`Events for escrow ${id}:`);
+      for (const e of events) {
+        console.log(`  ${e.createdAt} | ${e.eventType} | ${e.actor || 'system'}`);
+      }
+
+      if (flags.json) console.log(JSON.stringify(events, null, 2));
+      break;
+    }
+
+    default:
+      print.error(`Unknown escrow command: ${subcommand}`);
+      print.info('Available: create, get, list, release, refund, dispute, events');
+      process.exit(1);
+  }
+}
   
   try {
     switch (command) {
@@ -488,8 +893,16 @@ async function main() {
         await handleRates(subcommand, args, flags);
         break;
         
+      case 'escrow':
+        await handleEscrow(subcommand, args, flags);
+        break;
+
       case 'webhook':
         await handleWebhook(subcommand, args, flags);
+        break;
+
+      case 'wallet':
+        await handleWallet(subcommand, args, flags);
         break;
         
       default:

@@ -21,7 +21,11 @@ const ECPair = ECPairFactory(ecc);
 /**
  * Supported blockchain types
  */
-export type BlockchainType = 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL';
+export type BlockchainType =
+  | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
+  | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
+  | 'USDT' | 'USDC'
+  | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
 
 /**
  * Transaction details interface
@@ -1510,6 +1514,72 @@ export class BitcoinCashProvider extends BitcoinProvider {
 }
 
 /**
+ * BNB (Binance Smart Chain) provider - EVM compatible
+ */
+export class BnbProvider extends EthereumProvider {
+  chain: BlockchainType = 'BNB';
+
+  constructor(rpcUrl: string) {
+    super(rpcUrl);
+  }
+
+  getRequiredConfirmations(): number {
+    return 15;
+  }
+}
+
+/**
+ * Dogecoin provider - similar to Bitcoin but with different network params
+ * Note: Full transaction sending not yet implemented, address generation works
+ */
+export class DogecoinProvider implements BlockchainProvider {
+  chain: BlockchainType = 'DOGE';
+  rpcUrl: string;
+
+  constructor(rpcUrl: string) {
+    this.rpcUrl = rpcUrl;
+  }
+
+  async getBalance(address: string): Promise<string> {
+    try {
+      // Use Blockcypher API for DOGE
+      const response = await axios.get(
+        `https://api.blockcypher.com/v1/doge/main/addrs/${address}/balance`
+      );
+      return (Number(response.data.balance) / 100000000).toString();
+    } catch (error) {
+      console.error('[DOGE] Error fetching balance:', error);
+      return '0';
+    }
+  }
+
+  async getTransaction(txHash: string): Promise<TransactionDetails> {
+    try {
+      const response = await axios.get(
+        `https://api.blockcypher.com/v1/doge/main/txs/${txHash}`
+      );
+      const tx = response.data;
+      return {
+        hash: tx.hash,
+        from: tx.inputs?.[0]?.addresses?.[0] || '',
+        to: tx.outputs?.[0]?.addresses?.[0] || '',
+        value: (tx.outputs?.[0]?.value / 100000000).toString(),
+        confirmations: tx.confirmations || 0,
+        blockNumber: tx.block_height,
+        timestamp: tx.confirmed ? new Date(tx.confirmed).getTime() / 1000 : undefined,
+        status: tx.confirmations > 0 ? 'confirmed' : 'pending',
+      };
+    } catch (error) {
+      throw new Error(`Failed to fetch DOGE transaction: ${error}`);
+    }
+  }
+
+  getRequiredConfirmations(): number {
+    return 6;
+  }
+}
+
+/**
  * Factory function to get the appropriate provider for a blockchain
  */
 export function getProvider(
@@ -1522,11 +1592,25 @@ export function getProvider(
     case 'BCH':
       return new BitcoinCashProvider(rpcUrl);
     case 'ETH':
+    case 'USDT':
+    case 'USDC':
+    case 'USDC_ETH':
       return new EthereumProvider(rpcUrl);
     case 'POL':
+    case 'USDC_POL':
       return new PolygonProvider(rpcUrl);
     case 'SOL':
+    case 'USDC_SOL':
       return new SolanaProvider(rpcUrl);
+    case 'BNB':
+      return new BnbProvider(rpcUrl);
+    case 'DOGE':
+      return new DogecoinProvider(rpcUrl);
+    case 'XRP':
+    case 'ADA':
+      // These chains have address generation but limited provider support
+      // Return a minimal provider that can check balances via external APIs
+      throw new Error(`Provider for ${chain} not fully implemented. Address generation works, but transaction sending is not yet supported.`);
     default:
       throw new Error(`Unsupported blockchain: ${chain}`);
   }
@@ -1542,6 +1626,15 @@ export function getRpcUrl(chain: BlockchainType): string {
     ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
     POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
     SOL: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+    DOGE: process.env.DOGE_RPC_URL || 'https://api.blockcypher.com/v1/doge/main',
+    XRP: process.env.XRP_RPC_URL || 'https://xrplcluster.com',
+    ADA: process.env.ADA_RPC_URL || 'https://cardano-mainnet.blockfrost.io/api/v0',
+    BNB: process.env.BNB_RPC_URL || 'https://bsc-dataseed.binance.org',
+    USDT: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
+    USDC: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
+    USDC_ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
+    USDC_POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    USDC_SOL: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
   };
 
   return urls[chain];

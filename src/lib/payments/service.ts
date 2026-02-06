@@ -65,9 +65,33 @@ export interface Payment {
   expires_at?: string;
 }
 
+/**
+ * Public payment data - safe to expose without authentication.
+ * Excludes: business_id, merchant_wallet_address, metadata
+ */
+export interface PublicPayment {
+  id: string;
+  amount: number;
+  currency: string;
+  blockchain: Blockchain;
+  status: string;
+  crypto_amount?: number;
+  crypto_currency?: string;
+  payment_address?: string;
+  confirmations?: number;
+  created_at: string;
+  expires_at?: string;
+}
+
 export interface PaymentResult {
   success: boolean;
   payment?: Payment;
+  error?: string;
+}
+
+export interface PublicPaymentResult {
+  success: boolean;
+  payment?: PublicPayment;
   error?: string;
 }
 
@@ -261,6 +285,59 @@ export async function getPayment(
     return {
       success: true,
       payment: payment as Payment,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get payment',
+    };
+  }
+}
+
+/**
+ * Public fields safe to expose without authentication.
+ * Excludes: business_id, merchant_wallet_address, metadata, tx_hash
+ */
+const PUBLIC_PAYMENT_FIELDS = [
+  'id',
+  'amount',
+  'currency',
+  'blockchain',
+  'status',
+  'crypto_amount',
+  'crypto_currency',
+  'payment_address',
+  'confirmations',
+  'created_at',
+  'expires_at',
+].join(',');
+
+/**
+ * Get payment with only public fields (no auth required).
+ * Use for customer-facing payment status pages.
+ */
+export async function getPaymentPublic(
+  supabase: SupabaseClient,
+  paymentId: string
+): Promise<PublicPaymentResult> {
+  try {
+    const { data: payment, error } = await supabase
+      .from('payments')
+      .select(PUBLIC_PAYMENT_FIELDS)
+      .eq('id', paymentId)
+      .single();
+
+    if (error || !payment) {
+      return {
+        success: false,
+        error: error?.message || 'Payment not found',
+      };
+    }
+
+    // Cast through unknown since Supabase returns generic type
+    return {
+      success: true,
+      payment: payment as unknown as PublicPayment,
     };
   } catch (error) {
     return {

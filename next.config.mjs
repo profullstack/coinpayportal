@@ -24,6 +24,9 @@ const nextConfig = {
     '@solana/wallet-adapter-wallets',
     '@solana/wallet-adapter-phantom',
     '@solana/wallet-adapter-solflare',
+    '@noble/hashes',
+    '@noble/curves',
+    'openpgp',
   ],
   // Turbopack configuration
   turbopack: {

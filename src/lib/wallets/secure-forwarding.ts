@@ -49,6 +49,7 @@ interface PaymentAddressData {
   commission_amount: number;
   merchant_amount: number;
   is_used: boolean;
+  is_escrow?: boolean;
 }
 
 /**
@@ -173,6 +174,14 @@ export async function forwardPaymentSecurely(
 
     sensitiveData.privateKey = keyResult.privateKey;
     const addressData = keyResult.addressData;
+
+    // GUARD: Never auto-forward escrow-held addresses
+    if (addressData.is_escrow) {
+      return {
+        success: false,
+        error: 'Address holds escrow funds — use /api/escrow/:id/settle instead',
+      };
+    }
 
     // Update payment status to forwarding
     await supabase

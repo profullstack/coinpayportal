@@ -1,0 +1,321 @@
+#!/usr/bin/env node
+
+/**
+ * CoinPay CLI
+ * 
+ * Usage:
+ *   coinpay swap quote --from BTC --to ETH --amount 0.1
+ *   coinpay swap create --from BTC --to ETH --amount 0.1 --address 0x...
+ *   coinpay swap status <id>
+ *   coinpay swap coins
+ */
+
+const API_BASE = process.env.COINPAY_API_URL || 'https://coinpayportal.com';
+
+async function main() {
+  const args = process.argv.slice(2);
+  
+  if (args.length === 0) {
+    showHelp();
+    return;
+  }
+
+  const command = args[0];
+  const subCommand = args[1];
+
+  switch (command) {
+    case 'swap':
+      await handleSwap(subCommand, args.slice(2));
+      break;
+    case 'help':
+    case '--help':
+    case '-h':
+      showHelp();
+      break;
+    default:
+      console.error(`Unknown command: ${command}`);
+      showHelp();
+      process.exit(1);
+  }
+}
+
+async function handleSwap(subCommand, args) {
+  switch (subCommand) {
+    case 'quote':
+      await swapQuote(args);
+      break;
+    case 'create':
+      await swapCreate(args);
+      break;
+    case 'status':
+      await swapStatus(args);
+      break;
+    case 'coins':
+      await swapCoins();
+      break;
+    default:
+      console.error(`Unknown swap command: ${subCommand}`);
+      showSwapHelp();
+      process.exit(1);
+  }
+}
+
+async function swapQuote(args) {
+  const opts = parseArgs(args);
+  const { from, to, amount } = opts;
+
+  if (!from || !to || !amount) {
+    console.error('Error: --from, --to, and --amount are required');
+    console.log('Example: coinpay swap quote --from BTC --to ETH --amount 0.1');
+    process.exit(1);
+  }
+
+  try {
+    const url = `${API_BASE}/api/swap/quote?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&amount=${encodeURIComponent(amount)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (!res.ok) {
+      console.error('Error:', data.error);
+      if (data.supported) {
+        console.log('Supported coins:', data.supported.join(', '));
+      }
+      process.exit(1);
+    }
+
+    const q = data.quote;
+    console.log('\n╔══════════════════════════════════════════╗');
+    console.log('║            SWAP QUOTE                    ║');
+    console.log('╠══════════════════════════════════════════╣');
+    console.log(`║  From:     ${q.depositAmount} ${q.from.padEnd(6)}`);
+    console.log(`║  To:       ${parseFloat(q.settleAmount).toFixed(8)} ${q.to.padEnd(6)}`);
+    console.log(`║  Rate:     1 ${q.from} = ${parseFloat(q.rate).toFixed(8)} ${q.to}`);
+    if (q.minAmount) {
+      console.log(`║  Min:      ${q.minAmount} ${q.from}`);
+    }
+    console.log(`║  Provider: ${q.provider} (no KYC)`);
+    console.log('╚══════════════════════════════════════════╝\n');
+    
+    console.log('To create swap:');
+    console.log(`  coinpay swap create --from ${from} --to ${to} --amount ${amount} --address YOUR_${to}_ADDRESS\n`);
+  } catch (err) {
+    console.error('Network error:', err.message);
+    process.exit(1);
+  }
+}
+
+async function swapCreate(args) {
+  const opts = parseArgs(args);
+  const { from, to, amount, address, refund } = opts;
+
+  if (!from || !to || !amount || !address) {
+    console.error('Error: --from, --to, --amount, and --address are required');
+    console.log('Example: coinpay swap create --from BTC --to ETH --amount 0.1 --address 0x123...');
+    process.exit(1);
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/swap/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from,
+        to,
+        amount,
+        settleAddress: address,
+        refundAddress: refund,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      console.error('Error:', data.error);
+      process.exit(1);
+    }
+
+    const s = data.swap;
+    console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+    console.log('║                    SWAP CREATED                                  ║');
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+    console.log(`║  Swap ID:  ${s.id}`);
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+    console.log(`║  SEND ${s.depositAmount} ${from} TO:`);
+    console.log(`║  ${s.depositAddress}`);
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+    console.log(`║  You will receive: ${s.settleAmount} ${to}`);
+    console.log(`║  Status: ${s.status}`);
+    if (s.expiresAt) {
+      console.log(`║  Expires: ${new Date(s.expiresAt).toLocaleString()}`);
+    }
+    console.log('╚══════════════════════════════════════════════════════════════════╝\n');
+
+    console.log('Check status:');
+    console.log(`  coinpay swap status ${s.id}\n`);
+  } catch (err) {
+    console.error('Network error:', err.message);
+    process.exit(1);
+  }
+}
+
+async function swapStatus(args) {
+  const id = args[0];
+
+  if (!id) {
+    console.error('Error: swap ID required');
+    console.log('Usage: coinpay swap status <swap-id>');
+    process.exit(1);
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/swap/${encodeURIComponent(id)}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      console.error('Error:', data.error);
+      process.exit(1);
+    }
+
+    const s = data.swap;
+    const statusEmoji = {
+      pending: '⏳',
+      waiting: '⏳',
+      confirming: '🔄',
+      exchanging: '🔄',
+      sending: '📤',
+      finished: '✅',
+      failed: '❌',
+      refunded: '↩️',
+      expired: '⌛',
+    };
+
+    console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+    console.log('║                    SWAP STATUS                                   ║');
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+    console.log(`║  ID:       ${s.id}`);
+    console.log(`║  Status:   ${statusEmoji[s.status] || '❓'} ${s.status}`);
+    console.log(`║  From:     ${s.fromCurrency} → ${s.toCurrency}`);
+    if (s.amountFrom) console.log(`║  Sent:     ${s.amountFrom} ${s.fromCurrency}`);
+    if (s.amountTo) console.log(`║  Received: ${s.amountTo} ${s.toCurrency}`);
+    if (s.payinAddress) console.log(`║  Deposit:  ${s.payinAddress}`);
+    if (s.payoutAddress) console.log(`║  Payout:   ${s.payoutAddress}`);
+    if (s.payinHash) console.log(`║  TX In:    ${s.payinHash}`);
+    if (s.payoutHash) console.log(`║  TX Out:   ${s.payoutHash}`);
+    console.log('╚══════════════════════════════════════════════════════════════════╝\n');
+  } catch (err) {
+    console.error('Network error:', err.message);
+    process.exit(1);
+  }
+}
+
+async function swapCoins() {
+  try {
+    const res = await fetch(`${API_BASE}/api/swap/coins`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      console.error('Error:', data.error);
+      process.exit(1);
+    }
+
+    console.log('\n╔══════════════════════════════════════════════════════════════╗');
+    console.log('║              SUPPORTED COINS FOR SWAP                        ║');
+    console.log('╠══════════════════════════════════════════════════════════════╣');
+    console.log('║  Symbol     Name                      Network                ║');
+    console.log('╠══════════════════════════════════════════════════════════════╣');
+    
+    const coins = data.coins;
+    for (const coin of coins) {
+      const symbol = (coin.symbol || coin).padEnd(10);
+      const name = (coin.name || '').padEnd(24);
+      const network = (coin.network || '').padEnd(18);
+      console.log(`║  ${symbol}  ${name}  ${network}║`);
+    }
+    
+    console.log('╚══════════════════════════════════════════════════════════════╝\n');
+    console.log(`Total: ${coins.length} coins supported`);
+    console.log('Provider: ChangeNOW (no KYC)\n');
+  } catch (err) {
+    console.error('Network error:', err.message);
+    process.exit(1);
+  }
+}
+
+function parseArgs(args) {
+  const opts = {};
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith('--')) {
+      const key = arg.slice(2);
+      const value = args[i + 1];
+      if (value && !value.startsWith('--')) {
+        opts[key] = value;
+        i++;
+      } else {
+        opts[key] = true;
+      }
+    }
+  }
+  return opts;
+}
+
+function showHelp() {
+  console.log(`
+CoinPay CLI - Non-custodial crypto payments
+
+USAGE
+  coinpay <command> [options]
+
+COMMANDS
+  swap       Coin swap operations (no KYC)
+  help       Show this help
+
+SWAP COMMANDS
+  coinpay swap quote   Get a swap quote
+  coinpay swap create  Create a swap transaction
+  coinpay swap status  Check swap status
+  coinpay swap coins   List supported coins
+
+EXAMPLES
+  coinpay swap quote --from BTC --to ETH --amount 0.1
+  coinpay swap create --from BTC --to ETH --amount 0.1 --address 0x...
+  coinpay swap status abc123
+
+ENVIRONMENT
+  COINPAY_API_URL    API base URL (default: https://coinpayportal.com)
+
+More info: https://coinpayportal.com/docs
+`);
+}
+
+function showSwapHelp() {
+  console.log(`
+SWAP COMMANDS
+
+  quote     Get a swap quote
+            --from     Source coin (BTC, ETH, etc.)
+            --to       Destination coin
+            --amount   Amount to swap
+
+  create    Create a swap transaction
+            --from     Source coin
+            --to       Destination coin
+            --amount   Amount to swap
+            --address  Destination address (where you receive)
+            --refund   Refund address (optional)
+
+  status    Check swap status
+            <id>       Swap ID
+
+  coins     List supported coins
+
+EXAMPLES
+  coinpay swap quote --from BTC --to ETH --amount 0.1
+  coinpay swap coins
+`);
+}
+
+main().catch(err => {
+  console.error('Fatal error:', err.message);
+  process.exit(1);
+});

@@ -4,14 +4,10 @@ import QRCode from 'qrcode';
  * Supported blockchain types
  */
 export type Blockchain =
-  | 'BTC'
-  | 'BCH'
-  | 'ETH'
-  | 'POL'
-  | 'SOL'
-  | 'USDC_ETH'
-  | 'USDC_POL'
-  | 'USDC_SOL';
+  | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
+  | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
+  | 'USDT' | 'USDC'
+  | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
 
 /**
  * QR code generation options
@@ -115,6 +111,12 @@ const TOKEN_DECIMALS: Record<string, number> = {
   ETH: 18,
   POL: 18,
   SOL: 9,
+  DOGE: 8,
+  XRP: 6,
+  ADA: 6,
+  BNB: 18,
+  USDT: 6,
+  USDC: 6,
   USDC_ETH: 6,
   USDC_POL: 6,
   USDC_SOL: 6,
@@ -130,6 +132,12 @@ function getPaymentScheme(blockchain: Blockchain): string {
     ETH: 'ethereum',
     POL: 'ethereum', // EIP-681: all EVM chains use ethereum: scheme with chain ID
     SOL: 'solana',
+    DOGE: 'dogecoin',
+    XRP: 'ripple',
+    ADA: 'web+cardano', // CIP-13 Cardano URI scheme
+    BNB: 'ethereum', // BNB Chain is EVM compatible
+    USDT: 'ethereum', // USDT is ERC-20
+    USDC: 'ethereum', // USDC is ERC-20
     USDC_ETH: 'ethereum',
     USDC_POL: 'ethereum', // EIP-681: all EVM chains use ethereum: scheme with chain ID
     USDC_SOL: 'solana',
@@ -142,7 +150,7 @@ function getPaymentScheme(blockchain: Blockchain): string {
  * Check if blockchain is an EVM chain
  */
 function isEVMChain(blockchain: Blockchain): boolean {
-  return ['ETH', 'POL', 'USDC_ETH', 'USDC_POL'].includes(blockchain);
+  return ['ETH', 'POL', 'BNB', 'USDT', 'USDC', 'USDC_ETH', 'USDC_POL'].includes(blockchain);
 }
 
 /**
@@ -280,14 +288,10 @@ function buildSolanaPayURI(params: PaymentQRParams): string {
  */
 function validatePaymentParams(params: PaymentQRParams): void {
   const validBlockchains: Blockchain[] = [
-    'BTC',
-    'BCH',
-    'ETH',
-    'POL',
-    'SOL',
-    'USDC_ETH',
-    'USDC_POL',
-    'USDC_SOL',
+    'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+    'DOGE', 'XRP', 'ADA', 'BNB',
+    'USDT', 'USDC',
+    'USDC_ETH', 'USDC_POL', 'USDC_SOL',
   ];
 
   if (!validBlockchains.includes(params.blockchain)) {

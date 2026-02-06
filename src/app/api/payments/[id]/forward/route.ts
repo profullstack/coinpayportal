@@ -3,17 +3,16 @@ import { supabaseAdmin } from '@/lib/supabase/server';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getForwardingStatus } from '@/lib/payments/forwarding';
 import { forwardPaymentSecurely, retryForwardingSecurely } from '@/lib/wallets/secure-forwarding';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
+import { getJwtSecret, getSecret } from '@/lib/secrets';
 
 /**
  * Verify if the request is from an internal service (monitor function)
  */
 function isInternalRequest(authHeader: string | null): boolean {
-  if (!INTERNAL_API_KEY) return false;
+  const internalApiKey = getSecret('INTERNAL_API_KEY') || process.env.INTERNAL_API_KEY;
+  if (!internalApiKey) return false;
   if (!authHeader?.startsWith('Bearer ')) return false;
-  return authHeader.substring(7) === INTERNAL_API_KEY;
+  return authHeader.substring(7) === internalApiKey;
 }
 
 /**
@@ -47,7 +46,7 @@ export async function POST(
     if (!isInternal) {
       // For non-internal requests, verify JWT and admin access
       const token = authHeader.substring(7);
-      const payload = verifyToken(token, JWT_SECRET);
+      const payload = verifyToken(token, getJwtSecret());
 
       if (!payload) {
         return NextResponse.json(
@@ -144,7 +143,7 @@ export async function GET(
     }
 
     const token = authHeader.substring(7);
-    const payload = verifyToken(token, JWT_SECRET);
+    const payload = verifyToken(token, getJwtSecret());
 
     if (!payload) {
       return NextResponse.json(

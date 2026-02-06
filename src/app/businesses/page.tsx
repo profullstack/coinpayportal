@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { authFetch } from '@/lib/auth/client';
 
 interface Business {
   id: string;
@@ -30,19 +31,10 @@ export default function BusinessesPage() {
 
   const fetchBusinesses = async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
+      const result = await authFetch('/api/businesses', {}, router);
+      if (!result) return;
 
-      const response = await fetch('/api/businesses', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to load businesses');
@@ -82,27 +74,19 @@ export default function BusinessesPage() {
     setSaving(true);
 
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
-
       const url = editingBusiness
         ? `/api/businesses/${editingBusiness.id}`
         : '/api/businesses';
       const method = editingBusiness ? 'PATCH' : 'POST';
 
-      const response = await fetch(url, {
+      const result = await authFetch(url, {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
-      });
+      }, router);
+      if (!result) return;
 
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to save business');
@@ -125,20 +109,12 @@ export default function BusinessesPage() {
     }
 
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
-
-      const response = await fetch(`/api/businesses/${id}`, {
+      const result = await authFetch(`/api/businesses/${id}`, {
         method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      }, router);
+      if (!result) return;
 
-      const data = await response.json();
+      const { response, data } = result;
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to delete business');

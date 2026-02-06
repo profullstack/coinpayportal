@@ -2,13 +2,83 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 /**
+ * SSRF Protection - validates webhook URLs before making requests
+ *
+ * Blocks:
+ * - Localhost and loopback addresses
+ * - Private IP ranges (10.x, 172.16-31.x, 192.168.x)
+ * - Link-local addresses (169.254.x.x)
+ * - AWS/cloud metadata endpoints
+ * - Non-HTTPS URLs in production
+ */
+export function isInternalUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Block localhost variants
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+      return true;
+    }
+
+    // Block IPv6 loopback
+    if (hostname === '[::1]') {
+      return true;
+    }
+
+    // Block private IPv4 ranges
+    // 10.0.0.0/8
+    if (/^10\./.test(hostname)) {
+      return true;
+    }
+    // 172.16.0.0/12
+    if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)) {
+      return true;
+    }
+    // 192.168.0.0/16
+    if (/^192\.168\./.test(hostname)) {
+      return true;
+    }
+
+    // Block link-local (AWS metadata, Azure IMDS, etc.)
+    // 169.254.0.0/16
+    if (/^169\.254\./.test(hostname)) {
+      return true;
+    }
+
+    // Block common cloud metadata hostnames
+    if (hostname === 'metadata.google.internal') {
+      return true;
+    }
+
+    // Block non-HTTPS in production (allows HTTP in dev/test)
+    if (parsed.protocol !== 'https:' && process.env.NODE_ENV === 'production') {
+      return true;
+    }
+
+    return false;
+  } catch {
+    // Invalid URL - block it
+    return true;
+  }
+}
+
+/**
  * Webhook event types
  */
 export type WebhookEvent =
   | 'payment.confirmed'
   | 'payment.forwarded'
   | 'payment.expired'
-  | 'payment.failed';
+  | 'payment.failed'
+  | 'escrow.created'
+  | 'escrow.funded'
+  | 'escrow.released'
+  | 'escrow.settled'
+  | 'escrow.disputed'
+  | 'escrow.resolved'
+  | 'escrow.refunded'
+  | 'escrow.expired';
 
 /**
  * Webhook payload structure
@@ -141,6 +211,15 @@ export async function deliverWebhook(
   timeout: number = 30000
 ): Promise<WebhookDeliveryResult> {
   try {
+    // SSRF protection: block internal/dangerous URLs
+    if (isInternalUrl(webhookUrl)) {
+      console.warn(`[Webhook] SSRF protection: blocked request to internal URL`);
+      return {
+        success: false,
+        error: 'Webhook URL not allowed: internal or private addresses are blocked',
+      };
+    }
+
     // Add timestamp to payload
     const payloadWithTimestamp = {
       ...payload,
@@ -231,6 +310,15 @@ export async function deliverWebhookDirect(
   maxRetries: number = 3,
   timeout: number = 30000
 ): Promise<WebhookDeliveryResult> {
+  // SSRF protection: block internal/dangerous URLs
+  if (isInternalUrl(webhookUrl)) {
+    console.warn(`[Webhook] SSRF protection: blocked request to internal URL`);
+    return {
+      success: false,
+      error: 'Webhook URL not allowed: internal or private addresses are blocked',
+    };
+  }
+
   let lastResult: WebhookDeliveryResult = { success: false };
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -474,6 +562,89 @@ export async function sendPaymentWebhook(
     };
   } catch (error) {
     console.error(`[Webhook] Error sending webhook for payment ${paymentId}:`, error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Send webhook for escrow events.
+ * Only fires if the escrow is tied to a business with a webhook configured.
+ */
+export async function sendEscrowWebhook(
+  supabase: SupabaseClient,
+  businessId: string | null,
+  escrowId: string,
+  event: WebhookEvent,
+  escrowData: Record<string, any>
+): Promise<{ success: boolean; error?: string }> {
+  if (!businessId) {
+    // Anonymous escrow with no business — no webhook to send
+    return { success: true };
+  }
+
+  try {
+    const { data: business, error: businessError } = await supabase
+      .from('businesses')
+      .select('webhook_url, webhook_secret')
+      .eq('id', businessId)
+      .single();
+
+    if (businessError || !business?.webhook_url || !business?.webhook_secret) {
+      return { success: true }; // No webhook configured, skip silently
+    }
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const now = new Date();
+
+    const payload = {
+      id: `evt_esc_${escrowId}_${timestamp}`,
+      type: event,
+      data: {
+        escrow_id: escrowId,
+        status: escrowData.status,
+        chain: escrowData.chain,
+        amount: escrowData.amount,
+        escrow_address: escrowData.escrow_address,
+        depositor_address: escrowData.depositor_address,
+        beneficiary_address: escrowData.beneficiary_address,
+        deposited_amount: escrowData.deposited_amount,
+        deposit_tx_hash: escrowData.deposit_tx_hash,
+        settlement_tx_hash: escrowData.settlement_tx_hash,
+        dispute_reason: escrowData.dispute_reason,
+        metadata: escrowData.metadata,
+      },
+      created_at: now.toISOString(),
+      business_id: businessId,
+    };
+
+    const payloadString = JSON.stringify(payload);
+    const signatureHeader = signWebhookPayload(payload, business.webhook_secret, timestamp);
+
+    const result = await deliverWebhookDirect(
+      business.webhook_url,
+      payloadString,
+      signatureHeader
+    );
+
+    // Log delivery
+    await logWebhookAttempt(supabase, {
+      business_id: businessId,
+      payment_id: escrowId, // reuse payment_id column for escrow_id
+      event,
+      webhook_url: business.webhook_url,
+      success: result.success,
+      status_code: result.statusCode || 0,
+      error_message: result.error || undefined,
+      attempt_number: 1,
+      response_time_ms: 0,
+    });
+
+    return { success: result.success, error: result.error };
+  } catch (error) {
+    console.error(`[Webhook] Error sending escrow webhook for ${escrowId}:`, error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

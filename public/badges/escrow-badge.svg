@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60" fill="none">
+  <rect width="200" height="60" rx="8" fill="#1a1a2e"/>
+  <rect x="1" y="1" width="198" height="58" rx="7" stroke="#6366f1" stroke-width="2"/>
+  
+  <!-- Shield icon -->
+  <path d="M25 15c0 0 5-2 12-2s12 2 12 2v16c0 8-12 14-12 14s-12-6-12-14V15z" fill="#6366f1"/>
+  <path d="M32 28l4 4 8-8" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Text -->
+  <text x="55" y="26" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#a5b4fc">Escrow Services by</text>
+  <text x="55" y="44" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700" fill="white">coinpayportal.com</text>
+</svg>

@@ -1,0 +1,57 @@
+name: Publish SDK to npm
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'packages/sdk/**'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/sdk
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Check if version already published
+        id: check
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          echo "version=$CURRENT" >> "$GITHUB_OUTPUT"
+          if npm view "@profullstack/coinpay@$CURRENT" version 2>/dev/null; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "⏭️  v$CURRENT already on npm — skipping publish"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "📦 v$CURRENT not on npm — will publish"
+          fi
+
+      - name: Build (if build script exists)
+        if: steps.check.outputs.published == 'false'
+        run: npm run build --if-present
+
+      - name: Publish to npm
+        if: steps.check.outputs.published == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --ignore-scripts
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.check.outputs.published }}" == "true" ]; then
+            echo "### ⏭️ Skipped — v${{ steps.check.outputs.version }} already published" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ✅ Published @profullstack/coinpay@${{ steps.check.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          fi

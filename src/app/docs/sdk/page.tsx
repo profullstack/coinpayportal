@@ -58,6 +58,7 @@ export default function SDKDocsPage() {
               { name: 'SDK Client', href: '#sdk-client' },
               { name: 'Payments API', href: '#payments' },
               { name: 'Businesses API', href: '#businesses' },
+              { name: 'Escrow API', href: '#escrow' },
               { name: 'Exchange Rates', href: '#rates' },
               { name: 'Webhook Verification', href: '#webhooks' },
               { name: 'CLI Commands', href: '#cli' },
@@ -392,6 +393,78 @@ businesses.forEach(biz => {
           </DocSection>
         </div>
 
+        {/* Escrow API */}
+        <div id="escrow">
+          <DocSection title="Escrow API">
+            <p className="text-gray-300 mb-6">
+              Create and manage trustless crypto escrows. No accounts required — authentication uses unique tokens returned at creation.
+            </p>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Create Escrow</h3>
+            <CodeBlock title="Create a new escrow" language="javascript">
+{`const escrow = await client.createEscrow({
+  chain: 'ETH',
+  amount: 0.5,
+  depositor_address: '0xAlice...',
+  beneficiary_address: '0xBob...',
+  expires_in_hours: 48,  // optional (default: 24, max: 720)
+  metadata: { order_id: '12345' },  // optional
+});
+
+console.log('Deposit to:', escrow.escrow_address);
+console.log('Release token:', escrow.release_token);      // Save this! Given to depositor
+console.log('Beneficiary token:', escrow.beneficiary_token); // Save this! Given to beneficiary`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Get &amp; List Escrows</h3>
+            <CodeBlock title="Get escrow by ID" language="javascript">
+{`const escrow = await client.getEscrow('a1b2c3d4-...');
+console.log(escrow.status);  // 'created' | 'funded' | 'released' | 'settled' | ...`}
+            </CodeBlock>
+
+            <CodeBlock title="List escrows with filters" language="javascript">
+{`const { escrows, total } = await client.listEscrows({
+  status: 'funded',
+  depositor: '0xAlice...',   // optional
+  beneficiary: '0xBob...',   // optional
+  limit: 20,
+  offset: 0,
+});`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Release, Refund &amp; Dispute</h3>
+            <CodeBlock title="Release funds to beneficiary (depositor only)" language="javascript">
+{`await client.releaseEscrow('a1b2c3d4-...', 'esc_release_token...');
+// Triggers on-chain settlement: funds → beneficiary minus fee`}
+            </CodeBlock>
+
+            <CodeBlock title="Refund to depositor (depositor only, no fee)" language="javascript">
+{`await client.refundEscrow('a1b2c3d4-...', 'esc_release_token...');
+// Full amount returned — no platform fee on refunds`}
+            </CodeBlock>
+
+            <CodeBlock title="Open a dispute (either party)" language="javascript">
+{`await client.disputeEscrow('a1b2c3d4-...', 'esc_any_token...', 
+  'Work was not delivered as agreed'
+);`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Events &amp; Polling</h3>
+            <CodeBlock title="Get audit log" language="javascript">
+{`const { events } = await client.getEscrowEvents('a1b2c3d4-...');
+events.forEach(e => console.log(e.event_type, e.actor, e.created_at));`}
+            </CodeBlock>
+
+            <CodeBlock title="Wait for a specific status" language="javascript">
+{`// Poll until escrow reaches target status (or timeout)
+const settled = await client.waitForEscrow('a1b2c3d4-...', 'settled', {
+  intervalMs: 5000,   // check every 5s
+  timeoutMs: 300000,  // timeout after 5min
+});`}
+            </CodeBlock>
+          </DocSection>
+        </div>
+
         {/* Exchange Rates */}
         <div id="rates">
           <DocSection title="Exchange Rates">
@@ -597,6 +670,32 @@ coinpay rates get BTC --fiat USD
 coinpay rates list --fiat EUR`}
             </CodeBlock>
 
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Escrow Commands</h3>
+            <CodeBlock title="Escrow operations" language="bash">
+{`# Create an escrow
+coinpay escrow create --chain ETH --amount 0.5 \\
+  --depositor 0xAlice... --beneficiary 0xBob...
+
+# Get escrow details
+coinpay escrow get a1b2c3d4-...
+
+# List escrows by status
+coinpay escrow list --status funded
+
+# Release funds (depositor)
+coinpay escrow release a1b2c3d4-... --token esc_abc123...
+
+# Refund (depositor, no fee)
+coinpay escrow refund a1b2c3d4-... --token esc_abc123...
+
+# Open dispute (either party)
+coinpay escrow dispute a1b2c3d4-... --token esc_def456... \\
+  --reason "Work not delivered as agreed"
+
+# View audit log
+coinpay escrow events a1b2c3d4-...`}
+            </CodeBlock>
+
             <h3 className="text-xl font-semibold text-white mb-4 mt-8">Webhook Commands</h3>
             <CodeBlock title="Webhook operations" language="bash">
 {`# View webhook logs
@@ -681,7 +780,7 @@ try {
 const result = await client.createPayment({
   businessId: 'biz_123',
   amount: 100,
-  blockchain: Blockchain.BTC,  // 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL' | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL'
+  blockchain: Blockchain.BTC,  // BTC, BCH, ETH, POL, SOL, DOGE, XRP, ADA, BNB, USDT, USDC, USDC_ETH, USDC_POL, USDC_SOL
 });
 
 // result.payment.status: 'pending' | 'detected' | 'confirmed' | 'forwarding' | 'forwarded' | 'expired' | 'failed'

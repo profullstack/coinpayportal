@@ -18,7 +18,12 @@ import { decrypt } from '../crypto/encryption';
 /**
  * Supported blockchains for business collection
  */
-const SUPPORTED_BLOCKCHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL'] as const;
+const SUPPORTED_BLOCKCHAINS = [
+  'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+  'DOGE', 'XRP', 'ADA', 'BNB',
+  'USDT', 'USDC',
+  'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+] as const;
 
 /**
  * Environment variable mapping for platform collection wallets
@@ -29,6 +34,15 @@ const COLLECTION_WALLET_ENV_VARS: Record<BlockchainType, string> = {
   ETH: 'PLATFORM_FEE_WALLET_ETH',
   POL: 'PLATFORM_FEE_WALLET_POL',
   SOL: 'PLATFORM_FEE_WALLET_SOL',
+  DOGE: 'PLATFORM_FEE_WALLET_DOGE',
+  XRP: 'PLATFORM_FEE_WALLET_XRP',
+  ADA: 'PLATFORM_FEE_WALLET_ADA',
+  BNB: 'PLATFORM_FEE_WALLET_BNB',
+  USDT: 'PLATFORM_FEE_WALLET_USDT',
+  USDC: 'PLATFORM_FEE_WALLET_USDC',
+  USDC_ETH: 'PLATFORM_FEE_WALLET_USDC_ETH',
+  USDC_POL: 'PLATFORM_FEE_WALLET_USDC_POL',
+  USDC_SOL: 'PLATFORM_FEE_WALLET_USDC_SOL',
 };
 
 /**

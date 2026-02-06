@@ -126,7 +126,15 @@ const RPC_ENDPOINTS: Record<string, string> = {
 
 // API keys
 const CRYPTO_APIS_KEY = process.env.CRYPTO_APIS_KEY || '';
-const CRON_SECRET = process.env.CRON_SECRET || process.env.INTERNAL_API_KEY;
+
+/**
+ * Cron secret for authenticating cron requests.
+ * Must be set via CRON_SECRET or INTERNAL_API_KEY env var.
+ * If not set, only Vercel Cron requests (with x-vercel-cron header) are allowed.
+ */
+function getCronSecret(): string | undefined {
+  return process.env.CRON_SECRET || process.env.INTERNAL_API_KEY;
+}
 
 interface Payment {
   id: string;
@@ -521,19 +529,30 @@ async function sendWebhook(
  */
 export async function GET(request: NextRequest) {
   try {
-    // Verify cron secret for security
-    const authHeader = request.headers.get('authorization');
-    const cronSecret = authHeader?.replace('Bearer ', '');
-    
     // Allow requests from Vercel Cron (they include a special header)
     const isVercelCron = request.headers.get('x-vercel-cron') === '1';
     
-    if (!isVercelCron && cronSecret !== CRON_SECRET) {
-      console.warn('Unauthorized cron request');
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+    if (!isVercelCron) {
+      // Verify cron secret for non-Vercel requests
+      const cronSecret = getCronSecret();
+      if (!cronSecret) {
+        console.error('CRON_SECRET or INTERNAL_API_KEY not configured');
+        return NextResponse.json(
+          { error: 'Cron endpoint not configured' },
+          { status: 500 }
+        );
+      }
+      
+      const authHeader = request.headers.get('authorization');
+      const providedSecret = authHeader?.replace('Bearer ', '');
+      
+      if (providedSecret !== cronSecret) {
+        console.warn('Unauthorized cron request');
+        return NextResponse.json(
+          { error: 'Unauthorized' },
+          { status: 401 }
+        );
+      }
     }
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -631,6 +650,19 @@ export async function GET(request: NextRequest) {
           stats.confirmed++;
           console.log(`Payment ${payment.id} confirmed with balance ${balance}`);
           
+          // Skip forwarding for escrow-held addresses
+          // (escrow funds are only released via /api/escrow/:id/settle)
+          const { data: addrCheck } = await supabase
+            .from('payment_addresses')
+            .select('is_escrow')
+            .eq('address', payment.payment_address)
+            .single();
+          
+          if (addrCheck?.is_escrow) {
+            console.log(`Payment ${payment.id} is escrow-held — skipping auto-forward`);
+            continue;
+          }
+
           // Trigger forwarding
           const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
           const internalApiKey = process.env.INTERNAL_API_KEY;
@@ -662,10 +694,150 @@ export async function GET(request: NextRequest) {
       }
     }
     
+    // ── Escrow Monitoring ──────────────────────────────────
+    const escrowStats = { checked: 0, funded: 0, expired: 0, errors: 0 };
+
+    try {
+      // 1. Check pending escrows for deposits
+      const { data: pendingEscrows, error: escrowFetchError } = await supabase
+        .from('escrows')
+        .select('id, escrow_address, chain, amount, status, expires_at')
+        .eq('status', 'created')
+        .limit(50);
+
+      if (!escrowFetchError && pendingEscrows) {
+        console.log(`Processing ${pendingEscrows.length} pending escrows`);
+
+        for (const escrow of pendingEscrows) {
+          escrowStats.checked++;
+          try {
+            // Check if expired
+            if (new Date(escrow.expires_at) < now) {
+              await supabase
+                .from('escrows')
+                .update({ status: 'expired' })
+                .eq('id', escrow.id)
+                .eq('status', 'created');
+              await supabase.from('escrow_events').insert({
+                escrow_id: escrow.id,
+                event_type: 'expired',
+                actor: 'system',
+                details: {},
+              });
+              escrowStats.expired++;
+              console.log(`Escrow ${escrow.id} expired`);
+              continue;
+            }
+
+            // Check balance on-chain
+            const balance = await checkBalance(escrow.escrow_address, escrow.chain);
+            const tolerance = escrow.amount * 0.01;
+
+            if (balance >= escrow.amount - tolerance) {
+              // Mark as funded
+              await supabase
+                .from('escrows')
+                .update({
+                  status: 'funded',
+                  funded_at: now.toISOString(),
+                  deposited_amount: balance,
+                })
+                .eq('id', escrow.id)
+                .eq('status', 'created');
+              await supabase.from('escrow_events').insert({
+                escrow_id: escrow.id,
+                event_type: 'funded',
+                actor: 'system',
+                details: { deposited_amount: balance },
+              });
+              escrowStats.funded++;
+              console.log(`Escrow ${escrow.id} funded with ${balance}`);
+            }
+          } catch (escrowError) {
+            console.error(`Error processing escrow ${escrow.id}:`, escrowError);
+            escrowStats.errors++;
+          }
+        }
+      }
+
+      // 2. Process released escrows (trigger settlement/forwarding)
+      const { data: releasedEscrows } = await supabase
+        .from('escrows')
+        .select('id, escrow_address, escrow_address_id, chain, amount, deposited_amount, fee_amount, beneficiary_address, business_id')
+        .eq('status', 'released')
+        .limit(20);
+
+      if (releasedEscrows && releasedEscrows.length > 0) {
+        console.log(`Processing ${releasedEscrows.length} released escrows for settlement`);
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
+        const internalApiKey = process.env.INTERNAL_API_KEY;
+
+        for (const escrow of releasedEscrows) {
+          try {
+            if (internalApiKey) {
+              const settleResponse = await fetch(`${appUrl}/api/escrow/${escrow.id}/settle`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${internalApiKey}`,
+                },
+              });
+              if (settleResponse.ok) {
+                console.log(`Settlement triggered for escrow ${escrow.id}`);
+              } else {
+                console.error(`Settlement failed for escrow ${escrow.id}: ${settleResponse.status}`);
+              }
+            }
+          } catch (settleError) {
+            console.error(`Error settling escrow ${escrow.id}:`, settleError);
+          }
+        }
+      }
+
+      // 3. Process refunded escrows (return funds to depositor)
+      const { data: refundedEscrows } = await supabase
+        .from('escrows')
+        .select('id, escrow_address, escrow_address_id, chain, deposited_amount, depositor_address')
+        .eq('status', 'refunded')
+        .is('settlement_tx_hash', null)
+        .limit(20);
+
+      if (refundedEscrows && refundedEscrows.length > 0) {
+        console.log(`Processing ${refundedEscrows.length} refunded escrows`);
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
+        const internalApiKey = process.env.INTERNAL_API_KEY;
+
+        for (const escrow of refundedEscrows) {
+          try {
+            if (internalApiKey) {
+              const refundResponse = await fetch(`${appUrl}/api/escrow/${escrow.id}/settle`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${internalApiKey}`,
+                },
+                body: JSON.stringify({ action: 'refund' }),
+              });
+              if (refundResponse.ok) {
+                console.log(`Refund triggered for escrow ${escrow.id}`);
+              } else {
+                console.error(`Refund failed for escrow ${escrow.id}: ${refundResponse.status}`);
+              }
+            }
+          } catch (refundError) {
+            console.error(`Error refunding escrow ${escrow.id}:`, refundError);
+          }
+        }
+      }
+    } catch (escrowMonitorError) {
+      console.error('Escrow monitor error:', escrowMonitorError);
+    }
+
     const response = {
       success: true,
       timestamp: now.toISOString(),
       stats,
+      escrow: escrowStats,
     };
     
     console.log('Monitor complete:', response);

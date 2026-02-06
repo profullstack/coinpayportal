@@ -2,17 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase/server';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getBusinessCollectionPayment } from '@/lib/payments/business-collection';
-
-/**
- * Get JWT secret from environment
- */
-function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    throw new Error('JWT_SECRET environment variable is not set');
-  }
-  return secret;
-}
+import { getJwtSecret } from '@/lib/secrets';
 
 /**
  * GET /api/business-collection/[id]

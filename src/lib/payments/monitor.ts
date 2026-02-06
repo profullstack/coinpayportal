@@ -9,6 +9,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { runWalletTxCycle } from '../web-wallet/tx-finalize';
 
 // Configuration
 const MONITOR_INTERVAL_MS = parseInt(process.env.MONITOR_INTERVAL_MS || '15000', 10); // 15 seconds default
@@ -22,6 +23,8 @@ const RPC_ENDPOINTS: Record<string, string> = {
   ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
   POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
   SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+  BNB: process.env.BNB_RPC_URL || 'https://bsc-dataseed.binance.org',
+  XRP: process.env.XRP_RPC_URL || 'https://s1.ripple.com:51234',
 };
 
 const CRYPTO_APIS_KEY = process.env.CRYPTO_APIS_KEY || '';
@@ -267,6 +270,133 @@ async function checkSolanaBalance(address: string, rpcUrl: string): Promise<Bala
 }
 
 /**
+ * Check balance for a Dogecoin address
+ */
+async function checkDOGEBalance(address: string): Promise<BalanceResult> {
+  try {
+    console.log(`[Monitor] Checking DOGE balance for ${address}`);
+    // Try Blockcypher first
+    const response = await fetch(`https://api.blockcypher.com/v1/doge/main/addrs/${address}/balance`);
+    if (response.ok) {
+      const data = await response.json();
+      const balance = (data.balance || 0) / 1e8;
+      console.log(`[Monitor] DOGE balance for ${address}: ${balance} DOGE`);
+      return { balance };
+    }
+    // Fallback to dogechain
+    const fallbackResponse = await fetch(`https://dogechain.info/api/v1/address/balance/${address}`);
+    if (fallbackResponse.ok) {
+      const data = await fallbackResponse.json();
+      if (data.success === 1) {
+        const balance = parseFloat(data.balance || '0');
+        console.log(`[Monitor] DOGE balance for ${address}: ${balance} DOGE`);
+        return { balance };
+      }
+    }
+    return { balance: 0 };
+  } catch (error) {
+    console.error(`[Monitor] Error checking DOGE balance for ${address}:`, error);
+    return { balance: 0 };
+  }
+}
+
+/**
+ * Check balance for a BNB (BSC) address
+ */
+async function checkBNBBalance(address: string): Promise<BalanceResult> {
+  try {
+    console.log(`[Monitor] Checking BNB balance for ${address}`);
+    const response = await fetch(RPC_ENDPOINTS.BNB, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_getBalance',
+        params: [address, 'latest'],
+        id: 1,
+      }),
+    });
+    if (!response.ok) {
+      return { balance: 0 };
+    }
+    const data = await response.json();
+    const balanceWei = BigInt(data.result || '0x0');
+    const balance = Number(balanceWei) / 1e18;
+    console.log(`[Monitor] BNB balance for ${address}: ${balance} BNB`);
+    return { balance };
+  } catch (error) {
+    console.error(`[Monitor] Error checking BNB balance for ${address}:`, error);
+    return { balance: 0 };
+  }
+}
+
+/**
+ * Check balance for an XRP address
+ */
+async function checkXRPBalance(address: string): Promise<BalanceResult> {
+  try {
+    console.log(`[Monitor] Checking XRP balance for ${address}`);
+    const response = await fetch(RPC_ENDPOINTS.XRP, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        method: 'account_info',
+        params: [{ account: address, ledger_index: 'validated' }],
+      }),
+    });
+    if (!response.ok) {
+      return { balance: 0 };
+    }
+    const data = await response.json();
+    if (data.result?.error === 'actNotFound') {
+      return { balance: 0 }; // Account not activated
+    }
+    // XRP balance is in drops (1 XRP = 1,000,000 drops)
+    const drops = BigInt(data.result?.account_data?.Balance || '0');
+    const balance = Number(drops) / 1e6;
+    console.log(`[Monitor] XRP balance for ${address}: ${balance} XRP`);
+    return { balance };
+  } catch (error) {
+    console.error(`[Monitor] Error checking XRP balance for ${address}:`, error);
+    return { balance: 0 };
+  }
+}
+
+/**
+ * Check balance for a Cardano (ADA) address
+ */
+async function checkADABalance(address: string): Promise<BalanceResult> {
+  try {
+    console.log(`[Monitor] Checking ADA balance for ${address}`);
+    const blockfrostKey = process.env.BLOCKFROST_API_KEY;
+    if (!blockfrostKey) {
+      console.error('[Monitor] BLOCKFROST_API_KEY not configured for ADA');
+      return { balance: 0 };
+    }
+    const response = await fetch(`https://cardano-mainnet.blockfrost.io/api/v0/addresses/${address}`, {
+      headers: { 'project_id': blockfrostKey },
+    });
+    if (response.status === 404) {
+      return { balance: 0 }; // Address not used yet
+    }
+    if (!response.ok) {
+      return { balance: 0 };
+    }
+    const data = await response.json();
+    // ADA is in lovelace (1 ADA = 1,000,000 lovelace)
+    // Find lovelace entry specifically (not native tokens)
+    const lovelaceEntry = data.amount?.find((a: { unit: string }) => a.unit === 'lovelace');
+    const lovelace = BigInt(lovelaceEntry?.quantity || '0');
+    const balance = Number(lovelace) / 1e6;
+    console.log(`[Monitor] ADA balance for ${address}: ${balance} ADA`);
+    return { balance };
+  } catch (error) {
+    console.error(`[Monitor] Error checking ADA balance for ${address}:`, error);
+    return { balance: 0 };
+  }
+}
+
+/**
  * Check balance for any supported blockchain
  */
 async function checkBalance(address: string, blockchain: string): Promise<BalanceResult> {
@@ -276,6 +406,8 @@ async function checkBalance(address: string, blockchain: string): Promise<Balanc
     case 'BCH':
       return checkBCHBalance(address);
     case 'ETH':
+    case 'USDT':
+    case 'USDC':
     case 'USDC_ETH':
       return checkEVMBalance(address, RPC_ENDPOINTS.ETH, 'ETH');
     case 'POL':
@@ -284,6 +416,14 @@ async function checkBalance(address: string, blockchain: string): Promise<Balanc
     case 'SOL':
     case 'USDC_SOL':
       return checkSolanaBalance(address, RPC_ENDPOINTS.SOL);
+    case 'BNB':
+      return checkBNBBalance(address);
+    case 'DOGE':
+      return checkDOGEBalance(address);
+    case 'XRP':
+      return checkXRPBalance(address);
+    case 'ADA':
+      return checkADABalance(address);
     default:
       console.error(`[Monitor] Unsupported blockchain: ${blockchain}`);
       return { balance: 0 };
@@ -376,8 +516,12 @@ async function processPayment(supabase: any, payment: Payment): Promise<{ confir
   return { confirmed: false, expired: false };
 }
 
+// ────────────────────────────────────────────────────────────
+// Main Monitor Cycle
+// ────────────────────────────────────────────────────────────
+
 /**
- * Run one monitoring cycle
+ * Run one monitoring cycle — payments + wallet transactions
  */
 async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; expired: number; errors: number }> {
   const stats = { checked: 0, confirmed: 0, expired: 0, errors: 0 };
@@ -390,7 +534,7 @@ async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; 
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     
-    // Get all pending payments
+    // ── 1. Payment gateway monitoring ──
     const { data: pendingPayments, error: fetchError } = await supabase
       .from('payments')
       .select(`
@@ -409,30 +553,31 @@ async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; 
     
     if (fetchError) {
       console.error('[Monitor] Failed to fetch pending payments:', fetchError);
-      return stats;
-    }
-    
-    if (!pendingPayments || pendingPayments.length === 0) {
-      console.log('[Monitor] No pending payments to process');
-      return stats;
-    }
-    
-    console.log(`[Monitor] Processing ${pendingPayments.length} pending payments`);
-    
-    // Process each payment
-    for (const payment of pendingPayments) {
-      stats.checked++;
-      try {
-        const result = await processPayment(supabase, payment as Payment);
-        if (result.confirmed) stats.confirmed++;
-        if (result.expired) stats.expired++;
-      } catch (error) {
-        console.error(`[Monitor] Error processing payment ${payment.id}:`, error);
-        stats.errors++;
+    } else if (pendingPayments && pendingPayments.length > 0) {
+      console.log(`[Monitor] Processing ${pendingPayments.length} pending payments`);
+      
+      for (const payment of pendingPayments) {
+        stats.checked++;
+        try {
+          const result = await processPayment(supabase, payment as Payment);
+          if (result.confirmed) stats.confirmed++;
+          if (result.expired) stats.expired++;
+        } catch (error) {
+          console.error(`[Monitor] Error processing payment ${payment.id}:`, error);
+          stats.errors++;
+        }
       }
     }
     
-    console.log(`[Monitor] Cycle complete: checked=${stats.checked}, confirmed=${stats.confirmed}, expired=${stats.expired}, errors=${stats.errors}`);
+    // ── 2. Web-wallet transaction finalization ──
+    const walletStats = await runWalletTxCycle(supabase);
+    stats.checked += walletStats.checked;
+    stats.confirmed += walletStats.confirmed;
+    stats.errors += walletStats.errors;
+    
+    if (stats.checked > 0) {
+      console.log(`[Monitor] Cycle complete: checked=${stats.checked}, confirmed=${stats.confirmed}, expired=${stats.expired}, errors=${stats.errors}`);
+    }
   } catch (error) {
     console.error('[Monitor] Error in monitor cycle:', error);
   }
