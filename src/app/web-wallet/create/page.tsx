@@ -9,15 +9,12 @@ import { SeedDisplay } from '@/components/web-wallet/SeedDisplay';
 import { ChainMultiSelect } from '@/components/web-wallet/ChainSelector';
 import { checkPasswordStrength } from '@/lib/web-wallet/client-crypto';
 import { downloadEncryptedSeedPhrase } from '@/lib/web-wallet/seedphrase-backup';
+import { DERIVABLE_CHAINS } from '@/lib/web-wallet/keys';
 
 type Step = 'password' | 'seed' | 'verify';
 
-const DEFAULT_CHAINS = [
-  'BTC', 'BCH', 'ETH', 'POL', 'SOL',
-  'DOGE', 'XRP', 'ADA', 'BNB',
-  'USDT', 'USDC',
-  'USDC_ETH', 'USDC_POL', 'USDC_SOL',
-];
+// Default to all derivable chains
+const DEFAULT_CHAINS = [...DERIVABLE_CHAINS];
 
 export default function CreateWalletPage() {
   const router = useRouter();

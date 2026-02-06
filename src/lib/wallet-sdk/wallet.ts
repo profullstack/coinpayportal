@@ -76,8 +76,8 @@ export class Wallet {
     const chains: WalletChain[] = options.chains || [
       'BTC', 'BCH', 'ETH', 'POL', 'SOL',
       'DOGE', 'XRP', 'ADA', 'BNB',
-      'USDT', 'USDC',
       'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+      'USDT_ETH', 'USDT_POL', 'USDT_SOL',
     ];
     const mnemonic = generateMnemonic(options.words || 12);
     const bundle = await deriveWalletBundle(mnemonic, chains);
@@ -132,11 +132,12 @@ export class Wallet {
     }
 
     const client = new WalletAPIClient(options);
-    // Only include chains with implemented key derivation
-    // DOGE, XRP, ADA, BNB, USDT, USDC key derivation not yet implemented
+    // Default to all derivable chains
     const chains: WalletChain[] = options.chains || [
       'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+      'DOGE', 'XRP', 'ADA', 'BNB',
       'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+      'USDT_ETH', 'USDT_POL', 'USDT_SOL',
     ];
     const bundle = await deriveWalletBundle(mnemonic, chains);
 
@@ -322,7 +323,9 @@ export class Wallet {
     // Default chains that should exist
     const defaultChains: WalletChain[] = targetChains || [
       'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+      'DOGE', 'XRP', 'ADA', 'BNB',
       'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+      'USDT_ETH', 'USDT_POL', 'USDT_SOL',
     ];
 
     // Get current addresses
@@ -360,15 +363,35 @@ export class Wallet {
   async getMissingChains(
     targetChains?: WalletChain[]
   ): Promise<WalletChain[]> {
-    const defaultChains: WalletChain[] = targetChains || [
-      'BTC', 'BCH', 'ETH', 'POL', 'SOL',
-      'USDC_ETH', 'USDC_POL', 'USDC_SOL',
-    ];
+    // Dynamically fetch current supported chains from the server
+    // This ensures old wallets see newly added chains
+    let supportedChains: WalletChain[];
+    
+    if (targetChains) {
+      supportedChains = targetChains;
+    } else {
+      try {
+        // Fetch from API to get latest supported chains
+        const resp = await this.client.request<{ chains: string[] }>({
+          method: 'GET',
+          path: '/api/web-wallet/supported-chains',
+        });
+        supportedChains = (resp.chains || []) as WalletChain[];
+      } catch {
+        // Fallback to hardcoded list if API fails
+        supportedChains = [
+          'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+          'DOGE', 'XRP', 'ADA', 'BNB',
+          'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+          'USDT_ETH', 'USDT_POL', 'USDT_SOL',
+        ];
+      }
+    }
 
     const currentAddresses = await this.getAddresses();
     const existingChains = new Set(currentAddresses.map((a) => a.chain));
 
-    return defaultChains.filter((c) => !existingChains.has(c));
+    return supportedChains.filter((c) => !existingChains.has(c));
   }
 
   // ── Balances ──

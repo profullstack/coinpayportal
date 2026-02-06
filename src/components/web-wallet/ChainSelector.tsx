@@ -1,24 +1,15 @@
 'use client';
 
-const ALL_CHAINS = [
-  { id: 'BTC', name: 'Bitcoin', symbol: 'BTC' },
-  { id: 'BCH', name: 'Bitcoin Cash', symbol: 'BCH' },
-  { id: 'ETH', name: 'Ethereum', symbol: 'ETH' },
-  { id: 'POL', name: 'Polygon', symbol: 'POL' },
-  { id: 'SOL', name: 'Solana', symbol: 'SOL' },
-  { id: 'DOGE', name: 'Dogecoin', symbol: 'DOGE' },
-  { id: 'XRP', name: 'Ripple', symbol: 'XRP' },
-  { id: 'ADA', name: 'Cardano', symbol: 'ADA' },
-  { id: 'BNB', name: 'BNB Chain', symbol: 'BNB' },
-  { id: 'USDT', name: 'Tether', symbol: 'USDT' },
-  { id: 'USDC', name: 'USD Coin', symbol: 'USDC' },
-  { id: 'USDC_ETH', name: 'USDC (Ethereum)', symbol: 'USDC' },
-  { id: 'USDC_POL', name: 'USDC (Polygon)', symbol: 'USDC' },
-  { id: 'USDC_SOL', name: 'USDC (Solana)', symbol: 'USDC' },
-  { id: 'USDT_ETH', name: 'USDT (Ethereum)', symbol: 'USDT' },
-  { id: 'USDT_POL', name: 'USDT (Polygon)', symbol: 'USDT' },
-  { id: 'USDT_SOL', name: 'USDT (Solana)', symbol: 'USDT' },
-] as const;
+import { DERIVABLE_CHAINS, DERIVABLE_CHAIN_INFO, type DerivableChain } from '@/lib/web-wallet/keys';
+
+/**
+ * Build chain list from the single source of truth
+ */
+const CHAIN_LIST = DERIVABLE_CHAINS.map((id) => ({
+  id,
+  name: DERIVABLE_CHAIN_INFO[id].name,
+  symbol: DERIVABLE_CHAIN_INFO[id].symbol,
+}));
 
 interface BalanceInfo {
   balance: string;
@@ -43,8 +34,8 @@ export function ChainSelector({
   balances,
 }: ChainSelectorProps) {
   const available = chains
-    ? ALL_CHAINS.filter((c) => chains.includes(c.id))
-    : ALL_CHAINS;
+    ? CHAIN_LIST.filter((c) => chains.includes(c.id))
+    : CHAIN_LIST;
 
   // Format balance for display
   const formatBalance = (chainId: string): string => {
@@ -111,7 +102,7 @@ export function ChainMultiSelect({
         </label>
       )}
       <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
-        {ALL_CHAINS.map((chain) => {
+        {CHAIN_LIST.map((chain) => {
           const selected = value.includes(chain.id);
           return (
             <button

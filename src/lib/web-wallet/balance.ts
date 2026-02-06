@@ -63,11 +63,15 @@ const USDC_CONTRACTS: Record<string, string> = {
 // USDT contract addresses (ERC-20 compatible)
 const USDT_CONTRACTS: Record<string, string> = {
   USDT_ETH: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+  USDT_POL: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', // USDT on Polygon
   USDT_BNB: '0x55d398326f99059fF775485246999027B3197955',
 };
 
 // USDC on Solana (SPL token mint)
 const USDC_SOL_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+// USDT on Solana (SPL token mint)
+const USDT_SOL_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 
 // USDC/USDT have 6 decimals on all chains
 const USDC_DECIMALS = 6;
@@ -436,7 +440,6 @@ export async function fetchBalance(address: string, chain: WalletChain): Promise
       return fetchADABalance(address);
 
     // USDC variants
-    case 'USDC':
     case 'USDC_ETH':
       return fetchERC20Balance(address, USDC_CONTRACTS.USDC_ETH, rpc.ETH, USDC_DECIMALS);
     case 'USDC_POL':
@@ -444,9 +447,13 @@ export async function fetchBalance(address: string, chain: WalletChain): Promise
     case 'USDC_SOL':
       return fetchSPLTokenBalance(address, USDC_SOL_MINT, rpc.SOL, USDC_DECIMALS);
 
-    // USDT (defaults to ETH)
-    case 'USDT':
+    // USDT variants
+    case 'USDT_ETH':
       return fetchERC20Balance(address, USDT_CONTRACTS.USDT_ETH, rpc.ETH, USDT_DECIMALS);
+    case 'USDT_POL':
+      return fetchERC20Balance(address, USDT_CONTRACTS.USDT_POL, rpc.POL, USDT_DECIMALS);
+    case 'USDT_SOL':
+      return fetchSPLTokenBalance(address, USDT_SOL_MINT, rpc.SOL, USDT_DECIMALS);
 
     default:
       throw new Error(`Unsupported chain: ${chain}`);

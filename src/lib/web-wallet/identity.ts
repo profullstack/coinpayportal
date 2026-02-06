@@ -11,15 +11,15 @@ import { secp256k1 } from '@noble/curves/secp256k1';
 export type WalletChain =
   | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
   | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
-  | 'USDT' | 'USDC'
-  | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
+  | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL'
+  | 'USDT_ETH' | 'USDT_POL' | 'USDT_SOL';
 
 /** All valid chain values */
 export const VALID_CHAINS: WalletChain[] = [
   'BTC', 'BCH', 'ETH', 'POL', 'SOL',
   'DOGE', 'XRP', 'ADA', 'BNB',
-  'USDT', 'USDC',
   'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+  'USDT_ETH', 'USDT_POL', 'USDT_SOL',
 ];
 
 /** BIP44 derivation path patterns per chain */
@@ -31,13 +31,14 @@ export const DERIVATION_PATHS: Record<string, string> = {
   SOL: "m/44'/501'",
   DOGE: "m/44'/3'/0'/0",
   XRP: "m/44'/144'/0'/0",
-  ADA: "m/1852'/1815'/0'/0",
+  ADA: "m/1852'/1815'/0'/0'",
   BNB: "m/44'/60'/0'/0",
-  USDT: "m/44'/60'/0'/0",
-  USDC: "m/44'/60'/0'/0",
   USDC_ETH: "m/44'/60'/0'/0",
   USDC_POL: "m/44'/60'/0'/0",
   USDC_SOL: "m/44'/501'",
+  USDT_ETH: "m/44'/60'/0'/0",
+  USDT_POL: "m/44'/60'/0'/0",
+  USDT_SOL: "m/44'/501'",
 };
 
 /**
@@ -99,14 +100,15 @@ export function validateAddress(address: string, chain: WalletChain): boolean {
     case 'ETH':
     case 'POL':
     case 'BNB':
-    case 'USDT':
-    case 'USDC':
     case 'USDC_ETH':
     case 'USDC_POL':
+    case 'USDT_ETH':
+    case 'USDT_POL':
       // EVM address: 0x followed by 40 hex chars
       return /^0x[0-9a-fA-F]{40}$/.test(address);
     case 'SOL':
     case 'USDC_SOL':
+    case 'USDT_SOL':
       // Solana: base58 encoded, 32-44 chars
       return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
     case 'DOGE':
@@ -132,9 +134,14 @@ export function validateDerivationPath(path: string, chain: WalletChain): boolea
   const basePath = DERIVATION_PATHS[chain];
   if (!basePath) return false;
 
-  if (chain === 'SOL' || chain === 'USDC_SOL') {
+  if (chain === 'SOL' || chain === 'USDC_SOL' || chain === 'USDT_SOL') {
     // Solana uses: m/44'/501'/n'/0'
     return /^m\/44'\/501'\/\d+'\/0'$/.test(path);
+  }
+
+  if (chain === 'ADA') {
+    // Cardano CIP-1852 (all hardened for Ed25519): m/1852'/1815'/account'/role'/index'
+    return /^m\/1852'\/1815'\/\d+'\/\d+'\/\d+'$/.test(path);
   }
 
   // BTC/BCH/ETH/POL: m/44'/coinType'/0'/0/n
@@ -155,9 +162,6 @@ export function isValidChain(chain: string): chain is WalletChain {
  */
 export function buildDerivationPath(chain: WalletChain, index: number): string {
   switch (chain) {
-    case 'SOL':
-    case 'USDC_SOL':
-      return `m/44'/501'/${index}'/0'`;
     case 'BTC':
       return `m/44'/0'/0'/0/${index}`;
     case 'BCH':
@@ -165,17 +169,21 @@ export function buildDerivationPath(chain: WalletChain, index: number): string {
     case 'ETH':
     case 'POL':
     case 'BNB':
-    case 'USDT':
-    case 'USDC':
     case 'USDC_ETH':
     case 'USDC_POL':
+    case 'USDT_ETH':
+    case 'USDT_POL':
       return `m/44'/60'/0'/0/${index}`;
+    case 'SOL':
+    case 'USDC_SOL':
+    case 'USDT_SOL':
+      return `m/44'/501'/${index}'/0'`;
     case 'DOGE':
       return `m/44'/3'/0'/0/${index}`;
     case 'XRP':
       return `m/44'/144'/0'/0/${index}`;
     case 'ADA':
-      return `m/1852'/1815'/0'/0/${index}`;
+      return `m/1852'/1815'/0'/0'/${index}'`;
     default:
       throw new Error(`Unsupported chain: ${chain}`);
   }

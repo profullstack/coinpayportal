@@ -11,7 +11,7 @@ describe('ChainSelector', () => {
 
     // Should have "Select chain" + 17 chain options
     const options = screen.getAllByRole('option');
-    expect(options.length).toBe(18); // 1 placeholder + 17 chains
+    expect(options.length).toBe(16); // 1 placeholder + 15 derivable chains
   });
 
   it('should render with label', () => {
