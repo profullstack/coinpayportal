@@ -40,14 +40,14 @@ describe('ChangeNOW Client', () => {
       expect(CN_COIN_MAP['SOL']).toEqual({ ticker: 'sol', network: 'sol' });
       expect(CN_COIN_MAP['POL']).toEqual({ ticker: 'matic', network: 'matic' });
       expect(CN_COIN_MAP['BCH']).toEqual({ ticker: 'bch', network: 'bch' });
-      expect(CN_COIN_MAP['BNB']).toEqual({ ticker: 'bnb', network: 'bsc' });
+      expect(CN_COIN_MAP['BNB']).toEqual({ ticker: 'bnbbsc', network: 'bsc' });
       expect(CN_COIN_MAP['DOGE']).toEqual({ ticker: 'doge', network: 'doge' });
       expect(CN_COIN_MAP['XRP']).toEqual({ ticker: 'xrp', network: 'xrp' });
       expect(CN_COIN_MAP['ADA']).toEqual({ ticker: 'ada', network: 'ada' });
-      expect(CN_COIN_MAP['USDT']).toEqual({ ticker: 'usdt', network: 'eth' });
+      expect(CN_COIN_MAP['USDT']).toEqual({ ticker: 'usdterc20', network: 'eth' });
       expect(CN_COIN_MAP['USDC']).toEqual({ ticker: 'usdc', network: 'eth' });
-      expect(CN_COIN_MAP['USDC_POL']).toEqual({ ticker: 'usdc', network: 'matic' });
-      expect(CN_COIN_MAP['USDC_SOL']).toEqual({ ticker: 'usdc', network: 'sol' });
+      expect(CN_COIN_MAP['USDC_POL']).toEqual({ ticker: 'usdcmatic', network: 'matic' });
+      expect(CN_COIN_MAP['USDC_SOL']).toEqual({ ticker: 'usdcsol', network: 'sol' });
     });
 
     it('isSwapSupported should validate correctly', () => {
