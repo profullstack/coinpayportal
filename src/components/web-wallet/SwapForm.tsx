@@ -3,7 +3,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ChainSelector } from './ChainSelector';
 import { AmountInput } from './AmountInput';
+import { useWebWallet } from './WalletContext';
 import { type FiatCurrency, getFiatSymbol } from '@/lib/web-wallet/settings';
+import {
+  decryptWithPassword,
+  loadWalletFromStorage,
+} from '@/lib/web-wallet/client-crypto';
+import type { WalletChain } from '@/lib/web-wallet/identity';
 
 // All coins supported for swaps (must match changenow.ts SWAP_SUPPORTED_COINS)
 const SWAP_COINS = [
@@ -45,6 +51,7 @@ interface SwapFormProps {
 }
 
 export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD', onSwapCreated }: SwapFormProps) {
+  const { wallet } = useWebWallet();
   const [fromCoin, setFromCoin] = useState('');
   const [toCoin, setToCoin] = useState('');
   const [amount, setAmount] = useState('');
@@ -52,8 +59,13 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
   const [swap, setSwap] = useState<SwapResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState<'form' | 'confirm' | 'result'>('form');
+  const [step, setStep] = useState<'form' | 'confirm' | 'result' | 'password' | 'sending' | 'complete'>('form');
   const [usdRate, setUsdRate] = useState<number | null>(null);
+  
+  // Deposit sending state
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [depositTxHash, setDepositTxHash] = useState<string | null>(null);
 
   // Fetch fiat rate for the selected "from" coin
   useEffect(() => {
@@ -167,6 +179,69 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
     }
   };
 
+  // Handle "Send Deposit" click - go to password step
+  const handleSendDeposit = () => {
+    setPassword('');
+    setPasswordError('');
+    setStep('password');
+  };
+
+  // Validate password and send deposit
+  const handlePasswordSubmit = async () => {
+    if (!password) {
+      setPasswordError('Password is required');
+      return;
+    }
+    
+    const stored = loadWalletFromStorage();
+    if (!stored) {
+      setPasswordError('Wallet data not found');
+      return;
+    }
+    
+    const result = await decryptWithPassword(stored.encrypted, password);
+    if (!result) {
+      setPasswordError('Incorrect password');
+      return;
+    }
+    
+    // Password verified, now send the deposit
+    setPassword('');
+    await handleSendDepositTx();
+  };
+
+  // Actually send the deposit transaction
+  const handleSendDepositTx = async () => {
+    if (!wallet || !swap) return;
+    
+    setStep('sending');
+    setError(null);
+    
+    try {
+      // Determine the from address
+      const fromAddress = addresses[fromCoin] || addresses[getBaseChain(fromCoin)];
+      if (!fromAddress) {
+        throw new Error(`No ${fromCoin} address available`);
+      }
+      
+      // Send to ChangeNOW's deposit address
+      const result = await wallet.send({
+        chain: fromCoin as WalletChain,
+        fromAddress,
+        toAddress: swap.depositAddress,
+        amount: swap.depositAmount,
+        priority: 'medium',
+      });
+      
+      setDepositTxHash(result.txHash);
+      setStep('complete');
+    } catch (err: any) {
+      console.error('Deposit send failed:', err);
+      setError(err.message || 'Failed to send deposit');
+      setStep('result'); // Go back to result so they can try again
+    }
+  };
+
   const handleSwapDirection = () => {
     const temp = fromCoin;
     setFromCoin(toCoin);
@@ -180,10 +255,87 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
     setQuote(null);
     setAmount('');
     setError(null);
+    setPassword('');
+    setPasswordError('');
+    setDepositTxHash(null);
   };
 
-  // Swap result view
-  if (step === 'result' && swap) {
+  // Password confirmation view
+  if (step === 'password' && swap) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-xl border border-white/10 bg-white/5 p-6 space-y-4">
+          <h3 className="font-semibold text-white">Confirm Deposit</h3>
+          <p className="text-sm text-gray-400">
+            Enter your wallet password to send {swap.depositAmount} {fromCoin} to complete the swap.
+          </p>
+
+          <div className="space-y-2">
+            <label htmlFor="swap-password" className="block text-sm font-medium text-gray-300">
+              Password
+            </label>
+            <input
+              id="swap-password"
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setPasswordError('');
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && handlePasswordSubmit()}
+              placeholder="Enter your password"
+              className={`w-full rounded-lg border bg-white/5 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-1 ${
+                passwordError
+                  ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
+                  : 'border-white/10 focus:border-purple-500 focus:ring-purple-500'
+              }`}
+            />
+            {passwordError && (
+              <p className="text-xs text-red-400">{passwordError}</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={() => setStep('result')}
+            className="flex-1 rounded-xl border border-white/10 bg-white/5 px-6 py-3 text-sm font-medium text-gray-300 hover:bg-white/10 transition-colors"
+          >
+            Back
+          </button>
+          <button
+            onClick={handlePasswordSubmit}
+            disabled={!password}
+            className="flex-1 rounded-xl bg-purple-600 px-6 py-3 text-sm font-semibold text-white hover:bg-purple-500 disabled:opacity-50 transition-colors"
+          >
+            Send Deposit
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Sending view
+  if (step === 'sending') {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-6">
+          <div className="flex flex-col items-center gap-4 py-8">
+            <div className="h-12 w-12 animate-spin rounded-full border-4 border-purple-500 border-t-transparent" />
+            <div className="text-center">
+              <h3 className="font-semibold text-white">Sending Deposit</h3>
+              <p className="text-sm text-gray-400 mt-1">
+                Sending {swap?.depositAmount} {fromCoin}...
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Complete view (deposit sent)
+  if (step === 'complete' && swap) {
     return (
       <div className="space-y-6">
         <div className="rounded-xl border border-green-500/30 bg-green-500/10 p-6">
@@ -194,8 +346,8 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
               </svg>
             </div>
             <div>
-              <h3 className="font-semibold text-white">Swap Created</h3>
-              <p className="text-sm text-gray-400">Send your deposit to complete</p>
+              <h3 className="font-semibold text-white">Deposit Sent!</h3>
+              <p className="text-sm text-gray-400">Your swap is being processed</p>
             </div>
           </div>
 
@@ -205,23 +357,77 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
               <span className="font-mono text-white">{swap.id.slice(0, 16)}...</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-400">Send</span>
+              <span className="text-gray-400">Sent</span>
               <span className="text-white">{swap.depositAmount} {fromCoin}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-400">Receive</span>
-              <span className="text-green-400">{swap.settleAmount} {toCoin}</span>
+              <span className="text-gray-400">Receiving</span>
+              <span className="text-green-400">≈ {swap.settleAmount} {toCoin}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Status</span>
-              <span className="text-yellow-400">{swap.status}</span>
-            </div>
+            {depositTxHash && (
+              <div className="flex justify-between items-start">
+                <span className="text-gray-400">Deposit TX</span>
+                <span className="font-mono text-xs text-purple-400 break-all max-w-[200px]">
+                  {depositTxHash.slice(0, 16)}...
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="mt-6 p-4 rounded-lg bg-black/30">
-            <p className="text-xs text-gray-400 mb-2">Deposit Address</p>
-            <p className="font-mono text-sm text-white break-all">{swap.depositAddress}</p>
+            <p className="text-xs text-gray-400 mb-2">
+              ⏱️ The swap typically completes in 10-30 minutes. Check the Swap History tab for status updates.
+            </p>
           </div>
+        </div>
+
+        <button
+          onClick={resetForm}
+          className="w-full rounded-xl bg-purple-600 px-6 py-3 text-sm font-semibold text-white hover:bg-purple-500 transition-colors"
+        >
+          New Swap
+        </button>
+      </div>
+    );
+  }
+
+  // Swap result view (swap created, ready to send deposit)
+  if (step === 'result' && swap) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="h-10 w-10 rounded-full bg-yellow-500 flex items-center justify-center">
+              <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-semibold text-white">Ready to Swap</h3>
+              <p className="text-sm text-gray-400">Confirm to send your deposit</p>
+            </div>
+          </div>
+
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-400">Swap ID</span>
+              <span className="font-mono text-white">{swap.id.slice(0, 16)}...</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">You send</span>
+              <span className="text-white">{swap.depositAmount} {fromCoin}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">You receive</span>
+              <span className="text-green-400">≈ {swap.settleAmount} {toCoin}</span>
+            </div>
+          </div>
+
+          {error && (
+            <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+              <p className="text-sm text-red-400">{error}</p>
+            </div>
+          )}
 
           {swap.expiresAt && (
             <p className="mt-4 text-xs text-gray-400">
@@ -230,12 +436,28 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
           )}
         </div>
 
-        <button
-          onClick={resetForm}
-          className="w-full rounded-xl border border-white/10 bg-white/5 px-6 py-3 text-sm font-medium text-gray-300 hover:bg-white/10 transition-colors"
-        >
-          New Swap
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={resetForm}
+            className="flex-1 rounded-xl border border-white/10 bg-white/5 px-6 py-3 text-sm font-medium text-gray-300 hover:bg-white/10 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSendDeposit}
+            className="flex-1 rounded-xl bg-purple-600 px-6 py-3 text-sm font-semibold text-white hover:bg-purple-500 transition-colors"
+          >
+            Send {swap.depositAmount} {fromCoin}
+          </button>
+        </div>
+
+        <details className="text-xs text-gray-500">
+          <summary className="cursor-pointer hover:text-gray-400">Advanced: Manual deposit</summary>
+          <div className="mt-2 p-3 rounded-lg bg-black/30">
+            <p className="mb-1">Deposit Address:</p>
+            <p className="font-mono text-gray-300 break-all">{swap.depositAddress}</p>
+          </div>
+        </details>
       </div>
     );
   }
