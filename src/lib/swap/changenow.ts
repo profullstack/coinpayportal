@@ -62,17 +62,28 @@ export type ChangeNowStatus =
   | 'refunded'
   | 'expired';
 
+/**
+ * Supported coins for swaps - must match wallet support
+ * Only coins that our HD wallet can generate addresses for
+ */
+export const SWAP_SUPPORTED_COINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL'] as const;
+export type SwapCoin = (typeof SWAP_SUPPORTED_COINS)[number];
+
 // Map our symbols to ChangeNOW format
-const CN_COIN_MAP: Record<string, { ticker: string; network: string }> = {
+const CN_COIN_MAP: Record<SwapCoin, { ticker: string; network: string }> = {
   'BTC': { ticker: 'btc', network: 'btc' },
   'BCH': { ticker: 'bch', network: 'bch' },
   'ETH': { ticker: 'eth', network: 'eth' },
   'POL': { ticker: 'matic', network: 'matic' },
   'SOL': { ticker: 'sol', network: 'sol' },
-  'USDC': { ticker: 'usdc', network: 'eth' },
-  'USDC_SOL': { ticker: 'usdc', network: 'sol' },
-  'USDC_POL': { ticker: 'usdc', network: 'matic' },
 };
+
+/**
+ * Check if a coin is supported for swaps
+ */
+export function isSwapSupported(coin: string): coin is SwapCoin {
+  return SWAP_SUPPORTED_COINS.includes(coin as SwapCoin);
+}
 
 class ChangeNowClient {
   private apiKey: string;
@@ -253,12 +264,19 @@ export interface ShiftResponse {
 export async function getSwapQuote(params: SwapQuoteParams): Promise<QuoteResponse> {
   const client = getChangeNowClient();
   
+  // Validate coins are supported by our wallet
+  if (!isSwapSupported(params.from)) {
+    throw new Error(`Unsupported coin: ${params.from}. Supported: ${SWAP_SUPPORTED_COINS.join(', ')}`);
+  }
+  if (!isSwapSupported(params.to)) {
+    throw new Error(`Unsupported coin: ${params.to}. Supported: ${SWAP_SUPPORTED_COINS.join(', ')}`);
+  }
+  if (params.from === params.to) {
+    throw new Error('Cannot swap a coin for itself');
+  }
+  
   const fromMapping = CN_COIN_MAP[params.from];
   const toMapping = CN_COIN_MAP[params.to];
-  
-  if (!fromMapping || !toMapping) {
-    throw new Error(`Unsupported coin pair: ${params.from} -> ${params.to}`);
-  }
 
   const amount = parseFloat(params.amount);
   
@@ -290,12 +308,19 @@ export async function createSwap(params: SwapCreateParams & {
 }): Promise<ShiftResponse> {
   const client = getChangeNowClient();
   
+  // Validate coins are supported by our wallet
+  if (!isSwapSupported(params.from)) {
+    throw new Error(`Unsupported coin: ${params.from}. Supported: ${SWAP_SUPPORTED_COINS.join(', ')}`);
+  }
+  if (!isSwapSupported(params.to)) {
+    throw new Error(`Unsupported coin: ${params.to}. Supported: ${SWAP_SUPPORTED_COINS.join(', ')}`);
+  }
+  if (params.from === params.to) {
+    throw new Error('Cannot swap a coin for itself');
+  }
+  
   const fromMapping = CN_COIN_MAP[params.from];
   const toMapping = CN_COIN_MAP[params.to];
-  
-  if (!fromMapping || !toMapping) {
-    throw new Error(`Unsupported coin pair: ${params.from} -> ${params.to}`);
-  }
 
   const exchange = await client.createExchange({
     from: fromMapping.ticker,

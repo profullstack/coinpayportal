@@ -4,6 +4,8 @@ import {
   createSwap, 
   CN_COIN_MAP,
   resetClient,
+  SWAP_SUPPORTED_COINS,
+  isSwapSupported,
 } from './changenow';
 
 // Mock fetch globally
@@ -23,14 +25,24 @@ describe('ChangeNOW Client', () => {
     process.env = originalEnv;
   });
 
-  describe('CN_COIN_MAP', () => {
+  describe('SWAP_SUPPORTED_COINS', () => {
+    it('should only include coins our wallet supports', () => {
+      expect(SWAP_SUPPORTED_COINS).toEqual(['BTC', 'BCH', 'ETH', 'POL', 'SOL']);
+    });
+
     it('should have mappings for all supported coins', () => {
       expect(CN_COIN_MAP['BTC']).toEqual({ ticker: 'btc', network: 'btc' });
       expect(CN_COIN_MAP['ETH']).toEqual({ ticker: 'eth', network: 'eth' });
       expect(CN_COIN_MAP['SOL']).toEqual({ ticker: 'sol', network: 'sol' });
       expect(CN_COIN_MAP['POL']).toEqual({ ticker: 'matic', network: 'matic' });
       expect(CN_COIN_MAP['BCH']).toEqual({ ticker: 'bch', network: 'bch' });
-      expect(CN_COIN_MAP['USDC']).toEqual({ ticker: 'usdc', network: 'eth' });
+    });
+
+    it('isSwapSupported should validate correctly', () => {
+      expect(isSwapSupported('BTC')).toBe(true);
+      expect(isSwapSupported('ETH')).toBe(true);
+      expect(isSwapSupported('DOGE')).toBe(false);
+      expect(isSwapSupported('USDC')).toBe(false);
     });
   });
 
@@ -63,14 +75,24 @@ describe('ChangeNOW Client', () => {
       expect(quote.minAmount).toBe(0.001);
     });
 
-    it('should throw for unsupported coin pair', async () => {
+    it('should throw for unsupported coin', async () => {
       await expect(
         getSwapQuote({
           from: 'DOGE',
           to: 'ETH',
           amount: '100',
         })
-      ).rejects.toThrow('Unsupported coin pair');
+      ).rejects.toThrow('Unsupported coin: DOGE');
+    });
+
+    it('should throw when trying to swap same coin', async () => {
+      await expect(
+        getSwapQuote({
+          from: 'BTC',
+          to: 'BTC',
+          amount: '0.1',
+        })
+      ).rejects.toThrow('Cannot swap a coin for itself');
     });
   });
 
