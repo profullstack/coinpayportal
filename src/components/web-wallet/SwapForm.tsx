@@ -30,12 +30,18 @@ interface SwapResult {
   expiresAt?: string;
 }
 
+interface BalanceInfo {
+  balance: string;
+  usdValue?: number;
+}
+
 interface SwapFormProps {
   addresses: Record<string, string>;
+  balances?: Record<string, BalanceInfo>;
   onSwapCreated?: (swap: SwapResult) => void;
 }
 
-export function SwapForm({ addresses, onSwapCreated }: SwapFormProps) {
+export function SwapForm({ addresses, balances, onSwapCreated }: SwapFormProps) {
   const [fromCoin, setFromCoin] = useState('');
   const [toCoin, setToCoin] = useState('');
   const [amount, setAmount] = useState('');
@@ -295,6 +301,7 @@ export function SwapForm({ addresses, onSwapCreated }: SwapFormProps) {
           onChange={(v) => { setFromCoin(v); setQuote(null); }}
           chains={SWAP_COINS}
           label="From"
+          balances={balances}
         />
 
         <div className="space-y-1">
@@ -328,6 +335,7 @@ export function SwapForm({ addresses, onSwapCreated }: SwapFormProps) {
           onChange={(v) => { setToCoin(v); setQuote(null); }}
           chains={SWAP_COINS.filter(c => c !== fromCoin)}
           label="To"
+          balances={balances}
         />
       </div>
 

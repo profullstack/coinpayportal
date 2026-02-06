@@ -9,9 +9,9 @@ describe('ChainSelector', () => {
     const select = screen.getByRole('combobox');
     expect(select).toBeInTheDocument();
 
-    // Should have "Select chain" + 14 chain options
+    // Should have "Select chain" + 17 chain options
     const options = screen.getAllByRole('option');
-    expect(options.length).toBe(15); // 1 placeholder + 14 chains
+    expect(options.length).toBe(18); // 1 placeholder + 17 chains
   });
 
   it('should render with label', () => {
@@ -46,6 +46,60 @@ describe('ChainSelector', () => {
   it('should disable when disabled prop is true', () => {
     render(<ChainSelector value="" onChange={vi.fn()} disabled />);
     expect(screen.getByRole('combobox')).toBeDisabled();
+  });
+
+  it('should display balances when provided', () => {
+    const balances = {
+      BTC: { balance: '1.5', usdValue: 75000 },
+      ETH: { balance: '10', usdValue: 30000 },
+    };
+    render(
+      <ChainSelector
+        value=""
+        onChange={vi.fn()}
+        chains={['BTC', 'ETH']}
+        balances={balances}
+      />
+    );
+
+    const options = screen.getAllByRole('option');
+    // Check that balance is displayed
+    expect(options[1].textContent).toContain('1.50');
+    expect(options[2].textContent).toContain('10.00');
+  });
+
+  it('should handle zero balances', () => {
+    const balances = {
+      BTC: { balance: '0', usdValue: 0 },
+    };
+    render(
+      <ChainSelector
+        value=""
+        onChange={vi.fn()}
+        chains={['BTC']}
+        balances={balances}
+      />
+    );
+
+    const options = screen.getAllByRole('option');
+    expect(options[1].textContent).toContain('0');
+  });
+
+  it('should handle very small balances', () => {
+    const balances = {
+      BTC: { balance: '0.00001', usdValue: 1 },
+    };
+    render(
+      <ChainSelector
+        value=""
+        onChange={vi.fn()}
+        chains={['BTC']}
+        balances={balances}
+      />
+    );
+
+    const options = screen.getAllByRole('option');
+    expect(options[1].textContent).toContain('<0.0001');
   });
 });
 

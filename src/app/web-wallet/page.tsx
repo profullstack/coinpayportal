@@ -191,10 +191,12 @@ function DashboardView() {
     }
   }, [wallet, chains, isDeriving, fetchData]);
 
-  // Build address map for swap form
+  // Build address and balance maps for swap form
   const addressMap: Record<string, string> = {};
+  const balanceMap: Record<string, { balance: string; usdValue?: number }> = {};
   assets.forEach((asset) => {
     addressMap[asset.chain] = asset.address;
+    balanceMap[asset.chain] = { balance: asset.balance, usdValue: asset.usdValue };
   });
 
   return (
@@ -285,6 +287,7 @@ function DashboardView() {
               </div>
               <SwapForm 
                 addresses={addressMap}
+                balances={balanceMap}
                 onSwapCreated={(swap) => {
                   console.log('Swap created:', swap);
                 }}

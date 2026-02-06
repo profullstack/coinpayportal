@@ -15,7 +15,15 @@ const ALL_CHAINS = [
   { id: 'USDC_ETH', name: 'USDC (Ethereum)', symbol: 'USDC' },
   { id: 'USDC_POL', name: 'USDC (Polygon)', symbol: 'USDC' },
   { id: 'USDC_SOL', name: 'USDC (Solana)', symbol: 'USDC' },
+  { id: 'USDT_ETH', name: 'USDT (Ethereum)', symbol: 'USDT' },
+  { id: 'USDT_POL', name: 'USDT (Polygon)', symbol: 'USDT' },
+  { id: 'USDT_SOL', name: 'USDT (Solana)', symbol: 'USDT' },
 ] as const;
+
+interface BalanceInfo {
+  balance: string;
+  usdValue?: number;
+}
 
 interface ChainSelectorProps {
   value: string;
@@ -23,6 +31,7 @@ interface ChainSelectorProps {
   chains?: string[];
   label?: string;
   disabled?: boolean;
+  balances?: Record<string, BalanceInfo>;
 }
 
 export function ChainSelector({
@@ -31,10 +40,23 @@ export function ChainSelector({
   chains,
   label,
   disabled = false,
+  balances,
 }: ChainSelectorProps) {
   const available = chains
     ? ALL_CHAINS.filter((c) => chains.includes(c.id))
     : ALL_CHAINS;
+
+  // Format balance for display
+  const formatBalance = (chainId: string): string => {
+    if (!balances || !balances[chainId]) return '';
+    const bal = balances[chainId];
+    const numBal = parseFloat(bal.balance);
+    if (numBal === 0) return ' • 0';
+    if (numBal < 0.0001) return ' • <0.0001';
+    if (numBal < 1) return ` • ${numBal.toFixed(4)}`;
+    if (numBal < 1000) return ` • ${numBal.toFixed(2)}`;
+    return ` • ${numBal.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  };
 
   return (
     <div className="space-y-2">
@@ -54,7 +76,7 @@ export function ChainSelector({
         </option>
         {available.map((chain) => (
           <option key={chain.id} value={chain.id} className="bg-slate-900">
-            {chain.name} ({chain.symbol})
+            {chain.name} ({chain.symbol}){formatBalance(chain.id)}
           </option>
         ))}
       </select>
