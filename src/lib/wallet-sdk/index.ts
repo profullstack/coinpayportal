@@ -40,6 +40,12 @@ export type {
   WebhookRegistration,
   RegisterWebhookInput,
   RegisterWebhookResult,
+  SwapQuote,
+  SwapCreateParams,
+  Swap,
+  SwapCoin,
+  SwapStatus,
+  SwapHistoryOptions,
 } from './types';
 
 export type { EncryptedBackup } from './backup';

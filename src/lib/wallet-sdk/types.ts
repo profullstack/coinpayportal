@@ -249,3 +249,65 @@ export interface RegisterWebhookResult extends WebhookRegistration {
   /** The signing secret — only returned on creation. Store it securely. */
   secret: string;
 }
+
+// ── Swap Types ──
+
+export interface SwapQuote {
+  from: string;
+  to: string;
+  depositAmount: string;
+  settleAmount: string;
+  rate: string;
+  minAmount?: number;
+  expiresAt?: string;
+}
+
+export interface SwapQuoteParams {
+  from: string;
+  to: string;
+  amount: string;
+}
+
+export interface SwapCreateParams {
+  from: string;
+  to: string;
+  amount: string;
+  settleAddress: string;
+  refundAddress?: string;
+  walletId?: string;
+}
+
+export interface Swap {
+  id: string;
+  from: string;
+  to: string;
+  depositAddress: string;
+  depositAmount: string;
+  settleAddress: string;
+  settleAmount: string | null;
+  status: SwapStatus;
+  createdAt: string;
+  expiresAt?: string;
+}
+
+export type SwapStatus =
+  | 'pending'
+  | 'processing'
+  | 'settling'
+  | 'settled'
+  | 'finished'
+  | 'failed'
+  | 'refunded'
+  | 'expired';
+
+export interface SwapCoin {
+  ticker: string;
+  name: string;
+  network: string;
+}
+
+export interface SwapHistoryOptions {
+  status?: SwapStatus;
+  limit?: number;
+  offset?: number;
+}

@@ -983,4 +983,184 @@ describe('Wallet', () => {
       expect(results).toEqual([]);
     });
   });
+
+  describe('Swap', () => {
+    describe('getSwapQuote()', () => {
+      it('should return a swap quote', async () => {
+        const wallet = Wallet.readOnly(SDK_CONFIG);
+
+        mockFetch.mockResolvedValueOnce(
+          okResponse({
+            from: 'BTC',
+            to: 'ETH',
+            depositAmount: '0.1',
+            settleAmount: '1.5',
+            rate: '15.0',
+            minAmount: 0.001,
+          })
+        );
+
+        const quote = await wallet.getSwapQuote('BTC', 'ETH', '0.1');
+
+        expect(quote.from).toBe('BTC');
+        expect(quote.to).toBe('ETH');
+        expect(quote.depositAmount).toBe('0.1');
+        expect(quote.settleAmount).toBe('1.5');
+        expect(quote.rate).toBe('15.0');
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/api/swap/quote'),
+          expect.anything()
+        );
+      });
+    });
+
+    describe('createSwap()', () => {
+      it('should create a swap transaction', async () => {
+        const wallet = Wallet.readOnly(SDK_CONFIG);
+
+        mockFetch.mockResolvedValueOnce(
+          okResponse({
+            swap: {
+              id: 'swap-123',
+              from_coin: 'BTC',
+              to_coin: 'ETH',
+              deposit_address: 'bc1qdeposit',
+              deposit_amount: '0.1',
+              settle_address: '0xreceive',
+              settle_amount: null,
+              status: 'pending',
+              created_at: '2024-01-01T00:00:00Z',
+            },
+          })
+        );
+
+        const swap = await wallet.createSwap({
+          from: 'BTC',
+          to: 'ETH',
+          amount: '0.1',
+          settleAddress: '0xreceive',
+        });
+
+        expect(swap.id).toBe('swap-123');
+        expect(swap.from).toBe('BTC');
+        expect(swap.to).toBe('ETH');
+        expect(swap.depositAddress).toBe('bc1qdeposit');
+        expect(swap.status).toBe('pending');
+      });
+    });
+
+    describe('getSwapStatus()', () => {
+      it('should return swap status', async () => {
+        const wallet = Wallet.readOnly(SDK_CONFIG);
+
+        mockFetch.mockResolvedValueOnce(
+          okResponse({
+            swap: {
+              id: 'swap-123',
+              from_coin: 'BTC',
+              to_coin: 'ETH',
+              deposit_address: 'bc1qdeposit',
+              deposit_amount: '0.1',
+              settle_address: '0xreceive',
+              settle_amount: '1.5',
+              status: 'settled',
+              created_at: '2024-01-01T00:00:00Z',
+            },
+          })
+        );
+
+        const swap = await wallet.getSwapStatus('swap-123');
+
+        expect(swap.id).toBe('swap-123');
+        expect(swap.status).toBe('settled');
+        expect(swap.settleAmount).toBe('1.5');
+      });
+    });
+
+    describe('getSwapCoins()', () => {
+      it('should return list of supported coins', async () => {
+        const wallet = Wallet.readOnly(SDK_CONFIG);
+
+        mockFetch.mockResolvedValueOnce(
+          okResponse({
+            coins: [
+              { ticker: 'btc', name: 'Bitcoin', network: 'btc' },
+              { ticker: 'eth', name: 'Ethereum', network: 'eth' },
+            ],
+          })
+        );
+
+        const coins = await wallet.getSwapCoins();
+
+        expect(coins).toHaveLength(2);
+        expect(coins[0].ticker).toBe('btc');
+        expect(coins[1].name).toBe('Ethereum');
+      });
+    });
+
+    describe('getSwapHistory()', () => {
+      it('should return swap history for wallet', async () => {
+        // Create authenticated wallet
+        mockFetch.mockResolvedValueOnce(
+          okResponse({
+            wallet_id: 'w1',
+            created_at: '2024-01-01T00:00:00Z',
+            addresses: [
+              { chain: 'ETH', address: '0xabc', derivation_index: 0 },
+            ],
+          })
+        );
+
+        const wallet = await Wallet.create({
+          ...SDK_CONFIG,
+          chains: ['ETH'],
+        });
+
+        mockFetch.mockResolvedValueOnce(
+          okResponse({
+            swaps: [
+              {
+                id: 'swap-1',
+                from_coin: 'BTC',
+                to_coin: 'ETH',
+                deposit_address: 'bc1q1',
+                deposit_amount: '0.1',
+                settle_address: '0xabc',
+                settle_amount: '1.5',
+                status: 'settled',
+                created_at: '2024-01-01T00:00:00Z',
+              },
+              {
+                id: 'swap-2',
+                from_coin: 'ETH',
+                to_coin: 'SOL',
+                deposit_address: '0xdep',
+                deposit_amount: '2.0',
+                settle_address: 'Sol123',
+                settle_amount: null,
+                status: 'pending',
+                created_at: '2024-01-02T00:00:00Z',
+              },
+            ],
+          })
+        );
+
+        const swaps = await wallet.getSwapHistory({ limit: 10 });
+
+        expect(swaps).toHaveLength(2);
+        expect(swaps[0].id).toBe('swap-1');
+        expect(swaps[0].status).toBe('settled');
+        expect(swaps[1].status).toBe('pending');
+      });
+    });
+
+    describe('Wallet.readOnly()', () => {
+      it('should create a read-only wallet instance', () => {
+        const wallet = Wallet.readOnly(SDK_CONFIG);
+
+        expect(wallet.walletId).toBe('__readonly__');
+        expect(wallet.isReadOnly).toBe(true);
+      });
+    });
+  });
 });
