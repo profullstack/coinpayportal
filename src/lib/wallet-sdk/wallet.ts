@@ -301,6 +301,76 @@ export class Wallet {
     };
   }
 
+  /**
+   * Derive addresses for any chains that don't have addresses yet.
+   * Useful when new coins are added to the platform.
+   * 
+   * @param targetChains - Chains to check and derive if missing. Defaults to all supported chains.
+   * @returns Array of newly derived addresses
+   */
+  async deriveMissingChains(
+    targetChains?: WalletChain[]
+  ): Promise<DeriveAddressResult[]> {
+    if (!this._mnemonic) {
+      throw new WalletSDKError(
+        'READ_ONLY',
+        'Cannot derive addresses in read-only mode',
+        400
+      );
+    }
+
+    // Default chains that should exist
+    const defaultChains: WalletChain[] = targetChains || [
+      'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+      'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+    ];
+
+    // Get current addresses
+    const currentAddresses = await this.getAddresses();
+    const existingChains = new Set(currentAddresses.map((a) => a.chain));
+
+    // Find missing chains
+    const missingChains = defaultChains.filter((c) => !existingChains.has(c));
+
+    if (missingChains.length === 0) {
+      return [];
+    }
+
+    // Derive addresses for each missing chain
+    const results: DeriveAddressResult[] = [];
+    for (const chain of missingChains) {
+      try {
+        const result = await this.deriveAddress(chain, 0);
+        results.push(result);
+      } catch (err) {
+        console.error(`[Wallet] Failed to derive ${chain}:`, err);
+        // Continue with other chains even if one fails
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Get list of chains that don't have addresses yet.
+   * 
+   * @param targetChains - Chains to check against. Defaults to all supported chains.
+   * @returns Array of chain names that are missing
+   */
+  async getMissingChains(
+    targetChains?: WalletChain[]
+  ): Promise<WalletChain[]> {
+    const defaultChains: WalletChain[] = targetChains || [
+      'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+      'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+    ];
+
+    const currentAddresses = await this.getAddresses();
+    const existingChains = new Set(currentAddresses.map((a) => a.chain));
+
+    return defaultChains.filter((c) => !existingChains.has(c));
+  }
+
   // ── Balances ──
 
   async getBalances(options?: {

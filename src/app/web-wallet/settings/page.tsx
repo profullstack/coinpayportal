@@ -23,7 +23,7 @@ interface WalletSettings {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { wallet, walletId, chains, isUnlocked, deleteWallet, lock, changePassword } =
+  const { wallet, walletId, chains, isUnlocked, deleteWallet, lock, changePassword, refreshChains } =
     useWebWallet();
 
   const [showSeed, setShowSeed] = useState(false);
@@ -75,6 +75,13 @@ export default function SettingsPage() {
   const [currencySaving, setCurrencySaving] = useState(false);
   const [currencySuccess, setCurrencySuccess] = useState(false);
 
+  // Missing chains state
+  const [missingChains, setMissingChains] = useState<string[]>([]);
+  const [missingChainsLoading, setMissingChainsLoading] = useState(false);
+  const [derivingChains, setDerivingChains] = useState(false);
+  const [deriveSuccess, setDeriveSuccess] = useState(false);
+  const [deriveError, setDeriveError] = useState('');
+
   useEffect(() => {
     if (!isUnlocked) {
       router.replace('/web-wallet/unlock');
@@ -109,6 +116,51 @@ export default function SettingsPage() {
       loadSettings();
     }
   }, [isUnlocked, wallet, loadSettings]);
+
+  // Load missing chains
+  const loadMissingChains = useCallback(async () => {
+    if (!wallet) return;
+    setMissingChainsLoading(true);
+    try {
+      const missing = await wallet.getMissingChains();
+      setMissingChains(missing);
+    } catch (err) {
+      console.error('Failed to check missing chains:', err);
+    } finally {
+      setMissingChainsLoading(false);
+    }
+  }, [wallet]);
+
+  useEffect(() => {
+    if (isUnlocked && wallet) {
+      loadMissingChains();
+    }
+  }, [isUnlocked, wallet, loadMissingChains]);
+
+  // Derive missing chains handler
+  const handleDeriveMissingChains = async () => {
+    if (!wallet) return;
+    setDeriveError('');
+    setDeriveSuccess(false);
+    setDerivingChains(true);
+
+    try {
+      const results = await wallet.deriveMissingChains();
+      if (results.length > 0) {
+        setDeriveSuccess(true);
+        // Refresh stored chains list and UI
+        await refreshChains();
+        // Reload missing chains (should be empty now)
+        await loadMissingChains();
+        setTimeout(() => setDeriveSuccess(false), 3000);
+      }
+    } catch (err) {
+      console.error('Failed to derive missing chains:', err);
+      setDeriveError(err instanceof Error ? err.message : 'Failed to derive addresses');
+    } finally {
+      setDerivingChains(false);
+    }
+  };
 
   const handleRevealSeed = async () => {
     if (!wallet) return;
@@ -320,6 +372,66 @@ export default function SettingsPage() {
                 ))}
               </div>
             </InfoRow>
+          </Section>
+
+          {/* Derive Missing Coins */}
+          <Section title="Derive Missing Coins">
+            {missingChainsLoading ? (
+              <div className="space-y-3">
+                <div className="h-10 rounded-lg bg-white/5 animate-pulse" />
+              </div>
+            ) : missingChains.length === 0 ? (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3">
+                  <p className="text-sm text-green-400">
+                    ✓ All supported coins are already configured for your wallet.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-sm text-gray-400">
+                  New coins have been added to the platform. Derive addresses for the following chains
+                  to start using them with your wallet.
+                </p>
+
+                {/* Missing chains list */}
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-gray-400">
+                    Missing chains ({missingChains.length})
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {missingChains.map((chain) => (
+                      <span
+                        key={chain}
+                        className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-sm text-yellow-400"
+                      >
+                        {chain}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {deriveError && (
+                  <p className="text-xs text-red-400" role="alert">
+                    {deriveError}
+                  </p>
+                )}
+                {deriveSuccess && (
+                  <p className="text-xs text-green-400" role="status">
+                    Successfully derived addresses for missing chains!
+                  </p>
+                )}
+
+                <button
+                  onClick={handleDeriveMissingChains}
+                  disabled={derivingChains}
+                  className="w-full rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {derivingChains ? 'Deriving...' : 'Derive Missing Coins'}
+                </button>
+              </div>
+            )}
           </Section>
 
           {/* Display Currency */}

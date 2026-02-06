@@ -834,4 +834,153 @@ describe('Wallet', () => {
       expect(wallet.isReadOnly).toBe(true);
     });
   });
+
+  describe('getMissingChains()', () => {
+    it('should return chains that do not have addresses', async () => {
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          wallet_id: 'w1',
+          created_at: '2024-01-01T00:00:00Z',
+          addresses: [
+            { chain: 'ETH', address: '0xabc', derivation_index: 0 },
+          ],
+        })
+      );
+
+      const wallet = await Wallet.create({
+        ...SDK_CONFIG,
+        chains: ['ETH'],
+      });
+
+      // Mock getAddresses to return only ETH
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          addresses: [
+            { address_id: 'a1', chain: 'ETH', address: '0xabc', derivation_index: 0, is_active: true },
+          ],
+        })
+      );
+
+      const missing = await wallet.getMissingChains(['ETH', 'BTC', 'SOL']);
+
+      expect(missing).toEqual(['BTC', 'SOL']);
+    });
+
+    it('should return empty array when all chains have addresses', async () => {
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          wallet_id: 'w1',
+          created_at: '2024-01-01T00:00:00Z',
+          addresses: [
+            { chain: 'ETH', address: '0xabc', derivation_index: 0 },
+          ],
+        })
+      );
+
+      const wallet = await Wallet.create({
+        ...SDK_CONFIG,
+        chains: ['ETH'],
+      });
+
+      // Mock getAddresses to return ETH and BTC
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          addresses: [
+            { address_id: 'a1', chain: 'ETH', address: '0xabc', derivation_index: 0, is_active: true },
+            { address_id: 'a2', chain: 'BTC', address: 'bc1abc', derivation_index: 0, is_active: true },
+          ],
+        })
+      );
+
+      const missing = await wallet.getMissingChains(['ETH', 'BTC']);
+
+      expect(missing).toEqual([]);
+    });
+  });
+
+  describe('deriveMissingChains()', () => {
+    it('should throw error in read-only mode', async () => {
+      const wallet = Wallet.fromWalletId('w1', {
+        ...SDK_CONFIG,
+        authToken: 'jwt',
+        authTokenExpiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      });
+
+      await expect(wallet.deriveMissingChains()).rejects.toThrow('read-only');
+    });
+
+    it('should derive addresses for missing chains', async () => {
+      // Create wallet with ETH only
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          wallet_id: 'w1',
+          created_at: '2024-01-01T00:00:00Z',
+          addresses: [
+            { chain: 'ETH', address: '0xabc', derivation_index: 0 },
+          ],
+        })
+      );
+
+      const wallet = await Wallet.create({
+        ...SDK_CONFIG,
+        chains: ['ETH'],
+      });
+
+      // Mock getAddresses for deriveMissingChains (returns only ETH, so BCH is missing)
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          addresses: [
+            { address_id: 'a1', chain: 'ETH', address: '0xabc', derivation_index: 0, is_active: true },
+          ],
+        })
+      );
+
+      // Mock derive endpoint for BCH (called with index=0, so no getNextDerivationIndex call)
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          address_id: 'a2',
+          chain: 'BCH',
+          address: 'bitcoincash:qtest',
+          derivation_index: 0,
+          derivation_path: "m/44'/145'/0'/0/0",
+          created_at: '2024-01-01T00:00:00Z',
+        }, 201)
+      );
+
+      const results = await wallet.deriveMissingChains(['ETH', 'BCH']);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].chain).toBe('BCH');
+    });
+
+    it('should return empty array when no chains are missing', async () => {
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          wallet_id: 'w1',
+          created_at: '2024-01-01T00:00:00Z',
+          addresses: [
+            { chain: 'ETH', address: '0xabc', derivation_index: 0 },
+          ],
+        })
+      );
+
+      const wallet = await Wallet.create({
+        ...SDK_CONFIG,
+        chains: ['ETH'],
+      });
+
+      // Mock getAddresses to return ETH (which is the only target chain)
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          addresses: [
+            { address_id: 'a1', chain: 'ETH', address: '0xabc', derivation_index: 0, is_active: true },
+          ],
+        })
+      );
+
+      const results = await wallet.deriveMissingChains(['ETH']);
+
+      expect(results).toEqual([]);
+    });
+  });
 });

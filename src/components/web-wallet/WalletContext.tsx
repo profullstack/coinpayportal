@@ -84,6 +84,8 @@ interface WalletActions {
   ) => Promise<boolean>;
   /** Refresh balance data */
   refreshBalance: () => Promise<void>;
+  /** Refresh chains list after deriving new addresses */
+  refreshChains: () => Promise<void>;
 }
 
 type WalletContextType = WalletState & WalletActions;
@@ -437,6 +439,35 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const refreshChains = useCallback(async () => {
+    const w = state.wallet;
+    if (!w) return;
+
+    try {
+      // Get current addresses from wallet to determine chains
+      const addresses = await w.getAddresses();
+      const currentChains = [...new Set(addresses.map((a) => a.chain))];
+
+      // Update stored wallet with new chains
+      const stored = loadWalletFromStorage();
+      if (stored) {
+        const updated: StoredWallet = {
+          ...stored,
+          chains: currentChains,
+        };
+        saveWalletToStorage(updated);
+      }
+
+      // Update state
+      setState((s) => ({
+        ...s,
+        chains: currentChains,
+      }));
+    } catch (err) {
+      console.error('Failed to refresh chains:', err);
+    }
+  }, [state.wallet]);
+
   return (
     <WalletContext.Provider
       value={{
@@ -449,6 +480,7 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
         clearError,
         changePassword,
         refreshBalance,
+        refreshChains,
       }}
     >
       {children}
