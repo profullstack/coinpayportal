@@ -74,6 +74,7 @@ export const SWAP_SUPPORTED_COINS = [
 export type SwapCoin = (typeof SWAP_SUPPORTED_COINS)[number];
 
 // Map our symbols to ChangeNOW format
+// ChangeNOW uses specific tickers for network variants (e.g., usdterc20, bnbbsc)
 const CN_COIN_MAP: Record<SwapCoin, { ticker: string; network: string }> = {
   // Native coins
   'BTC': { ticker: 'btc', network: 'btc' },
@@ -81,16 +82,16 @@ const CN_COIN_MAP: Record<SwapCoin, { ticker: string; network: string }> = {
   'ETH': { ticker: 'eth', network: 'eth' },
   'POL': { ticker: 'matic', network: 'matic' },
   'SOL': { ticker: 'sol', network: 'sol' },
-  'BNB': { ticker: 'bnb', network: 'bsc' },
+  'BNB': { ticker: 'bnbbsc', network: 'bsc' },
   'DOGE': { ticker: 'doge', network: 'doge' },
   'XRP': { ticker: 'xrp', network: 'xrp' },
   'ADA': { ticker: 'ada', network: 'ada' },
-  // Stablecoins
-  'USDT': { ticker: 'usdt', network: 'eth' },
+  // Stablecoins - ChangeNOW uses network-specific tickers
+  'USDT': { ticker: 'usdterc20', network: 'eth' },
   'USDC': { ticker: 'usdc', network: 'eth' },
   'USDC_ETH': { ticker: 'usdc', network: 'eth' },
-  'USDC_POL': { ticker: 'usdc', network: 'matic' },
-  'USDC_SOL': { ticker: 'usdc', network: 'sol' },
+  'USDC_POL': { ticker: 'usdcmatic', network: 'matic' },
+  'USDC_SOL': { ticker: 'usdcsol', network: 'sol' },
 };
 
 /**
