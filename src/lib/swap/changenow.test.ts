@@ -30,24 +30,32 @@ describe('ChangeNOW Client', () => {
       expect(SWAP_SUPPORTED_COINS).toEqual([
         'BTC', 'BCH', 'ETH', 'POL', 'SOL',
         'BNB', 'DOGE', 'XRP', 'ADA',
-        'USDT', 'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+        'USDT', 'USDT_ETH', 'USDT_POL', 'USDT_SOL',
+        'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL',
       ]);
     });
 
     it('should have mappings for all supported coins', () => {
+      // Native coins
       expect(CN_COIN_MAP['BTC']).toEqual({ ticker: 'btc', network: 'btc' });
       expect(CN_COIN_MAP['ETH']).toEqual({ ticker: 'eth', network: 'eth' });
       expect(CN_COIN_MAP['SOL']).toEqual({ ticker: 'sol', network: 'sol' });
       expect(CN_COIN_MAP['POL']).toEqual({ ticker: 'matic', network: 'matic' });
       expect(CN_COIN_MAP['BCH']).toEqual({ ticker: 'bch', network: 'bch' });
-      expect(CN_COIN_MAP['BNB']).toEqual({ ticker: 'bnb', network: 'bsc' });
+      expect(CN_COIN_MAP['BNB']).toEqual({ ticker: 'bnbbsc', network: 'bsc' });
       expect(CN_COIN_MAP['DOGE']).toEqual({ ticker: 'doge', network: 'doge' });
       expect(CN_COIN_MAP['XRP']).toEqual({ ticker: 'xrp', network: 'xrp' });
       expect(CN_COIN_MAP['ADA']).toEqual({ ticker: 'ada', network: 'ada' });
-      expect(CN_COIN_MAP['USDT']).toEqual({ ticker: 'usdt', network: 'eth' });
+      // USDT variants
+      expect(CN_COIN_MAP['USDT']).toEqual({ ticker: 'usdterc20', network: 'eth' });
+      expect(CN_COIN_MAP['USDT_ETH']).toEqual({ ticker: 'usdterc20', network: 'eth' });
+      expect(CN_COIN_MAP['USDT_POL']).toEqual({ ticker: 'usdtmatic', network: 'matic' });
+      expect(CN_COIN_MAP['USDT_SOL']).toEqual({ ticker: 'usdtsol', network: 'sol' });
+      // USDC variants
       expect(CN_COIN_MAP['USDC']).toEqual({ ticker: 'usdc', network: 'eth' });
-      expect(CN_COIN_MAP['USDC_POL']).toEqual({ ticker: 'usdc', network: 'matic' });
-      expect(CN_COIN_MAP['USDC_SOL']).toEqual({ ticker: 'usdc', network: 'sol' });
+      expect(CN_COIN_MAP['USDC_ETH']).toEqual({ ticker: 'usdc', network: 'eth' });
+      expect(CN_COIN_MAP['USDC_POL']).toEqual({ ticker: 'usdcmatic', network: 'matic' });
+      expect(CN_COIN_MAP['USDC_SOL']).toEqual({ ticker: 'usdcsol', network: 'sol' });
     });
 
     it('isSwapSupported should validate correctly', () => {
@@ -55,6 +63,9 @@ describe('ChangeNOW Client', () => {
       expect(isSwapSupported('ETH')).toBe(true);
       expect(isSwapSupported('DOGE')).toBe(true);
       expect(isSwapSupported('USDC')).toBe(true);
+      expect(isSwapSupported('USDC_POL')).toBe(true);
+      expect(isSwapSupported('USDT')).toBe(true);
+      expect(isSwapSupported('USDT_SOL')).toBe(true);
       expect(isSwapSupported('FAKE')).toBe(false);
       expect(isSwapSupported('SHIB')).toBe(false);
     });

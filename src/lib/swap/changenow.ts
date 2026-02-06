@@ -69,7 +69,8 @@ export type ChangeNowStatus =
 export const SWAP_SUPPORTED_COINS = [
   'BTC', 'BCH', 'ETH', 'POL', 'SOL',
   'BNB', 'DOGE', 'XRP', 'ADA',
-  'USDT', 'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+  'USDT', 'USDT_ETH', 'USDT_POL', 'USDT_SOL',
+  'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL',
 ] as const;
 export type SwapCoin = (typeof SWAP_SUPPORTED_COINS)[number];
 
@@ -88,6 +89,9 @@ const CN_COIN_MAP: Record<SwapCoin, { ticker: string; network: string }> = {
   'ADA': { ticker: 'ada', network: 'ada' },
   // Stablecoins - ChangeNOW uses network-specific tickers
   'USDT': { ticker: 'usdterc20', network: 'eth' },
+  'USDT_ETH': { ticker: 'usdterc20', network: 'eth' },
+  'USDT_POL': { ticker: 'usdtmatic', network: 'matic' },
+  'USDT_SOL': { ticker: 'usdtsol', network: 'sol' },
   'USDC': { ticker: 'usdc', network: 'eth' },
   'USDC_ETH': { ticker: 'usdc', network: 'eth' },
   'USDC_POL': { ticker: 'usdcmatic', network: 'matic' },
