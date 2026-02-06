@@ -78,6 +78,7 @@ pnpm coinpay-wallet create --chains BTC,ETH,SOL`}
           { cmd: 'send', args: '<wallet-id> --from <addr> --to <addr> --chain ETH --amount 0.5', desc: 'Send a transaction' },
           { cmd: 'history', args: '<wallet-id> --chain BTC --limit 20', desc: 'View transaction history' },
           { cmd: 'sync', args: '<wallet-id> --chain SOL', desc: 'Sync on-chain deposits into history' },
+          { cmd: 'derive-missing', args: '<wallet-id> [--chains BTC,ETH,...]', desc: 'Derive addresses for newly supported chains' },
         ].map((c) => (
           <div key={c.cmd} className="flex items-start gap-4 p-3 rounded-lg bg-slate-800/50">
             <code className="text-purple-400 font-mono text-sm whitespace-nowrap shrink-0">coinpay-wallet {c.cmd}</code>
@@ -94,7 +95,7 @@ pnpm coinpay-wallet create --chains BTC,ETH,SOL`}
         <div className="space-y-1 text-sm text-gray-300">
           <p><code className="text-purple-400">COINPAY_API_URL</code> — API base URL (default: <code>http://localhost:8080</code>)</p>
           <p><code className="text-purple-400">COINPAY_AUTH_TOKEN</code> — JWT token for read-only operations</p>
-          <p><code className="text-purple-400">COINPAY_MNEMONIC</code> — Mnemonic phrase (required for <code>send</code>)</p>
+          <p><code className="text-purple-400">COINPAY_MNEMONIC</code> — Mnemonic phrase (required for <code>send</code> and <code>derive-missing</code>)</p>
         </div>
         <p className="text-gray-500 text-xs mt-2">Or use a config file: <code>~/.coinpayrc.json</code></p>
       </div>
@@ -159,6 +160,54 @@ const tx = await wallet.send({
 // Derive additional addresses if needed (e.g. fresh BTC receive address)
 const newAddr = await wallet.deriveAddress('BTC');`}
         </CodeBlock>
+      </div>
+
+      {/* Upgrading Wallets - Derive Missing Chains */}
+      <h3 className="text-xl font-semibold text-white mb-4">Upgrading Existing Wallets</h3>
+      <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-amber-400 font-semibold">🔄 New Chains Added?</span>
+        </div>
+        <p className="text-amber-300 text-sm mb-3">
+          When CoinPayPortal adds support for new coins, existing wallets won&apos;t have addresses for them. 
+          Use <code className="text-amber-200">deriveMissingChains()</code> to automatically derive addresses for any missing chains.
+        </p>
+        <CodeBlock title="Node.js SDK — Derive Missing Chains" language="javascript">
+{`import { Wallet } from '@coinpayportal/wallet-sdk';
+
+// Load your existing wallet from seed
+const wallet = await Wallet.fromSeed(process.env.WALLET_MNEMONIC, {
+  baseUrl: 'https://coinpayportal.com',
+  chains: ['BTC', 'ETH'], // minimal chains for auth
+});
+
+// Check which chains are missing
+const missing = await wallet.getMissingChains();
+console.log('Missing chains:', missing);
+// ['BCH', 'POL', 'SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL']
+
+// Derive all missing chains at once
+const newAddresses = await wallet.deriveMissingChains();
+console.log('New addresses:', newAddresses);
+// [{ chain: 'BCH', address: 'bitcoincash:q...' }, ...]`}
+        </CodeBlock>
+        <div className="mt-4">
+          <h4 className="text-white font-semibold text-sm mb-2">CLI Command (for bots)</h4>
+          <CodeBlock title="Terminal" language="bash">
+{`# Check and derive missing chains
+export COINPAY_MNEMONIC="your twelve word seed phrase here"
+pnpm coinpay-wallet derive-missing <wallet-id>
+
+# Output:
+# Missing chains: BCH, POL, SOL, USDC_ETH, USDC_POL, USDC_SOL
+# Deriving addresses...
+# New addresses derived:
+#   Chain      Address                    Index
+#   BCH        bitcoincash:q...           0
+#   POL        0x...                      0
+#   ...`}
+          </CodeBlock>
+        </div>
       </div>
 
       {/* Wallet Creation */}

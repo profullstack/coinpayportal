@@ -12,10 +12,12 @@
  *   pnpm coinpay-wallet send <wallet-id> --from <addr> --to <addr> --chain <chain> --amount <amount>
  *   pnpm coinpay-wallet address <wallet-id> [--chain <chain>]
  *   pnpm coinpay-wallet history <wallet-id> [--chain <chain>] [--limit <n>]
+ *   pnpm coinpay-wallet derive-missing <wallet-id> [--chains BTC,ETH,...]
  *
  * Configuration:
  *   COINPAY_API_URL   - API base URL (default: http://localhost:8080)
  *   COINPAY_AUTH_TOKEN - JWT auth token (for read-only operations)
+ *   COINPAY_MNEMONIC  - Mnemonic phrase (required for send and derive-missing)
  *
  *   Or use a config file at ~/.coinpayrc.json:
  *   { "apiUrl": "https://coinpayportal.com", "authToken": "..." }
@@ -333,6 +335,69 @@ async function cmdSync(positional, flags, config) {
   console.log(`  Synced: ${JSON.stringify(result)}\n`);
 }
 
+async function cmdDeriveMissing(positional, flags, config) {
+  const walletId = positional[0];
+  if (!walletId) {
+    error('Usage: coinpay-wallet derive-missing <wallet-id> [--chains BTC,ETH,...]');
+  }
+
+  // Require mnemonic for deriving addresses
+  const mnemonic = process.env.COINPAY_MNEMONIC;
+  if (!mnemonic) {
+    error('COINPAY_MNEMONIC is required to derive new addresses.');
+  }
+
+  const { Wallet } = await import('../src/lib/wallet-sdk/index.ts');
+
+  // Parse target chains if provided
+  const targetChains = flags.chains
+    ? flags.chains.split(',').map((c) => c.trim().toUpperCase())
+    : undefined; // undefined means use default supported chains
+
+  console.log(`\nChecking for missing chains on wallet ${walletId}...\n`);
+
+  // First, create wallet from seed to get the wallet instance
+  const wallet = await Wallet.fromSeed(mnemonic, {
+    baseUrl: config.apiUrl,
+    chains: ['BTC', 'BCH', 'ETH', 'POL', 'SOL'], // minimal chains for auth
+  });
+
+  if (wallet.walletId !== walletId) {
+    error(`Mnemonic wallet ID (${wallet.walletId}) doesn't match requested ID (${walletId})`);
+  }
+
+  // Check what's missing
+  const missingChains = await wallet.getMissingChains(targetChains);
+
+  if (missingChains.length === 0) {
+    console.log('  ✓ No missing chains! All addresses are already derived.\n');
+    return;
+  }
+
+  console.log(`  Missing chains: ${missingChains.join(', ')}\n`);
+  console.log('  Deriving addresses...\n');
+
+  // Derive the missing chains
+  const results = await wallet.deriveMissingChains(targetChains);
+
+  if (results.length === 0) {
+    console.log('  No new addresses derived.\n');
+    return;
+  }
+
+  console.log('  New addresses derived:\n');
+  printTable(
+    results.map((r) => ({
+      Chain: r.chain,
+      Address: r.address.length > 30
+        ? r.address.slice(0, 15) + '...' + r.address.slice(-10)
+        : r.address,
+      Index: r.derivationIndex,
+    }))
+  );
+  console.log();
+}
+
 // ── Help ──
 
 function showHelp() {
@@ -368,6 +433,9 @@ Commands:
 
   sync <wallet-id>      Sync on-chain transaction history
     --chain <chain>     Sync specific chain only
+
+  derive-missing <wallet-id>  Derive addresses for newly supported chains
+    --chains <list>     Target chains (default: BTC,BCH,ETH,POL,SOL,USDC_*)
 
 Environment Variables:
   COINPAY_API_URL       API base URL (default: http://localhost:8080)
@@ -412,6 +480,9 @@ async function main() {
         break;
       case 'sync':
         await cmdSync(positional, flags, config);
+        break;
+      case 'derive-missing':
+        await cmdDeriveMissing(positional, flags, config);
         break;
       default:
         error(`Unknown command: ${command}\nRun 'coinpay-wallet help' for usage.`);
