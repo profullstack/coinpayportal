@@ -44,6 +44,31 @@ export function SwapForm({ addresses, onSwapCreated }: SwapFormProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<'form' | 'confirm' | 'result'>('form');
+  const [usdRate, setUsdRate] = useState<number | null>(null);
+
+  // Fetch USD rate for the selected "from" coin
+  useEffect(() => {
+    if (!fromCoin) {
+      setUsdRate(null);
+      return;
+    }
+
+    const fetchUsdRate = async () => {
+      try {
+        const res = await fetch(`/api/rates?coin=${fromCoin}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.rate) {
+            setUsdRate(data.rate);
+          }
+        }
+      } catch {
+        // Silently fail - USD rate is just a nice-to-have
+      }
+    };
+
+    fetchUsdRate();
+  }, [fromCoin]);
 
   // Debounced quote fetch
   const fetchQuote = useCallback(async () => {
@@ -272,11 +297,18 @@ export function SwapForm({ addresses, onSwapCreated }: SwapFormProps) {
           label="From"
         />
 
-        <AmountInput
-          value={amount}
-          onChange={(v) => { setAmount(v); setQuote(null); }}
-          label="Amount"
-        />
+        <div className="space-y-1">
+          <AmountInput
+            value={amount}
+            onChange={(v) => { setAmount(v); setQuote(null); }}
+            label={fromCoin ? `Amount (${fromCoin})` : 'Amount'}
+          />
+          {amount && parseFloat(amount) > 0 && usdRate && (
+            <p className="text-xs text-gray-400 pl-1">
+              ≈ ${(parseFloat(amount) * usdRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+            </p>
+          )}
+        </div>
 
         {/* Swap direction button */}
         <div className="flex justify-center">
