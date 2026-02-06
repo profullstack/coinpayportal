@@ -317,7 +317,7 @@ describe('fetchBalance', () => {
 
   describe('unsupported chain', () => {
     it('should throw for unknown chain', async () => {
-      await expect(fetchBalance('addr', 'DOGE' as any)).rejects.toThrow('Unsupported chain');
+      await expect(fetchBalance('addr', 'SHIB' as any)).rejects.toThrow('Unsupported chain');
     });
   });
 });

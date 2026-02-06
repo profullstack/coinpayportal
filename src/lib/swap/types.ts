@@ -30,8 +30,8 @@ export interface QuoteRequest {
 }
 
 export interface QuoteResponse {
-  id: string;
-  createdAt: string;
+  id?: string;
+  createdAt?: string;
   depositCoin: string;
   depositNetwork: string;
   settleCoin: string;
@@ -39,7 +39,8 @@ export interface QuoteResponse {
   depositAmount: string;
   settleAmount: string;
   rate: string;
-  expiresAt: string;
+  expiresAt?: string;
+  minAmount?: number;
 }
 
 export interface ShiftRequest {
@@ -55,15 +56,15 @@ export interface ShiftResponse {
   depositCoin: string;
   depositNetwork: string;
   depositAddress: string;
-  depositMin: string;
-  depositMax: string;
+  depositMin?: string;
+  depositMax?: string;
   depositAmount: string;
   settleCoin: string;
   settleNetwork: string;
   settleAddress: string;
   settleAmount: string;
-  status: ShiftStatus;
-  expiresAt: string;
+  status: ShiftStatus | string;
+  expiresAt?: string;
 }
 
 export type ShiftStatus = 
@@ -91,14 +92,21 @@ export interface SwapCreateParams {
   refundAddress?: string;
 }
 
-// Mapping our coin symbols to SideShift's
+// Mapping our coin symbols to swap provider format
+// Will be adapted based on chosen provider (ChangeNOW, etc.)
 export const COIN_NETWORK_MAP: Record<string, { coin: string; network: string }> = {
   'BTC': { coin: 'btc', network: 'bitcoin' },
   'BCH': { coin: 'bch', network: 'bitcoincash' },
   'ETH': { coin: 'eth', network: 'ethereum' },
   'POL': { coin: 'matic', network: 'polygon' },
   'SOL': { coin: 'sol', network: 'solana' },
+  'BNB': { coin: 'bnb', network: 'bsc' },
+  'DOGE': { coin: 'doge', network: 'dogecoin' },
+  'XRP': { coin: 'xrp', network: 'ripple' },
+  'ADA': { coin: 'ada', network: 'cardano' },
+  'USDT': { coin: 'usdt', network: 'ethereum' },
   'USDC': { coin: 'usdc', network: 'ethereum' },
-  'USDC_SOL': { coin: 'usdc', network: 'solana' },
+  'USDC_ETH': { coin: 'usdc', network: 'ethereum' },
   'USDC_POL': { coin: 'usdc', network: 'polygon' },
+  'USDC_SOL': { coin: 'usdc', network: 'solana' },
 };

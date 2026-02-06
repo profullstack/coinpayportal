@@ -26,8 +26,12 @@ describe('ChangeNOW Client', () => {
   });
 
   describe('SWAP_SUPPORTED_COINS', () => {
-    it('should only include coins our wallet supports', () => {
-      expect(SWAP_SUPPORTED_COINS).toEqual(['BTC', 'BCH', 'ETH', 'POL', 'SOL']);
+    it('should include all coins our wallet supports', () => {
+      expect(SWAP_SUPPORTED_COINS).toEqual([
+        'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+        'BNB', 'DOGE', 'XRP', 'ADA',
+        'USDT', 'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+      ]);
     });
 
     it('should have mappings for all supported coins', () => {
@@ -36,13 +40,23 @@ describe('ChangeNOW Client', () => {
       expect(CN_COIN_MAP['SOL']).toEqual({ ticker: 'sol', network: 'sol' });
       expect(CN_COIN_MAP['POL']).toEqual({ ticker: 'matic', network: 'matic' });
       expect(CN_COIN_MAP['BCH']).toEqual({ ticker: 'bch', network: 'bch' });
+      expect(CN_COIN_MAP['BNB']).toEqual({ ticker: 'bnb', network: 'bsc' });
+      expect(CN_COIN_MAP['DOGE']).toEqual({ ticker: 'doge', network: 'doge' });
+      expect(CN_COIN_MAP['XRP']).toEqual({ ticker: 'xrp', network: 'xrp' });
+      expect(CN_COIN_MAP['ADA']).toEqual({ ticker: 'ada', network: 'ada' });
+      expect(CN_COIN_MAP['USDT']).toEqual({ ticker: 'usdt', network: 'eth' });
+      expect(CN_COIN_MAP['USDC']).toEqual({ ticker: 'usdc', network: 'eth' });
+      expect(CN_COIN_MAP['USDC_POL']).toEqual({ ticker: 'usdc', network: 'matic' });
+      expect(CN_COIN_MAP['USDC_SOL']).toEqual({ ticker: 'usdc', network: 'sol' });
     });
 
     it('isSwapSupported should validate correctly', () => {
       expect(isSwapSupported('BTC')).toBe(true);
       expect(isSwapSupported('ETH')).toBe(true);
-      expect(isSwapSupported('DOGE')).toBe(false);
-      expect(isSwapSupported('USDC')).toBe(false);
+      expect(isSwapSupported('DOGE')).toBe(true);
+      expect(isSwapSupported('USDC')).toBe(true);
+      expect(isSwapSupported('FAKE')).toBe(false);
+      expect(isSwapSupported('SHIB')).toBe(false);
     });
   });
 
@@ -78,11 +92,11 @@ describe('ChangeNOW Client', () => {
     it('should throw for unsupported coin', async () => {
       await expect(
         getSwapQuote({
-          from: 'DOGE',
+          from: 'SHIB',
           to: 'ETH',
           amount: '100',
         })
-      ).rejects.toThrow('Unsupported coin: DOGE');
+      ).rejects.toThrow('Unsupported coin: SHIB');
     });
 
     it('should throw when trying to swap same coin', async () => {

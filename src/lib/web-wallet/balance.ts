@@ -45,6 +45,10 @@ function getRpcEndpoints(): Record<string, string> {
     ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
     POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
     SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+    BNB: process.env.BNB_RPC_URL || 'https://bsc-dataseed.binance.org',
+    DOGE: process.env.DOGE_RPC_URL || 'https://dogechain.info/api/v1',
+    XRP: process.env.XRP_RPC_URL || 'https://s1.ripple.com:51234',
+    ADA: process.env.ADA_RPC_URL || 'https://cardano-mainnet.blockfrost.io/api/v0',
   };
 }
 
@@ -52,13 +56,22 @@ function getRpcEndpoints(): Record<string, string> {
 const USDC_CONTRACTS: Record<string, string> = {
   USDC_ETH: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
   USDC_POL: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+  // USDC on BNB Smart Chain
+  USDC_BNB: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
+};
+
+// USDT contract addresses (ERC-20 compatible)
+const USDT_CONTRACTS: Record<string, string> = {
+  USDT_ETH: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+  USDT_BNB: '0x55d398326f99059fF775485246999027B3197955',
 };
 
 // USDC on Solana (SPL token mint)
 const USDC_SOL_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-// USDC has 6 decimals on all chains
+// USDC/USDT have 6 decimals on all chains
 const USDC_DECIMALS = 6;
+const USDT_DECIMALS = 6;
 
 // ERC-20 balanceOf(address) function selector
 const BALANCE_OF_SELECTOR = '0x70a08231';
@@ -288,6 +301,105 @@ async function fetchSPLTokenBalance(
   return total.toString();
 }
 
+/**
+ * Fetch DOGE balance via Dogechain or Blockcypher API.
+ */
+async function fetchDOGEBalance(address: string): Promise<string> {
+  // Try Blockcypher first (more reliable)
+  try {
+    const resp = await fetch(`https://api.blockcypher.com/v1/doge/main/addrs/${address}/balance`);
+    if (resp.ok) {
+      const data = await resp.json();
+      const satoshis = data.balance || 0;
+      return (satoshis / 1e8).toString();
+    }
+  } catch (err) {
+    console.error('DOGE Blockcypher balance fetch failed:', err);
+  }
+
+  // Fallback to Dogechain
+  try {
+    const resp = await fetch(`https://dogechain.info/api/v1/address/balance/${address}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.success === 1) {
+        return data.balance || '0';
+      }
+    }
+  } catch (err) {
+    console.error('DOGE Dogechain balance fetch failed:', err);
+  }
+
+  throw new Error('All DOGE balance APIs failed');
+}
+
+/**
+ * Fetch BNB (BSC) native balance via JSON-RPC.
+ */
+async function fetchBNBBalance(address: string, rpcUrl: string): Promise<string> {
+  return fetchEVMNativeBalance(address, rpcUrl);
+}
+
+/**
+ * Fetch XRP balance via Ripple JSON-RPC.
+ */
+async function fetchXRPBalance(address: string, rpcUrl: string): Promise<string> {
+  const response = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      method: 'account_info',
+      params: [{
+        account: address,
+        ledger_index: 'validated',
+      }],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`XRP balance fetch failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  if (data.result?.error === 'actNotFound') {
+    return '0'; // Account not activated
+  }
+  if (data.result?.error) {
+    throw new Error(`XRP RPC error: ${data.result.error}`);
+  }
+
+  // XRP balance is in drops (1 XRP = 1,000,000 drops)
+  const drops = BigInt(data.result?.account_data?.Balance || '0');
+  return formatBigIntDecimal(drops, 6);
+}
+
+/**
+ * Fetch ADA balance via Blockfrost API.
+ */
+async function fetchADABalance(address: string): Promise<string> {
+  const blockfrostKey = process.env.BLOCKFROST_API_KEY;
+  if (!blockfrostKey) {
+    throw new Error('BLOCKFROST_API_KEY is required for ADA balance');
+  }
+
+  const response = await fetch(`https://cardano-mainnet.blockfrost.io/api/v0/addresses/${address}`, {
+    headers: { 'project_id': blockfrostKey },
+  });
+
+  if (response.status === 404) {
+    return '0'; // Address not used yet
+  }
+
+  if (!response.ok) {
+    throw new Error(`ADA balance fetch failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  // ADA is in lovelace (1 ADA = 1,000,000 lovelace)
+  const lovelace = BigInt(data.amount?.[0]?.quantity || '0');
+  return formatBigIntDecimal(lovelace, 6);
+}
+
 // ──────────────────────────────────────────────
 // Unified Balance Fetcher
 // ──────────────────────────────────────────────
@@ -301,6 +413,7 @@ export async function fetchBalance(address: string, chain: WalletChain): Promise
   const rpc = getRpcEndpoints();
 
   switch (chain) {
+    // Native coins
     case 'BTC':
       return fetchBTCBalance(address);
     case 'BCH':
@@ -311,12 +424,28 @@ export async function fetchBalance(address: string, chain: WalletChain): Promise
       return fetchEVMNativeBalance(address, rpc.POL);
     case 'SOL':
       return fetchSOLBalance(address, rpc.SOL);
+    case 'BNB':
+      return fetchBNBBalance(address, rpc.BNB);
+    case 'DOGE':
+      return fetchDOGEBalance(address);
+    case 'XRP':
+      return fetchXRPBalance(address, rpc.XRP);
+    case 'ADA':
+      return fetchADABalance(address);
+
+    // USDC variants
+    case 'USDC':
     case 'USDC_ETH':
       return fetchERC20Balance(address, USDC_CONTRACTS.USDC_ETH, rpc.ETH, USDC_DECIMALS);
     case 'USDC_POL':
       return fetchERC20Balance(address, USDC_CONTRACTS.USDC_POL, rpc.POL, USDC_DECIMALS);
     case 'USDC_SOL':
       return fetchSPLTokenBalance(address, USDC_SOL_MINT, rpc.SOL, USDC_DECIMALS);
+
+    // USDT (defaults to ETH)
+    case 'USDT':
+      return fetchERC20Balance(address, USDT_CONTRACTS.USDT_ETH, rpc.ETH, USDT_DECIMALS);
+
     default:
       throw new Error(`Unsupported chain: ${chain}`);
   }

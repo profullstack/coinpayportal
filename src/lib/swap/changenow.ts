@@ -7,7 +7,8 @@
 import {
   SwapQuoteParams,
   SwapCreateParams,
-  COIN_NETWORK_MAP,
+  QuoteResponse,
+  ShiftResponse,
 } from './types';
 
 const CHANGENOW_API_URL = 'https://api.changenow.io';
@@ -64,18 +65,32 @@ export type ChangeNowStatus =
 
 /**
  * Supported coins for swaps - must match wallet support
- * Only coins that our HD wallet can generate addresses for
  */
-export const SWAP_SUPPORTED_COINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL'] as const;
+export const SWAP_SUPPORTED_COINS = [
+  'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+  'BNB', 'DOGE', 'XRP', 'ADA',
+  'USDT', 'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+] as const;
 export type SwapCoin = (typeof SWAP_SUPPORTED_COINS)[number];
 
 // Map our symbols to ChangeNOW format
 const CN_COIN_MAP: Record<SwapCoin, { ticker: string; network: string }> = {
+  // Native coins
   'BTC': { ticker: 'btc', network: 'btc' },
   'BCH': { ticker: 'bch', network: 'bch' },
   'ETH': { ticker: 'eth', network: 'eth' },
   'POL': { ticker: 'matic', network: 'matic' },
   'SOL': { ticker: 'sol', network: 'sol' },
+  'BNB': { ticker: 'bnb', network: 'bsc' },
+  'DOGE': { ticker: 'doge', network: 'doge' },
+  'XRP': { ticker: 'xrp', network: 'xrp' },
+  'ADA': { ticker: 'ada', network: 'ada' },
+  // Stablecoins
+  'USDT': { ticker: 'usdt', network: 'eth' },
+  'USDC': { ticker: 'usdc', network: 'eth' },
+  'USDC_ETH': { ticker: 'usdc', network: 'eth' },
+  'USDC_POL': { ticker: 'usdc', network: 'matic' },
+  'USDC_SOL': { ticker: 'usdc', network: 'sol' },
 };
 
 /**
@@ -234,32 +249,6 @@ export function resetClient(): void {
 /**
  * High-level swap functions using our coin symbols
  */
-export interface QuoteResponse {
-  id?: string;
-  depositCoin: string;
-  depositNetwork: string;
-  settleCoin: string;
-  settleNetwork: string;
-  depositAmount: string;
-  settleAmount: string;
-  rate: string;
-  expiresAt?: string;
-  minAmount?: number;
-}
-
-export interface ShiftResponse {
-  id: string;
-  depositAddress: string;
-  depositCoin: string;
-  depositNetwork: string;
-  depositAmount: string;
-  settleCoin: string;
-  settleNetwork: string;
-  settleAddress: string;
-  settleAmount: string;
-  status: string;
-  createdAt: string;
-}
 
 export async function getSwapQuote(params: SwapQuoteParams): Promise<QuoteResponse> {
   const client = getChangeNowClient();
