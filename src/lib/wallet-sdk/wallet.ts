@@ -341,14 +341,28 @@ export class Wallet {
 
     // Derive addresses for each missing chain
     const results: DeriveAddressResult[] = [];
+    const failures: { chain: WalletChain; error: string }[] = [];
+    
     for (const chain of missingChains) {
       try {
         const result = await this.deriveAddress(chain, 0);
         results.push(result);
       } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
         console.error(`[Wallet] Failed to derive ${chain}:`, err);
-        // Continue with other chains even if one fails
+        failures.push({ chain, error: errorMsg });
       }
+    }
+
+    // If ALL chains failed, throw an error with details
+    if (results.length === 0 && failures.length > 0) {
+      const failedChains = failures.map(f => f.chain).join(', ');
+      const firstError = failures[0].error;
+      throw new WalletSDKError(
+        'DERIVE_FAILED',
+        `Failed to derive addresses for: ${failedChains}. Error: ${firstError}`,
+        500
+      );
     }
 
     return results;
