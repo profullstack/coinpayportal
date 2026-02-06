@@ -21,7 +21,11 @@ interface SwapHistoryProps {
 }
 
 const STATUS_COLORS: Record<string, string> = {
+  waiting: 'text-yellow-400 bg-yellow-400/10',
   pending: 'text-yellow-400 bg-yellow-400/10',
+  confirming: 'text-blue-400 bg-blue-400/10',
+  exchanging: 'text-blue-400 bg-blue-400/10',
+  sending: 'text-purple-400 bg-purple-400/10',
   processing: 'text-blue-400 bg-blue-400/10',
   settling: 'text-purple-400 bg-purple-400/10',
   settled: 'text-green-400 bg-green-400/10',
@@ -32,7 +36,11 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const STATUS_LABELS: Record<string, string> = {
+  waiting: 'Waiting for deposit',
   pending: 'Waiting for deposit',
+  confirming: 'Confirming deposit',
+  exchanging: 'Exchanging',
+  sending: 'Sending funds',
   processing: 'Processing',
   settling: 'Sending',
   settled: 'Completed',
@@ -123,7 +131,7 @@ function SwapCard({ swap, onClick, onRefresh }: { swap: Swap; onClick?: () => vo
   const [refreshing, setRefreshing] = useState(false);
   const statusColor = STATUS_COLORS[swap.status] || 'text-gray-400 bg-gray-400/10';
   const statusLabel = STATUS_LABELS[swap.status] || swap.status;
-  const isPending = ['pending', 'processing', 'settling'].includes(swap.status);
+  const isPending = ['waiting', 'pending', 'confirming', 'exchanging', 'sending', 'processing', 'settling'].includes(swap.status);
 
   const copyId = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -247,7 +255,7 @@ export function PendingSwaps({ walletId }: { walletId: string }) {
           })
         );
         setPendingSwaps(updatedSwaps.filter(s => 
-          ['pending', 'processing', 'settling'].includes(s.status)
+          ['waiting', 'pending', 'confirming', 'exchanging', 'sending', 'processing', 'settling'].includes(s.status)
         ));
       }
     } catch {
