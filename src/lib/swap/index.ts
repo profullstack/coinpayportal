@@ -1,6 +1,7 @@
 /**
- * Swap module for no-KYC coin swaps via SideShift.ai
+ * Swap module for no-KYC coin swaps
+ * Uses ChangeNOW - works in USA! 🇺🇸
  */
 
 export * from './types';
-export * from './sideshift';
+export * from './changenow';

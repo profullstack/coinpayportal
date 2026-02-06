@@ -2,25 +2,26 @@
 
 ## Overview
 
-Add in-wallet coin swapping using **SideShift.ai** - a no-KYC swap provider supporting 200+ assets.
+Add in-wallet coin swapping using **ChangeNOW** - a no-KYC swap provider that works in the USA! 🇺🇸
 
-## Why SideShift?
+## Why ChangeNOW?
 
-- ✅ **No KYC** - No identity verification required
-- ✅ **200+ coins** - Covers all our supported chains + more
-- ✅ **Simple API** - Quote → Shift → Monitor
-- ✅ **Affiliate program** - Earn 0.1% of swap volume
-- ✅ **Fixed & variable rates** - User choice
+- ✅ **Works in USA** - No geo-blocking!
+- ✅ **No KYC** - No identity verification for normal amounts
+- ✅ **1500+ coins** - Covers all our supported chains + more
+- ✅ **Simple API** - Estimate → Exchange → Monitor
+- ✅ **Affiliate program** - Earn 0.4%+ of swap volume
+- ✅ **Fixed & floating rates** - User choice
 - ✅ **Direct to wallet** - Non-custodial, funds go straight to user
 
 ## API Flow
 
 ```
-1. GET /v2/coins         → List supported coins
-2. GET /v2/pairs         → Get available pairs
-3. POST /v2/quotes       → Get quote (fixed rate)
-4. POST /v2/shifts/fixed → Create shift
-5. GET /v2/shifts/{id}   → Poll status
+1. GET /v1/currencies           → List supported coins
+2. GET /v1/min-amount/{pair}    → Get minimum amount
+3. GET /v1/exchange-amount/...  → Get estimate (floating rate)
+4. POST /v1/transactions/{key}  → Create exchange
+5. GET /v1/transactions/{id}    → Poll status
 ```
 
 ## Integration Points
@@ -58,9 +59,10 @@ const status = await coinpay.swap.getStatus(shift.id);
 ## Environment Variables
 
 ```env
-SIDESHIFT_SECRET=your_api_secret
-SIDESHIFT_AFFILIATE_ID=your_affiliate_id
+CHANGENOW_API_KEY=your_api_key
 ```
+
+Get your API key at: https://changenow.io/api (free to sign up)
 
 ## Database Schema
 
