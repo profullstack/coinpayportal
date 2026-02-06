@@ -147,7 +147,8 @@ describe('WebWalletPage', () => {
 
       render(<WebWalletPage />);
 
-      expect(screen.getByText('Assets')).toBeInTheDocument();
+      // There are now 2 "Assets" elements: one in the tab button and one in the section header
+      expect(screen.getAllByText('Assets').length).toBeGreaterThanOrEqual(1);
     });
   });
 });
