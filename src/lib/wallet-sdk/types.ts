@@ -165,6 +165,8 @@ export interface BroadcastResult {
 
 // ── Settings ──
 
+export type FiatCurrency = 'USD' | 'EUR' | 'GBP' | 'CAD' | 'AUD' | 'JPY' | 'CHF' | 'CNY' | 'INR' | 'BRL';
+
 export interface WalletSettings {
   walletId: string;
   dailySpendLimit: number | null;
@@ -172,6 +174,7 @@ export interface WalletSettings {
   whitelistEnabled: boolean;
   requireConfirmation: boolean;
   confirmationDelaySeconds: number;
+  displayCurrency: FiatCurrency;
 }
 
 export interface UpdateSettingsInput {
@@ -180,6 +183,7 @@ export interface UpdateSettingsInput {
   whitelistEnabled?: boolean;
   requireConfirmation?: boolean;
   confirmationDelaySeconds?: number;
+  displayCurrency?: FiatCurrency;
 }
 
 // ── Events ──

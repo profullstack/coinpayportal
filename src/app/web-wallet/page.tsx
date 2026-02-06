@@ -107,6 +107,7 @@ function DashboardView() {
   const [loadingBalances, setLoadingBalances] = useState(true);
   const [loadingTx, setLoadingTx] = useState(true);
   const [isDeriving, setIsDeriving] = useState(false);
+  const [displayCurrency, setDisplayCurrency] = useState<'USD' | 'EUR' | 'GBP' | 'CAD' | 'AUD' | 'JPY' | 'CHF' | 'CNY' | 'INR' | 'BRL'>('USD');
 
   const fetchData = useCallback(async () => {
     if (!wallet) return;
@@ -164,6 +165,18 @@ function DashboardView() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Load display currency preference
+  useEffect(() => {
+    if (!wallet || typeof wallet.getSettings !== 'function') return;
+    wallet.getSettings().then((settings) => {
+      if (settings?.displayCurrency) {
+        setDisplayCurrency(settings.displayCurrency);
+      }
+    }).catch(() => {
+      // Ignore errors, keep default USD
+    });
+  }, [wallet]);
 
   const handleDeriveAll = useCallback(async () => {
     if (!wallet || isDeriving) return;
@@ -288,6 +301,7 @@ function DashboardView() {
               <SwapForm 
                 addresses={addressMap}
                 balances={balanceMap}
+                displayCurrency={displayCurrency}
                 onSwapCreated={(swap) => {
                   console.log('Swap created:', swap);
                 }}

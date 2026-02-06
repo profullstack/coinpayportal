@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ChainSelector } from './ChainSelector';
 import { AmountInput } from './AmountInput';
+import { type FiatCurrency, getFiatSymbol } from '@/lib/web-wallet/settings';
 
 // All coins supported for swaps (must match changenow.ts SWAP_SUPPORTED_COINS)
 const SWAP_COINS = [
@@ -38,10 +39,11 @@ interface BalanceInfo {
 interface SwapFormProps {
   addresses: Record<string, string>;
   balances?: Record<string, BalanceInfo>;
+  displayCurrency?: FiatCurrency;
   onSwapCreated?: (swap: SwapResult) => void;
 }
 
-export function SwapForm({ addresses, balances, onSwapCreated }: SwapFormProps) {
+export function SwapForm({ addresses, balances, displayCurrency = 'USD', onSwapCreated }: SwapFormProps) {
   const [fromCoin, setFromCoin] = useState('');
   const [toCoin, setToCoin] = useState('');
   const [amount, setAmount] = useState('');
@@ -52,16 +54,16 @@ export function SwapForm({ addresses, balances, onSwapCreated }: SwapFormProps) 
   const [step, setStep] = useState<'form' | 'confirm' | 'result'>('form');
   const [usdRate, setUsdRate] = useState<number | null>(null);
 
-  // Fetch USD rate for the selected "from" coin
+  // Fetch fiat rate for the selected "from" coin
   useEffect(() => {
     if (!fromCoin) {
       setUsdRate(null);
       return;
     }
 
-    const fetchUsdRate = async () => {
+    const fetchFiatRate = async () => {
       try {
-        const res = await fetch(`/api/rates?coin=${fromCoin}`);
+        const res = await fetch(`/api/rates?coin=${fromCoin}&fiat=${displayCurrency}`);
         if (res.ok) {
           const data = await res.json();
           if (data.rate) {
@@ -69,12 +71,12 @@ export function SwapForm({ addresses, balances, onSwapCreated }: SwapFormProps) 
           }
         }
       } catch {
-        // Silently fail - USD rate is just a nice-to-have
+        // Silently fail - fiat rate is just a nice-to-have
       }
     };
 
-    fetchUsdRate();
-  }, [fromCoin]);
+    fetchFiatRate();
+  }, [fromCoin, displayCurrency]);
 
   // Debounced quote fetch
   const fetchQuote = useCallback(async () => {
@@ -312,7 +314,7 @@ export function SwapForm({ addresses, balances, onSwapCreated }: SwapFormProps) 
           />
           {amount && parseFloat(amount) > 0 && usdRate && (
             <p className="text-xs text-gray-400 pl-1">
-              ≈ ${(parseFloat(amount) * usdRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+              ≈ {getFiatSymbol(displayCurrency)}{(parseFloat(amount) * usdRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {displayCurrency}
             </p>
           )}
         </div>

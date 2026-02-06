@@ -9,6 +9,7 @@ import { PasswordInput } from '@/components/web-wallet/PasswordInput';
 import { SeedDisplay } from '@/components/web-wallet/SeedDisplay';
 import { ChainBadge } from '@/components/web-wallet/AddressDisplay';
 import { downloadEncryptedSeedPhrase } from '@/lib/web-wallet/seedphrase-backup';
+import { SUPPORTED_FIAT_CURRENCIES, type FiatCurrency } from '@/lib/web-wallet/settings';
 
 interface WalletSettings {
   walletId: string;
@@ -17,6 +18,7 @@ interface WalletSettings {
   whitelistEnabled: boolean;
   requireConfirmation: boolean;
   confirmationDelaySeconds: number;
+  displayCurrency: FiatCurrency;
 }
 
 export default function SettingsPage() {
@@ -68,6 +70,11 @@ export default function SettingsPage() {
   const [whitelistSuccess, setWhitelistSuccess] = useState(false);
   const [whitelistError, setWhitelistError] = useState('');
 
+  // Display currency state
+  const [displayCurrency, setDisplayCurrency] = useState<FiatCurrency>('USD');
+  const [currencySaving, setCurrencySaving] = useState(false);
+  const [currencySuccess, setCurrencySuccess] = useState(false);
+
   useEffect(() => {
     if (!isUnlocked) {
       router.replace('/web-wallet/unlock');
@@ -88,6 +95,7 @@ export default function SettingsPage() {
         : '');
       setWhitelistEnabled(data.whitelistEnabled);
       setWhitelistAddresses(data.whitelistAddresses || []);
+      setDisplayCurrency(data.displayCurrency || 'USD');
     } catch (err) {
       console.error('Failed to load security settings:', err);
       setSettingsError('Failed to load security settings');
@@ -216,6 +224,24 @@ export default function SettingsPage() {
     }
   };
 
+  // Display currency handler
+  const handleCurrencyChange = async (newCurrency: FiatCurrency) => {
+    if (!wallet || newCurrency === displayCurrency) return;
+    setCurrencySaving(true);
+    setCurrencySuccess(false);
+    try {
+      await wallet.updateSettings({ displayCurrency: newCurrency });
+      setDisplayCurrency(newCurrency);
+      setCurrencySuccess(true);
+      setTimeout(() => setCurrencySuccess(false), 2000);
+    } catch (err) {
+      console.error('Failed to update currency:', err);
+      // Revert on error
+    } finally {
+      setCurrencySaving(false);
+    }
+  };
+
   // Whitelist handlers
   const handleAddAddress = () => {
     const trimmed = newAddress.trim();
@@ -294,6 +320,43 @@ export default function SettingsPage() {
                 ))}
               </div>
             </InfoRow>
+          </Section>
+
+          {/* Display Currency */}
+          <Section title="Display Currency">
+            <div className="space-y-3">
+              <p className="text-sm text-gray-400">
+                Choose your preferred currency for displaying exchange rates and values.
+              </p>
+              <div className="relative">
+                <select
+                  value={displayCurrency}
+                  onChange={(e) => handleCurrencyChange(e.target.value as FiatCurrency)}
+                  disabled={currencySaving || settingsLoading}
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-50 appearance-none cursor-pointer"
+                >
+                  {SUPPORTED_FIAT_CURRENCIES.map((currency) => (
+                    <option key={currency.code} value={currency.code} className="bg-slate-900">
+                      {currency.symbol} {currency.code} - {currency.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                  {currencySaving ? (
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-purple-500 border-t-transparent" />
+                  ) : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  )}
+                </div>
+              </div>
+              {currencySuccess && (
+                <p className="text-xs text-green-400" role="status">
+                  Currency updated
+                </p>
+              )}
+            </div>
           </Section>
 
           {/* Daily Spend Limit */}

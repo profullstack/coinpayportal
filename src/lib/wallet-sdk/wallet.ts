@@ -529,6 +529,7 @@ export class Wallet {
         whitelist_enabled: input.whitelistEnabled,
         require_confirmation: input.requireConfirmation,
         confirmation_delay_seconds: input.confirmationDelaySeconds,
+        display_currency: input.displayCurrency,
       },
       authenticated: true,
     });
@@ -711,6 +712,7 @@ function mapSettings(data: any): WalletSettings {
     whitelistEnabled: data.whitelist_enabled,
     requireConfirmation: data.require_confirmation,
     confirmationDelaySeconds: data.confirmation_delay_seconds,
+    displayCurrency: data.display_currency || 'USD',
   };
 }
 

@@ -12,6 +12,22 @@ import type { WalletChain } from './identity';
 // Types
 // ──────────────────────────────────────────────
 
+// Supported fiat currencies
+export const SUPPORTED_FIAT_CURRENCIES = [
+  { code: 'USD', symbol: '$', name: 'US Dollar' },
+  { code: 'EUR', symbol: '€', name: 'Euro' },
+  { code: 'GBP', symbol: '£', name: 'British Pound' },
+  { code: 'CAD', symbol: 'C$', name: 'Canadian Dollar' },
+  { code: 'AUD', symbol: 'A$', name: 'Australian Dollar' },
+  { code: 'JPY', symbol: '¥', name: 'Japanese Yen' },
+  { code: 'CHF', symbol: 'Fr', name: 'Swiss Franc' },
+  { code: 'CNY', symbol: '¥', name: 'Chinese Yuan' },
+  { code: 'INR', symbol: '₹', name: 'Indian Rupee' },
+  { code: 'BRL', symbol: 'R$', name: 'Brazilian Real' },
+] as const;
+
+export type FiatCurrency = typeof SUPPORTED_FIAT_CURRENCIES[number]['code'];
+
 export interface WalletSettings {
   wallet_id: string;
   daily_spend_limit: number | null;
@@ -19,6 +35,7 @@ export interface WalletSettings {
   whitelist_enabled: boolean;
   require_confirmation: boolean;
   confirmation_delay_seconds: number;
+  display_currency: FiatCurrency;
 }
 
 export interface UpdateSettingsInput {
@@ -27,6 +44,7 @@ export interface UpdateSettingsInput {
   whitelist_enabled?: boolean;
   require_confirmation?: boolean;
   confirmation_delay_seconds?: number;
+  display_currency?: FiatCurrency;
 }
 
 // ──────────────────────────────────────────────
@@ -59,6 +77,7 @@ export async function getSettings(
         whitelist_enabled: false,
         require_confirmation: false,
         confirmation_delay_seconds: 0,
+        display_currency: 'USD',
       })
       .select('*')
       .single();
@@ -105,6 +124,14 @@ export async function updateSettings(
     }
   }
 
+  // Validate display currency
+  if (input.display_currency !== undefined) {
+    const validCurrencies = SUPPORTED_FIAT_CURRENCIES.map(c => c.code);
+    if (!validCurrencies.includes(input.display_currency)) {
+      return { success: false, error: 'Invalid display currency', code: 'INVALID_CURRENCY' };
+    }
+  }
+
   console.log(`[Settings] Updating settings for wallet ${walletId}:`, Object.keys(input).filter(k => (input as any)[k] !== undefined).join(', '));
 
   // Build update object (only include fields that were provided)
@@ -114,6 +141,7 @@ export async function updateSettings(
   if (input.whitelist_enabled !== undefined) updates.whitelist_enabled = input.whitelist_enabled;
   if (input.require_confirmation !== undefined) updates.require_confirmation = input.require_confirmation;
   if (input.confirmation_delay_seconds !== undefined) updates.confirmation_delay_seconds = input.confirmation_delay_seconds;
+  if (input.display_currency !== undefined) updates.display_currency = input.display_currency;
 
   if (Object.keys(updates).length === 0) {
     return { success: false, error: 'No fields to update', code: 'NO_CHANGES' };
@@ -213,5 +241,14 @@ function formatSettings(walletId: string, raw: any): WalletSettings {
     whitelist_enabled: raw.whitelist_enabled ?? false,
     require_confirmation: raw.require_confirmation ?? false,
     confirmation_delay_seconds: raw.confirmation_delay_seconds ?? 0,
+    display_currency: raw.display_currency ?? 'USD',
   };
+}
+
+/**
+ * Get the symbol for a fiat currency code
+ */
+export function getFiatSymbol(code: FiatCurrency): string {
+  const currency = SUPPORTED_FIAT_CURRENCIES.find(c => c.code === code);
+  return currency?.symbol ?? '$';
 }
