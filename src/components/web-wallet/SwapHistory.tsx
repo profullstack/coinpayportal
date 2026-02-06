@@ -165,23 +165,21 @@ function SwapCard({ swap, onClick, onRefresh }: { swap: Swap; onClick?: () => vo
           <span className="font-semibold text-white">{swap.to_coin}</span>
         </div>
         <div className="flex items-center gap-2">
-          {isPending && (
-            <button
-              onClick={checkStatus}
-              disabled={refreshing}
-              className="p-1 rounded hover:bg-white/10 transition-colors"
-              title="Check status"
+          <button
+            onClick={checkStatus}
+            disabled={refreshing}
+            className="p-1 rounded hover:bg-white/10 transition-colors"
+            title="Check status"
+          >
+            <svg 
+              className={`h-4 w-4 text-gray-400 ${refreshing ? 'animate-spin' : ''}`} 
+              fill="none" 
+              viewBox="0 0 24 24" 
+              stroke="currentColor"
             >
-              <svg 
-                className={`h-4 w-4 text-gray-400 ${refreshing ? 'animate-spin' : ''}`} 
-                fill="none" 
-                viewBox="0 0 24 24" 
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </button>
-          )}
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
           <span className={`text-xs px-2 py-1 rounded-full ${statusColor}`}>
             {isPending && (
               <span className="inline-block h-2 w-2 rounded-full bg-current animate-pulse mr-1" />
