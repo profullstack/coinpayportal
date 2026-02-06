@@ -396,7 +396,9 @@ async function fetchADABalance(address: string): Promise<string> {
 
   const data = await response.json();
   // ADA is in lovelace (1 ADA = 1,000,000 lovelace)
-  const lovelace = BigInt(data.amount?.[0]?.quantity || '0');
+  // Find lovelace entry specifically (not native tokens)
+  const lovelaceEntry = data.amount?.find((a: { unit: string }) => a.unit === 'lovelace');
+  const lovelace = BigInt(lovelaceEntry?.quantity || '0');
   return formatBigIntDecimal(lovelace, 6);
 }
 
