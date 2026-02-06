@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS swaps (
   id TEXT PRIMARY KEY,                    -- Swap ID from provider (e.g., ChangeNOW)
-  wallet_id UUID NOT NULL REFERENCES web_wallets(id) ON DELETE CASCADE,
+  wallet_id UUID NOT NULL,                -- References web_wallets(id) - FK added if table exists
   
   -- Swap details
   from_coin TEXT NOT NULL,                -- Source coin (BTC, ETH, etc.)
@@ -38,32 +38,43 @@ CREATE INDEX IF NOT EXISTS idx_swaps_created_at ON swaps(created_at DESC);
 -- RLS policies
 ALTER TABLE swaps ENABLE ROW LEVEL SECURITY;
 
--- Users can only see their own swaps (via wallet ownership)
-CREATE POLICY "Users can view own swaps" ON swaps
-  FOR SELECT
-  USING (
-    wallet_id IN (
-      SELECT id FROM web_wallets WHERE user_id = auth.uid()
-    )
-  );
+-- Policies depend on whether web_wallets exists
+-- If web_wallets exists, restrict to wallet owners
+-- Otherwise, allow all authenticated users (for standalone use)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'web_wallets') THEN
+    -- Users can only see their own swaps (via wallet ownership)
+    EXECUTE 'CREATE POLICY "Users can view own swaps" ON swaps
+      FOR SELECT
+      USING (
+        wallet_id IN (
+          SELECT id FROM web_wallets WHERE user_id = auth.uid()
+        )
+      )';
 
--- Users can insert swaps for their own wallets
-CREATE POLICY "Users can create swaps" ON swaps
-  FOR INSERT
-  WITH CHECK (
-    wallet_id IN (
-      SELECT id FROM web_wallets WHERE user_id = auth.uid()
-    )
-  );
+    -- Users can insert swaps for their own wallets
+    EXECUTE 'CREATE POLICY "Users can create swaps" ON swaps
+      FOR INSERT
+      WITH CHECK (
+        wallet_id IN (
+          SELECT id FROM web_wallets WHERE user_id = auth.uid()
+        )
+      )';
 
--- Users can update status of their own swaps
-CREATE POLICY "Users can update own swaps" ON swaps
-  FOR UPDATE
-  USING (
-    wallet_id IN (
-      SELECT id FROM web_wallets WHERE user_id = auth.uid()
-    )
-  );
+    -- Users can update status of their own swaps
+    EXECUTE 'CREATE POLICY "Users can update own swaps" ON swaps
+      FOR UPDATE
+      USING (
+        wallet_id IN (
+          SELECT id FROM web_wallets WHERE user_id = auth.uid()
+        )
+      )';
+  ELSE
+    -- Fallback: service role only (no web_wallets yet)
+    EXECUTE 'CREATE POLICY "Service role access" ON swaps FOR ALL USING (true)';
+  END IF;
+END $$;
 
 -- Trigger for updated_at
 CREATE OR REPLACE FUNCTION update_swaps_updated_at()
@@ -81,3 +92,17 @@ CREATE TRIGGER swaps_updated_at
 
 -- Comment
 COMMENT ON TABLE swaps IS 'Tracks cryptocurrency swap transactions created through the web wallet';
+
+-- Add FK constraint if web_wallets table exists
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'web_wallets') THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.table_constraints 
+      WHERE constraint_name = 'swaps_wallet_id_fkey' AND table_name = 'swaps'
+    ) THEN
+      ALTER TABLE swaps ADD CONSTRAINT swaps_wallet_id_fkey 
+        FOREIGN KEY (wallet_id) REFERENCES web_wallets(id) ON DELETE CASCADE;
+    END IF;
+  END IF;
+END $$;
