@@ -37,13 +37,14 @@ interface BalanceInfo {
 }
 
 interface SwapFormProps {
+  walletId: string;
   addresses: Record<string, string>;
   balances?: Record<string, BalanceInfo>;
   displayCurrency?: FiatCurrency;
   onSwapCreated?: (swap: SwapResult) => void;
 }
 
-export function SwapForm({ addresses, balances, displayCurrency = 'USD', onSwapCreated }: SwapFormProps) {
+export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD', onSwapCreated }: SwapFormProps) {
   const [fromCoin, setFromCoin] = useState('');
   const [toCoin, setToCoin] = useState('');
   const [amount, setAmount] = useState('');
@@ -146,6 +147,7 @@ export function SwapForm({ addresses, balances, displayCurrency = 'USD', onSwapC
           amount,
           settleAddress,
           refundAddress,
+          walletId,
         }),
       });
 

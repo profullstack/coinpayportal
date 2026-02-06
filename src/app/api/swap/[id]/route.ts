@@ -1,10 +1,17 @@
 /**
  * GET /api/swap/[id]
  * Get swap transaction status from ChangeNOW
+ * Also updates local DB with latest status
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSwapStatus } from '@/lib/swap/changenow';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function GET(
   request: NextRequest,
@@ -22,6 +29,20 @@ export async function GET(
 
     // Get status from ChangeNOW
     const swap = await getSwapStatus(id);
+
+    // Update local DB with latest status (non-blocking)
+    supabase
+      .from('swaps')
+      .update({
+        status: swap.status,
+        settle_amount: swap.settleAmount || undefined,
+      })
+      .eq('id', id)
+      .then(({ error }) => {
+        if (error) {
+          console.error(`[Swap Status] DB update failed for ${id}:`, error);
+        }
+      });
 
     return NextResponse.json({
       success: true,

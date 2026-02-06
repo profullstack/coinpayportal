@@ -5,6 +5,18 @@ import { POST as createSwap } from './create/route';
 import { GET as getStatus } from './[id]/route';
 import { GET as getCoins } from './coins/route';
 
+// Mock Supabase
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: vi.fn(() => ({
+    from: vi.fn(() => ({
+      insert: vi.fn(() => Promise.resolve({ error: null })),
+      update: vi.fn(() => ({
+        eq: vi.fn(() => Promise.resolve({ error: null })),
+      })),
+    })),
+  })),
+}));
+
 // Mock the changenow module
 vi.mock('@/lib/swap/changenow', () => ({
   getSwapQuote: vi.fn(),
@@ -139,6 +151,7 @@ describe('Swap API Routes', () => {
           to: 'ETH',
           amount: '100',
           settleAddress: '0xabc123def456',
+          walletId: 'test-wallet-id',
         }),
       });
       const response = await createSwap(request);
@@ -156,6 +169,7 @@ describe('Swap API Routes', () => {
           to: 'ETH',
           amount: '0.1',
           settleAddress: 'short',
+          walletId: 'test-wallet-id',
         }),
       });
       const response = await createSwap(request);
@@ -187,6 +201,7 @@ describe('Swap API Routes', () => {
           to: 'ETH',
           amount: '0.1',
           settleAddress: '0xabc123def456789',
+          walletId: 'test-wallet-id',
         }),
       });
       const response = await createSwap(request);

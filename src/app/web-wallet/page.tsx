@@ -12,6 +12,7 @@ import {
   type TransactionItem,
 } from '@/components/web-wallet/TransactionList';
 import { SwapForm } from '@/components/web-wallet/SwapForm';
+import { SwapHistory, PendingSwaps } from '@/components/web-wallet/SwapHistory';
 import type { WalletChain } from '@/lib/web-wallet/identity';
 
 export default function WebWalletPage() {
@@ -99,7 +100,7 @@ type TabType = 'assets' | 'swap';
 
 function DashboardView() {
   const router = useRouter();
-  const { wallet, chains } = useWebWallet();
+  const { wallet, chains, walletId } = useWebWallet();
   const [activeTab, setActiveTab] = useState<TabType>('assets');
   const [totalUsd, setTotalUsd] = useState(0);
   const [assets, setAssets] = useState<AssetItem[]>([]);
@@ -289,23 +290,36 @@ function DashboardView() {
           </>
         )}
 
-        {activeTab === 'swap' && (
+        {activeTab === 'swap' && walletId && (
           <section>
-            <div className="max-w-md mx-auto">
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold text-white">Swap Coins</h2>
-                <p className="text-sm text-gray-400">
-                  Exchange crypto instantly. No KYC required.
-                </p>
+            <div className="max-w-lg mx-auto space-y-6">
+              {/* Pending Swaps */}
+              <PendingSwaps walletId={walletId} />
+              
+              {/* New Swap Form */}
+              <div>
+                <div className="mb-4">
+                  <h2 className="text-lg font-semibold text-white">Swap Coins</h2>
+                  <p className="text-sm text-gray-400">
+                    Exchange crypto instantly. No KYC required.
+                  </p>
+                </div>
+                <SwapForm 
+                  walletId={walletId}
+                  addresses={addressMap}
+                  balances={balanceMap}
+                  displayCurrency={displayCurrency}
+                  onSwapCreated={(swap) => {
+                    console.log('Swap created:', swap);
+                  }}
+                />
               </div>
-              <SwapForm 
-                addresses={addressMap}
-                balances={balanceMap}
-                displayCurrency={displayCurrency}
-                onSwapCreated={(swap) => {
-                  console.log('Swap created:', swap);
-                }}
-              />
+
+              {/* Swap History */}
+              <div>
+                <h2 className="text-lg font-semibold text-white mb-3">Swap History</h2>
+                <SwapHistory walletId={walletId} />
+              </div>
             </div>
           </section>
         )}
