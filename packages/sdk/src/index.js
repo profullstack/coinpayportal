@@ -16,6 +16,24 @@
  *   blockchain: Blockchain.BTC,
  *   description: 'Order #12345'
  * });
+ *
+ * @example
+ * // Wallet usage
+ * import { WalletClient } from '@profullstack/coinpay';
+ *
+ * // Create a new wallet
+ * const wallet = await WalletClient.create({ words: 12, chains: ['BTC', 'ETH'] });
+ * console.log('Backup your seed:', wallet.getMnemonic());
+ *
+ * // Or import existing
+ * const wallet = await WalletClient.fromSeed('your twelve word mnemonic phrase ...');
+ *
+ * @example
+ * // Swap usage
+ * import { SwapClient } from '@profullstack/coinpay';
+ *
+ * const swap = new SwapClient({ walletId: 'your-wallet-id' });
+ * const quote = await swap.getSwapQuote('BTC', 'ETH', 0.1);
  */
 
 import { CoinPayClient } from './client.js';
@@ -47,6 +65,29 @@ import {
   waitForEscrow,
 } from './escrow.js';
 
+// Wallet exports
+import {
+  WalletClient,
+  WalletChain,
+  DEFAULT_CHAINS,
+  generateMnemonic,
+  validateMnemonic,
+  getDerivationPath,
+  restoreFromBackup,
+} from './wallet.js';
+
+// Swap exports
+import {
+  SwapClient,
+  SwapCoins,
+  SwapStatus,
+  getSwapCoins,
+  getSwapQuote,
+  createSwap,
+  getSwapStatus,
+  getSwapHistory,
+} from './swap.js';
+
 export {
   // Client
   CoinPayClient,
@@ -65,6 +106,25 @@ export {
   disputeEscrow,
   getEscrowEvents,
   waitForEscrow,
+  
+  // Wallet
+  WalletClient,
+  WalletChain,
+  DEFAULT_CHAINS,
+  generateMnemonic,
+  validateMnemonic,
+  getDerivationPath,
+  restoreFromBackup,
+  
+  // Swap
+  SwapClient,
+  SwapCoins,
+  SwapStatus,
+  getSwapCoins,
+  getSwapQuote,
+  createSwap,
+  getSwapStatus,
+  getSwapHistory,
   
   // Constants
   Blockchain,

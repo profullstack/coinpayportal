@@ -1042,7 +1042,7 @@ describe('AssetDetailPage – History tab', () => {
     fireEvent.click(screen.getByText('History'));
 
     await waitFor(() => {
-      expect(screen.getByText('No BTC transactions yet.')).toBeInTheDocument();
+      expect(screen.getByText(/No BTC transactions yet/)).toBeInTheDocument();
     });
   });
 

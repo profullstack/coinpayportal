@@ -1,0 +1,2 @@
+id,title,severity,timestamp,file
+vuln-0001,Secure JWT Implementation in CoinPayPortal,NONE,2026-02-07 10:34:25 UTC,vulnerabilities/vuln-0001.md

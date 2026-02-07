@@ -3,19 +3,28 @@
 /**
  * CoinPay CLI
  * Command-line interface for CoinPay cryptocurrency payments
+ * with persistent GPG-encrypted wallet storage
  */
 
 import { CoinPayClient } from '../src/client.js';
 import { PaymentStatus, Blockchain, FiatCurrency } from '../src/payments.js';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { 
+  WalletClient, 
+  generateMnemonic, 
+  validateMnemonic,
+  DEFAULT_CHAINS,
+} from '../src/wallet.js';
+import { SwapClient, SwapCoins } from '../src/swap.js';
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
 import { execSync } from 'child_process';
 import { createInterface } from 'readline';
 import { homedir } from 'os';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
-const VERSION = '0.3.3';
+const VERSION = '0.4.0';
 const CONFIG_FILE = join(homedir(), '.coinpay.json');
+const DEFAULT_WALLET_FILE = join(homedir(), '.coinpay-wallet.gpg');
 
 // ANSI colors
 const colors = {
@@ -57,7 +66,29 @@ function loadConfig() {
  * Save configuration
  */
 function saveConfig(config) {
-  writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+  writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), { mode: 0o600 });
+}
+
+/**
+ * Get wallet file path from config or default
+ */
+function getWalletFilePath(flags = {}) {
+  if (flags['wallet-file']) {
+    return flags['wallet-file'].replace(/^~/, homedir());
+  }
+  const config = loadConfig();
+  if (config.walletFile) {
+    return config.walletFile.replace(/^~/, homedir());
+  }
+  return DEFAULT_WALLET_FILE;
+}
+
+/**
+ * Check if encrypted wallet exists
+ */
+function hasEncryptedWallet(flags = {}) {
+  const walletFile = getWalletFilePath(flags);
+  return existsSync(walletFile);
 }
 
 /**
@@ -102,7 +133,6 @@ function parseArgs(args) {
       if (eqIdx !== -1) {
         result.flags[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
       } else {
-        // Peek ahead: if next arg doesn't start with '-', it's the value
         const next = args[i + 1];
         if (next && !next.startsWith('-')) {
           result.flags[arg.slice(2)] = next;
@@ -158,8 +188,25 @@ ${colors.cyan}Commands:${colors.reset}
     list                  Get all exchange rates
 
   ${colors.bright}wallet${colors.reset}
-    backup-seed           Encrypt seed phrase to GPG file
-    decrypt-backup <file> Decrypt a GPG backup file
+    create                Create new wallet (saves encrypted)
+    import <mnemonic>     Import wallet (saves encrypted)
+    unlock                Decrypt wallet and show info
+    info                  Show wallet info
+    addresses             List all addresses
+    derive <chain>        Derive new address
+    derive-missing        Derive addresses for missing chains
+    balance [chain]       Get balance(s)
+    send                  Send a transaction
+    history               Transaction history
+    backup                Export encrypted backup
+    delete                Delete local wallet file
+
+  ${colors.bright}swap${colors.reset}
+    coins                 List supported coins
+    quote                 Get swap quote
+    create                Create swap transaction
+    status <swap-id>      Check swap status
+    history               Swap history
 
   ${colors.bright}escrow${colors.reset}
     create                Create a new escrow
@@ -174,59 +221,221 @@ ${colors.cyan}Commands:${colors.reset}
     logs <business-id>    Get webhook logs
     test <business-id>    Send test webhook
 
-${colors.cyan}Options:${colors.reset}
-  --help, -h              Show help
-  --version, -v           Show version
-  --json                  Output as JSON
-  --business-id <id>      Business ID for operations
-  --amount <amount>       Payment amount in fiat currency
-  --currency <code>       Fiat currency (USD, EUR, etc.) - default: USD
-  --blockchain <code>     Blockchain (BTC, ETH, SOL, POL, BCH, USDC_ETH, USDC_POL, USDC_SOL)
-  --description <text>    Payment description
-  --seed <phrase>         Seed phrase (or reads from stdin)
-  --password <pass>       GPG passphrase (or prompts interactively)
-  --wallet-id <id>        Wallet ID for backup filename
-  --output <path>         Output file path (default: wallet_<id>_seedphrase.txt.gpg)
+${colors.cyan}Wallet Options:${colors.reset}
+  --words <12|24>         Number of mnemonic words (default: 12)
+  --chains <BTC,ETH,...>  Chains to derive (default: BTC,ETH,SOL,POL,BCH)
+  --chain <chain>         Single chain for operations
+  --to <address>          Recipient address
+  --amount <amount>       Amount to send
+  --password <pass>       Wallet encryption password
+  --wallet-file <path>    Custom wallet file (default: ~/.coinpay-wallet.gpg)
+  --no-save               Don't save wallet locally after create/import
+
+${colors.cyan}Swap Options:${colors.reset}
+  --from <coin>           Source coin (e.g., BTC)
+  --to <coin>             Destination coin (e.g., ETH)
+  --amount <amount>       Amount to swap
+  --refund <address>      Refund address (recommended)
 
 ${colors.cyan}Examples:${colors.reset}
-  # Configure your API key (get it from your CoinPay dashboard)
-  coinpay config set-key cp_live_xxxxx
+  # Create a new wallet (auto-saves encrypted)
+  coinpay wallet create --words 12
 
-  # Create a $100 Bitcoin payment
-  coinpay payment create --business-id biz_123 --amount 100 --blockchain BTC
+  # Import existing wallet
+  coinpay wallet import "word1 word2 ... word12"
 
-  # Create a $50 Ethereum payment with description
-  coinpay payment create --business-id biz_123 --amount 50 --blockchain ETH --description "Order #12345"
+  # Get wallet balance (auto-decrypts)
+  coinpay wallet balance
 
-  # Create a USDC payment on Polygon
-  coinpay payment create --business-id biz_123 --amount 25 --blockchain USDC_POL
+  # Send transaction (auto-decrypts for signing)
+  coinpay wallet send --chain ETH --to 0x123... --amount 0.1
 
-  # Get payment status
-  coinpay payment get pay_abc123
-
-  # Get exchange rates
-  coinpay rates get BTC
-
-  # List your businesses
-  coinpay business list
-
-  # Encrypt seed phrase to GPG backup file
-  coinpay wallet backup-seed --seed "word1 word2 ..." --password "mypass" --wallet-id "wid-abc"
-
-  # Encrypt seed phrase (interactive password prompt)
-  coinpay wallet backup-seed --seed "word1 word2 ..." --wallet-id "wid-abc"
-
-  # Pipe seed phrase from stdin
-  echo "word1 word2 ..." | coinpay wallet backup-seed --wallet-id "wid-abc" --password "mypass"
-
-  # Decrypt a backup file
-  coinpay wallet decrypt-backup wallet_wid-abc_seedphrase.txt.gpg --password "mypass"
+  # Swap BTC to ETH
+  coinpay swap quote --from BTC --to ETH --amount 0.1
+  coinpay swap create --from BTC --to ETH --amount 0.1 --settle 0x...
 
 ${colors.cyan}Environment Variables:${colors.reset}
   COINPAY_API_KEY         API key (overrides config)
   COINPAY_BASE_URL        Custom API URL
 `);
 }
+
+/**
+ * Prompt for user input
+ */
+function prompt(question) {
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+/**
+ * Prompt for password (hidden input)
+ */
+function promptPassword(promptText = 'Password: ') {
+  return new Promise((resolve) => {
+    process.stdout.write(promptText);
+    
+    if (process.stdin.isTTY) {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      const origWrite = process.stdout.write.bind(process.stdout);
+      process.stdout.write = (chunk) => {
+        if (typeof chunk === 'string' && chunk !== promptText && chunk !== '\n' && chunk !== '\r\n') {
+          return true;
+        }
+        return origWrite(chunk);
+      };
+      
+      rl.question('', (answer) => {
+        process.stdout.write = origWrite;
+        process.stdout.write('\n');
+        rl.close();
+        resolve(answer);
+      });
+    } else {
+      const chunks = [];
+      process.stdin.on('data', (chunk) => chunks.push(chunk));
+      process.stdin.on('end', () => resolve(Buffer.concat(chunks).toString().trim()));
+      process.stdin.resume();
+    }
+  });
+}
+
+/**
+ * Prompt yes/no confirmation
+ */
+async function promptYesNo(question, defaultYes = true) {
+  const suffix = defaultYes ? '[Y/n]' : '[y/N]';
+  const answer = await prompt(`${question} ${suffix} `);
+  
+  if (!answer) return defaultYes;
+  return answer.toLowerCase().startsWith('y');
+}
+
+/**
+ * Check if gpg is available
+ */
+function hasGpg() {
+  try {
+    execSync('gpg --version', { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Encrypt mnemonic with GPG and save to file
+ */
+async function saveEncryptedWallet(mnemonic, walletId, password, walletFile) {
+  if (!hasGpg()) {
+    throw new Error('GPG is required for wallet encryption. Install: apt install gnupg');
+  }
+  
+  const content = JSON.stringify({
+    version: 1,
+    walletId,
+    mnemonic,
+    createdAt: new Date().toISOString(),
+  });
+  
+  const tmpFile = join(tmpdir(), `coinpay-wallet-${Date.now()}.json`);
+  const passFile = join(tmpdir(), `coinpay-pass-${Date.now()}`);
+  
+  try {
+    writeFileSync(tmpFile, content, { mode: 0o600 });
+    writeFileSync(passFile, password, { mode: 0o600 });
+    
+    execSync(
+      `gpg --batch --yes --passphrase-file "${passFile}" --pinentry-mode loopback --symmetric --cipher-algo AES256 --output "${walletFile}" "${tmpFile}"`,
+      { stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    
+    return true;
+  } finally {
+    // Secure cleanup
+    try { writeFileSync(tmpFile, Buffer.alloc(content.length, 0)); unlinkSync(tmpFile); } catch {}
+    try { writeFileSync(passFile, Buffer.alloc(password.length, 0)); unlinkSync(passFile); } catch {}
+  }
+}
+
+/**
+ * Decrypt wallet file and return contents
+ */
+async function loadEncryptedWallet(password, walletFile) {
+  if (!hasGpg()) {
+    throw new Error('GPG is required for wallet decryption');
+  }
+  
+  if (!existsSync(walletFile)) {
+    throw new Error(`Wallet file not found: ${walletFile}`);
+  }
+  
+  const passFile = join(tmpdir(), `coinpay-pass-${Date.now()}`);
+  
+  try {
+    writeFileSync(passFile, password, { mode: 0o600 });
+    
+    const result = execSync(
+      `gpg --batch --yes --passphrase-file "${passFile}" --pinentry-mode loopback --decrypt "${walletFile}"`,
+      { stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    
+    const data = JSON.parse(result.toString());
+    return data;
+  } finally {
+    try { writeFileSync(passFile, Buffer.alloc(password.length, 0)); unlinkSync(passFile); } catch {}
+  }
+}
+
+/**
+ * Get decrypted mnemonic from wallet file
+ * Prompts for password if needed
+ */
+async function getDecryptedMnemonic(flags) {
+  const walletFile = getWalletFilePath(flags);
+  
+  if (!existsSync(walletFile)) {
+    return null;
+  }
+  
+  let password = flags.password;
+  if (!password) {
+    if (!process.stdin.isTTY) {
+      throw new Error('Password required. Use --password or run interactively.');
+    }
+    password = await promptPassword('Wallet password: ');
+  }
+  
+  try {
+    const data = await loadEncryptedWallet(password, walletFile);
+    return data.mnemonic;
+  } catch (error) {
+    if (error.message.includes('decrypt')) {
+      throw new Error('Wrong password or corrupted wallet file');
+    }
+    throw error;
+  }
+}
+
+/**
+ * Securely clear a string from memory
+ */
+function clearString(str) {
+  if (str && typeof str === 'string') {
+    // Can't truly clear in JS, but we can try to minimize exposure
+    return '';
+  }
+  return str;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COMMAND HANDLERS
+// ═══════════════════════════════════════════════════════════════
 
 /**
  * Config commands
@@ -260,6 +469,8 @@ async function handleConfig(subcommand, args) {
       print.json({
         apiKey: config.apiKey ? `${config.apiKey.slice(0, 10)}...` : '(not set)',
         baseUrl: config.baseUrl || '(default)',
+        walletId: config.walletId || '(none)',
+        walletFile: config.walletFile || DEFAULT_WALLET_FILE,
       });
       break;
       
@@ -299,7 +510,7 @@ async function handlePayment(subcommand, args, flags) {
         print.info(`Amount: ${payment.payment.crypto_amount} ${payment.payment.blockchain}`);
         print.info(`Expires: ${payment.payment.expires_at}`);
       }
-      if (!flags.json) {
+      if (flags.json) {
         print.json(payment);
       }
       break;
@@ -337,15 +548,14 @@ async function handlePayment(subcommand, args, flags) {
     
     case 'qr': {
       const paymentId = args[0];
-      const { format } = flags;
       
       if (!paymentId) {
         print.error('Payment ID required');
         return;
       }
       
-      const qr = await client.getPaymentQR(paymentId, format);
-      print.json(qr);
+      const url = client.getPaymentQRUrl(paymentId);
+      print.info(`QR Code URL: ${url}`);
       break;
     }
     
@@ -497,253 +707,660 @@ async function handleWebhook(subcommand, args, flags) {
 }
 
 /**
- * Prompt for password interactively (hides input)
- */
-function promptPassword(prompt = 'Password: ') {
-  return new Promise((resolve) => {
-    process.stdout.write(prompt);
-    
-    // If stdin is a TTY, read with hidden input
-    if (process.stdin.isTTY) {
-      const rl = createInterface({ input: process.stdin, output: process.stdout });
-      // Temporarily override output to hide password chars
-      const origWrite = process.stdout.write.bind(process.stdout);
-      process.stdout.write = (chunk) => {
-        // Only suppress characters that are the user's input
-        if (typeof chunk === 'string' && chunk !== prompt && chunk !== '\n' && chunk !== '\r\n') {
-          return true;
-        }
-        return origWrite(chunk);
-      };
-      
-      rl.question('', (answer) => {
-        process.stdout.write = origWrite;
-        process.stdout.write('\n');
-        rl.close();
-        resolve(answer);
-      });
-    } else {
-      // Pipe mode — read from stdin
-      const chunks = [];
-      process.stdin.on('data', (chunk) => chunks.push(chunk));
-      process.stdin.on('end', () => resolve(Buffer.concat(chunks).toString().trim()));
-      process.stdin.resume();
-    }
-  });
-}
-
-/**
- * Check if gpg is available
- */
-function hasGpg() {
-  try {
-    execSync('gpg --version', { stdio: 'pipe' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Wallet commands
  */
 async function handleWallet(subcommand, args, flags) {
+  const baseUrl = getBaseUrl();
+  const config = loadConfig();
+  const walletFile = getWalletFilePath(flags);
+  
   switch (subcommand) {
-    case 'backup-seed': {
-      if (!hasGpg()) {
-        print.error('gpg is required but not found. Install it with:');
-        print.info('  Ubuntu/Debian: sudo apt install gnupg');
-        print.info('  macOS: brew install gnupg');
-        print.info('  Windows: https://www.gnupg.org/download/');
-        process.exit(1);
-      }
-
-      const walletId = flags['wallet-id'];
-      if (!walletId) {
-        print.error('Required: --wallet-id <id>');
+    case 'create': {
+      const words = parseInt(flags.words || '12', 10);
+      const chainsStr = flags.chains || DEFAULT_CHAINS.join(',');
+      const chains = chainsStr.split(',').map(c => c.trim().toUpperCase());
+      const noSave = flags['no-save'] === true;
+      
+      if (words !== 12 && words !== 24) {
+        print.error('Words must be 12 or 24');
         return;
       }
-
-      // Get seed phrase from --seed flag or stdin
-      let seed = flags.seed;
-      if (!seed) {
-        if (process.stdin.isTTY) {
-          print.error('Required: --seed <phrase> (or pipe via stdin)');
-          print.info('Example: coinpay wallet backup-seed --seed "word1 word2 ..." --wallet-id "wid-abc"');
-          return;
-        }
-        // Read from stdin
-        const chunks = [];
-        for await (const chunk of process.stdin) {
-          chunks.push(chunk);
-        }
-        seed = Buffer.concat(chunks).toString().trim();
-      }
-
-      if (!seed) {
-        print.error('Seed phrase is empty');
-        return;
-      }
-
-      // Get password from --password flag or prompt
-      let password = flags.password;
-      if (!password) {
-        if (!process.stdin.isTTY) {
-          print.error('Required: --password <pass> (cannot prompt in pipe mode)');
-          return;
-        }
-        password = await promptPassword('Encryption password: ');
-        const confirm = await promptPassword('Confirm password: ');
-        if (password !== confirm) {
-          print.error('Passwords do not match');
+      
+      // Check if wallet already exists
+      if (hasEncryptedWallet(flags)) {
+        const overwrite = await promptYesNo('Wallet already exists. Overwrite?', false);
+        if (!overwrite) {
+          print.info('Aborted');
           return;
         }
       }
-
-      if (!password) {
-        print.error('Password is empty');
-        return;
-      }
-
-      // Build the plaintext content
-      const filename = `wallet_${walletId}_seedphrase.txt`;
-      const content = [
-        '# CoinPayPortal Wallet Seed Phrase Backup',
-        `# Wallet ID: ${walletId}`,
-        `# Created: ${new Date().toISOString()}`,
-        '#',
-        '# KEEP THIS FILE SAFE. Anyone with this phrase can access your funds.',
-        `# Decrypt with: gpg --decrypt ${filename}.gpg`,
-        '',
-        seed,
-        '',
-      ].join('\n');
-
-      // Determine output path
-      const outputPath = flags.output || `${filename}.gpg`;
-
-      // Write plaintext to temp file, encrypt with gpg, remove temp
-      const tmpFile = join(tmpdir(), `coinpay-backup-${Date.now()}.txt`);
+      
+      print.info(`Creating wallet with ${words} words...`);
+      
+      // Generate mnemonic locally
+      const mnemonic = generateMnemonic(words);
+      
       try {
-        writeFileSync(tmpFile, content, { mode: 0o600 });
+        // Register with server
+        const wallet = await WalletClient.create({
+          words,
+          chains,
+          baseUrl,
+        });
         
-        // Write passphrase to a temp file for gpg (avoids shell escaping issues)
-        const passFile = join(tmpdir(), `coinpay-pass-${Date.now()}`);
-        writeFileSync(passFile, password, { mode: 0o600 });
-        try {
-          execSync(
-            `gpg --batch --yes --passphrase-file "${passFile}" --pinentry-mode loopback --symmetric --cipher-algo AES256 --output "${outputPath}" "${tmpFile}"`,
-            { stdio: ['pipe', 'pipe', 'pipe'] }
-          );
-        } finally {
-          try { writeFileSync(passFile, Buffer.alloc(password.length, 0)); } catch {}
-          try { const { unlinkSync: u } = await import('fs'); u(passFile); } catch {}
+        const walletId = wallet.getWalletId();
+        
+        // Show mnemonic to user
+        console.log(`\n${colors.bright}${colors.yellow}⚠️  BACKUP YOUR SEED PHRASE:${colors.reset}`);
+        console.log(`${colors.yellow}${wallet.getMnemonic()}${colors.reset}\n`);
+        print.warn('Write this down and store it safely. It CANNOT be recovered!');
+        
+        // Save encrypted locally (unless --no-save)
+        if (!noSave) {
+          let shouldSave = true;
+          if (process.stdin.isTTY) {
+            shouldSave = await promptYesNo('\nSave encrypted wallet locally?', true);
+          }
+          
+          if (shouldSave) {
+            let password = flags.password;
+            if (!password) {
+              password = await promptPassword('Create wallet password: ');
+              const confirm = await promptPassword('Confirm password: ');
+              if (password !== confirm) {
+                print.error('Passwords do not match. Wallet not saved locally.');
+                print.warn('Your wallet is registered but NOT saved locally. Save your seed phrase!');
+              } else {
+                await saveEncryptedWallet(wallet.getMnemonic(), walletId, password, walletFile);
+                print.success(`Encrypted wallet saved to: ${walletFile}`);
+              }
+            } else {
+              await saveEncryptedWallet(wallet.getMnemonic(), walletId, password, walletFile);
+              print.success(`Encrypted wallet saved to: ${walletFile}`);
+            }
+          }
         }
-
-        print.success(`Encrypted backup saved to: ${outputPath}`);
-        print.info(`Decrypt with: gpg --decrypt ${outputPath}`);
-      } finally {
-        // Securely delete temp file
-        try {
-          writeFileSync(tmpFile, Buffer.alloc(content.length, 0));
-          const { unlinkSync } = await import('fs');
-          unlinkSync(tmpFile);
-        } catch {
-          // Best effort cleanup
-        }
+        
+        // Update config
+        config.walletId = walletId;
+        config.walletFile = walletFile;
+        saveConfig(config);
+        
+        print.success(`Wallet created: ${walletId}`);
+      } catch (error) {
+        print.error(error.message);
       }
       break;
     }
-
-    case 'decrypt-backup': {
-      if (!hasGpg()) {
-        print.error('gpg is required but not found.');
-        process.exit(1);
-      }
-
-      const filePath = args[0];
-      if (!filePath) {
-        print.error('Backup file path required');
-        print.info('Example: coinpay wallet decrypt-backup wallet_wid-abc_seedphrase.txt.gpg');
+    
+    case 'import': {
+      const mnemonic = args.join(' ') || flags.mnemonic;
+      const noSave = flags['no-save'] === true;
+      
+      if (!mnemonic) {
+        print.error('Mnemonic required');
+        print.info('Usage: coinpay wallet import "word1 word2 ... word12"');
         return;
       }
-
-      if (!existsSync(filePath)) {
-        print.error(`File not found: ${filePath}`);
+      
+      if (!validateMnemonic(mnemonic)) {
+        print.error('Invalid mnemonic phrase');
         return;
       }
-
-      // Get password
-      let password = flags.password;
-      if (!password) {
-        if (!process.stdin.isTTY) {
-          print.error('Required: --password <pass> (cannot prompt in pipe mode)');
+      
+      // Check if wallet already exists
+      if (hasEncryptedWallet(flags)) {
+        const overwrite = await promptYesNo('Wallet already exists. Overwrite?', false);
+        if (!overwrite) {
+          print.info('Aborted');
           return;
         }
-        password = await promptPassword('Decryption password: ');
       }
-
+      
+      const chainsStr = flags.chains || DEFAULT_CHAINS.join(',');
+      const chains = chainsStr.split(',').map(c => c.trim().toUpperCase());
+      
+      print.info('Importing wallet...');
+      
       try {
-        const passFile = join(tmpdir(), `coinpay-pass-${Date.now()}`);
-        writeFileSync(passFile, password, { mode: 0o600 });
-        let result;
-        try {
-          result = execSync(
-            `gpg --batch --yes --passphrase-file "${passFile}" --pinentry-mode loopback --decrypt "${filePath}"`,
-            { stdio: ['pipe', 'pipe', 'pipe'] }
-          );
-        } finally {
-          try { writeFileSync(passFile, Buffer.alloc(password.length, 0)); } catch {}
-          try { const { unlinkSync: u } = await import('fs'); u(passFile); } catch {}
+        const wallet = await WalletClient.fromSeed(mnemonic, {
+          chains,
+          baseUrl,
+        });
+        
+        const walletId = wallet.getWalletId();
+        
+        // Save encrypted locally (unless --no-save)
+        if (!noSave) {
+          let shouldSave = true;
+          if (process.stdin.isTTY) {
+            shouldSave = await promptYesNo('Save encrypted wallet locally?', true);
+          }
+          
+          if (shouldSave) {
+            let password = flags.password;
+            if (!password) {
+              password = await promptPassword('Create wallet password: ');
+              const confirm = await promptPassword('Confirm password: ');
+              if (password !== confirm) {
+                print.error('Passwords do not match. Wallet not saved locally.');
+              } else {
+                await saveEncryptedWallet(mnemonic, walletId, password, walletFile);
+                print.success(`Encrypted wallet saved to: ${walletFile}`);
+              }
+            } else {
+              await saveEncryptedWallet(mnemonic, walletId, password, walletFile);
+              print.success(`Encrypted wallet saved to: ${walletFile}`);
+            }
+          }
         }
-
-        const output = result.toString();
-        // Extract just the mnemonic (skip comments)
-        const lines = output.split('\n');
-        const mnemonic = lines
-          .filter((l) => !l.startsWith('#') && l.trim().length > 0)
-          .join(' ')
-          .trim();
-
-        if (flags.json) {
-          print.json({ mnemonic, raw: output });
-        } else {
-          print.success('Backup decrypted successfully');
+        
+        // Update config
+        config.walletId = walletId;
+        config.walletFile = walletFile;
+        saveConfig(config);
+        
+        print.success(`Wallet imported: ${walletId}`);
+      } catch (error) {
+        print.error(error.message);
+      }
+      break;
+    }
+    
+    case 'unlock': {
+      if (!hasEncryptedWallet(flags)) {
+        print.error(`No wallet file found at: ${walletFile}`);
+        print.info('Create a wallet with: coinpay wallet create');
+        return;
+      }
+      
+      try {
+        const mnemonic = await getDecryptedMnemonic(flags);
+        
+        print.success('Wallet unlocked');
+        print.info(`Wallet ID: ${config.walletId || 'unknown'}`);
+        print.info(`Wallet file: ${walletFile}`);
+        
+        if (flags.show) {
           console.log(`\n${colors.bright}Seed Phrase:${colors.reset}`);
           console.log(`${colors.yellow}${mnemonic}${colors.reset}\n`);
-          print.warn('This is sensitive data — do not share it with anyone.');
+          print.warn('This is sensitive data — do not share it.');
         }
-      } catch (err) {
-        print.error('Decryption failed — wrong password or corrupted file');
+        
+        // Clear from memory
+        clearString(mnemonic);
+      } catch (error) {
+        print.error(error.message);
+      }
+      break;
+    }
+    
+    case 'info': {
+      if (!config.walletId && !hasEncryptedWallet(flags)) {
+        print.error('No wallet configured. Run: coinpay wallet create');
+        return;
+      }
+      
+      print.info(`Wallet ID: ${config.walletId || '(unknown)'}`);
+      print.info(`Wallet file: ${walletFile}`);
+      print.info(`File exists: ${existsSync(walletFile) ? 'yes' : 'no'}`);
+      
+      if (flags.json) {
+        print.json({
+          walletId: config.walletId,
+          walletFile,
+          exists: existsSync(walletFile),
+        });
+      }
+      break;
+    }
+    
+    case 'addresses': {
+      if (!config.walletId) {
+        print.error('No wallet configured. Run: coinpay wallet create');
+        return;
+      }
+      
+      print.info(`Wallet: ${config.walletId}`);
+      print.info('Note: Full address list requires API authentication.');
+      break;
+    }
+    
+    case 'derive': {
+      const chain = (args[0] || flags.chain || '').toUpperCase();
+      const index = parseInt(flags.index || '0', 10);
+      
+      if (!chain) {
+        print.error('Chain required');
+        print.info('Usage: coinpay wallet derive ETH --index 0');
+        return;
+      }
+      
+      if (!config.walletId) {
+        print.error('No wallet configured. Run: coinpay wallet create');
+        return;
+      }
+      
+      // Need mnemonic for derivation
+      if (!hasEncryptedWallet(flags)) {
+        print.error('No encrypted wallet found. Cannot derive addresses.');
+        return;
+      }
+      
+      try {
+        const mnemonic = await getDecryptedMnemonic(flags);
+        
+        // Create wallet client with mnemonic
+        const wallet = await WalletClient.fromSeed(mnemonic, { baseUrl });
+        const result = await wallet.deriveAddress(chain, index);
+        
+        print.success(`Derived ${chain} address at index ${index}`);
+        if (flags.json) {
+          print.json(result);
+        }
+        
+        clearString(mnemonic);
+      } catch (error) {
+        print.error(error.message);
+      }
+      break;
+    }
+    
+    case 'derive-missing': {
+      const chainsStr = flags.chains;
+      
+      if (!config.walletId) {
+        print.error('No wallet configured. Run: coinpay wallet create');
+        return;
+      }
+      
+      if (!hasEncryptedWallet(flags)) {
+        print.error('No encrypted wallet found.');
+        return;
+      }
+      
+      try {
+        const mnemonic = await getDecryptedMnemonic(flags);
+        const wallet = await WalletClient.fromSeed(mnemonic, { baseUrl });
+        
+        const chains = chainsStr ? chainsStr.split(',').map(c => c.trim().toUpperCase()) : undefined;
+        const results = await wallet.deriveMissingChains(chains);
+        
+        print.success(`Derived ${results.length} new addresses`);
+        if (flags.json) {
+          print.json(results);
+        }
+        
+        clearString(mnemonic);
+      } catch (error) {
+        print.error(error.message);
+      }
+      break;
+    }
+    
+    case 'balance': {
+      const chain = (args[0] || flags.chain || '').toUpperCase();
+      
+      if (!config.walletId) {
+        print.error('No wallet configured. Run: coinpay wallet create');
+        return;
+      }
+      
+      // For balance, we need the wallet client with mnemonic for authenticated requests
+      if (!hasEncryptedWallet(flags)) {
+        print.info(`Wallet: ${config.walletId}`);
+        if (chain) {
+          print.info(`Chain: ${chain}`);
+        }
+        print.info('Note: Balance check requires encrypted wallet file.');
+        return;
+      }
+      
+      try {
+        const mnemonic = await getDecryptedMnemonic(flags);
+        const wallet = await WalletClient.fromSeed(mnemonic, { baseUrl });
+        
+        const result = chain ? await wallet.getBalance(chain) : await wallet.getBalances();
+        
+        if (flags.json) {
+          print.json(result);
+        } else {
+          print.success('Balances:');
+          for (const bal of result.balances || []) {
+            console.log(`  ${colors.bright}${bal.chain}${colors.reset}: ${bal.balance}`);
+          }
+        }
+        
+        clearString(mnemonic);
+      } catch (error) {
+        print.error(error.message);
+      }
+      break;
+    }
+    
+    case 'send': {
+      const chain = (flags.chain || '').toUpperCase();
+      const to = flags.to;
+      const amount = flags.amount;
+      const priority = flags.priority || 'medium';
+      
+      if (!chain || !to || !amount) {
+        print.error('Required: --chain, --to, --amount');
+        print.info('Usage: coinpay wallet send --chain ETH --to 0x123... --amount 0.1');
+        return;
+      }
+      
+      if (!config.walletId) {
+        print.error('No wallet configured. Run: coinpay wallet create');
+        return;
+      }
+      
+      if (!hasEncryptedWallet(flags)) {
+        print.error('No encrypted wallet found. Cannot sign transactions.');
+        return;
+      }
+      
+      try {
+        const mnemonic = await getDecryptedMnemonic(flags);
+        const wallet = await WalletClient.fromSeed(mnemonic, { baseUrl });
+        
+        print.info(`Sending ${amount} ${chain} to ${to}...`);
+        
+        const result = await wallet.send({ chain, to, amount, priority });
+        
+        print.success('Transaction sent!');
+        if (result.tx_hash) {
+          print.info(`TX Hash: ${result.tx_hash}`);
+        }
+        
+        if (flags.json) {
+          print.json(result);
+        }
+        
+        clearString(mnemonic);
+      } catch (error) {
+        print.error(error.message);
+      }
+      break;
+    }
+    
+    case 'history': {
+      const chain = (flags.chain || '').toUpperCase();
+      const limit = parseInt(flags.limit || '20', 10);
+      
+      if (!config.walletId) {
+        print.error('No wallet configured. Run: coinpay wallet create');
+        return;
+      }
+      
+      if (!hasEncryptedWallet(flags)) {
+        print.info(`Wallet: ${config.walletId}`);
+        print.info('Note: Transaction history requires encrypted wallet file.');
+        return;
+      }
+      
+      try {
+        const mnemonic = await getDecryptedMnemonic(flags);
+        const wallet = await WalletClient.fromSeed(mnemonic, { baseUrl });
+        
+        const result = await wallet.getHistory({ chain: chain || undefined, limit });
+        
+        if (flags.json) {
+          print.json(result);
+        } else {
+          print.info(`Transactions (${result.total || 0} total):`);
+          for (const tx of result.transactions || []) {
+            const dir = tx.direction === 'incoming' ? colors.green + '←' : colors.red + '→';
+            console.log(`  ${dir}${colors.reset} ${tx.amount} ${tx.chain} | ${tx.status} | ${tx.created_at}`);
+          }
+        }
+        
+        clearString(mnemonic);
+      } catch (error) {
+        print.error(error.message);
+      }
+      break;
+    }
+    
+    case 'backup': {
+      if (!hasEncryptedWallet(flags)) {
+        print.error(`No wallet file found at: ${walletFile}`);
+        return;
+      }
+      
+      const outputPath = flags.output || `coinpay-wallet-backup-${Date.now()}.gpg`;
+      
+      try {
+        // Just copy the encrypted file
+        const content = readFileSync(walletFile);
+        writeFileSync(outputPath, content, { mode: 0o600 });
+        
+        print.success(`Backup saved to: ${outputPath}`);
+        print.info('This file is GPG encrypted. Keep your password safe!');
+      } catch (error) {
+        print.error(error.message);
+      }
+      break;
+    }
+    
+    case 'delete': {
+      if (!hasEncryptedWallet(flags)) {
+        print.info('No wallet file to delete');
+        return;
+      }
+      
+      const confirm = await promptYesNo('Are you sure you want to delete the local wallet?', false);
+      if (!confirm) {
+        print.info('Aborted');
+        return;
+      }
+      
+      try {
+        unlinkSync(walletFile);
+        
+        // Clear from config
+        delete config.walletFile;
+        saveConfig(config);
+        
+        print.success('Wallet file deleted');
+        print.warn('Your wallet is still registered on the server. Keep your seed phrase safe!');
+      } catch (error) {
+        print.error(error.message);
       }
       break;
     }
 
     default:
       print.error(`Unknown wallet command: ${subcommand}`);
-      print.info('Available: backup-seed, decrypt-backup');
+      print.info('Available: create, import, unlock, info, addresses, derive, derive-missing, balance, send, history, backup, delete');
+      process.exit(1);
   }
 }
 
 /**
- * Main entry point
+ * Swap commands
  */
-async function main() {
-  const { command, subcommand, args, flags } = parseArgs(process.argv.slice(2));
+async function handleSwap(subcommand, args, flags) {
+  const baseUrl = getBaseUrl();
+  const config = loadConfig();
+  const swap = new SwapClient({ baseUrl, walletId: config.walletId });
   
-  // Handle global flags
-  if (flags.version || flags.v) {
-    console.log(VERSION);
-    return;
+  switch (subcommand) {
+    case 'coins': {
+      const result = await swap.getSwapCoins({ search: flags.search });
+      
+      if (flags.json) {
+        print.json(result);
+      } else {
+        print.info(`Supported coins (${result.count}):`);
+        for (const coin of result.coins) {
+          console.log(`  ${colors.bright}${coin.symbol}${colors.reset} - ${coin.name} (${coin.network})`);
+        }
+      }
+      break;
+    }
+    
+    case 'quote': {
+      const from = (flags.from || '').toUpperCase();
+      const to = (flags.to || '').toUpperCase();
+      const amount = flags.amount;
+      
+      if (!from || !to || !amount) {
+        print.error('Required: --from, --to, --amount');
+        print.info('Example: coinpay swap quote --from BTC --to ETH --amount 0.1');
+        return;
+      }
+      
+      try {
+        const result = await swap.getSwapQuote(from, to, amount);
+        
+        if (flags.json) {
+          print.json(result);
+        } else {
+          const q = result.quote;
+          print.success('Swap Quote:');
+          console.log(`  ${colors.bright}${q.from}${colors.reset} → ${colors.bright}${q.to}${colors.reset}`);
+          console.log(`  You send: ${colors.yellow}${q.depositAmount} ${q.from}${colors.reset}`);
+          console.log(`  You receive: ${colors.green}~${q.settleAmount} ${q.to}${colors.reset}`);
+          console.log(`  Rate: 1 ${q.from} = ${q.rate} ${q.to}`);
+          console.log(`  Min amount: ${q.minAmount} ${q.from}`);
+        }
+      } catch (error) {
+        print.error(error.message);
+      }
+      break;
+    }
+    
+    case 'create': {
+      const from = (flags.from || '').toUpperCase();
+      const to = (flags.to || '').toUpperCase();
+      const amount = flags.amount;
+      const settleAddress = flags.settle;
+      const refundAddress = flags.refund;
+      
+      if (!from || !to || !amount) {
+        print.error('Required: --from, --to, --amount');
+        print.info('Example: coinpay swap create --from BTC --to ETH --amount 0.1 --settle 0x...');
+        return;
+      }
+      
+      if (!config.walletId) {
+        print.error('No wallet configured. Run: coinpay wallet create');
+        return;
+      }
+      
+      if (!settleAddress) {
+        print.error('Required: --settle <address>');
+        return;
+      }
+      
+      print.info(`Creating swap: ${amount} ${from} → ${to}`);
+      
+      try {
+        const result = await swap.createSwap({
+          from,
+          to,
+          amount,
+          settleAddress,
+          refundAddress,
+        });
+        
+        if (flags.json) {
+          print.json(result);
+        } else {
+          const s = result.swap;
+          print.success('Swap created!');
+          console.log(`\n  ${colors.bright}Swap ID:${colors.reset} ${s.id}`);
+          console.log(`  ${colors.bright}Status:${colors.reset} ${s.status}`);
+          console.log(`\n  ${colors.yellow}⚠️  Send exactly ${s.depositAmount} ${from} to:${colors.reset}`);
+          console.log(`  ${colors.bright}${s.depositAddress}${colors.reset}\n`);
+        }
+      } catch (error) {
+        print.error(error.message);
+      }
+      break;
+    }
+    
+    case 'status': {
+      const swapId = args[0] || flags.id;
+      
+      if (!swapId) {
+        print.error('Swap ID required');
+        print.info('Usage: coinpay swap status <swap-id>');
+        return;
+      }
+      
+      try {
+        const result = await swap.getSwapStatus(swapId);
+        
+        if (flags.json) {
+          print.json(result);
+        } else {
+          const s = result.swap;
+          const statusColor = s.status === 'settled' ? colors.green : 
+                             s.status === 'failed' ? colors.red : colors.yellow;
+          
+          print.info(`Swap ${s.id}:`);
+          console.log(`  Status: ${statusColor}${s.status}${colors.reset}`);
+          console.log(`  ${s.depositCoin || s.from} → ${s.settleCoin || s.to}`);
+          console.log(`  Deposit: ${s.depositAmount}`);
+          if (s.settleAmount) {
+            console.log(`  Settled: ${s.settleAmount}`);
+          }
+        }
+      } catch (error) {
+        print.error(error.message);
+      }
+      break;
+    }
+    
+    case 'history': {
+      const limit = parseInt(flags.limit || '20', 10);
+      
+      if (!config.walletId) {
+        print.error('No wallet configured. Run: coinpay wallet create');
+        return;
+      }
+      
+      try {
+        const result = await swap.getSwapHistory(config.walletId, {
+          status: flags.status,
+          limit,
+        });
+        
+        if (flags.json) {
+          print.json(result);
+        } else {
+          print.info(`Swap history (${result.pagination?.total || 0} total):`);
+          
+          if (!result.swaps || result.swaps.length === 0) {
+            console.log('  No swaps found.');
+          } else {
+            for (const s of result.swaps) {
+              const statusColor = s.status === 'settled' ? colors.green : 
+                                 s.status === 'failed' ? colors.red : colors.yellow;
+              console.log(`  ${s.id} | ${s.from_coin} → ${s.to_coin} | ${statusColor}${s.status}${colors.reset}`);
+            }
+          }
+        }
+      } catch (error) {
+        print.error(error.message);
+      }
+      break;
+    }
+    
+    default:
+      print.error(`Unknown swap command: ${subcommand}`);
+      print.info('Available: coins, quote, create, status, history');
+      process.exit(1);
   }
-  
-  if (flags.help || flags.h || !command) {
-    showHelp();
-    return;
-  }
+}
 
+/**
+ * Escrow commands
+ */
 async function handleEscrow(subcommand, args, flags) {
-  const client = getClient();
+  const client = createClient();
 
   switch (subcommand) {
     case 'create': {
@@ -758,8 +1375,6 @@ async function handleEscrow(subcommand, args, flags) {
       }
 
       print.info(`Creating escrow: ${amount} ${chain}`);
-      print.info(`  Depositor: ${depositor}`);
-      print.info(`  Beneficiary: ${beneficiary}`);
 
       const escrow = await client.createEscrow({
         chain,
@@ -773,12 +1388,10 @@ async function handleEscrow(subcommand, args, flags) {
       print.success(`Escrow created: ${escrow.id}`);
       print.info(`  Deposit to: ${escrow.escrowAddress}`);
       print.info(`  Status: ${escrow.status}`);
-      print.info(`  Expires: ${escrow.expiresAt}`);
       print.warn(`  Release Token: ${escrow.releaseToken}`);
-      print.warn(`  Beneficiary Token: ${escrow.beneficiaryToken}`);
-      print.warn('  ⚠️  Save these tokens! They cannot be recovered.');
+      print.warn('  ⚠️  Save these tokens!');
 
-      if (flags.json) console.log(JSON.stringify(escrow, null, 2));
+      if (flags.json) print.json(escrow);
       break;
     }
 
@@ -791,57 +1404,49 @@ async function handleEscrow(subcommand, args, flags) {
       print.info(`  Status: ${escrow.status}`);
       print.info(`  Chain: ${escrow.chain}`);
       print.info(`  Amount: ${escrow.amount}`);
-      print.info(`  Escrow Address: ${escrow.escrowAddress}`);
-      print.info(`  Depositor: ${escrow.depositorAddress}`);
-      print.info(`  Beneficiary: ${escrow.beneficiaryAddress}`);
-      if (escrow.depositedAmount) print.info(`  Deposited: ${escrow.depositedAmount}`);
-      if (escrow.depositTxHash) print.info(`  Deposit TX: ${escrow.depositTxHash}`);
-      if (escrow.settlementTxHash) print.info(`  Settlement TX: ${escrow.settlementTxHash}`);
 
-      if (flags.json) console.log(JSON.stringify(escrow, null, 2));
+      if (flags.json) print.json(escrow);
       break;
     }
 
     case 'list': {
       const result = await client.listEscrows({
         status: flags.status,
-        depositor: flags.depositor,
-        beneficiary: flags.beneficiary,
         limit: flags.limit ? parseInt(flags.limit) : 20,
       });
 
       print.info(`Escrows (${result.total} total):`);
       for (const e of result.escrows) {
-        console.log(`  ${e.id} | ${e.status} | ${e.amount} ${e.chain} | ${e.createdAt}`);
+        console.log(`  ${e.id} | ${e.status} | ${e.amount} ${e.chain}`);
       }
 
-      if (flags.json) console.log(JSON.stringify(result, null, 2));
+      if (flags.json) print.json(result);
       break;
     }
 
     case 'release': {
       const id = args[0];
-      const token = flags.token || flags['release-token'];
-      if (!id || !token) { print.error('Required: <id> --token <release_token>'); process.exit(1); }
+      const token = flags.token;
+      if (!id || !token) { print.error('Required: <id> --token <token>'); process.exit(1); }
 
       const escrow = await client.releaseEscrow(id, token);
-      print.success(`Escrow ${id} released → ${escrow.beneficiaryAddress}`);
+      print.success(`Escrow ${id} released`);
       break;
     }
 
     case 'refund': {
       const id = args[0];
-      const token = flags.token || flags['release-token'];
-      if (!id || !token) { print.error('Required: <id> --token <release_token>'); process.exit(1); }
+      const token = flags.token;
+      if (!id || !token) { print.error('Required: <id> --token <token>'); process.exit(1); }
 
       const escrow = await client.refundEscrow(id, token);
-      print.success(`Escrow ${id} refunded → ${escrow.depositorAddress}`);
+      print.success(`Escrow ${id} refunded`);
       break;
     }
 
     case 'dispute': {
       const id = args[0];
-      const token = flags.token || flags['release-token'] || flags['beneficiary-token'];
+      const token = flags.token;
       const reason = flags.reason;
       if (!id || !token || !reason) {
         print.error('Required: <id> --token <token> --reason "description"');
@@ -850,7 +1455,6 @@ async function handleEscrow(subcommand, args, flags) {
 
       const escrow = await client.disputeEscrow(id, token, reason);
       print.success(`Escrow ${id} disputed`);
-      print.info(`  Reason: ${escrow.disputeReason}`);
       break;
     }
 
@@ -861,10 +1465,10 @@ async function handleEscrow(subcommand, args, flags) {
       const events = await client.getEscrowEvents(id);
       print.info(`Events for escrow ${id}:`);
       for (const e of events) {
-        console.log(`  ${e.createdAt} | ${e.eventType} | ${e.actor || 'system'}`);
+        console.log(`  ${e.createdAt} | ${e.eventType}`);
       }
 
-      if (flags.json) console.log(JSON.stringify(events, null, 2));
+      if (flags.json) print.json(events);
       break;
     }
 
@@ -874,6 +1478,22 @@ async function handleEscrow(subcommand, args, flags) {
       process.exit(1);
   }
 }
+
+/**
+ * Main entry point
+ */
+async function main() {
+  const { command, subcommand, args, flags } = parseArgs(process.argv.slice(2));
+  
+  if (flags.version || flags.v) {
+    console.log(VERSION);
+    return;
+  }
+  
+  if (flags.help || flags.h || !command) {
+    showHelp();
+    return;
+  }
   
   try {
     switch (command) {
@@ -893,16 +1513,20 @@ async function handleEscrow(subcommand, args, flags) {
         await handleRates(subcommand, args, flags);
         break;
         
+      case 'wallet':
+        await handleWallet(subcommand, args, flags);
+        break;
+        
+      case 'swap':
+        await handleSwap(subcommand, args, flags);
+        break;
+        
       case 'escrow':
         await handleEscrow(subcommand, args, flags);
         break;
 
       case 'webhook':
         await handleWebhook(subcommand, args, flags);
-        break;
-
-      case 'wallet':
-        await handleWallet(subcommand, args, flags);
         break;
         
       default:

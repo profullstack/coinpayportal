@@ -1,7 +1,7 @@
 {
   "name": "@profullstack/coinpay",
-  "version": "0.3.10",
-  "description": "CoinPay SDK & CLI — Accept cryptocurrency payments (BTC, ETH, SOL, POL, BCH, USDC) in your Node.js application",
+  "version": "0.4.0",
+  "description": "CoinPay SDK & CLI — Accept cryptocurrency payments (BTC, ETH, SOL, POL, BCH, USDC) with wallet and swap support",
   "type": "module",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
@@ -20,6 +20,14 @@
     "./webhooks": {
       "import": "./src/webhooks.js",
       "types": "./src/webhooks.d.ts"
+    },
+    "./wallet": {
+      "import": "./src/wallet.js",
+      "types": "./src/wallet.d.ts"
+    },
+    "./swap": {
+      "import": "./src/swap.js",
+      "types": "./src/swap.d.ts"
     }
   },
   "files": [
@@ -49,12 +57,16 @@
     "stablecoin",
     "non-custodial",
     "wallet",
+    "swap",
+    "exchange",
     "sdk",
     "cli",
     "web3",
     "blockchain",
     "payment-gateway",
-    "merchant"
+    "merchant",
+    "bip39",
+    "mnemonic"
   ],
   "author": "Profullstack, Inc.",
   "license": "MIT",
@@ -76,5 +88,10 @@
     "prettier": "^3.4.1"
   },
   "peerDependencies": {},
-  "dependencies": {}
+  "dependencies": {
+    "@scure/bip39": "^1.4.0",
+    "@scure/bip32": "^1.5.0",
+    "@noble/curves": "^1.6.0",
+    "@noble/hashes": "^1.5.0"
+  }
 }
