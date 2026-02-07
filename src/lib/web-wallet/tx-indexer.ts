@@ -69,11 +69,15 @@ const USDT_CONTRACTS: Record<string, string> = {
 const USDC_SOL_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const USDT_SOL_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 
-// Explorer API base URLs
-const EXPLORER_APIS: Record<string, string> = {
-  ETH: 'https://api.etherscan.io/api',
-  POL: 'https://api.polygonscan.com/api',
-  BNB: 'https://api.bscscan.com/api',
+// Explorer API - Using Etherscan V2 unified API
+// V1 endpoints (polygonscan.com/api, bscscan.com/api) are deprecated
+// V2 uses api.etherscan.io/v2/api with chainid parameter
+// Free tier supports: ETH (1), POL (137). BSC (56) requires paid plan.
+const ETHERSCAN_V2_BASE = 'https://api.etherscan.io/v2/api';
+const CHAIN_IDS: Record<string, number> = {
+  ETH: 1,
+  POL: 137,
+  BNB: 56,
 };
 
 // ERC-20 Transfer event topic
@@ -1318,6 +1322,7 @@ async function fetchADAHistory(address: string): Promise<IndexedTransaction[]> {
 
 // ──────────────────────────────────────────────
 // BNB (BSC) Indexer - Same pattern as ETH/POL
+// Uses Etherscan V2 API with chainid=56
 // ──────────────────────────────────────────────
 
 async function fetchBNBHistory(
@@ -1326,10 +1331,10 @@ async function fetchBNBHistory(
 ): Promise<IndexedTransaction[]> {
   const results: IndexedTransaction[] = [];
 
-  // 1. Fetch native BNB transfers via BscScan API
+  // 1. Fetch native BNB transfers via Etherscan V2 API (chainid=56 for BSC)
   const apiKey = process.env.BSCSCAN_API_KEY;
   if (apiKey) {
-    const url = `${EXPLORER_APIS.BNB}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=${MAX_TXS}&sort=desc&apikey=${apiKey}`;
+    const url = `https://api.etherscan.io/v2/api?chainid=56&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=${MAX_TXS}&sort=desc&apikey=${apiKey}`;
     
     try {
       const resp = await fetch(url);
