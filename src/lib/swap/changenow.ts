@@ -54,6 +54,7 @@ export interface ChangeNowExchange {
   expectedSendAmount?: number;
   status: ChangeNowStatus;
   createdAt: string;
+  payoutHash?: string; // TX hash when swap completes (v2 API)
 }
 
 export type ChangeNowStatus =
@@ -233,10 +234,31 @@ class ChangeNowClient {
   }
 
   /**
-   * Get transaction status
+   * Get transaction status (v2 API - more accurate status)
    */
   async getTransaction(id: string): Promise<ChangeNowExchange> {
-    return this.request<ChangeNowExchange>(`/transactions/${id}/${this.apiKey}`);
+    const data = await this.request<any>(`/exchange/by-id?id=${id}`, {}, 'v2');
+    
+    // Map v2 response to our ChangeNowExchange format
+    return {
+      id: data.id,
+      payinAddress: data.payinAddress,
+      payoutAddress: data.payoutAddress,
+      payinExtraId: data.payinExtraId,
+      fromCurrency: data.fromCurrency,
+      toCurrency: data.toCurrency,
+      fromNetwork: data.fromNetwork,
+      toNetwork: data.toNetwork,
+      amount: data.amountFrom ?? data.expectedAmountFrom,
+      amountTo: data.amountTo ?? data.expectedAmountTo,
+      expectedReceiveAmount: data.expectedAmountTo,
+      actualReceiveAmount: data.amountTo,
+      expectedSendAmount: data.expectedAmountFrom,
+      status: data.status as ChangeNowStatus,
+      createdAt: data.createdAt,
+      // Include payout hash if available (for completed swaps)
+      payoutHash: data.payoutHash,
+    };
   }
 }
 
