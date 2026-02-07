@@ -274,12 +274,20 @@ function DashboardView() {
                 <h2 className="text-lg font-semibold text-white">
                   Recent Transactions
                 </h2>
-                <button
-                  onClick={fetchData}
-                  className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
-                >
-                  Refresh
-                </button>
+                <div className="flex items-center gap-3">
+                  <Link
+                    href="/web-wallet/history"
+                    className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                  >
+                    View All →
+                  </Link>
+                  <button
+                    onClick={fetchData}
+                    className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                  >
+                    Refresh
+                  </button>
+                </div>
               </div>
               <TransactionList
                 transactions={transactions}

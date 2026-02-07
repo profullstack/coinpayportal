@@ -50,6 +50,7 @@ function getRpcEndpoints(): Record<string, string> {
       process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
       process.env.SOLANA_RPC_URL ||
       'https://api.mainnet-beta.solana.com',
+    BNB: process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org',
   };
 }
 
@@ -59,7 +60,21 @@ const USDC_CONTRACTS: Record<string, string> = {
   USDC_POL: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
 };
 
+// USDT contract addresses
+const USDT_CONTRACTS: Record<string, string> = {
+  USDT_ETH: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+  USDT_POL: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
+};
+
 const USDC_SOL_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const USDT_SOL_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
+
+// Explorer API base URLs
+const EXPLORER_APIS: Record<string, string> = {
+  ETH: 'https://api.etherscan.io/api',
+  POL: 'https://api.polygonscan.com/api',
+  BNB: 'https://api.bscscan.com/api',
+};
 
 // ERC-20 Transfer event topic
 const TRANSFER_TOPIC =
@@ -249,11 +264,113 @@ async function fetchBCHHistory(
 // EVM Native (ETH/POL) Indexer
 // ──────────────────────────────────────────────
 
+/**
+ * Fetch native ETH/POL transaction history via block explorer API.
+ * Returns empty array if no API key configured.
+ */
+async function fetchNativeViaExplorer(
+  address: string,
+  chain: 'ETH' | 'POL'
+): Promise<IndexedTransaction[]> {
+  const apiKey = chain === 'POL'
+    ? process.env.POLYGONSCAN_API_KEY
+    : process.env.ETHERSCAN_API_KEY;
+
+  if (!apiKey) {
+    return [];
+  }
+
+  const baseUrl = chain === 'POL'
+    ? 'https://api.polygonscan.com/api'
+    : 'https://api.etherscan.io/api';
+
+  const url = `${baseUrl}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=${MAX_TXS}&sort=desc&apikey=${apiKey}`;
+
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      console.error(`[TxIndexer] ${chain} explorer API failed: ${resp.status}`);
+      return [];
+    }
+
+    const data: {
+      status: string;
+      message: string;
+      result: Array<{
+        hash: string;
+        from: string;
+        to: string;
+        value: string;
+        timeStamp: string;
+        blockNumber: string;
+        confirmations: string;
+        isError: string;
+        gasUsed: string;
+        gasPrice: string;
+      }>;
+    } = await resp.json();
+
+    if (data.status !== '1' || !Array.isArray(data.result)) {
+      // status '0' with message 'No transactions found' is normal
+      if (data.message === 'No transactions found') {
+        return [];
+      }
+      console.error(`[TxIndexer] ${chain} explorer API error: ${data.message}`);
+      return [];
+    }
+
+    const results: IndexedTransaction[] = [];
+    const addrLower = address.toLowerCase();
+
+    for (const tx of data.result) {
+      // Skip failed transactions
+      if (tx.isError === '1') continue;
+
+      // Skip zero-value (contract interactions without transfer)
+      const valueWei = BigInt(tx.value || '0');
+      if (valueWei === BigInt(0)) continue;
+
+      const direction: 'incoming' | 'outgoing' =
+        tx.to.toLowerCase() === addrLower ? 'incoming' : 'outgoing';
+
+      const fee = BigInt(tx.gasUsed || '0') * BigInt(tx.gasPrice || '0');
+
+      results.push({
+        txHash: tx.hash,
+        chain,
+        direction,
+        amount: formatWei(valueWei, 18),
+        fromAddress: tx.from,
+        toAddress: tx.to,
+        status: parseInt(tx.confirmations || '0', 10) >= 12 ? 'confirmed' : 'pending',
+        confirmations: parseInt(tx.confirmations || '0', 10),
+        timestamp: new Date(parseInt(tx.timeStamp, 10) * 1000).toISOString(),
+        fee: formatWei(fee, 18),
+        blockNumber: parseInt(tx.blockNumber, 10),
+      });
+    }
+
+    console.log(`[TxIndexer] ${chain} explorer: found ${results.length} native txs for ${truncAddr(address)}`);
+    return results;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[TxIndexer] ${chain} explorer fetch failed: ${msg}`);
+    return [];
+  }
+}
+
 async function fetchEVMNativeHistory(
   address: string,
   rpcUrl: string,
   chain: 'ETH' | 'POL'
 ): Promise<IndexedTransaction[]> {
+  const results: IndexedTransaction[] = [];
+
+  // 1. Fetch native transfers via explorer API (Polygonscan/Etherscan)
+  const nativeTxs = await fetchNativeViaExplorer(address, chain);
+  results.push(...nativeTxs);
+
+  // 2. Also fetch ERC-20 transfers via eth_getLogs (for token transfers)
   // Get latest block number
   const blockResp = await fetch(rpcUrl, {
     method: 'POST',
@@ -267,29 +384,24 @@ async function fetchEVMNativeHistory(
   });
 
   if (!blockResp.ok) {
+    // If RPC fails but we have explorer results, return those
+    if (results.length > 0) return results.slice(0, MAX_TXS);
     throw new Error(`${chain} block number fetch failed: ${blockResp.status}`);
   }
 
   const blockData: { result?: string; error?: { message: string } } =
     await blockResp.json();
   if (blockData.error) {
+    if (results.length > 0) return results.slice(0, MAX_TXS);
     throw new Error(`${chain} RPC error: ${blockData.error.message}`);
   }
 
   const latestBlock = parseInt(blockData.result || '0x0', 16);
-  // Scan last ~5000 blocks for native transfers via logs
   const fromBlock = Math.max(0, latestBlock - 5000);
-
   const paddedAddress =
     '0x' + address.toLowerCase().replace('0x', '').padStart(64, '0');
 
-  // Fetch incoming Transfer events (ERC-20 style — native transfers aren't in logs)
-  // For native ETH/POL, we look at internal transactions via trace or just
-  // look for ERC-20 transfers as a proxy. Full native tx history requires
-  // an explorer API. We scan Transfer events to/from the address.
-  const results: IndexedTransaction[] = [];
-
-  // Incoming token transfers
+  // Incoming token transfers (ERC-20)
   const incomingResp = await fetch(rpcUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -320,6 +432,9 @@ async function fetchEVMNativeHistory(
 
     if (inData.result) {
       for (const log of inData.result.slice(0, MAX_TXS)) {
+        // Skip if we already have this tx from explorer (native tx)
+        if (results.some((r) => r.txHash === log.transactionHash)) continue;
+
         const fromAddr = '0x' + (log.topics?.[1] || '').slice(26);
         const rawAmount = BigInt(log.data || '0x0');
         const blockNum = parseInt(log.blockNumber || '0x0', 16);
@@ -341,7 +456,7 @@ async function fetchEVMNativeHistory(
     }
   }
 
-  // Outgoing token transfers
+  // Outgoing token transfers (ERC-20)
   const outgoingResp = await fetch(rpcUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -371,26 +486,26 @@ async function fetchEVMNativeHistory(
 
     if (outData.result) {
       for (const log of outData.result.slice(0, MAX_TXS)) {
+        // Skip duplicates
+        if (results.some((r) => r.txHash === log.transactionHash)) continue;
+
         const toAddr = '0x' + (log.topics?.[2] || '').slice(26);
         const rawAmount = BigInt(log.data || '0x0');
         const blockNum = parseInt(log.blockNumber || '0x0', 16);
         const confirmations = latestBlock - blockNum;
 
-        // Avoid duplicates (same tx may appear in incoming and outgoing)
-        if (!results.some((r) => r.txHash === log.transactionHash)) {
-          results.push({
-            txHash: log.transactionHash,
-            chain,
-            direction: 'outgoing',
-            amount: formatWei(rawAmount, 18),
-            fromAddress: address,
-            toAddress: toAddr,
-            status: confirmations >= 12 ? 'confirmed' : 'pending',
-            confirmations,
-            timestamp: new Date().toISOString(),
-            blockNumber: blockNum,
-          });
-        }
+        results.push({
+          txHash: log.transactionHash,
+          chain,
+          direction: 'outgoing',
+          amount: formatWei(rawAmount, 18),
+          fromAddress: address,
+          toAddress: toAddr,
+          status: confirmations >= 12 ? 'confirmed' : 'pending',
+          confirmations,
+          timestamp: new Date().toISOString(),
+          blockNumber: blockNum,
+        });
       }
     }
   }
@@ -858,6 +973,669 @@ async function fetchUSDCSOLHistory(
 }
 
 // ──────────────────────────────────────────────
+// DOGE Indexer (Blockcypher API - free, no key needed)
+// ──────────────────────────────────────────────
+
+async function fetchDOGEHistory(address: string): Promise<IndexedTransaction[]> {
+  try {
+    const resp = await fetch(
+      `https://api.blockcypher.com/v1/doge/main/addrs/${address}/full?limit=${MAX_TXS}`
+    );
+    
+    if (!resp.ok) {
+      // Try fallback: dogechain.info
+      return fetchDOGEHistoryFallback(address);
+    }
+
+    const data: {
+      txs?: Array<{
+        hash: string;
+        confirmed?: string;
+        received: string;
+        total: number;
+        fees: number;
+        inputs: Array<{ addresses?: string[]; output_value?: number }>;
+        outputs: Array<{ addresses?: string[]; value?: number }>;
+        block_height?: number;
+        confirmations?: number;
+      }>;
+    } = await resp.json();
+
+    const results: IndexedTransaction[] = [];
+    const addrLower = address.toLowerCase();
+
+    for (const tx of data.txs || []) {
+      const isOutgoing = tx.inputs?.some((i) =>
+        i.addresses?.some((a) => a.toLowerCase() === addrLower)
+      );
+      
+      let amount = 0;
+      if (isOutgoing) {
+        // Sum outputs NOT to us
+        for (const out of tx.outputs || []) {
+          if (!out.addresses?.some((a) => a.toLowerCase() === addrLower)) {
+            amount += out.value || 0;
+          }
+        }
+      } else {
+        // Sum outputs TO us
+        for (const out of tx.outputs || []) {
+          if (out.addresses?.some((a) => a.toLowerCase() === addrLower)) {
+            amount += out.value || 0;
+          }
+        }
+      }
+
+      results.push({
+        txHash: tx.hash,
+        chain: 'DOGE',
+        direction: isOutgoing ? 'outgoing' : 'incoming',
+        amount: (amount / 1e8).toString(),
+        fromAddress: isOutgoing ? address : (tx.inputs?.[0]?.addresses?.[0] || 'unknown'),
+        toAddress: isOutgoing ? (tx.outputs?.[0]?.addresses?.[0] || 'unknown') : address,
+        status: (tx.confirmations || 0) >= 6 ? 'confirmed' : 'pending',
+        confirmations: tx.confirmations || 0,
+        timestamp: tx.confirmed || tx.received || new Date().toISOString(),
+        fee: (tx.fees / 1e8).toString(),
+        blockNumber: tx.block_height,
+      });
+    }
+
+    return results;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[TxIndexer] DOGE fetch failed: ${msg}`);
+    return [];
+  }
+}
+
+async function fetchDOGEHistoryFallback(address: string): Promise<IndexedTransaction[]> {
+  try {
+    const resp = await fetch(`https://dogechain.info/api/v1/address/transactions/${address}`);
+    if (!resp.ok) return [];
+
+    const data: {
+      transactions?: Array<{
+        hash: string;
+        time: number;
+        value: string;
+        confirmations?: number;
+      }>;
+    } = await resp.json();
+
+    return (data.transactions || []).slice(0, MAX_TXS).map((tx): IndexedTransaction => ({
+      txHash: tx.hash,
+      chain: 'DOGE',
+      direction: parseFloat(tx.value) >= 0 ? 'incoming' : 'outgoing',
+      amount: Math.abs(parseFloat(tx.value)).toString(),
+      fromAddress: 'unknown',
+      toAddress: address,
+      status: (tx.confirmations || 0) >= 6 ? 'confirmed' : 'pending',
+      confirmations: tx.confirmations || 0,
+      timestamp: new Date(tx.time * 1000).toISOString(),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// ──────────────────────────────────────────────
+// XRP Indexer (XRPL Data API - free, no key needed)
+// ──────────────────────────────────────────────
+
+async function fetchXRPHistory(address: string): Promise<IndexedTransaction[]> {
+  try {
+    // Use XRPL public API
+    const resp = await fetch('https://s1.ripple.com:51234/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        method: 'account_tx',
+        params: [{
+          account: address,
+          limit: MAX_TXS,
+          ledger_index_min: -1,
+          ledger_index_max: -1,
+        }],
+      }),
+    });
+
+    if (!resp.ok) {
+      throw new Error(`XRP API failed: ${resp.status}`);
+    }
+
+    const data: {
+      result?: {
+        transactions?: Array<{
+          tx: {
+            hash: string;
+            TransactionType: string;
+            Account: string;
+            Destination?: string;
+            Amount?: string | { value: string };
+            Fee?: string;
+            date?: number;
+          };
+          meta?: {
+            delivered_amount?: string | { value: string };
+          };
+          validated?: boolean;
+        }>;
+        status?: string;
+      };
+    } = await resp.json();
+
+    if (data.result?.status !== 'success') {
+      return [];
+    }
+
+    const results: IndexedTransaction[] = [];
+
+    for (const entry of data.result.transactions || []) {
+      const tx = entry.tx;
+      if (tx.TransactionType !== 'Payment') continue;
+
+      const isOutgoing = tx.Account === address;
+      
+      // Amount can be string (drops) or object (for issued currencies)
+      let amount = '0';
+      const rawAmount = entry.meta?.delivered_amount || tx.Amount;
+      if (typeof rawAmount === 'string') {
+        amount = (parseInt(rawAmount, 10) / 1e6).toString();
+      } else if (rawAmount?.value) {
+        amount = rawAmount.value;
+      }
+
+      // XRP epoch starts from 2000-01-01
+      const xrpEpoch = 946684800;
+      const timestamp = tx.date
+        ? new Date((tx.date + xrpEpoch) * 1000).toISOString()
+        : new Date().toISOString();
+
+      results.push({
+        txHash: tx.hash,
+        chain: 'XRP',
+        direction: isOutgoing ? 'outgoing' : 'incoming',
+        amount,
+        fromAddress: tx.Account,
+        toAddress: tx.Destination || 'unknown',
+        status: entry.validated ? 'confirmed' : 'pending',
+        confirmations: entry.validated ? 1 : 0,
+        timestamp,
+        fee: tx.Fee ? (parseInt(tx.Fee, 10) / 1e6).toString() : undefined,
+      });
+    }
+
+    return results;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[TxIndexer] XRP fetch failed: ${msg}`);
+    return [];
+  }
+}
+
+// ──────────────────────────────────────────────
+// ADA (Cardano) Indexer - Blockfrost API (needs key)
+// ──────────────────────────────────────────────
+
+async function fetchADAHistory(address: string): Promise<IndexedTransaction[]> {
+  const apiKey = process.env.BLOCKFROST_API_KEY;
+  
+  if (!apiKey) {
+    console.warn('[TxIndexer] BLOCKFROST_API_KEY not set, skipping ADA history');
+    return [];
+  }
+
+  try {
+    // Get address transactions
+    const resp = await fetch(
+      `https://cardano-mainnet.blockfrost.io/api/v0/addresses/${address}/transactions?order=desc&count=${MAX_TXS}`,
+      {
+        headers: { project_id: apiKey },
+      }
+    );
+
+    if (!resp.ok) {
+      if (resp.status === 404) return []; // Address not found / no txs
+      throw new Error(`Blockfrost API failed: ${resp.status}`);
+    }
+
+    const txList: Array<{
+      tx_hash: string;
+      block_time: number;
+    }> = await resp.json();
+
+    const results: IndexedTransaction[] = [];
+
+    // Fetch details for each transaction (batched)
+    for (const txRef of txList.slice(0, 20)) { // Limit to avoid rate limits
+      try {
+        const [txResp, utxoResp] = await Promise.all([
+          fetch(`https://cardano-mainnet.blockfrost.io/api/v0/txs/${txRef.tx_hash}`, {
+            headers: { project_id: apiKey },
+          }),
+          fetch(`https://cardano-mainnet.blockfrost.io/api/v0/txs/${txRef.tx_hash}/utxos`, {
+            headers: { project_id: apiKey },
+          }),
+        ]);
+
+        if (!txResp.ok || !utxoResp.ok) continue;
+
+        const txData: { fees: string; block_height: number } = await txResp.json();
+        const utxoData: {
+          inputs: Array<{ address: string; amount: Array<{ unit: string; quantity: string }> }>;
+          outputs: Array<{ address: string; amount: Array<{ unit: string; quantity: string }> }>;
+        } = await utxoResp.json();
+
+        const isOutgoing = utxoData.inputs.some((i) => i.address === address);
+        
+        // Calculate ADA amount (lovelace)
+        let amount = BigInt(0);
+        if (isOutgoing) {
+          for (const out of utxoData.outputs) {
+            if (out.address !== address) {
+              const lovelace = out.amount.find((a) => a.unit === 'lovelace');
+              if (lovelace) amount += BigInt(lovelace.quantity);
+            }
+          }
+        } else {
+          for (const out of utxoData.outputs) {
+            if (out.address === address) {
+              const lovelace = out.amount.find((a) => a.unit === 'lovelace');
+              if (lovelace) amount += BigInt(lovelace.quantity);
+            }
+          }
+        }
+
+        results.push({
+          txHash: txRef.tx_hash,
+          chain: 'ADA',
+          direction: isOutgoing ? 'outgoing' : 'incoming',
+          amount: (Number(amount) / 1e6).toString(),
+          fromAddress: isOutgoing ? address : (utxoData.inputs[0]?.address || 'unknown'),
+          toAddress: isOutgoing ? (utxoData.outputs[0]?.address || 'unknown') : address,
+          status: 'confirmed',
+          confirmations: 1,
+          timestamp: new Date(txRef.block_time * 1000).toISOString(),
+          fee: (parseInt(txData.fees, 10) / 1e6).toString(),
+          blockNumber: txData.block_height,
+        });
+      } catch {
+        // Skip failed tx lookups
+      }
+    }
+
+    return results;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[TxIndexer] ADA fetch failed: ${msg}`);
+    return [];
+  }
+}
+
+// ──────────────────────────────────────────────
+// BNB (BSC) Indexer - Same pattern as ETH/POL
+// ──────────────────────────────────────────────
+
+async function fetchBNBHistory(
+  address: string,
+  rpcUrl: string
+): Promise<IndexedTransaction[]> {
+  const results: IndexedTransaction[] = [];
+
+  // 1. Fetch native BNB transfers via BscScan API
+  const apiKey = process.env.BSCSCAN_API_KEY;
+  if (apiKey) {
+    const url = `${EXPLORER_APIS.BNB}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=${MAX_TXS}&sort=desc&apikey=${apiKey}`;
+    
+    try {
+      const resp = await fetch(url);
+      if (resp.ok) {
+        const data: {
+          status: string;
+          result: Array<{
+            hash: string;
+            from: string;
+            to: string;
+            value: string;
+            timeStamp: string;
+            blockNumber: string;
+            confirmations: string;
+            isError: string;
+            gasUsed: string;
+            gasPrice: string;
+          }>;
+        } = await resp.json();
+
+        if (data.status === '1' && Array.isArray(data.result)) {
+          const addrLower = address.toLowerCase();
+          for (const tx of data.result) {
+            if (tx.isError === '1') continue;
+            const valueWei = BigInt(tx.value || '0');
+            if (valueWei === BigInt(0)) continue;
+
+            const direction: 'incoming' | 'outgoing' =
+              tx.to.toLowerCase() === addrLower ? 'incoming' : 'outgoing';
+            const fee = BigInt(tx.gasUsed || '0') * BigInt(tx.gasPrice || '0');
+
+            results.push({
+              txHash: tx.hash,
+              chain: 'BNB',
+              direction,
+              amount: formatWei(valueWei, 18),
+              fromAddress: tx.from,
+              toAddress: tx.to,
+              status: parseInt(tx.confirmations || '0', 10) >= 12 ? 'confirmed' : 'pending',
+              confirmations: parseInt(tx.confirmations || '0', 10),
+              timestamp: new Date(parseInt(tx.timeStamp, 10) * 1000).toISOString(),
+              fee: formatWei(fee, 18),
+              blockNumber: parseInt(tx.blockNumber, 10),
+            });
+          }
+        }
+      }
+    } catch (err: unknown) {
+      console.error(`[TxIndexer] BNB explorer fetch failed: ${err}`);
+    }
+  }
+
+  // 2. Also fetch BEP-20 token transfers via eth_getLogs
+  try {
+    const blockResp = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_blockNumber',
+        params: [],
+        id: 1,
+      }),
+    });
+
+    if (blockResp.ok) {
+      const blockData: { result?: string } = await blockResp.json();
+      const latestBlock = parseInt(blockData.result || '0x0', 16);
+      const fromBlock = Math.max(0, latestBlock - 5000);
+      const paddedAddress = '0x' + address.toLowerCase().replace('0x', '').padStart(64, '0');
+
+      const logsResp = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'eth_getLogs',
+          params: [{
+            fromBlock: '0x' + fromBlock.toString(16),
+            toBlock: 'latest',
+            topics: [TRANSFER_TOPIC, null, paddedAddress],
+          }],
+          id: 2,
+        }),
+      });
+
+      if (logsResp.ok) {
+        const logsData: { result?: Array<{ transactionHash: string; topics?: string[]; data?: string; blockNumber?: string }> } = await logsResp.json();
+        for (const log of (logsData.result || []).slice(0, MAX_TXS)) {
+          if (results.some((r) => r.txHash === log.transactionHash)) continue;
+          const fromAddr = '0x' + (log.topics?.[1] || '').slice(26);
+          const rawAmount = BigInt(log.data || '0x0');
+          const blockNum = parseInt(log.blockNumber || '0x0', 16);
+          results.push({
+            txHash: log.transactionHash,
+            chain: 'BNB',
+            direction: 'incoming',
+            amount: formatWei(rawAmount, 18),
+            fromAddress: fromAddr,
+            toAddress: address,
+            status: (latestBlock - blockNum) >= 12 ? 'confirmed' : 'pending',
+            confirmations: latestBlock - blockNum,
+            timestamp: new Date().toISOString(),
+            blockNumber: blockNum,
+          });
+        }
+      }
+    }
+  } catch {
+    // RPC errors are non-fatal if we got explorer results
+  }
+
+  return results.slice(0, MAX_TXS);
+}
+
+// ──────────────────────────────────────────────
+// USDT Indexers (same pattern as USDC)
+// ──────────────────────────────────────────────
+
+async function fetchUSDTEVMHistory(
+  address: string,
+  rpcUrl: string,
+  chain: 'USDT_ETH' | 'USDT_POL'
+): Promise<IndexedTransaction[]> {
+  const contractAddress = USDT_CONTRACTS[chain];
+  if (!contractAddress) return [];
+
+  const baseChain = chain.replace('USDT_', '') as 'ETH' | 'POL';
+
+  try {
+    const blockResp = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_blockNumber',
+        params: [],
+        id: 1,
+      }),
+    });
+
+    if (!blockResp.ok) return [];
+
+    const blockData: { result?: string; error?: { message: string } } = await blockResp.json();
+    if (blockData.error) return [];
+
+    const latestBlock = parseInt(blockData.result || '0x0', 16);
+    const fromBlock = Math.max(0, latestBlock - 5000);
+    const paddedAddress = '0x' + address.toLowerCase().replace('0x', '').padStart(64, '0');
+    const results: IndexedTransaction[] = [];
+
+    // Incoming USDT transfers
+    const inResp = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_getLogs',
+        params: [{
+          fromBlock: '0x' + fromBlock.toString(16),
+          toBlock: 'latest',
+          address: contractAddress,
+          topics: [TRANSFER_TOPIC, null, paddedAddress],
+        }],
+        id: 2,
+      }),
+    });
+
+    if (inResp.ok) {
+      const inData: { result?: Array<{ transactionHash: string; topics?: string[]; data?: string; blockNumber?: string }> } = await inResp.json();
+      for (const log of (inData.result || []).slice(0, MAX_TXS)) {
+        const fromAddr = '0x' + (log.topics?.[1] || '').slice(26);
+        const rawAmount = BigInt(log.data || '0x0');
+        const blockNum = parseInt(log.blockNumber || '0x0', 16);
+        const confirmations = latestBlock - blockNum;
+
+        results.push({
+          txHash: log.transactionHash,
+          chain,
+          direction: 'incoming',
+          amount: formatWei(rawAmount, 6), // USDT has 6 decimals
+          fromAddress: fromAddr,
+          toAddress: address,
+          status: confirmations >= 12 ? 'confirmed' : 'pending',
+          confirmations,
+          timestamp: new Date().toISOString(),
+          blockNumber: blockNum,
+        });
+      }
+    }
+
+    // Outgoing USDT transfers
+    const outResp = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_getLogs',
+        params: [{
+          fromBlock: '0x' + fromBlock.toString(16),
+          toBlock: 'latest',
+          address: contractAddress,
+          topics: [TRANSFER_TOPIC, paddedAddress, null],
+        }],
+        id: 3,
+      }),
+    });
+
+    if (outResp.ok) {
+      const outData: { result?: Array<{ transactionHash: string; topics?: string[]; data?: string; blockNumber?: string }> } = await outResp.json();
+      for (const log of (outData.result || []).slice(0, MAX_TXS)) {
+        if (results.some((r) => r.txHash === log.transactionHash)) continue;
+        const toAddr = '0x' + (log.topics?.[2] || '').slice(26);
+        const rawAmount = BigInt(log.data || '0x0');
+        const blockNum = parseInt(log.blockNumber || '0x0', 16);
+        const confirmations = latestBlock - blockNum;
+
+        results.push({
+          txHash: log.transactionHash,
+          chain,
+          direction: 'outgoing',
+          amount: formatWei(rawAmount, 6),
+          fromAddress: address,
+          toAddress: toAddr,
+          status: confirmations >= 12 ? 'confirmed' : 'pending',
+          confirmations,
+          timestamp: new Date().toISOString(),
+          blockNumber: blockNum,
+        });
+      }
+    }
+
+    return results.slice(0, MAX_TXS);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[TxIndexer] ${chain} fetch failed: ${msg}`);
+    return [];
+  }
+}
+
+async function fetchUSDTSOLHistory(
+  address: string,
+  rpcUrl: string
+): Promise<IndexedTransaction[]> {
+  // Same pattern as USDC_SOL but with USDT mint
+  try {
+    const sigResp = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'getSignaturesForAddress',
+        params: [address, { limit: MAX_TXS }],
+        id: 1,
+      }),
+    });
+
+    if (!sigResp.ok) return [];
+
+    const sigData: {
+      result?: Array<{
+        signature: string;
+        slot: number;
+        blockTime?: number;
+        confirmationStatus?: string;
+      }>;
+      error?: { message: string };
+    } = await sigResp.json();
+
+    if (sigData.error) return [];
+
+    const signatures = sigData.result || [];
+    const results: IndexedTransaction[] = [];
+
+    const batchSize = 5;
+    for (let i = 0; i < Math.min(signatures.length, MAX_TXS); i += batchSize) {
+      const batch = signatures.slice(i, i + batchSize);
+      const detailPromises = batch.map(async (sig) => {
+        try {
+          const txResp = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'getTransaction',
+              params: [sig.signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }],
+              id: 1,
+            }),
+          });
+
+          if (!txResp.ok) return null;
+
+          const txData: {
+            result?: {
+              meta?: {
+                preTokenBalances?: Array<{ mint?: string; owner?: string; uiTokenAmount?: { uiAmount?: number } }>;
+                postTokenBalances?: Array<{ mint?: string; owner?: string; uiTokenAmount?: { uiAmount?: number } }>;
+              };
+            };
+          } = await txResp.json();
+
+          if (!txData.result?.meta) return null;
+
+          const meta = txData.result.meta;
+          const preUSDT = meta.preTokenBalances?.find((b) => b.mint === USDT_SOL_MINT && b.owner === address);
+          const postUSDT = meta.postTokenBalances?.find((b) => b.mint === USDT_SOL_MINT && b.owner === address);
+
+          if (!preUSDT && !postUSDT) return null;
+
+          const preBal = preUSDT?.uiTokenAmount?.uiAmount || 0;
+          const postBal = postUSDT?.uiTokenAmount?.uiAmount || 0;
+          const diff = postBal - preBal;
+
+          if (Math.abs(diff) < 0.000001) return null;
+
+          return {
+            txHash: sig.signature,
+            chain: 'USDT_SOL' as WalletChain,
+            direction: (diff > 0 ? 'incoming' : 'outgoing') as 'incoming' | 'outgoing',
+            amount: Math.abs(diff).toString(),
+            fromAddress: diff > 0 ? 'unknown' : address,
+            toAddress: diff > 0 ? address : 'unknown',
+            status: (sig.confirmationStatus === 'finalized' ? 'confirmed' : 'pending') as 'confirmed' | 'pending',
+            confirmations: sig.confirmationStatus === 'finalized' ? 32 : 0,
+            timestamp: sig.blockTime ? new Date(sig.blockTime * 1000).toISOString() : new Date().toISOString(),
+            blockNumber: sig.slot,
+          };
+        } catch {
+          return null;
+        }
+      });
+
+      const batchResults = await Promise.allSettled(detailPromises);
+      for (const r of batchResults) {
+        if (r.status === 'fulfilled' && r.value) {
+          results.push(r.value);
+        }
+      }
+    }
+
+    return results.slice(0, MAX_TXS);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[TxIndexer] USDT_SOL fetch failed: ${msg}`);
+    return [];
+  }
+}
+
+// ──────────────────────────────────────────────
 // Unified Indexer
 // ──────────────────────────────────────────────
 
@@ -885,12 +1663,26 @@ export async function fetchOnChainHistory(
       return fetchEVMNativeHistory(address, rpc.POL, 'POL');
     case 'SOL':
       return fetchSOLHistory(address, rpc.SOL);
+    case 'DOGE':
+      return fetchDOGEHistory(address);
+    case 'XRP':
+      return fetchXRPHistory(address);
+    case 'ADA':
+      return fetchADAHistory(address);
+    case 'BNB':
+      return fetchBNBHistory(address, rpc.BNB);
     case 'USDC_ETH':
       return fetchEVMUSDCHistory(address, rpc.ETH, 'USDC_ETH');
     case 'USDC_POL':
       return fetchEVMUSDCHistory(address, rpc.POL, 'USDC_POL');
     case 'USDC_SOL':
       return fetchUSDCSOLHistory(address, rpc.SOL);
+    case 'USDT_ETH':
+      return fetchUSDTEVMHistory(address, rpc.ETH, 'USDT_ETH');
+    case 'USDT_POL':
+      return fetchUSDTEVMHistory(address, rpc.POL, 'USDT_POL');
+    case 'USDT_SOL':
+      return fetchUSDTSOLHistory(address, rpc.SOL);
     default:
       return [];
   }
