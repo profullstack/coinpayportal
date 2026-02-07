@@ -1,6 +1,14 @@
 /**
  * Secure Key Storage Service
  * Provides secure storage and retrieval of encryption keys
+ * 
+ * ⚠️  STATUS: NOT USED IN PRODUCTION
+ * This module exists for potential future use but is not currently
+ * imported by any production code. The web wallet uses client-side
+ * encryption with user passwords instead.
+ * 
+ * If you need to use this in production, replace the in-memory Map
+ * with Supabase or a proper HSM/KMS solution.
  */
 
 import { encrypt, decrypt, deriveKey, generateSalt } from './encryption';

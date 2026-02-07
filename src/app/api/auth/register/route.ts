@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { register } from '@/lib/auth/service';
-import { checkRateLimit } from '@/lib/web-wallet/rate-limit';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { z } from 'zod';
 
 /**
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     const clientIp = getClientIp(request);
 
     // Check rate limit (prevents mass account creation)
-    const rateCheck = checkRateLimit(clientIp, 'merchant_register');
+    const rateCheck = await checkRateLimitAsync(clientIp, 'merchant_register');
     if (!rateCheck.allowed) {
       return NextResponse.json(
         {

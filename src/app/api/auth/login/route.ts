@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { login } from '@/lib/auth/service';
-import { checkRateLimit } from '@/lib/web-wallet/rate-limit';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { z } from 'zod';
 
 /**
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     const clientIp = getClientIp(request);
 
     // Check IP-based rate limit (prevents distributed brute-force)
-    const ipRateCheck = checkRateLimit(clientIp, 'merchant_login');
+    const ipRateCheck = await checkRateLimitAsync(clientIp, 'merchant_login');
     if (!ipRateCheck.allowed) {
       return NextResponse.json(
         {
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
 
     // Check email-based rate limit (prevents brute-force on single account)
     const emailKey = `email:${validation.data.email.toLowerCase()}`;
-    const emailRateCheck = checkRateLimit(emailKey, 'merchant_login_email');
+    const emailRateCheck = await checkRateLimitAsync(emailKey, 'merchant_login_email');
     if (!emailRateCheck.allowed) {
       return NextResponse.json(
         {

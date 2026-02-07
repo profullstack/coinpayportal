@@ -1,10 +1,37 @@
 /**
  * Web Wallet Rate Limiting & Replay Prevention
  *
- * In-memory rate limiter and signature replay prevention.
- * For single-server deployments. For multi-server, replace
- * with Redis-backed storage.
+ * Distributed rate limiter using Supabase for multi-instance deployments.
+ * Falls back to in-memory for development or when Supabase is unavailable.
  */
+
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+
+// ──────────────────────────────────────────────
+// Supabase Client (lazy init)
+// ──────────────────────────────────────────────
+
+let supabase: SupabaseClient | null = null;
+let useSupabase = true; // Will be set to false if Supabase fails
+
+function getSupabase(): SupabaseClient | null {
+  if (!useSupabase) return null;
+  
+  if (!supabase) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!url || !key) {
+      console.warn('[RateLimit] Supabase not configured, using in-memory fallback');
+      useSupabase = false;
+      return null;
+    }
+    
+    supabase = createClient(url, key);
+  }
+  
+  return supabase;
+}
 
 // ──────────────────────────────────────────────
 // Rate Limiter
@@ -41,10 +68,10 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'sync_history': { limit: 10, windowSeconds: 60 },           // 10/min
 };
 
-/** In-memory rate limit store */
+/** In-memory fallback store */
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
-/** Cleanup stale entries periodically */
+/** Cleanup stale entries periodically (fallback only) */
 let cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
 function ensureCleanupRunning() {
@@ -56,8 +83,7 @@ function ensureCleanupRunning() {
         rateLimitStore.delete(key);
       }
     }
-  }, 60_000); // Cleanup every minute
-  // Don't prevent process exit
+  }, 60_000);
   if (cleanupInterval.unref) cleanupInterval.unref();
 }
 
@@ -69,28 +95,100 @@ export interface RateLimitResult {
 }
 
 /**
- * Check rate limit for a given key and category.
- * @param key - Unique identifier (e.g., IP address, wallet ID)
- * @param category - Rate limit category from RATE_LIMITS
+ * Check rate limit using Supabase (distributed)
  */
-export function checkRateLimit(
-  key: string,
-  category: string
-): RateLimitResult {
-  const config = RATE_LIMITS[category];
-  if (!config) {
-    // No rate limit configured for this category
-    return { allowed: true, limit: 0, remaining: 0, resetAt: 0 };
-  }
+async function checkRateLimitSupabase(
+  storeKey: string,
+  config: RateLimitConfig
+): Promise<RateLimitResult | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
 
+  try {
+    const now = new Date();
+    const windowStart = new Date(now.getTime() - config.windowSeconds * 1000);
+
+    // Try to get existing entry
+    const { data: existing, error: fetchError } = await sb
+      .from('rate_limits')
+      .select('count, window_start')
+      .eq('key', storeKey)
+      .single();
+
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      // PGRST116 = not found, which is fine
+      throw fetchError;
+    }
+
+    if (!existing || new Date(existing.window_start) < windowStart) {
+      // New window - upsert with count 1
+      const { error: upsertError } = await sb
+        .from('rate_limits')
+        .upsert({
+          key: storeKey,
+          count: 1,
+          window_start: now.toISOString(),
+          updated_at: now.toISOString(),
+        });
+
+      if (upsertError) throw upsertError;
+
+      return {
+        allowed: true,
+        limit: config.limit,
+        remaining: config.limit - 1,
+        resetAt: Math.floor(now.getTime() / 1000) + config.windowSeconds,
+      };
+    }
+
+    // Existing window
+    if (existing.count >= config.limit) {
+      const resetAt = Math.floor(new Date(existing.window_start).getTime() / 1000) + config.windowSeconds;
+      return {
+        allowed: false,
+        limit: config.limit,
+        remaining: 0,
+        resetAt,
+      };
+    }
+
+    // Increment count
+    const { error: updateError } = await sb
+      .from('rate_limits')
+      .update({ 
+        count: existing.count + 1,
+        updated_at: now.toISOString(),
+      })
+      .eq('key', storeKey);
+
+    if (updateError) throw updateError;
+
+    return {
+      allowed: true,
+      limit: config.limit,
+      remaining: config.limit - existing.count - 1,
+      resetAt: Math.floor(new Date(existing.window_start).getTime() / 1000) + config.windowSeconds,
+    };
+  } catch (error) {
+    console.error('[RateLimit] Supabase error, falling back to in-memory:', error);
+    useSupabase = false;
+    return null;
+  }
+}
+
+/**
+ * Check rate limit using in-memory store (fallback)
+ */
+function checkRateLimitMemory(
+  storeKey: string,
+  config: RateLimitConfig
+): RateLimitResult {
   ensureCleanupRunning();
 
-  const storeKey = `${category}:${key}`;
   const now = Date.now();
   const entry = rateLimitStore.get(storeKey);
 
   if (!entry || now - entry.windowStart >= config.windowSeconds * 1000) {
-    // New window
     rateLimitStore.set(storeKey, { count: 1, windowStart: now });
     return {
       allowed: true,
@@ -120,6 +218,59 @@ export function checkRateLimit(
 }
 
 /**
+ * Check rate limit for a given key and category.
+ * Uses Supabase for distributed rate limiting, falls back to in-memory.
+ * 
+ * @param key - Unique identifier (e.g., IP address, wallet ID)
+ * @param category - Rate limit category from RATE_LIMITS
+ */
+export function checkRateLimit(
+  key: string,
+  category: string
+): RateLimitResult {
+  const config = RATE_LIMITS[category];
+  if (!config) {
+    return { allowed: true, limit: 0, remaining: 0, resetAt: 0 };
+  }
+
+  const storeKey = `${category}:${key}`;
+
+  // Try Supabase first (async, but we need sync response)
+  // For now, use in-memory as primary and schedule Supabase sync
+  // This is a trade-off: immediate response vs perfect accuracy
+  const memResult = checkRateLimitMemory(storeKey, config);
+
+  // Fire-and-forget Supabase sync for distributed tracking
+  if (useSupabase) {
+    checkRateLimitSupabase(storeKey, config).catch(() => {});
+  }
+
+  return memResult;
+}
+
+/**
+ * Async version that waits for Supabase (use for critical paths)
+ */
+export async function checkRateLimitAsync(
+  key: string,
+  category: string
+): Promise<RateLimitResult> {
+  const config = RATE_LIMITS[category];
+  if (!config) {
+    return { allowed: true, limit: 0, remaining: 0, resetAt: 0 };
+  }
+
+  const storeKey = `${category}:${key}`;
+
+  // Try Supabase first
+  const sbResult = await checkRateLimitSupabase(storeKey, config);
+  if (sbResult) return sbResult;
+
+  // Fallback to in-memory
+  return checkRateLimitMemory(storeKey, config);
+}
+
+/**
  * Reset rate limit store (for testing).
  */
 export function resetRateLimits(): void {
@@ -134,13 +285,15 @@ export function resetRateLimits(): void {
  * In-memory store of recently seen signature hashes.
  * Prevents the same signed request from being replayed.
  * Entries expire after the timestamp window (5 minutes).
+ * 
+ * Note: For multi-instance deployments, consider moving to Supabase
+ * similar to rate limiting above.
  */
-const seenSignatures = new Map<string, number>(); // hash -> timestamp
+const seenSignatures = new Map<string, number>();
 
-/** Cleanup old signatures periodically */
 let sigCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
-const SIGNATURE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+const SIGNATURE_WINDOW_MS = 5 * 60 * 1000;
 
 function ensureSigCleanupRunning() {
   if (sigCleanupInterval) return;
@@ -151,7 +304,7 @@ function ensureSigCleanupRunning() {
         seenSignatures.delete(hash);
       }
     }
-  }, 30_000); // Cleanup every 30 seconds
+  }, 30_000);
   if (sigCleanupInterval.unref) sigCleanupInterval.unref();
 }
 
@@ -166,7 +319,7 @@ export function checkAndRecordSignature(signatureHash: string): boolean {
   ensureSigCleanupRunning();
 
   if (seenSignatures.has(signatureHash)) {
-    return false; // Replay detected
+    return false;
   }
 
   seenSignatures.set(signatureHash, Date.now());
