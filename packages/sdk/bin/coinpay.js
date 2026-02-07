@@ -22,7 +22,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
-const VERSION = '0.4.0';
+const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 const CONFIG_FILE = join(homedir(), '.coinpay.json');
 const DEFAULT_WALLET_FILE = join(homedir(), '.coinpay-wallet.gpg');
 
