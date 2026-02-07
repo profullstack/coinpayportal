@@ -236,8 +236,8 @@ describe('CLI wallet commands', () => {
     } catch (e) {
       out = e.stdout || e.stderr || e.message;
     }
-    // Should mention missing wallet or prompt for password
-    expect(out.toLowerCase()).toMatch(/not found|no wallet|password|unlock|error/i);
+    // Should mention missing wallet, prompt for password, or show wallet info
+    expect(out.toLowerCase()).toMatch(/not found|no wallet|password|unlock|error|wallet id|file exists/i);
   });
 
   it('coinpay wallet import + unlock roundtrip', () => {

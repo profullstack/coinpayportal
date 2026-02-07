@@ -523,7 +523,7 @@ export class WalletClient {
       }),
     });
     
-    client.#walletId = result.wallet_id;
+    client.#walletId = result.data?.wallet_id || result.wallet_id;
     
     return client;
   }
@@ -582,7 +582,7 @@ export class WalletClient {
       }),
     });
     
-    client.#walletId = result.wallet_id;
+    client.#walletId = result.data?.wallet_id || result.wallet_id;
     
     return client;
   }
@@ -644,10 +644,12 @@ export class WalletClient {
     }
     
     // Get challenge
-    const { challenge } = await this.#request(`/web-wallet/auth/challenge`, {
+    const challengeRes = await this.#request(`/web-wallet/auth/challenge`, {
       method: 'POST',
       body: JSON.stringify({ wallet_id: this.#walletId }),
     });
+    const challenge = challengeRes.data?.challenge || challengeRes.challenge;
+    const challengeId = challengeRes.data?.challenge_id || challengeRes.challenge_id;
     
     // Sign challenge
     const { privateKey } = deriveKeyPair(this.#seed, 'ETH', 0);
@@ -658,12 +660,12 @@ export class WalletClient {
       method: 'POST',
       body: JSON.stringify({
         wallet_id: this.#walletId,
-        challenge_id: result.challenge_id,
+        challenge_id: challengeId,
         signature,
       }),
     });
     
-    this.#authToken = result.auth_token;
+    this.#authToken = result.data?.auth_token || result.auth_token;
   }
   
   /**
