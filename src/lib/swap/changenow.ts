@@ -333,11 +333,11 @@ export async function createSwap(params: SwapCreateParams & {
     depositAddress: exchange.payinAddress,
     depositCoin: exchange.fromCurrency,
     depositNetwork: exchange.fromNetwork ?? fromMapping.network,
-    depositAmount: exchange.amount?.toString() ?? params.amount,
+    depositAmount: params.amount, // Use the amount we're sending, NOT exchange.amount (which is receive amount)
     settleCoin: exchange.toCurrency,
     settleNetwork: exchange.toNetwork ?? toMapping.network,
     settleAddress: exchange.payoutAddress,
-    settleAmount: '', // Filled when complete
+    settleAmount: exchange.amount?.toString() ?? '', // This is the expected receive amount
     status: mapStatus(exchange.status),
     createdAt: exchange.createdAt,
   };
