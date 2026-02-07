@@ -72,7 +72,9 @@ export function SwapHistory({ walletId, onSwapClick }: SwapHistoryProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchHistory = useCallback(async () => {
+  const PENDING_STATUSES = ['waiting', 'pending', 'confirming', 'exchanging', 'sending', 'processing', 'settling'];
+
+  const fetchHistory = useCallback(async (updatePending = false) => {
     try {
       const res = await fetch(`/api/swap/history?walletId=${walletId}`);
       const data = await res.json();
@@ -81,7 +83,32 @@ export function SwapHistory({ walletId, onSwapClick }: SwapHistoryProps) {
         throw new Error(data.error || 'Failed to fetch history');
       }
 
-      setSwaps(data.swaps || []);
+      let swapList = data.swaps || [];
+
+      // If updatePending, fetch latest status from provider for pending swaps
+      if (updatePending) {
+        const pendingSwaps = swapList.filter((s: Swap) => PENDING_STATUSES.includes(s.status));
+        if (pendingSwaps.length > 0) {
+          const updates = await Promise.all(
+            pendingSwaps.map(async (swap: Swap) => {
+              try {
+                const statusRes = await fetch(`/api/swap/${swap.id}`);
+                if (statusRes.ok) {
+                  const statusData = await statusRes.json();
+                  return { id: swap.id, ...statusData.swap };
+                }
+              } catch {}
+              return null;
+            })
+          );
+
+          // Merge updates into swapList
+          const updateMap = new Map(updates.filter(Boolean).map((u: any) => [u.id, u]));
+          swapList = swapList.map((s: Swap) => updateMap.get(s.id) || s);
+        }
+      }
+
+      setSwaps(swapList);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load history');
@@ -90,13 +117,20 @@ export function SwapHistory({ walletId, onSwapClick }: SwapHistoryProps) {
     }
   }, [walletId]);
 
+  // Track if we have pending swaps for polling interval
+  const hasPending = swaps.some(s => PENDING_STATUSES.includes(s.status));
+
   useEffect(() => {
-    fetchHistory();
-    
-    // Poll for updates every 30 seconds
-    const interval = setInterval(fetchHistory, 30000);
-    return () => clearInterval(interval);
+    fetchHistory(true); // Initial fetch with status update
   }, [fetchHistory]);
+
+  useEffect(() => {
+    // Poll faster (10s) when pending swaps exist, slower (30s) otherwise
+    const pollInterval = hasPending ? 10000 : 30000;
+    
+    const interval = setInterval(() => fetchHistory(hasPending), pollInterval);
+    return () => clearInterval(interval);
+  }, [fetchHistory, hasPending]);
 
   if (loading) {
     return (
@@ -111,7 +145,7 @@ export function SwapHistory({ walletId, onSwapClick }: SwapHistoryProps) {
       <div className="text-center py-8">
         <p className="text-red-400 text-sm">{error}</p>
         <button
-          onClick={fetchHistory}
+          onClick={() => fetchHistory(true)}
           className="mt-2 text-sm text-purple-400 hover:text-purple-300"
         >
           Try again
