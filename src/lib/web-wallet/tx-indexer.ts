@@ -267,6 +267,7 @@ async function fetchBCHHistory(
 /**
  * Fetch native ETH/POL transaction history via block explorer API.
  * Fetches both normal transactions AND internal transactions (from contracts/exchanges).
+ * Uses Etherscan V2 API (unified endpoint with chainid parameter).
  * Returns empty array if no API key configured.
  */
 async function fetchNativeViaExplorer(
@@ -282,16 +283,17 @@ async function fetchNativeViaExplorer(
     return [];
   }
 
-  const baseUrl = chain === 'POL'
-    ? 'https://api.polygonscan.com/api'
-    : 'https://api.etherscan.io/api';
+  // Etherscan V2 API uses unified endpoint with chainid
+  // chainid: 1 = Ethereum, 137 = Polygon
+  const chainId = chain === 'POL' ? 137 : 1;
+  const baseUrl = 'https://api.etherscan.io/v2/api';
 
   const results: IndexedTransaction[] = [];
   const addrLower = address.toLowerCase();
   const seenHashes = new Set<string>();
 
   // 1. Fetch normal transactions
-  const normalUrl = `${baseUrl}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=${MAX_TXS}&sort=desc&apikey=${apiKey}`;
+  const normalUrl = `${baseUrl}?chainid=${chainId}&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=${MAX_TXS}&sort=desc&apikey=${apiKey}`;
 
   try {
     const resp = await fetch(normalUrl);
@@ -345,7 +347,7 @@ async function fetchNativeViaExplorer(
   }
 
   // 2. Fetch internal transactions (deposits from exchanges/contracts)
-  const internalUrl = `${baseUrl}?module=account&action=txlistinternal&address=${address}&startblock=0&endblock=99999999&page=1&offset=${MAX_TXS}&sort=desc&apikey=${apiKey}`;
+  const internalUrl = `${baseUrl}?chainid=${chainId}&module=account&action=txlistinternal&address=${address}&startblock=0&endblock=99999999&page=1&offset=${MAX_TXS}&sort=desc&apikey=${apiKey}`;
 
   try {
     const resp = await fetch(internalUrl);
