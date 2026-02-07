@@ -18,6 +18,32 @@ const SWAP_COINS = [
   'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL',
 ];
 
+// Explorer URLs for transaction links
+const EXPLORER_TX_URLS: Record<string, string> = {
+  BTC: 'https://blockstream.info/tx/',
+  BCH: 'https://blockchair.com/bitcoin-cash/transaction/',
+  ETH: 'https://etherscan.io/tx/',
+  POL: 'https://polygonscan.com/tx/',
+  SOL: 'https://explorer.solana.com/tx/',
+  BNB: 'https://bscscan.com/tx/',
+  DOGE: 'https://dogechain.info/tx/',
+  XRP: 'https://xrpscan.com/tx/',
+  ADA: 'https://cardanoscan.io/transaction/',
+  USDT: 'https://etherscan.io/tx/',
+  USDT_ETH: 'https://etherscan.io/tx/',
+  USDT_POL: 'https://polygonscan.com/tx/',
+  USDT_SOL: 'https://explorer.solana.com/tx/',
+  USDC: 'https://etherscan.io/tx/',
+  USDC_ETH: 'https://etherscan.io/tx/',
+  USDC_POL: 'https://polygonscan.com/tx/',
+  USDC_SOL: 'https://explorer.solana.com/tx/',
+};
+
+function getExplorerUrl(coin: string, txHash: string): string {
+  const base = EXPLORER_TX_URLS[coin] || EXPLORER_TX_URLS.ETH;
+  return base + txHash;
+}
+
 interface Quote {
   from: string;
   to: string;
@@ -311,9 +337,27 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
             {depositTxHash && (
               <div className="flex justify-between items-start">
                 <span className="text-gray-400">Deposit TX</span>
-                <span className="font-mono text-xs text-purple-400 break-all max-w-[200px]">
-                  {depositTxHash.slice(0, 16)}...
-                </span>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={getExplorerUrl(fromCoin, depositTxHash)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-xs text-purple-400 hover:text-purple-300 underline"
+                  >
+                    {depositTxHash.slice(0, 10)}...{depositTxHash.slice(-6)}
+                  </a>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(depositTxHash);
+                    }}
+                    className="p-1 hover:bg-white/10 rounded transition-colors"
+                    title="Copy TX hash"
+                  >
+                    <svg className="h-3.5 w-3.5 text-gray-400 hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             )}
           </div>
