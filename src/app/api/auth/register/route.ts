@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { register } from '@/lib/auth/service';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { z } from 'zod';
 
 /**
@@ -12,17 +13,6 @@ const registerSchema = z.object({
   password: z.string().min(8),
   name: z.string().optional(),
 });
-
-/**
- * Get client IP from request headers
- */
-function getClientIp(request: NextRequest): string {
-  return (
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    request.headers.get('x-real-ip') ||
-    'unknown'
-  );
-}
 
 /**
  * POST /api/auth/register

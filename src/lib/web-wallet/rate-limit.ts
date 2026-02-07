@@ -282,12 +282,8 @@ export function resetRateLimits(): void {
 // ──────────────────────────────────────────────
 
 /**
- * In-memory store of recently seen signature hashes.
- * Prevents the same signed request from being replayed.
- * Entries expire after the timestamp window (5 minutes).
- * 
- * Note: For multi-instance deployments, consider moving to Supabase
- * similar to rate limiting above.
+ * Distributed replay prevention using Supabase.
+ * Falls back to in-memory for development or when Supabase is unavailable.
  */
 const seenSignatures = new Map<string, number>();
 
@@ -309,6 +305,34 @@ function ensureSigCleanupRunning() {
 }
 
 /**
+ * Check and record signature using Supabase (distributed)
+ */
+async function checkSignatureSupabase(signatureHash: string): Promise<boolean | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+
+  try {
+    // Try to insert - will fail if exists (primary key constraint)
+    const { error } = await sb
+      .from('seen_signatures')
+      .insert({ hash: signatureHash, seen_at: new Date().toISOString() });
+
+    if (error) {
+      // Check if it's a duplicate key error
+      if (error.code === '23505') {
+        return false; // Replay detected
+      }
+      throw error;
+    }
+
+    return true; // Fresh signature
+  } catch (error) {
+    console.error('[ReplayPrevention] Supabase error:', error);
+    return null; // Fall back to in-memory
+  }
+}
+
+/**
  * Check if a signature has been seen before (replay prevention).
  * Returns true if the signature is fresh (not a replay).
  * Returns false if the signature was already used.
@@ -318,6 +342,39 @@ function ensureSigCleanupRunning() {
 export function checkAndRecordSignature(signatureHash: string): boolean {
   ensureSigCleanupRunning();
 
+  // Check in-memory first (fast path)
+  if (seenSignatures.has(signatureHash)) {
+    return false;
+  }
+
+  // Record in memory
+  seenSignatures.set(signatureHash, Date.now());
+
+  // Fire-and-forget Supabase sync for distributed tracking
+  if (useSupabase) {
+    checkSignatureSupabase(signatureHash).catch(() => {});
+  }
+
+  return true;
+}
+
+/**
+ * Async version that waits for Supabase (use for critical paths)
+ */
+export async function checkAndRecordSignatureAsync(signatureHash: string): Promise<boolean> {
+  // Try Supabase first
+  const sbResult = await checkSignatureSupabase(signatureHash);
+  if (sbResult !== null) {
+    // Also update in-memory cache
+    if (sbResult) {
+      seenSignatures.set(signatureHash, Date.now());
+    }
+    return sbResult;
+  }
+
+  // Fallback to in-memory
+  ensureSigCleanupRunning();
+  
   if (seenSignatures.has(signatureHash)) {
     return false;
   }
