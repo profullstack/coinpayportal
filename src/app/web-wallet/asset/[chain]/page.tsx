@@ -1013,6 +1013,7 @@ function HistoryTab({ chain }: { chain: WalletChain }) {
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ newTxs: number; error?: string } | null>(null);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const hasSyncedRef = useRef(false);
@@ -1053,6 +1054,25 @@ function HistoryTab({ chain }: { chain: WalletChain }) {
     }
   }, [wallet, chain, page]);
 
+  const doSync = useCallback(async () => {
+    if (!wallet || isSyncing) return;
+    setIsSyncing(true);
+    setSyncResult(null);
+    try {
+      const result = await wallet.syncHistory(chain);
+      setSyncResult({ newTxs: result.newTransactions });
+      // Clear sync result after 5 seconds
+      setTimeout(() => setSyncResult(null), 5000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Sync failed';
+      console.error('History sync failed:', err);
+      setSyncResult({ newTxs: 0, error: msg });
+    } finally {
+      setIsSyncing(false);
+      fetchTransactions();
+    }
+  }, [wallet, chain, isSyncing, fetchTransactions]);
+
   // Sync on-chain history once when the tab first renders, then fetch transactions
   useEffect(() => {
     if (!wallet || hasSyncedRef.current) {
@@ -1060,29 +1080,8 @@ function HistoryTab({ chain }: { chain: WalletChain }) {
       return;
     }
 
-    let cancelled = false;
     hasSyncedRef.current = true;
-
-    const syncThenFetch = async () => {
-      setIsSyncing(true);
-      try {
-        await wallet.syncHistory(chain);
-      } catch (err: unknown) {
-        // Don't block UI if sync fails — just log and continue
-        console.error('History sync failed (non-blocking):', err);
-      } finally {
-        if (!cancelled) {
-          setIsSyncing(false);
-          fetchTransactions();
-        }
-      }
-    };
-
-    syncThenFetch();
-
-    return () => {
-      cancelled = true;
-    };
+    doSync();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet, chain]);
 
@@ -1095,17 +1094,50 @@ function HistoryTab({ chain }: { chain: WalletChain }) {
 
   return (
     <div className="space-y-4">
-      {isSyncing && (
-        <div className="flex items-center gap-2 rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
-          <span className="text-xs text-blue-400">Syncing on-chain history...</span>
+      {/* Sync Status Bar */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {isSyncing ? (
+            <>
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+              <span className="text-xs text-blue-400">Syncing blockchain...</span>
+            </>
+          ) : syncResult ? (
+            syncResult.error ? (
+              <span className="text-xs text-red-400">⚠ {syncResult.error}</span>
+            ) : (
+              <span className="text-xs text-green-400">
+                ✓ Synced {syncResult.newTxs} new transaction{syncResult.newTxs !== 1 ? 's' : ''}
+              </span>
+            )
+          ) : null}
         </div>
-      )}
+        <button
+          onClick={doSync}
+          disabled={isSyncing}
+          className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-gray-400 hover:bg-white/10 hover:text-white transition-colors disabled:opacity-50"
+        >
+          <svg
+            className={`h-3 w-3 ${isSyncing ? 'animate-spin' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
+          </svg>
+          Sync
+        </button>
+      </div>
 
       <TransactionList
         transactions={transactions}
         isLoading={isLoading && page === 0 && !isSyncing}
-        emptyMessage={`No ${chain} transactions yet.`}
+        emptyMessage={`No ${chain} transactions yet. Tap Sync to check the blockchain.`}
       />
 
       {hasMore && !isLoading && (

@@ -277,6 +277,7 @@ async function fetchNativeViaExplorer(
     : process.env.ETHERSCAN_API_KEY;
 
   if (!apiKey) {
+    console.warn(`[TxIndexer] No ${chain === 'POL' ? 'POLYGONSCAN' : 'ETHERSCAN'}_API_KEY configured, skipping native tx fetch`);
     return [];
   }
 
@@ -1728,7 +1729,8 @@ export async function syncAddressHistory(
   }
 
   console.log(
-    `[TxIndexer] Found ${indexed.length} on-chain txs for ${chain} ${truncAddr(address)}`
+    `[TxIndexer] Found ${indexed.length} on-chain txs for ${chain} ${truncAddr(address)}`,
+    indexed.length > 0 ? `(first: ${indexed[0].txHash.slice(0, 16)}...)` : ''
   );
 
   // Upsert each transaction
