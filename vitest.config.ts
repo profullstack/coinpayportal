@@ -40,7 +40,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      '@noble/curves/secp256k1': path.resolve(__dirname, './node_modules/.pnpm/@noble+curves@2.0.1/node_modules/@noble/curves/secp256k1.js'),
+      // Don't alias @noble/curves — let each package resolve its own version
     },
     conditions: ['node', 'import', 'module', 'browser', 'default'],
   },

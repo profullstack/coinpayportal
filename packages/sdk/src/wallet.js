@@ -154,11 +154,11 @@ function deriveBCHAddress(compressedPubKey) {
   checksumInput.set(prefixData);
   checksumInput.set(payload5, prefixData.length);
   // Last 8 bytes are zeros for checksum calculation
-  const polymod = cashAddrPolymod(checksumInput) ^ 1;
+  const polymod = cashAddrPolymod(checksumInput) ^ 1n;
   
   const checksum = new Uint8Array(8);
   for (let i = 0; i < 8; i++) {
-    checksum[i] = (polymod >> (5 * (7 - i))) & 0x1f;
+    checksum[i] = Number((polymod >> BigInt(5 * (7 - i))) & 0x1fn);
   }
   
   let encoded = 'bitcoincash:';
@@ -210,7 +210,7 @@ function cashAddrPolymod(values) {
       }
     }
   }
-  return Number(c);
+  return c;
 }
 
 /**
@@ -222,9 +222,14 @@ function deriveETHAddress(compressedPubKey) {
   const uncompressed = point.toRawBytes(false); // 65 bytes with 04 prefix
   // Keccak256 of the 64 bytes (without 04 prefix)
   const hash = keccak_256(uncompressed.slice(1));
-  // Last 20 bytes
+  // Last 20 bytes — EIP-55 checksummed
   const addr = bytesToHex(hash.slice(12));
-  return '0x' + addr;
+  const addrHash = bytesToHex(keccak_256(new TextEncoder().encode(addr)));
+  let checksummed = '';
+  for (let i = 0; i < addr.length; i++) {
+    checksummed += parseInt(addrHash[i], 16) >= 8 ? addr[i].toUpperCase() : addr[i];
+  }
+  return '0x' + checksummed;
 }
 
 /**

@@ -132,12 +132,12 @@ describe('BTC address derivation', () => {
 describe('ETH address derivation', () => {
   it('derives valid address: 0x + 40 hex chars', () => {
     const addr = deriveAddress(TEST_SEED, 'ETH');
-    expect(addr).toMatch(/^0x[0-9a-f]{40}$/);
+    expect(addr).toMatch(/^0x[0-9a-fA-F]{40}$/);
   });
 
-  it('known test vector', () => {
+  it('known test vector (EIP-55 checksummed)', () => {
     const addr = deriveAddress(TEST_SEED, 'ETH');
-    expect(addr).toBe('0x9858effd232b4033e47d90003d41ec34ecaeda94');
+    expect(addr).toBe('0x9858EfFD232B4033E47d90003D41EC34EcaEda94');
   });
 
   it('has exactly 42 chars', () => {
@@ -149,12 +149,12 @@ describe('ETH address derivation', () => {
 describe('POL/BNB address derivation', () => {
   it('POL produces same format as ETH (EVM)', () => {
     const addr = deriveAddress(TEST_SEED, 'POL');
-    expect(addr).toMatch(/^0x[0-9a-f]{40}$/);
+    expect(addr).toMatch(/^0x[0-9a-fA-F]{40}$/);
   });
 
   it('BNB produces same format as ETH (EVM)', () => {
     const addr = deriveAddress(TEST_SEED, 'BNB');
-    expect(addr).toMatch(/^0x[0-9a-f]{40}$/);
+    expect(addr).toMatch(/^0x[0-9a-fA-F]{40}$/);
   });
 
   it('POL and ETH share same address (same coin type)', () => {
@@ -188,7 +188,7 @@ describe('BCH address derivation', () => {
 
   it('known test vector', () => {
     const addr = deriveAddress(TEST_SEED, 'BCH');
-    expect(addr).toBe('bitcoincash:qqyx49mu0kkn9ftfj6hje6g2wfer34yfnqrlahq3q6');
+    expect(addr).toBe('bitcoincash:qqyx49mu0kkn9ftfj6hje6g2wfer34yfnq5tahq3q6');
   });
 });
 
