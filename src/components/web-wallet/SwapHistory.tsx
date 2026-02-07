@@ -13,7 +13,24 @@ interface Swap {
   status: string;
   provider: string;
   created_at: string;
+  provider_data?: {
+    deposit_tx_hash?: string;
+    [key: string]: any;
+  };
 }
+
+// Explorer URLs for transaction links
+const EXPLORER_TX_URLS: Record<string, string> = {
+  BTC: 'https://blockstream.info/tx/',
+  BCH: 'https://blockchair.com/bitcoin-cash/transaction/',
+  ETH: 'https://etherscan.io/tx/',
+  POL: 'https://polygonscan.com/tx/',
+  SOL: 'https://explorer.solana.com/tx/',
+  BNB: 'https://bscscan.com/tx/',
+  DOGE: 'https://dogechain.info/tx/',
+  XRP: 'https://xrpscan.com/tx/',
+  ADA: 'https://cardanoscan.io/transaction/',
+};
 
 interface SwapHistoryProps {
   walletId: string;
@@ -201,6 +218,38 @@ function SwapCard({ swap, onClick, onRefresh }: { swap: Swap; onClick?: () => vo
           </p>
         </div>
       </div>
+
+      {/* Deposit TX Hash */}
+      {swap.provider_data?.deposit_tx_hash && (
+        <div className="mt-3 pt-3 border-t border-white/10">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-500">Deposit TX</span>
+            <div className="flex items-center gap-2">
+              <a
+                href={`${EXPLORER_TX_URLS[swap.from_coin] || EXPLORER_TX_URLS.ETH}${swap.provider_data.deposit_tx_hash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="font-mono text-purple-400 hover:text-purple-300 underline"
+              >
+                {swap.provider_data.deposit_tx_hash.slice(0, 10)}...{swap.provider_data.deposit_tx_hash.slice(-6)}
+              </a>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.clipboard.writeText(swap.provider_data!.deposit_tx_hash!);
+                }}
+                className="p-1 hover:bg-white/10 rounded transition-colors"
+                title="Copy TX hash"
+              >
+                <svg className="h-3 w-3 text-gray-400 hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mt-3 flex items-center justify-between text-xs">
         <span className="text-gray-500">{new Date(swap.created_at).toLocaleString()}</span>
