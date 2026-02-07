@@ -97,8 +97,8 @@ port = 54324
 # Uncomment to expose additional ports for testing user applications that send emails.
 # smtp_port = 54325
 # pop3_port = 54326
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+admin_email = "noreply@coinpayportal.com"
+sender_name = "CoinPay"
 
 [storage]
 enabled = true
@@ -120,9 +120,9 @@ file_size_limit = "50MiB"
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "http://127.0.0.1:3000"
+site_url = "https://coinpayportal.com"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000"]
+additional_redirect_urls = ["https://coinpayportal.com"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to the local API URL (http://127.0.0.1:<port>/auth/v1).
@@ -195,16 +195,25 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
-# Uncomment to customize email template
-# [auth.email.template.invite]
-# subject = "You have been invited"
-# content_path = "./supabase/templates/invite.html"
+[auth.email.template.confirm]
+subject = "Confirm Your Email - CoinPay"
+content_path = "./supabase/templates/confirm.html"
 
-# Uncomment to customize notification email template
-# [auth.email.notification.password_changed]
-# enabled = true
-# subject = "Your password has been changed"
-# content_path = "./templates/password_changed_notification.html"
+[auth.email.template.magic_link]
+subject = "Sign In to CoinPay"
+content_path = "./supabase/templates/magic_link.html"
+
+[auth.email.template.reset_password]
+subject = "Reset Your Password - CoinPay"
+content_path = "./supabase/templates/reset_password.html"
+
+[auth.email.template.change_email]
+subject = "Confirm Email Change - CoinPay"
+content_path = "./supabase/templates/change_email.html"
+
+[auth.email.template.invite]
+subject = "You've Been Invited to CoinPay"
+content_path = "./supabase/templates/invite.html"
 
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.
