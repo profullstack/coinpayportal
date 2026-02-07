@@ -266,6 +266,7 @@ async function fetchBCHHistory(
 
 /**
  * Fetch native ETH/POL transaction history via block explorer API.
+ * Fetches both normal transactions AND internal transactions (from contracts/exchanges).
  * Returns empty array if no API key configured.
  */
 async function fetchNativeViaExplorer(
@@ -285,79 +286,118 @@ async function fetchNativeViaExplorer(
     ? 'https://api.polygonscan.com/api'
     : 'https://api.etherscan.io/api';
 
-  const url = `${baseUrl}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=${MAX_TXS}&sort=desc&apikey=${apiKey}`;
+  const results: IndexedTransaction[] = [];
+  const addrLower = address.toLowerCase();
+  const seenHashes = new Set<string>();
+
+  // 1. Fetch normal transactions
+  const normalUrl = `${baseUrl}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=${MAX_TXS}&sort=desc&apikey=${apiKey}`;
 
   try {
-    const resp = await fetch(url);
-    if (!resp.ok) {
-      console.error(`[TxIndexer] ${chain} explorer API failed: ${resp.status}`);
-      return [];
-    }
+    const resp = await fetch(normalUrl);
+    if (resp.ok) {
+      const data: {
+        status: string;
+        message: string;
+        result: Array<{
+          hash: string;
+          from: string;
+          to: string;
+          value: string;
+          timeStamp: string;
+          blockNumber: string;
+          confirmations: string;
+          isError: string;
+          gasUsed: string;
+          gasPrice: string;
+        }>;
+      } = await resp.json();
 
-    const data: {
-      status: string;
-      message: string;
-      result: Array<{
-        hash: string;
-        from: string;
-        to: string;
-        value: string;
-        timeStamp: string;
-        blockNumber: string;
-        confirmations: string;
-        isError: string;
-        gasUsed: string;
-        gasPrice: string;
-      }>;
-    } = await resp.json();
+      if (data.status === '1' && Array.isArray(data.result)) {
+        for (const tx of data.result) {
+          if (tx.isError === '1') continue;
+          const valueWei = BigInt(tx.value || '0');
+          if (valueWei === BigInt(0)) continue;
 
-    if (data.status !== '1' || !Array.isArray(data.result)) {
-      // status '0' with message 'No transactions found' is normal
-      if (data.message === 'No transactions found') {
-        return [];
+          seenHashes.add(tx.hash.toLowerCase());
+          const direction: 'incoming' | 'outgoing' =
+            tx.to.toLowerCase() === addrLower ? 'incoming' : 'outgoing';
+          const fee = BigInt(tx.gasUsed || '0') * BigInt(tx.gasPrice || '0');
+
+          results.push({
+            txHash: tx.hash,
+            chain,
+            direction,
+            amount: formatWei(valueWei, 18),
+            fromAddress: tx.from,
+            toAddress: tx.to,
+            status: parseInt(tx.confirmations || '0', 10) >= 12 ? 'confirmed' : 'pending',
+            confirmations: parseInt(tx.confirmations || '0', 10),
+            timestamp: new Date(parseInt(tx.timeStamp, 10) * 1000).toISOString(),
+            fee: formatWei(fee, 18),
+            blockNumber: parseInt(tx.blockNumber, 10),
+          });
+        }
       }
-      console.error(`[TxIndexer] ${chain} explorer API error: ${data.message}`);
-      return [];
     }
-
-    const results: IndexedTransaction[] = [];
-    const addrLower = address.toLowerCase();
-
-    for (const tx of data.result) {
-      // Skip failed transactions
-      if (tx.isError === '1') continue;
-
-      // Skip zero-value (contract interactions without transfer)
-      const valueWei = BigInt(tx.value || '0');
-      if (valueWei === BigInt(0)) continue;
-
-      const direction: 'incoming' | 'outgoing' =
-        tx.to.toLowerCase() === addrLower ? 'incoming' : 'outgoing';
-
-      const fee = BigInt(tx.gasUsed || '0') * BigInt(tx.gasPrice || '0');
-
-      results.push({
-        txHash: tx.hash,
-        chain,
-        direction,
-        amount: formatWei(valueWei, 18),
-        fromAddress: tx.from,
-        toAddress: tx.to,
-        status: parseInt(tx.confirmations || '0', 10) >= 12 ? 'confirmed' : 'pending',
-        confirmations: parseInt(tx.confirmations || '0', 10),
-        timestamp: new Date(parseInt(tx.timeStamp, 10) * 1000).toISOString(),
-        fee: formatWei(fee, 18),
-        blockNumber: parseInt(tx.blockNumber, 10),
-      });
-    }
-
-    console.log(`[TxIndexer] ${chain} explorer: found ${results.length} native txs for ${truncAddr(address)}`);
-    return results;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[TxIndexer] ${chain} explorer fetch failed: ${msg}`);
-    return [];
+    console.error(`[TxIndexer] ${chain} normal txlist fetch failed:`, err);
   }
+
+  // 2. Fetch internal transactions (deposits from exchanges/contracts)
+  const internalUrl = `${baseUrl}?module=account&action=txlistinternal&address=${address}&startblock=0&endblock=99999999&page=1&offset=${MAX_TXS}&sort=desc&apikey=${apiKey}`;
+
+  try {
+    const resp = await fetch(internalUrl);
+    if (resp.ok) {
+      const data: {
+        status: string;
+        message: string;
+        result: Array<{
+          hash: string;
+          from: string;
+          to: string;
+          value: string;
+          timeStamp: string;
+          blockNumber: string;
+          isError: string;
+          contractAddress?: string;
+        }>;
+      } = await resp.json();
+
+      if (data.status === '1' && Array.isArray(data.result)) {
+        for (const tx of data.result) {
+          if (tx.isError === '1') continue;
+          // Skip if we already have this tx from normal list
+          if (seenHashes.has(tx.hash.toLowerCase())) continue;
+          
+          const valueWei = BigInt(tx.value || '0');
+          if (valueWei === BigInt(0)) continue;
+
+          const direction: 'incoming' | 'outgoing' =
+            tx.to.toLowerCase() === addrLower ? 'incoming' : 'outgoing';
+
+          results.push({
+            txHash: tx.hash,
+            chain,
+            direction,
+            amount: formatWei(valueWei, 18),
+            fromAddress: tx.from,
+            toAddress: tx.to,
+            status: 'confirmed', // Internal txs are always confirmed
+            confirmations: 1,
+            timestamp: new Date(parseInt(tx.timeStamp, 10) * 1000).toISOString(),
+            blockNumber: parseInt(tx.blockNumber, 10),
+          });
+        }
+      }
+    }
+  } catch (err: unknown) {
+    console.error(`[TxIndexer] ${chain} internal txlist fetch failed:`, err);
+  }
+
+  console.log(`[TxIndexer] ${chain} explorer: found ${results.length} native txs (incl. internal) for ${truncAddr(address)}`);
+  return results.slice(0, MAX_TXS);
 }
 
 async function fetchEVMNativeHistory(
