@@ -4,12 +4,21 @@ import { GET as getQuote } from './quote/route';
 import { POST as createSwap } from './create/route';
 import { GET as getStatus } from './[id]/route';
 import { GET as getCoins } from './coins/route';
+import { POST as saveDeposit } from './[id]/deposit/route';
 
 // Mock Supabase
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({
     from: vi.fn(() => ({
       insert: vi.fn(() => Promise.resolve({ error: null })),
+      select: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          single: vi.fn(() => Promise.resolve({ 
+            data: { provider_data: {} }, 
+            error: null 
+          })),
+        })),
+      })),
       update: vi.fn(() => ({
         eq: vi.fn(() => Promise.resolve({ error: null })),
       })),
@@ -272,6 +281,47 @@ describe('Swap API Routes', () => {
       const btc = data.coins.find((c: { symbol: string }) => c.symbol === 'BTC');
       expect(btc).toBeDefined();
       expect(btc.ticker).toBe('btc');
+    });
+  });
+
+  describe('POST /api/swap/[id]/deposit', () => {
+    it('should save deposit tx hash', async () => {
+      const request = new NextRequest('http://localhost/api/swap/test123/deposit', {
+        method: 'POST',
+        body: JSON.stringify({ txHash: '0xabc123def456' }),
+      });
+
+      const response = await saveDeposit(request, { params: Promise.resolve({ id: 'test123' }) });
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.success).toBe(true);
+    });
+
+    it('should reject missing swap ID', async () => {
+      const request = new NextRequest('http://localhost/api/swap//deposit', {
+        method: 'POST',
+        body: JSON.stringify({ txHash: '0xabc123def456' }),
+      });
+
+      const response = await saveDeposit(request, { params: Promise.resolve({ id: '' }) });
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error).toBe('Missing swap ID or transaction hash');
+    });
+
+    it('should reject missing tx hash', async () => {
+      const request = new NextRequest('http://localhost/api/swap/test123/deposit', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+
+      const response = await saveDeposit(request, { params: Promise.resolve({ id: 'test123' }) });
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error).toBe('Missing swap ID or transaction hash');
     });
   });
 });
