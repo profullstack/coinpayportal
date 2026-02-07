@@ -59,7 +59,7 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
   const [swap, setSwap] = useState<SwapResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState<'form' | 'confirm' | 'result' | 'sending' | 'complete'>('form');
+  const [step, setStep] = useState<'form' | 'confirm' | 'password' | 'sending' | 'complete'>('form');
   const [usdRate, setUsdRate] = useState<number | null>(null);
   
   // Deposit sending state
@@ -133,8 +133,8 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
     return () => clearTimeout(timer);
   }, [fetchQuote]);
 
-  // Create swap with ChangeNOW (gets deposit address)
-  const handleCreateSwap = async () => {
+  // Go to password step
+  const handleConfirmSwap = () => {
     if (!quote) return;
 
     // Determine settle address from wallet
@@ -144,13 +144,44 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
       return;
     }
 
-    // Refund address
-    const refundAddress = addresses[fromCoin] || addresses[getBaseChain(fromCoin)];
-
-    setLoading(true);
     setError(null);
+    setStep('password');
+  };
+
+  // Create swap AND send deposit in one flow
+  const handlePasswordSubmit = async () => {
+    if (!wallet || !quote || !password) return;
+    
+    // Validate password first
+    const stored = loadWalletFromStorage();
+    if (!stored) {
+      setPasswordError('Wallet data not found');
+      return;
+    }
+    
+    const decrypted = await decryptWithPassword(stored.encrypted, password);
+    if (!decrypted) {
+      setPasswordError('Incorrect password');
+      return;
+    }
+
+    // Password valid - now create swap and send deposit
+    setLoading(true);
+    setStep('sending');
+    setError(null);
+    setPasswordError('');
 
     try {
+      // Determine addresses
+      const settleAddress = addresses[toCoin] || addresses[getBaseChain(toCoin)];
+      const refundAddress = addresses[fromCoin] || addresses[getBaseChain(fromCoin)];
+      const fromAddress = addresses[fromCoin] || addresses[getBaseChain(fromCoin)];
+
+      if (!fromAddress) {
+        throw new Error(`No ${fromCoin} address available`);
+      }
+
+      // Step 1: Create swap
       const res = await fetch('/api/swap/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -167,52 +198,19 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || 'Failed to create swap');
-      } else {
-        setSwap(data.swap);
-        setStep('result');
-        onSwapCreated?.(data.swap);
+        throw new Error(data.error || 'Failed to create swap');
       }
-    } catch (err) {
-      setError('Network error creating swap');
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  // Send deposit to swap address
-  const handleSendDeposit = async () => {
-    if (!wallet || !swap || !password) return;
-    
-    // Validate password
-    const stored = loadWalletFromStorage();
-    if (!stored) {
-      setPasswordError('Wallet data not found');
-      return;
-    }
-    
-    const decrypted = await decryptWithPassword(stored.encrypted, password);
-    if (!decrypted) {
-      setPasswordError('Incorrect password');
-      return;
-    }
-    
-    setLoading(true);
-    setStep('sending');
-    setError(null);
-    setPasswordError('');
-    
-    try {
-      const fromAddress = addresses[fromCoin] || addresses[getBaseChain(fromCoin)];
-      if (!fromAddress) {
-        throw new Error(`No ${fromCoin} address available`);
-      }
-      
+      const createdSwap = data.swap;
+      setSwap(createdSwap);
+      onSwapCreated?.(createdSwap);
+
+      // Step 2: Send deposit immediately
       const result = await wallet.send({
         chain: fromCoin as WalletChain,
         fromAddress,
-        toAddress: swap.depositAddress,
-        amount: swap.depositAmount,
+        toAddress: createdSwap.depositAddress,
+        amount: createdSwap.depositAmount,
         priority: 'medium',
       });
       
@@ -220,9 +218,9 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
       setPassword('');
       setStep('complete');
     } catch (err: any) {
-      console.error('Deposit send failed:', err);
-      setError(err.message || 'Failed to send deposit');
-      setStep('result'); // Go back so they can retry
+      console.error('Swap/deposit failed:', err);
+      setError(err.message || 'Failed to complete swap');
+      setStep('form'); // Go back to form on error
     } finally {
       setLoading(false);
     }
@@ -324,96 +322,81 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
     );
   }
 
-  // Swap result view - shows deposit address with clear action button
-  if (step === 'result' && swap) {
+  // Password step - enter password then auto-create swap and send deposit
+  if (step === 'password' && quote) {
     return (
       <div className="space-y-6">
         <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="h-10 w-10 rounded-full bg-purple-500 flex items-center justify-center">
               <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
             </div>
             <div>
-              <h3 className="font-semibold text-white">Swap Created</h3>
-              <p className="text-sm text-gray-400">Send deposit to complete the swap</p>
+              <h3 className="font-semibold text-white">Authorize Swap</h3>
+              <p className="text-sm text-gray-400">Enter password to create swap and send deposit</p>
             </div>
           </div>
 
-          <div className="space-y-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-400">Swap ID</span>
-              <span className="font-mono text-white">{swap.id}</span>
-            </div>
+          <div className="space-y-3 text-sm mb-4">
             <div className="flex justify-between">
               <span className="text-gray-400">You send</span>
-              <span className="text-white font-semibold">{swap.depositAmount} {fromCoin}</span>
+              <span className="text-white font-semibold">{quote.depositAmount} {fromCoin}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-400">You receive</span>
-              <span className="text-green-400 font-semibold">≈ {swap.settleAmount} {toCoin}</span>
+              <span className="text-green-400 font-semibold">≈ {parseFloat(quote.settleAmount).toFixed(8)} {toCoin}</span>
             </div>
           </div>
 
-          {/* Deposit address - prominently displayed */}
-          <div className="mt-4 p-4 rounded-lg bg-black/30 border border-white/10">
-            <p className="text-xs text-gray-400 mb-2">Deposit Address</p>
-            <p className="font-mono text-sm text-white break-all select-all">{swap.depositAddress}</p>
-          </div>
-
           {error && (
-            <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 mb-4">
               <p className="text-sm text-red-400">{error}</p>
             </div>
           )}
 
-          {swap.expiresAt && (
-            <p className="mt-4 text-xs text-gray-400">
-              ⏰ Expires: {new Date(swap.expiresAt).toLocaleString()}
-            </p>
-          )}
-        </div>
-
-        {/* Password input for deposit */}
-        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-          <label htmlFor="deposit-password" className="block text-sm font-medium text-gray-300 mb-2">
-            Wallet Password
-          </label>
-          <input
-            id="deposit-password"
-            type="password"
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              setPasswordError('');
-            }}
-            onKeyDown={(e) => e.key === 'Enter' && password && handleSendDeposit()}
-            placeholder="Enter password to send deposit"
-            className={`w-full rounded-lg border bg-white/5 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-1 ${
-              passwordError
-                ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
-                : 'border-white/10 focus:border-purple-500 focus:ring-purple-500'
-            }`}
-          />
-          {passwordError && (
-            <p className="text-xs text-red-400 mt-1">{passwordError}</p>
-          )}
+          {/* Password input */}
+          <div>
+            <label htmlFor="swap-password" className="block text-sm font-medium text-gray-300 mb-2">
+              Wallet Password
+            </label>
+            <input
+              id="swap-password"
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setPasswordError('');
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && password && handlePasswordSubmit()}
+              placeholder="Enter your password"
+              className={`w-full rounded-lg border bg-white/5 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-1 ${
+                passwordError
+                  ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
+                  : 'border-white/10 focus:border-purple-500 focus:ring-purple-500'
+              }`}
+              autoFocus
+            />
+            {passwordError && (
+              <p className="text-xs text-red-400 mt-1">{passwordError}</p>
+            )}
+          </div>
         </div>
 
         <button
-          onClick={handleSendDeposit}
+          onClick={handlePasswordSubmit}
           disabled={!password || loading}
           className="w-full rounded-xl bg-purple-600 px-6 py-4 text-sm font-semibold text-white hover:bg-purple-500 disabled:opacity-50 transition-colors"
         >
-          {loading ? 'Sending...' : `Deposit ${swap.depositAmount} ${fromCoin} to Swap Address`}
+          {loading ? 'Processing...' : `Swap ${quote.depositAmount} ${fromCoin} → ${toCoin}`}
         </button>
 
         <button
-          onClick={resetForm}
+          onClick={() => { setStep('form'); setPassword(''); setPasswordError(''); }}
           className="w-full rounded-xl border border-white/10 bg-transparent px-6 py-3 text-sm font-medium text-gray-400 hover:bg-white/5 transition-colors"
         >
-          Cancel Swap
+          Cancel
         </button>
       </div>
     );
@@ -464,11 +447,11 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
             Back
           </button>
           <button
-            onClick={handleCreateSwap}
+            onClick={handleConfirmSwap}
             disabled={loading}
             className="flex-1 rounded-xl bg-purple-600 px-6 py-3 text-sm font-semibold text-white hover:bg-purple-500 disabled:opacity-50 transition-colors"
           >
-            {loading ? 'Creating...' : 'Create Swap'}
+            Continue
           </button>
         </div>
       </div>
