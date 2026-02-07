@@ -823,12 +823,16 @@ async function handleWallet(subcommand, args, flags) {
       print.info('Importing wallet...');
       
       try {
-        const wallet = await WalletClient.fromSeed(mnemonic, {
-          chains,
-          baseUrl,
-        });
-        
-        const walletId = wallet.getWalletId();
+        let walletId = null;
+        try {
+          const wallet = await WalletClient.fromSeed(mnemonic, {
+            chains,
+            baseUrl,
+          });
+          walletId = wallet.getWalletId();
+        } catch (serverErr) {
+          print.warn(`Server registration failed (wallet saved locally only): ${serverErr.message || serverErr}`);
+        }
         
         // Save encrypted locally (unless --no-save)
         if (!noSave) {
@@ -860,9 +864,9 @@ async function handleWallet(subcommand, args, flags) {
         config.walletFile = walletFile;
         saveConfig(config);
         
-        print.success(`Wallet imported: ${walletId}`);
+        print.success(walletId ? `Wallet imported (ID: ${walletId})` : 'Wallet imported (local only)');
       } catch (error) {
-        print.error(error.message);
+        print.error(error.message || String(error));
       }
       break;
     }
@@ -878,7 +882,7 @@ async function handleWallet(subcommand, args, flags) {
         const mnemonic = await getDecryptedMnemonic(flags);
         
         print.success('Wallet unlocked');
-        print.info(`Wallet ID: ${config.walletId || 'unknown'}`);
+        print.info(`Wallet ID: ${config.walletId || '(local only)'}`);
         print.info(`Wallet file: ${walletFile}`);
         
         if (flags.show) {

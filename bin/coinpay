@@ -232,7 +232,7 @@ async function walletImport(opts) {
   console.log('\n╔══════════════════════════════════════════════════════════════╗');
   console.log('║                  WALLET IMPORTED                            ║');
   console.log('╠══════════════════════════════════════════════════════════════╣');
-  if (walletId) console.log(`║  Wallet ID: ${walletId}`);
+  console.log(`║  Wallet ID: ${walletId || '(local only — server registration pending)'}`);
   console.log(`║  Chains:    ${chains.join(', ')}`);
   console.log('╚══════════════════════════════════════════════════════════════╝\n');
 
@@ -249,7 +249,7 @@ async function walletUnlock(opts) {
   console.log('\n╔══════════════════════════════════════════════════════════════╗');
   console.log('║                  WALLET UNLOCKED                            ║');
   console.log('╠══════════════════════════════════════════════════════════════╣');
-  console.log(`║  Wallet ID: ${data.walletId || 'N/A'}`);
+  console.log(`║  Wallet ID: ${data.walletId || '(local only)'}`);
   console.log(`║  Chains:    ${(data.chains || []).join(', ')}`);
   console.log(`║  Mnemonic:  ${data.mnemonic}`);
   console.log('╚══════════════════════════════════════════════════════════════╝\n');
