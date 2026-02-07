@@ -591,9 +591,18 @@ export class Wallet {
   }
 
   async send(options: SendOptions): Promise<SendResult> {
+    console.log('[WalletSDK.send] Starting send:', {
+      chain: options.chain,
+      fromAddress: options.fromAddress,
+      toAddress: options.toAddress,
+      amount: options.amount,
+    });
+
     const privateKey =
       options.privateKey || this._privateKeys.get(options.fromAddress);
     if (!privateKey) {
+      console.error('[WalletSDK.send] No private key for address:', options.fromAddress);
+      console.log('[WalletSDK.send] Available addresses:', Array.from(this._privateKeys.keys()));
       throw new WalletSDKError(
         'NO_PRIVATE_KEY',
         `No private key available for address ${options.fromAddress}. Provide privateKey in options.`,
@@ -601,6 +610,7 @@ export class Wallet {
       );
     }
 
+    console.log('[WalletSDK.send] Preparing transaction...');
     const prepared = await this.prepareTx({
       fromAddress: options.fromAddress,
       toAddress: options.toAddress,
@@ -608,17 +618,21 @@ export class Wallet {
       amount: options.amount,
       priority: options.priority,
     });
+    console.log('[WalletSDK.send] Prepared tx:', { txId: prepared.txId, fee: prepared.fee });
 
+    console.log('[WalletSDK.send] Signing transaction...');
     const signed = await signTransaction({
       unsigned_tx: prepared.unsignedTx,
       privateKey,
     });
+    console.log('[WalletSDK.send] Signed, broadcasting...');
 
     const result = await this.broadcast(
       prepared.txId,
       signed.signed_tx,
       options.chain
     );
+    console.log('[WalletSDK.send] Broadcast result:', result);
 
     return {
       txHash: result.txHash,

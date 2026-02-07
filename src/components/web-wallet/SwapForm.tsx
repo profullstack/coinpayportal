@@ -206,6 +206,13 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
       onSwapCreated?.(createdSwap);
 
       // Step 2: Send deposit immediately
+      console.log('[Swap] Sending deposit:', {
+        chain: fromCoin,
+        fromAddress,
+        toAddress: createdSwap.depositAddress,
+        amount: createdSwap.depositAmount,
+      });
+      
       const result = await wallet.send({
         chain: fromCoin as WalletChain,
         fromAddress,
@@ -213,6 +220,12 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
         amount: createdSwap.depositAmount,
         priority: 'medium',
       });
+      
+      console.log('[Swap] Send result:', result);
+      
+      if (!result.txHash) {
+        throw new Error('No transaction hash returned - deposit may have failed');
+      }
       
       setDepositTxHash(result.txHash);
       setPassword('');
