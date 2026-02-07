@@ -148,34 +148,57 @@ class ChangeNowClient {
   }
 
   /**
-   * Get list of available currencies
+   * Get list of available currencies (v2 API)
    */
   async getCurrencies(): Promise<ChangeNowCurrency[]> {
-    return this.request<ChangeNowCurrency[]>('/currencies?active=true');
+    return this.request<ChangeNowCurrency[]>('/exchange/currencies?active=true&flow=standard', {}, 'v2');
   }
 
   /**
-   * Get minimum exchange amount
+   * Get minimum exchange amount (v2 API)
    */
-  async getMinAmount(from: string, to: string): Promise<ChangeNowMinAmount> {
-    return this.request<ChangeNowMinAmount>(`/min-amount/${from}_${to}`);
+  async getMinAmount(from: string, to: string, fromNetwork?: string, toNetwork?: string): Promise<ChangeNowMinAmount> {
+    const params = new URLSearchParams({
+      fromCurrency: from,
+      toCurrency: to,
+      fromNetwork: fromNetwork || from,
+      toNetwork: toNetwork || to,
+      flow: 'standard',
+    });
+    const data = await this.request<any>(`/exchange/min-amount?${params}`, {}, 'v2');
+    return { minAmount: data.minAmount };
   }
 
   /**
-   * Get estimated exchange amount (standard/floating rate)
+   * Get estimated exchange amount (v2 API - standard/floating rate)
    */
   async getEstimate(
     from: string,
     to: string,
-    amount: number
+    amount: number,
+    fromNetwork?: string,
+    toNetwork?: string
   ): Promise<ChangeNowEstimate> {
-    return this.request<ChangeNowEstimate>(
-      `/exchange-amount/${amount}/${from}_${to}`
-    );
+    const params = new URLSearchParams({
+      fromCurrency: from,
+      toCurrency: to,
+      fromAmount: amount.toString(),
+      fromNetwork: fromNetwork || from,
+      toNetwork: toNetwork || to,
+      flow: 'standard',
+    });
+    const data = await this.request<any>(`/exchange/estimated-amount?${params}`, {}, 'v2');
+    return {
+      estimatedAmount: data.toAmount,
+      transactionSpeedForecast: data.transactionSpeedForecast || '',
+      warningMessage: data.warningMessage,
+      fromAmount: data.fromAmount,
+      toAmount: data.toAmount,
+    };
   }
 
   /**
-   * Get estimated amount with fixed rate (requires API key)
+   * Get estimated amount with fixed rate (v2 API)
    */
   async getFixedRateEstimate(
     from: string,
@@ -192,45 +215,67 @@ class ChangeNowClient {
       toNetwork,
       flow: 'fixed-rate',
     });
-    return this.request<ChangeNowEstimate>(
-      `/exchange/estimated-amount?${params}`,
-      {},
-      'v2'
-    );
+    const data = await this.request<any>(`/exchange/estimated-amount?${params}`, {}, 'v2');
+    return {
+      estimatedAmount: data.toAmount,
+      transactionSpeedForecast: data.transactionSpeedForecast || '',
+      warningMessage: data.warningMessage,
+      fromAmount: data.fromAmount,
+      toAmount: data.toAmount,
+      rateId: data.rateId,
+      validUntil: data.validUntil,
+    };
   }
 
   /**
-   * Create an exchange transaction
+   * Create an exchange transaction (v2 API)
    */
   async createExchange(params: {
     from: string;
     to: string;
+    fromNetwork?: string;
+    toNetwork?: string;
     amount: number;
     address: string;
     refundAddress?: string;
     extraId?: string;
     rateId?: string; // For fixed rate
   }): Promise<ChangeNowExchange> {
-    const apiKey = this.apiKey;
-    if (!apiKey) {
-      throw new Error('CHANGENOW_API_KEY is required to create exchanges');
-    }
-
-    return this.request<ChangeNowExchange>(
-      `/transactions/${apiKey}`,
+    const data = await this.request<any>(
+      '/exchange',
       {
         method: 'POST',
         body: JSON.stringify({
-          from: params.from,
-          to: params.to,
-          amount: params.amount,
+          fromCurrency: params.from,
+          toCurrency: params.to,
+          fromNetwork: params.fromNetwork || params.from,
+          toNetwork: params.toNetwork || params.to,
+          fromAmount: params.amount,
           address: params.address,
           refundAddress: params.refundAddress,
           extraId: params.extraId,
           rateId: params.rateId,
+          flow: params.rateId ? 'fixed-rate' : 'standard',
         }),
-      }
+      },
+      'v2'
     );
+
+    return {
+      id: data.id,
+      payinAddress: data.payinAddress,
+      payoutAddress: data.payoutAddress,
+      payinExtraId: data.payinExtraId,
+      fromCurrency: data.fromCurrency,
+      toCurrency: data.toCurrency,
+      fromNetwork: data.fromNetwork,
+      toNetwork: data.toNetwork,
+      amount: data.fromAmount ?? data.expectedAmountFrom,
+      amountTo: data.toAmount ?? data.expectedAmountTo,
+      expectedReceiveAmount: data.expectedAmountTo,
+      status: data.status as ChangeNowStatus,
+      createdAt: data.createdAt,
+    };
   }
 
   /**
@@ -300,10 +345,10 @@ export async function getSwapQuote(params: SwapQuoteParams): Promise<QuoteRespon
 
   const amount = parseFloat(params.amount);
   
-  // Get estimate and min amount
+  // Get estimate and min amount (v2 API requires network info)
   const [estimate, minAmount] = await Promise.all([
-    client.getEstimate(fromMapping.ticker, toMapping.ticker, amount),
-    client.getMinAmount(fromMapping.ticker, toMapping.ticker),
+    client.getEstimate(fromMapping.ticker, toMapping.ticker, amount, fromMapping.network, toMapping.network),
+    client.getMinAmount(fromMapping.ticker, toMapping.ticker, fromMapping.network, toMapping.network),
   ]);
 
   const rate = estimate.estimatedAmount / amount;
@@ -345,6 +390,8 @@ export async function createSwap(params: SwapCreateParams & {
   const exchange = await client.createExchange({
     from: fromMapping.ticker,
     to: toMapping.ticker,
+    fromNetwork: fromMapping.network,
+    toNetwork: toMapping.network,
     amount: parseFloat(params.amount),
     address: params.settleAddress,
     refundAddress: params.refundAddress,
