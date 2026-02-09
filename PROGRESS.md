@@ -109,7 +109,7 @@
 - Forwarding Service: 23 tests
 
 #### 11. **Email Notifications** (Complete)
-- [x] Mailgun integration
+- [x] Resend integration
 - [x] Email templates for payment events
 
 **Test Coverage:**
@@ -208,7 +208,7 @@ Test Duration: ~9 seconds
 - `src/lib/business/service.ts` + tests (19 tests)
 - `src/lib/wallets/service.ts` + tests (20 tests)
 - `src/lib/webhooks/service.ts` + tests (21 tests)
-- `src/lib/email/mailgun.ts` + tests (10 tests)
+- `src/lib/email/resend.ts` + tests (9 tests)
 - `src/lib/settings/service.ts` + tests (8 tests)
 - `src/lib/analytics.ts` + tests (11 tests)
 - `src/lib/blockchain/providers.ts`
@@ -303,9 +303,8 @@ ETHEREUM_RPC_URL=https://eth.llamarpc.com
 POLYGON_RPC_URL=https://polygon-rpc.com
 SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
 
-# Email (Mailgun)
-MAILGUN_API_KEY=your_mailgun_api_key
-MAILGUN_DOMAIN=your_mailgun_domain
+# Email (Resend)
+RESEND_API_KEY=your_resend_api_key
 ```
 
 ---

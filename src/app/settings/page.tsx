@@ -377,7 +377,7 @@ export default function SettingsPage() {
         {/* Additional Info */}
         <div className="mt-6 text-center text-sm text-gray-500">
           <p>
-            Email notifications are powered by Mailgun and sent to your
+            Email notifications are sent to your
             registered email address.
           </p>
         </div>
