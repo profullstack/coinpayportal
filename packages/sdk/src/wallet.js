@@ -11,9 +11,9 @@ import { wordlist } from '@scure/bip39/wordlists/english';
 import { HDKey } from '@scure/bip32';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { ripemd160 } from '@noble/hashes/ripemd160.js';
+import { ripemd160 } from '@noble/hashes/legacy.js';
 import { keccak_256 } from '@noble/hashes/sha3.js';
-import { ed25519 } from '@noble/curves/ed25519';
+import { ed25519 } from '@noble/curves/ed25519.js';
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
@@ -218,8 +218,8 @@ function cashAddrPolymod(values) {
  */
 function deriveETHAddress(compressedPubKey) {
   // Decompress: get uncompressed point (65 bytes: 04 || x || y)
-  const point = secp256k1.ProjectivePoint.fromHex(compressedPubKey);
-  const uncompressed = point.toRawBytes(false); // 65 bytes with 04 prefix
+  const point = secp256k1.Point.fromBytes(compressedPubKey);
+  const uncompressed = point.toBytes(false); // 65 bytes with 04 prefix
   // Keccak256 of the 64 bytes (without 04 prefix)
   const hash = keccak_256(uncompressed.slice(1));
   // Last 20 bytes — EIP-55 checksummed

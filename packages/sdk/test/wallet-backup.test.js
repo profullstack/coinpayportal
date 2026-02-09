@@ -169,13 +169,12 @@ describe('CLI wallet encrypted storage', () => {
       expect(output).toMatch(/no wallet|not found|error/i);
     });
 
-    it('wallet info should show error when no wallet exists', () => {
+    it('wallet info should indicate when wallet file does not exist', () => {
       const { output } = runCLI(
         `wallet info --wallet-file "${join(tmpDir, 'nonexistent.gpg')}"`,
-        { expectFail: true }
       );
 
-      expect(output).toMatch(/no wallet|not found|error|create|import/i);
+      expect(output).toMatch(/file exists.*no/i);
     });
   });
 
