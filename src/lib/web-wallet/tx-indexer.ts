@@ -808,6 +808,11 @@ async function fetchSOLHistory(
           diff >= 0 ? 'incoming' : 'outgoing';
 
         const amountLamports = Math.abs(diff);
+        
+        // Skip 0-value or dust transactions (system program overhead, 
+        // compute budget instructions, etc.)
+        if (amountLamports === 0) return null;
+
         const amount = (amountLamports / 1e9).toString();
 
         // Determine from/to
@@ -851,26 +856,9 @@ async function fetchSOLHistory(
     }
   }
 
-  // For signatures we couldn't get details for, add basic entry
-  for (const sig of signatures) {
-    if (!results.some((r) => r.txHash === sig.signature)) {
-      results.push({
-        txHash: sig.signature,
-        chain: 'SOL',
-        direction: 'incoming',
-        amount: '0',
-        fromAddress: 'unknown',
-        toAddress: address,
-        status:
-          sig.confirmationStatus === 'finalized' ? 'confirmed' : 'pending',
-        confirmations: sig.confirmationStatus === 'finalized' ? 32 : 0,
-        timestamp: sig.blockTime
-          ? new Date(sig.blockTime * 1000).toISOString()
-          : new Date().toISOString(),
-        blockNumber: sig.slot,
-      });
-    }
-  }
+  // Skip signatures we couldn't parse — these are typically system program
+  // instructions (compute budget, account creation, etc.) that show as
+  // 0-value "unknown" transactions in the wallet UI.
 
   return results.slice(0, MAX_TXS);
 }
