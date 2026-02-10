@@ -11,13 +11,7 @@ vi.mock('@supabase/supabase-js');
 vi.mock('@/lib/escrow/service');
 
 const mockSupabaseClient = {
-  from: vi.fn(() => ({
-    select: vi.fn(() => ({
-      eq: vi.fn(() => ({
-        single: vi.fn(),
-      })),
-    })),
-  })),
+  from: vi.fn(),
 };
 
 const mockCreateClient = vi.mocked(createClient);
@@ -88,7 +82,9 @@ describe('POST /api/escrow/:id/auth', () => {
       error: null,
     });
     
-    mockSupabaseClient.from().select().eq().single = mockSingle;
+    const mockEq = vi.fn(() => ({ single: mockSingle }));
+    const mockSelect = vi.fn(() => ({ eq: mockEq }));
+    mockSupabaseClient.from = vi.fn(() => ({ select: mockSelect }));
 
     const request = createMockRequest({ token: 'esc_release_token_123' });
     const params = createMockParams();
@@ -108,7 +104,9 @@ describe('POST /api/escrow/:id/auth', () => {
       error: null,
     });
     
-    mockSupabaseClient.from().select().eq().single = mockSingle;
+    const mockEq = vi.fn(() => ({ single: mockSingle }));
+    const mockSelect = vi.fn(() => ({ eq: mockEq }));
+    mockSupabaseClient.from = vi.fn(() => ({ select: mockSelect }));
 
     const request = createMockRequest({ token: 'esc_beneficiary_token_456' });
     const params = createMockParams();
@@ -127,7 +125,9 @@ describe('POST /api/escrow/:id/auth', () => {
       error: null,
     });
     
-    mockSupabaseClient.from().select().eq().single = mockSingle;
+    const mockEq = vi.fn(() => ({ single: mockSingle }));
+    const mockSelect = vi.fn(() => ({ eq: mockEq }));
+    mockSupabaseClient.from = vi.fn(() => ({ select: mockSelect }));
 
     const request = createMockRequest({ token: 'invalid_token' });
     const params = createMockParams();
@@ -156,7 +156,9 @@ describe('POST /api/escrow/:id/auth', () => {
       error: { message: 'No rows found' },
     });
     
-    mockSupabaseClient.from().select().eq().single = mockSingle;
+    const mockEq = vi.fn(() => ({ single: mockSingle }));
+    const mockSelect = vi.fn(() => ({ eq: mockEq }));
+    mockSupabaseClient.from = vi.fn(() => ({ select: mockSelect }));
 
     const request = createMockRequest({ token: 'esc_release_token_123' });
     const params = createMockParams();
@@ -171,7 +173,9 @@ describe('POST /api/escrow/:id/auth', () => {
   it('should handle database errors gracefully', async () => {
     const mockSingle = vi.fn().mockRejectedValue(new Error('Database connection failed'));
     
-    mockSupabaseClient.from().select().eq().single = mockSingle;
+    const mockEq = vi.fn(() => ({ single: mockSingle }));
+    const mockSelect = vi.fn(() => ({ eq: mockEq }));
+    mockSupabaseClient.from = vi.fn(() => ({ select: mockSelect }));
 
     const request = createMockRequest({ token: 'esc_release_token_123' });
     const params = createMockParams();
