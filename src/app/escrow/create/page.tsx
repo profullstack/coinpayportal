@@ -451,13 +451,16 @@ export default function CreateEscrowPage() {
                   {new Date(createdEscrow.expires_at).toLocaleString()}
                 </span>
               </div>
-              {createdEscrow.fee_amount && (
-                <div>
-                  <span className="text-gray-500 dark:text-gray-400">Platform Fee:</span>
-                  <span className="ml-2 text-gray-900 dark:text-white">
-                    {createdEscrow.fee_amount} {createdEscrow.chain}
-                    {createdEscrow.business_id && <span className="text-green-600 ml-1">(paid tier rate)</span>}
+              {createdEscrow.fee_amount != null && createdEscrow.fee_amount > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                  <span className="text-sm font-medium text-amber-800 dark:text-amber-300">Platform Commission:</span>
+                  <span className="ml-2 text-sm font-semibold text-amber-700 dark:text-amber-400">
+                    {createdEscrow.fee_amount} {createdEscrow.chain} ({((createdEscrow.fee_amount / createdEscrow.amount) * 100).toFixed(1)}%)
                   </span>
+                  {createdEscrow.business_id && <span className="text-green-600 dark:text-green-400 ml-1 text-xs">(paid tier rate)</span>}
+                  <p className="text-xs text-amber-600 dark:text-amber-500 mt-1">
+                    Beneficiary will receive: {(createdEscrow.amount - createdEscrow.fee_amount).toFixed(6)} {createdEscrow.chain}
+                  </p>
                 </div>
               )}
               {createdEscrow.business_id && (
@@ -677,6 +680,24 @@ export default function CreateEscrowPage() {
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               The depositor sends exactly <strong>{cryptoAmount || '0'} {formData.chain}</strong> to fund the escrow.
             </p>
+
+            {/* Live commission estimate */}
+            {parseFloat(cryptoAmount) > 0 && (
+              <div className="mt-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg p-2 text-xs">
+                <div className="flex justify-between text-amber-800 dark:text-amber-300">
+                  <span>Platform commission ({isLoggedIn && formData.business_id ? '0.5%' : '1%'}):</span>
+                  <span className="font-medium">
+                    {(parseFloat(cryptoAmount) * (isLoggedIn && formData.business_id ? 0.005 : 0.01)).toFixed(6)} {formData.chain}
+                  </span>
+                </div>
+                <div className="flex justify-between text-green-700 dark:text-green-400 mt-1">
+                  <span>Beneficiary receives:</span>
+                  <span className="font-medium">
+                    {(parseFloat(cryptoAmount) * (isLoggedIn && formData.business_id ? 0.995 : 0.99)).toFixed(6)} {formData.chain}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Depositor Address */}
