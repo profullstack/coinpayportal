@@ -85,7 +85,9 @@ const TRANSFER_TOPIC =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
 /** Max transactions per scan */
-const MAX_TXS = 50;
+const MAX_TXS = 20;
+const RPC_BATCH_DELAY_MS = 500; // Delay between RPC batches to avoid rate limits
+const rpcDelay = () => new Promise((r) => setTimeout(r, RPC_BATCH_DELAY_MS));
 
 /** Truncate address for logging */
 function truncAddr(addr: string): string {
@@ -849,6 +851,7 @@ async function fetchSOLHistory(
     });
 
     const batchResults = await Promise.allSettled(detailPromises);
+    await rpcDelay(); // Throttle between batches
     for (const r of batchResults) {
       if (r.status === 'fulfilled' && r.value) {
         results.push(r.value);
@@ -997,6 +1000,7 @@ async function fetchUSDCSOLHistory(
     });
 
     const batchResults = await Promise.allSettled(detailPromises);
+    await rpcDelay(); // Throttle between batches
     for (const r of batchResults) {
       if (r.status === 'fulfilled' && r.value) {
         results.push(r.value);
@@ -1656,6 +1660,7 @@ async function fetchUSDTSOLHistory(
       });
 
       const batchResults = await Promise.allSettled(detailPromises);
+    await rpcDelay(); // Throttle between batches
       for (const r of batchResults) {
         if (r.status === 'fulfilled' && r.value) {
           results.push(r.value);
