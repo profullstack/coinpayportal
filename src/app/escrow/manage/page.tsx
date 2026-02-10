@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import type { EscrowPublic, EscrowEvent } from '@/lib/escrow/types';
@@ -61,7 +61,19 @@ function formatDate(dateStr: string): string {
   });
 }
 
-export default function EscrowManagePage() {
+export default function EscrowManagePageWrapper() {
+  return (
+    <Suspense fallback={
+      <div className="max-w-2xl mx-auto px-4 py-8 text-center">
+        <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading...</div>
+      </div>
+    }>
+      <EscrowManagePage />
+    </Suspense>
+  );
+}
+
+function EscrowManagePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [escrowId, setEscrowId] = useState('');
