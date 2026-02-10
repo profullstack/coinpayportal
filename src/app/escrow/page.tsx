@@ -216,6 +216,11 @@ export default function EscrowDashboardPage() {
                   <span>→ {shortenAddress(escrow.beneficiary_address)}</span>
                   <span>{formatDate(escrow.created_at)}</span>
                 </div>
+                {escrow.fee_amount != null && escrow.fee_amount > 0 && (
+                  <div className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                    Commission: {escrow.fee_amount} {escrow.chain} ({escrow.amount ? ((escrow.fee_amount / escrow.amount) * 100).toFixed(1) : '?'}%)
+                  </div>
+                )}
                 {escrow.metadata && Object.keys(escrow.metadata).length > 0 && (
                   <div className="mt-2 text-xs text-gray-400">
                     {(escrow.metadata as any).job || (escrow.metadata as any).description || JSON.stringify(escrow.metadata).slice(0, 60)}
@@ -269,10 +274,10 @@ export default function EscrowDashboardPage() {
                       <dd className="text-gray-900 dark:text-white">{selectedEscrow.deposited_amount} {selectedEscrow.chain}</dd>
                     </div>
                   )}
-                  {selectedEscrow.fee_amount && (
+                  {selectedEscrow.fee_amount != null && selectedEscrow.fee_amount > 0 && (
                     <div>
-                      <dt className="text-gray-500 dark:text-gray-400">Platform Fee</dt>
-                      <dd className="text-gray-900 dark:text-white">{selectedEscrow.fee_amount} {selectedEscrow.chain}</dd>
+                      <dt className="text-gray-500 dark:text-gray-400">Platform Commission</dt>
+                      <dd className="text-amber-600 dark:text-amber-400 font-medium">{selectedEscrow.fee_amount} {selectedEscrow.chain} ({((selectedEscrow.fee_amount / selectedEscrow.amount) * 100).toFixed(1)}%)</dd>
                     </div>
                   )}
                   {selectedEscrow.deposit_tx_hash && (

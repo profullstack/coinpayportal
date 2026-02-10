@@ -462,11 +462,14 @@ function EscrowManagePage() {
                     </p>
                   </div>
                   
-                  {escrow.fee_amount && (
+                  {escrow.fee_amount != null && escrow.fee_amount > 0 && (
                     <div>
-                      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Platform Fee</h3>
-                      <p className="text-sm text-gray-900 dark:text-white">
-                        {escrow.fee_amount} {escrow.chain}
+                      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Platform Commission</h3>
+                      <p className="text-sm text-amber-600 dark:text-amber-400 font-medium">
+                        {escrow.fee_amount} {escrow.chain} ({((escrow.fee_amount / escrow.amount) * 100).toFixed(1)}%)
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        Beneficiary receives: {(escrow.amount - escrow.fee_amount).toFixed(6)} {escrow.chain}
                       </p>
                     </div>
                   )}
