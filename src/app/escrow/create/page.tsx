@@ -304,9 +304,18 @@ export default function CreateEscrowPage() {
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Deposit Address
               </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                Send exactly <strong>{createdEscrow.amount} {createdEscrow.chain}</strong> to this address to fund the escrow.
-              </p>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 flex items-center gap-2">
+                <span>
+                  Send exactly <strong>{createdEscrow.amount} {createdEscrow.chain}</strong> to this address to fund the escrow.
+                </span>
+                <button
+                  onClick={() => copyToClipboard(createdEscrow.amount.toString(), 'amount')}
+                  className="p-1 text-gray-500 hover:text-blue-600 rounded transition-colors"
+                  title="Copy amount"
+                >
+                  {copiedField === 'amount' ? '✓' : '📋'}
+                </button>
+              </div>
               <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg flex items-center justify-between gap-3">
                 <code className="text-sm text-gray-900 dark:text-white break-all flex-1">
                   {createdEscrow.escrow_address}
@@ -366,6 +375,14 @@ export default function CreateEscrowPage() {
                     {copiedField === 'release' ? 'Copied!' : 'Copy'}
                   </button>
                 </div>
+                <div className="mt-2">
+                  <button
+                    onClick={() => copyToClipboard(`${window.location.origin}/escrow/manage?id=${createdEscrow.id}&token=${createdEscrow.release_token}`, 'depositor_link')}
+                    className="text-xs text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 underline"
+                  >
+                    {copiedField === 'depositor_link' ? 'Link copied!' : 'Share depositor link'}
+                  </button>
+                </div>
               </div>
 
               <div>
@@ -381,6 +398,14 @@ export default function CreateEscrowPage() {
                     className="flex-shrink-0 px-3 py-2 bg-amber-600 text-white text-xs font-medium rounded hover:bg-amber-700 transition-colors"
                   >
                     {copiedField === 'beneficiary' ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+                <div className="mt-2">
+                  <button
+                    onClick={() => copyToClipboard(`${window.location.origin}/escrow/manage?id=${createdEscrow.id}&token=${createdEscrow.beneficiary_token}`, 'beneficiary_link')}
+                    className="text-xs text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 underline"
+                  >
+                    {copiedField === 'beneficiary_link' ? 'Link copied!' : 'Share beneficiary link'}
                   </button>
                 </div>
               </div>

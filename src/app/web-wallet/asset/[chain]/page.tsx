@@ -20,6 +20,7 @@ import {
 import type { WalletChain } from '@/lib/web-wallet/identity';
 import { isValidChain } from '@/lib/web-wallet/identity';
 import type { TransactionListOptions } from '@/lib/wallet-sdk/types';
+import { SUPPORTED_FIAT_CURRENCIES, type FiatCurrency } from '@/lib/web-wallet/settings';
 
 const EXPLORER_URLS: Record<string, string> = {
   BTC: 'https://blockstream.info/tx/',
@@ -263,6 +264,16 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
   const [txConfirmations, setTxConfirmations] = useState(0);
   const txPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Dual input system state
+  const [fiatCurrency, setFiatCurrency] = useState<FiatCurrency>('USD');
+  const [fiatAmount, setFiatAmount] = useState('');
+  const [cryptoAmount, setCryptoAmount] = useState('');
+  const [primaryInput, setPrimaryInput] = useState<'fiat' | 'crypto'>('fiat'); // Which input is editable
+  const [exchangeRate, setExchangeRate] = useState<number | null>(null);
+  const [rateLoading, setRateLoading] = useState(false);
+  const [rateError, setRateError] = useState('');
+  const debounceRef = useRef<NodeJS.Timeout>();
+
   const chainSymbol = CHAIN_SYMBOLS[chain] || chain;
 
   const priorityLabels: Record<Priority, string> = {
@@ -270,6 +281,112 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
     medium: 'Standard',
     high: 'Fast',
   };
+
+  // Fetch exchange rate
+  const fetchRate = useCallback(async (chain: string, fiat: string) => {
+    if (!chain || !fiat) return;
+    
+    setRateLoading(true);
+    setRateError('');
+    
+    try {
+      const response = await fetch(`/api/rates?coin=${chain}&fiat=${fiat}`);
+      const data = await response.json();
+      
+      if (data.success && data.rate) {
+        setExchangeRate(data.rate);
+      } else {
+        setRateError('Failed to fetch exchange rate');
+        setExchangeRate(null);
+      }
+    } catch (error) {
+      setRateError('Failed to fetch exchange rate');
+      setExchangeRate(null);
+    } finally {
+      setRateLoading(false);
+    }
+  }, []);
+
+  // Debounced rate fetching
+  const debouncedFetchRate = useCallback((chain: string, fiat: string) => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    debounceRef.current = setTimeout(() => {
+      fetchRate(chain, fiat);
+    }, 300);
+  }, [fetchRate]);
+
+  // Calculate crypto amount from fiat
+  const calculateCryptoFromFiat = useCallback((fiatValue: string) => {
+    if (!fiatValue || !exchangeRate || exchangeRate === 0) {
+      setCryptoAmount('');
+      return;
+    }
+    const fiatNum = parseFloat(fiatValue);
+    if (isNaN(fiatNum) || fiatNum < 0) {
+      setCryptoAmount('');
+      return;
+    }
+    const cryptoValue = fiatNum / exchangeRate;
+    setCryptoAmount(cryptoValue.toString());
+  }, [exchangeRate]);
+
+  // Calculate fiat amount from crypto
+  const calculateFiatFromCrypto = useCallback((cryptoValue: string) => {
+    if (!cryptoValue || !exchangeRate) {
+      setFiatAmount('');
+      return;
+    }
+    const cryptoNum = parseFloat(cryptoValue);
+    if (isNaN(cryptoNum) || cryptoNum < 0) {
+      setFiatAmount('');
+      return;
+    }
+    const fiatValue = cryptoNum * exchangeRate;
+    setFiatAmount(fiatValue.toFixed(2));
+  }, [exchangeRate]);
+
+  // Handle fiat input change
+  const handleFiatChange = (value: string) => {
+    setFiatAmount(value);
+    if (primaryInput === 'fiat') {
+      calculateCryptoFromFiat(value);
+    }
+  };
+
+  // Handle crypto input change
+  const handleCryptoChange = (value: string) => {
+    setCryptoAmount(value);
+    if (primaryInput === 'crypto') {
+      calculateFiatFromCrypto(value);
+    }
+  };
+
+  // Toggle primary input
+  const togglePrimaryInput = () => {
+    const newPrimary = primaryInput === 'fiat' ? 'crypto' : 'fiat';
+    setPrimaryInput(newPrimary);
+    
+    // Recalculate based on new primary
+    if (newPrimary === 'fiat' && fiatAmount) {
+      calculateCryptoFromFiat(fiatAmount);
+    } else if (newPrimary === 'crypto' && cryptoAmount) {
+      calculateFiatFromCrypto(cryptoAmount);
+    }
+  };
+
+  // Fetch rate when chain or fiat currency changes
+  useEffect(() => {
+    if (chain && fiatCurrency) {
+      debouncedFetchRate(chain, fiatCurrency);
+    }
+  }, [chain, fiatCurrency, debouncedFetchRate]);
+
+  // Update form amount when crypto amount changes
+  useEffect(() => {
+    setAmount(cryptoAmount);
+  }, [cryptoAmount]);
 
   // Fetch addresses for this chain
   const fetchAddresses = useCallback(async () => {
@@ -336,7 +453,7 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
     } else {
       setAddressError('');
     }
-    if (!amount || parseFloat(amount) <= 0) {
+    if (!cryptoAmount || parseFloat(cryptoAmount) <= 0) {
       setAmountError('Amount must be greater than 0');
       valid = false;
     } else {
@@ -447,6 +564,12 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
     setPasswordError('');
     setTxStatus('pending');
     setTxConfirmations(0);
+    // Reset dual input state
+    setFiatAmount('');
+    setCryptoAmount('');
+    setPrimaryInput('fiat');
+    setExchangeRate(null);
+    setRateError('');
   };
 
   // ── Render steps ──
@@ -518,17 +641,111 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
           )}
         </div>
 
-        {/* Amount */}
-        <AmountInput
-          value={amount}
-          onChange={(v) => {
-            setAmount(v);
-            setAmountError('');
-          }}
-          symbol={chainSymbol}
-          label="Amount"
-          error={amountError}
-        />
+        {/* Dual Amount Input */}
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            Amount *
+          </label>
+          
+          {/* Fiat Currency Selector */}
+          <div className="mb-3">
+            <select
+              value={fiatCurrency}
+              onChange={(e) => setFiatCurrency(e.target.value as FiatCurrency)}
+              className="w-32 px-3 py-1 text-sm border border-white/10 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white/5 text-white"
+            >
+              {SUPPORTED_FIAT_CURRENCIES.map((currency) => (
+                <option key={currency.code} value={currency.code} className="bg-slate-900">
+                  {currency.code} ({currency.symbol})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Dual Input Container */}
+          <div className="space-y-3">
+            {/* Fiat Input */}
+            <div className="relative">
+              <div className="flex items-center">
+                <span className="text-sm text-gray-500 dark:text-gray-400 w-12">
+                  {SUPPORTED_FIAT_CURRENCIES.find(c => c.code === fiatCurrency)?.symbol}
+                </span>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={fiatAmount}
+                  onChange={(e) => {
+                    handleFiatChange(e.target.value);
+                    setAmountError('');
+                  }}
+                  disabled={primaryInput !== 'fiat'}
+                  className="flex-1 px-4 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white/5 text-white placeholder-gray-500 disabled:bg-white/10 disabled:text-gray-500"
+                  placeholder={`0.00 ${fiatCurrency}`}
+                />
+              </div>
+              {primaryInput === 'fiat' && (
+                <span className="absolute right-3 top-2.5 text-sm text-purple-400">Primary</span>
+              )}
+            </div>
+
+            {/* Toggle Button */}
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={togglePrimaryInput}
+                className="p-2 text-gray-500 hover:text-purple-400 dark:text-gray-400 dark:hover:text-purple-400 transition-colors"
+                title="Switch primary input"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Crypto Input */}
+            <div className="relative">
+              <div className="flex items-center">
+                <span className="text-sm text-gray-500 dark:text-gray-400 w-12">
+                  {chainSymbol}
+                </span>
+                <input
+                  type="number"
+                  step="any"
+                  min="0.000001"
+                  value={cryptoAmount}
+                  onChange={(e) => {
+                    handleCryptoChange(e.target.value);
+                    setAmountError('');
+                  }}
+                  disabled={primaryInput !== 'crypto'}
+                  className="flex-1 px-4 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white/5 text-white placeholder-gray-500 disabled:bg-white/10 disabled:text-gray-500"
+                  placeholder={`0.000000 ${chainSymbol}`}
+                />
+              </div>
+              {primaryInput === 'crypto' && (
+                <span className="absolute right-3 top-2.5 text-sm text-purple-400">Primary</span>
+              )}
+            </div>
+          </div>
+
+          {/* Exchange Rate Display */}
+          <div className="mt-2 text-sm text-gray-400">
+            {rateLoading ? (
+              <span>Loading exchange rate...</span>
+            ) : rateError ? (
+              <span className="text-red-400">{rateError}</span>
+            ) : exchangeRate ? (
+              <span>
+                1 {chainSymbol} = {SUPPORTED_FIAT_CURRENCIES.find(c => c.code === fiatCurrency)?.symbol}{exchangeRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} {fiatCurrency}
+              </span>
+            ) : null}
+          </div>
+
+          {amountError && (
+            <p className="text-xs text-red-400 mt-1">{amountError}</p>
+          )}
+        </div>
 
         {/* Fee selector */}
         <div className="space-y-2">
@@ -566,7 +783,7 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
 
         <button
           onClick={handleReview}
-          disabled={!fromAddress || !toAddress || !amount}
+          disabled={!fromAddress || !toAddress || !cryptoAmount}
           className="w-full rounded-xl bg-purple-600 px-6 py-3 text-sm font-semibold text-white hover:bg-purple-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Review Transaction
@@ -584,7 +801,7 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
             <ConfirmRow label="Chain" value={CHAIN_NAMES[chain] || chain} />
             <ConfirmRow label="From" value={`${fromAddress.slice(0, 10)}...${fromAddress.slice(-6)}`} mono />
             <ConfirmRow label="To" value={`${toAddress.slice(0, 10)}...${toAddress.slice(-6)}`} mono />
-            <ConfirmRow label="Amount" value={`${amount} ${chainSymbol}`} />
+            <ConfirmRow label="Amount" value={`${cryptoAmount} ${chainSymbol}`} />
             <ConfirmRow label="Speed" value={priorityLabels[priority]} />
             {fees && (
               <ConfirmRow label="Est. Fee" value={`${fees[priority].fee} ${fees[priority].feeCurrency}`} />
@@ -698,7 +915,7 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
         <div>
           <h2 className="text-xl font-bold text-white">Transaction Sent</h2>
           <p className="mt-1 text-sm text-gray-400">
-            {amount} {chainSymbol} sent successfully
+            {cryptoAmount} {chainSymbol} sent successfully
           </p>
         </div>
 
