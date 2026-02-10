@@ -683,16 +683,22 @@ export default function CreateEscrowPage() {
 
             {/* Live commission estimate */}
             {parseFloat(cryptoAmount) > 0 && (
-              <div className="mt-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg p-2 text-xs">
-                <div className="flex justify-between text-amber-800 dark:text-amber-300">
+              <div className="mt-3 bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-300 dark:border-amber-700 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-200 mb-2">💰 Fee Breakdown</h4>
+                <div className="flex justify-between text-sm text-amber-800 dark:text-amber-300">
+                  <span>Escrow amount:</span>
+                  <span className="font-medium">{parseFloat(cryptoAmount).toFixed(6)} {formData.chain}</span>
+                </div>
+                <div className="flex justify-between text-sm text-amber-800 dark:text-amber-300 mt-1">
                   <span>Platform commission ({isLoggedIn && formData.business_id ? '0.5%' : '1%'}):</span>
                   <span className="font-medium">
-                    {(parseFloat(cryptoAmount) * (isLoggedIn && formData.business_id ? 0.005 : 0.01)).toFixed(6)} {formData.chain}
+                    −{(parseFloat(cryptoAmount) * (isLoggedIn && formData.business_id ? 0.005 : 0.01)).toFixed(6)} {formData.chain}
                   </span>
                 </div>
-                <div className="flex justify-between text-green-700 dark:text-green-400 mt-1">
+                <hr className="my-2 border-amber-300 dark:border-amber-600" />
+                <div className="flex justify-between text-sm font-semibold text-green-700 dark:text-green-400">
                   <span>Beneficiary receives:</span>
-                  <span className="font-medium">
+                  <span>
                     {(parseFloat(cryptoAmount) * (isLoggedIn && formData.business_id ? 0.995 : 0.99)).toFixed(6)} {formData.chain}
                   </span>
                 </div>
