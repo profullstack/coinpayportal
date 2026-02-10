@@ -132,12 +132,20 @@ export default function EscrowDashboardPage() {
             Manage crypto escrows for jobs and gigs
           </p>
         </div>
-        <Link
-          href="/escrow/create"
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-        >
-          New Escrow
-        </Link>
+        <div className="flex gap-3">
+          <Link
+            href="/escrow/manage"
+            className="border border-blue-600 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-4 py-2 rounded-lg font-medium transition-colors"
+          >
+            Manage Escrow
+          </Link>
+          <Link
+            href="/escrow/create"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+          >
+            New Escrow
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}
