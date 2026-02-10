@@ -59,7 +59,7 @@ describe('CreateEscrowPage - Copy Button Feature', () => {
     });
     
     // Mock clipboard API
-    vi.mocked(navigator.clipboard.writeText).mockResolvedValue();
+    vi.mocked(navigator.clipboard.writeText).mockResolvedValue(undefined);
   });
 
   afterEach(() => {

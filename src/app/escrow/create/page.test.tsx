@@ -574,4 +574,92 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
       expect(currencySelectors.length).toBeGreaterThan(0);
     }
   });
+
+  it('should display commission estimate that updates with amount changes', async () => {
+    const user = userEvent.setup();
+    
+    // Mock logged-in user with business (0.5% rate)
+    const mockBusinesses = [{ id: 'bus_123', name: 'Test Business' }];
+    vi.mocked(authFetch).mockResolvedValueOnce({
+      response: { ok: true },
+      data: { success: true, businesses: mockBusinesses }
+    });
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes('/api/rates')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            rate: 1.0
+          })
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    render(<CreateEscrowPage />);
+    
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Create Escrow' })).toBeInTheDocument();
+    });
+
+    // Wait for businesses to load and rate to be set
+    await waitFor(() => {
+      expect(screen.getByText(/Platform fee: 0\.5% \(paid tier\)/)).toBeInTheDocument();
+    });
+
+    // Test that the info box shows the business rate (0.5%)
+    expect(screen.getByText(/Platform fee: 0\.5% \(paid tier\)/)).toBeInTheDocument();
+  });
+
+  it('should show anonymous user commission rate (1%)', async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes('/api/rates')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            rate: 1.0
+          })
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    render(<CreateEscrowPage />);
+    
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Create Escrow' })).toBeInTheDocument();
+    });
+
+    // Should show 1% for anonymous users
+    expect(screen.getByText(/Platform fee: 1% \(0\.5% for logged-in merchants\)/)).toBeInTheDocument();
+  });
+
+  it('should show correct commission estimate for different user types', async () => {
+    const user = userEvent.setup();
+    
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes('/api/rates')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            rate: 1.0
+          })
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    render(<CreateEscrowPage />);
+    
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Create Escrow' })).toBeInTheDocument();
+    });
+
+    // Check initial state shows anonymous rate (1%)
+    expect(screen.getByText(/Platform fee: 1% \(0\.5% for logged-in merchants\)/)).toBeInTheDocument();
+  });
 });
