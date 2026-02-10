@@ -299,6 +299,30 @@ export default function CreateEscrowPage() {
           </div>
 
           <div className="p-6 space-y-6">
+            {/* Escrow ID — prominent, first thing shown */}
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div className="flex items-start gap-2">
+                <span className="text-blue-600 text-lg">🔑</span>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-blue-900 dark:text-blue-300">Escrow ID</h3>
+                  <p className="text-xs text-blue-700 dark:text-blue-400 mb-2">
+                    Save this ID — you&apos;ll need it to manage your escrow.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-white dark:bg-gray-900 border border-blue-300 dark:border-blue-700 rounded px-3 py-2 text-sm break-all text-gray-900 dark:text-white">
+                      {createdEscrow.id}
+                    </code>
+                    <button
+                      onClick={() => copyToClipboard(createdEscrow.id, 'escrow_id')}
+                      className="flex-shrink-0 px-3 py-2 bg-blue-600 text-white text-xs font-medium rounded hover:bg-blue-700 transition-colors"
+                    >
+                      {copiedField === 'escrow_id' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Escrow deposit address */}
             <div>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -426,10 +450,6 @@ export default function CreateEscrowPage() {
                 <span className="ml-2 text-gray-900 dark:text-white">
                   {new Date(createdEscrow.expires_at).toLocaleString()}
                 </span>
-              </div>
-              <div>
-                <span className="text-gray-500 dark:text-gray-400">Escrow ID:</span>
-                <code className="ml-2 text-gray-900 dark:text-white">{createdEscrow.id}</code>
               </div>
               {createdEscrow.fee_amount && (
                 <div>
