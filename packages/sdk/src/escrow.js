@@ -31,7 +31,9 @@
  * @param {CoinPayClient} client - API client instance
  * @param {Object} params - Escrow parameters
  * @param {string} params.chain - Blockchain (BTC, ETH, SOL, POL, etc.)
- * @param {number} params.amount - Crypto amount to escrow
+ * @param {number} [params.amount] - Crypto amount to escrow
+ * @param {number} [params.amountFiat] - Fiat amount to escrow (alternative to amount)
+ * @param {string} [params.fiatCurrency] - Fiat currency (required if amountFiat is used)
  * @param {string} params.depositorAddress - Wallet address for refunds
  * @param {string} params.beneficiaryAddress - Wallet address for releases
  * @param {string} [params.arbiterAddress] - Optional dispute resolver address
@@ -42,15 +44,33 @@
 export async function createEscrow(client, {
   chain,
   amount,
+  amountFiat,
+  fiatCurrency,
   depositorAddress,
   beneficiaryAddress,
   arbiterAddress,
   metadata,
   expiresInHours,
 }) {
+  let finalAmount = amount;
+  
+  // If fiat amount is provided, convert to crypto first
+  if (amountFiat && fiatCurrency) {
+    if (amount) {
+      throw new Error('Cannot specify both amount and amountFiat. Use one or the other.');
+    }
+    
+    const conversion = await client.convertFiatToCrypto(amountFiat, fiatCurrency, chain);
+    finalAmount = conversion.cryptoAmount;
+  } else if (amountFiat && !fiatCurrency) {
+    throw new Error('fiatCurrency is required when amountFiat is specified');
+  } else if (!amount && !amountFiat) {
+    throw new Error('Either amount or amountFiat must be specified');
+  }
+
   const body = {
     chain,
-    amount,
+    amount: finalAmount,
     depositor_address: depositorAddress,
     beneficiary_address: beneficiaryAddress,
   };
@@ -163,6 +183,30 @@ export async function disputeEscrow(client, escrowId, token, reason) {
     body: JSON.stringify({ token, reason }),
   });
   return normalizeEscrow(data);
+}
+
+/**
+ * Authenticate with escrow using token
+ * @param {CoinPayClient} client
+ * @param {string} escrowId - Escrow ID
+ * @param {string} token - Release token or beneficiary token
+ * @returns {Promise<Object>} { escrow, role } where role is 'depositor' or 'beneficiary'
+ * 
+ * @example
+ * const auth = await client.authenticateEscrow('escrow_123', 'rel_abc123');
+ * console.log(`Authenticated as: ${auth.role}`);
+ * console.log(`Escrow status: ${auth.escrow.status}`);
+ */
+export async function authenticateEscrow(client, escrowId, token) {
+  const data = await client.request(`/escrow/${escrowId}/auth`, {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  });
+  
+  return {
+    escrow: normalizeEscrow(data.escrow),
+    role: data.role,
+  };
 }
 
 /**

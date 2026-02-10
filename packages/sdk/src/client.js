@@ -307,6 +307,34 @@ export class CoinPayClient {
   }
 
   /**
+   * Convert fiat amount to cryptocurrency amount
+   * @param {number} fiatAmount - Fiat amount to convert
+   * @param {string} fiatCurrency - Fiat currency code (USD, EUR, etc.)
+   * @param {string} cryptoCurrency - Cryptocurrency code (BTC, ETH, SOL, etc.)
+   * @returns {Promise<Object>} { cryptoAmount, rate, fiat, crypto }
+   * 
+   * @example
+   * const result = await client.convertFiatToCrypto(50, 'USD', 'SOL');
+   * console.log(`$50 USD = ${result.cryptoAmount} SOL (rate: 1 SOL = $${result.rate})`);
+   */
+  async convertFiatToCrypto(fiatAmount, fiatCurrency, cryptoCurrency) {
+    const rateData = await this.request(`/rates?coin=${cryptoCurrency}&fiat=${fiatCurrency}`);
+    
+    if (!rateData.success || !rateData.rate) {
+      throw new Error(`Failed to get exchange rate for ${cryptoCurrency}/${fiatCurrency}`);
+    }
+
+    const cryptoAmount = fiatAmount / rateData.rate;
+    
+    return {
+      cryptoAmount: cryptoAmount,
+      rate: rateData.rate,
+      fiat: fiatCurrency,
+      crypto: cryptoCurrency
+    };
+  }
+
+  /**
    * Get multiple exchange rates
    * @param {string[]} cryptocurrencies - Array of cryptocurrency codes
    * @param {string} [fiatCurrency] - Fiat currency code (default: USD)
@@ -482,6 +510,17 @@ export class CoinPayClient {
   async waitForEscrow(escrowId, options) {
     const { waitForEscrow } = await import('./escrow.js');
     return waitForEscrow(this, escrowId, options);
+  }
+
+  /**
+   * Authenticate with escrow using token
+   * @param {string} escrowId - Escrow ID
+   * @param {string} token - Release token or beneficiary token
+   * @returns {Promise<Object>} { escrow, role }
+   */
+  async authenticateEscrow(escrowId, token) {
+    const { authenticateEscrow } = await import('./escrow.js');
+    return authenticateEscrow(this, escrowId, token);
   }
 }
 

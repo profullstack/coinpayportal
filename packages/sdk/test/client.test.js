@@ -419,4 +419,88 @@ describe('CoinPayClient', () => {
       expect(typeof client.testWebhook).toBe('function');
     });
   });
+
+  describe('fiat conversion methods', () => {
+    let client;
+    let mockFetch;
+
+    beforeEach(() => {
+      client = new CoinPayClient({
+        apiKey: 'cp_live_test_api_key_12345678',
+        baseUrl: 'https://api.test.com',
+      });
+
+      mockFetch = vi.fn();
+      global.fetch = mockFetch;
+    });
+
+    it('should have convertFiatToCrypto method', () => {
+      expect(typeof client.convertFiatToCrypto).toBe('function');
+    });
+
+    it('should convert fiat to crypto successfully', async () => {
+      const mockResponse = {
+        success: true,
+        coin: 'SOL',
+        rate: 148.37,
+        fiat: 'USD',
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const result = await client.convertFiatToCrypto(50, 'USD', 'SOL');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.test.com/rates?coin=SOL&fiat=USD',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Authorization': 'Bearer cp_live_test_api_key_12345678',
+            'Content-Type': 'application/json',
+          }),
+        })
+      );
+
+      expect(result).toEqual({
+        cryptoAmount: 50 / 148.37,
+        rate: 148.37,
+        fiat: 'USD',
+        crypto: 'SOL',
+      });
+    });
+
+    it('should throw error when rate API fails', async () => {
+      const mockResponse = {
+        success: false,
+        error: 'Invalid currency pair',
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      await expect(client.convertFiatToCrypto(50, 'USD', 'INVALID'))
+        .rejects.toThrow('Failed to get exchange rate for INVALID/USD');
+    });
+
+    it('should throw error when rate is missing', async () => {
+      const mockResponse = {
+        success: true,
+        coin: 'SOL',
+        fiat: 'USD',
+        // rate is missing
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      await expect(client.convertFiatToCrypto(50, 'USD', 'SOL'))
+        .rejects.toThrow('Failed to get exchange rate for SOL/USD');
+    });
+  });
 });

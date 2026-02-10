@@ -109,6 +109,11 @@ describe('@profullstack/coinpay SDK exports', () => {
       expect(sdk.waitForEscrow).toBeDefined();
       expect(typeof sdk.waitForEscrow).toBe('function');
     });
+
+    it('should export authenticateEscrow function', () => {
+      expect(sdk.authenticateEscrow).toBeDefined();
+      expect(typeof sdk.authenticateEscrow).toBe('function');
+    });
   });
 
   describe('CoinPayClient instantiation', () => {
@@ -176,6 +181,16 @@ describe('@profullstack/coinpay SDK exports', () => {
       expect(sdk.FiatCurrency.USD).toBe('USD');
       expect(sdk.FiatCurrency.EUR).toBe('EUR');
       expect(sdk.FiatCurrency.GBP).toBe('GBP');
+      expect(sdk.FiatCurrency.CAD).toBe('CAD');
+      expect(sdk.FiatCurrency.AUD).toBe('AUD');
+    });
+
+    it('should have additional fiat currencies', () => {
+      expect(sdk.FiatCurrency.JPY).toBe('JPY');
+      expect(sdk.FiatCurrency.CHF).toBe('CHF');
+      expect(sdk.FiatCurrency.CNY).toBe('CNY');
+      expect(sdk.FiatCurrency.INR).toBe('INR');
+      expect(sdk.FiatCurrency.BRL).toBe('BRL');
     });
   });
 });

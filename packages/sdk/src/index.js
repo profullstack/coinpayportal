@@ -63,6 +63,7 @@ import {
   disputeEscrow,
   getEscrowEvents,
   waitForEscrow,
+  authenticateEscrow,
 } from './escrow.js';
 
 // Wallet exports
@@ -106,6 +107,7 @@ export {
   disputeEscrow,
   getEscrowEvents,
   waitForEscrow,
+  authenticateEscrow,
   
   // Wallet
   WalletClient,
