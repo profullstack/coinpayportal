@@ -51,6 +51,7 @@ export interface BlockchainProvider {
   getTransaction(txHash: string): Promise<TransactionDetails>;
   getRequiredConfirmations(): number;
   sendTransaction?(from: string, to: string, amount: string, privateKey: string): Promise<string>;
+  sendSplitTransaction?(from: string, recipients: Array<{ address: string; amount: string }>, privateKey: string): Promise<string>;
 }
 
 /**
