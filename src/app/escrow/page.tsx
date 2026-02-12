@@ -333,7 +333,7 @@ export default function EscrowDashboardPage() {
                       {events.map((event) => (
                         <div key={event.id} className="flex items-start gap-2 text-xs">
                           <span className="text-gray-400 whitespace-nowrap">
-                            {new Date(event.created_at).toLocaleTimeString()}
+                            {formatDate(event.created_at)}
                           </span>
                           <span className={`font-medium ${
                             event.event_type === 'funded' ? 'text-blue-600' :
