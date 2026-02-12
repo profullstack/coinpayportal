@@ -760,6 +760,48 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      // 1b. Auto-refund funded escrows that have expired
+      const { data: expiredFundedEscrows } = await supabase
+        .from('escrows')
+        .select('id, escrow_address, chain, amount, deposited_amount, depositor_address, expires_at')
+        .eq('status', 'funded')
+        .lt('expires_at', now.toISOString())
+        .limit(20);
+
+      if (expiredFundedEscrows && expiredFundedEscrows.length > 0) {
+        console.log(`Auto-refunding ${expiredFundedEscrows.length} expired funded escrows`);
+
+        for (const escrow of expiredFundedEscrows) {
+          try {
+            // Mark as refunded (the step 3 handler will do the on-chain transfer)
+            await supabase
+              .from('escrows')
+              .update({
+                status: 'refunded',
+                refunded_at: now.toISOString(),
+              })
+              .eq('id', escrow.id)
+              .eq('status', 'funded');
+
+            await supabase.from('escrow_events').insert({
+              escrow_id: escrow.id,
+              event_type: 'refunded',
+              actor: 'system',
+              details: {
+                reason: 'Escrow expired — auto-refund to depositor',
+                refund_to: escrow.depositor_address,
+                amount: escrow.deposited_amount || escrow.amount,
+              },
+            });
+
+            console.log(`Escrow ${escrow.id} expired while funded — marked for refund`);
+          } catch (expiredRefundError) {
+            console.error(`Error auto-refunding expired escrow ${escrow.id}:`, expiredRefundError);
+            escrowStats.errors++;
+          }
+        }
+      }
+
       // 2. Process released escrows (trigger settlement/forwarding)
       const { data: releasedEscrows } = await supabase
         .from('escrows')
