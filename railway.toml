@@ -2,7 +2,7 @@
 buildCommand = "pnpm install --no-frozen-lockfile && pnpm run build"
 
 [deploy]
-startCommand = "node .next/standalone/server.js"
+startCommand = "cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public && node .next/standalone/server.js"
 healthcheckPath = "/"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"
