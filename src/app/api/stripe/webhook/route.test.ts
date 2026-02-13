@@ -79,7 +79,7 @@ function mockFromChain(overrides: Record<string, any> = {}) {
   mockSupabase.from.mockImplementation((table: string) => merged[table] || {});
 }
 
-describe('POST /api/stripe/webhooks', () => {
+describe('POST /api/stripe/webhook', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.STRIPE_SECRET_KEY = 'sk_test_123';
@@ -94,7 +94,7 @@ describe('POST /api/stripe/webhooks', () => {
       throw new Error('Invalid signature');
     });
 
-    const request = new NextRequest('http://localhost:3000/api/stripe/webhooks', {
+    const request = new NextRequest('http://localhost:3000/api/stripe/webhook', {
       method: 'POST',
       body: 'invalid-body',
       headers: {
@@ -136,7 +136,7 @@ describe('POST /api/stripe/webhooks', () => {
 
     mockStripe.balanceTransactions.retrieve.mockResolvedValue({ fee: 175 });
 
-    const request = new NextRequest('http://localhost:3000/api/stripe/webhooks', {
+    const request = new NextRequest('http://localhost:3000/api/stripe/webhook', {
       method: 'POST',
       body: JSON.stringify(paymentIntent),
       headers: {
@@ -164,7 +164,7 @@ describe('POST /api/stripe/webhooks', () => {
       data: { object: account },
     });
 
-    const request = new NextRequest('http://localhost:3000/api/stripe/webhooks', {
+    const request = new NextRequest('http://localhost:3000/api/stripe/webhook', {
       method: 'POST',
       body: JSON.stringify(account),
       headers: {
@@ -185,7 +185,7 @@ describe('POST /api/stripe/webhooks', () => {
       data: { object: {} },
     });
 
-    const request = new NextRequest('http://localhost:3000/api/stripe/webhooks', {
+    const request = new NextRequest('http://localhost:3000/api/stripe/webhook', {
       method: 'POST',
       body: '{}',
       headers: {
@@ -231,7 +231,7 @@ describe('POST /api/stripe/webhooks', () => {
       },
     });
 
-    const request = new NextRequest('http://localhost:3000/api/stripe/webhooks', {
+    const request = new NextRequest('http://localhost:3000/api/stripe/webhook', {
       method: 'POST',
       body: JSON.stringify(dispute),
       headers: {
@@ -258,7 +258,7 @@ describe('POST /api/stripe/webhooks', () => {
       data: { object: payout },
     });
 
-    const request = new NextRequest('http://localhost:3000/api/stripe/webhooks', {
+    const request = new NextRequest('http://localhost:3000/api/stripe/webhook', {
       method: 'POST',
       body: JSON.stringify(payout),
       headers: {
