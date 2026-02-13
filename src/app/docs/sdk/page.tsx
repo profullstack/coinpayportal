@@ -57,6 +57,7 @@ export default function SDKDocsPage() {
               { name: 'Quick Start', href: '#quick-start' },
               { name: 'SDK Client', href: '#sdk-client' },
               { name: 'Payments API', href: '#payments' },
+              { name: 'Credit Card Payments', href: '#card-payments' },
               { name: 'Businesses API', href: '#businesses' },
               { name: 'Escrow API', href: '#escrow' },
               { name: 'Exchange Rates', href: '#rates' },
@@ -349,6 +350,198 @@ fs.writeFileSync('payment-qr.png', Buffer.from(imageData));`}
             <CodeBlock title="HTML usage" language="html">
 {`<!-- Use QR endpoint directly as image source -->
 <img src="https://coinpayportal.com/api/payments/pay_abc123/qr" alt="Payment QR Code" />`}
+            </CodeBlock>
+          </DocSection>
+        </div>
+
+        {/* Credit Card Payments */}
+        <div id="card-payments">
+          <DocSection title="Credit Card Payments">
+            <p className="text-gray-300 mb-6">
+              Accept credit and debit card payments via Stripe Connect. Merchants must complete Stripe onboarding before accepting card payments.
+              Supports both direct payments (gateway mode) and escrow mode for holding funds until release.
+            </p>
+
+            <div className="bg-blue-900/50 border border-blue-400/30 rounded-lg p-4 mb-6">
+              <h4 className="text-blue-300 font-medium mb-2">🔗 Merchant Onboarding Required</h4>
+              <p className="text-blue-200 text-sm">
+                Before accepting card payments, merchants must complete Stripe Connect onboarding. 
+                Use <code>createStripeOnboardingLink()</code> to generate the onboarding URL.
+              </p>
+            </div>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Customer Payment Choice Example</h3>
+            <CodeBlock title="Let customers choose: Crypto OR Card" language="javascript">
+{`import { CoinPayClient } from '@profullstack/coinpay';
+
+const client = new CoinPayClient({ apiKey: 'your-api-key' });
+
+// Check what payment methods are available
+const support = await client.getPaymentMethodSupport('business-id');
+
+if (support.cards) {
+  // Customer can choose crypto OR card
+  console.log('✅ Crypto payments available');
+  console.log('✅ Card payments available');
+  
+  // Create card payment
+  const cardPayment = await client.createCardPayment({
+    businessId: 'biz_123',
+    amount: 5000, // $50.00 in cents
+    currency: 'usd',
+    description: 'Order #12345',
+    successUrl: 'https://yourstore.com/success',
+    cancelUrl: 'https://yourstore.com/cancel'
+  });
+  
+  // Redirect customer to: cardPayment.checkout_url
+  
+} else {
+  console.log('✅ Crypto payments available');
+  console.log('❌ Card payments require Stripe onboarding');
+  
+  // Only crypto payments available
+  const cryptoPayment = await client.createPayment({
+    businessId: 'biz_123',
+    amount: 50.00,
+    currency: 'USD',
+    blockchain: 'BTC',
+    description: 'Order #12345'
+  });
+}`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Merchant Stripe Onboarding</h3>
+            <CodeBlock title="Create Stripe Connect onboarding link" language="javascript">
+{`// Generate onboarding link for merchant
+const onboarding = await client.createStripeOnboardingLink('business-id', {
+  email: 'merchant@example.com',
+  country: 'US'
+});
+
+console.log('Onboarding URL:', onboarding.onboarding_url);
+// Redirect merchant to complete Stripe onboarding
+
+// Check onboarding status
+const status = await client.getStripeAccountStatus('business-id');
+console.log('Can accept cards:', status.onboarding_complete);`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Create Card Payment</h3>
+            <CodeBlock title="Create credit card payment" language="javascript">
+{`// Gateway Mode - Direct payment to merchant
+const payment = await client.createCardPayment({
+  businessId: 'biz_123',
+  amount: 5000, // $50.00 in cents
+  currency: 'usd',
+  description: 'Order #12345',
+  metadata: { orderId: '12345', customerId: 'cust_456' },
+  successUrl: 'https://yourstore.com/success',
+  cancelUrl: 'https://yourstore.com/cancel',
+  escrowMode: false // Direct payment (default)
+});
+
+// Redirect customer to payment.checkout_url for card entry`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Card Escrow Mode</h3>
+            <CodeBlock title="Create card payment with escrow" language="javascript">
+{`// Escrow Mode - Hold funds until release
+const escrowPayment = await client.createCardPayment({
+  businessId: 'biz_123',
+  amount: 10000, // $100.00 in cents
+  currency: 'usd',
+  description: 'Freelance Work - Logo Design',
+  escrowMode: true, // Hold funds in escrow
+  metadata: { projectId: 'proj_789' }
+});
+
+// Customer pays via payment.checkout_url
+// Funds are held until release
+
+// Later, release funds to merchant
+const release = await client.releaseCardEscrow(escrowPayment.escrow_id, 'Work completed successfully');
+console.log(\`Released \$\${release.amount_transferred / 100} to merchant\`);`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Card Payment Convenience Functions</h3>
+            <CodeBlock title="Using card-payments convenience module" language="javascript">
+{`import { 
+  createQuickCardPayment, 
+  formatCardAmount,
+  calculateCardPaymentFees
+} from '@profullstack/coinpay/card-payments';
+
+// Quick payment with USD amount (auto-converts to cents)
+const payment = await createQuickCardPayment(client, 'biz_123', 50.0, 'Order #123', {
+  metadata: { orderId: '123' },
+  escrowMode: true
+});
+
+// Format amounts for display
+console.log(formatCardAmount(5000)); // "$50.00"
+console.log(formatCardAmount(5050, 'EUR')); // "€50.50"
+
+// Calculate platform fees
+const fees = calculateCardPaymentFees(5000, 'free'); // free tier = 1%
+console.log(\`Platform fee: \$\${fees.platformFee / 100}\`); // "$0.50"
+console.log(\`Merchant receives: \$\${fees.merchantReceives / 100}\`); // "$49.50"`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Webhook Events for Card Payments</h3>
+            <CodeBlock title="Handle card payment webhooks" language="javascript">
+{`// Webhook events you'll receive for card payments:
+// - card_payment_success: Customer paid successfully
+// - card_dispute_created: Customer disputed the charge
+// - card_refund: Payment was refunded
+// - card_escrow_release: Escrow funds were released to merchant
+
+app.post('/webhook', (req, res) => {
+  const { event_type, data } = req.body;
+  
+  switch (event_type) {
+    case 'card_payment_success':
+      console.log('Card payment received:', data.amount / 100);
+      // Update order status, send confirmation email, etc.
+      break;
+      
+    case 'card_dispute_created':
+      console.log('Dispute created for payment:', data.stripe_payment_intent_id);
+      // Alert merchant, gather evidence
+      break;
+      
+    case 'card_escrow_release':
+      console.log('Escrow released:', data.amount / 100);
+      // Mark project as completed, notify freelancer
+      break;
+  }
+  
+  res.status(200).send('OK');
+});`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Platform Fees</h3>
+            <div className="bg-gray-900/50 border border-gray-600/30 rounded-lg p-4 mb-6">
+              <h4 className="text-gray-300 font-medium mb-2">Platform Fee Structure</h4>
+              <div className="text-sm text-gray-400 space-y-1">
+                <div>• <strong>Free Tier:</strong> 1.0% platform fee</div>
+                <div>• <strong>Pro Tier:</strong> 0.5% platform fee</div>
+                <div>• <em>Plus Stripe processing fees (2.9% + 30¢ for US cards)</em></div>
+              </div>
+            </div>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Refunds</h3>
+            <CodeBlock title="Refund card payments" language="javascript">
+{`// Full refund
+const refund = await client.refundCardPayment('payment-intent-id');
+
+// Partial refund ($25 out of $50 payment)
+const partialRefund = await client.refundCardPayment('payment-intent-id', {
+  amount: 2500, // $25.00 in cents
+  reason: 'Customer complaint - partial refund'
+});
+
+console.log('Refund status:', refund.status);`}
             </CodeBlock>
           </DocSection>
         </div>

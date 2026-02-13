@@ -522,6 +522,169 @@ export class CoinPayClient {
     const { authenticateEscrow } = await import('./escrow.js');
     return authenticateEscrow(this, escrowId, token);
   }
+
+  // ── Stripe Card Payment Methods ────────────────────────
+
+  /**
+   * Create a card payment using Stripe
+   * 
+   * Creates a card payment session through Stripe Connect. Returns a checkout URL
+   * that customers can use to pay with their credit/debit card.
+   * 
+   * @param {Object} params - Payment parameters
+   * @param {string} params.businessId - Business ID (merchant must have completed Stripe onboarding)
+   * @param {number} params.amount - Amount in cents (e.g., 5000 = $50.00)
+   * @param {string} [params.currency='usd'] - Currency code (usd, eur, etc.)
+   * @param {string} [params.description] - Payment description
+   * @param {Object} [params.metadata] - Custom metadata
+   * @param {string} [params.successUrl] - URL to redirect on successful payment
+   * @param {string} [params.cancelUrl] - URL to redirect on payment cancellation
+   * @param {boolean} [params.escrowMode=false] - Whether to use escrow mode (holds funds until release)
+   * @returns {Promise<Object>} Payment session with checkout URL
+   * 
+   * @example
+   * // Create a $50 card payment
+   * const payment = await client.createCardPayment({
+   *   businessId: 'your-business-id',
+   *   amount: 5000, // $50.00 in cents
+   *   currency: 'usd',
+   *   description: 'Order #12345',
+   *   metadata: { orderId: '12345' },
+   *   successUrl: 'https://yourdomain.com/success',
+   *   cancelUrl: 'https://yourdomain.com/cancel'
+   * });
+   * 
+   * // Redirect customer to payment.checkout_url
+   */
+  async createCardPayment({
+    businessId,
+    amount,
+    currency = 'usd',
+    description,
+    metadata,
+    successUrl,
+    cancelUrl,
+    escrowMode = false
+  }) {
+    return this.request('/stripe/payments/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        businessId,
+        amount,
+        currency,
+        description,
+        metadata,
+        successUrl,
+        cancelUrl,
+        escrowMode
+      }),
+    });
+  }
+
+  /**
+   * Get Stripe account onboarding status
+   * 
+   * Checks whether a merchant has completed Stripe Connect onboarding
+   * and is able to accept card payments.
+   * 
+   * @param {string} businessId - Business ID
+   * @returns {Promise<Object>} Account status and capabilities
+   * 
+   * @example
+   * const status = await client.getStripeAccountStatus('business-id');
+   * if (status.onboarding_complete) {
+   *   console.log('Merchant can accept card payments');
+   * }
+   */
+  async getStripeAccountStatus(businessId) {
+    return this.request(`/stripe/connect/status/${businessId}`);
+  }
+
+  /**
+   * Create Stripe Connect onboarding link
+   * 
+   * Generates a Stripe Express onboarding link for a merchant.
+   * The merchant must complete this onboarding before they can accept card payments.
+   * 
+   * @param {string} businessId - Business ID
+   * @param {Object} [params] - Optional parameters
+   * @param {string} [params.email] - Merchant email (pre-fills onboarding form)
+   * @param {string} [params.country='US'] - Country code (US, CA, GB, etc.)
+   * @returns {Promise<Object>} Onboarding link and account ID
+   * 
+   * @example
+   * const onboarding = await client.createStripeOnboardingLink('business-id', {
+   *   email: 'merchant@example.com',
+   *   country: 'US'
+   * });
+   * 
+   * // Redirect merchant to onboarding.onboarding_url
+   */
+  async createStripeOnboardingLink(businessId, params = {}) {
+    return this.request('/stripe/connect/onboard', {
+      method: 'POST',
+      body: JSON.stringify({
+        businessId,
+        ...params
+      }),
+    });
+  }
+
+  /**
+   * Release card escrow funds to merchant
+   * 
+   * Releases funds held in card escrow mode to the merchant's Stripe account.
+   * Only works for payments created with escrowMode: true.
+   * 
+   * @param {string} escrowId - Escrow ID (returned from escrow payment creation)
+   * @param {string} [reason] - Reason for release
+   * @returns {Promise<Object>} Release confirmation with transfer details
+   * 
+   * @example
+   * const release = await client.releaseCardEscrow('escrow-id', 'Work completed');
+   * console.log(`Released $${release.amount_transferred / 100} to merchant`);
+   */
+  async releaseCardEscrow(escrowId, reason) {
+    return this.request('/stripe/escrow/release', {
+      method: 'POST',
+      body: JSON.stringify({
+        escrowId,
+        reason
+      }),
+    });
+  }
+
+  /**
+   * Refund a card payment
+   * 
+   * Creates a refund for a card payment. Works for both gateway and escrow mode payments.
+   * For escrow payments, refunds from held funds. For gateway payments, refunds from merchant account.
+   * 
+   * @param {string} paymentId - Payment intent ID or escrow ID
+   * @param {Object} [params] - Optional parameters
+   * @param {number} [params.amount] - Refund amount in cents (partial refund). Omit for full refund.
+   * @param {string} [params.reason] - Reason for refund
+   * @returns {Promise<Object>} Refund confirmation
+   * 
+   * @example
+   * // Full refund
+   * const refund = await client.refundCardPayment('payment-id');
+   * 
+   * // Partial refund
+   * const partialRefund = await client.refundCardPayment('payment-id', {
+   *   amount: 2500, // $25.00 refund
+   *   reason: 'Customer complaint'
+   * });
+   */
+  async refundCardPayment(paymentId, params = {}) {
+    return this.request('/stripe/escrow/refund', {
+      method: 'POST',
+      body: JSON.stringify({
+        escrowId: paymentId, // API expects escrowId param
+        ...params
+      }),
+    });
+  }
 }
 
 export default CoinPayClient;
