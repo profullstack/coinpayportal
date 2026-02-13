@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, type RenderOptions } from '@testing-library/react';
+import { vi } from 'vitest';
 
 /**
  * Mock wallet state for testing components that use useWebWallet().
@@ -20,7 +21,7 @@ export interface MockWalletState {
   clearError?: () => void;
 }
 
-const defaultMockState: Required<MockWalletState> = {
+const defaultMockState: Required<MockWalletState> = vi.hoisted(() => ({
   hasWallet: false,
   isUnlocked: false,
   wallet: null,
@@ -34,7 +35,7 @@ const defaultMockState: Required<MockWalletState> = {
   lock: vi.fn(),
   deleteWallet: vi.fn(),
   clearError: vi.fn(),
-};
+}));
 
 // We mock the WalletContext module so useWebWallet returns our mock
 let currentMockState: Required<MockWalletState> = { ...defaultMockState };
