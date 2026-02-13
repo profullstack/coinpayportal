@@ -12,6 +12,28 @@ interface DidInfo {
   created_at: string;
 }
 
+interface Credential {
+  id: string;
+  type: string;
+  subject_did: string;
+  issuer_did: string;
+  claims: Record<string, unknown>;
+  created_at: string;
+  revoked: boolean;
+}
+
+interface TaskReceipt {
+  id: string;
+  agent_did: string;
+  buyer_did: string;
+  task_type: string;
+  amount: number;
+  currency: string;
+  status: string;
+  created_at: string;
+  description?: string;
+}
+
 export default function ClaimDidPage() {
   const router = useRouter();
   const [didInfo, setDidInfo] = useState<DidInfo | null>(null);
@@ -25,6 +47,10 @@ export default function ClaimDidPage() {
   const [linkPublicKey, setLinkPublicKey] = useState('');
   const [linkSignature, setLinkSignature] = useState('');
   const [showLinkForm, setShowLinkForm] = useState(false);
+  const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [receipts, setReceipts] = useState<TaskReceipt[]>([]);
+  const [credLoading, setCredLoading] = useState(false);
+  const [receiptsLoading, setReceiptsLoading] = useState(false);
 
   useEffect(() => {
     fetchDid();
@@ -35,12 +61,34 @@ export default function ClaimDidPage() {
       const result = await authFetch('/api/reputation/did/me', {}, router);
       if (result && result.response.ok) {
         setDidInfo(result.data);
+        fetchCredentials(result.data.did);
+        fetchReceipts(result.data.did);
       }
     } catch {
       // No DID yet
     } finally {
       setLoading(false);
     }
+  }
+
+  async function fetchCredentials(did: string) {
+    setCredLoading(true);
+    try {
+      const res = await fetch(`/api/reputation/credentials?did=${encodeURIComponent(did)}`);
+      const data = await res.json();
+      if (data.success) setCredentials(data.credentials);
+    } catch { /* noop */ }
+    finally { setCredLoading(false); }
+  }
+
+  async function fetchReceipts(did: string) {
+    setReceiptsLoading(true);
+    try {
+      const res = await fetch(`/api/reputation/receipts?did=${encodeURIComponent(did)}`);
+      const data = await res.json();
+      if (data.success) setReceipts(data.receipts);
+    } catch { /* noop */ }
+    finally { setReceiptsLoading(false); }
   }
 
   async function handleClaim() {
@@ -203,6 +251,80 @@ export default function ClaimDidPage() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Credentials */}
+        <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 mb-6">
+          <h2 className="text-lg font-bold mb-4">📜 Your Credentials</h2>
+          {credLoading ? (
+            <div className="animate-pulse h-16 bg-gray-700 rounded" />
+          ) : credentials.length === 0 ? (
+            <p className="text-gray-400 text-sm">No credentials issued yet. Complete escrow tasks to earn verifiable credentials.</p>
+          ) : (
+            <div className="space-y-3">
+              {credentials.map((cred) => (
+                <Link
+                  key={cred.id}
+                  href={`/reputation/credential/${cred.id}`}
+                  className="block border border-gray-700 rounded-lg p-4 hover:border-violet-500/50 transition"
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-semibold text-sm">{cred.type}</p>
+                      <p className="text-gray-400 text-xs font-mono mt-1">Issuer: {cred.issuer_did.substring(0, 30)}...</p>
+                    </div>
+                    <div className="text-right text-xs">
+                      <span className={cred.revoked ? 'text-red-400' : 'text-green-400'}>
+                        {cred.revoked ? '❌ Revoked' : '✅ Active'}
+                      </span>
+                      <p className="text-gray-500 mt-1">{new Date(cred.created_at).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Task Receipt History */}
+        <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 mb-6">
+          <h2 className="text-lg font-bold mb-4">🧾 Task Receipt History</h2>
+          {receiptsLoading ? (
+            <div className="animate-pulse h-16 bg-gray-700 rounded" />
+          ) : receipts.length === 0 ? (
+            <p className="text-gray-400 text-sm">No task receipts yet. Submit receipts from completed escrow transactions to build your reputation.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-gray-400 text-left border-b border-gray-700">
+                    <th className="pb-2 pr-4">Type</th>
+                    <th className="pb-2 pr-4">Amount</th>
+                    <th className="pb-2 pr-4">Status</th>
+                    <th className="pb-2">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receipts.map((receipt) => (
+                    <tr key={receipt.id} className="border-b border-gray-800">
+                      <td className="py-2 pr-4">{receipt.task_type || 'Task'}</td>
+                      <td className="py-2 pr-4">${receipt.amount?.toFixed(2) || '0.00'} {receipt.currency || ''}</td>
+                      <td className="py-2 pr-4">
+                        <span className={
+                          receipt.status === 'accepted' ? 'text-green-400' :
+                          receipt.status === 'disputed' ? 'text-red-400' :
+                          'text-yellow-400'
+                        }>
+                          {receipt.status}
+                        </span>
+                      </td>
+                      <td className="py-2 text-gray-400">{new Date(receipt.created_at).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* CLI Access */}

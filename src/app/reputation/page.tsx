@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
 
@@ -85,44 +85,104 @@ function WindowCard({ label, data }: { label: string; data: ReputationWindow }) 
   );
 }
 
-export default function ReputationPage() {
+function ShareSection({ did }: { did: string }) {
+  const [copied, setCopied] = useState('');
+  const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/reputation?did=${encodeURIComponent(did)}`;
+  const badgeUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/reputation/badge/${encodeURIComponent(did)}`;
+  const badgeMarkdown = `![Reputation](${badgeUrl})`;
+
+  async function copyText(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(label);
+      setTimeout(() => setCopied(''), 2000);
+    } catch { /* noop */ }
+  }
+
+  return (
+    <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 mb-8">
+      <h2 className="text-lg font-bold mb-4">📤 Share Your Reputation</h2>
+      <div className="space-y-4">
+        <div>
+          <label className="text-sm text-gray-400 block mb-1">Public Profile URL</label>
+          <div className="flex gap-2">
+            <input
+              readOnly
+              value={publicUrl}
+              className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm font-mono text-gray-300"
+            />
+            <button
+              onClick={() => copyText(publicUrl, 'url')}
+              className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm rounded transition"
+            >
+              {copied === 'url' ? '✓ Copied!' : 'Copy'}
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="text-sm text-gray-400 block mb-1">Reputation Badge (Markdown)</label>
+          <div className="flex gap-2">
+            <input
+              readOnly
+              value={badgeMarkdown}
+              className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm font-mono text-gray-300"
+            />
+            <button
+              onClick={() => copyText(badgeMarkdown, 'badge')}
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded transition"
+            >
+              {copied === 'badge' ? '✓ Copied!' : 'Copy'}
+            </button>
+          </div>
+          <div className="mt-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={badgeUrl} alt="Reputation Badge" className="h-5" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReputationDisplay({ reputation, title }: { reputation: ReputationResult; title?: string }) {
+  return (
+    <div>
+      <h2 className="text-xl font-semibold mb-1">{title || reputation.agent_did}</h2>
+      {reputation.anti_gaming.flagged && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-4 py-2 rounded-lg mb-4">
+          ⚠️ Anti-gaming flags: {reputation.anti_gaming.flags.join(', ')}
+        </div>
+      )}
+      <div className="grid md:grid-cols-3 gap-6 mt-4">
+        <WindowCard label="Last 30 Days" data={reputation.windows.last_30_days} />
+        <WindowCard label="Last 90 Days" data={reputation.windows.last_90_days} />
+        <WindowCard label="All Time" data={reputation.windows.all_time} />
+      </div>
+    </div>
+  );
+}
+
+function ReputationPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryDid = searchParams.get('did');
+
   const [agentDid, setAgentDid] = useState('');
   const [reputation, setReputation] = useState<ReputationResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [myDid, setMyDid] = useState<DidInfo | null>(null);
   const [didLoading, setDidLoading] = useState(true);
+  const [myReputation, setMyReputation] = useState<ReputationResult | null>(null);
+  const [myRepLoading, setMyRepLoading] = useState(false);
 
-  // Check if user already has a DID
-  useEffect(() => {
-    async function checkDid() {
-      try {
-        const result = await authFetch('/api/reputation/did/me', {}, router);
-        if (result && result.response.ok && result.data?.did) {
-          setMyDid(result.data);
-        }
-      } catch {
-        // Not logged in or no DID — that's fine
-      } finally {
-        setDidLoading(false);
-      }
-    }
-    checkDid();
-  }, [router]);
-
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    if (!agentDid.trim()) return;
-
+  const fetchReputation = useCallback(async (did: string) => {
     setLoading(true);
     setError('');
     setReputation(null);
-
     try {
-      const res = await fetch(`/api/reputation/agent/${encodeURIComponent(agentDid)}/reputation`);
+      const res = await fetch(`/api/reputation/agent/${encodeURIComponent(did)}/reputation`);
       const data = await res.json();
-
       if (!res.ok || !data.success) {
         setError(data.error || 'Agent not found or no reputation data');
       } else {
@@ -133,6 +193,76 @@ export default function ReputationPage() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Check if user has a DID
+  useEffect(() => {
+    async function checkDid() {
+      try {
+        const result = await authFetch('/api/reputation/did/me', {}, router);
+        if (result && result.response.ok && result.data?.did) {
+          setMyDid(result.data);
+        }
+      } catch {
+        // Not logged in or no DID
+      } finally {
+        setDidLoading(false);
+      }
+    }
+    checkDid();
+  }, [router]);
+
+  // Auto-fetch own reputation when user has a DID (and no query param)
+  useEffect(() => {
+    if (myDid && !queryDid) {
+      setMyRepLoading(true);
+      fetch(`/api/reputation/agent/${encodeURIComponent(myDid.did)}/reputation`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) setMyReputation(data.reputation);
+        })
+        .catch(() => {})
+        .finally(() => setMyRepLoading(false));
+    }
+  }, [myDid, queryDid]);
+
+  // Auto-search when ?did= query param is present
+  useEffect(() => {
+    if (queryDid) {
+      setAgentDid(queryDid);
+      fetchReputation(queryDid);
+    }
+  }, [queryDid, fetchReputation]);
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    if (!agentDid.trim()) return;
+    fetchReputation(agentDid);
+  }
+
+  // Public profile view via ?did= param
+  if (queryDid) {
+    return (
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <Link href="/reputation" className="text-violet-400 hover:text-violet-300 text-sm mb-4 inline-block">
+          ← Back to Reputation
+        </Link>
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-bold">Reputation Profile</h1>
+            <p className="text-gray-400 mt-1 font-mono text-sm break-all">{queryDid}</p>
+          </div>
+        </div>
+
+        {loading && <div className="animate-pulse h-48 bg-gray-800 rounded-lg" />}
+        {error && (
+          <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg">
+            {error}
+          </div>
+        )}
+        {reputation && <ReputationDisplay reputation={reputation} />}
+      </div>
+    );
   }
 
   return (
@@ -225,6 +355,23 @@ export default function ReputationPage() {
         </div>
       )}
 
+      {/* Own Reputation Dashboard */}
+      {myDid && !myRepLoading && myReputation && (
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-4">📊 Your Reputation Dashboard</h2>
+          <ReputationDisplay reputation={myReputation} title="Your Stats" />
+          <div className="mt-6">
+            <ShareSection did={myDid.did} />
+          </div>
+        </div>
+      )}
+      {myDid && myRepLoading && (
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-4">📊 Your Reputation Dashboard</h2>
+          <div className="animate-pulse h-48 bg-gray-800 rounded-lg" />
+        </div>
+      )}
+
       {/* Search Reputation */}
       <div className="mb-8">
         <h2 className="text-xl font-bold mb-3">Look Up Reputation</h2>
@@ -257,22 +404,15 @@ export default function ReputationPage() {
         </div>
       )}
 
-      {reputation && (
-        <div>
-          <h2 className="text-xl font-semibold mb-1">{reputation.agent_did}</h2>
-          {reputation.anti_gaming.flagged && (
-            <div className="bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-4 py-2 rounded-lg mb-4">
-              ⚠️ Anti-gaming flags: {reputation.anti_gaming.flags.join(', ')}
-            </div>
-          )}
-
-          <div className="grid md:grid-cols-3 gap-6 mt-4">
-            <WindowCard label="Last 30 Days" data={reputation.windows.last_30_days} />
-            <WindowCard label="Last 90 Days" data={reputation.windows.last_90_days} />
-            <WindowCard label="All Time" data={reputation.windows.all_time} />
-          </div>
-        </div>
-      )}
+      {reputation && <ReputationDisplay reputation={reputation} />}
     </div>
+  );
+}
+
+export default function ReputationPage() {
+  return (
+    <Suspense fallback={<div className="max-w-6xl mx-auto px-4 py-8"><div className="animate-pulse h-48 bg-gray-800 rounded-lg" /></div>}>
+      <ReputationPageInner />
+    </Suspense>
   );
 }
