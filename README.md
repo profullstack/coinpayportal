@@ -16,6 +16,22 @@ A non-custodial cryptocurrency payment gateway for e-commerce that enables merch
 - **CLI & SDK**: Command-line interface and ESM module for programmatic integration
 - **Exchange Rates**: Real-time crypto/fiat rates via Tatum API
 
+### Escrow Service
+- **On-Chain Escrow**: Trustless buyer-seller escrow with automatic settlement
+- **Multi-Chain**: Escrow support across BTC, ETH, POL, SOL
+- **Auto-Refund**: Expired funded escrows automatically refunded on-chain
+- **Event Logging**: Full escrow lifecycle audit trail
+
+### DID Reputation Protocol (CPTL)
+- **Decentralized Identifiers**: Claim a `did:web:coinpayportal.com:merchant:<id>` tied to your merchant account
+- **7-Dimension Trust Vectors**: Economic, Productivity, Behavioral, Delivery, Reliability, Accountability, Compliance scores
+- **ActionReceipt Schema**: Cryptographically signed receipts from escrow settlements and platform actions
+- **Cross-Platform Portability**: Reputation travels with your DID across integrated platforms
+- **Embeddable Badges**: SVG trust badges for external sites (`/api/reputation/badge/[did]`)
+- **Platform Action API**: Lightweight endpoint for external platforms to submit reputation signals
+- **Diminishing Returns + Recency Decay**: Anti-gaming math with 90-day half-life
+- **SDK + CLI**: Full programmatic access — `submitActionReceipt()`, `getTrustProfile()`, `coinpay reputation profile <did>`
+
 ### Subscription Plans & Entitlements
 - **Starter Plan (Free)**: Up to 100 transactions/month, all supported chains, basic API access, email support
 - **Professional Plan ($49/month)**: Unlimited transactions, priority support, advanced analytics, custom webhooks, white-label option
@@ -27,6 +43,12 @@ A non-custodial cryptocurrency payment gateway for e-commerce that enables merch
 - **Platform Payments**: Collect subscription fees and service charges from businesses
 - **100% Forwarding**: Business collection payments forward entirely to platform wallets
 - **Multiple Blockchains**: Support for BTC, BCH, ETH, POL, SOL
+
+### Payment UX
+- **QR Codes**: BIP21/EIP-681/Solana Pay URI-encoded QR codes for one-tap wallet opens
+- **Copy Buttons**: One-click copy for addresses and amounts with success states
+- **Progress Indicator**: 4-step visual flow (Copy → Send → Confirming → Done)
+- **Countdown Timer**: Expiry countdown with red pulse warning at <5 minutes
 
 ## 🏗️ Architecture
 
@@ -116,6 +138,8 @@ npm run dev
 - [Subscriptions & Entitlements](./docs/SUBSCRIPTIONS.md)
 - [Business Collection](./docs/BUSINESS_COLLECTION.md)
 - [Security Best Practices](./docs/SECURITY.md)
+- [CPTL v2 PRD](./docs/CPTL-PRD-v2.md) — Reputation protocol design document
+- [Platform Integration Guide](./docs/PLATFORM_INTEGRATION.md) — Integrate your platform with CPTL reputation
 
 ## 💻 Usage Examples
 
@@ -247,10 +271,13 @@ coinpayportal/
 │   │   │   ├── payments/  # Payment endpoints
 │   │   │   ├── businesses/ # Business management
 │   │   │   ├── business-collection/ # Platform payments
+│   │   │   ├── escrow/    # Escrow endpoints
+│   │   │   ├── reputation/ # DID & trust endpoints
 │   │   │   ├── subscriptions/ # Subscription management
 │   │   │   └── entitlements/ # Entitlements API
 │   │   ├── dashboard/     # Merchant dashboard
 │   │   ├── pricing/       # Pricing & upgrade page
+│   │   ├── reputation/   # DID claim & trust profile pages
 │   │   ├── docs/          # API documentation page
 │   │   └── page.tsx       # Landing page
 │   ├── components/        # React components
@@ -261,15 +288,18 @@ coinpayportal/
 │   │   ├── blockchain/   # Blockchain services
 │   │   ├── business/     # Business services
 │   │   ├── entitlements/ # Entitlements & usage tracking
-│   │   ├── payments/     # Payment processing
+│   │   ├── payments/     # Payment processing & monitoring
+│   │   ├── reputation/   # Trust engine, receipts, DID management
 │   │   ├── subscriptions/ # Subscription management
 │   │   ├── supabase/     # Supabase client
 │   │   └── crypto/       # Encryption utilities
 │   └── types/            # TypeScript types
 ├── supabase/
 │   └── migrations/       # Database migrations
-├── cli/                   # CLI package
-├── sdk/                   # SDK package
+├── packages/
+│   └── sdk/              # SDK + CLI package (@profullstack/coinpay)
+│       ├── src/          # SDK source (payments, reputation, DID)
+│       └── bin/          # CLI entry point
 └── package.json
 ```
 
@@ -283,6 +313,15 @@ coinpayportal/
 - [x] Entitlements & usage tracking
 - [x] Business collection payments
 - [x] Crypto-based subscription payments
+- [x] On-chain escrow with auto-refund
+- [x] Password reset flow
+- [x] Payment UX — QR codes, copy buttons, progress indicator, countdown
+- [x] DID Reputation Protocol (CPTL Phase 1) — ActionReceipts, trust vectors, badges
+- [x] CPTL Phase 2 — Advanced trust math, diminishing returns, recency decay
+- [x] Platform Action API — external platform reputation signals
+- [x] CLI & SDK — full reputation, DID, and escrow commands
+- [ ] **CPTL Phase 3** — Anti-collusion engine (graph clustering, burst detection) *(coming soon)*
+- [ ] **CPTL Phase 4** — ZK proofs, cross-chain anchoring, slashing bonds *(future)*
 - [ ] Mobile SDK
 - [ ] WooCommerce plugin
 - [ ] Shopify app
@@ -302,7 +341,7 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 
 - Documentation: [coinpayportal.com/docs](https://coinpayportal.com/docs)
 - Email: support@coinpayportal.com
-- Discord: [Join our community](https://discord.gg/w5nHdzpQ29)
+- Discord: [Join our community](https://discord.gg/U7dEXfBA3s)
 - GitHub Issues: [Report a bug](https://github.com/profullstack/coinpayportal/issues)
 
 ## 🙏 Acknowledgments
@@ -315,4 +354,4 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 
 ---
 
-Built with ❤️ by the CoinPay team
+Built with ❤️ by [Profullstack Inc](https://profullstack.com)
