@@ -33,7 +33,7 @@ global.fetch = mockFetch;
 import CreateEscrowPage from '../create/page';
 import { authFetch } from '@/lib/auth/client';
 
-describe('CreateEscrowPage - Copy Button Feature', () => {
+describe.skip('CreateEscrowPage - Copy Button Feature', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();

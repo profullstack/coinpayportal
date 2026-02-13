@@ -62,3 +62,43 @@ export async function verifyCredential(client, credential) {
 export async function getRevocationList(client) {
   return client.request('/reputation/revocation-list');
 }
+
+/**
+ * Get the authenticated merchant's DID
+ * @param {import('./client.js').CoinPayClient} client
+ * @returns {Promise<Object>}
+ */
+export async function getMyDid(client) {
+  return client.request('/reputation/did/me');
+}
+
+/**
+ * Claim (auto-generate) a new DID for the authenticated merchant
+ * @param {import('./client.js').CoinPayClient} client
+ * @returns {Promise<Object>}
+ */
+export async function claimDid(client) {
+  return client.request('/reputation/did/claim', {
+    method: 'POST',
+  });
+}
+
+/**
+ * Link an existing DID to the authenticated merchant
+ * @param {import('./client.js').CoinPayClient} client
+ * @param {Object} params
+ * @param {string} params.did - The DID to link
+ * @param {string} params.publicKey - Base64url-encoded public key
+ * @param {string} params.signature - Base64url-encoded signature
+ * @returns {Promise<Object>}
+ */
+export async function linkDid(client, { did, publicKey, signature }) {
+  return client.request('/reputation/did/claim', {
+    method: 'POST',
+    body: JSON.stringify({
+      did,
+      public_key: publicKey,
+      signature,
+    }),
+  });
+}

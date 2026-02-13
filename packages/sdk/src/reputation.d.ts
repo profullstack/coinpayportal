@@ -69,3 +69,14 @@ export function getReputation(client: CoinPayClient, agentDid: string): Promise<
 export function getCredential(client: CoinPayClient, credentialId: string): Promise<{ success: boolean; credential: Credential }>;
 export function verifyCredential(client: CoinPayClient, credential: { credential_id: string }): Promise<{ valid: boolean; reason?: string }>;
 export function getRevocationList(client: CoinPayClient): Promise<{ success: boolean; revoked_credentials: string[]; revocations: Array<Record<string, unknown>> }>;
+
+export interface DidInfo {
+  did: string;
+  public_key: string;
+  verified: boolean;
+  created_at: string;
+}
+
+export function getMyDid(client: CoinPayClient): Promise<DidInfo>;
+export function claimDid(client: CoinPayClient): Promise<DidInfo>;
+export function linkDid(client: CoinPayClient, params: { did: string; publicKey: string; signature: string }): Promise<DidInfo>;
