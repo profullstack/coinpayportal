@@ -10,8 +10,8 @@ describe('ReputationDocs', () => {
 
   it('should render all API endpoint paths', () => {
     render(<ReputationDocs />);
-    expect(screen.getByText('/api/reputation/receipt')).toBeInTheDocument();
-    expect(screen.getByText('/api/reputation/agent/[did]/reputation')).toBeInTheDocument();
+    expect(screen.getAllByText('/api/reputation/receipt').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('/api/reputation/agent/[did]/reputation').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('/api/reputation/credential/[id]')).toBeInTheDocument();
     expect(screen.getByText('/api/reputation/verify')).toBeInTheDocument();
     expect(screen.getByText('/api/reputation/revocation-list')).toBeInTheDocument();

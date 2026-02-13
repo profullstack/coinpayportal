@@ -217,6 +217,83 @@ Content-Type: application/json
 coinpay reputation badge did:key:z6Mk...`}
         </CodeBlock>
       </ApiEndpoint>
+
+      {/* CPTL Phase 2 — Trust Vector */}
+      <h3 className="text-2xl font-bold text-white mb-6 mt-10">Trust Vector (CPTL v2)</h3>
+
+      <div className="mb-8 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+        <h4 className="font-semibold text-blue-300 mb-2">7-Dimension Trust Vector</h4>
+        <p className="text-blue-200 text-sm mb-3">
+          Phase 2 introduces a multi-dimensional trust vector computed from categorized action receipts.
+          The reputation endpoint now returns both legacy windows AND a trust vector.
+        </p>
+        <ul className="text-blue-200 text-sm space-y-1 list-disc list-inside">
+          <li><strong>E</strong> — Economic Score (from economic.* actions, log-scaled by USD value)</li>
+          <li><strong>P</strong> — Productivity Score (from productivity.* actions)</li>
+          <li><strong>B</strong> — Behavioral Score (dispute rate, response patterns)</li>
+          <li><strong>D</strong> — Diversity Score (log of unique counterparties)</li>
+          <li><strong>R</strong> — Recency Score (exponential decay, 90-day half-life)</li>
+          <li><strong>A</strong> — Anomaly Penalty (from anti-gaming flags)</li>
+          <li><strong>C</strong> — Compliance Penalty (from compliance.* actions)</li>
+        </ul>
+      </div>
+
+      <div className="mb-8 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+        <h4 className="font-semibold text-green-300 mb-2">Action Categories</h4>
+        <p className="text-green-200 text-sm mb-2">
+          Receipts now accept <code>action_category</code> and <code>action_type</code> fields.
+          Valid categories:
+        </p>
+        <CodeBlock title="Canonical Categories">
+{`economic.transaction (weight: 10)    economic.dispute (weight: -12)
+economic.refund                       productivity.task
+productivity.application (weight: 1)  productivity.completion (weight: 5)
+identity.profile_update (weight: 0.5) identity.verification (weight: 3)
+social.post (weight: 0.05)            social.comment (weight: 0.02)
+social.endorsement                    compliance.incident
+compliance.violation (weight: -20)`}
+        </CodeBlock>
+      </div>
+
+      <ApiEndpoint method="POST" path="/api/reputation/receipt" description="Submit an action receipt (Phase 2). Now accepts action_category and action_type fields.">
+        <CodeBlock title="Request (Phase 2)">
+{`POST /api/reputation/receipt
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "receipt_id": "550e8400-...",
+  "task_id": "550e8400-...",
+  "agent_did": "did:key:z6Mk...",
+  "buyer_did": "did:key:z6Mk...",
+  "action_category": "productivity.completion",
+  "action_type": "code_review",
+  "amount": 250,
+  "currency": "USD",
+  "outcome": "accepted",
+  "signatures": { "escrow_sig": "..." }
+}`}
+        </CodeBlock>
+      </ApiEndpoint>
+
+      <ApiEndpoint method="GET" path="/api/reputation/agent/[did]/reputation" description="Now returns trust_vector alongside legacy windows.">
+        <CodeBlock title="Response (Phase 2)">
+{`{
+  "success": true,
+  "reputation": { "windows": { ... }, "anti_gaming": { ... } },
+  "trust_vector": {
+    "E": 42.5,
+    "P": 12.3,
+    "B": 9.1,
+    "D": 2.08,
+    "R": 0.87,
+    "A": 0,
+    "C": 0
+  },
+  "computed_at": "2026-02-13T..."
+}`}
+        </CodeBlock>
+      </ApiEndpoint>
     </DocSection>
   );
 }

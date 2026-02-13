@@ -17,6 +17,16 @@ interface ReputationWindow {
   categories: Record<string, { count: number; volume: number }>;
 }
 
+interface TrustVector {
+  E: number;
+  P: number;
+  B: number;
+  D: number;
+  R: number;
+  A: number;
+  C: number;
+}
+
 interface ReputationResult {
   agent_did: string;
   windows: {
@@ -144,7 +154,50 @@ function ShareSection({ did }: { did: string }) {
   );
 }
 
-function ReputationDisplay({ reputation, title }: { reputation: ReputationResult; title?: string }) {
+const TRUST_LABELS: Record<string, { label: string; color: string; description: string }> = {
+  E: { label: 'Economic', color: 'bg-green-500', description: 'From economic transactions' },
+  P: { label: 'Productivity', color: 'bg-blue-500', description: 'From task completions' },
+  B: { label: 'Behavioral', color: 'bg-yellow-500', description: 'Dispute rate & patterns' },
+  D: { label: 'Diversity', color: 'bg-purple-500', description: 'Unique counterparties' },
+  R: { label: 'Recency', color: 'bg-cyan-500', description: '90-day decay factor' },
+  A: { label: 'Anomaly', color: 'bg-red-500', description: 'Anti-gaming penalty' },
+  C: { label: 'Compliance', color: 'bg-orange-500', description: 'Compliance penalty' },
+};
+
+function TrustVectorCard({ vector }: { vector: TrustVector }) {
+  const entries = Object.entries(vector) as [string, number][];
+  const maxAbs = Math.max(...entries.map(([, v]) => Math.abs(v)), 1);
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
+      <h3 className="text-lg font-semibold mb-4">🔷 Trust Vector (CPTL v2)</h3>
+      <div className="space-y-3">
+        {entries.map(([key, value]) => {
+          const info = TRUST_LABELS[key] || { label: key, color: 'bg-gray-500', description: '' };
+          const barWidth = Math.abs(value) / maxAbs * 100;
+          const isNegative = value < 0;
+          return (
+            <div key={key}>
+              <div className="flex justify-between text-sm mb-1">
+                <span className="font-medium">{info.label} ({key})</span>
+                <span className={isNegative ? 'text-red-400' : 'text-green-400'}>{value}</span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-2">
+                <div
+                  className={`${isNegative ? 'bg-red-500' : info.color} h-2 rounded-full transition-all`}
+                  style={{ width: `${Math.max(barWidth, 1)}%` }}
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-0.5">{info.description}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ReputationDisplay({ reputation, trustVector, title }: { reputation: ReputationResult; trustVector?: TrustVector; title?: string }) {
   return (
     <div>
       <h2 className="text-xl font-semibold mb-1">{title || reputation.agent_did}</h2>
@@ -153,6 +206,7 @@ function ReputationDisplay({ reputation, title }: { reputation: ReputationResult
           ⚠️ Anti-gaming flags: {reputation.anti_gaming.flags.join(', ')}
         </div>
       )}
+      {trustVector && <TrustVectorCard vector={trustVector} />}
       <div className="grid md:grid-cols-3 gap-6 mt-4">
         <WindowCard label="Last 30 Days" data={reputation.windows.last_30_days} />
         <WindowCard label="Last 90 Days" data={reputation.windows.last_90_days} />
@@ -169,17 +223,20 @@ function ReputationPageInner() {
 
   const [agentDid, setAgentDid] = useState('');
   const [reputation, setReputation] = useState<ReputationResult | null>(null);
+  const [trustVector, setTrustVector] = useState<TrustVector | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [myDid, setMyDid] = useState<DidInfo | null>(null);
   const [didLoading, setDidLoading] = useState(true);
   const [myReputation, setMyReputation] = useState<ReputationResult | null>(null);
+  const [myTrustVector, setMyTrustVector] = useState<TrustVector | null>(null);
   const [myRepLoading, setMyRepLoading] = useState(false);
 
   const fetchReputation = useCallback(async (did: string) => {
     setLoading(true);
     setError('');
     setReputation(null);
+    setTrustVector(null);
     try {
       const res = await fetch(`/api/reputation/agent/${encodeURIComponent(did)}/reputation`);
       const data = await res.json();
@@ -187,6 +244,7 @@ function ReputationPageInner() {
         setError(data.error || 'Agent not found or no reputation data');
       } else {
         setReputation(data.reputation);
+        if (data.trust_vector) setTrustVector(data.trust_vector);
       }
     } catch {
       setError('Failed to fetch reputation');
@@ -219,7 +277,10 @@ function ReputationPageInner() {
       fetch(`/api/reputation/agent/${encodeURIComponent(myDid.did)}/reputation`)
         .then(res => res.json())
         .then(data => {
-          if (data.success) setMyReputation(data.reputation);
+          if (data.success) {
+            setMyReputation(data.reputation);
+            if (data.trust_vector) setMyTrustVector(data.trust_vector);
+          }
         })
         .catch(() => {})
         .finally(() => setMyRepLoading(false));
@@ -260,7 +321,7 @@ function ReputationPageInner() {
             {error}
           </div>
         )}
-        {reputation && <ReputationDisplay reputation={reputation} />}
+        {reputation && <ReputationDisplay reputation={reputation} trustVector={trustVector || undefined} />}
       </div>
     );
   }
@@ -359,7 +420,7 @@ function ReputationPageInner() {
       {myDid && !myRepLoading && myReputation && (
         <div className="mb-8">
           <h2 className="text-xl font-bold mb-4">📊 Your Reputation Dashboard</h2>
-          <ReputationDisplay reputation={myReputation} title="Your Stats" />
+          <ReputationDisplay reputation={myReputation} trustVector={myTrustVector || undefined} title="Your Stats" />
           <div className="mt-6">
             <ShareSection did={myDid.did} />
           </div>
@@ -404,7 +465,7 @@ function ReputationPageInner() {
         </div>
       )}
 
-      {reputation && <ReputationDisplay reputation={reputation} />}
+      {reputation && <ReputationDisplay reputation={reputation} trustVector={trustVector || undefined} />}
     </div>
   );
 }

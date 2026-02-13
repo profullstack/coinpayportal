@@ -123,6 +123,54 @@ export async function getReceipts(client, did) {
   return client.request(`/reputation/receipts?did=${encodeURIComponent(did)}`);
 }
 
+// ═══════════════════════════════════════════════════════════
+// CPTL Phase 2 — Action Receipts & Trust Profile
+// ═══════════════════════════════════════════════════════════
+
+const CANONICAL_CATEGORIES = [
+  'economic.transaction', 'economic.dispute', 'economic.refund',
+  'productivity.task', 'productivity.application', 'productivity.completion',
+  'identity.profile_update', 'identity.verification',
+  'social.post', 'social.comment', 'social.endorsement',
+  'compliance.incident', 'compliance.violation',
+];
+
+/**
+ * Submit an action receipt with schema validation
+ * @param {import('./client.js').CoinPayClient} client
+ * @param {Object} receipt - Action receipt with action_category
+ * @returns {Promise<Object>}
+ */
+export async function submitActionReceipt(client, receipt) {
+  // Validate action_category if provided
+  if (receipt.action_category && !CANONICAL_CATEGORIES.includes(receipt.action_category)) {
+    throw new Error(`Invalid action_category: ${receipt.action_category}. Must be one of: ${CANONICAL_CATEGORIES.join(', ')}`);
+  }
+  // Default action_category
+  if (!receipt.action_category) {
+    receipt = { ...receipt, action_category: 'economic.transaction' };
+  }
+  return client.request('/reputation/receipt', {
+    method: 'POST',
+    body: JSON.stringify(receipt),
+  });
+}
+
+/**
+ * Get trust profile (trust vector) for an agent DID
+ * @param {import('./client.js').CoinPayClient} client
+ * @param {string} agentDid
+ * @returns {Promise<Object>} Trust vector { E, P, B, D, R, A, C }
+ */
+export async function getTrustProfile(client, agentDid) {
+  const result = await client.request(`/reputation/agent/${encodeURIComponent(agentDid)}/reputation`);
+  return {
+    trust_vector: result.trust_vector || null,
+    reputation: result.reputation || null,
+    computed_at: result.computed_at || null,
+  };
+}
+
 /**
  * Get the badge URL for a DID
  * @param {string} baseUrl - The CoinPayPortal base URL

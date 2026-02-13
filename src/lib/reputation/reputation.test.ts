@@ -734,3 +734,54 @@ describe('SDK reputation.js methods', () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 });
+
+// ═══════════════════════════════════════════════════════════
+// CPTL Phase 2 — ActionReceipt Schema Tests
+// ═══════════════════════════════════════════════════════════
+
+describe('ActionReceipt Schema (Phase 2)', () => {
+  it('should accept receipt with action_category', () => {
+    const receipt = validReceipt({ action_category: 'economic.transaction' });
+    const result = receiptSchema.safeParse(receipt);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.action_category).toBe('economic.transaction');
+    }
+  });
+
+  it('should default action_category to economic.transaction', () => {
+    const receipt = validReceipt();
+    const result = receiptSchema.safeParse(receipt);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.action_category).toBe('economic.transaction');
+    }
+  });
+
+  it('should accept receipt with action_type', () => {
+    const receipt = validReceipt({
+      action_category: 'productivity.completion',
+      action_type: 'code_review',
+    });
+    const result = receiptSchema.safeParse(receipt);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.action_type).toBe('code_review');
+    }
+  });
+
+  it('should accept all canonical action categories in schema', () => {
+    const categories = [
+      'economic.transaction', 'economic.dispute', 'economic.refund',
+      'productivity.task', 'productivity.application', 'productivity.completion',
+      'identity.profile_update', 'identity.verification',
+      'social.post', 'social.comment', 'social.endorsement',
+      'compliance.incident', 'compliance.violation',
+    ];
+    for (const cat of categories) {
+      const receipt = validReceipt({ action_category: cat });
+      const result = receiptSchema.safeParse(receipt);
+      expect(result.success).toBe(true);
+    }
+  });
+});

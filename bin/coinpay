@@ -472,9 +472,10 @@ USAGE
   coinpay <command> [options]
 
 COMMANDS
-  swap       Coin swap operations (no KYC)
-  wallet     Wallet management
-  help       Show this help
+  swap         Coin swap operations (no KYC)
+  wallet       Wallet management
+  reputation   Trust & reputation (CPTL)
+  help         Show this help
 
 SWAP COMMANDS
   coinpay swap quote   Get a swap quote
@@ -495,6 +496,9 @@ WALLET COMMANDS
   coinpay wallet history         Transaction history
   coinpay wallet backup          Export encrypted backup
   coinpay wallet delete          Delete local wallet file
+
+REPUTATION COMMANDS
+  coinpay reputation profile <did>  Show trust vector & reputation for a DID
 
 GLOBAL OPTIONS
   --password <pass>       Encryption password (or COINPAY_WALLET_PASSWORD env)
@@ -567,6 +571,54 @@ GLOBAL OPTIONS
 
 // ── Main ────────────────────────────────────────────────────────────
 
+// ── Reputation commands ──────────────────────────────────────────────
+
+async function handleReputation(subCommand, args) {
+  const opts = parseArgs(args);
+  switch (subCommand) {
+    case 'profile': {
+      const did = opts._positional?.[0] || opts.did;
+      if (!did) {
+        console.error('Usage: coinpay reputation profile <did>');
+        process.exit(1);
+      }
+      const res = await fetch(`${API_BASE}/api/reputation/agent/${encodeURIComponent(did)}/reputation`);
+      const data = await res.json();
+      if (!data.success) {
+        console.error('Error:', data.error);
+        process.exit(1);
+      }
+      console.log('\n📊 Reputation Profile:', did);
+      if (data.trust_vector) {
+        console.log('\n🔷 Trust Vector (CPTL v2):');
+        console.log(`  E (Economic):    ${data.trust_vector.E}`);
+        console.log(`  P (Productivity): ${data.trust_vector.P}`);
+        console.log(`  B (Behavioral):  ${data.trust_vector.B}`);
+        console.log(`  D (Diversity):   ${data.trust_vector.D}`);
+        console.log(`  R (Recency):     ${data.trust_vector.R}`);
+        console.log(`  A (Anomaly):     ${data.trust_vector.A}`);
+        console.log(`  C (Compliance):  ${data.trust_vector.C}`);
+      }
+      if (data.reputation?.windows) {
+        const w = data.reputation.windows.all_time;
+        console.log('\n📈 All-Time Stats:');
+        console.log(`  Tasks: ${w.task_count}  Accepted: ${w.accepted_count}  Disputed: ${w.disputed_count}`);
+        console.log(`  Volume: $${w.total_volume.toFixed(2)}  Unique Buyers: ${w.unique_buyers}`);
+      }
+      if (data.reputation?.anti_gaming?.flagged) {
+        console.log('\n⚠️  Anti-gaming flags:', data.reputation.anti_gaming.flags.join(', '));
+      }
+      break;
+    }
+    case 'help': case '--help': case '-h': default:
+      console.log(`
+Reputation Commands:
+  coinpay reputation profile <did>   Show trust vector and reputation for a DID
+`);
+      break;
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   
@@ -581,6 +633,9 @@ async function main() {
       break;
     case 'wallet':
       await handleWallet(subCommand, args.slice(2));
+      break;
+    case 'reputation':
+      await handleReputation(subCommand, args.slice(2));
       break;
     case 'help': case '--help': case '-h':
       showHelp();

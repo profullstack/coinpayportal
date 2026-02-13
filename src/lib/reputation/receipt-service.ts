@@ -6,6 +6,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { validateReceiptSignatures, isValidDid } from './crypto';
 import { checkMinimumThreshold } from './anti-gaming';
+import { CANONICAL_CATEGORIES, isValidActionCategory } from './trust-engine';
 import { z } from 'zod';
 
 export const receiptSchema = z.object({
@@ -18,6 +19,8 @@ export const receiptSchema = z.object({
   amount: z.number().optional(),
   currency: z.string().optional(),
   category: z.string().optional(),
+  action_category: z.string().optional().default('economic.transaction'),
+  action_type: z.string().optional(),
   sla: z.record(z.unknown()).optional(),
   outcome: z.enum(['accepted', 'rejected', 'disputed']),
   dispute: z.boolean().optional().default(false),
@@ -47,6 +50,11 @@ export async function submitReceipt(
   }
 
   const data = parsed.data;
+
+  // Validate action_category if provided
+  if (data.action_category && !isValidActionCategory(data.action_category)) {
+    return { success: false, error: `Invalid action_category: ${data.action_category}. Must be one of: ${CANONICAL_CATEGORIES.join(', ')}` };
+  }
 
   // Validate signatures
   const sigCheck = validateReceiptSignatures(data.signatures);
@@ -96,6 +104,8 @@ export async function submitReceipt(
       amount: data.amount,
       currency: data.currency,
       category: data.category,
+      action_category: data.action_category || 'economic.transaction',
+      action_type: data.action_type,
       sla: data.sla,
       outcome: data.outcome,
       dispute: data.dispute,

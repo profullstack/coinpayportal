@@ -1035,6 +1035,44 @@ const result = await client.createPayment({
           </CodeBlock>
         </DocSection>
 
+        {/* CPTL Phase 2 — Trust SDK */}
+        <DocSection title="Trust Profile & Action Receipts (CPTL v2)">
+          <p className="text-gray-300 mb-4">
+            Phase 2 adds multi-dimensional trust scoring with categorized action receipts.
+          </p>
+          <CodeBlock title="Submit Action Receipt">
+{`import { submitActionReceipt } from '@profullstack/coinpay/reputation';
+
+const result = await submitActionReceipt(client, {
+  receipt_id: '550e8400-...',
+  task_id: '550e8400-...',
+  agent_did: 'did:key:z6Mk...',
+  buyer_did: 'did:key:z6Mk...',
+  action_category: 'productivity.completion', // canonical category
+  action_type: 'code_review',                 // custom action type
+  amount: 250,
+  currency: 'USD',
+  outcome: 'accepted',
+  signatures: { escrow_sig: '...' },
+});`}
+          </CodeBlock>
+          <CodeBlock title="Get Trust Profile">
+{`import { getTrustProfile } from '@profullstack/coinpay/reputation';
+
+const profile = await getTrustProfile(client, 'did:key:z6Mk...');
+// profile.trust_vector = { E: 42.5, P: 12.3, B: 9.1, D: 2.08, R: 0.87, A: 0, C: 0 }
+// profile.reputation = { windows: { ... }, anti_gaming: { ... } }
+// profile.computed_at = "2026-02-13T..."`}
+          </CodeBlock>
+          <p className="text-gray-400 text-sm mt-4">
+            Valid action categories: <code>economic.transaction</code>, <code>economic.dispute</code>,
+            <code>economic.refund</code>, <code>productivity.task</code>, <code>productivity.application</code>,
+            <code>productivity.completion</code>, <code>identity.profile_update</code>,
+            <code>identity.verification</code>, <code>social.post</code>, <code>social.comment</code>,
+            <code>social.endorsement</code>, <code>compliance.incident</code>, <code>compliance.violation</code>
+          </p>
+        </DocSection>
+
         {/* Footer Navigation */}
         <div className="mt-12 pt-8 border-t border-white/10">
           <div className="flex justify-between items-center">

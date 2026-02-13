@@ -70,6 +70,39 @@ export function getCredential(client: CoinPayClient, credentialId: string): Prom
 export function verifyCredential(client: CoinPayClient, credential: { credential_id: string }): Promise<{ valid: boolean; reason?: string }>;
 export function getRevocationList(client: CoinPayClient): Promise<{ success: boolean; revoked_credentials: string[]; revocations: Array<Record<string, unknown>> }>;
 
+// CPTL Phase 2
+
+export type ActionCategory =
+  | 'economic.transaction' | 'economic.dispute' | 'economic.refund'
+  | 'productivity.task' | 'productivity.application' | 'productivity.completion'
+  | 'identity.profile_update' | 'identity.verification'
+  | 'social.post' | 'social.comment' | 'social.endorsement'
+  | 'compliance.incident' | 'compliance.violation';
+
+export interface ActionReceiptInput extends ReceiptInput {
+  action_category?: ActionCategory;
+  action_type?: string;
+}
+
+export interface TrustVector {
+  E: number;
+  P: number;
+  B: number;
+  D: number;
+  R: number;
+  A: number;
+  C: number;
+}
+
+export interface TrustProfileResult {
+  trust_vector: TrustVector | null;
+  reputation: ReputationResult | null;
+  computed_at: string | null;
+}
+
+export function submitActionReceipt(client: CoinPayClient, receipt: ActionReceiptInput): Promise<{ success: boolean; receipt?: Record<string, unknown>; error?: string }>;
+export function getTrustProfile(client: CoinPayClient, agentDid: string): Promise<TrustProfileResult>;
+
 export interface DidInfo {
   did: string;
   public_key: string;

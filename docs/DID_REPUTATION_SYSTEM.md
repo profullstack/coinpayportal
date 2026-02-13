@@ -571,14 +571,16 @@ coinpay reputation badge <did>      # Get badge URL for a DID
 - [x] Embeddable SVG badge
 - [x] API documentation
 
-### Phase 2 — Advanced Trust Math
-- [ ] ActionReceipt schema (canonical categories)
-- [ ] Multi-dimensional trust vector (E/P/B/D/R/A/C)
-- [ ] Economic scaling: `log(1 + value_usd)`
-- [ ] Diminishing returns: `log(1 + unique_count)`
-- [ ] Recency decay: 90-day half-life
-- [ ] Diversity multiplier
-- [ ] `@coinpayportal/trust-sdk` standalone package
+### Phase 2 — Advanced Trust Math ✅
+- [x] ActionReceipt schema (canonical categories)
+- [x] Multi-dimensional trust vector (E/P/B/D/R/A/C)
+- [x] Economic scaling: `log(1 + value_usd)`
+- [x] Diminishing returns: `log(1 + unique_count)`
+- [x] Recency decay: 90-day half-life
+- [x] Diversity multiplier
+- [x] SDK: `submitActionReceipt()` + `getTrustProfile()`
+- [x] CLI: `coinpay reputation profile <did>`
+- [x] Web UI: Trust vector bar chart
 
 ### Phase 3 — Anti-Collusion Engine
 - [ ] Graph-based loop detection
