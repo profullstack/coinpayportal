@@ -102,8 +102,52 @@ Content-Type: application/json
         </CodeBlock>
       </ApiEndpoint>
 
+      <ApiEndpoint method="GET" path="/api/reputation/receipts?did=[did]" description="List all task receipts for a DID.">
+        <CodeBlock title="Request">
+{`GET /api/reputation/receipts?did=did:key:z6Mk...
+Authorization: Bearer <token>`}
+        </CodeBlock>
+        <CodeBlock title="Response">
+{`{
+  "success": true,
+  "receipts": [
+    {
+      "receipt_id": "rcp_def456",
+      "agent_did": "did:key:z6Mk...",
+      "buyer_did": "did:key:z6Mk...",
+      "amount": 500,
+      "currency": "USD",
+      "outcome": "accepted",
+      "category": "development",
+      "created_at": "2026-02-10T14:30:00Z"
+    }
+  ]
+}`}
+        </CodeBlock>
+      </ApiEndpoint>
+
       {/* Credential Endpoints */}
       <h3 className="text-2xl font-bold text-white mb-6 mt-10">Verifiable Credentials</h3>
+
+      <ApiEndpoint method="GET" path="/api/reputation/credentials?did=[did]" description="List all credentials issued to a DID.">
+        <CodeBlock title="Request">
+{`GET /api/reputation/credentials?did=did:key:z6Mk...`}
+        </CodeBlock>
+        <CodeBlock title="Response">
+{`{
+  "success": true,
+  "credentials": [
+    {
+      "id": "cred_ghi789",
+      "credential_type": "TaskCompletionCredential",
+      "issuer_did": "did:web:coinpayportal.com",
+      "revoked": false,
+      "issued_at": "2026-02-10T14:30:00Z"
+    }
+  ]
+}`}
+        </CodeBlock>
+      </ApiEndpoint>
 
       <ApiEndpoint method="GET" path="/api/reputation/credential/[id]" description="Retrieve a verifiable credential by ID.">
         <CodeBlock title="Request">
@@ -156,6 +200,21 @@ Content-Type: application/json
   ],
   "updatedAt": "2026-02-13T00:00:00Z"
 }`}
+        </CodeBlock>
+      </ApiEndpoint>
+      {/* Badge */}
+      <h3 className="text-2xl font-bold text-white mb-6 mt-10">Reputation Badge</h3>
+
+      <ApiEndpoint method="GET" path="/api/reputation/badge/[did]" description="Get an embeddable SVG reputation badge (shields.io style). Returns an SVG image showing acceptance rate and task count. Green for good, yellow for moderate, red for poor.">
+        <CodeBlock title="Usage">
+{`<!-- Embed in HTML -->
+<img src="https://coinpayportal.com/api/reputation/badge/did:key:z6Mk..." alt="Reputation" />
+
+<!-- Embed in Markdown (GitHub README, etc.) -->
+![Reputation](https://coinpayportal.com/api/reputation/badge/did:key:z6Mk...)
+
+<!-- Get badge URL via CLI -->
+coinpay reputation badge did:key:z6Mk...`}
         </CodeBlock>
       </ApiEndpoint>
     </DocSection>

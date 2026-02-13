@@ -947,7 +947,20 @@ console.log('Valid:', result.valid, 'Revoked:', result.revoked);
 
 // Get revocation list
 const revocations = await client.getRevocations();
-console.log('Revoked credentials:', revocations.revocations.length);`}
+console.log('Revoked credentials:', revocations.revocations.length);
+
+// List all credentials for a DID
+const creds = await client.getCredentials('did:key:z6Mk...');
+console.log('Credentials:', creds.credentials.length);
+
+// List all task receipts for a DID
+const receipts = await client.getReceipts('did:key:z6Mk...');
+console.log('Receipts:', receipts.receipts.length);
+
+// Get embeddable reputation badge URL
+import { getBadgeUrl } from '@profullstack/coinpay';
+const badgeUrl = getBadgeUrl('https://coinpayportal.com', 'did:key:z6Mk...');
+// Use in markdown: ![Reputation](badgeUrl)`}
             </CodeBlock>
 
             <h3 className="text-xl font-semibold text-white mb-4 mt-8">CLI Commands</h3>
@@ -968,10 +981,28 @@ coinpay reputation did link --did "did:web:example.com"`}
 coinpay reputation submit --escrow esc_abc123 --rating 5 --description "Bug fix"
 
 # Query reputation
-coinpay reputation query did:coinpay:abc123...
+coinpay reputation query did:key:z6Mk...
 
 # Get a credential
 coinpay reputation credential cred_ghi789
+
+# List all your credentials
+coinpay reputation credentials
+
+# List credentials for another DID
+coinpay reputation credentials did:key:z6Mk...
+
+# List your task receipts
+coinpay reputation receipts
+
+# List receipts for another DID
+coinpay reputation receipts did:key:z6Mk...
+
+# Get your embeddable reputation badge URL
+coinpay reputation badge
+
+# Get badge for another DID
+coinpay reputation badge did:key:z6Mk...
 
 # Verify a credential
 coinpay reputation verify cred_ghi789
