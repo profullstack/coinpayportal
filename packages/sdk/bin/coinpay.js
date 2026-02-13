@@ -218,6 +218,13 @@ ${colors.cyan}Commands:${colors.reset}
     events <id>           Get escrow audit log
     auth <id>             Authenticate with escrow token
 
+  ${colors.bright}reputation${colors.reset}
+    submit                Submit a task receipt
+    query <agent-did>     Query agent reputation
+    credential <id>       Get credential details
+    verify <id>           Verify a credential
+    revocations           List revoked credentials
+
   ${colors.bright}webhook${colors.reset}
     logs <business-id>    Get webhook logs
     test <business-id>    Send test webhook
@@ -1578,6 +1585,156 @@ async function handleEscrow(subcommand, args, flags) {
 }
 
 /**
+ * Reputation commands
+ */
+async function handleReputation(subcommand, args, flags) {
+  switch (subcommand) {
+    case 'submit': {
+      const receiptArg = flags.receipt;
+      if (!receiptArg) {
+        print.error('Required: --receipt <json-file-or-inline-json>');
+        print.info('Example: coinpay reputation submit --receipt receipt.json');
+        print.info('Example: coinpay reputation submit --receipt \'{"receipt_id":"..."}\'');
+        return;
+      }
+
+      let receipt;
+      try {
+        if (existsSync(receiptArg)) {
+          receipt = JSON.parse(readFileSync(receiptArg, 'utf-8'));
+        } else {
+          receipt = JSON.parse(receiptArg);
+        }
+      } catch {
+        print.error('Could not parse receipt JSON. Provide a valid JSON file path or inline JSON.');
+        return;
+      }
+
+      const client = createClient();
+      const { submitReceipt } = await import('../src/reputation.js');
+      const result = await submitReceipt(client, receipt);
+
+      if (result.success) {
+        print.success('Receipt submitted');
+      } else {
+        print.error(result.error || 'Submission failed');
+      }
+
+      if (flags.json) print.json(result);
+      else if (result.receipt) print.json(result.receipt);
+      break;
+    }
+
+    case 'query': {
+      const agentDid = args[0];
+      if (!agentDid) {
+        print.error('Agent DID required');
+        print.info('Usage: coinpay reputation query <agent-did> [--window 30d|90d|all]');
+        return;
+      }
+
+      const client = createClient();
+      const { getReputation } = await import('../src/reputation.js');
+      const result = await getReputation(client, agentDid);
+
+      if (flags.json) {
+        print.json(result);
+      } else if (result.success && result.reputation) {
+        const rep = result.reputation;
+        const windowKey = flags.window === '90d' ? 'last_90_days'
+          : flags.window === 'all' ? 'all_time'
+          : 'last_30_days';
+        const label = flags.window || '30d';
+        const w = rep.windows[windowKey];
+
+        print.info(`Reputation for ${rep.agent_did} (${label}):`);
+        console.log(`  Tasks: ${w.task_count}`);
+        console.log(`  Accepted: ${w.accepted_count} (${(w.accepted_rate * 100).toFixed(1)}%)`);
+        console.log(`  Disputed: ${w.disputed_count} (${(w.dispute_rate * 100).toFixed(1)}%)`);
+        console.log(`  Volume: ${w.total_volume.toFixed(2)}`);
+        console.log(`  Avg Value: ${w.avg_task_value.toFixed(2)}`);
+        console.log(`  Unique Buyers: ${w.unique_buyers}`);
+
+        if (rep.anti_gaming.flagged) {
+          print.warn(`Anti-gaming flags: ${rep.anti_gaming.flags.join(', ')}`);
+        }
+      } else {
+        print.json(result);
+      }
+      break;
+    }
+
+    case 'credential': {
+      const credentialId = args[0];
+      if (!credentialId) {
+        print.error('Credential ID required');
+        print.info('Usage: coinpay reputation credential <credential-id>');
+        return;
+      }
+
+      const client = createClient();
+      const { getCredential } = await import('../src/reputation.js');
+      const result = await getCredential(client, credentialId);
+
+      if (result.success && result.credential) {
+        print.success(`Credential ${result.credential.id}`);
+        console.log(`  Agent: ${result.credential.agent_did}`);
+        console.log(`  Type: ${result.credential.credential_type}`);
+        console.log(`  Issued: ${result.credential.issued_at}`);
+        console.log(`  Revoked: ${result.credential.revoked ? 'YES' : 'no'}`);
+      }
+
+      if (flags.json) print.json(result);
+      break;
+    }
+
+    case 'verify': {
+      const credentialId = args[0];
+      if (!credentialId) {
+        print.error('Credential ID required');
+        print.info('Usage: coinpay reputation verify <credential-id>');
+        return;
+      }
+
+      const client = createClient();
+      const { verifyCredential } = await import('../src/reputation.js');
+      const result = await verifyCredential(client, { credential_id: credentialId });
+
+      if (result.valid) {
+        print.success('Credential is valid');
+      } else {
+        print.error(`Credential invalid: ${result.reason}`);
+      }
+
+      if (flags.json) print.json(result);
+      break;
+    }
+
+    case 'revocations': {
+      const client = createClient();
+      const { getRevocationList } = await import('../src/reputation.js');
+      const result = await getRevocationList(client);
+
+      if (flags.json) {
+        print.json(result);
+      } else {
+        const revocations = result.revocations || [];
+        print.info(`Revoked credentials: ${revocations.length}`);
+        for (const r of revocations) {
+          console.log(`  ${r.credential_id} — ${r.reason || 'no reason'} (${r.revoked_at})`);
+        }
+      }
+      break;
+    }
+
+    default:
+      print.error(`Unknown reputation command: ${subcommand}`);
+      print.info('Available: submit, query, credential, verify, revocations');
+      process.exit(1);
+  }
+}
+
+/**
  * Main entry point
  */
 async function main() {
@@ -1625,6 +1782,10 @@ async function main() {
 
       case 'webhook':
         await handleWebhook(subcommand, args, flags);
+        break;
+
+      case 'reputation':
+        await handleReputation(subcommand, args, flags);
         break;
         
       default:

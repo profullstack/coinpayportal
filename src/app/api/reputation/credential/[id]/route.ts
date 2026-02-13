@@ -1,16 +1,10 @@
-/**
- * GET /api/reputation/credential/[id] — Get a specific credential
- */
-
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-function getSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase not configured');
-  return createClient(url, key);
-}
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export async function GET(
   request: NextRequest,
@@ -18,21 +12,20 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const supabase = getSupabase();
 
-    const { data, error } = await supabase
+    const { data: credential, error } = await supabase
       .from('reputation_credentials')
       .select('*')
       .eq('id', id)
       .single();
 
-    if (error || !data) {
-      return NextResponse.json({ error: 'Credential not found' }, { status: 404 });
+    if (error || !credential) {
+      return NextResponse.json({ success: false, error: 'Credential not found' }, { status: 404 });
     }
 
-    return NextResponse.json(data);
+    return NextResponse.json({ success: true, credential });
   } catch (error) {
     console.error('Credential fetch error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

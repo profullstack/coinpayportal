@@ -1,27 +1,20 @@
-/**
- * POST /api/reputation/verify — Verify a credential
- */
-
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyCredentialSignature } from '@/lib/reputation/crypto';
 
-function getSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase not configured');
-  return createClient(url, key);
-}
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export async function POST(request: NextRequest) {
   try {
-    const { credential_id } = await request.json();
+    const body = await request.json();
+    const { credential_id } = body;
 
     if (!credential_id) {
-      return NextResponse.json({ error: 'Missing credential_id' }, { status: 400 });
+      return NextResponse.json({ valid: false, reason: 'credential_id required' }, { status: 400 });
     }
-
-    const supabase = getSupabase();
 
     const { data: credential, error } = await supabase
       .from('reputation_credentials')
@@ -30,40 +23,42 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error || !credential) {
-      return NextResponse.json({ error: 'Credential not found' }, { status: 404 });
+      return NextResponse.json({ valid: false, reason: 'Credential not found' }, { status: 404 });
     }
 
-    // Check revocation
     if (credential.revoked) {
-      return NextResponse.json({
-        valid: false,
-        reason: 'revoked',
-        revoked_at: credential.revoked_at,
-      });
+      return NextResponse.json({ valid: false, reason: 'Credential has been revoked' });
     }
 
-    // Check timestamp validity (credentials older than 1 year are expired)
-    const issuedAt = new Date(credential.issued_at);
-    const oneYearAgo = new Date(Date.now() - 365 * 86400000);
-    if (issuedAt < oneYearAgo) {
-      return NextResponse.json({
-        valid: false,
-        reason: 'expired',
-        issued_at: credential.issued_at,
-      });
+    const { data: revocation } = await supabase
+      .from('reputation_revocations')
+      .select('id')
+      .eq('credential_id', credential_id)
+      .limit(1)
+      .single();
+
+    if (revocation) {
+      return NextResponse.json({ valid: false, reason: 'Credential found in revocation registry' });
     }
 
-    // Verify signature
-    const { signature, ...credData } = credential;
-    const sigValid = verifyCredentialSignature(credData, signature);
-
-    return NextResponse.json({
-      valid: sigValid,
-      reason: sigValid ? 'valid' : 'invalid_signature',
-      credential,
+    const sigValid = verifyCredentialSignature({
+      agent_did: credential.agent_did,
+      credential_type: credential.credential_type,
+      category: credential.category,
+      data: credential.data,
+      window_start: credential.window_start,
+      window_end: credential.window_end,
+      issued_at: credential.issued_at,
+      signature: credential.signature,
     });
+
+    if (!sigValid) {
+      return NextResponse.json({ valid: false, reason: 'Invalid signature' });
+    }
+
+    return NextResponse.json({ valid: true });
   } catch (error) {
     console.error('Credential verification error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ valid: false, reason: 'Internal server error' }, { status: 500 });
   }
 }

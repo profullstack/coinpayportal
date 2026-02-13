@@ -3,96 +3,103 @@
  * DID resolution, signature verification, credential signing
  */
 
-import crypto from 'crypto';
+import { createHmac, createHash, randomUUID } from 'crypto';
 
-export interface DIDDocument {
-  id: string;
-  verificationMethod?: Array<{
-    id: string;
-    type: string;
-    publicKeyJwk?: JsonWebKey;
-    publicKeyMultibase?: string;
-  }>;
+const ISSUER_DID = 'did:web:coinpayportal.com';
+const SIGNING_SECRET = process.env.REPUTATION_SIGNING_SECRET || 'cpr-dev-secret';
+
+/**
+ * Create an HMAC signature for data
+ */
+export function sign(data: string): string {
+  return createHmac('sha256', SIGNING_SECRET).update(data).digest('hex');
 }
 
 /**
- * Resolve a DID to its document (simplified — supports did:web and did:key stubs)
+ * Verify an HMAC signature
  */
-export async function resolveDID(did: string): Promise<DIDDocument | null> {
-  if (!did || typeof did !== 'string') return null;
-
-  if (did.startsWith('did:web:')) {
-    const domain = did.replace('did:web:', '').replace(/:/g, '/');
-    try {
-      const res = await fetch(`https://${domain}/.well-known/did.json`);
-      if (res.ok) return await res.json();
-    } catch {
-      // Fall through to stub
-    }
-    return { id: did };
-  }
-
-  if (did.startsWith('did:key:')) {
-    return { id: did };
-  }
-
-  return { id: did };
+export function verifySignature(data: string, signature: string): boolean {
+  const expected = sign(data);
+  return expected === signature;
 }
 
 /**
- * Verify a signature against data and a DID
- * For Phase 1, we use HMAC-SHA256 with the DID as context.
- * Production would resolve the DID's public key and verify properly.
+ * Hash an artifact (sha256)
  */
-export function verifySignature(
-  data: string,
-  signature: string,
-  did: string
-): boolean {
-  if (!data || !signature || !did) return false;
-  // Phase 1: signature is hex(sha256(data + did))
-  const expected = crypto
-    .createHash('sha256')
-    .update(data + did)
-    .digest('hex');
-  return signature === expected;
+export function hashArtifact(data: string): string {
+  return createHash('sha256').update(data).digest('hex');
 }
 
 /**
- * Sign data with a DID (Phase 1 simplified)
+ * Sign a credential — produces a signature over the credential data
  */
-export function signData(data: string, did: string): string {
-  return crypto
-    .createHash('sha256')
-    .update(data + did)
-    .digest('hex');
-}
-
-/**
- * Sign a credential for issuance
- */
-export function signCredential(credential: Record<string, unknown>): string {
-  const issuerDid = 'did:web:coinpayportal.com';
-  const payload = JSON.stringify(credential);
-  return signData(payload, issuerDid);
+export function signCredential(credential: {
+  agent_did: string;
+  credential_type: string;
+  category?: string | null;
+  data: Record<string, unknown>;
+  window_start: string;
+  window_end: string;
+  issued_at: string;
+}): string {
+  const payload = JSON.stringify({
+    agent_did: credential.agent_did,
+    credential_type: credential.credential_type,
+    category: credential.category,
+    data: credential.data,
+    window_start: credential.window_start,
+    window_end: credential.window_end,
+    issued_at: credential.issued_at,
+    issuer_did: ISSUER_DID,
+  });
+  return sign(payload);
 }
 
 /**
  * Verify a credential signature
  */
-export function verifyCredentialSignature(
-  credential: Record<string, unknown>,
-  signature: string
-): boolean {
-  const issuerDid = (credential.issuer_did as string) || 'did:web:coinpayportal.com';
-  const { signature: _sig, ...rest } = credential;
-  const payload = JSON.stringify(rest);
-  return verifySignature(payload, signature, issuerDid);
+export function verifyCredentialSignature(credential: {
+  agent_did: string;
+  credential_type: string;
+  category?: string | null;
+  data: Record<string, unknown>;
+  window_start: string;
+  window_end: string;
+  issued_at: string;
+  signature: string;
+}): boolean {
+  const payload = JSON.stringify({
+    agent_did: credential.agent_did,
+    credential_type: credential.credential_type,
+    category: credential.category,
+    data: credential.data,
+    window_start: credential.window_start,
+    window_end: credential.window_end,
+    issued_at: credential.issued_at,
+    issuer_did: ISSUER_DID,
+  });
+  return verifySignature(payload, credential.signature);
 }
 
 /**
- * Hash an artifact (file, result, etc.)
+ * Validate a DID format (basic validation)
  */
-export function hashArtifact(data: string | Buffer): string {
-  return crypto.createHash('sha256').update(data).digest('hex');
+export function isValidDid(did: string): boolean {
+  return /^did:[a-z]+:.+$/.test(did);
+}
+
+/**
+ * Validate receipt signatures — at minimum escrow_sig must be present
+ */
+export function validateReceiptSignatures(signatures: Record<string, string> | null | undefined): {
+  valid: boolean;
+  reason?: string;
+} {
+  if (!signatures || typeof signatures !== 'object') {
+    return { valid: false, reason: 'Missing signatures object' };
+  }
+  if (!signatures.escrow_sig) {
+    return { valid: false, reason: 'Missing required escrow_sig' };
+  }
+  return { valid: true };
 }

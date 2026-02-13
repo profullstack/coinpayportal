@@ -1,51 +1,64 @@
 /**
  * Reputation SDK Module
  *
- * Submit receipts, query reputation, verify credentials.
+ * Query and submit reputation data for the CoinPayPortal Reputation Protocol (CPR).
  *
  * @example
  * import { CoinPayClient } from '@profullstack/coinpay';
- * const client = new CoinPayClient({ apiKey: 'your-key' });
- *
- * // Submit a task receipt
- * const result = await client.submitReceipt({ ... });
- *
- * // Get agent reputation
- * const rep = await client.getReputation('did:web:agent.example.com');
+ * import { submitReceipt, getReputation } from '@profullstack/coinpay/reputation';
  */
 
 /**
  * Submit a task receipt
+ * @param {import('./client.js').CoinPayClient} client
+ * @param {Object} receipt - Receipt data
+ * @returns {Promise<Object>}
  */
 export async function submitReceipt(client, receipt) {
-  return client._request('POST', '/api/reputation/receipt', receipt);
+  return client.request('/reputation/receipt', {
+    method: 'POST',
+    body: JSON.stringify(receipt),
+  });
 }
 
 /**
- * Get aggregated reputation for an agent DID
+ * Get reputation for an agent DID
+ * @param {import('./client.js').CoinPayClient} client
+ * @param {string} agentDid
+ * @returns {Promise<Object>}
  */
 export async function getReputation(client, agentDid) {
-  const encoded = encodeURIComponent(agentDid);
-  return client._request('GET', `/api/reputation/agent/${encoded}/reputation`);
+  return client.request(`/reputation/agent/${encodeURIComponent(agentDid)}/reputation`);
 }
 
 /**
- * Get a specific credential by ID
+ * Get a specific credential
+ * @param {import('./client.js').CoinPayClient} client
+ * @param {string} credentialId
+ * @returns {Promise<Object>}
  */
 export async function getCredential(client, credentialId) {
-  return client._request('GET', `/api/reputation/credential/${credentialId}`);
+  return client.request(`/reputation/credential/${credentialId}`);
 }
 
 /**
  * Verify a credential
+ * @param {import('./client.js').CoinPayClient} client
+ * @param {Object} credential - { credential_id: string }
+ * @returns {Promise<{valid: boolean, reason?: string}>}
  */
-export async function verifyCredential(client, credentialId) {
-  return client._request('POST', '/api/reputation/verify', { credential_id: credentialId });
+export async function verifyCredential(client, credential) {
+  return client.request('/reputation/verify', {
+    method: 'POST',
+    body: JSON.stringify(credential),
+  });
 }
 
 /**
  * Get the revocation list
+ * @param {import('./client.js').CoinPayClient} client
+ * @returns {Promise<Object>}
  */
 export async function getRevocationList(client) {
-  return client._request('GET', '/api/reputation/revocation-list');
+  return client.request('/reputation/revocation-list');
 }

@@ -78,6 +78,7 @@ import {
 } from './wallet.js';
 
 // Swap exports
+// Reputation exports
 import {
   submitReceipt,
   getReputation,

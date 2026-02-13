@@ -1,136 +1,124 @@
 /**
- * Reputation Protocol — Anti-Gaming Engine
- * Detects circular payments, burst activity, and sybil-like patterns
+ * Reputation Protocol — Anti-Gaming Detection
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export interface AntiGamingFlags {
-  circular_payment: boolean;
-  burst_detected: boolean;
-  below_economic_threshold: boolean;
-  insufficient_unique_buyers: boolean;
+export interface AntiGamingResult {
   flagged: boolean;
-  details: string[];
-}
-
-// Minimum economic threshold per receipt (USD equiv)
-const MIN_ECONOMIC_THRESHOLD = 1.0;
-// Maximum receipts per agent per hour before burst flag
-const BURST_THRESHOLD = 20;
-// Minimum unique buyers for credibility
-const MIN_UNIQUE_BUYERS = 3;
-
-/**
- * Run all anti-gaming checks for an agent
- */
-export async function checkAntiGaming(
-  supabase: SupabaseClient,
-  agentDid: string,
-  windowDays: number = 30
-): Promise<AntiGamingFlags> {
-  const flags: AntiGamingFlags = {
-    circular_payment: false,
-    burst_detected: false,
-    below_economic_threshold: false,
-    insufficient_unique_buyers: false,
-    flagged: false,
-    details: [],
-  };
-
-  const windowStart = new Date(Date.now() - windowDays * 86400000).toISOString();
-
-  const { data: receipts } = await supabase
-    .from('reputation_receipts')
-    .select('agent_did, buyer_did, amount, created_at')
-    .eq('agent_did', agentDid)
-    .gte('created_at', windowStart)
-    .order('created_at', { ascending: false });
-
-  if (!receipts || receipts.length === 0) return flags;
-
-  // 1. Circular payment detection: agent is also a buyer for the same counterparty
-  await detectCircularPayments(supabase, agentDid, windowStart, flags);
-
-  // 2. Burst detection
-  detectBurst(receipts, flags);
-
-  // 3. Minimum economic threshold
-  const avgAmount = receipts.reduce((s, r) => s + Number(r.amount), 0) / receipts.length;
-  if (avgAmount < MIN_ECONOMIC_THRESHOLD) {
-    flags.below_economic_threshold = true;
-    flags.details.push(`Average transaction ${avgAmount.toFixed(2)} below threshold ${MIN_ECONOMIC_THRESHOLD}`);
-  }
-
-  // 4. Unique buyer requirement
-  const uniqueBuyers = new Set(receipts.map(r => r.buyer_did));
-  if (uniqueBuyers.size < MIN_UNIQUE_BUYERS) {
-    flags.insufficient_unique_buyers = true;
-    flags.details.push(`Only ${uniqueBuyers.size} unique buyers (minimum ${MIN_UNIQUE_BUYERS})`);
-  }
-
-  flags.flagged = flags.circular_payment || flags.burst_detected ||
-    flags.below_economic_threshold || flags.insufficient_unique_buyers;
-
-  return flags;
+  flags: string[];
+  adjustedWeight: number; // 0-1, lower = more suspicious
 }
 
 /**
- * Detect circular payments: agent_did appears as buyer_did for their counterparties
+ * Detect circular payment patterns (agent↔buyer loops)
  */
-async function detectCircularPayments(
+export async function detectCircularPayments(
   supabase: SupabaseClient,
   agentDid: string,
-  windowStart: string,
-  flags: AntiGamingFlags
-): Promise<void> {
-  // Get all buyers who paid this agent
-  const { data: agentReceipts } = await supabase
-    .from('reputation_receipts')
-    .select('buyer_did')
-    .eq('agent_did', agentDid)
-    .gte('created_at', windowStart);
-
-  if (!agentReceipts || agentReceipts.length === 0) return;
-
-  const buyerDids = [...new Set(agentReceipts.map(r => r.buyer_did))];
-
-  // Check if this agent is a buyer for any of those counterparties
+  buyerDid: string
+): Promise<{ circular: boolean; count: number }> {
+  // Check if agent_did has also acted as buyer for this buyer_did acting as agent
   const { data: reverseReceipts } = await supabase
     .from('reputation_receipts')
-    .select('agent_did')
+    .select('id')
+    .eq('agent_did', buyerDid)
     .eq('buyer_did', agentDid)
-    .in('agent_did', buyerDids)
-    .gte('created_at', windowStart);
+    .limit(1);
 
-  if (reverseReceipts && reverseReceipts.length > 0) {
-    flags.circular_payment = true;
-    const circularAgents = [...new Set(reverseReceipts.map(r => r.agent_did))];
-    flags.details.push(`Circular payments detected with: ${circularAgents.join(', ')}`);
-  }
+  const count = reverseReceipts?.length || 0;
+  return { circular: count > 0, count };
 }
 
 /**
- * Detect burst activity (too many receipts in short time)
+ * Detect burst activity (abnormal clustering of receipts)
  */
-function detectBurst(
-  receipts: Array<{ created_at: string }>,
-  flags: AntiGamingFlags
-): void {
-  if (receipts.length < BURST_THRESHOLD) return;
+export async function detectBurst(
+  supabase: SupabaseClient,
+  agentDid: string,
+  windowMinutes: number = 60,
+  threshold: number = 10
+): Promise<{ burst: boolean; count: number }> {
+  const windowStart = new Date(Date.now() - windowMinutes * 60 * 1000).toISOString();
+  
+  const { data: recentReceipts, count } = await supabase
+    .from('reputation_receipts')
+    .select('id', { count: 'exact' })
+    .eq('agent_did', agentDid)
+    .gte('created_at', windowStart);
 
-  // Group by hour
-  const hourBuckets = new Map<string, number>();
-  for (const r of receipts) {
-    const hour = r.created_at.slice(0, 13); // YYYY-MM-DDTHH
-    hourBuckets.set(hour, (hourBuckets.get(hour) || 0) + 1);
+  const receiptCount = count || 0;
+  return { burst: receiptCount >= threshold, count: receiptCount };
+}
+
+/**
+ * Check minimum economic threshold
+ */
+export function checkMinimumThreshold(
+  amount: number | null | undefined,
+  minAmount: number = 0.01
+): boolean {
+  return (amount || 0) >= minAmount;
+}
+
+/**
+ * Calculate buyer diversity score for an agent
+ */
+export async function calculateBuyerDiversity(
+  supabase: SupabaseClient,
+  agentDid: string,
+  since?: string
+): Promise<{ uniqueBuyers: number; totalTasks: number; diversityScore: number }> {
+  let query = supabase
+    .from('reputation_receipts')
+    .select('buyer_did')
+    .eq('agent_did', agentDid);
+
+  if (since) {
+    query = query.gte('created_at', since);
   }
 
-  for (const [hour, count] of hourBuckets) {
-    if (count >= BURST_THRESHOLD) {
-      flags.burst_detected = true;
-      flags.details.push(`Burst: ${count} receipts in hour ${hour}`);
-      break;
-    }
+  const { data: receipts } = await query;
+
+  if (!receipts || receipts.length === 0) {
+    return { uniqueBuyers: 0, totalTasks: 0, diversityScore: 0 };
   }
+
+  const uniqueBuyers = new Set(receipts.map((r: { buyer_did: string }) => r.buyer_did)).size;
+  const totalTasks = receipts.length;
+  // Diversity score: ratio of unique buyers to total tasks (capped at 1)
+  const diversityScore = Math.min(uniqueBuyers / totalTasks, 1);
+
+  return { uniqueBuyers, totalTasks, diversityScore };
+}
+
+/**
+ * Run full anti-gaming analysis on an agent
+ */
+export async function analyzeAgent(
+  supabase: SupabaseClient,
+  agentDid: string
+): Promise<AntiGamingResult> {
+  const flags: string[] = [];
+  let weight = 1.0;
+
+  // Check burst
+  const burst = await detectBurst(supabase, agentDid);
+  if (burst.burst) {
+    flags.push(`burst_detected: ${burst.count} receipts in last hour`);
+    weight *= 0.5;
+  }
+
+  // Check buyer diversity
+  const diversity = await calculateBuyerDiversity(supabase, agentDid);
+  if (diversity.totalTasks > 5 && diversity.diversityScore < 0.2) {
+    flags.push(`low_buyer_diversity: ${diversity.uniqueBuyers}/${diversity.totalTasks}`);
+    weight *= 0.3;
+  }
+
+  return {
+    flagged: flags.length > 0,
+    flags,
+    adjustedWeight: weight,
+  };
 }

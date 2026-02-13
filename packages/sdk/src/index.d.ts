@@ -105,11 +105,10 @@ export {
   getRevocationList,
 } from './reputation.js';
 export type {
-  TaskReceipt,
-  ReputationSummary,
-  MultiWindowReputation,
-  CredentialVerification,
-  RevocationList,
+  ReceiptInput,
+  ReputationWindow,
+  ReputationResult,
+  Credential,
 } from './reputation.js';
 
 import { CoinPayClient } from './client.js';

@@ -11,8 +11,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { checkBalance } from './balance-checkers';
 import type { EscrowStats } from './types';
-import { generateReceiptFromEscrow, storeReceipt, validateReceipt } from '@/lib/reputation/receipt-service';
-import { signData } from '@/lib/reputation/crypto';
+import { randomUUID } from 'crypto';
 
 /**
  * Run the full escrow monitoring cycle
@@ -189,11 +188,11 @@ async function settleReleasedEscrows(supabase: SupabaseClient): Promise<void> {
         });
         if (settleResponse.ok) {
           console.log(`Settlement triggered for escrow ${escrow.id}`);
-          // Auto-generate reputation receipt on successful settlement
+          // Generate reputation receipt for settled escrow
           try {
             await generateReputationReceipt(supabase, escrow);
-          } catch (repError) {
-            console.error(`Reputation receipt generation failed for escrow ${escrow.id}:`, repError);
+          } catch (repErr) {
+            console.error(`Reputation receipt error for escrow ${escrow.id}:`, repErr);
           }
         } else {
           console.error(`Settlement failed for escrow ${escrow.id}: ${settleResponse.status}`);
@@ -246,45 +245,31 @@ async function settleRefundedEscrows(supabase: SupabaseClient): Promise<void> {
 }
 
 /**
- * Auto-generate a TaskReceipt after escrow settlement
+ * Generate a reputation receipt when an escrow is settled
  */
 async function generateReputationReceipt(
   supabase: SupabaseClient,
-  escrow: {
-    id: string;
-    chain: string;
-    amount: number;
-    deposited_amount?: number;
-    beneficiary_address: string;
-    escrow_address: string;
-    escrow_address_id?: string;
-    business_id?: string;
-    fee_amount?: number;
-  }
+  escrow: Record<string, unknown>
 ): Promise<void> {
-  const partial = generateReceiptFromEscrow(escrow);
-
-  // Sign with platform DID
-  const platformDid = partial.platform_did || 'did:web:coinpayportal.com';
-  const data = `${partial.receipt_id}:${partial.task_id}:${partial.agent_did}:${partial.buyer_did}:${partial.amount}:${partial.outcome}`;
-  const platformSig = signData(data, platformDid);
-
-  const receipt = {
-    ...partial,
-    signatures: { platform: platformSig },
+  const receiptId = randomUUID();
+  const { error } = await supabase.from('reputation_receipts').insert({
+    receipt_id: receiptId,
+    task_id: escrow.id,
+    agent_did: `did:coinpay:beneficiary:${escrow.beneficiary_address}`,
+    buyer_did: `did:coinpay:depositor:${escrow.business_id || 'unknown'}`,
+    platform_did: 'did:web:coinpayportal.com',
+    escrow_tx: escrow.id,
+    amount: Number(escrow.amount) || 0,
+    currency: escrow.chain as string,
+    category: 'escrow_settlement',
+    outcome: 'accepted',
+    dispute: false,
+    signatures: { escrow_sig: `auto:${escrow.id}` },
     finalized_at: new Date().toISOString(),
-  };
-
-  const validation = validateReceipt(receipt);
-  if (!validation.valid) {
-    console.warn(`Skipping reputation receipt for escrow ${escrow.id}: ${validation.errors.join(', ')}`);
-    return;
-  }
-
-  const result = await storeReceipt(supabase, receipt as any);
-  if (result.success) {
-    console.log(`Reputation receipt ${result.id} created for escrow ${escrow.id}`);
-  } else if (result.error !== 'Duplicate receipt_id') {
-    console.error(`Failed to store reputation receipt for escrow ${escrow.id}: ${result.error}`);
+  });
+  if (error) {
+    console.error(`Failed to create reputation receipt for escrow ${escrow.id}:`, error.message);
+  } else {
+    console.log(`Reputation receipt ${receiptId} created for escrow ${escrow.id}`);
   }
 }
