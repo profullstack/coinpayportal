@@ -208,6 +208,15 @@ ${colors.cyan}Commands:${colors.reset}
     status <swap-id>      Check swap status
     history               Swap history
 
+  ${colors.bright}card${colors.reset}
+    create                Create a card payment via Stripe
+    get <id>              Get card payment status
+    list                  List card payments
+    connect onboard <id>  Create Stripe onboarding link
+    connect status <id>   Check Stripe account status
+    escrow release <id>   Release card escrow funds
+    escrow refund <id>    Refund card escrow
+
   ${colors.bright}escrow${colors.reset}
     create                Create a new escrow
     get <id>              Get escrow status
@@ -1995,6 +2004,211 @@ async function handleReputation(subcommand, args, flags) {
 }
 
 /**
+ * Card (Stripe) commands
+ */
+async function handleCard(subcommand, args, flags) {
+  const client = createClient();
+
+  switch (subcommand) {
+    case 'create': {
+      const { 'business-id': businessId, amount, currency = 'usd', description } = flags;
+      const escrowMode = flags['escrow'] === true || flags['escrow-mode'] === true;
+
+      if (!businessId || !amount) {
+        print.error('Required: --business-id, --amount (in cents)');
+        print.info('Example: coinpay card create --business-id biz_123 --amount 5000 --description "Order #123"');
+        return;
+      }
+
+      const payment = await client.createCardPayment({
+        businessId,
+        amount: parseInt(amount, 10),
+        currency,
+        description,
+        metadata: flags.metadata ? JSON.parse(flags.metadata) : undefined,
+        successUrl: flags['success-url'],
+        cancelUrl: flags['cancel-url'],
+        escrowMode,
+      });
+
+      print.success('Card payment created');
+      if (payment.checkout_url) {
+        print.info(`Checkout URL: ${payment.checkout_url}`);
+      }
+      if (payment.checkout_session_id) {
+        print.info(`Session ID: ${payment.checkout_session_id}`);
+      }
+      if (flags.json) print.json(payment);
+      break;
+    }
+
+    case 'get': {
+      const id = args[0];
+      if (!id) {
+        print.error('Payment ID required');
+        print.info('Usage: coinpay card get <id>');
+        return;
+      }
+
+      // Card payments use Stripe account status endpoint for now
+      // or we can query the stripe_transactions table via the API
+      const result = await client.request(`/stripe/payments/${id}`);
+      print.json(result);
+      break;
+    }
+
+    case 'list': {
+      const { 'business-id': businessId, status, limit } = flags;
+
+      if (!businessId) {
+        print.error('Required: --business-id');
+        return;
+      }
+
+      const params = new URLSearchParams({ businessId });
+      if (status) params.append('status', status);
+      if (limit) params.append('limit', limit);
+
+      const result = await client.request(`/stripe/payments?${params.toString()}`);
+      print.json(result);
+      break;
+    }
+
+    case 'connect': {
+      const connectSubcommand = args[0];
+      const merchantId = args[1];
+
+      if (!connectSubcommand) {
+        print.error('Usage: coinpay card connect <onboard|status> <merchantId>');
+        return;
+      }
+
+      switch (connectSubcommand) {
+        case 'onboard': {
+          if (!merchantId) {
+            print.error('Merchant ID required');
+            print.info('Usage: coinpay card connect onboard <merchantId>');
+            return;
+          }
+
+          const result = await client.createStripeOnboardingLink(merchantId, {
+            email: flags.email,
+            country: flags.country,
+          });
+
+          print.success('Onboarding link created');
+          if (result.onboarding_url) {
+            print.info(`Onboarding URL: ${result.onboarding_url}`);
+          }
+          if (result.stripe_account_id) {
+            print.info(`Stripe Account: ${result.stripe_account_id}`);
+          }
+          if (flags.json) print.json(result);
+          break;
+        }
+
+        case 'status': {
+          if (!merchantId) {
+            print.error('Merchant ID required');
+            print.info('Usage: coinpay card connect status <merchantId>');
+            return;
+          }
+
+          const result = await client.getStripeAccountStatus(merchantId);
+
+          print.info(`Stripe Account Status for ${merchantId}:`);
+          if (result.onboarding_complete) {
+            print.success('Onboarding complete — can accept card payments');
+          } else {
+            print.warn('Onboarding incomplete');
+          }
+          print.info(`  Charges enabled: ${result.charges_enabled}`);
+          print.info(`  Payouts enabled: ${result.payouts_enabled}`);
+          print.info(`  Details submitted: ${result.details_submitted}`);
+          if (result.requirements_due?.length > 0) {
+            print.info(`  Requirements due: ${result.requirements_due.join(', ')}`);
+          }
+          if (flags.json) print.json(result);
+          break;
+        }
+
+        default:
+          print.error(`Unknown connect command: ${connectSubcommand}`);
+          print.info('Available: onboard, status');
+          process.exit(1);
+      }
+      break;
+    }
+
+    case 'escrow': {
+      const escrowSubcommand = args[0];
+      const escrowId = args[1];
+
+      if (!escrowSubcommand) {
+        print.error('Usage: coinpay card escrow <release|refund> <id>');
+        return;
+      }
+
+      switch (escrowSubcommand) {
+        case 'release': {
+          if (!escrowId) {
+            print.error('Escrow ID required');
+            print.info('Usage: coinpay card escrow release <id> [--reason "..."]');
+            return;
+          }
+
+          const result = await client.releaseCardEscrow(escrowId, flags.reason);
+
+          print.success(`Card escrow ${escrowId} released`);
+          if (result.transfer_id) {
+            print.info(`Transfer ID: ${result.transfer_id}`);
+          }
+          if (result.amount_transferred) {
+            print.info(`Amount: $${(result.amount_transferred / 100).toFixed(2)}`);
+          }
+          if (flags.json) print.json(result);
+          break;
+        }
+
+        case 'refund': {
+          if (!escrowId) {
+            print.error('Escrow ID required');
+            print.info('Usage: coinpay card escrow refund <id> [--reason "..."] [--amount <cents>]');
+            return;
+          }
+
+          const result = await client.refundCardPayment(escrowId, {
+            amount: flags.amount ? parseInt(flags.amount, 10) : undefined,
+            reason: flags.reason,
+          });
+
+          print.success(`Card escrow ${escrowId} refunded`);
+          if (result.refund_id) {
+            print.info(`Refund ID: ${result.refund_id}`);
+          }
+          if (result.amount_refunded) {
+            print.info(`Amount refunded: $${(result.amount_refunded / 100).toFixed(2)}`);
+          }
+          if (flags.json) print.json(result);
+          break;
+        }
+
+        default:
+          print.error(`Unknown card escrow command: ${escrowSubcommand}`);
+          print.info('Available: release, refund');
+          process.exit(1);
+      }
+      break;
+    }
+
+    default:
+      print.error(`Unknown card command: ${subcommand}`);
+      print.info('Available: create, get, list, connect, escrow');
+      process.exit(1);
+  }
+}
+
+/**
  * Main entry point
  */
 async function main() {
@@ -2042,6 +2256,10 @@ async function main() {
 
       case 'webhook':
         await handleWebhook(subcommand, args, flags);
+        break;
+
+      case 'card':
+        await handleCard(subcommand, args, flags);
         break;
 
       case 'reputation':
