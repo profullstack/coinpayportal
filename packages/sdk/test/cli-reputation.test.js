@@ -63,4 +63,18 @@ describe('CLI Reputation Commands', () => {
     const output = run("reputation submit --receipt '{bad-json'");
     expect(output).toContain('Could not parse receipt JSON');
   });
+
+  it('help should list credentials command', () => {
+    const output = run('--help');
+    expect(output).toContain('credentials');
+    expect(output).toContain('receipts');
+    expect(output).toContain('badge');
+  });
+
+  it('reputation badge without DID should try to resolve own DID', () => {
+    // Without valid auth this will fail, but it should not crash
+    const output = run('reputation badge');
+    // Either shows the badge URL or an auth/connection error — not a crash
+    expect(output).not.toContain('Unknown reputation command');
+  });
 });
