@@ -257,7 +257,7 @@ function ReputationPageInner() {
   useEffect(() => {
     async function checkDid() {
       try {
-        const result = await authFetch('/api/reputation/did/me', {}, router);
+        const result = await authFetch('/api/reputation/did/me', {});
         if (result && result.response.ok && result.data?.did) {
           setMyDid(result.data);
         }
