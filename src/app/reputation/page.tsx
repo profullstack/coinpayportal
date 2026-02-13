@@ -48,33 +48,42 @@ interface DidInfo {
   created_at: string;
 }
 
+const WINDOW_TOOLTIPS: Record<string, string> = {
+  tasks: 'Total number of reputation receipts (transactions, tasks, social actions) recorded in this time window.',
+  accepted_rate: 'Percentage of tasks/transactions that were accepted or completed successfully without disputes.',
+  dispute_rate: 'Percentage of tasks/transactions that resulted in a dispute. Lower is better — high dispute rates reduce your Behavioral (B) trust score.',
+  volume: 'Total USD value of all economic transactions in this period. Contributes to your Economic (E) trust score.',
+  avg_value: 'Average USD value per transaction. Higher average values with consistent completion rates indicate more reliable economic activity.',
+  unique_buyers: 'Number of distinct counterparties you\'ve interacted with. More unique buyers/sellers increases your Diversity (D) trust score.',
+};
+
 function WindowCard({ label, data }: { label: string; data: ReputationWindow }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
       <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">{label}</h3>
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div>
-          <span className="text-gray-500 dark:text-gray-400">Tasks</span>
+          <span className="text-gray-500 dark:text-gray-400">Tasks<InfoTooltip text={WINDOW_TOOLTIPS.tasks} /></span>
           <p className="font-bold text-xl text-gray-900 dark:text-white">{data.task_count}</p>
         </div>
         <div>
-          <span className="text-gray-500 dark:text-gray-400">Accepted Rate</span>
+          <span className="text-gray-500 dark:text-gray-400">Accepted Rate<InfoTooltip text={WINDOW_TOOLTIPS.accepted_rate} /></span>
           <p className="font-bold text-xl text-green-600">{(data.accepted_rate * 100).toFixed(1)}%</p>
         </div>
         <div>
-          <span className="text-gray-500 dark:text-gray-400">Dispute Rate</span>
+          <span className="text-gray-500 dark:text-gray-400">Dispute Rate<InfoTooltip text={WINDOW_TOOLTIPS.dispute_rate} /></span>
           <p className="font-bold text-xl text-red-500">{(data.dispute_rate * 100).toFixed(1)}%</p>
         </div>
         <div>
-          <span className="text-gray-500 dark:text-gray-400">Volume</span>
+          <span className="text-gray-500 dark:text-gray-400">Volume<InfoTooltip text={WINDOW_TOOLTIPS.volume} /></span>
           <p className="font-bold text-xl text-gray-900 dark:text-white">${data.total_volume.toFixed(2)}</p>
         </div>
         <div>
-          <span className="text-gray-500 dark:text-gray-400">Avg Value</span>
+          <span className="text-gray-500 dark:text-gray-400">Avg Value<InfoTooltip text={WINDOW_TOOLTIPS.avg_value} /></span>
           <p className="font-bold text-gray-900 dark:text-white">${data.avg_task_value.toFixed(2)}</p>
         </div>
         <div>
-          <span className="text-gray-500 dark:text-gray-400">Unique Buyers</span>
+          <span className="text-gray-500 dark:text-gray-400">Unique Buyers<InfoTooltip text={WINDOW_TOOLTIPS.unique_buyers} /></span>
           <p className="font-bold text-gray-900 dark:text-white">{data.unique_buyers}</p>
         </div>
       </div>
@@ -154,15 +163,39 @@ function ShareSection({ did }: { did: string }) {
   );
 }
 
-const TRUST_LABELS: Record<string, { label: string; color: string; description: string }> = {
-  E: { label: 'Economic', color: 'bg-green-500', description: 'From economic transactions' },
-  P: { label: 'Productivity', color: 'bg-blue-500', description: 'From task completions' },
-  B: { label: 'Behavioral', color: 'bg-yellow-500', description: 'Dispute rate & patterns' },
-  D: { label: 'Diversity', color: 'bg-purple-500', description: 'Unique counterparties' },
-  R: { label: 'Recency', color: 'bg-cyan-500', description: '90-day decay factor' },
-  A: { label: 'Anomaly', color: 'bg-red-500', description: 'Anti-gaming penalty' },
-  C: { label: 'Compliance', color: 'bg-orange-500', description: 'Compliance penalty' },
+const TRUST_LABELS: Record<string, { label: string; color: string; description: string; detail: string }> = {
+  E: { label: 'Economic', color: 'bg-green-500', description: 'From economic transactions', detail: 'Measures the total value and frequency of completed financial transactions. Higher scores indicate more economic activity with successful payment completions and fewer refunds.' },
+  P: { label: 'Productivity', color: 'bg-blue-500', description: 'From task completions', detail: 'Tracks task and project completion rates across platforms. Includes gigs completed, applications accepted, posts created, and other productive actions submitted through platform integrations.' },
+  B: { label: 'Behavioral', color: 'bg-yellow-500', description: 'Dispute rate & patterns', detail: 'Reflects dispute history and behavioral patterns. A high score means few disputes relative to completed transactions. Repeated disputes or chargebacks will lower this score significantly.' },
+  D: { label: 'Diversity', color: 'bg-purple-500', description: 'Unique counterparties', detail: 'Measures how many unique counterparties (buyers, sellers, platforms) you\'ve transacted with. Higher diversity indicates a broader, more trustworthy reputation that isn\'t dependent on a single relationship.' },
+  R: { label: 'Recency', color: 'bg-cyan-500', description: '90-day decay factor', detail: 'A time-decay multiplier that weights recent activity more heavily. Activity within the last 90 days contributes fully, while older activity gradually decays. Staying active keeps this score high.' },
+  A: { label: 'Anomaly', color: 'bg-red-500', description: 'Anti-gaming penalty', detail: 'Penalty applied when suspicious patterns are detected, such as rapid self-dealing, wash trading, or artificial volume inflation. A score of 0 means no anomalies detected. Negative values indicate active penalties.' },
+  C: { label: 'Compliance', color: 'bg-orange-500', description: 'Compliance penalty', detail: 'Penalty for compliance violations such as terms-of-service breaches, reported incidents, or platform rule violations. A score of 0 means a clean compliance record. Negative values indicate active penalties.' },
 };
+
+function InfoTooltip({ text }: { text: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span className="relative inline-block ml-1.5">
+      <button
+        type="button"
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-300 dark:bg-gray-600 text-gray-600 dark:text-gray-300 text-[10px] font-bold leading-none hover:bg-violet-400 hover:text-white dark:hover:bg-violet-500 transition cursor-help"
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        onClick={() => setShow(!show)}
+        aria-label="More info"
+      >
+        i
+      </button>
+      {show && (
+        <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 text-xs leading-relaxed text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg">
+          {text}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px border-4 border-transparent border-t-white dark:border-t-gray-800" />
+        </div>
+      )}
+    </span>
+  );
+}
 
 function TrustVectorCard({ vector }: { vector: TrustVector }) {
   const entries = Object.entries(vector) as [string, number][];
@@ -179,7 +212,10 @@ function TrustVectorCard({ vector }: { vector: TrustVector }) {
           return (
             <div key={key}>
               <div className="flex justify-between text-sm mb-1">
-                <span className="font-medium text-gray-900 dark:text-white">{info.label} ({key})</span>
+                <span className="font-medium text-gray-900 dark:text-white">
+                  {info.label} ({key})
+                  <InfoTooltip text={info.detail} />
+                </span>
                 <span className={isNegative ? 'text-red-400' : 'text-green-400'}>{value}</span>
               </div>
               <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
