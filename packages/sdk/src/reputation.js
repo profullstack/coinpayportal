@@ -180,3 +180,56 @@ export async function getTrustProfile(client, agentDid) {
 export function getBadgeUrl(baseUrl, did) {
   return `${baseUrl}/api/reputation/badge/${encodeURIComponent(did)}`;
 }
+
+// ═══════════════════════════════════════════════════════════
+// Platform Issuer Self-Service
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Register a new platform issuer
+ * @param {import('./client.js').CoinPayClient} client
+ * @param {Object} params
+ * @param {string} params.name - Issuer name (alphanumeric, dots, hyphens, underscores)
+ * @param {string} params.domain - Issuer domain
+ * @param {string} [params.did] - Optional DID (auto-generated from domain if omitted)
+ * @returns {Promise<Object>} { success, issuer, api_key }
+ */
+export async function registerPlatformIssuer(client, { name, domain, did }) {
+  return client.request('/reputation/issuers', {
+    method: 'POST',
+    body: JSON.stringify({ name, domain, did }),
+  });
+}
+
+/**
+ * List merchant's registered platform issuers (keys masked)
+ * @param {import('./client.js').CoinPayClient} client
+ * @returns {Promise<Object>} { success, issuers }
+ */
+export async function listPlatformIssuers(client) {
+  return client.request('/reputation/issuers');
+}
+
+/**
+ * Rotate a platform issuer's API key
+ * @param {import('./client.js').CoinPayClient} client
+ * @param {string} issuerId - The issuer ID
+ * @returns {Promise<Object>} { success, issuer, api_key }
+ */
+export async function rotatePlatformApiKey(client, issuerId) {
+  return client.request(`/reputation/issuers/${issuerId}/rotate`, {
+    method: 'POST',
+  });
+}
+
+/**
+ * Deactivate a platform issuer (soft delete)
+ * @param {import('./client.js').CoinPayClient} client
+ * @param {string} issuerId - The issuer ID
+ * @returns {Promise<Object>} { success, issuer }
+ */
+export async function deactivatePlatformIssuer(client, issuerId) {
+  return client.request(`/reputation/issuers/${issuerId}`, {
+    method: 'DELETE',
+  });
+}

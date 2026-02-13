@@ -113,3 +113,20 @@ export interface DidInfo {
 export function getMyDid(client: CoinPayClient): Promise<DidInfo>;
 export function claimDid(client: CoinPayClient): Promise<DidInfo>;
 export function linkDid(client: CoinPayClient, params: { did: string; publicKey: string; signature: string }): Promise<DidInfo>;
+
+// Platform Issuer Self-Service
+
+export interface PlatformIssuer {
+  id: string;
+  did: string;
+  name: string;
+  domain: string;
+  active: boolean;
+  api_key: string | null;
+  created_at: string;
+}
+
+export function registerPlatformIssuer(client: CoinPayClient, params: { name: string; domain: string; did?: string }): Promise<{ success: boolean; issuer: PlatformIssuer; api_key: string }>;
+export function listPlatformIssuers(client: CoinPayClient): Promise<{ success: boolean; issuers: PlatformIssuer[] }>;
+export function rotatePlatformApiKey(client: CoinPayClient, issuerId: string): Promise<{ success: boolean; issuer: PlatformIssuer; api_key: string }>;
+export function deactivatePlatformIssuer(client: CoinPayClient, issuerId: string): Promise<{ success: boolean; issuer: PlatformIssuer }>;
