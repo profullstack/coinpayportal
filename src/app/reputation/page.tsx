@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
@@ -29,6 +29,13 @@ interface ReputationResult {
     flags: string[];
     adjusted_weight: number;
   };
+}
+
+interface DidInfo {
+  did: string;
+  public_key: string;
+  verified: boolean;
+  created_at: string;
 }
 
 function WindowCard({ label, data }: { label: string; data: ReputationWindow }) {
@@ -84,6 +91,25 @@ export default function ReputationPage() {
   const [reputation, setReputation] = useState<ReputationResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [myDid, setMyDid] = useState<DidInfo | null>(null);
+  const [didLoading, setDidLoading] = useState(true);
+
+  // Check if user already has a DID
+  useEffect(() => {
+    async function checkDid() {
+      try {
+        const result = await authFetch('/api/reputation/did/me', {}, router);
+        if (result && result.response.ok && result.data?.did) {
+          setMyDid(result.data);
+        }
+      } catch {
+        // Not logged in or no DID — that's fine
+      } finally {
+        setDidLoading(false);
+      }
+    }
+    checkDid();
+  }, [router]);
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -112,7 +138,10 @@ export default function ReputationPage() {
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold">Reputation Protocol</h1>
+        <div>
+          <h1 className="text-3xl font-bold">Reputation Protocol</h1>
+          <p className="text-gray-400 mt-1">Portable, escrow-backed reputation for the open web</p>
+        </div>
         <Link
           href="/reputation/submit"
           className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
@@ -121,42 +150,106 @@ export default function ReputationPage() {
         </Link>
       </div>
 
-      {/* Claim DID CTA */}
-      <div className="mb-8 p-6 rounded-xl bg-gradient-to-r from-violet-600/20 to-fuchsia-600/20 border border-violet-500/30">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div>
-            <h2 className="text-xl font-bold mb-1">🆔 Claim Your Decentralized Identity</h2>
-            <p className="text-gray-400 text-sm">
-              Get a DID to build portable, escrow-backed reputation across platforms.
-            </p>
+      {/* How It Works */}
+      <div className="mb-8 p-6 rounded-xl bg-gray-800/50 border border-gray-700">
+        <h2 className="text-lg font-bold mb-3">How It Works</h2>
+        <div className="grid md:grid-cols-4 gap-4 text-sm">
+          <div className="flex gap-3">
+            <span className="text-2xl">1️⃣</span>
+            <div>
+              <p className="font-semibold">Claim a DID</p>
+              <p className="text-gray-400">Get a decentralized identifier — your portable identity across platforms.</p>
+            </div>
           </div>
-          <Link
-            href="/reputation/did"
-            className="bg-violet-600 text-white px-6 py-3 rounded-lg hover:bg-violet-700 transition font-medium"
-          >
-            Claim DID
-          </Link>
+          <div className="flex gap-3">
+            <span className="text-2xl">2️⃣</span>
+            <div>
+              <p className="font-semibold">Complete Escrow Jobs</p>
+              <p className="text-gray-400">Every settled escrow generates a cryptographic task receipt.</p>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <span className="text-2xl">3️⃣</span>
+            <div>
+              <p className="font-semibold">Build Reputation</p>
+              <p className="text-gray-400">Your score is computed from real on-chain settlements — no fake reviews.</p>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <span className="text-2xl">4️⃣</span>
+            <div>
+              <p className="font-semibold">Use Anywhere</p>
+              <p className="text-gray-400">Share your DID on ugig.net, freelance platforms, or any site that supports CPR.</p>
+            </div>
+          </div>
         </div>
       </div>
 
-      <form onSubmit={handleSearch} className="mb-8">
-        <div className="flex gap-3">
-          <input
-            type="text"
-            value={agentDid}
-            onChange={(e) => setAgentDid(e.target.value)}
-            placeholder="Enter agent DID (e.g., did:web:agent.example.com)"
-            className="flex-1 px-4 py-3 border rounded-lg dark:bg-gray-800 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none"
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
-          >
-            {loading ? 'Searching...' : 'Search'}
-          </button>
+      {/* DID Status Card */}
+      {!didLoading && (
+        <div className="mb-8 p-6 rounded-xl bg-gradient-to-r from-violet-600/20 to-fuchsia-600/20 border border-violet-500/30">
+          {myDid ? (
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <h2 className="text-xl font-bold mb-1">🆔 Your DID</h2>
+                <p className="font-mono text-sm text-violet-300 break-all">{myDid.did}</p>
+                <p className="text-gray-400 text-xs mt-1">
+                  Claimed {new Date(myDid.created_at).toLocaleDateString()} · {myDid.verified ? '✅ Verified' : '⏳ Unverified'}
+                </p>
+              </div>
+              <Link
+                href="/reputation/did"
+                className="bg-violet-600 text-white px-6 py-3 rounded-lg hover:bg-violet-700 transition font-medium"
+              >
+                Manage DID
+              </Link>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <h2 className="text-xl font-bold mb-1">🆔 Claim Your Decentralized Identity</h2>
+                <p className="text-gray-400 text-sm">
+                  A DID is your portable identity. Claim one to start building escrow-backed reputation
+                  that you can use on ugig.net, freelance marketplaces, and any platform that supports the
+                  CoinPayPortal Reputation Protocol.
+                </p>
+              </div>
+              <Link
+                href="/reputation/did"
+                className="bg-violet-600 text-white px-6 py-3 rounded-lg hover:bg-violet-700 transition font-medium whitespace-nowrap"
+              >
+                Claim DID
+              </Link>
+            </div>
+          )}
         </div>
-      </form>
+      )}
+
+      {/* Search Reputation */}
+      <div className="mb-8">
+        <h2 className="text-xl font-bold mb-3">Look Up Reputation</h2>
+        <p className="text-gray-400 text-sm mb-4">
+          Enter any DID to see their escrow-backed reputation score. Useful for verifying freelancers, contractors, or trading partners.
+        </p>
+        <form onSubmit={handleSearch}>
+          <div className="flex gap-3">
+            <input
+              type="text"
+              value={agentDid}
+              onChange={(e) => setAgentDid(e.target.value)}
+              placeholder="Enter a DID (e.g., did:key:z6Mk...)"
+              className="flex-1 px-4 py-3 border rounded-lg dark:bg-gray-800 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+            >
+              {loading ? 'Searching...' : 'Search'}
+            </button>
+          </div>
+        </form>
+      </div>
 
       {error && (
         <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg mb-6">
