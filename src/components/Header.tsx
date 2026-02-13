@@ -51,6 +51,7 @@ export default function Header() {
     { name: 'Home', href: '/' },
     { name: 'Wallet', href: '/web-wallet' },
     { name: 'API', href: '/docs' },
+    { name: 'Reputation', href: '/reputation' },
     { name: 'Pricing', href: '/pricing' },
   ];
 
@@ -59,6 +60,7 @@ export default function Header() {
     { name: 'Escrow', href: '/escrow' },
     { name: 'Wallet', href: '/web-wallet' },
     { name: 'API', href: '/docs' },
+    { name: 'Reputation', href: '/reputation' },
   ];
 
   const currentNav = isLoggedIn ? loggedInNavigation : navigation;

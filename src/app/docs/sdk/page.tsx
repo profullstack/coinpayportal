@@ -62,6 +62,7 @@ export default function SDKDocsPage() {
               { name: 'Exchange Rates', href: '#rates' },
               { name: 'Webhook Verification', href: '#webhooks' },
               { name: 'CLI Commands', href: '#cli' },
+              { name: 'Reputation & DID', href: '#reputation' },
               { name: 'Error Handling', href: '#errors' },
             ].map((item) => (
               <a
@@ -891,6 +892,93 @@ try {
                 </div>
               ))}
             </div>
+          </DocSection>
+        </div>
+
+        {/* Reputation & DID */}
+        <div id="reputation">
+          <DocSection title="Reputation & DID">
+            <p className="text-gray-300 mb-6">
+              Track agent reputation, manage DIDs, and work with verifiable credentials.
+            </p>
+
+            <h3 className="text-xl font-semibold text-white mb-4">SDK Methods</h3>
+
+            <CodeBlock title="DID Management" language="javascript">
+{`import { CoinPayClient } from '@profullstack/coinpay';
+
+const client = new CoinPayClient({ apiKey: 'cp_live_your_api_key' });
+
+// Claim a DID
+const did = await client.claimDid({ displayName: 'Agent Smith' });
+console.log('DID:', did.did);
+
+// Get your DID
+const myDid = await client.getMyDid();
+console.log('My DID:', myDid.did);
+
+// Link an external DID
+await client.linkDid({ externalDid: 'did:web:example.com' });`}
+            </CodeBlock>
+
+            <CodeBlock title="Reputation & Receipts" language="javascript">
+{`// Submit a task receipt (after escrow settlement)
+const receipt = await client.submitReceipt({
+  escrowId: 'esc_abc123',
+  taskDescription: 'Frontend bug fix',
+  rating: 5,
+  counterpartyDid: 'did:coinpay:xyz789...',
+});
+console.log('Receipt:', receipt.receiptId);
+
+// Query reputation for a DID
+const rep = await client.queryReputation('did:coinpay:abc123...');
+console.log('Score:', rep.score, 'Tasks:', rep.totalTasks);`}
+            </CodeBlock>
+
+            <CodeBlock title="Verifiable Credentials" language="javascript">
+{`// Get a credential
+const cred = await client.getCredential('cred_ghi789');
+console.log('Credential:', cred.credential);
+
+// Verify a credential
+const result = await client.verifyCredential('cred_ghi789');
+console.log('Valid:', result.valid, 'Revoked:', result.revoked);
+
+// Get revocation list
+const revocations = await client.getRevocations();
+console.log('Revoked credentials:', revocations.revocations.length);`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">CLI Commands</h3>
+
+            <CodeBlock title="DID commands" language="bash">
+{`# Claim a DID
+coinpay reputation did claim --name "Agent Smith"
+
+# Get your DID
+coinpay reputation did
+
+# Link an external DID
+coinpay reputation did link --did "did:web:example.com"`}
+            </CodeBlock>
+
+            <CodeBlock title="Reputation commands" language="bash">
+{`# Submit a receipt
+coinpay reputation submit --escrow esc_abc123 --rating 5 --description "Bug fix"
+
+# Query reputation
+coinpay reputation query did:coinpay:abc123...
+
+# Get a credential
+coinpay reputation credential cred_ghi789
+
+# Verify a credential
+coinpay reputation verify cred_ghi789
+
+# List revocations
+coinpay reputation revocations`}
+            </CodeBlock>
           </DocSection>
         </div>
 

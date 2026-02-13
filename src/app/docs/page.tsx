@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { AuthenticationDocs } from '@/components/docs/AuthenticationDocs';
 import { SubscriptionsDocs } from '@/components/docs/SubscriptionsDocs';
 import { WebWalletDocs } from '@/components/docs/WebWalletDocs';
+import { ReputationDocs } from '@/components/docs/ReputationDocs';
 import { DocSection } from '@/components/docs/DocSection';
 import { ApiEndpoint } from '@/components/docs/ApiEndpoint';
 import { CodeBlock } from '@/components/docs/CodeBlock';
@@ -89,6 +90,27 @@ export default function DocsPage() {
           </div>
         </div>
 
+        {/* Reputation Banner */}
+        <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 border border-violet-500/30">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white mb-2">🛡️ Reputation &amp; DID</h2>
+              <p className="text-gray-300 text-sm">
+                Decentralized reputation system — track agent performance, issue verifiable credentials, query trust scores
+              </p>
+            </div>
+            <a
+              href="#reputation"
+              className="px-6 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              View Docs
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </a>
+          </div>
+        </div>
+
         {/* Table of Contents */}
         <nav className="mb-12 p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
           <h2 className="text-xl font-bold text-white mb-4">Quick Navigation</h2>
@@ -97,6 +119,7 @@ export default function DocsPage() {
               { name: 'SDK Documentation', href: '/docs/sdk', external: true },
               { name: 'Web Wallet API', href: '#web-wallet' },
               { name: 'Escrow API', href: '#escrow' },
+              { name: 'Reputation & DID', href: '#reputation' },
               { name: 'Exchange Rates', href: '#rates' },
               { name: 'Authentication', href: '#authentication' },
               { name: 'Subscriptions & Entitlements', href: '#subscriptions' },
@@ -1209,6 +1232,11 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
             </div>
           </div>
         </DocSection>
+
+        {/* Reputation & DID */}
+        <div id="reputation">
+          <ReputationDocs />
+        </div>
 
         {/* Error Codes */}
         <div id="errors">
