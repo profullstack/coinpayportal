@@ -543,6 +543,75 @@ const partialRefund = await client.refundCardPayment('payment-intent-id', {
 
 console.log('Refund status:', refund.status);`}
             </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Card Escrow — Release &amp; Refund</h3>
+            <CodeBlock title="Release and refund card escrow" language="javascript">
+{`// Release card escrow funds to merchant
+const release = await client.releaseCardEscrow('escrow-id', 'Work completed successfully');
+console.log(\`Transfer ID: \${release.transfer_id}\`);
+console.log(\`Amount released: $\${(release.amount_transferred / 100).toFixed(2)}\`);
+
+// Refund card escrow — full refund
+const refund = await client.refundCardPayment('escrow-id');
+console.log(\`Refund ID: \${refund.refund_id}\`);
+
+// Refund card escrow — partial refund
+const partialRefund = await client.refundCardPayment('escrow-id', {
+  amount: 2500, // $25.00 in cents
+  reason: 'Partial refund — item returned'
+});
+console.log(\`Refunded: $\${(partialRefund.amount_refunded / 100).toFixed(2)}\`);
+console.log(\`Escrow status: \${partialRefund.escrow_status}\`); // 'partially_refunded'`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4">CLI Card Commands</h3>
+            <CodeBlock title="Card payment CLI" language="bash">
+{`# Create a card payment ($50.00 = 5000 cents)
+coinpay card create --business-id biz_123 --amount 5000 --description "Order #123"
+
+# Create card payment with escrow mode
+coinpay card create --business-id biz_123 --amount 10000 --escrow --description "Freelance work"
+
+# Get card payment details
+coinpay card get pay_abc123
+
+# List card payments for a business
+coinpay card list --business-id biz_123
+
+# Stripe Connect — onboard a merchant
+coinpay card connect onboard merch_123 --email merchant@example.com --country US
+
+# Stripe Connect — check onboarding status
+coinpay card connect status merch_123
+
+# Release card escrow funds
+coinpay card escrow release esc_123 --reason "Work completed"
+
+# Refund card escrow (full)
+coinpay card escrow refund esc_123
+
+# Refund card escrow (partial, $25)
+coinpay card escrow refund esc_123 --amount 2500 --reason "Partial refund"`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Stripe Webhook Events</h3>
+            <p className="text-gray-300 mb-4">
+              The platform processes these Stripe webhook events automatically:
+            </p>
+            <div className="space-y-3 mb-6">
+              {[
+                { event: 'payment_intent.succeeded', description: 'Card payment completed — updates transaction record, funds escrow if applicable, creates DID reputation event' },
+                { event: 'charge.dispute.created', description: 'Customer disputed a charge — creates dispute record, negative DID reputation impact (-50 weight)' },
+                { event: 'payout.created', description: 'Stripe payout initiated to merchant bank account' },
+                { event: 'payout.paid', description: 'Payout arrived in merchant bank account' },
+                { event: 'account.updated', description: 'Stripe Connect account capabilities changed (charges_enabled, payouts_enabled, etc.)' },
+              ].map((item) => (
+                <div key={item.event} className="p-3 rounded-lg bg-slate-800/50 flex items-start gap-4">
+                  <code className="text-purple-400 font-mono text-sm whitespace-nowrap">{item.event}</code>
+                  <span className="text-gray-300 text-sm">{item.description}</span>
+                </div>
+              ))}
+            </div>
           </DocSection>
         </div>
 

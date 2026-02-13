@@ -90,6 +90,27 @@ export default function DocsPage() {
           </div>
         </div>
 
+        {/* Card Payments Banner */}
+        <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-blue-500/20 to-indigo-500/20 border border-blue-500/30">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white mb-2">💳 Credit Card Payments</h2>
+              <p className="text-gray-300 text-sm">
+                Accept credit &amp; debit cards via Stripe Connect — gateway mode, escrow mode, and automatic merchant onboarding
+              </p>
+            </div>
+            <Link
+              href="/docs/sdk#card-payments"
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              View Docs
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+          </div>
+        </div>
+
         {/* Reputation Banner */}
         <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 border border-violet-500/30">
           <div className="flex items-center justify-between">
