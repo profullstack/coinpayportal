@@ -51,11 +51,11 @@ interface DidInfo {
 function WindowCard({ label, data }: { label: string; data: ReputationWindow }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-      <h3 className="text-lg font-semibold mb-4">{label}</h3>
+      <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">{label}</h3>
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div>
           <span className="text-gray-500 dark:text-gray-400">Tasks</span>
-          <p className="font-bold text-xl">{data.task_count}</p>
+          <p className="font-bold text-xl text-gray-900 dark:text-white">{data.task_count}</p>
         </div>
         <div>
           <span className="text-gray-500 dark:text-gray-400">Accepted Rate</span>
@@ -67,25 +67,25 @@ function WindowCard({ label, data }: { label: string; data: ReputationWindow }) 
         </div>
         <div>
           <span className="text-gray-500 dark:text-gray-400">Volume</span>
-          <p className="font-bold text-xl">${data.total_volume.toFixed(2)}</p>
+          <p className="font-bold text-xl text-gray-900 dark:text-white">${data.total_volume.toFixed(2)}</p>
         </div>
         <div>
           <span className="text-gray-500 dark:text-gray-400">Avg Value</span>
-          <p className="font-bold">${data.avg_task_value.toFixed(2)}</p>
+          <p className="font-bold text-gray-900 dark:text-white">${data.avg_task_value.toFixed(2)}</p>
         </div>
         <div>
           <span className="text-gray-500 dark:text-gray-400">Unique Buyers</span>
-          <p className="font-bold">{data.unique_buyers}</p>
+          <p className="font-bold text-gray-900 dark:text-white">{data.unique_buyers}</p>
         </div>
       </div>
       {Object.keys(data.categories).length > 0 && (
-        <div className="mt-4 border-t pt-3">
+        <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-3">
           <span className="text-gray-500 dark:text-gray-400 text-sm">Categories</span>
           <div className="mt-1 space-y-1">
             {Object.entries(data.categories).map(([cat, info]) => (
               <div key={cat} className="flex justify-between text-sm">
-                <span>{cat}</span>
-                <span>{info.count} tasks · ${info.volume.toFixed(2)}</span>
+                <span className="text-gray-700 dark:text-gray-300">{cat}</span>
+                <span className="text-gray-700 dark:text-gray-300">{info.count} tasks · ${info.volume.toFixed(2)}</span>
               </div>
             ))}
           </div>
@@ -110,16 +110,16 @@ function ShareSection({ did }: { did: string }) {
   }
 
   return (
-    <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 mb-8">
-      <h2 className="text-lg font-bold mb-4">📤 Share Your Reputation</h2>
+    <div className="bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-6 mb-8">
+      <h2 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">📤 Share Your Reputation</h2>
       <div className="space-y-4">
         <div>
-          <label className="text-sm text-gray-400 block mb-1">Public Profile URL</label>
+          <label className="text-sm text-gray-500 dark:text-gray-400 block mb-1">Public Profile URL</label>
           <div className="flex gap-2">
             <input
               readOnly
               value={publicUrl}
-              className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm font-mono text-gray-300"
+              className="flex-1 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded text-sm font-mono text-gray-700 dark:text-gray-300"
             />
             <button
               onClick={() => copyText(publicUrl, 'url')}
@@ -130,16 +130,16 @@ function ShareSection({ did }: { did: string }) {
           </div>
         </div>
         <div>
-          <label className="text-sm text-gray-400 block mb-1">Reputation Badge (Markdown)</label>
+          <label className="text-sm text-gray-500 dark:text-gray-400 block mb-1">Reputation Badge (Markdown)</label>
           <div className="flex gap-2">
             <input
               readOnly
               value={badgeMarkdown}
-              className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm font-mono text-gray-300"
+              className="flex-1 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded text-sm font-mono text-gray-700 dark:text-gray-300"
             />
             <button
               onClick={() => copyText(badgeMarkdown, 'badge')}
-              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded transition"
+              className="px-4 py-2 bg-gray-600 dark:bg-gray-700 hover:bg-gray-700 dark:hover:bg-gray-600 text-white text-sm rounded transition"
             >
               {copied === 'badge' ? '✓ Copied!' : 'Copy'}
             </button>
@@ -170,7 +170,7 @@ function TrustVectorCard({ vector }: { vector: TrustVector }) {
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
-      <h3 className="text-lg font-semibold mb-4">🔷 Trust Vector (CPTL v2)</h3>
+      <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">🔷 Trust Vector (CPTL v2)</h3>
       <div className="space-y-3">
         {entries.map(([key, value]) => {
           const info = TRUST_LABELS[key] || { label: key, color: 'bg-gray-500', description: '' };
@@ -179,16 +179,16 @@ function TrustVectorCard({ vector }: { vector: TrustVector }) {
           return (
             <div key={key}>
               <div className="flex justify-between text-sm mb-1">
-                <span className="font-medium">{info.label} ({key})</span>
+                <span className="font-medium text-gray-900 dark:text-white">{info.label} ({key})</span>
                 <span className={isNegative ? 'text-red-400' : 'text-green-400'}>{value}</span>
               </div>
-              <div className="w-full bg-gray-700 rounded-full h-2">
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                 <div
                   className={`${isNegative ? 'bg-red-500' : info.color} h-2 rounded-full transition-all`}
                   style={{ width: `${Math.max(barWidth, 1)}%` }}
                 />
               </div>
-              <p className="text-xs text-gray-500 mt-0.5">{info.description}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{info.description}</p>
             </div>
           );
         })}
@@ -200,7 +200,7 @@ function TrustVectorCard({ vector }: { vector: TrustVector }) {
 function ReputationDisplay({ reputation, trustVector, title }: { reputation: ReputationResult; trustVector?: TrustVector; title?: string }) {
   return (
     <div>
-      <h2 className="text-xl font-semibold mb-1">{title || reputation.agent_did}</h2>
+      <h2 className="text-xl font-semibold mb-1 text-gray-900 dark:text-white">{title || reputation.agent_did}</h2>
       {reputation.anti_gaming.flagged && (
         <div className="bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-4 py-2 rounded-lg mb-4">
           ⚠️ Anti-gaming flags: {reputation.anti_gaming.flags.join(', ')}
@@ -305,17 +305,17 @@ function ReputationPageInner() {
   if (queryDid) {
     return (
       <div className="max-w-6xl mx-auto px-4 py-8">
-        <Link href="/reputation" className="text-violet-400 hover:text-violet-300 text-sm mb-4 inline-block">
+        <Link href="/reputation" className="text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 text-sm mb-4 inline-block">
           ← Back to Reputation
         </Link>
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold">Reputation Profile</h1>
-            <p className="text-gray-400 mt-1 font-mono text-sm break-all">{queryDid}</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Reputation Profile</h1>
+            <p className="text-gray-500 dark:text-gray-400 mt-1 font-mono text-sm break-all">{queryDid}</p>
           </div>
         </div>
 
-        {loading && <div className="animate-pulse h-48 bg-gray-800 rounded-lg" />}
+        {loading && <div className="animate-pulse h-48 bg-gray-200 dark:bg-gray-800 rounded-lg" />}
         {error && (
           <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg">
             {error}
@@ -330,8 +330,8 @@ function ReputationPageInner() {
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold">Reputation Protocol</h1>
-          <p className="text-gray-400 mt-1">Portable, escrow-backed reputation for the open web</p>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Reputation Protocol</h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">Portable, escrow-backed reputation for the open web</p>
         </div>
         <Link
           href="/reputation/submit"
@@ -342,35 +342,35 @@ function ReputationPageInner() {
       </div>
 
       {/* How It Works */}
-      <div className="mb-8 p-6 rounded-xl bg-gray-800/50 border border-gray-700">
-        <h2 className="text-lg font-bold mb-3">How It Works</h2>
+      <div className="mb-8 p-6 rounded-xl bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
+        <h2 className="text-lg font-bold mb-3 text-gray-900 dark:text-white">How It Works</h2>
         <div className="grid md:grid-cols-4 gap-4 text-sm">
           <div className="flex gap-3">
             <span className="text-2xl">1️⃣</span>
             <div>
-              <p className="font-semibold">Claim a DID</p>
-              <p className="text-gray-400">Get a decentralized identifier — your portable identity across platforms.</p>
+              <p className="font-semibold text-gray-900 dark:text-white">Claim a DID</p>
+              <p className="text-gray-500 dark:text-gray-400">Get a decentralized identifier — your portable identity across platforms.</p>
             </div>
           </div>
           <div className="flex gap-3">
             <span className="text-2xl">2️⃣</span>
             <div>
-              <p className="font-semibold">Complete Escrow Jobs</p>
-              <p className="text-gray-400">Every settled escrow generates a cryptographic task receipt.</p>
+              <p className="font-semibold text-gray-900 dark:text-white">Complete Escrow Jobs</p>
+              <p className="text-gray-500 dark:text-gray-400">Every settled escrow generates a cryptographic task receipt.</p>
             </div>
           </div>
           <div className="flex gap-3">
             <span className="text-2xl">3️⃣</span>
             <div>
-              <p className="font-semibold">Build Reputation</p>
-              <p className="text-gray-400">Your score is computed from real on-chain settlements — no fake reviews.</p>
+              <p className="font-semibold text-gray-900 dark:text-white">Build Reputation</p>
+              <p className="text-gray-500 dark:text-gray-400">Your score is computed from real on-chain settlements — no fake reviews.</p>
             </div>
           </div>
           <div className="flex gap-3">
             <span className="text-2xl">4️⃣</span>
             <div>
-              <p className="font-semibold">Use Anywhere</p>
-              <p className="text-gray-400">Share your DID on ugig.net, freelance platforms, or any site that supports CPR.</p>
+              <p className="font-semibold text-gray-900 dark:text-white">Use Anywhere</p>
+              <p className="text-gray-500 dark:text-gray-400">Share your DID on ugig.net, freelance platforms, or any site that supports CPR.</p>
             </div>
           </div>
         </div>
@@ -382,9 +382,9 @@ function ReputationPageInner() {
           {myDid ? (
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
-                <h2 className="text-xl font-bold mb-1">🆔 Your DID</h2>
-                <p className="font-mono text-sm text-violet-300 break-all">{myDid.did}</p>
-                <p className="text-gray-400 text-xs mt-1">
+                <h2 className="text-xl font-bold mb-1 text-gray-900 dark:text-white">🆔 Your DID</h2>
+                <p className="font-mono text-sm text-violet-600 dark:text-violet-300 break-all">{myDid.did}</p>
+                <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">
                   Claimed {new Date(myDid.created_at).toLocaleDateString()} · {myDid.verified ? '✅ Verified' : '⏳ Unverified'}
                 </p>
               </div>
@@ -398,8 +398,8 @@ function ReputationPageInner() {
           ) : (
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
-                <h2 className="text-xl font-bold mb-1">🆔 Claim Your Decentralized Identity</h2>
-                <p className="text-gray-400 text-sm">
+                <h2 className="text-xl font-bold mb-1 text-gray-900 dark:text-white">🆔 Claim Your Decentralized Identity</h2>
+                <p className="text-gray-500 dark:text-gray-400 text-sm">
                   A DID is your portable identity. Claim one to start building escrow-backed reputation
                   that you can use on ugig.net, freelance marketplaces, and any platform that supports the
                   CoinPayPortal Reputation Protocol.
@@ -419,7 +419,7 @@ function ReputationPageInner() {
       {/* Own Reputation Dashboard */}
       {myDid && !myRepLoading && myReputation && (
         <div className="mb-8">
-          <h2 className="text-xl font-bold mb-4">📊 Your Reputation Dashboard</h2>
+          <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">📊 Your Reputation Dashboard</h2>
           <ReputationDisplay reputation={myReputation} trustVector={myTrustVector || undefined} title="Your Stats" />
           <div className="mt-6">
             <ShareSection did={myDid.did} />
@@ -428,17 +428,17 @@ function ReputationPageInner() {
       )}
       {myDid && myRepLoading && (
         <div className="mb-8">
-          <h2 className="text-xl font-bold mb-4">📊 Your Reputation Dashboard</h2>
-          <div className="animate-pulse h-48 bg-gray-800 rounded-lg" />
+          <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">📊 Your Reputation Dashboard</h2>
+          <div className="animate-pulse h-48 bg-gray-200 dark:bg-gray-800 rounded-lg" />
         </div>
       )}
 
       {/* Platform Issuers */}
       {myDid && (
-        <div className="mb-8 p-6 bg-gray-800/50 border border-gray-700 rounded-lg flex items-center justify-between flex-wrap gap-4">
+        <div className="mb-8 p-6 bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h2 className="text-xl font-bold mb-1">🔑 Platform API Keys</h2>
-            <p className="text-gray-400 text-sm">
+            <h2 className="text-xl font-bold mb-1 text-gray-900 dark:text-white">🔑 Platform API Keys</h2>
+            <p className="text-gray-500 dark:text-gray-400 text-sm">
               Register your platforms to submit reputation signals via the Platform Action API.
               Generate API keys for each site you operate.
             </p>
@@ -454,8 +454,8 @@ function ReputationPageInner() {
 
       {/* Search Reputation */}
       <div className="mb-8">
-        <h2 className="text-xl font-bold mb-3">Look Up Reputation</h2>
-        <p className="text-gray-400 text-sm mb-4">
+        <h2 className="text-xl font-bold mb-3 text-gray-900 dark:text-white">Look Up Reputation</h2>
+        <p className="text-gray-500 dark:text-gray-400 text-sm mb-4">
           Enter any DID to see their escrow-backed reputation score. Useful for verifying freelancers, contractors, or trading partners.
         </p>
         <form onSubmit={handleSearch}>
@@ -465,7 +465,7 @@ function ReputationPageInner() {
               value={agentDid}
               onChange={(e) => setAgentDid(e.target.value)}
               placeholder="Enter a DID (e.g., did:key:z6Mk...)"
-              className="flex-1 px-4 py-3 border rounded-lg dark:bg-gray-800 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none"
+              className="flex-1 px-4 py-3 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 outline-none"
             />
             <button
               type="submit"
@@ -491,7 +491,7 @@ function ReputationPageInner() {
 
 export default function ReputationPage() {
   return (
-    <Suspense fallback={<div className="max-w-6xl mx-auto px-4 py-8"><div className="animate-pulse h-48 bg-gray-800 rounded-lg" /></div>}>
+    <Suspense fallback={<div className="max-w-6xl mx-auto px-4 py-8"><div className="animate-pulse h-48 bg-gray-200 dark:bg-gray-800 rounded-lg" /></div>}>
       <ReputationPageInner />
     </Suspense>
   );

@@ -46,6 +46,7 @@ body {
   color: rgb(var(--foreground-rgb));
   background: rgb(var(--background-start-rgb));
   overflow-x: hidden;
+  font-family: 'KHTeka', ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
 @layer utilities {
