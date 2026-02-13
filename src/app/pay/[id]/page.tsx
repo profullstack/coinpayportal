@@ -395,6 +395,18 @@ export default function PublicPaymentPage() {
   const isPaymentFailed = paymentStatus === 'expired' || paymentStatus === 'failed';
   const isPaymentPending = paymentStatus === 'pending' || paymentStatus === 'detected';
 
+  // Determine current step for progress indicator
+  const getCurrentStep = (): number => {
+    if (isPaymentComplete) return 4;
+    if (paymentStatus === 'detected') return 3;
+    if (copiedField === 'address' || copiedField === 'amount') return 2;
+    return 1;
+  };
+  const currentStep = getCurrentStep();
+
+  // Timer urgency
+  const isTimerUrgent = timeRemaining > 0 && timeRemaining < 300; // < 5 minutes
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 py-8 px-4">
       <div className="max-w-lg mx-auto">
@@ -460,10 +472,12 @@ export default function PublicPaymentPage() {
               </div>
               {isPaymentPending && timeRemaining > 0 && (
                 <div className="text-right">
-                  <div className="text-2xl font-mono font-bold text-white">
+                  <div className={`text-2xl font-mono font-bold ${isTimerUrgent ? 'text-red-400 animate-pulse' : 'text-white'}`} data-testid="countdown-timer">
                     {formatTimeRemaining(timeRemaining)}
                   </div>
-                  <p className="text-xs text-gray-400">remaining</p>
+                  <p className={`text-xs ${isTimerUrgent ? 'text-red-400 font-semibold' : 'text-gray-400'}`}>
+                    {isTimerUrgent ? '⚠ expiring soon!' : 'remaining'}
+                  </p>
                 </div>
               )}
             </div>
@@ -480,6 +494,53 @@ export default function PublicPaymentPage() {
               </div>
             )}
           </div>
+
+          {/* Payment Progress Steps */}
+          {!isPaymentFailed && (
+            <div className="px-6 pt-5 pb-0" data-testid="payment-steps">
+              <div className="flex items-center justify-between">
+                {[
+                  { num: 1, label: 'Copy Details' },
+                  { num: 2, label: 'Send Crypto' },
+                  { num: 3, label: 'Confirming' },
+                  { num: 4, label: 'Done' },
+                ].map((step, i) => (
+                  <div key={step.num} className="flex items-center flex-1">
+                    <div className="flex flex-col items-center">
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${
+                          currentStep >= step.num
+                            ? currentStep === step.num
+                              ? 'bg-purple-500 text-white ring-2 ring-purple-400 ring-offset-2 ring-offset-gray-800'
+                              : 'bg-green-500 text-white'
+                            : 'bg-gray-700 text-gray-400'
+                        }`}
+                        data-testid={`step-${step.num}`}
+                      >
+                        {currentStep > step.num ? (
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : (
+                          step.num
+                        )}
+                      </div>
+                      <span className={`text-xs mt-1 whitespace-nowrap ${
+                        currentStep >= step.num ? 'text-purple-300' : 'text-gray-500'
+                      }`}>
+                        {step.label}
+                      </span>
+                    </div>
+                    {i < 3 && (
+                      <div className={`flex-1 h-0.5 mx-2 mt-[-16px] ${
+                        currentStep > step.num ? 'bg-green-500' : 'bg-gray-700'
+                      }`} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="p-6 space-y-6">
             {/* Amount Display */}
@@ -525,21 +586,26 @@ export default function PublicPaymentPage() {
               {payment.crypto_amount && (
                 <button
                   onClick={() => copyToClipboard(parseFloat(payment.crypto_amount).toFixed(8), 'amount')}
-                  className="mt-2 inline-flex items-center gap-1 text-sm text-purple-400 hover:text-purple-300 transition-colors"
+                  className={`mt-3 w-full py-3 px-4 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all ${
+                    copiedField === 'amount'
+                      ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                      : 'bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30'
+                  }`}
+                  data-testid="copy-amount-btn"
                 >
                   {copiedField === 'amount' ? (
                     <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
-                      Copied!
+                      Amount Copied!
                     </>
                   ) : (
                     <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                       </svg>
-                      Copy amount
+                      Copy Amount
                     </>
                   )}
                 </button>
@@ -589,23 +655,34 @@ export default function PublicPaymentPage() {
                 <label className="block text-sm font-medium text-gray-400 mb-2">
                   Send to this address:
                 </label>
-                <div className="bg-gray-900/50 rounded-xl p-4 flex items-center gap-3">
-                  <p className="font-mono text-sm text-white break-all flex-1">
+                <div className="bg-gray-900/50 rounded-xl p-4">
+                  <p className="font-mono text-sm text-white break-all mb-3">
                     {payment.payment_address}
                   </p>
                   <button
                     onClick={() => copyToClipboard(payment.payment_address, 'address')}
-                    className="flex-shrink-0 p-2 text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 rounded-lg transition-colors"
+                    className={`w-full py-3 px-4 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all ${
+                      copiedField === 'address'
+                        ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                        : 'bg-purple-600 text-white hover:bg-purple-500'
+                    }`}
                     title="Copy address"
+                    data-testid="copy-address-btn"
                   >
                     {copiedField === 'address' ? (
-                      <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Address Copied!
+                      </>
                     ) : (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        Copy Address
+                      </>
                     )}
                   </button>
                 </div>

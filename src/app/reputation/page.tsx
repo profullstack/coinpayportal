@@ -121,6 +121,24 @@ export default function ReputationPage() {
         </Link>
       </div>
 
+      {/* Claim DID CTA */}
+      <div className="mb-8 p-6 rounded-xl bg-gradient-to-r from-violet-600/20 to-fuchsia-600/20 border border-violet-500/30">
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h2 className="text-xl font-bold mb-1">🆔 Claim Your Decentralized Identity</h2>
+            <p className="text-gray-400 text-sm">
+              Get a DID to build portable, escrow-backed reputation across platforms.
+            </p>
+          </div>
+          <Link
+            href="/reputation/did"
+            className="bg-violet-600 text-white px-6 py-3 rounded-lg hover:bg-violet-700 transition font-medium"
+          >
+            Claim DID
+          </Link>
+        </div>
+      </div>
+
       <form onSubmit={handleSearch} className="mb-8">
         <div className="flex gap-3">
           <input

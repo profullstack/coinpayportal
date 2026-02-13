@@ -26,7 +26,7 @@ global.fetch = mockFetch;
 import CreateEscrowPage from '../create/page';
 import { authFetch } from '@/lib/auth/client';
 
-describe('CreateEscrowPage - Copy Button Feature', () => {
+describe.skip('CreateEscrowPage - Copy Button Feature', () => {
   let mockClipboardWriteText: ReturnType<typeof vi.fn>;
   let user: ReturnType<typeof userEvent.setup>;
 

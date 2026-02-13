@@ -1727,9 +1727,67 @@ async function handleReputation(subcommand, args, flags) {
       break;
     }
 
+    case 'did': {
+      const didSubcommand = args[0];
+      const client = createClient();
+
+      if (didSubcommand === 'claim') {
+        const { claimDid } = await import('../src/reputation.js');
+        const result = await claimDid(client);
+
+        if (result.did) {
+          print.success(`DID claimed: ${result.did}`);
+          console.log(`  Public Key: ${result.public_key}`);
+          console.log(`  Verified: ${result.verified}`);
+        } else {
+          print.error(result.error || 'Failed to claim DID');
+        }
+
+        if (flags.json) print.json(result);
+      } else if (didSubcommand === 'link') {
+        const didValue = flags.did;
+        const publicKey = flags['public-key'];
+        const signature = flags.signature;
+
+        if (!didValue || !publicKey || !signature) {
+          print.error('Required: --did <did> --public-key <key> --signature <sig>');
+          print.info('Usage: coinpay reputation did link --did <did> --public-key <key> --signature <sig>');
+          break;
+        }
+
+        const { linkDid } = await import('../src/reputation.js');
+        const result = await linkDid(client, { did: didValue, publicKey, signature });
+
+        if (result.did) {
+          print.success(`DID linked: ${result.did}`);
+          console.log(`  Verified: ${result.verified}`);
+        } else {
+          print.error(result.error || 'Failed to link DID');
+        }
+
+        if (flags.json) print.json(result);
+      } else {
+        // Default: show current DID
+        const { getMyDid } = await import('../src/reputation.js');
+        const result = await getMyDid(client);
+
+        if (result.did) {
+          print.success(`Your DID: ${result.did}`);
+          console.log(`  Public Key: ${result.public_key}`);
+          console.log(`  Verified: ${result.verified}`);
+          console.log(`  Created: ${result.created_at}`);
+        } else {
+          print.info('No DID found. Run: coinpay reputation did claim');
+        }
+
+        if (flags.json) print.json(result);
+      }
+      break;
+    }
+
     default:
       print.error(`Unknown reputation command: ${subcommand}`);
-      print.info('Available: submit, query, credential, verify, revocations');
+      print.info('Available: submit, query, credential, verify, revocations, did');
       process.exit(1);
   }
 }

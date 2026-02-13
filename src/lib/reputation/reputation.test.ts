@@ -697,4 +697,40 @@ describe('SDK reputation.js methods', () => {
     const client = new CoinPayClient({ apiKey: 'test-key' });
     await expect(getReputation(client, 'did:web:unknown')).rejects.toThrow();
   });
+
+  it('getMyDid sends GET request to /reputation/did/me', async () => {
+    const { CoinPayClient } = await import('../../../packages/sdk/src/client.js');
+    const { getMyDid } = await import('../../../packages/sdk/src/reputation.js');
+
+    setupFetchMock({ did: 'did:key:z123', public_key: 'abc', verified: true, created_at: '2026-01-01' });
+
+    const client = new CoinPayClient({ apiKey: 'test-key' });
+    const result = await getMyDid(client);
+    expect(result.did).toBe('did:key:z123');
+    expect(result.public_key).toBe('abc');
+  });
+
+  it('claimDid sends POST request to /reputation/did/claim', async () => {
+    const { CoinPayClient } = await import('../../../packages/sdk/src/client.js');
+    const { claimDid } = await import('../../../packages/sdk/src/reputation.js');
+
+    setupFetchMock({ did: 'did:key:zNew', public_key: 'xyz', verified: true, created_at: '2026-01-01' }, 201);
+
+    const client = new CoinPayClient({ apiKey: 'test-key' });
+    const result = await claimDid(client);
+    expect(result.did).toBe('did:key:zNew');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('linkDid sends POST request with DID data', async () => {
+    const { CoinPayClient } = await import('../../../packages/sdk/src/client.js');
+    const { linkDid } = await import('../../../packages/sdk/src/reputation.js');
+
+    setupFetchMock({ did: 'did:key:zLinked', public_key: 'pub123', verified: true, created_at: '2026-01-01' }, 201);
+
+    const client = new CoinPayClient({ apiKey: 'test-key' });
+    const result = await linkDid(client, { did: 'did:key:zLinked', publicKey: 'pub123', signature: 'sig456' });
+    expect(result.did).toBe('did:key:zLinked');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
 });
