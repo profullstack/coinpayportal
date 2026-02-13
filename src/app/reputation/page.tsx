@@ -433,6 +433,25 @@ function ReputationPageInner() {
         </div>
       )}
 
+      {/* Platform Issuers */}
+      {myDid && (
+        <div className="mb-8 p-6 bg-gray-800/50 border border-gray-700 rounded-lg flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h2 className="text-xl font-bold mb-1">🔑 Platform API Keys</h2>
+            <p className="text-gray-400 text-sm">
+              Register your platforms to submit reputation signals via the Platform Action API.
+              Generate API keys for each site you operate.
+            </p>
+          </div>
+          <Link
+            href="/reputation/issuers"
+            className="bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition font-medium whitespace-nowrap"
+          >
+            Manage API Keys
+          </Link>
+        </div>
+      )}
+
       {/* Search Reputation */}
       <div className="mb-8">
         <h2 className="text-xl font-bold mb-3">Look Up Reputation</h2>
