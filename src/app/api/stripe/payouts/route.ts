@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
+import Stripe from 'stripe';
 
 /**
  * GET /api/stripe/payouts
@@ -149,6 +150,152 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     console.error('List payouts error:', error);
+    return NextResponse.json(
+      { success: false, error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * POST /api/stripe/payouts
+ * Create a payout to the merchant's connected Stripe account
+ * Body: { amount, currency?, description?, metadata? }
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { success: false, error: 'Missing authorization header' },
+        { status: 401 }
+      );
+    }
+
+    const token = authHeader.substring(7);
+    const jwtSecret = getJwtSecret();
+    if (!jwtSecret) {
+      return NextResponse.json(
+        { success: false, error: 'Server configuration error' },
+        { status: 500 }
+      );
+    }
+
+    let decoded;
+    try {
+      decoded = verifyToken(token, jwtSecret);
+    } catch {
+      return NextResponse.json(
+        { success: false, error: 'Invalid or expired token' },
+        { status: 401 }
+      );
+    }
+
+    const merchantId = decoded.userId;
+    const body = await request.json();
+    const { amount, currency = 'usd', description, metadata } = body;
+
+    if (!amount || typeof amount !== 'number' || amount <= 0) {
+      return NextResponse.json(
+        { success: false, error: 'amount is required and must be a positive integer (in cents)' },
+        { status: 400 }
+      );
+    }
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+
+    if (!supabaseUrl || !supabaseKey || !stripeSecretKey) {
+      return NextResponse.json(
+        { success: false, error: 'Server configuration error' },
+        { status: 500 }
+      );
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const stripe = new Stripe(stripeSecretKey);
+
+    // Look up merchant's connected Stripe account
+    const { data: merchant, error: merchantError } = await supabase
+      .from('businesses')
+      .select('stripe_account_id')
+      .eq('user_id', merchantId)
+      .not('stripe_account_id', 'is', null)
+      .limit(1)
+      .single();
+
+    if (merchantError || !merchant?.stripe_account_id) {
+      return NextResponse.json(
+        { success: false, error: 'No connected Stripe account found. Complete Stripe onboarding first.' },
+        { status: 400 }
+      );
+    }
+
+    // Create the payout via Stripe API on the connected account
+    const payout = await stripe.payouts.create(
+      {
+        amount,
+        currency,
+        description: description || 'CoinPay payout',
+        metadata: metadata || {},
+      },
+      {
+        stripeAccount: merchant.stripe_account_id,
+      }
+    );
+
+    // Record in our database
+    const { data: record, error: insertError } = await supabase
+      .from('stripe_payouts')
+      .insert({
+        merchant_id: merchantId,
+        stripe_payout_id: payout.id,
+        amount: payout.amount,
+        currency: payout.currency,
+        status: payout.status,
+        arrival_date: payout.arrival_date
+          ? new Date(payout.arrival_date * 1000).toISOString()
+          : null,
+        description: payout.description,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('Error recording payout:', insertError);
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        payout: {
+          id: record?.id || payout.id,
+          stripe_payout_id: payout.id,
+          amount_cents: payout.amount,
+          amount_usd: (payout.amount / 100).toFixed(2),
+          currency: payout.currency,
+          status: payout.status,
+          arrival_date: payout.arrival_date
+            ? new Date(payout.arrival_date * 1000).toISOString()
+            : null,
+          description: payout.description,
+          created_at: record?.created_at || new Date().toISOString(),
+        },
+      },
+      { status: 201 }
+    );
+  } catch (error: any) {
+    console.error('Create payout error:', error);
+
+    // Handle Stripe-specific errors
+    if (error?.type?.startsWith('Stripe')) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
       { status: 500 }

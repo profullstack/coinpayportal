@@ -523,6 +523,43 @@ export class CoinPayClient {
     return authenticateEscrow(this, escrowId, token);
   }
 
+  // ── Stripe Payout Methods ───────────────────────────────
+
+  /**
+   * Create a payout to your connected Stripe account
+   * 
+   * @param {Object} params - Payout parameters
+   * @param {number} params.amount - Amount in cents
+   * @param {string} [params.currency='usd'] - Currency code
+   * @param {string} [params.description] - Payout description
+   * @param {Object} [params.metadata] - Custom metadata
+   * @returns {Promise<Object>} Created payout
+   */
+  async createPayout(params) {
+    const { createPayout } = await import('./payouts.js');
+    return createPayout(this, params);
+  }
+
+  /**
+   * List payouts
+   * @param {Object} [filters] - Filter options
+   * @returns {Promise<Object>} Payouts list with pagination
+   */
+  async listPayouts(filters) {
+    const { listPayouts } = await import('./payouts.js');
+    return listPayouts(this, filters);
+  }
+
+  /**
+   * Get payout by ID
+   * @param {string} payoutId - Payout ID
+   * @returns {Promise<Object>} Payout details
+   */
+  async getPayout(payoutId) {
+    const { getPayout } = await import('./payouts.js');
+    return getPayout(this, payoutId);
+  }
+
   // ── Stripe Card Payment Methods ────────────────────────
 
   /**

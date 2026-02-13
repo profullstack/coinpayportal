@@ -208,6 +208,11 @@ ${colors.cyan}Commands:${colors.reset}
     status <swap-id>      Check swap status
     history               Swap history
 
+  ${colors.bright}payout${colors.reset}
+    create                Create a payout to your Stripe account
+    list                  List payouts
+    get <id>              Get payout details
+
   ${colors.bright}card${colors.reset}
     create                Create a card payment via Stripe
     get <id>              Get card payment status
@@ -2004,6 +2009,74 @@ async function handleReputation(subcommand, args, flags) {
 }
 
 /**
+ * Payout commands
+ */
+async function handlePayout(subcommand, args, flags) {
+  const client = createClient();
+
+  switch (subcommand) {
+    case 'create': {
+      const amount = parseInt(flags.amount);
+      if (!amount || amount <= 0) {
+        print.error('--amount is required (in cents, e.g., 5000 for $50.00)');
+        print.info('Example: coinpay payout create --amount 5000 --description "Weekly payout"');
+        process.exit(1);
+      }
+
+      const result = await client.createPayout({
+        amount,
+        currency: flags.currency || 'usd',
+        description: flags.description,
+        metadata: flags.metadata ? JSON.parse(flags.metadata) : undefined,
+      });
+
+      print.success('Payout created');
+      print.json(result);
+      break;
+    }
+
+    case 'list': {
+      const result = await client.listPayouts({
+        status: flags.status,
+        dateFrom: flags['date-from'] || flags.dateFrom,
+        dateTo: flags['date-to'] || flags.dateTo,
+        limit: flags.limit ? parseInt(flags.limit) : undefined,
+        offset: flags.offset ? parseInt(flags.offset) : undefined,
+      });
+
+      if (result.payouts && result.payouts.length > 0) {
+        console.log(`\n${colors.bright}Payouts${colors.reset} (${result.pagination?.total || result.payouts.length} total)\n`);
+        for (const p of result.payouts) {
+          const statusColor = p.status === 'paid' ? colors.green : p.status === 'failed' ? colors.red : colors.yellow;
+          console.log(`  ${p.id}  ${statusColor}${p.status}${colors.reset}  $${p.amount_usd || ((p.amount_cents || 0) / 100).toFixed(2)}  ${new Date(p.created_at).toLocaleDateString()}`);
+        }
+        console.log();
+      } else {
+        print.info('No payouts found');
+      }
+      break;
+    }
+
+    case 'get': {
+      const id = args[0];
+      if (!id) {
+        print.error('Usage: coinpay payout get <id>');
+        process.exit(1);
+      }
+
+      const result = await client.getPayout(id);
+      print.json(result);
+      break;
+    }
+
+    default:
+      print.error(`Unknown payout command: ${subcommand}`);
+      print.info('Available: create, list, get');
+      process.exit(1);
+  }
+}
+
+/**
  * Card (Stripe) commands
  */
 async function handleCard(subcommand, args, flags) {
@@ -2256,6 +2329,10 @@ async function main() {
 
       case 'webhook':
         await handleWebhook(subcommand, args, flags);
+        break;
+
+      case 'payout':
+        await handlePayout(subcommand, args, flags);
         break;
 
       case 'card':
