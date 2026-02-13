@@ -102,3 +102,33 @@ export async function linkDid(client, { did, publicKey, signature }) {
     }),
   });
 }
+
+/**
+ * Get all credentials for a DID
+ * @param {import('./client.js').CoinPayClient} client
+ * @param {string} did - The DID to query credentials for
+ * @returns {Promise<Object>}
+ */
+export async function getCredentials(client, did) {
+  return client.request(`/reputation/credentials?did=${encodeURIComponent(did)}`);
+}
+
+/**
+ * Get all task receipts for a DID
+ * @param {import('./client.js').CoinPayClient} client
+ * @param {string} did - The DID to query receipts for
+ * @returns {Promise<Object>}
+ */
+export async function getReceipts(client, did) {
+  return client.request(`/reputation/receipts?did=${encodeURIComponent(did)}`);
+}
+
+/**
+ * Get the badge URL for a DID
+ * @param {string} baseUrl - The CoinPayPortal base URL
+ * @param {string} did - The DID
+ * @returns {string} Badge SVG URL
+ */
+export function getBadgeUrl(baseUrl, did) {
+  return `${baseUrl}/api/reputation/badge/${encodeURIComponent(did)}`;
+}

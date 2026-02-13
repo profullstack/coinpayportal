@@ -83,6 +83,9 @@ import {
   submitReceipt,
   getReputation,
   getCredential,
+  getCredentials,
+  getReceipts,
+  getBadgeUrl,
   verifyCredential,
   getRevocationList,
 } from './reputation.js';

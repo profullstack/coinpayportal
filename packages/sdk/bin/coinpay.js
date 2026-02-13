@@ -222,6 +222,9 @@ ${colors.cyan}Commands:${colors.reset}
     submit                Submit a task receipt
     query <agent-did>     Query agent reputation
     credential <id>       Get credential details
+    credentials [did]     List all credentials for a DID
+    receipts [did]        List all task receipts for a DID
+    badge [did]           Get embeddable reputation badge URL
     verify <id>           Verify a credential
     revocations           List revoked credentials
 
@@ -1785,9 +1788,112 @@ async function handleReputation(subcommand, args, flags) {
       break;
     }
 
+    case 'credentials': {
+      const did = args[0];
+      if (!did) {
+        // Try to get own DID
+        const { getMyDid } = await import('../src/reputation.js');
+        const myDid = await getMyDid(client);
+        if (!myDid?.did) {
+          print.error('Usage: coinpay reputation credentials <did>');
+          print.info('Or claim a DID first: coinpay reputation did claim');
+          process.exit(1);
+        }
+        const { getCredentials } = await import('../src/reputation.js');
+        const result = await getCredentials(client, myDid.did);
+        if (result.credentials && result.credentials.length > 0) {
+          print.success(`${result.credentials.length} credential(s) for ${myDid.did}:`);
+          for (const cred of result.credentials) {
+            print.info(`  ${cred.id} | ${cred.credential_type} | ${cred.revoked ? '❌ Revoked' : '✅ Active'} | ${new Date(cred.issued_at).toLocaleDateString()}`);
+          }
+        } else {
+          print.info('No credentials found. Complete escrow transactions to earn credentials.');
+        }
+        if (flags.json) print.json(result);
+      } else {
+        const { getCredentials } = await import('../src/reputation.js');
+        const result = await getCredentials(client, did);
+        if (result.credentials && result.credentials.length > 0) {
+          print.success(`${result.credentials.length} credential(s) for ${did}:`);
+          for (const cred of result.credentials) {
+            print.info(`  ${cred.id} | ${cred.credential_type} | ${cred.revoked ? '❌ Revoked' : '✅ Active'} | ${new Date(cred.issued_at).toLocaleDateString()}`);
+          }
+        } else {
+          print.info('No credentials found for this DID.');
+        }
+        if (flags.json) print.json(result);
+      }
+      break;
+    }
+
+    case 'receipts': {
+      const did = args[0];
+      if (!did) {
+        const { getMyDid } = await import('../src/reputation.js');
+        const myDid = await getMyDid(client);
+        if (!myDid?.did) {
+          print.error('Usage: coinpay reputation receipts <did>');
+          print.info('Or claim a DID first: coinpay reputation did claim');
+          process.exit(1);
+        }
+        const { getReceipts } = await import('../src/reputation.js');
+        const result = await getReceipts(client, myDid.did);
+        if (result.receipts && result.receipts.length > 0) {
+          print.success(`${result.receipts.length} receipt(s) for ${myDid.did}:`);
+          for (const r of result.receipts) {
+            print.info(`  ${r.receipt_id} | ${r.outcome} | $${r.amount || 0} ${r.currency || ''} | ${new Date(r.created_at).toLocaleDateString()}`);
+          }
+        } else {
+          print.info('No receipts found. Complete escrow transactions to generate receipts.');
+        }
+        if (flags.json) print.json(result);
+      } else {
+        const { getReceipts } = await import('../src/reputation.js');
+        const result = await getReceipts(client, did);
+        if (result.receipts && result.receipts.length > 0) {
+          print.success(`${result.receipts.length} receipt(s) for ${did}:`);
+          for (const r of result.receipts) {
+            print.info(`  ${r.receipt_id} | ${r.outcome} | $${r.amount || 0} ${r.currency || ''} | ${new Date(r.created_at).toLocaleDateString()}`);
+          }
+        } else {
+          print.info('No receipts found for this DID.');
+        }
+        if (flags.json) print.json(result);
+      }
+      break;
+    }
+
+    case 'badge': {
+      const did = args[0];
+      if (!did) {
+        const { getMyDid } = await import('../src/reputation.js');
+        const myDid = await getMyDid(client);
+        if (!myDid?.did) {
+          print.error('Usage: coinpay reputation badge <did>');
+          process.exit(1);
+        }
+        const { getBadgeUrl } = await import('../src/reputation.js');
+        const url = getBadgeUrl(client.baseUrl || 'https://coinpayportal.com', myDid.did);
+        print.success('Badge URL:');
+        print.info(`  ${url}`);
+        print.info('');
+        print.info('Markdown embed:');
+        print.info(`  ![Reputation](${url})`);
+      } else {
+        const { getBadgeUrl } = await import('../src/reputation.js');
+        const url = getBadgeUrl(client.baseUrl || 'https://coinpayportal.com', did);
+        print.success('Badge URL:');
+        print.info(`  ${url}`);
+        print.info('');
+        print.info('Markdown embed:');
+        print.info(`  ![Reputation](${url})`);
+      }
+      break;
+    }
+
     default:
       print.error(`Unknown reputation command: ${subcommand}`);
-      print.info('Available: submit, query, credential, verify, revocations, did');
+      print.info('Available: submit, query, credential, credentials, receipts, badge, verify, revocations, did');
       process.exit(1);
   }
 }
