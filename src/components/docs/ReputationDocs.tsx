@@ -238,6 +238,51 @@ coinpay reputation badge did:key:z6Mk...`}
         </ul>
       </div>
 
+      <div className="mb-8">
+        <h4 className="font-semibold text-white mb-4">Trust Vector Dimensions — Detailed</h4>
+        <div className="grid md:grid-cols-2 gap-4">
+          {[
+            { key: 'E', label: 'Economic', color: 'green', detail: 'Measures the total value and frequency of completed financial transactions. Higher scores indicate more economic activity with successful payment completions and fewer refunds.' },
+            { key: 'P', label: 'Productivity', color: 'blue', detail: 'Tracks task and project completion rates across platforms. Includes gigs completed, applications accepted, posts created, and other productive actions submitted through platform integrations.' },
+            { key: 'B', label: 'Behavioral', color: 'yellow', detail: 'Reflects dispute history and behavioral patterns. A high score means few disputes relative to completed transactions. Repeated disputes or chargebacks will lower this score significantly.' },
+            { key: 'D', label: 'Diversity', color: 'purple', detail: 'Measures how many unique counterparties (buyers, sellers, platforms) you\'ve transacted with. Higher diversity indicates a broader, more trustworthy reputation that isn\'t dependent on a single relationship.' },
+            { key: 'R', label: 'Recency', color: 'cyan', detail: 'A time-decay multiplier that weights recent activity more heavily. Activity within the last 90 days contributes fully, while older activity gradually decays. Staying active keeps this score high.' },
+            { key: 'A', label: 'Anomaly Penalty', color: 'red', detail: 'Penalty applied when suspicious patterns are detected, such as rapid self-dealing, wash trading, or artificial volume inflation. A score of 0 means no anomalies detected. Negative values indicate active penalties.' },
+            { key: 'C', label: 'Compliance Penalty', color: 'orange', detail: 'Penalty for compliance violations such as terms-of-service breaches, reported incidents, or platform rule violations. A score of 0 means a clean compliance record. Negative values indicate active penalties.' },
+          ].map((dim) => (
+            <div key={dim.key} className={`p-4 rounded-lg bg-slate-800/50 border border-${dim.color}-500/20`}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`w-8 h-8 rounded-full bg-${dim.color}-500 flex items-center justify-center text-white font-bold text-sm`}>{dim.key}</span>
+                <span className="font-semibold text-white">{dim.label}</span>
+              </div>
+              <p className="text-gray-300 text-sm">{dim.detail}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mb-8">
+        <h4 className="font-semibold text-white mb-4">Window Stats — Detailed</h4>
+        <p className="text-gray-300 text-sm mb-4">
+          Reputation is computed over rolling time windows (7d, 30d, 90d, lifetime). Each window shows these stats:
+        </p>
+        <div className="grid md:grid-cols-2 gap-4">
+          {[
+            { stat: 'Tasks', detail: 'Total number of reputation receipts (transactions, tasks, social actions) recorded in this time window.' },
+            { stat: 'Accepted Rate', detail: 'Percentage of tasks/transactions that were accepted or completed successfully without disputes.' },
+            { stat: 'Dispute Rate', detail: 'Percentage of tasks/transactions that resulted in a dispute. Lower is better — high dispute rates reduce your Behavioral (B) trust score.' },
+            { stat: 'Volume', detail: 'Total USD value of all transactions in this window. Economic (E) trust score is log-scaled from this value.' },
+            { stat: 'Avg Value', detail: 'Average USD value per transaction in this window. Helps distinguish between many small transactions vs. fewer high-value ones.' },
+            { stat: 'Unique Buyers', detail: 'Number of distinct counterparties in this window. Directly feeds the Diversity (D) trust dimension — more unique counterparties = higher D score.' },
+          ].map((item) => (
+            <div key={item.stat} className="p-4 rounded-lg bg-slate-800/50 border border-white/10">
+              <span className="font-semibold text-purple-400">{item.stat}</span>
+              <p className="text-gray-300 text-sm mt-1">{item.detail}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="mb-8 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
         <h4 className="font-semibold text-green-300 mb-2">Action Categories</h4>
         <p className="text-green-200 text-sm mb-2">

@@ -101,6 +101,21 @@ import {
   getSwapHistory,
 } from './swap.js';
 
+// Card payments
+import {
+  createQuickCardPayment,
+  waitForStripeOnboarding,
+  createCardPaymentWithOnboardingCheck,
+  getPaymentMethodSupport,
+  formatCardAmount,
+  calculateCardPaymentFees,
+  createCardEscrow,
+  listCardEscrows,
+  releaseCardEscrow,
+  refundCardEscrow,
+  getCardEscrowStatus,
+} from './card-payments.js';
+
 export {
   // Client
   CoinPayClient,
@@ -139,6 +154,19 @@ export {
   createSwap,
   getSwapStatus,
   getSwapHistory,
+  
+  // Card payments
+  createQuickCardPayment,
+  waitForStripeOnboarding,
+  createCardPaymentWithOnboardingCheck,
+  getPaymentMethodSupport,
+  formatCardAmount,
+  calculateCardPaymentFees,
+  createCardEscrow,
+  listCardEscrows,
+  releaseCardEscrow,
+  refundCardEscrow,
+  getCardEscrowStatus,
   
   // Constants
   Blockchain,

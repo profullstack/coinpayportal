@@ -286,6 +286,128 @@ export function calculateCardPaymentFees(amountCents, tier = 'free') {
 }
 
 /**
+ * Create a card escrow payment
+ * 
+ * @param {import('./client.js').CoinPayClient} client - CoinPay client instance
+ * @param {string} businessId - Business ID
+ * @param {number} amountUSD - Amount in USD (will be converted to cents)
+ * @param {string} description - Payment description
+ * @param {Object} [metadata={}] - Custom metadata
+ * @returns {Promise<Object>} Escrow payment session with checkout URL
+ * 
+ * @example
+ * import { createCardEscrow } from '@profullstack/coinpay/card-payments';
+ * 
+ * const escrow = await createCardEscrow(client, 'business-id', 100, 'Service payment', {
+ *   orderId: '123',
+ *   serviceType: 'web-design'
+ * });
+ * 
+ * // Redirect customer to: escrow.checkout_url
+ */
+export async function createCardEscrow(client, businessId, amountUSD, description, metadata = {}) {
+  // Convert USD to cents
+  const amountCents = Math.round(amountUSD * 100);
+
+  return client.request('POST', '/api/stripe/payments/create', {
+    businessId,
+    amount: amountCents,
+    currency: 'usd',
+    description,
+    metadata,
+    escrowMode: true,
+  });
+}
+
+/**
+ * List card escrows
+ * 
+ * @param {import('./client.js').CoinPayClient} client - CoinPay client instance
+ * @param {Object} [options={}] - Filtering options
+ * @param {string} [options.businessId] - Filter by business ID
+ * @param {string} [options.status] - Filter by status
+ * @param {number} [options.limit] - Maximum number of results
+ * @param {number} [options.offset] - Results offset
+ * @returns {Promise<Object>} List of card escrows
+ * 
+ * @example
+ * const escrows = await listCardEscrows(client, { 
+ *   businessId: 'business-id', 
+ *   status: 'pending' 
+ * });
+ */
+export async function listCardEscrows(client, options = {}) {
+  const queryParams = new URLSearchParams();
+  if (options.businessId) queryParams.set('businessId', options.businessId);
+  if (options.status) queryParams.set('status', options.status);
+  if (options.limit) queryParams.set('limit', options.limit.toString());
+  if (options.offset) queryParams.set('offset', options.offset.toString());
+
+  const queryString = queryParams.toString();
+  const url = `/api/stripe/escrows${queryString ? `?${queryString}` : ''}`;
+  
+  return client.request('GET', url);
+}
+
+/**
+ * Release a card escrow
+ * 
+ * @param {import('./client.js').CoinPayClient} client - CoinPay client instance
+ * @param {string} escrowId - Escrow ID to release
+ * @returns {Promise<Object>} Release result
+ * 
+ * @example
+ * const result = await releaseCardEscrow(client, 'escrow-123');
+ */
+export async function releaseCardEscrow(client, escrowId) {
+  return client.request('POST', '/api/stripe/escrow/release', {
+    escrowId,
+  });
+}
+
+/**
+ * Refund a card escrow
+ * 
+ * @param {import('./client.js').CoinPayClient} client - CoinPay client instance
+ * @param {string} escrowId - Escrow ID to refund
+ * @param {Object} [options={}] - Refund options
+ * @param {number} [options.amount] - Partial refund amount in cents
+ * @param {string} [options.reason] - Refund reason
+ * @returns {Promise<Object>} Refund result
+ * 
+ * @example
+ * // Full refund
+ * const result = await refundCardEscrow(client, 'escrow-123');
+ * 
+ * // Partial refund
+ * const result = await refundCardEscrow(client, 'escrow-123', { 
+ *   amount: 2500,  // $25.00 in cents
+ *   reason: 'partial_delivery' 
+ * });
+ */
+export async function refundCardEscrow(client, escrowId, options = {}) {
+  return client.request('POST', '/api/stripe/escrow/refund', {
+    escrowId,
+    ...options,
+  });
+}
+
+/**
+ * Get card escrow status and transaction details
+ * 
+ * @param {import('./client.js').CoinPayClient} client - CoinPay client instance
+ * @param {string} escrowId - Escrow/transaction ID
+ * @returns {Promise<Object>} Transaction details with escrow status
+ * 
+ * @example
+ * const status = await getCardEscrowStatus(client, 'escrow-123');
+ * console.log(status.escrow_status); // 'pending', 'released', 'refunded'
+ */
+export async function getCardEscrowStatus(client, escrowId) {
+  return client.request('GET', `/api/stripe/transactions/${escrowId}`);
+}
+
+/**
  * Default export with all convenience functions
  */
 export default {
@@ -295,4 +417,9 @@ export default {
   getPaymentMethodSupport,
   formatCardAmount,
   calculateCardPaymentFees,
+  createCardEscrow,
+  listCardEscrows,
+  releaseCardEscrow,
+  refundCardEscrow,
+  getCardEscrowStatus,
 };

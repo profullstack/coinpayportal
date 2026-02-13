@@ -23,6 +23,16 @@
  */
 
 import { WalletClient, WalletChain, DEFAULT_CHAINS, validateMnemonic } from '../packages/sdk/src/wallet.js';
+import { 
+  createQuickCardPayment,
+  createCardEscrow,
+  listCardEscrows,
+  releaseCardEscrow,
+  refundCardEscrow,
+  getCardEscrowStatus,
+  formatCardAmount 
+} from '../packages/sdk/src/card-payments.js';
+import { CoinPayClient } from '../packages/sdk/src/client.js';
 import { execSync, spawn } from 'child_process';
 import { existsSync, unlinkSync, readFileSync } from 'fs';
 import { homedir } from 'os';
@@ -475,6 +485,7 @@ COMMANDS
   swap         Coin swap operations (no KYC)
   wallet       Wallet management
   reputation   Trust & reputation (CPTL)
+  card         Card payments and escrow
   help         Show this help
 
 SWAP COMMANDS
@@ -499,6 +510,15 @@ WALLET COMMANDS
 
 REPUTATION COMMANDS
   coinpay reputation profile <did>  Show trust vector & reputation for a DID
+
+CARD COMMANDS
+  coinpay card pay --business <id> --amount <usd> --description "text"
+  coinpay card escrow --business <id> --amount <usd> --description "text"
+  coinpay card escrows [--business <id>] [--status <status>] [--limit <n>]
+  coinpay card release <escrowId>
+  coinpay card refund <escrowId> [--partial <amount>]
+  coinpay card transactions [--business <id>] [--status <status>] [--limit <n>]
+  coinpay card balance
 
 GLOBAL OPTIONS
   --password <pass>       Encryption password (or COINPAY_WALLET_PASSWORD env)
@@ -619,6 +639,300 @@ Reputation Commands:
   }
 }
 
+// ── Card commands ───────────────────────────────────────────────────
+
+function getCoinPayClient() {
+  const apiKey = process.env.COINPAY_API_KEY;
+  if (!apiKey) {
+    throw new Error('COINPAY_API_KEY environment variable required');
+  }
+  return new CoinPayClient({ 
+    apiKey,
+    baseUrl: API_BASE + '/api'
+  });
+}
+
+async function handleCard(subCommand, args) {
+  const opts = parseArgs(args);
+  
+  const commands = {
+    pay: cardPay,
+    escrow: cardEscrow,
+    escrows: cardEscrows,
+    release: cardRelease,
+    refund: cardRefund,
+    transactions: cardTransactions,
+    balance: cardBalance,
+  };
+
+  const command = commands[subCommand];
+  if (command) {
+    await command(opts);
+  } else {
+    console.error(`Unknown card command: ${subCommand || '(none)'}`);
+    showCardHelp();
+    process.exit(1);
+  }
+}
+
+async function cardPay(opts) {
+  const { business, amount, description } = opts;
+  if (!business || !amount || !description) {
+    console.error('Error: --business, --amount, and --description are required');
+    console.error('Usage: coinpay card pay --business <id> --amount <usd> --description "text"');
+    process.exit(1);
+  }
+
+  try {
+    const client = getCoinPayClient();
+    const payment = await createQuickCardPayment(client, business, parseFloat(amount), description);
+    
+    console.log('\n╔══════════════════════════════════════════╗');
+    console.log('║            CARD PAYMENT CREATED         ║');
+    console.log('╠══════════════════════════════════════════╣');
+    console.log(`║  Amount:      ${formatCardAmount(Math.round(parseFloat(amount) * 100))}`);
+    console.log(`║  Business:    ${business}`);
+    console.log(`║  Description: ${description}`);
+    console.log(`║  Payment ID:  ${payment.id || payment.session_id || 'N/A'}`);
+    console.log('╚══════════════════════════════════════════╝\n');
+    console.log(`🔗 Checkout URL: ${payment.checkout_url || payment.url}\n`);
+  } catch (err) {
+    console.error('Error creating payment:', formatError(err));
+    process.exit(1);
+  }
+}
+
+async function cardEscrow(opts) {
+  const { business, amount, description } = opts;
+  if (!business || !amount || !description) {
+    console.error('Error: --business, --amount, and --description are required');
+    console.error('Usage: coinpay card escrow --business <id> --amount <usd> --description "text"');
+    process.exit(1);
+  }
+
+  try {
+    const client = getCoinPayClient();
+    const escrow = await createCardEscrow(client, business, parseFloat(amount), description);
+    
+    console.log('\n╔══════════════════════════════════════════╗');
+    console.log('║            CARD ESCROW CREATED           ║');
+    console.log('╠══════════════════════════════════════════╣');
+    console.log(`║  Amount:      ${formatCardAmount(Math.round(parseFloat(amount) * 100))}`);
+    console.log(`║  Business:    ${business}`);
+    console.log(`║  Description: ${description}`);
+    console.log(`║  Escrow ID:   ${escrow.id || escrow.session_id || 'N/A'}`);
+    console.log('╚══════════════════════════════════════════╝\n');
+    console.log(`🔗 Checkout URL: ${escrow.checkout_url || escrow.url}\n`);
+    console.log('💡 Funds will be held in escrow until released.');
+  } catch (err) {
+    console.error('Error creating escrow:', formatError(err));
+    process.exit(1);
+  }
+}
+
+async function cardEscrows(opts) {
+  const { business, status, limit } = opts;
+  
+  try {
+    const client = getCoinPayClient();
+    const options = {};
+    if (business) options.businessId = business;
+    if (status) options.status = status;
+    if (limit) options.limit = parseInt(limit);
+    
+    const result = await listCardEscrows(client, options);
+    const escrows = result.escrows || result.data || [];
+    
+    if (escrows.length === 0) {
+      console.log('No card escrows found.');
+      return;
+    }
+    
+    console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+    console.log('║                          CARD ESCROWS                           ║');
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+    
+    escrows.forEach((escrow, i) => {
+      if (i > 0) console.log('╟──────────────────────────────────────────────────────────────────╢');
+      
+      const amount = escrow.amount || escrow.amount_cents;
+      const status = escrow.status || escrow.escrow_status || 'unknown';
+      const statusIcon = {
+        pending: '🟡',
+        released: '🟢',
+        refunded: '🔴',
+        disputed: '🟠'
+      }[status] || '⚪';
+      
+      console.log(`║  ID:          ${escrow.id || 'N/A'}`);
+      console.log(`║  Amount:      ${formatCardAmount(amount)}`);
+      console.log(`║  Status:      ${statusIcon} ${status.toUpperCase()}`);
+      console.log(`║  Business:    ${escrow.business_id || escrow.businessId || 'N/A'}`);
+      console.log(`║  Description: ${escrow.description || 'N/A'}`);
+      console.log(`║  Created:     ${escrow.created_at || escrow.createdAt || 'N/A'}`);
+    });
+    
+    console.log('╚══════════════════════════════════════════════════════════════════╝\n');
+  } catch (err) {
+    console.error('Error listing escrows:', formatError(err));
+    process.exit(1);
+  }
+}
+
+async function cardRelease(opts) {
+  const escrowId = opts._positional[0];
+  if (!escrowId) {
+    console.error('Error: Escrow ID is required');
+    console.error('Usage: coinpay card release <escrowId>');
+    process.exit(1);
+  }
+
+  try {
+    const client = getCoinPayClient();
+    const result = await releaseCardEscrow(client, escrowId);
+    
+    console.log('\n╔══════════════════════════════════════════╗');
+    console.log('║          ESCROW RELEASED                 ║');
+    console.log('╠══════════════════════════════════════════╣');
+    console.log(`║  Escrow ID:   ${escrowId}`);
+    console.log(`║  Status:      🟢 RELEASED`);
+    console.log('╚══════════════════════════════════════════╝\n');
+    console.log('✅ Funds have been released to the merchant.');
+  } catch (err) {
+    console.error('Error releasing escrow:', formatError(err));
+    process.exit(1);
+  }
+}
+
+async function cardRefund(opts) {
+  const escrowId = opts._positional[0];
+  const { partial } = opts;
+  
+  if (!escrowId) {
+    console.error('Error: Escrow ID is required');
+    console.error('Usage: coinpay card refund <escrowId> [--partial <amount>]');
+    process.exit(1);
+  }
+
+  try {
+    const client = getCoinPayClient();
+    const options = {};
+    if (partial) {
+      options.amount = Math.round(parseFloat(partial) * 100); // Convert to cents
+    }
+    
+    const result = await refundCardEscrow(client, escrowId, options);
+    
+    console.log('\n╔══════════════════════════════════════════╗');
+    console.log('║          ESCROW REFUNDED                 ║');
+    console.log('╠══════════════════════════════════════════╣');
+    console.log(`║  Escrow ID:   ${escrowId}`);
+    console.log(`║  Status:      🔴 REFUNDED`);
+    if (partial) {
+      console.log(`║  Amount:      ${formatCardAmount(options.amount)} (partial)`);
+    }
+    console.log('╚══════════════════════════════════════════╝\n');
+    console.log('💰 Refund has been processed.');
+  } catch (err) {
+    console.error('Error refunding escrow:', formatError(err));
+    process.exit(1);
+  }
+}
+
+async function cardTransactions(opts) {
+  const { business, status, limit } = opts;
+  
+  try {
+    // For now, we'll reuse the escrows endpoint since transactions endpoint 
+    // would require additional API implementation
+    const client = getCoinPayClient();
+    const options = {};
+    if (business) options.businessId = business;
+    if (status) options.status = status;
+    if (limit) options.limit = parseInt(limit);
+    
+    const result = await listCardEscrows(client, options);
+    const transactions = result.escrows || result.data || [];
+    
+    if (transactions.length === 0) {
+      console.log('No card transactions found.');
+      return;
+    }
+    
+    console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+    console.log('║                       CARD TRANSACTIONS                          ║');
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+    
+    transactions.forEach((tx, i) => {
+      if (i > 0) console.log('╟──────────────────────────────────────────────────────────────────╢');
+      
+      const amount = tx.amount || tx.amount_cents;
+      const status = tx.status || tx.escrow_status || 'unknown';
+      const statusIcon = {
+        pending: '🟡',
+        released: '🟢',
+        refunded: '🔴',
+        completed: '✅',
+        failed: '❌'
+      }[status] || '⚪';
+      
+      console.log(`║  ID:          ${tx.id || 'N/A'}`);
+      console.log(`║  Amount:      ${formatCardAmount(amount)}`);
+      console.log(`║  Status:      ${statusIcon} ${status.toUpperCase()}`);
+      console.log(`║  Business:    ${tx.business_id || tx.businessId || 'N/A'}`);
+      console.log(`║  Description: ${tx.description || 'N/A'}`);
+      console.log(`║  Date:        ${tx.created_at || tx.createdAt || 'N/A'}`);
+    });
+    
+    console.log('╚══════════════════════════════════════════════════════════════════╝\n');
+  } catch (err) {
+    console.error('Error listing transactions:', formatError(err));
+    process.exit(1);
+  }
+}
+
+async function cardBalance(opts) {
+  try {
+    // This would require a Stripe balance API endpoint
+    console.log('\n╔══════════════════════════════════════════╗');
+    console.log('║            STRIPE BALANCE                ║');
+    console.log('╠══════════════════════════════════════════╣');
+    console.log('║  Available:   (API not implemented)     ║');
+    console.log('║  Pending:     (API not implemented)     ║');
+    console.log('╚══════════════════════════════════════════╝\n');
+    console.log('💡 Stripe balance API endpoint not yet implemented.');
+  } catch (err) {
+    console.error('Error getting balance:', formatError(err));
+    process.exit(1);
+  }
+}
+
+function showCardHelp() {
+  console.log(`
+Card Commands:
+  coinpay card pay --business <id> --amount <usd> --description "text"
+      Create a card payment
+
+  coinpay card escrow --business <id> --amount <usd> --description "text"
+      Create a card escrow payment
+
+  coinpay card escrows [--business <id>] [--status <status>] [--limit <n>]
+      List card escrows
+
+  coinpay card release <escrowId>
+      Release an escrow to the merchant
+
+  coinpay card refund <escrowId> [--partial <amount>]
+      Refund an escrow (full or partial)
+
+  coinpay card transactions [--business <id>] [--status <status>] [--limit <n>]
+      List card transactions
+
+  coinpay card balance
+      Show Stripe account balance
+`);
+}
+
 async function main() {
   const args = process.argv.slice(2);
   
@@ -636,6 +950,9 @@ async function main() {
       break;
     case 'reputation':
       await handleReputation(subCommand, args.slice(2));
+      break;
+    case 'card':
+      await handleCard(subCommand, args.slice(2));
       break;
     case 'help': case '--help': case '-h':
       showHelp();
