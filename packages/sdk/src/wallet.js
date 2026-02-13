@@ -9,8 +9,13 @@
 import * as bip39 from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
 import { HDKey } from '@scure/bip32';
-import { secp256k1 } from '@noble/curves/secp256k1';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha2.js';
+import { ripemd160 } from '@noble/hashes/legacy.js';
+import { keccak_256 } from '@noble/hashes/sha3.js';
+import { ed25519 } from '@noble/curves/ed25519.js';
+import { hmac } from '@noble/hashes/hmac.js';
+import { sha512 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 
 const DEFAULT_BASE_URL = 'https://coinpayportal.com/api';
@@ -60,6 +65,253 @@ const COIN_TYPES = {
  * Chains that use secp256k1 curve (vs ed25519 for Solana)
  */
 const SECP256K1_CHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'BNB', 'USDC_ETH', 'USDC_POL', 'USDT_ETH', 'USDT_POL'];
+
+// ============================================================
+// Address derivation helpers
+// ============================================================
+
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+/**
+ * Base58 encode a byte array
+ */
+function base58Encode(bytes) {
+  const digits = [0];
+  for (const byte of bytes) {
+    let carry = byte;
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+  // Leading zeros
+  let result = '';
+  for (const byte of bytes) {
+    if (byte === 0) result += BASE58_ALPHABET[0];
+    else break;
+  }
+  for (let i = digits.length - 1; i >= 0; i--) {
+    result += BASE58_ALPHABET[digits[i]];
+  }
+  return result;
+}
+
+/**
+ * Base58Check encode (used for BTC addresses)
+ */
+function base58CheckEncode(version, payload) {
+  const data = new Uint8Array(1 + payload.length);
+  data[0] = version;
+  data.set(payload, 1);
+  const checksum = sha256(sha256(data)).slice(0, 4);
+  const full = new Uint8Array(data.length + 4);
+  full.set(data);
+  full.set(checksum, data.length);
+  return base58Encode(full);
+}
+
+/**
+ * Hash160: SHA256 then RIPEMD160
+ */
+function hash160(data) {
+  return ripemd160(sha256(data));
+}
+
+/**
+ * Derive BTC P2PKH address from compressed public key
+ */
+function deriveBTCAddress(compressedPubKey) {
+  const h = hash160(compressedPubKey);
+  return base58CheckEncode(0x00, h);
+}
+
+/**
+ * Derive BCH CashAddr from compressed public key
+ * Uses simplified CashAddr encoding (lowercase bech32-like with bitcoincash: prefix)
+ */
+function deriveBCHAddress(compressedPubKey) {
+  const h = hash160(compressedPubKey);
+  // CashAddr encoding
+  const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+  
+  // Convert hash160 to 5-bit groups with version byte
+  // Version byte: 0 = P2PKH, 160-bit hash → type=0, hash_size=0 → version_byte = 0
+  const payload8 = new Uint8Array(1 + h.length);
+  payload8[0] = 0; // version byte
+  payload8.set(h, 1);
+  
+  // Convert 8-bit to 5-bit
+  const payload5 = convertBits(payload8, 8, 5, true);
+  
+  // Polymod checksum
+  const prefixData = expandPrefix('bitcoincash');
+  const checksumInput = new Uint8Array(prefixData.length + payload5.length + 8);
+  checksumInput.set(prefixData);
+  checksumInput.set(payload5, prefixData.length);
+  // Last 8 bytes are zeros for checksum calculation
+  const polymod = cashAddrPolymod(checksumInput) ^ 1n;
+  
+  const checksum = new Uint8Array(8);
+  for (let i = 0; i < 8; i++) {
+    checksum[i] = Number((polymod >> BigInt(5 * (7 - i))) & 0x1fn);
+  }
+  
+  let encoded = 'bitcoincash:';
+  for (const val of payload5) encoded += CHARSET[val];
+  for (const val of checksum) encoded += CHARSET[val];
+  
+  return encoded;
+}
+
+function convertBits(data, fromBits, toBits, pad) {
+  let acc = 0;
+  let bits = 0;
+  const result = [];
+  const maxv = (1 << toBits) - 1;
+  for (const value of data) {
+    acc = (acc << fromBits) | value;
+    bits += fromBits;
+    while (bits >= toBits) {
+      bits -= toBits;
+      result.push((acc >> bits) & maxv);
+    }
+  }
+  if (pad && bits > 0) {
+    result.push((acc << (toBits - bits)) & maxv);
+  }
+  return new Uint8Array(result);
+}
+
+function expandPrefix(prefix) {
+  const result = new Uint8Array(prefix.length + 1);
+  for (let i = 0; i < prefix.length; i++) {
+    result[i] = prefix.charCodeAt(i) & 0x1f;
+  }
+  result[prefix.length] = 0;
+  return result;
+}
+
+function cashAddrPolymod(values) {
+  const GENERATORS = [
+    0x98f2bc8e61n, 0x79b76d99e2n, 0xf33e5fb3c4n, 0xae2eabe2a8n, 0x1e4f43e470n
+  ];
+  let c = 1n;
+  for (const d of values) {
+    const c0 = c >> 35n;
+    c = ((c & 0x07ffffffffn) << 5n) ^ BigInt(d);
+    for (let i = 0; i < 5; i++) {
+      if ((c0 >> BigInt(i)) & 1n) {
+        c ^= GENERATORS[i];
+      }
+    }
+  }
+  return c;
+}
+
+/**
+ * Derive ETH/EVM address from compressed public key bytes
+ */
+function deriveETHAddress(compressedPubKey) {
+  // Decompress: get uncompressed point (65 bytes: 04 || x || y)
+  const point = secp256k1.Point.fromBytes(compressedPubKey);
+  const uncompressed = point.toBytes(false); // 65 bytes with 04 prefix
+  // Keccak256 of the 64 bytes (without 04 prefix)
+  const hash = keccak_256(uncompressed.slice(1));
+  // Last 20 bytes — EIP-55 checksummed
+  const addr = bytesToHex(hash.slice(12));
+  const addrHash = bytesToHex(keccak_256(new TextEncoder().encode(addr)));
+  let checksummed = '';
+  for (let i = 0; i < addr.length; i++) {
+    checksummed += parseInt(addrHash[i], 16) >= 8 ? addr[i].toUpperCase() : addr[i];
+  }
+  return '0x' + checksummed;
+}
+
+/**
+ * SLIP-0010 ed25519 key derivation from seed
+ * Solana uses ed25519, derived via SLIP-0010 (not BIP32 secp256k1)
+ */
+function deriveEd25519Key(seed, path) {
+  // SLIP-0010 master key derivation
+  const I = hmac(sha512, new TextEncoder().encode('ed25519 seed'), seed);
+  let key = I.slice(0, 32);
+  let chainCode = I.slice(32);
+  
+  // Parse path
+  const segments = path.replace('m/', '').split('/');
+  for (const seg of segments) {
+    const hardened = seg.endsWith("'");
+    const index = parseInt(seg.replace("'", ''), 10);
+    if (!hardened) throw new Error('SLIP-0010 ed25519 only supports hardened derivation');
+    
+    const indexBuf = new Uint8Array(4);
+    const val = (index | 0x80000000) >>> 0;
+    indexBuf[0] = (val >> 24) & 0xff;
+    indexBuf[1] = (val >> 16) & 0xff;
+    indexBuf[2] = (val >> 8) & 0xff;
+    indexBuf[3] = val & 0xff;
+    
+    const data = new Uint8Array(1 + 32 + 4);
+    data[0] = 0x00;
+    data.set(key, 1);
+    data.set(indexBuf, 33);
+    
+    const derived = hmac(sha512, chainCode, data);
+    key = derived.slice(0, 32);
+    chainCode = derived.slice(32);
+  }
+  
+  return key;
+}
+
+/**
+ * Derive SOL address from seed using SLIP-0010 ed25519
+ */
+function deriveSOLAddress(seed, index = 0) {
+  const path = `m/44'/501'/${index}'/0'`;
+  const privateKey = deriveEd25519Key(seed, path);
+  const publicKey = ed25519.getPublicKey(privateKey);
+  return { address: base58Encode(publicKey), publicKey, privateKey, path };
+}
+
+/**
+ * Derive the blockchain address for a given chain from seed/public key
+ * @param {Uint8Array} seed - Master seed
+ * @param {string} chain - Chain code
+ * @param {number} index - Derivation index
+ * @returns {string} The derived address
+ */
+export function deriveAddress(seed, chain, index = 0) {
+  // Solana-based chains
+  if (chain === 'SOL' || chain === 'USDC_SOL' || chain === 'USDT_SOL') {
+    return deriveSOLAddress(seed, index).address;
+  }
+  
+  // secp256k1-based chains
+  const { publicKey } = deriveKeyPair(seed, chain, index);
+  
+  switch (chain) {
+    case 'BTC':
+      return deriveBTCAddress(publicKey);
+    case 'BCH':
+      return deriveBCHAddress(publicKey);
+    case 'ETH':
+    case 'POL':
+    case 'BNB':
+    case 'USDC_ETH':
+    case 'USDC_POL':
+    case 'USDT_ETH':
+    case 'USDT_POL':
+      return deriveETHAddress(publicKey);
+    default:
+      throw new Error(`Unsupported chain for address derivation: ${chain}`);
+  }
+}
 
 /**
  * Generate a new mnemonic phrase
@@ -173,11 +425,23 @@ function signMessage(message, privateKey) {
  * @private
  */
 function deriveAddressInfo(seed, chain, index = 0) {
-  const { publicKey, path } = deriveKeyPair(seed, chain, index);
+  const address = deriveAddress(seed, chain, index);
+  const path = getDerivationPath(chain, index);
+  
+  // For SOL chains, the public key is derived differently (ed25519)
+  let publicKeyHex;
+  if (chain === 'SOL' || chain === 'USDC_SOL' || chain === 'USDT_SOL') {
+    const solInfo = deriveSOLAddress(seed, index);
+    publicKeyHex = bytesToHex(solInfo.publicKey);
+  } else {
+    const { publicKey } = deriveKeyPair(seed, chain, index);
+    publicKeyHex = bytesToHex(publicKey);
+  }
   
   return {
     chain,
-    publicKey: bytesToHex(publicKey),
+    address,
+    publicKey: publicKeyHex,
     derivation_path: path,
     derivation_index: index,
   };
@@ -246,7 +510,7 @@ export class WalletClient {
       // The actual address would be derived client-side with full implementation
       return {
         chain: info.chain,
-        address: info.publicKey.slice(0, 42), // Placeholder - real impl derives actual address
+        address: info.address,
         derivation_path: info.derivation_path,
       };
     });
@@ -259,7 +523,7 @@ export class WalletClient {
       }),
     });
     
-    client.#walletId = result.wallet_id;
+    client.#walletId = result.data?.wallet_id || result.wallet_id;
     
     return client;
   }
@@ -300,7 +564,7 @@ export class WalletClient {
       const info = deriveAddressInfo(seed, chain, 0);
       return {
         chain: info.chain,
-        address: info.publicKey.slice(0, 42), // Placeholder
+        address: info.address,
         derivation_path: info.derivation_path,
       };
     });
@@ -318,7 +582,7 @@ export class WalletClient {
       }),
     });
     
-    client.#walletId = result.wallet_id;
+    client.#walletId = result.data?.wallet_id || result.wallet_id;
     
     return client;
   }
@@ -380,10 +644,12 @@ export class WalletClient {
     }
     
     // Get challenge
-    const { challenge } = await this.#request(`/web-wallet/auth/challenge`, {
+    const challengeRes = await this.#request(`/web-wallet/auth/challenge`, {
       method: 'POST',
       body: JSON.stringify({ wallet_id: this.#walletId }),
     });
+    const challenge = challengeRes.data?.challenge || challengeRes.challenge;
+    const challengeId = challengeRes.data?.challenge_id || challengeRes.challenge_id;
     
     // Sign challenge
     const { privateKey } = deriveKeyPair(this.#seed, 'ETH', 0);
@@ -394,12 +660,12 @@ export class WalletClient {
       method: 'POST',
       body: JSON.stringify({
         wallet_id: this.#walletId,
-        challenge_id: result.challenge_id,
+        challenge_id: challengeId,
         signature,
       }),
     });
     
-    this.#authToken = result.auth_token;
+    this.#authToken = result.data?.auth_token || result.auth_token;
   }
   
   /**
@@ -469,7 +735,7 @@ export class WalletClient {
       method: 'POST',
       body: JSON.stringify({
         chain: info.chain,
-        address: info.publicKey.slice(0, 42), // Placeholder
+        address: info.address,
         derivation_index: info.derivation_index,
         derivation_path: info.derivation_path,
       }),

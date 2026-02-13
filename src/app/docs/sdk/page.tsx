@@ -176,14 +176,19 @@ coinpay payment create --business-id biz_123 --amount 50 --blockchain ETH --desc
 # Create a USDC payment on Polygon
 coinpay payment create --business-id biz_123 --amount 25 --blockchain USDC_POL
 
+# Send with fiat amount (wallet commands)
+coinpay wallet send --chain SOL --to abc... --amount-fiat 10 --fiat USD
+coinpay wallet send --chain ETH --to 0x123... --amount-fiat 25 --fiat EUR
+
 # Get payment details
 coinpay payment get pay_abc123
 
 # List payments
 coinpay payment list --business-id biz_123
 
-# Get exchange rates
-coinpay rates get BTC`}
+# Get exchange rates with fiat support
+coinpay rates get BTC --fiat USD
+coinpay rates get SOL --fiat EUR`}
             </CodeBlock>
           </DocSection>
         </div>
@@ -401,19 +406,40 @@ businesses.forEach(biz => {
             </p>
 
             <h3 className="text-xl font-semibold text-white mb-4">Create Escrow</h3>
-            <CodeBlock title="Create a new escrow" language="javascript">
+            <CodeBlock title="Create a new escrow (crypto amount)" language="javascript">
 {`const escrow = await client.createEscrow({
   chain: 'ETH',
   amount: 0.5,
-  depositor_address: '0xAlice...',
-  beneficiary_address: '0xBob...',
-  expires_in_hours: 48,  // optional (default: 24, max: 720)
+  depositorAddress: '0xAlice...',
+  beneficiaryAddress: '0xBob...',
+  expiresInHours: 48,  // optional (default: 24, max: 720)
   metadata: { order_id: '12345' },  // optional
 });
 
-console.log('Deposit to:', escrow.escrow_address);
-console.log('Release token:', escrow.release_token);      // Save this! Given to depositor
-console.log('Beneficiary token:', escrow.beneficiary_token); // Save this! Given to beneficiary`}
+console.log('Deposit to:', escrow.escrowAddress);
+console.log('Release token:', escrow.releaseToken);      // Save this! Given to depositor
+console.log('Beneficiary token:', escrow.beneficiaryToken); // Save this! Given to beneficiary`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Fiat Conversion Support</h3>
+            <CodeBlock title="Convert fiat to crypto amount" language="javascript">
+{`// Convert fiat to crypto
+const conversion = await client.convertFiatToCrypto(50, 'USD', 'SOL');
+console.log(\`$50 USD = \${conversion.cryptoAmount} SOL\`);
+console.log(\`Rate: 1 SOL = $\${conversion.rate}\`);`}
+            </CodeBlock>
+
+            <CodeBlock title="Create escrow with fiat amount" language="javascript">
+{`// Create escrow with fiat amount (auto-converts internally)
+const escrow = await client.createEscrow({
+  chain: 'SOL',
+  amountFiat: 50,
+  fiatCurrency: 'USD',
+  depositorAddress: '...',
+  beneficiaryAddress: '...',
+});
+
+console.log(\`Escrow created for $50 USD (\${escrow.amount} SOL)\`);`}
             </CodeBlock>
 
             <h3 className="text-xl font-semibold text-white mb-4">Get &amp; List Escrows</h3>
@@ -462,28 +488,112 @@ const settled = await client.waitForEscrow('a1b2c3d4-...', 'settled', {
   timeoutMs: 300000,  // timeout after 5min
 });`}
             </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Escrow Management</h3>
+            <p className="text-gray-300 mb-4">
+              Authenticate with escrow tokens to manage escrows and determine available actions based on your role.
+            </p>
+            
+            <CodeBlock title="Authenticate and manage escrow" language="javascript">
+{`// Authenticate with escrow token
+const { escrow, role } = await client.authenticateEscrow('escrow-id', 'token');
+console.log(\`Your role: \${role}\`); // 'depositor' or 'beneficiary'
+
+// Check available actions based on role and status
+if (escrow.status === 'funded') {
+  if (role === 'depositor') {
+    console.log('Available actions: release, refund, dispute');
+  } else if (role === 'beneficiary') {
+    console.log('Available actions: dispute');
+  }
+}`}
+            </CodeBlock>
+
+            <CodeBlock title="Depositor workflow" language="javascript">
+{`// Depositor can release or refund
+const auth = await client.authenticateEscrow(escrowId, releaseToken);
+if (auth.role === 'depositor') {
+  // Release to beneficiary
+  await client.releaseEscrow(escrowId, releaseToken);
+  
+  // Or refund to self (if needed)
+  // await client.refundEscrow(escrowId, releaseToken);
+}`}
+            </CodeBlock>
+
+            <CodeBlock title="Beneficiary workflow" language="javascript">
+{`// Beneficiary can check status and dispute if needed
+const auth = await client.authenticateEscrow(escrowId, beneficiaryToken);
+if (auth.role === 'beneficiary') {
+  console.log(\`Escrow status: \${auth.escrow.status}\`);
+  
+  // Open dispute if work not delivered
+  if (auth.escrow.status === 'funded' && workNotDelivered) {
+    await client.disputeEscrow(escrowId, beneficiaryToken, 
+      'Work was not delivered as agreed upon'
+    );
+  }
+}`}
+            </CodeBlock>
+
+            <div className="mt-4 p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+              <p className="text-purple-300 text-sm">
+                <strong>Web Management:</strong> Both parties can also manage escrows through the web interface at <code className="text-purple-200">/escrow/manage?id=xxx&token=yyy</code>. Share the escrow ID and appropriate token for easy access.
+              </p>
+            </div>
           </DocSection>
         </div>
 
         {/* Exchange Rates */}
         <div id="rates">
           <DocSection title="Exchange Rates">
+            <p className="text-gray-300 mb-6">
+              Get real-time cryptocurrency exchange rates in multiple fiat currencies. Supports fiat conversions for payments and escrows.
+            </p>
+
             <h3 className="text-xl font-semibold text-white mb-4">Get Single Rate</h3>
             <CodeBlock title="Get exchange rate for one cryptocurrency" language="javascript">
-{`const rate = await client.getExchangeRate('BTC', 'USD');
-
+{`// Get rate in USD (default)
+const rate = await client.getExchangeRate('BTC');
 console.log(\`1 BTC = $\${rate.price} USD\`);
-console.log(\`Last updated: \${rate.timestamp}\`);`}
+
+// Get rate in specific fiat currency
+const eurRate = await client.getExchangeRate('SOL', 'EUR');
+console.log(\`1 SOL = €\${eurRate.price} EUR\`);`}
             </CodeBlock>
 
             <h3 className="text-xl font-semibold text-white mb-4 mt-8">Get Multiple Rates</h3>
             <CodeBlock title="Get rates for multiple cryptocurrencies" language="javascript">
-{`const rates = await client.getExchangeRates(['BTC', 'ETH', 'SOL'], 'USD');
+{`// Get multiple rates in USD (default)
+const rates = await client.getExchangeRates(['BTC', 'ETH', 'SOL']);
 
-rates.forEach(rate => {
-  console.log(\`\${rate.symbol}: $\${rate.price}\`);
-});`}
+// Get multiple rates in specific fiat currency
+const gbpRates = await client.getExchangeRates(['BTC', 'ETH', 'SOL'], 'GBP');
+console.log(\`BTC: £\${gbpRates.rates.BTC}\`);`}
             </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Fiat Conversion</h3>
+            <CodeBlock title="Convert fiat amounts to crypto" language="javascript">
+{`// Convert $100 USD to BTC
+const conversion = await client.convertFiatToCrypto(100, 'USD', 'BTC');
+console.log(\`$100 USD = \${conversion.cryptoAmount.toFixed(8)} BTC\`);
+
+// Convert €50 EUR to SOL
+const eurConversion = await client.convertFiatToCrypto(50, 'EUR', 'SOL');
+console.log(\`€50 EUR = \${eurConversion.cryptoAmount.toFixed(6)} SOL\`);`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Supported Fiat Currencies</h3>
+            <div className="grid md:grid-cols-5 gap-3 mb-6">
+              {[
+                'USD', 'EUR', 'GBP', 'CAD', 'AUD', 
+                'JPY', 'CHF', 'CNY', 'INR', 'BRL'
+              ].map((currency) => (
+                <div key={currency} className="p-2 rounded bg-slate-800/50 border border-white/10 text-center">
+                  <code className="text-purple-400 font-mono">{currency}</code>
+                </div>
+              ))}
+            </div>
 
             <h3 className="text-xl font-semibold text-white mb-4 mt-8">Supported Blockchains</h3>
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -663,18 +773,35 @@ coinpay business update biz_123 --name "New Name" --webhook-url https://new-url.
 
             <h3 className="text-xl font-semibold text-white mb-4 mt-8">Exchange Rate Commands</h3>
             <CodeBlock title="Rate operations" language="bash">
-{`# Get rate for single cryptocurrency
-coinpay rates get BTC --fiat USD
+{`# Get rate for single cryptocurrency in USD (default)
+coinpay rates get BTC
 
-# List all supported rates
+# Get rate in specific fiat currency
+coinpay rates get SOL --fiat EUR
+
+# List all supported rates in USD
+coinpay rates list
+
+# List all supported rates in EUR
 coinpay rates list --fiat EUR`}
             </CodeBlock>
 
             <h3 className="text-xl font-semibold text-white mb-4 mt-8">Escrow Commands</h3>
             <CodeBlock title="Escrow operations" language="bash">
-{`# Create an escrow
+{`# Create escrow with crypto amount
 coinpay escrow create --chain ETH --amount 0.5 \\
   --depositor 0xAlice... --beneficiary 0xBob...
+
+# Create escrow with fiat amount
+coinpay escrow create --chain SOL --amount-fiat 50 --fiat USD \\
+  --depositor abc... --beneficiary def...
+
+# Create escrow with EUR amount
+coinpay escrow create --chain SOL --amount-fiat 45 --fiat EUR \\
+  --depositor abc... --beneficiary def...
+
+# Authenticate and manage escrow with token
+coinpay escrow auth <id> --token <token>
 
 # Get escrow details
 coinpay escrow get a1b2c3d4-...

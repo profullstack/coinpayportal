@@ -1,0 +1,290 @@
+/**
+ * Escrow Monitor
+ *
+ * Handles all escrow monitoring logic:
+ * 1. Check pending (created) escrows for deposits or expiration
+ * 1b. Auto-refund funded escrows that have expired
+ * 2. Trigger settlement for released escrows
+ * 3. Trigger on-chain refund for refunded escrows
+ */
+
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { checkBalance } from './balance-checkers';
+import type { EscrowStats } from './types';
+import { generateReceiptFromEscrow, storeReceipt, validateReceipt } from '@/lib/reputation/receipt-service';
+import { signData } from '@/lib/reputation/crypto';
+
+/**
+ * Run the full escrow monitoring cycle
+ */
+export async function monitorEscrows(
+  supabase: SupabaseClient,
+  now: Date
+): Promise<EscrowStats> {
+  const stats: EscrowStats = { checked: 0, funded: 0, expired: 0, errors: 0 };
+
+  try {
+    // 1. Check pending escrows for deposits
+    await checkPendingEscrows(supabase, now, stats);
+
+    // 1b. Auto-refund funded escrows that have expired
+    await autoRefundExpiredFundedEscrows(supabase, now, stats);
+
+    // 2. Process released escrows (trigger settlement/forwarding)
+    await settleReleasedEscrows(supabase);
+
+    // 3. Process refunded escrows (return funds to depositor)
+    await settleRefundedEscrows(supabase);
+  } catch (escrowMonitorError) {
+    console.error('Escrow monitor error:', escrowMonitorError);
+  }
+
+  return stats;
+}
+
+/**
+ * Step 1: Check pending (created) escrows for deposits or expiration
+ */
+async function checkPendingEscrows(
+  supabase: SupabaseClient,
+  now: Date,
+  stats: EscrowStats
+): Promise<void> {
+  const { data: pendingEscrows, error: escrowFetchError } = await supabase
+    .from('escrows')
+    .select('id, escrow_address, chain, amount, status, expires_at')
+    .eq('status', 'created')
+    .limit(50);
+
+  if (escrowFetchError || !pendingEscrows) return;
+
+  console.log(`Processing ${pendingEscrows.length} pending escrows`);
+
+  for (const escrow of pendingEscrows) {
+    stats.checked++;
+    try {
+      // Check if expired
+      if (new Date(escrow.expires_at) < now) {
+        await supabase
+          .from('escrows')
+          .update({ status: 'expired' })
+          .eq('id', escrow.id)
+          .eq('status', 'created');
+        await supabase.from('escrow_events').insert({
+          escrow_id: escrow.id,
+          event_type: 'expired',
+          actor: 'system',
+          details: {},
+        });
+        stats.expired++;
+        console.log(`Escrow ${escrow.id} expired`);
+        continue;
+      }
+
+      // Check balance on-chain
+      const balance = await checkBalance(escrow.escrow_address, escrow.chain);
+      const tolerance = escrow.amount * 0.01;
+
+      if (balance >= escrow.amount - tolerance) {
+        // Mark as funded
+        await supabase
+          .from('escrows')
+          .update({
+            status: 'funded',
+            funded_at: now.toISOString(),
+            deposited_amount: balance,
+          })
+          .eq('id', escrow.id)
+          .eq('status', 'created');
+        await supabase.from('escrow_events').insert({
+          escrow_id: escrow.id,
+          event_type: 'funded',
+          actor: 'system',
+          details: { deposited_amount: balance },
+        });
+        stats.funded++;
+        console.log(`Escrow ${escrow.id} funded with ${balance}`);
+      }
+    } catch (escrowError) {
+      console.error(`Error processing escrow ${escrow.id}:`, escrowError);
+      stats.errors++;
+    }
+  }
+}
+
+/**
+ * Step 1b: Auto-refund funded escrows that have expired
+ */
+async function autoRefundExpiredFundedEscrows(
+  supabase: SupabaseClient,
+  now: Date,
+  stats: EscrowStats
+): Promise<void> {
+  const { data: expiredFundedEscrows } = await supabase
+    .from('escrows')
+    .select('id, escrow_address, chain, amount, deposited_amount, depositor_address, expires_at')
+    .eq('status', 'funded')
+    .lt('expires_at', now.toISOString())
+    .limit(20);
+
+  if (!expiredFundedEscrows || expiredFundedEscrows.length === 0) return;
+
+  console.log(`Auto-refunding ${expiredFundedEscrows.length} expired funded escrows`);
+
+  for (const escrow of expiredFundedEscrows) {
+    try {
+      await supabase
+        .from('escrows')
+        .update({
+          status: 'refunded',
+          refunded_at: now.toISOString(),
+        })
+        .eq('id', escrow.id)
+        .eq('status', 'funded');
+
+      await supabase.from('escrow_events').insert({
+        escrow_id: escrow.id,
+        event_type: 'refunded',
+        actor: 'system',
+        details: {
+          reason: 'Escrow expired — auto-refund to depositor',
+          refund_to: escrow.depositor_address,
+          amount: escrow.deposited_amount || escrow.amount,
+        },
+      });
+
+      console.log(`Escrow ${escrow.id} expired while funded — marked for refund`);
+    } catch (expiredRefundError) {
+      console.error(`Error auto-refunding expired escrow ${escrow.id}:`, expiredRefundError);
+      stats.errors++;
+    }
+  }
+}
+
+/**
+ * Step 2: Trigger settlement for released escrows
+ */
+async function settleReleasedEscrows(supabase: SupabaseClient): Promise<void> {
+  const { data: releasedEscrows } = await supabase
+    .from('escrows')
+    .select('id, escrow_address, escrow_address_id, chain, amount, deposited_amount, fee_amount, beneficiary_address, business_id')
+    .eq('status', 'released')
+    .limit(20);
+
+  if (!releasedEscrows || releasedEscrows.length === 0) return;
+
+  console.log(`Processing ${releasedEscrows.length} released escrows for settlement`);
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
+  const internalApiKey = process.env.INTERNAL_API_KEY;
+
+  for (const escrow of releasedEscrows) {
+    try {
+      if (internalApiKey) {
+        const settleResponse = await fetch(`${appUrl}/api/escrow/${escrow.id}/settle`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${internalApiKey}`,
+          },
+        });
+        if (settleResponse.ok) {
+          console.log(`Settlement triggered for escrow ${escrow.id}`);
+          // Auto-generate reputation receipt on successful settlement
+          try {
+            await generateReputationReceipt(supabase, escrow);
+          } catch (repError) {
+            console.error(`Reputation receipt generation failed for escrow ${escrow.id}:`, repError);
+          }
+        } else {
+          console.error(`Settlement failed for escrow ${escrow.id}: ${settleResponse.status}`);
+        }
+      }
+    } catch (settleError) {
+      console.error(`Error settling escrow ${escrow.id}:`, settleError);
+    }
+  }
+}
+
+/**
+ * Step 3: Trigger on-chain refund for refunded escrows without settlement TX
+ */
+async function settleRefundedEscrows(supabase: SupabaseClient): Promise<void> {
+  const { data: refundedEscrows } = await supabase
+    .from('escrows')
+    .select('id, escrow_address, escrow_address_id, chain, deposited_amount, depositor_address')
+    .eq('status', 'refunded')
+    .is('settlement_tx_hash', null)
+    .limit(20);
+
+  if (!refundedEscrows || refundedEscrows.length === 0) return;
+
+  console.log(`Processing ${refundedEscrows.length} refunded escrows`);
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
+  const internalApiKey = process.env.INTERNAL_API_KEY;
+
+  for (const escrow of refundedEscrows) {
+    try {
+      if (internalApiKey) {
+        const refundResponse = await fetch(`${appUrl}/api/escrow/${escrow.id}/settle`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${internalApiKey}`,
+          },
+          body: JSON.stringify({ action: 'refund' }),
+        });
+        if (refundResponse.ok) {
+          console.log(`Refund triggered for escrow ${escrow.id}`);
+        } else {
+          console.error(`Refund failed for escrow ${escrow.id}: ${refundResponse.status}`);
+        }
+      }
+    } catch (refundError) {
+      console.error(`Error refunding escrow ${escrow.id}:`, refundError);
+    }
+  }
+}
+
+/**
+ * Auto-generate a TaskReceipt after escrow settlement
+ */
+async function generateReputationReceipt(
+  supabase: SupabaseClient,
+  escrow: {
+    id: string;
+    chain: string;
+    amount: number;
+    deposited_amount?: number;
+    beneficiary_address: string;
+    escrow_address: string;
+    escrow_address_id?: string;
+    business_id?: string;
+    fee_amount?: number;
+  }
+): Promise<void> {
+  const partial = generateReceiptFromEscrow(escrow);
+
+  // Sign with platform DID
+  const platformDid = partial.platform_did || 'did:web:coinpayportal.com';
+  const data = `${partial.receipt_id}:${partial.task_id}:${partial.agent_did}:${partial.buyer_did}:${partial.amount}:${partial.outcome}`;
+  const platformSig = signData(data, platformDid);
+
+  const receipt = {
+    ...partial,
+    signatures: { platform: platformSig },
+    finalized_at: new Date().toISOString(),
+  };
+
+  const validation = validateReceipt(receipt);
+  if (!validation.valid) {
+    console.warn(`Skipping reputation receipt for escrow ${escrow.id}: ${validation.errors.join(', ')}`);
+    return;
+  }
+
+  const result = await storeReceipt(supabase, receipt as any);
+  if (result.success) {
+    console.log(`Reputation receipt ${result.id} created for escrow ${escrow.id}`);
+  } else if (result.error !== 'Duplicate receipt_id') {
+    console.error(`Failed to store reputation receipt for escrow ${escrow.id}: ${result.error}`);
+  }
+}

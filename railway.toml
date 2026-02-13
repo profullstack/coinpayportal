@@ -2,9 +2,9 @@
 buildCommand = "pnpm install --no-frozen-lockfile && pnpm run build"
 
 [deploy]
-startCommand = "pnpm start"
+startCommand = "NODE_OPTIONS=--max-old-space-size=512 pnpm start"
 healthcheckPath = "/"
-healthcheckTimeout = 100
+healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 

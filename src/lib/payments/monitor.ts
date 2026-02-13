@@ -517,11 +517,191 @@ async function processPayment(supabase: any, payment: Payment): Promise<{ confir
 }
 
 // ────────────────────────────────────────────────────────────
+// Escrow Monitoring
+// ────────────────────────────────────────────────────────────
+
+interface EscrowStats {
+  checked: number;
+  funded: number;
+  expired: number;
+  settled: number;
+  errors: number;
+}
+
+interface Escrow {
+  id: string;
+  escrow_address: string;
+  escrow_address_id?: string;
+  chain: string;
+  amount: number;
+  deposited_amount?: number;
+  fee_amount?: number;
+  status: string;
+  expires_at: string;
+  beneficiary_address?: string;
+  depositor_address?: string;
+  business_id?: string;
+}
+
+/**
+ * Process escrow monitoring cycle
+ */
+async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowStats> {
+  const stats = { checked: 0, funded: 0, expired: 0, settled: 0, errors: 0 };
+  
+  try {
+    // ── 1. Check pending escrows for deposits ──
+    const { data: pendingEscrows, error: escrowFetchError } = await supabase
+      .from('escrows')
+      .select('id, escrow_address, chain, amount, status, expires_at')
+      .eq('status', 'created')
+      .limit(50);
+
+    if (!escrowFetchError && pendingEscrows && pendingEscrows.length > 0) {
+      console.log(`[Monitor] Processing ${pendingEscrows.length} pending escrows`);
+
+      for (const escrow of pendingEscrows) {
+        stats.checked++;
+        try {
+          // Check if expired
+          if (new Date(escrow.expires_at) < now) {
+            await supabase
+              .from('escrows')
+              .update({ status: 'expired' })
+              .eq('id', escrow.id)
+              .eq('status', 'created');
+            await supabase.from('escrow_events').insert({
+              escrow_id: escrow.id,
+              event_type: 'expired',
+              actor: 'system',
+              details: {},
+            });
+            stats.expired++;
+            console.log(`[Monitor] Escrow ${escrow.id} expired`);
+            continue;
+          }
+
+          // Check balance on-chain using existing checkBalance function
+          const balanceResult = await checkBalance(escrow.escrow_address, escrow.chain);
+          const balance = balanceResult.balance;
+          const tolerance = escrow.amount * 0.01;
+
+          if (balance >= escrow.amount - tolerance) {
+            // Mark as funded
+            await supabase
+              .from('escrows')
+              .update({
+                status: 'funded',
+                funded_at: now.toISOString(),
+                deposited_amount: balance,
+              })
+              .eq('id', escrow.id)
+              .eq('status', 'created');
+            await supabase.from('escrow_events').insert({
+              escrow_id: escrow.id,
+              event_type: 'funded',
+              actor: 'system',
+              details: { deposited_amount: balance },
+            });
+            stats.funded++;
+            console.log(`[Monitor] Escrow ${escrow.id} funded with ${balance}`);
+          }
+        } catch (escrowError) {
+          console.error(`[Monitor] Error processing escrow ${escrow.id}:`, escrowError);
+          stats.errors++;
+        }
+      }
+    }
+
+    // ── 2. Process released escrows (trigger settlement/forwarding) ──
+    const { data: releasedEscrows } = await supabase
+      .from('escrows')
+      .select('id, escrow_address, escrow_address_id, chain, amount, deposited_amount, fee_amount, beneficiary_address, business_id')
+      .eq('status', 'released')
+      .limit(20);
+
+    if (releasedEscrows && releasedEscrows.length > 0) {
+      console.log(`[Monitor] Processing ${releasedEscrows.length} released escrows for settlement`);
+      const settleStats = await processEscrowSettlement(releasedEscrows, 'release');
+      stats.settled += settleStats.settled;
+      stats.errors += settleStats.errors;
+    }
+
+    // ── 3. Process refunded escrows (return funds to depositor) ──
+    const { data: refundedEscrows } = await supabase
+      .from('escrows')
+      .select('id, escrow_address, escrow_address_id, chain, deposited_amount, depositor_address')
+      .eq('status', 'refunded')
+      .is('settlement_tx_hash', null)
+      .limit(20);
+
+    if (refundedEscrows && refundedEscrows.length > 0) {
+      console.log(`[Monitor] Processing ${refundedEscrows.length} refunded escrows`);
+      const refundStats = await processEscrowSettlement(refundedEscrows, 'refund');
+      stats.settled += refundStats.settled;
+      stats.errors += refundStats.errors;
+    }
+
+    if (stats.checked > 0) {
+      console.log(`[Monitor] Escrow cycle: checked=${stats.checked}, funded=${stats.funded}, expired=${stats.expired}, settled=${stats.settled}, errors=${stats.errors}`);
+    }
+  } catch (escrowMonitorError) {
+    console.error('[Monitor] Escrow monitor error:', escrowMonitorError);
+    stats.errors++;
+  }
+  
+  return stats;
+}
+
+/**
+ * Process escrow settlement via internal API calls
+ */
+async function processEscrowSettlement(escrows: Escrow[], action: 'release' | 'refund'): Promise<{ settled: number; errors: number }> {
+  const stats = { settled: 0, errors: 0 };
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
+  const internalApiKey = process.env.INTERNAL_API_KEY;
+
+  if (!internalApiKey) {
+    console.error('[Monitor] INTERNAL_API_KEY not configured - cannot process escrow settlements');
+    stats.errors += escrows.length;
+    return stats;
+  }
+
+  for (const escrow of escrows) {
+    try {
+      const body = action === 'refund' ? JSON.stringify({ action: 'refund' }) : undefined;
+      const settleResponse = await fetch(`${appUrl}/api/escrow/${escrow.id}/settle`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${internalApiKey}`,
+        },
+        ...(body && { body }),
+      });
+
+      if (settleResponse.ok) {
+        console.log(`[Monitor] Settlement triggered for escrow ${escrow.id} (${action})`);
+        stats.settled++;
+      } else {
+        const errorText = await settleResponse.text();
+        console.error(`[Monitor] Settlement failed for escrow ${escrow.id}: ${settleResponse.status} - ${errorText}`);
+        stats.errors++;
+      }
+    } catch (settleError) {
+      console.error(`[Monitor] Error settling escrow ${escrow.id}:`, settleError);
+      stats.errors++;
+    }
+  }
+
+  return stats;
+}
+
+// ────────────────────────────────────────────────────────────
 // Main Monitor Cycle
 // ────────────────────────────────────────────────────────────
 
 /**
- * Run one monitoring cycle — payments + wallet transactions
+ * Run one monitoring cycle — payments + wallet transactions + escrows
  */
 async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; expired: number; errors: number }> {
   const stats = { checked: 0, confirmed: 0, expired: 0, errors: 0 };
@@ -533,6 +713,7 @@ async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; 
     }
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const now = new Date();
     
     // ── 1. Payment gateway monitoring ──
     const { data: pendingPayments, error: fetchError } = await supabase
@@ -574,6 +755,13 @@ async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; 
     stats.checked += walletStats.checked;
     stats.confirmed += walletStats.confirmed;
     stats.errors += walletStats.errors;
+    
+    // ── 3. Escrow monitoring ──
+    const escrowStats = await runEscrowCycle(supabase, now);
+    stats.checked += escrowStats.checked;
+    stats.confirmed += escrowStats.funded + escrowStats.settled;
+    stats.expired += escrowStats.expired;
+    stats.errors += escrowStats.errors;
     
     if (stats.checked > 0) {
       console.log(`[Monitor] Cycle complete: checked=${stats.checked}, confirmed=${stats.confirmed}, expired=${stats.expired}, errors=${stats.errors}`);

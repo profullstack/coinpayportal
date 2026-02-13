@@ -35,6 +35,7 @@ const SECRET_KEYS = [
   'ENCRYPTION_KEY',
   'INTERNAL_API_KEY',
   'TATUM_API_KEY',
+  'RESEND_API_KEY',
   'MAILGUN_API_KEY',
 ] as const;
 

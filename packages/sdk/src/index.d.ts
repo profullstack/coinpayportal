@@ -96,5 +96,21 @@ export type {
   SwapHistoryResult,
 } from './swap.js';
 
+// Reputation exports
+export {
+  submitReceipt,
+  getReputation,
+  getCredential,
+  verifyCredential,
+  getRevocationList,
+} from './reputation.js';
+export type {
+  TaskReceipt,
+  ReputationSummary,
+  MultiWindowReputation,
+  CredentialVerification,
+  RevocationList,
+} from './reputation.js';
+
 import { CoinPayClient } from './client.js';
 export default CoinPayClient;

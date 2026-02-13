@@ -1,6 +1,6 @@
 {
   "name": "coinpayportal",
-  "version": "0.3.10",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "bin": {
@@ -64,6 +64,7 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^6.2.0",
     "@testing-library/react": "^14.1.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/bcrypt": "^5.0.2",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.11.5",

@@ -97,6 +97,7 @@ export default function DocsPage() {
               { name: 'SDK Documentation', href: '/docs/sdk', external: true },
               { name: 'Web Wallet API', href: '#web-wallet' },
               { name: 'Escrow API', href: '#escrow' },
+              { name: 'Exchange Rates', href: '#rates' },
               { name: 'Authentication', href: '#authentication' },
               { name: 'Subscriptions & Entitlements', href: '#subscriptions' },
               { name: 'Businesses', href: '#businesses' },
@@ -145,9 +146,10 @@ export default function DocsPage() {
             <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
               <h4 className="font-semibold text-amber-300 mb-2">How Escrow Works</h4>
               <ol className="text-amber-200 text-sm space-y-1 list-decimal list-inside">
-                <li><strong>Create</strong> — Specify chain, amount, depositor &amp; beneficiary addresses. Get a deposit address + two auth tokens.</li>
+                <li><strong>Create</strong> — Specify chain, amount, depositor &amp; beneficiary addresses. Get a deposit address + two auth tokens. Share the Escrow ID!</li>
                 <li><strong>Fund</strong> — Depositor sends crypto to the escrow address. Auto-detected by the balance monitor.</li>
-                <li><strong>Release or Dispute</strong> — Depositor releases funds (using <code className="text-amber-100">release_token</code>) or opens a dispute.</li>
+                <li><strong>Manage</strong> — Both parties can manage the escrow via <code className="text-amber-100">/escrow/manage?id=xxx&token=yyy</code> with shareable links generated at creation.</li>
+                <li><strong>Release or Dispute</strong> — Depositor releases funds (using <code className="text-amber-100">release_token</code>) or either party opens a dispute.</li>
                 <li><strong>Settlement</strong> — Funds forwarded on-chain to beneficiary (minus fee). Refunds return the full amount.</li>
               </ol>
             </div>
@@ -189,6 +191,11 @@ export default function DocsPage() {
             </div>
 
             <ApiEndpoint method="POST" path="/api/escrow" description="Create a new escrow. No authentication required (anonymous). Optionally authenticate to associate with a business and get paid-tier fees.">
+              <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                <p className="text-blue-300 text-sm">
+                  <strong>Fiat Support:</strong> While this API accepts crypto amounts directly, you can now specify amounts in fiat when using the SDK/CLI, which will auto-convert via the rates API before creating the escrow.
+                </p>
+              </div>
               <CodeBlock title="Request Body">
 {`{
   "chain": "ETH",              // BTC, BCH, ETH, POL, SOL, USDC, USDC_ETH, USDC_POL, USDC_SOL
@@ -235,7 +242,13 @@ export default function DocsPage() {
 
               <div className="mt-4 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
                 <p className="text-yellow-300 text-sm">
-                  <strong>Important:</strong> Save the <code className="text-yellow-200">release_token</code> and <code className="text-yellow-200">beneficiary_token</code> — they are only returned once at creation time. The depositor needs <code className="text-yellow-200">release_token</code> to release or refund. The beneficiary needs <code className="text-yellow-200">beneficiary_token</code> to dispute.
+                  <strong>Important:</strong> Save the <code className="text-yellow-200">release_token</code> and <code className="text-yellow-200">beneficiary_token</code> — they are only returned once at creation time. The depositor needs <code className="text-yellow-200">release_token</code> to release or refund. The beneficiary needs <code className="text-yellow-200">beneficiary_token</code> to dispute. Both parties can use these tokens to manage the escrow via the <a href="/escrow/manage" className="text-yellow-200 underline">/escrow/manage</a> page.
+                </p>
+              </div>
+
+              <div className="mt-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+                <p className="text-green-300 text-sm">
+                  <strong>Escrow ID:</strong> Always save the escrow ID returned in the response. Share the escrow ID and appropriate token with the other party so they can manage the escrow at <code className="text-green-200">/escrow/manage?id=xxx&token=yyy</code>
                 </p>
               </div>
             </ApiEndpoint>
@@ -275,6 +288,43 @@ offset       — Pagination offset`}
               <CodeBlock title="cURL Example" language="curl">
 {`curl https://coinpayportal.com/api/escrow/a1b2c3d4-...`}
               </CodeBlock>
+            </ApiEndpoint>
+
+            <ApiEndpoint method="POST" path="/api/escrow/:id/auth" description="Authenticate with escrow using token. Returns escrow details and your role (depositor/beneficiary). Used by the manage page to determine what actions are available.">
+              <CodeBlock title="Request Body">
+{`{
+  "token": "esc_abc123..."    // release_token or beneficiary_token
+}`}
+              </CodeBlock>
+
+              <CodeBlock title="cURL Example" language="curl">
+{`curl -X POST https://coinpayportal.com/api/escrow/a1b2c3d4-.../auth \\
+  -H "Content-Type: application/json" \\
+  -d '{"token": "esc_abc123..."}'`}
+              </CodeBlock>
+
+              <CodeBlock title="Response">
+{`{
+  "escrow": {
+    "id": "a1b2c3d4-...",
+    "escrow_address": "0xEscrowAddr...",
+    "chain": "ETH",
+    "amount": 0.5,
+    "status": "funded",
+    "depositor_address": "0xAlice...",
+    "beneficiary_address": "0xBob...",
+    "funded_at": "2024-01-01T13:00:00Z",
+    ...
+  },
+  "role": "depositor"    // "depositor" or "beneficiary"
+}`}
+              </CodeBlock>
+
+              <div className="mt-4 p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+                <p className="text-purple-300 text-sm">
+                  <strong>Use Case:</strong> Both depositors and recipients can manage escrows via <code className="text-purple-200">/escrow/manage?id=xxx&token=yyy</code>. This endpoint authenticates the token and returns available actions based on your role and escrow status.
+                </p>
+              </div>
             </ApiEndpoint>
 
             <ApiEndpoint method="POST" path="/api/escrow/:id/release" description="Release funds to the beneficiary. Only the depositor (via release_token) can do this. Escrow must be in 'funded' or 'disputed' status.">
@@ -395,6 +445,93 @@ coinpay escrow dispute <escrow_id> --token esc_def456... \\
 # View audit log
 coinpay escrow events <escrow_id>`}
             </CodeBlock>
+          </DocSection>
+        </div>
+
+        {/* Exchange Rates */}
+        <div id="rates">
+          <DocSection title="Exchange Rates">
+            <p className="text-gray-300 mb-6">
+              Get real-time cryptocurrency exchange rates in multiple fiat currencies. Used for price conversion and fiat amount support.
+            </p>
+
+            <ApiEndpoint method="GET" path="/api/rates" description="Get exchange rates for cryptocurrencies with multi-fiat support.">
+              <h4 className="text-lg font-semibold text-white mb-2">Query Parameters</h4>
+              <div className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto mb-4">
+                <div className="space-y-2 text-sm text-gray-300">
+                  <p><code className="text-purple-400">coin</code> - Single cryptocurrency code (e.g., BTC, ETH, SOL)</p>
+                  <p><code className="text-purple-400">coins</code> - Comma-separated list of cryptocurrency codes</p>
+                  <p><code className="text-purple-400">fiat</code> - Target fiat currency (default: USD)</p>
+                </div>
+              </div>
+
+              <h4 className="text-lg font-semibold text-white mb-2">Supported Fiat Currencies</h4>
+              <div className="grid md:grid-cols-5 gap-3 mb-6">
+                {[
+                  'USD', 'EUR', 'GBP', 'CAD', 'AUD', 
+                  'JPY', 'CHF', 'CNY', 'INR', 'BRL'
+                ].map((currency) => (
+                  <div key={currency} className="p-2 rounded bg-slate-800/50 border border-white/10 text-center">
+                    <code className="text-purple-400 font-mono">{currency}</code>
+                  </div>
+                ))}
+              </div>
+
+              <CodeBlock title="Single Rate Example" language="curl">
+{`# Get SOL price in EUR
+curl "https://coinpayportal.com/api/rates?coin=SOL&fiat=EUR"`}
+              </CodeBlock>
+
+              <CodeBlock title="Multiple Rates Example" language="curl">
+{`# Get multiple cryptocurrency rates in USD (default)
+curl "https://coinpayportal.com/api/rates?coins=BTC,ETH,SOL"
+
+# Get multiple rates in EUR
+curl "https://coinpayportal.com/api/rates?coins=BTC,ETH,SOL&fiat=EUR"`}
+              </CodeBlock>
+
+              <CodeBlock title="Single Rate Response">
+{`{
+  "success": true,
+  "coin": "SOL",
+  "rate": 185.42,
+  "fiat": "EUR",
+  "cached": true,
+  "timestamp": "2024-01-15T10:30:00Z"
+}`}
+              </CodeBlock>
+
+              <CodeBlock title="Multiple Rates Response">
+{`{
+  "success": true,
+  "rates": {
+    "BTC": 42350.80,
+    "ETH": 2580.45,
+    "SOL": 185.42
+  },
+  "fiat": "EUR",
+  "timestamp": "2024-01-15T10:30:00Z"
+}`}
+              </CodeBlock>
+
+              <CodeBlock title="Node.js Example" language="javascript">
+{`// Get single rate
+const response = await fetch('https://coinpayportal.com/api/rates?coin=SOL&fiat=EUR');
+const data = await response.json();
+console.log(\`1 SOL = €\${data.rate}\`);
+
+// Get multiple rates  
+const multiResponse = await fetch('https://coinpayportal.com/api/rates?coins=BTC,ETH,SOL&fiat=GBP');
+const multiData = await multiResponse.json();
+console.log(\`BTC: £\${multiData.rates.BTC}\`);`}
+              </CodeBlock>
+
+              <div className="mt-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+                <p className="text-green-300 text-sm">
+                  <strong>Integration:</strong> This API powers fiat amount support in the SDK and CLI. When you specify <code className="text-green-200">--amount-fiat 50 --fiat EUR</code>, it automatically converts to the required crypto amount using these rates.
+                </p>
+              </div>
+            </ApiEndpoint>
           </DocSection>
         </div>
 

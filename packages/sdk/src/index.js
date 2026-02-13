@@ -63,6 +63,7 @@ import {
   disputeEscrow,
   getEscrowEvents,
   waitForEscrow,
+  authenticateEscrow,
 } from './escrow.js';
 
 // Wallet exports
@@ -77,6 +78,14 @@ import {
 } from './wallet.js';
 
 // Swap exports
+import {
+  submitReceipt,
+  getReputation,
+  getCredential,
+  verifyCredential,
+  getRevocationList,
+} from './reputation.js';
+
 import {
   SwapClient,
   SwapCoins,
@@ -106,6 +115,7 @@ export {
   disputeEscrow,
   getEscrowEvents,
   waitForEscrow,
+  authenticateEscrow,
   
   // Wallet
   WalletClient,
@@ -131,6 +141,13 @@ export {
   Cryptocurrency,  // Deprecated, use Blockchain
   PaymentStatus,
   FiatCurrency,
+  
+  // Reputation
+  submitReceipt,
+  getReputation,
+  getCredential,
+  verifyCredential,
+  getRevocationList,
   
   // Webhook utilities
   verifyWebhookSignature,

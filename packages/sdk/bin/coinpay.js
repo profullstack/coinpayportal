@@ -22,7 +22,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
-const VERSION = '0.4.0';
+const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 const CONFIG_FILE = join(homedir(), '.coinpay.json');
 const DEFAULT_WALLET_FILE = join(homedir(), '.coinpay-wallet.gpg');
 
@@ -216,6 +216,7 @@ ${colors.cyan}Commands:${colors.reset}
     refund <id>           Refund funds to depositor
     dispute <id>          Open a dispute
     events <id>           Get escrow audit log
+    auth <id>             Authenticate with escrow token
 
   ${colors.bright}webhook${colors.reset}
     logs <business-id>    Get webhook logs
@@ -226,10 +227,21 @@ ${colors.cyan}Wallet Options:${colors.reset}
   --chains <BTC,ETH,...>  Chains to derive (default: BTC,ETH,SOL,POL,BCH)
   --chain <chain>         Single chain for operations
   --to <address>          Recipient address
-  --amount <amount>       Amount to send
+  --amount <amount>       Amount to send (crypto)
+  --amount-fiat <amount>  Amount to send (fiat, requires --fiat)
+  --fiat <currency>       Fiat currency (USD, EUR, GBP, CAD, AUD, JPY, CHF, CNY, INR, BRL)
   --password <pass>       Wallet encryption password
   --wallet-file <path>    Custom wallet file (default: ~/.coinpay-wallet.gpg)
   --no-save               Don't save wallet locally after create/import
+
+${colors.cyan}Escrow Options:${colors.reset}
+  --chain <chain>         Blockchain (BTC, ETH, SOL, POL, BCH, etc.)
+  --amount <amount>       Crypto amount to escrow
+  --amount-fiat <amount>  Fiat amount to escrow (alternative to --amount)
+  --fiat <currency>       Fiat currency (required with --amount-fiat)
+  --depositor <address>   Depositor wallet address
+  --beneficiary <address> Beneficiary wallet address
+  --token <token>         Release or beneficiary token (for auth/release/refund)
 
 ${colors.cyan}Swap Options:${colors.reset}
   --from <coin>           Source coin (e.g., BTC)
@@ -249,6 +261,18 @@ ${colors.cyan}Examples:${colors.reset}
 
   # Send transaction (auto-decrypts for signing)
   coinpay wallet send --chain ETH --to 0x123... --amount 0.1
+  
+  # Send transaction with fiat amount
+  coinpay wallet send --chain SOL --to abc123... --amount-fiat 10 --fiat USD
+
+  # Create escrow with crypto amount
+  coinpay escrow create --chain SOL --amount 0.5 --depositor abc... --beneficiary def...
+  
+  # Create escrow with fiat amount
+  coinpay escrow create --chain SOL --amount-fiat 50 --fiat USD --depositor abc... --beneficiary def...
+  
+  # Authenticate with escrow token
+  coinpay escrow auth escr_123 --token rel_abc456
 
   # Swap BTC to ETH
   coinpay swap quote --from BTC --to ETH --amount 0.1
@@ -823,12 +847,16 @@ async function handleWallet(subcommand, args, flags) {
       print.info('Importing wallet...');
       
       try {
-        const wallet = await WalletClient.fromSeed(mnemonic, {
-          chains,
-          baseUrl,
-        });
-        
-        const walletId = wallet.getWalletId();
+        let walletId = null;
+        try {
+          const wallet = await WalletClient.fromSeed(mnemonic, {
+            chains,
+            baseUrl,
+          });
+          walletId = wallet.getWalletId();
+        } catch (serverErr) {
+          print.warn(`Server registration failed (wallet saved locally only): ${serverErr.message || serverErr}`);
+        }
         
         // Save encrypted locally (unless --no-save)
         if (!noSave) {
@@ -860,9 +888,9 @@ async function handleWallet(subcommand, args, flags) {
         config.walletFile = walletFile;
         saveConfig(config);
         
-        print.success(`Wallet imported: ${walletId}`);
+        print.success(walletId ? `Wallet imported (ID: ${walletId})` : 'Wallet imported (local only)');
       } catch (error) {
-        print.error(error.message);
+        print.error(error.message || String(error));
       }
       break;
     }
@@ -878,7 +906,7 @@ async function handleWallet(subcommand, args, flags) {
         const mnemonic = await getDecryptedMnemonic(flags);
         
         print.success('Wallet unlocked');
-        print.info(`Wallet ID: ${config.walletId || 'unknown'}`);
+        print.info(`Wallet ID: ${config.walletId || '(local only)'}`);
         print.info(`Wallet file: ${walletFile}`);
         
         if (flags.show) {
@@ -1042,11 +1070,19 @@ async function handleWallet(subcommand, args, flags) {
       const chain = (flags.chain || '').toUpperCase();
       const to = flags.to;
       const amount = flags.amount;
+      const amountFiat = flags['amount-fiat'] ? parseFloat(flags['amount-fiat']) : undefined;
+      const fiatCurrency = flags.fiat;
       const priority = flags.priority || 'medium';
       
-      if (!chain || !to || !amount) {
-        print.error('Required: --chain, --to, --amount');
+      if (!chain || !to || (!amount && !amountFiat)) {
+        print.error('Required: --chain, --to, --amount (or --amount-fiat --fiat)');
         print.info('Usage: coinpay wallet send --chain ETH --to 0x123... --amount 0.1');
+        print.info('   or: coinpay wallet send --chain SOL --to abc123... --amount-fiat 10 --fiat USD');
+        return;
+      }
+
+      if (amountFiat && !fiatCurrency) {
+        print.error('--fiat is required when using --amount-fiat');
         return;
       }
       
@@ -1061,12 +1097,23 @@ async function handleWallet(subcommand, args, flags) {
       }
       
       try {
+        let finalAmount = amount;
+
+        // Convert fiat to crypto if needed
+        if (amountFiat && fiatCurrency) {
+          print.info(`Converting ${fiatCurrency} ${amountFiat.toFixed(2)} to ${chain}...`);
+          const apiClient = createClient();
+          const conversion = await apiClient.convertFiatToCrypto(amountFiat, fiatCurrency, chain);
+          finalAmount = conversion.cryptoAmount.toString();
+          print.success(`Converting ${fiatCurrency} ${amountFiat.toFixed(2)} → ${conversion.cryptoAmount.toFixed(6)} ${chain} (rate: 1 ${chain} = ${fiatCurrency} ${conversion.rate.toFixed(2)})`);
+        }
+
         const mnemonic = await getDecryptedMnemonic(flags);
         const wallet = await WalletClient.fromSeed(mnemonic, { baseUrl });
         
-        print.info(`Sending ${amount} ${chain} to ${to}...`);
+        print.info(`Sending ${finalAmount} ${chain} to ${to}...`);
         
-        const result = await wallet.send({ chain, to, amount, priority });
+        const result = await wallet.send({ chain, to, amount: finalAmount, priority });
         
         print.success('Transaction sent!');
         if (result.tx_hash) {
@@ -1365,20 +1412,36 @@ async function handleEscrow(subcommand, args, flags) {
   switch (subcommand) {
     case 'create': {
       const chain = flags.chain || flags.blockchain;
-      const amount = parseFloat(flags.amount);
+      const amount = flags.amount ? parseFloat(flags.amount) : undefined;
+      const amountFiat = flags['amount-fiat'] ? parseFloat(flags['amount-fiat']) : undefined;
+      const fiatCurrency = flags.fiat;
       const depositor = flags.depositor || flags['depositor-address'];
       const beneficiary = flags.beneficiary || flags['beneficiary-address'];
 
-      if (!chain || !amount || !depositor || !beneficiary) {
-        print.error('Required: --chain, --amount, --depositor, --beneficiary');
+      if (!chain || (!amount && !amountFiat) || !depositor || !beneficiary) {
+        print.error('Required: --chain, --amount (or --amount-fiat --fiat), --depositor, --beneficiary');
         process.exit(1);
       }
 
-      print.info(`Creating escrow: ${amount} ${chain}`);
+      if (amountFiat && !fiatCurrency) {
+        print.error('--fiat is required when using --amount-fiat');
+        process.exit(1);
+      }
+
+      // Show conversion if using fiat
+      let finalAmount = amount;
+      if (amountFiat && fiatCurrency) {
+        print.info(`Converting ${fiatCurrency} ${amountFiat.toFixed(2)} to ${chain}...`);
+        const conversion = await client.convertFiatToCrypto(amountFiat, fiatCurrency, chain);
+        finalAmount = conversion.cryptoAmount;
+        print.success(`Converting ${fiatCurrency} ${amountFiat.toFixed(2)} → ${finalAmount.toFixed(6)} ${chain} (rate: 1 ${chain} = ${fiatCurrency} ${conversion.rate.toFixed(2)})`);
+      }
+
+      print.info(`Creating escrow: ${finalAmount} ${chain}`);
 
       const escrow = await client.createEscrow({
         chain,
-        amount,
+        amount: finalAmount,
         depositorAddress: depositor,
         beneficiaryAddress: beneficiary,
         metadata: flags.metadata ? JSON.parse(flags.metadata) : undefined,
@@ -1389,7 +1452,9 @@ async function handleEscrow(subcommand, args, flags) {
       print.info(`  Deposit to: ${escrow.escrowAddress}`);
       print.info(`  Status: ${escrow.status}`);
       print.warn(`  Release Token: ${escrow.releaseToken}`);
+      print.warn(`  Beneficiary Token: ${escrow.beneficiaryToken}`);
       print.warn('  ⚠️  Save these tokens!');
+      print.info(`  Manage: coinpay escrow auth ${escrow.id} --token <token>`);
 
       if (flags.json) print.json(escrow);
       break;
@@ -1472,9 +1537,42 @@ async function handleEscrow(subcommand, args, flags) {
       break;
     }
 
+    case 'auth': {
+      const id = args[0];
+      const token = flags.token;
+      if (!id || !token) { 
+        print.error('Required: <id> --token <token>'); 
+        process.exit(1); 
+      }
+
+      const auth = await client.authenticateEscrow(id, token);
+      print.success(`Authenticated as: ${auth.role}`);
+      print.info(`Escrow Details:`);
+      print.info(`  ID: ${auth.escrow.id}`);
+      print.info(`  Status: ${auth.escrow.status}`);
+      print.info(`  Chain: ${auth.escrow.chain}`);
+      print.info(`  Amount: ${auth.escrow.amount}`);
+      print.info(`  Depositor: ${auth.escrow.depositorAddress}`);
+      print.info(`  Beneficiary: ${auth.escrow.beneficiaryAddress}`);
+      
+      // Show available actions based on role and status
+      if (auth.escrow.status === 'funded') {
+        if (auth.role === 'depositor') {
+          print.info(`Available actions: release, refund, dispute`);
+        } else if (auth.role === 'beneficiary') {
+          print.info(`Available actions: dispute`);
+        }
+      } else if (auth.escrow.status === 'pending') {
+        print.info(`Waiting for deposit to: ${auth.escrow.escrowAddress}`);
+      }
+
+      if (flags.json) print.json(auth);
+      break;
+    }
+
     default:
       print.error(`Unknown escrow command: ${subcommand}`);
-      print.info('Available: create, get, list, release, refund, dispute, events');
+      print.info('Available: create, get, list, release, refund, dispute, events, auth');
       process.exit(1);
   }
 }
@@ -1543,4 +1641,4 @@ async function main() {
   }
 }
 
-main();
+main().then(() => process.exit(0));

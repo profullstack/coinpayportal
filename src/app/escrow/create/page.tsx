@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
+import { SUPPORTED_FIAT_CURRENCIES, type FiatCurrency } from '@/lib/web-wallet/settings';
 
 const CHAINS = [
   { value: 'BTC', label: 'Bitcoin (BTC)' },
@@ -75,6 +76,16 @@ export default function CreateEscrowPage() {
     business_id: '',
   });
 
+  // Dual input system state
+  const [fiatCurrency, setFiatCurrency] = useState<FiatCurrency>('USD');
+  const [fiatAmount, setFiatAmount] = useState('');
+  const [cryptoAmount, setCryptoAmount] = useState('');
+  const [primaryInput, setPrimaryInput] = useState<'fiat' | 'crypto'>('fiat'); // Which input is editable
+  const [exchangeRate, setExchangeRate] = useState<number | null>(null);
+  const [rateLoading, setRateLoading] = useState(false);
+  const [rateError, setRateError] = useState('');
+  const debounceRef = useRef<NodeJS.Timeout>();
+
   // Check if user is logged in and fetch their businesses
   const fetchBusinesses = useCallback(async () => {
     try {
@@ -96,6 +107,112 @@ export default function CreateEscrowPage() {
   useEffect(() => {
     fetchBusinesses();
   }, [fetchBusinesses]);
+
+  // Fetch exchange rate
+  const fetchRate = useCallback(async (chain: string, fiat: string) => {
+    if (!chain || !fiat) return;
+    
+    setRateLoading(true);
+    setRateError('');
+    
+    try {
+      const response = await fetch(`/api/rates?coin=${chain}&fiat=${fiat}`);
+      const data = await response.json();
+      
+      if (data.success && data.rate) {
+        setExchangeRate(data.rate);
+      } else {
+        setRateError('Failed to fetch exchange rate');
+        setExchangeRate(null);
+      }
+    } catch (error) {
+      setRateError('Failed to fetch exchange rate');
+      setExchangeRate(null);
+    } finally {
+      setRateLoading(false);
+    }
+  }, []);
+
+  // Debounced rate fetching
+  const debouncedFetchRate = useCallback((chain: string, fiat: string) => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    debounceRef.current = setTimeout(() => {
+      fetchRate(chain, fiat);
+    }, 300);
+  }, [fetchRate]);
+
+  // Calculate crypto amount from fiat
+  const calculateCryptoFromFiat = useCallback((fiatValue: string) => {
+    if (!fiatValue || !exchangeRate || exchangeRate === 0) {
+      setCryptoAmount('');
+      return;
+    }
+    const fiatNum = parseFloat(fiatValue);
+    if (isNaN(fiatNum) || fiatNum < 0) {
+      setCryptoAmount('');
+      return;
+    }
+    const cryptoValue = fiatNum / exchangeRate;
+    setCryptoAmount(cryptoValue.toString());
+  }, [exchangeRate]);
+
+  // Calculate fiat amount from crypto
+  const calculateFiatFromCrypto = useCallback((cryptoValue: string) => {
+    if (!cryptoValue || !exchangeRate) {
+      setFiatAmount('');
+      return;
+    }
+    const cryptoNum = parseFloat(cryptoValue);
+    if (isNaN(cryptoNum) || cryptoNum < 0) {
+      setFiatAmount('');
+      return;
+    }
+    const fiatValue = cryptoNum * exchangeRate;
+    setFiatAmount(fiatValue.toFixed(2));
+  }, [exchangeRate]);
+
+  // Handle fiat input change
+  const handleFiatChange = (value: string) => {
+    setFiatAmount(value);
+    if (primaryInput === 'fiat') {
+      calculateCryptoFromFiat(value);
+    }
+  };
+
+  // Handle crypto input change
+  const handleCryptoChange = (value: string) => {
+    setCryptoAmount(value);
+    if (primaryInput === 'crypto') {
+      calculateFiatFromCrypto(value);
+    }
+  };
+
+  // Toggle primary input
+  const togglePrimaryInput = () => {
+    const newPrimary = primaryInput === 'fiat' ? 'crypto' : 'fiat';
+    setPrimaryInput(newPrimary);
+    
+    // Recalculate based on new primary
+    if (newPrimary === 'fiat' && fiatAmount) {
+      calculateCryptoFromFiat(fiatAmount);
+    } else if (newPrimary === 'crypto' && cryptoAmount) {
+      calculateFiatFromCrypto(cryptoAmount);
+    }
+  };
+
+  // Fetch rate when chain or fiat currency changes
+  useEffect(() => {
+    if (formData.chain && fiatCurrency) {
+      debouncedFetchRate(formData.chain, fiatCurrency);
+    }
+  }, [formData.chain, fiatCurrency, debouncedFetchRate]);
+
+  // Update form amount when crypto amount changes
+  useEffect(() => {
+    setFormData(prev => ({ ...prev, amount: cryptoAmount }));
+  }, [cryptoAmount]);
 
   const copyToClipboard = async (text: string, field: string) => {
     try {
@@ -182,14 +299,47 @@ export default function CreateEscrowPage() {
           </div>
 
           <div className="p-6 space-y-6">
+            {/* Escrow ID — prominent, first thing shown */}
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div className="flex items-start gap-2">
+                <span className="text-blue-600 text-lg">🔑</span>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-blue-900 dark:text-blue-300">Escrow ID</h3>
+                  <p className="text-xs text-blue-700 dark:text-blue-400 mb-2">
+                    Save this ID — you&apos;ll need it to manage your escrow.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-white dark:bg-gray-900 border border-blue-300 dark:border-blue-700 rounded px-3 py-2 text-sm break-all text-gray-900 dark:text-white">
+                      {createdEscrow.id}
+                    </code>
+                    <button
+                      onClick={() => copyToClipboard(createdEscrow.id, 'escrow_id')}
+                      className="flex-shrink-0 px-3 py-2 bg-blue-600 text-white text-xs font-medium rounded hover:bg-blue-700 transition-colors"
+                    >
+                      {copiedField === 'escrow_id' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Escrow deposit address */}
             <div>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Deposit Address
               </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                Send exactly <strong>{createdEscrow.amount} {createdEscrow.chain}</strong> to this address to fund the escrow.
-              </p>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 flex items-center gap-2">
+                <span>
+                  Send exactly <strong>{createdEscrow.amount} {createdEscrow.chain}</strong> to this address to fund the escrow.
+                </span>
+                <button
+                  onClick={() => copyToClipboard(createdEscrow.amount.toString(), 'amount')}
+                  className="p-1 text-gray-500 hover:text-blue-600 rounded transition-colors"
+                  title="Copy amount"
+                >
+                  {copiedField === 'amount' ? '✓' : '📋'}
+                </button>
+              </div>
               <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg flex items-center justify-between gap-3">
                 <code className="text-sm text-gray-900 dark:text-white break-all flex-1">
                   {createdEscrow.escrow_address}
@@ -249,6 +399,14 @@ export default function CreateEscrowPage() {
                     {copiedField === 'release' ? 'Copied!' : 'Copy'}
                   </button>
                 </div>
+                <div className="mt-2">
+                  <button
+                    onClick={() => copyToClipboard(`${window.location.origin}/escrow/manage?id=${createdEscrow.id}&token=${createdEscrow.release_token}`, 'depositor_link')}
+                    className="text-xs text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 underline"
+                  >
+                    {copiedField === 'depositor_link' ? 'Link copied!' : 'Share depositor link'}
+                  </button>
+                </div>
               </div>
 
               <div>
@@ -264,6 +422,14 @@ export default function CreateEscrowPage() {
                     className="flex-shrink-0 px-3 py-2 bg-amber-600 text-white text-xs font-medium rounded hover:bg-amber-700 transition-colors"
                   >
                     {copiedField === 'beneficiary' ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+                <div className="mt-2">
+                  <button
+                    onClick={() => copyToClipboard(`${window.location.origin}/escrow/manage?id=${createdEscrow.id}&token=${createdEscrow.beneficiary_token}`, 'beneficiary_link')}
+                    className="text-xs text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 underline"
+                  >
+                    {copiedField === 'beneficiary_link' ? 'Link copied!' : 'Share beneficiary link'}
                   </button>
                 </div>
               </div>
@@ -285,17 +451,16 @@ export default function CreateEscrowPage() {
                   {new Date(createdEscrow.expires_at).toLocaleString()}
                 </span>
               </div>
-              <div>
-                <span className="text-gray-500 dark:text-gray-400">Escrow ID:</span>
-                <code className="ml-2 text-gray-900 dark:text-white">{createdEscrow.id}</code>
-              </div>
-              {createdEscrow.fee_amount && (
-                <div>
-                  <span className="text-gray-500 dark:text-gray-400">Platform Fee:</span>
-                  <span className="ml-2 text-gray-900 dark:text-white">
-                    {createdEscrow.fee_amount} {createdEscrow.chain}
-                    {createdEscrow.business_id && <span className="text-green-600 ml-1">(paid tier rate)</span>}
+              {createdEscrow.fee_amount != null && createdEscrow.fee_amount > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                  <span className="text-sm font-medium text-amber-800 dark:text-amber-300">Platform Commission:</span>
+                  <span className="ml-2 text-sm font-semibold text-amber-700 dark:text-amber-400">
+                    {createdEscrow.fee_amount} {createdEscrow.chain} ({((createdEscrow.fee_amount / createdEscrow.amount) * 100).toFixed(1)}%)
                   </span>
+                  {createdEscrow.business_id && <span className="text-green-600 dark:text-green-400 ml-1 text-xs">(paid tier rate)</span>}
+                  <p className="text-xs text-amber-600 dark:text-amber-500 mt-1">
+                    Beneficiary will receive: {(createdEscrow.amount - createdEscrow.fee_amount).toFixed(6)} {createdEscrow.chain}
+                  </p>
                 </div>
               )}
               {createdEscrow.business_id && (
@@ -327,6 +492,12 @@ export default function CreateEscrowPage() {
                     arbiter_address: '',
                     description: '',
                   }));
+                  // Reset dual input state
+                  setFiatAmount('');
+                  setCryptoAmount('');
+                  setPrimaryInput('fiat');
+                  setExchangeRate(null);
+                  setRateError('');
                 }}
                 className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
               >
@@ -410,25 +581,129 @@ export default function CreateEscrowPage() {
             </select>
           </div>
 
-          {/* Amount */}
+          {/* Dual Amount Input */}
           <div>
-            <label htmlFor="amount" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Amount ({formData.chain}) *
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Amount *
             </label>
-            <input
-              id="amount"
-              type="number"
-              step="any"
-              min="0.000001"
-              required
-              value={formData.amount}
-              onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              placeholder="0.00"
-            />
+            
+            {/* Fiat Currency Selector */}
+            <div className="mb-3">
+              <select
+                value={fiatCurrency}
+                onChange={(e) => setFiatCurrency(e.target.value as FiatCurrency)}
+                className="w-32 px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+              >
+                {SUPPORTED_FIAT_CURRENCIES.map((currency) => (
+                  <option key={currency.code} value={currency.code}>
+                    {currency.code} ({currency.symbol})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Dual Input Container */}
+            <div className="space-y-3">
+              {/* Fiat Input */}
+              <div className="relative">
+                <div className="flex items-center">
+                  <span className="text-sm text-gray-500 dark:text-gray-400 w-12">
+                    {SUPPORTED_FIAT_CURRENCIES.find(c => c.code === fiatCurrency)?.symbol}
+                  </span>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={fiatAmount}
+                    onChange={(e) => handleFiatChange(e.target.value)}
+                    disabled={primaryInput !== 'fiat'}
+                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-700 disabled:text-gray-500"
+                    placeholder={`0.00 ${fiatCurrency}`}
+                  />
+                </div>
+                {primaryInput === 'fiat' && (
+                  <span className="absolute right-3 top-2.5 text-sm text-blue-600 dark:text-blue-400">Primary</span>
+                )}
+              </div>
+
+              {/* Toggle Button */}
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  onClick={togglePrimaryInput}
+                  className="p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
+                  title="Switch primary input"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Crypto Input */}
+              <div className="relative">
+                <div className="flex items-center">
+                  <span className="text-sm text-gray-500 dark:text-gray-400 w-12">
+                    {formData.chain}
+                  </span>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0.000001"
+                    required
+                    value={cryptoAmount}
+                    onChange={(e) => handleCryptoChange(e.target.value)}
+                    disabled={primaryInput !== 'crypto'}
+                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-700 disabled:text-gray-500"
+                    placeholder={`0.000000 ${formData.chain}`}
+                  />
+                </div>
+                {primaryInput === 'crypto' && (
+                  <span className="absolute right-3 top-2.5 text-sm text-blue-600 dark:text-blue-400">Primary</span>
+                )}
+              </div>
+            </div>
+
+            {/* Exchange Rate Display */}
+            <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+              {rateLoading ? (
+                <span>Loading exchange rate...</span>
+              ) : rateError ? (
+                <span className="text-red-500">{rateError}</span>
+              ) : exchangeRate ? (
+                <span>
+                  1 {formData.chain} = {SUPPORTED_FIAT_CURRENCIES.find(c => c.code === fiatCurrency)?.symbol}{exchangeRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} {fiatCurrency}
+                </span>
+              ) : null}
+            </div>
+
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Amount in crypto (not USD). The depositor sends exactly this amount.
+              The depositor sends exactly <strong>{cryptoAmount || '0'} {formData.chain}</strong> to fund the escrow.
             </p>
+
+            {/* Live commission estimate */}
+            {parseFloat(cryptoAmount) > 0 && (
+              <div className="mt-3 bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-300 dark:border-amber-700 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-200 mb-2">💰 Fee Breakdown</h4>
+                <div className="flex justify-between text-sm text-amber-800 dark:text-amber-300">
+                  <span>Escrow amount:</span>
+                  <span className="font-medium">{parseFloat(cryptoAmount).toFixed(6)} {formData.chain}</span>
+                </div>
+                <div className="flex justify-between text-sm text-amber-800 dark:text-amber-300 mt-1">
+                  <span>Platform commission ({isLoggedIn && formData.business_id ? '0.5%' : '1%'}):</span>
+                  <span className="font-medium">
+                    −{(parseFloat(cryptoAmount) * (isLoggedIn && formData.business_id ? 0.005 : 0.01)).toFixed(6)} {formData.chain}
+                  </span>
+                </div>
+                <hr className="my-2 border-amber-300 dark:border-amber-600" />
+                <div className="flex justify-between text-sm font-semibold text-green-700 dark:text-green-400">
+                  <span>Beneficiary receives:</span>
+                  <span>
+                    {(parseFloat(cryptoAmount) * (isLoggedIn && formData.business_id ? 0.995 : 0.99)).toFixed(6)} {formData.chain}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Depositor Address */}

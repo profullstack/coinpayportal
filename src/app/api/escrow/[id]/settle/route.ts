@@ -120,9 +120,38 @@ export async function POST(
     let txHash: string | undefined;
     let feeTxHash: string | undefined;
 
-    if (provider.sendTransaction) {
-      // Forward to destination (beneficiary or depositor)
-      // sendTransaction signature: (from, to, amount, privateKey) → string
+    if (!provider.sendTransaction) {
+      return NextResponse.json(
+        { error: `No transaction provider for chain ${escrow.chain}` },
+        { status: 500 }
+      );
+    }
+
+    // Use split transaction when releasing with fee — single atomic tx
+    // This avoids rent/balance issues from sequential sends
+    if (action === 'release' && escrow.fee_amount > 0 && provider.sendSplitTransaction && addressData.commission_wallet) {
+      try {
+        const recipients = [
+          { address: destinationAddress, amount: String(amountToSend) },
+          { address: addressData.commission_wallet, amount: String(escrow.fee_amount) },
+        ];
+        console.log(`[Settle] Using split transaction for escrow ${escrowId}: ${JSON.stringify(recipients)}`);
+        txHash = await provider.sendSplitTransaction(
+          addressData.address,
+          recipients,
+          privateKey
+        );
+        // Both beneficiary and fee are in the same tx
+        feeTxHash = txHash;
+      } catch (splitError) {
+        console.error(`Split transaction failed for escrow ${escrowId}, falling back to sequential:`, splitError);
+        // Fall back to sequential sends
+        txHash = undefined;
+      }
+    }
+
+    // Fallback: sequential sends (refunds, or if split failed, or no commission)
+    if (!txHash) {
       txHash = await provider.sendTransaction(
         addressData.address,
         destinationAddress,
@@ -131,7 +160,7 @@ export async function POST(
       );
 
       // If release (not refund), also send platform fee to commission wallet
-      if (action === 'release' && escrow.fee_amount > 0) {
+      if (action === 'release' && escrow.fee_amount > 0 && addressData.commission_wallet) {
         try {
           feeTxHash = await provider.sendTransaction(
             addressData.address,
@@ -144,11 +173,6 @@ export async function POST(
           // Non-fatal — main settlement still succeeded
         }
       }
-    } else {
-      return NextResponse.json(
-        { error: `No transaction provider for chain ${escrow.chain}` },
-        { status: 500 }
-      );
     }
 
     // Mark as settled

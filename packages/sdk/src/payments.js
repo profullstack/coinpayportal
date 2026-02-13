@@ -169,6 +169,11 @@ export const FiatCurrency = {
   GBP: 'GBP',
   CAD: 'CAD',
   AUD: 'AUD',
+  JPY: 'JPY',
+  CHF: 'CHF',
+  CNY: 'CNY',
+  INR: 'INR',
+  BRL: 'BRL',
 };
 
 export default {

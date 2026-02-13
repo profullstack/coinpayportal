@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, beforeAll, afterEach } from 'vitest';
-import { register, login, verifySession } from './service';
+import { register, login, verifySession, requestPasswordReset, resetPassword } from './service';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as encryption from '../crypto/encryption';
 import * as jwt from './jwt';
@@ -345,6 +345,116 @@ describe('Auth Service', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
+    });
+  });
+
+  describe('requestPasswordReset', () => {
+    it('should return token when merchant exists', async () => {
+      const mockUpdate = vi.fn().mockResolvedValue({ error: null });
+
+      let callCount = 0;
+      mockSupabase.from = vi.fn(() => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                single: vi.fn().mockResolvedValue({
+                  data: { id: 'merchant-123' },
+                  error: null,
+                }),
+              })),
+            })),
+          };
+        }
+        return {
+          update: vi.fn(() => ({
+            eq: mockUpdate,
+          })),
+        };
+      }) as any;
+
+      const result = await requestPasswordReset(mockSupabase, 'test@example.com');
+
+      expect(result.success).toBe(true);
+      expect(result.token).toBeDefined();
+      expect(result.token!.length).toBe(64); // 32 bytes hex
+    });
+
+    it('should return success without token when email not found', async () => {
+      mockSupabase.from = vi.fn(() => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            single: vi.fn().mockResolvedValue({ data: null, error: { message: 'Not found' } }),
+          })),
+        })),
+      })) as any;
+
+      const result = await requestPasswordReset(mockSupabase, 'nonexistent@example.com');
+
+      expect(result.success).toBe(true);
+      expect(result.token).toBeUndefined();
+    });
+
+    it('should return success for invalid email format', async () => {
+      const result = await requestPasswordReset(mockSupabase, 'not-an-email');
+
+      expect(result.success).toBe(true);
+      expect(result.token).toBeUndefined();
+    });
+  });
+
+  describe('resetPassword', () => {
+    it('should reset password with valid token', async () => {
+      const mockUpdate = vi.fn().mockResolvedValue({ error: null });
+
+      let callCount = 0;
+      mockSupabase.from = vi.fn(() => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                gt: vi.fn().mockResolvedValue({
+                  data: [{ id: 'merchant-123', reset_token: 'hashed', reset_token_expires: new Date(Date.now() + 3600000).toISOString() }],
+                  error: null,
+                }),
+              })),
+            })),
+          };
+        }
+        return {
+          update: vi.fn(() => ({
+            eq: mockUpdate,
+          })),
+        };
+      }) as any;
+
+      const result = await resetPassword(mockSupabase, 'some-valid-token', 'NewPassword123!');
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject invalid token', async () => {
+      mockSupabase.from = vi.fn(() => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            gt: vi.fn().mockResolvedValue({ data: [], error: null }),
+          })),
+        })),
+      })) as any;
+
+      const result = await resetPassword(mockSupabase, 'invalid-token', 'NewPassword123!');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Invalid or expired');
+    });
+
+    it('should reject weak password', async () => {
+      const result = await resetPassword(mockSupabase, 'some-token', '123');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Password');
     });
   });
 });
