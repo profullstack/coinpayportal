@@ -209,10 +209,17 @@ export default function Footer() {
               </p>
             </div>
             
-            <div className="mt-4 md:mt-0">
+            <div className="mt-4 md:mt-0 flex items-center space-x-4">
               <p className="text-xs text-gray-500">
                 Non-custodial crypto payment gateway • 0.5% transaction fee
               </p>
+              <Link href="/escrow">
+                <img
+                  src="/badges/escrow-badge.svg"
+                  alt="Escrow Services by coinpayportal.com"
+                  className="h-8"
+                />
+              </Link>
             </div>
           </div>
         </div>
