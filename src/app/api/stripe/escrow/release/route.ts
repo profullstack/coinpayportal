@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16',
-});
+let _stripe: Stripe;
+function getStripe() {
+  return (_stripe ??= new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    apiVersion: '2026-01-28.clover' as const,
+  }));
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -50,7 +53,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Transfer funds to merchant
-    const transfer = await stripe.transfers.create({
+    const transfer = await getStripe().transfers.create({
       amount: escrow.releasable_amount,
       currency: 'usd', // TODO: Make this dynamic based on original payment
       destination: escrow.stripe_accounts.stripe_account_id,

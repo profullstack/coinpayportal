@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16',
-});
+let _stripe: Stripe;
+function getStripe() {
+  return (_stripe ??= new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    apiVersion: '2026-01-28.clover' as const,
+  }));
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,7 +24,7 @@ export async function POST(request: NextRequest) {
     let event: Stripe.Event;
 
     try {
-      event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+      event = getStripe().webhooks.constructEvent(body, signature, webhookSecret);
     } catch (err: any) {
       console.error(`Webhook signature verification failed: ${err.message}`);
       return NextResponse.json({ error: 'Webhook signature verification failed' }, { status: 400 });
@@ -68,7 +71,7 @@ async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
     const isEscrow = paymentIntent.metadata.escrow_mode === 'true';
 
     // Get the charge details for fees
-    const charges = await stripe.charges.list({
+    const charges = await getStripe().charges.list({
       payment_intent: paymentIntent.id,
       limit: 1,
     });
@@ -77,7 +80,7 @@ async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
     if (!charge) return;
 
     const stripeFee = charge.balance_transaction 
-      ? (await stripe.balanceTransactions.retrieve(charge.balance_transaction as string)).fee 
+      ? (await getStripe().balanceTransactions.retrieve(charge.balance_transaction as string)).fee 
       : 0;
 
     // Update transaction record
@@ -141,7 +144,7 @@ async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
 
 async function handleDisputeCreated(dispute: Stripe.Dispute) {
   try {
-    const charge = await stripe.charges.retrieve(dispute.charge as string);
+    const charge = await getStripe().charges.retrieve(dispute.charge as string);
     const paymentIntent = charge.payment_intent as string;
 
     // Get merchant info from payment intent
@@ -164,7 +167,7 @@ async function handleDisputeCreated(dispute: Stripe.Dispute) {
         currency: dispute.currency,
         status: dispute.status,
         reason: dispute.reason,
-        evidence_due_by: new Date(dispute.evidence_details.due_by * 1000),
+        evidence_due_by: dispute.evidence_details.due_by ? new Date(dispute.evidence_details.due_by * 1000) : null,
       });
 
     // Create negative DID reputation event

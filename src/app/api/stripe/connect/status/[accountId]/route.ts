@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16',
-});
+let _stripe: Stripe;
+function getStripe() {
+  return (_stripe ??= new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    apiVersion: '2026-01-28.clover' as const,
+  }));
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,10 +16,10 @@ const supabase = createClient(
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { accountId: string } }
+  { params }: { params: Promise<{ accountId: string }> }
 ) {
   try {
-    const { accountId } = params;
+    const { accountId } = await params;
 
     // Get Stripe account from database
     const { data: accountRecord } = await supabase
@@ -30,7 +33,7 @@ export async function GET(
     }
 
     // Get account details from Stripe
-    const account = await stripe.accounts.retrieve(accountRecord.stripe_account_id);
+    const account = await getStripe().accounts.retrieve(accountRecord.stripe_account_id);
 
     // Update local database with latest info
     await supabase

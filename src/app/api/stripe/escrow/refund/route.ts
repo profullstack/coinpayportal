@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16',
-});
+let _stripe: Stripe;
+function getStripe() {
+  return (_stripe ??= new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    apiVersion: '2026-01-28.clover' as const,
+  }));
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -53,7 +56,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create refund
-    const refund = await stripe.refunds.create({
+    const refund = await getStripe().refunds.create({
       charge: escrow.stripe_charge_id,
       amount: refundAmount,
       reason: 'requested_by_customer',
