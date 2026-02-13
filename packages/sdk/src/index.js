@@ -101,6 +101,14 @@ import {
   getSwapHistory,
 } from './swap.js';
 
+// Payouts
+import {
+  createPayout,
+  listPayouts,
+  getPayout,
+  formatPayoutAmount,
+} from './payouts.js';
+
 // Card payments
 import {
   createQuickCardPayment,
@@ -115,6 +123,19 @@ import {
   refundCardEscrow,
   getCardEscrowStatus,
 } from './card-payments.js';
+
+// Subscriptions
+import {
+  createSubscriptionPlan,
+  listSubscriptionPlans,
+  subscribeCustomer,
+  cancelSubscription,
+  listSubscriptions,
+  getSubscription,
+  formatSubscriptionAmount,
+  PlanInterval,
+  SubscriptionStatus,
+} from './subscriptions.js';
 
 export {
   // Client
@@ -155,6 +176,12 @@ export {
   getSwapStatus,
   getSwapHistory,
   
+  // Payouts
+  createPayout,
+  listPayouts,
+  getPayout,
+  formatPayoutAmount,
+  
   // Card payments
   createQuickCardPayment,
   waitForStripeOnboarding,
@@ -167,6 +194,17 @@ export {
   releaseCardEscrow,
   refundCardEscrow,
   getCardEscrowStatus,
+  
+  // Subscriptions
+  createSubscriptionPlan,
+  listSubscriptionPlans,
+  subscribeCustomer,
+  cancelSubscription,
+  listSubscriptions,
+  getSubscription,
+  formatSubscriptionAmount,
+  PlanInterval,
+  SubscriptionStatus,
   
   // Constants
   Blockchain,

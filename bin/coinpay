@@ -472,6 +472,170 @@ async function swapCoins() {
   } catch (err) { console.error('Network error:', formatError(err)); process.exit(1); }
 }
 
+// ── Subscription Commands ────────────────────────────────────────────
+
+async function handleSubscription(subCommand, args) {
+  const opts = parseArgs(args);
+  switch (subCommand) {
+    case 'create-plan': return subscriptionCreatePlan(opts);
+    case 'subscribe': return subscriptionSubscribe(opts);
+    case 'cancel': return subscriptionCancel(args);
+    case 'list': return subscriptionList(opts);
+    case 'get': return subscriptionGet(args);
+    default:
+      console.error(`Unknown subscription command: ${subCommand}`);
+      showHelp();
+      process.exit(1);
+  }
+}
+
+function getApiKey() {
+  const key = process.env.COINPAY_API_KEY;
+  if (!key) {
+    console.error('Error: COINPAY_API_KEY environment variable required');
+    process.exit(1);
+  }
+  return key;
+}
+
+async function subscriptionCreatePlan(opts) {
+  const { business, name, amount, interval, 'interval-count': intervalCount, 'trial-days': trialDays, description } = opts;
+  if (!business || !name || !amount) {
+    console.error('Error: --business, --name, and --amount are required');
+    process.exit(1);
+  }
+  try {
+    const res = await fetch(`${API_BASE}/api/stripe/subscriptions/plans`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getApiKey()}` },
+      body: JSON.stringify({
+        businessId: business,
+        name,
+        description: description || undefined,
+        amount: parseInt(amount),
+        interval: interval || 'month',
+        intervalCount: intervalCount ? parseInt(intervalCount) : 1,
+        trialDays: trialDays ? parseInt(trialDays) : undefined,
+      }),
+    });
+    const data = await res.json();
+    if (!data.success) { console.error('Error:', data.error); process.exit(1); }
+    const p = data.plan;
+    console.log(`\n╔══════════════════════════════════════════════════════════════╗`);
+    console.log(`║  Subscription Plan Created                                   ║`);
+    console.log(`╠══════════════════════════════════════════════════════════════╣`);
+    console.log(`║  ID:       ${p.id}`);
+    console.log(`║  Name:     ${p.name}`);
+    console.log(`║  Amount:   $${(p.amount / 100).toFixed(2)}/${p.interval}`);
+    console.log(`║  Price ID: ${p.stripe_price_id}`);
+    if (p.trial_days) console.log(`║  Trial:    ${p.trial_days} days`);
+    console.log(`╚══════════════════════════════════════════════════════════════╝\n`);
+  } catch (err) { console.error('Network error:', formatError(err)); process.exit(1); }
+}
+
+async function subscriptionSubscribe(opts) {
+  const { plan, email, 'customer-id': customerId, 'success-url': successUrl, 'cancel-url': cancelUrl } = opts;
+  if (!plan || (!email && !customerId)) {
+    console.error('Error: --plan and --email (or --customer-id) are required');
+    process.exit(1);
+  }
+  try {
+    const res = await fetch(`${API_BASE}/api/stripe/subscriptions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getApiKey()}` },
+      body: JSON.stringify({
+        planId: plan,
+        customerEmail: email || undefined,
+        customerId: customerId || undefined,
+        successUrl,
+        cancelUrl,
+      }),
+    });
+    const data = await res.json();
+    if (!data.success) { console.error('Error:', data.error); process.exit(1); }
+    console.log(`\n╔══════════════════════════════════════════════════════════════╗`);
+    console.log(`║  Subscription Created                                        ║`);
+    console.log(`╠══════════════════════════════════════════════════════════════╣`);
+    console.log(`║  ID:       ${data.subscription.id}`);
+    console.log(`║  Status:   ${data.subscription.status}`);
+    if (data.checkout_url) console.log(`║  Checkout: ${data.checkout_url}`);
+    console.log(`╚══════════════════════════════════════════════════════════════╝\n`);
+  } catch (err) { console.error('Network error:', formatError(err)); process.exit(1); }
+}
+
+async function subscriptionCancel(args) {
+  const opts = parseArgs(args);
+  const id = opts._positional[0];
+  if (!id) { console.error('Error: subscription ID required'); process.exit(1); }
+  try {
+    const res = await fetch(`${API_BASE}/api/stripe/subscriptions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getApiKey()}` },
+      body: JSON.stringify({ immediately: opts.immediately === true }),
+    });
+    const data = await res.json();
+    if (!data.success) { console.error('Error:', data.error); process.exit(1); }
+    console.log(`\n✓ ${data.message}\n`);
+  } catch (err) { console.error('Network error:', formatError(err)); process.exit(1); }
+}
+
+async function subscriptionList(opts) {
+  const params = new URLSearchParams();
+  if (opts.business) params.set('businessId', opts.business);
+  if (opts.status) params.set('status', opts.status);
+  if (opts.limit) params.set('limit', opts.limit);
+  try {
+    const res = await fetch(`${API_BASE}/api/stripe/subscriptions?${params}`, {
+      headers: { 'Authorization': `Bearer ${getApiKey()}` },
+    });
+    const data = await res.json();
+    if (!data.success) { console.error('Error:', data.error); process.exit(1); }
+    const subs = data.subscriptions || [];
+    if (subs.length === 0) { console.log('\nNo subscriptions found.\n'); return; }
+    console.log(`\n╔══════════════════════════════════════════════════════════════╗`);
+    console.log(`║  Subscriptions (${subs.length})                                          ║`);
+    console.log(`╠══════════════════════════════════════════════════════════════╣`);
+    for (const s of subs) {
+      const planName = s.subscription_plans?.name || 'Unknown';
+      console.log(`║  ${s.id}`);
+      console.log(`║    Plan: ${planName}  Status: ${s.status}  Email: ${s.customer_email || 'N/A'}`);
+    }
+    console.log(`╚══════════════════════════════════════════════════════════════╝\n`);
+  } catch (err) { console.error('Network error:', formatError(err)); process.exit(1); }
+}
+
+async function subscriptionGet(args) {
+  const opts = parseArgs(args);
+  const id = opts._positional[0];
+  if (!id) { console.error('Error: subscription ID required'); process.exit(1); }
+  try {
+    const res = await fetch(`${API_BASE}/api/stripe/subscriptions/${encodeURIComponent(id)}`, {
+      headers: { 'Authorization': `Bearer ${getApiKey()}` },
+    });
+    const data = await res.json();
+    if (!data.success) { console.error('Error:', data.error); process.exit(1); }
+    const s = data.subscription;
+    const planName = s.subscription_plans?.name || 'Unknown';
+    const amount = s.subscription_plans ? `$${(s.subscription_plans.amount / 100).toFixed(2)}/${s.subscription_plans.interval}` : 'N/A';
+    console.log(`\n╔══════════════════════════════════════════════════════════════╗`);
+    console.log(`║  Subscription Details                                        ║`);
+    console.log(`╠══════════════════════════════════════════════════════════════╣`);
+    console.log(`║  ID:       ${s.id}`);
+    console.log(`║  Plan:     ${planName}`);
+    console.log(`║  Amount:   ${amount}`);
+    console.log(`║  Status:   ${s.status}`);
+    console.log(`║  Email:    ${s.customer_email || 'N/A'}`);
+    if (s.stripe_details) {
+      if (s.stripe_details.current_period_end) {
+        console.log(`║  Renews:   ${new Date(s.stripe_details.current_period_end * 1000).toLocaleDateString()}`);
+      }
+      if (s.stripe_details.cancel_at_period_end) console.log(`║  Cancels at period end`);
+    }
+    if (s.canceled_at) console.log(`║  Canceled: ${new Date(s.canceled_at).toLocaleDateString()}`);
+    console.log(`╚══════════════════════════════════════════════════════════════╝\n`);
+  } catch (err) { console.error('Network error:', formatError(err)); process.exit(1); }
+}
+
 // ── Help ────────────────────────────────────────────────────────────
 
 function showHelp() {
@@ -486,6 +650,7 @@ COMMANDS
   wallet       Wallet management
   reputation   Trust & reputation (CPTL)
   card         Card payments and escrow
+  subscription Subscription billing management
   help         Show this help
 
 SWAP COMMANDS
@@ -519,6 +684,13 @@ CARD COMMANDS
   coinpay card refund <escrowId> [--partial <amount>]
   coinpay card transactions [--business <id>] [--status <status>] [--limit <n>]
   coinpay card balance
+
+SUBSCRIPTION COMMANDS
+  coinpay subscription create-plan --business <id> --name "Plan Name" --amount <cents> [--interval month] [--trial-days 14]
+  coinpay subscription subscribe --plan <priceId> --email <customer@email.com> [--success-url <url>] [--cancel-url <url>]
+  coinpay subscription cancel <subscriptionId> [--immediately]
+  coinpay subscription list [--business <id>] [--status <status>] [--limit <n>]
+  coinpay subscription get <subscriptionId>
 
 GLOBAL OPTIONS
   --password <pass>       Encryption password (or COINPAY_WALLET_PASSWORD env)
@@ -953,6 +1125,9 @@ async function main() {
       break;
     case 'card':
       await handleCard(subCommand, args.slice(2));
+      break;
+    case 'subscription':
+      await handleSubscription(subCommand, args.slice(2));
       break;
     case 'help': case '--help': case '-h':
       showHelp();
