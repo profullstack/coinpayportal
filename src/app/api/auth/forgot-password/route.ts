@@ -32,10 +32,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
-    const emailKey = `reset:${validation.data.email.toLowerCase()}`;
-    const emailRateCheck = await checkRateLimitAsync(emailKey, 'merchant_login_email');
+    // Rate limit: max 3 reset requests per email per 15 min
+    const emailKey = `password_reset:${validation.data.email.toLowerCase()}`;
+    const emailRateCheck = await checkRateLimitAsync(emailKey, 'merchant_login');
     if (!emailRateCheck.allowed) {
-      // Still return success to not leak info
+      // Still return success to not leak info, but log it
+      console.log(`[Forgot Password] Rate limited for ${validation.data.email}`);
       return NextResponse.json({ success: true });
     }
 
@@ -52,7 +54,8 @@ export async function POST(request: NextRequest) {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com';
       const resetLink = `${appUrl}/reset-password?token=${result.token}`;
 
-      await sendEmail({
+      console.log(`[Forgot Password] Sending reset email to ${validation.data.email}`);
+      const emailResult = await sendEmail({
         to: validation.data.email,
         subject: 'Reset your CoinPay password',
         html: `
@@ -69,6 +72,7 @@ export async function POST(request: NextRequest) {
           </div>
         `,
       });
+      console.log(`[Forgot Password] Email result:`, emailResult);
     }
 
     // Always return success
