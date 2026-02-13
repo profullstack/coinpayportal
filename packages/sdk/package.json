@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/coinpay",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "CoinPay SDK & CLI — Accept cryptocurrency payments (BTC, ETH, SOL, POL, BCH, USDC) with wallet and swap support",
   "type": "module",
   "main": "./src/index.js",
@@ -16,6 +16,10 @@
     "./payments": {
       "import": "./src/payments.js",
       "types": "./src/payments.d.ts"
+    },
+    "./card-payments": {
+      "import": "./src/card-payments.js",
+      "types": "./src/card-payments.d.ts"
     },
     "./webhooks": {
       "import": "./src/webhooks.js",
