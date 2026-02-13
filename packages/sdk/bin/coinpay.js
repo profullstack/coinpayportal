@@ -227,6 +227,10 @@ ${colors.cyan}Commands:${colors.reset}
     badge [did]           Get embeddable reputation badge URL
     verify <id>           Verify a credential
     revocations           List revoked credentials
+    issuer register       Register platform issuer (--name, --domain)
+    issuer list           List your platform issuers
+    issuer rotate         Rotate issuer API key (--id)
+    issuer deactivate     Deactivate an issuer (--id)
 
   ${colors.bright}webhook${colors.reset}
     logs <business-id>    Get webhook logs
@@ -1859,6 +1863,98 @@ async function handleReputation(subcommand, args, flags) {
           print.info('No receipts found for this DID.');
         }
         if (flags.json) print.json(result);
+      }
+      break;
+    }
+
+    case 'issuer': {
+      const issuerSubcommand = args[0];
+      const client = createClient();
+
+      switch (issuerSubcommand) {
+        case 'register': {
+          const name = flags.name;
+          const domain = flags.domain;
+          if (!name || !domain) {
+            print.error('Required: --name <name> --domain <domain>');
+            return;
+          }
+          const { registerPlatformIssuer } = await import('../src/reputation.js');
+          const result = await registerPlatformIssuer(client, { name, domain, did: flags.did });
+
+          if (result.success) {
+            print.success(`Issuer registered: ${result.issuer.name}`);
+            print.info(`  ID: ${result.issuer.id}`);
+            print.info(`  DID: ${result.issuer.did}`);
+            print.info(`  Domain: ${result.issuer.domain}`);
+            console.log(`\n  ${colors.bright}${colors.yellow}⚠️  API Key (shown only once):${colors.reset}`);
+            console.log(`  ${colors.yellow}${result.api_key}${colors.reset}\n`);
+          } else {
+            print.error(result.error || 'Registration failed');
+          }
+          if (flags.json) print.json(result);
+          break;
+        }
+
+        case 'list': {
+          const { listPlatformIssuers } = await import('../src/reputation.js');
+          const result = await listPlatformIssuers(client);
+
+          if (result.success) {
+            print.info(`Platform issuers (${result.issuers.length}):`);
+            for (const iss of result.issuers) {
+              const status = iss.active ? `${colors.green}active${colors.reset}` : `${colors.red}inactive${colors.reset}`;
+              console.log(`  ${iss.id} | ${iss.name} | ${iss.domain} | ${status} | key: ${iss.api_key || 'none'}`);
+            }
+          } else {
+            print.error(result.error || 'Failed to list issuers');
+          }
+          if (flags.json) print.json(result);
+          break;
+        }
+
+        case 'rotate': {
+          const id = flags.id || args[1];
+          if (!id) {
+            print.error('Required: --id <issuer-id>');
+            return;
+          }
+          const { rotatePlatformApiKey } = await import('../src/reputation.js');
+          const result = await rotatePlatformApiKey(client, id);
+
+          if (result.success) {
+            print.success(`API key rotated for: ${result.issuer.name}`);
+            console.log(`\n  ${colors.bright}${colors.yellow}⚠️  New API Key (shown only once):${colors.reset}`);
+            console.log(`  ${colors.yellow}${result.api_key}${colors.reset}\n`);
+          } else {
+            print.error(result.error || 'Rotation failed');
+          }
+          if (flags.json) print.json(result);
+          break;
+        }
+
+        case 'deactivate': {
+          const id = flags.id || args[1];
+          if (!id) {
+            print.error('Required: --id <issuer-id>');
+            return;
+          }
+          const { deactivatePlatformIssuer } = await import('../src/reputation.js');
+          const result = await deactivatePlatformIssuer(client, id);
+
+          if (result.success) {
+            print.success(`Issuer deactivated: ${result.issuer.name}`);
+          } else {
+            print.error(result.error || 'Deactivation failed');
+          }
+          if (flags.json) print.json(result);
+          break;
+        }
+
+        default:
+          print.error(`Unknown issuer command: ${issuerSubcommand}`);
+          print.info('Available: register, list, rotate, deactivate');
+          process.exit(1);
       }
       break;
     }
