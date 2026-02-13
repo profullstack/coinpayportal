@@ -713,6 +713,7 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
                   type="number"
                   step="any"
                   min="0.000001"
+                  data-testid="amount-field"
                   value={cryptoAmount}
                   onChange={(e) => {
                     handleCryptoChange(e.target.value);

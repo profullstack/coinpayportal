@@ -217,7 +217,7 @@ export default function Footer() {
                 <img
                   src="/badges/escrow-badge.svg"
                   alt="Escrow Services by coinpayportal.com"
-                  className="h-8"
+                  className="h-16"
                 />
               </Link>
             </div>

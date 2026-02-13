@@ -289,7 +289,7 @@ describe('AssetDetailPage - Send Tab - Dual Input System', () => {
     
     // Should calculate crypto amount (1000 / 50000 = 0.02)
     await waitFor(() => {
-      expect(cryptoInput).toHaveValue('0.02');
+      expect(cryptoInput).toHaveValue(0.02);
     });
   });
 
@@ -319,7 +319,7 @@ describe('AssetDetailPage - Send Tab - Dual Input System', () => {
     
     // Should calculate fiat amount (0.1 * 50000 = 5000)
     await waitFor(() => {
-      expect(fiatInput).toHaveValue('5000.00');
+      expect(fiatInput).toHaveValue(5000);
     });
   });
 
@@ -361,7 +361,9 @@ describe('AssetDetailPage - Send Tab - Dual Input System', () => {
       expect(screen.getByLabelText('From address')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Loading exchange rate...')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('Loading exchange rate...')).toBeInTheDocument();
+    });
   });
 
   it('should show rate error on API failure', async () => {
@@ -467,7 +469,7 @@ describe('AssetDetailPage - Send Tab - Dual Input System', () => {
     await user.click(swapButton);
     
     // Verify state
-    expect(screen.getByPlaceholderText('0.000000 BTC')).toHaveValue('0.02');
+    expect(screen.getByPlaceholderText('0.000000 BTC')).toHaveValue(0.02);
     expect(screen.getByPlaceholderText('0.000000 BTC')).not.toBeDisabled();
     expect(fiatInput).toBeDisabled();
     
@@ -492,8 +494,8 @@ describe('AssetDetailPage - Send Tab - Dual Input System', () => {
     await user.click(screen.getByText('Try Again'));
     
     // Verify dual input state was reset
-    expect(screen.getByPlaceholderText('0.00 USD')).toHaveValue('');
-    expect(screen.getByPlaceholderText('0.000000 BTC')).toHaveValue('');
+    expect(screen.getByPlaceholderText('0.00 USD')).toHaveValue(null);
+    expect(screen.getByPlaceholderText('0.000000 BTC')).toHaveValue(null);
     expect(screen.getByPlaceholderText('0.00 USD')).not.toBeDisabled();
     expect(screen.getByPlaceholderText('0.000000 BTC')).toBeDisabled();
   });
@@ -501,17 +503,23 @@ describe('AssetDetailPage - Send Tab - Dual Input System', () => {
   it('should validate crypto amount is required', async () => {
     const user = userEvent.setup();
     renderUnlockedPage('BTC');
-    
+
     await waitFor(() => {
       expect(screen.getByLabelText('From address')).toBeInTheDocument();
     });
 
-    // Fill only address, leave amounts empty
-    await user.clear(screen.getByPlaceholderText('Enter recipient address'));
+    // Switch to crypto primary and enter 0 (enables button but fails validation)
+    const swapButton = screen.getByTitle('Switch primary input');
+    await user.click(swapButton);
+
+    const cryptoInput = screen.getByPlaceholderText('0.000000 BTC');
+    await user.type(cryptoInput, '0');
+
+    // Fill address
     await user.type(screen.getByPlaceholderText('Enter recipient address'), 'bc1qrecipient');
-    
+
     await user.click(screen.getByText('Review Transaction'));
-    
+
     await waitFor(() => {
       expect(screen.getByText('Amount must be greater than 0')).toBeInTheDocument();
     });

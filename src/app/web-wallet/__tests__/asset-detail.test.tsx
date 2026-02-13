@@ -381,7 +381,7 @@ describe('AssetDetailPage – Send tab', () => {
 
   it('should render amount input', () => {
     renderUnlockedPage('BTC');
-    expect(screen.getByTestId('amount-input')).toBeInTheDocument();
+    expect(screen.getByTestId('amount-field')).toBeInTheDocument();
   });
 
   it('should render transaction speed selector', async () => {

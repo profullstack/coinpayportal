@@ -717,13 +717,13 @@ describe('Payment Monitor', () => {
           if (table === 'escrows') {
             return {
               select: vi.fn(() => ({
-                eq: vi.fn((status: string) => {
-                  if (status === 'created') {
+                eq: vi.fn((_col: string, value: string) => {
+                  if (value === 'created') {
                     return {
                       limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
                     };
                   }
-                  if (status === 'released') {
+                  if (value === 'released') {
                     return {
                       limit: vi.fn(() => Promise.resolve({
                         data: [releasedEscrow],
@@ -731,7 +731,7 @@ describe('Payment Monitor', () => {
                       })),
                     };
                   }
-                  if (status === 'refunded') {
+                  if (value === 'refunded') {
                     return {
                       is: vi.fn(() => ({
                         limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
@@ -788,18 +788,18 @@ describe('Payment Monitor', () => {
           if (table === 'escrows') {
             return {
               select: vi.fn(() => ({
-                eq: vi.fn((status: string) => {
-                  if (status === 'created') {
+                eq: vi.fn((_col: string, value: string) => {
+                  if (value === 'created') {
                     return {
                       limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
                     };
                   }
-                  if (status === 'released') {
+                  if (value === 'released') {
                     return {
                       limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
                     };
                   }
-                  if (status === 'refunded') {
+                  if (value === 'refunded') {
                     return {
                       is: vi.fn(() => ({
                         limit: vi.fn(() => Promise.resolve({
@@ -840,7 +840,7 @@ describe('Payment Monitor', () => {
 
       it('should handle settlement API errors gracefully', async () => {
         const consoleSpy = vi.spyOn(console, 'error');
-        
+
         const releasedEscrow = {
           id: 'escrow-error',
           status: 'released',
@@ -859,12 +859,19 @@ describe('Payment Monitor', () => {
           if (table === 'escrows') {
             return {
               select: vi.fn(() => ({
-                eq: vi.fn((status: string) => {
-                  if (status === 'released') {
+                eq: vi.fn((_col: string, value: string) => {
+                  if (value === 'released') {
                     return {
                       limit: vi.fn(() => Promise.resolve({
                         data: [releasedEscrow],
                         error: null
+                      })),
+                    };
+                  }
+                  if (value === 'refunded') {
+                    return {
+                      is: vi.fn(() => ({
+                        limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
                       })),
                     };
                   }

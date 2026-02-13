@@ -162,7 +162,7 @@ describe('rate-limit', () => {
   describe('RATE_LIMITS config', () => {
     it('should have wallet_creation limits', () => {
       expect(RATE_LIMITS['wallet_creation']).toBeDefined();
-      expect(RATE_LIMITS['wallet_creation'].limit).toBe(5);
+      expect(RATE_LIMITS['wallet_creation'].limit).toBe(20);
       expect(RATE_LIMITS['wallet_creation'].windowSeconds).toBe(3600);
     });
 

@@ -19,10 +19,11 @@ vi.mock('@/lib/auth/client', () => ({
 }));
 
 // Mock clipboard API
-Object.assign(navigator, {
-  clipboard: {
-    writeText: vi.fn().mockResolvedValue(undefined),
-  },
+const mockClipboardWriteText = vi.fn().mockResolvedValue(undefined);
+Object.defineProperty(navigator, 'clipboard', {
+  value: { writeText: mockClipboardWriteText },
+  writable: true,
+  configurable: true,
 });
 
 // Mock fetch globally
@@ -37,10 +38,10 @@ import { authFetch } from '@/lib/auth/client';
 describe('Escrow Commission Displays', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(navigator.clipboard.writeText).mockResolvedValue(undefined);
+    mockClipboardWriteText.mockResolvedValue(undefined);
     
-    // Mock auth fetch to return no businesses (not logged in)
-    vi.mocked(authFetch).mockRejectedValue(new Error('Not logged in'));
+    // Mock auth fetch to return null (not logged in, triggers anonymous fallback)
+    vi.mocked(authFetch).mockResolvedValue(null);
   });
 
   afterEach(() => {
