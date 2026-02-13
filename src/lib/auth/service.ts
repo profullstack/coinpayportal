@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { randomBytes, createHash } from 'crypto';
 import { hashPassword, verifyPassword } from '../crypto/encryption';
 import { generateToken, verifyToken } from './jwt';
 import { getSecret } from '../secrets';
@@ -328,6 +329,132 @@ export async function refreshToken(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Token refresh failed',
+    };
+  }
+}
+
+/**
+ * Hash a reset token using SHA-256
+ */
+function hashResetToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+export interface ResetResult {
+  success: boolean;
+  token?: string;
+  error?: string;
+}
+
+/**
+ * Request a password reset. Returns a raw token to include in the email link.
+ * If email not found, returns success with no token (don't leak email existence).
+ */
+export async function requestPasswordReset(
+  supabase: SupabaseClient,
+  email: string
+): Promise<ResetResult> {
+  try {
+    const emailResult = emailSchema.safeParse(email);
+    if (!emailResult.success) {
+      return { success: true }; // Don't leak validation errors
+    }
+
+    const { data: merchant } = await supabase
+      .from('merchants')
+      .select('id')
+      .eq('email', email.toLowerCase())
+      .single();
+
+    if (!merchant) {
+      return { success: true }; // Don't leak email existence
+    }
+
+    // Generate random token
+    const rawToken = randomBytes(32).toString('hex');
+    const hashedToken = hashResetToken(rawToken);
+    const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+
+    // Store hashed token
+    const { error } = await supabase
+      .from('merchants')
+      .update({
+        reset_token: hashedToken,
+        reset_token_expires: expires,
+      })
+      .eq('id', merchant.id);
+
+    if (error) {
+      return { success: false, error: 'Failed to generate reset token' };
+    }
+
+    return { success: true, token: rawToken };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Password reset request failed',
+    };
+  }
+}
+
+/**
+ * Reset password using a token
+ */
+export async function resetPassword(
+  supabase: SupabaseClient,
+  token: string,
+  newPassword: string
+): Promise<ResetResult> {
+  try {
+    // Validate new password
+    const passwordResult = passwordSchema.safeParse(newPassword);
+    if (!passwordResult.success) {
+      return {
+        success: false,
+        error: passwordResult.error.errors[0].message,
+      };
+    }
+
+    // Hash the incoming token to compare
+    const hashedToken = hashResetToken(token);
+
+    // Find merchant with valid (non-expired) reset token
+    const { data: merchants, error: fetchError } = await supabase
+      .from('merchants')
+      .select('id, reset_token, reset_token_expires')
+      .eq('reset_token', hashedToken)
+      .gt('reset_token_expires', new Date().toISOString());
+
+    if (fetchError || !merchants || merchants.length === 0) {
+      return {
+        success: false,
+        error: 'Invalid or expired reset token',
+      };
+    }
+
+    const merchant = merchants[0];
+
+    // Hash new password and update
+    const passwordHash = await hashPassword(newPassword);
+
+    const { error: updateError } = await supabase
+      .from('merchants')
+      .update({
+        password_hash: passwordHash,
+        reset_token: null,
+        reset_token_expires: null,
+      })
+      .eq('id', merchant.id);
+
+    if (updateError) {
+      return { success: false, error: 'Failed to update password' };
+    }
+
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Password reset failed',
     };
   }
 }
