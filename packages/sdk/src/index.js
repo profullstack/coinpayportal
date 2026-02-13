@@ -79,6 +79,14 @@ import {
 
 // Swap exports
 import {
+  submitReceipt,
+  getReputation,
+  getCredential,
+  verifyCredential,
+  getRevocationList,
+} from './reputation.js';
+
+import {
   SwapClient,
   SwapCoins,
   SwapStatus,
@@ -133,6 +141,13 @@ export {
   Cryptocurrency,  // Deprecated, use Blockchain
   PaymentStatus,
   FiatCurrency,
+  
+  // Reputation
+  submitReceipt,
+  getReputation,
+  getCredential,
+  verifyCredential,
+  getRevocationList,
   
   // Webhook utilities
   verifyWebhookSignature,
