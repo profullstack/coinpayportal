@@ -672,6 +672,218 @@ describe('PublicPaymentPage', () => {
     });
   });
 
+  describe('Payment Progress Steps', () => {
+    it('should show step indicator for pending payment', async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: mockPayment,
+        }),
+      } as Response);
+
+      render(<PublicPaymentPage />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('payment-steps')).toBeInTheDocument();
+        expect(screen.getByText('Copy Details')).toBeInTheDocument();
+        expect(screen.getByText('Send Crypto')).toBeInTheDocument();
+        expect(screen.getByText('Confirming')).toBeInTheDocument();
+        expect(screen.getByText('Done')).toBeInTheDocument();
+      });
+    });
+
+    it('should highlight step 1 for fresh pending payment', async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: mockPayment,
+        }),
+      } as Response);
+
+      render(<PublicPaymentPage />);
+
+      await waitFor(() => {
+        const step1 = screen.getByTestId('step-1');
+        expect(step1.className).toContain('bg-purple-500');
+      });
+    });
+
+    it('should show step 3 for detected payment', async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: { ...mockPayment, status: 'detected' },
+        }),
+      } as Response);
+
+      render(<PublicPaymentPage />);
+
+      await waitFor(() => {
+        const step3 = screen.getByTestId('step-3');
+        expect(step3.className).toContain('bg-purple-500');
+      });
+    });
+
+    it('should show step 4 active for confirmed payment', async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: { ...mockPayment, status: 'confirmed' },
+        }),
+      } as Response);
+
+      render(<PublicPaymentPage />);
+
+      await waitFor(() => {
+        const step4 = screen.getByTestId('step-4');
+        expect(step4.className).toContain('bg-purple-500');
+        // All previous steps should be green (completed)
+        const step1 = screen.getByTestId('step-1');
+        expect(step1.className).toContain('bg-green-500');
+      });
+    });
+
+    it('should not show steps for failed payment', async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: { ...mockPayment, status: 'failed' },
+        }),
+      } as Response);
+
+      render(<PublicPaymentPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/payment failed/i)).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('payment-steps')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Prominent Copy Buttons', () => {
+    beforeEach(() => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: { ...mockPayment, status: 'confirmed' },
+        }),
+      } as Response);
+    });
+
+    it('should show prominent Copy Address button', async () => {
+      render(<PublicPaymentPage />);
+
+      await waitFor(() => {
+        const btn = screen.getByTestId('copy-address-btn');
+        expect(btn).toBeInTheDocument();
+        expect(btn.textContent).toContain('Copy Address');
+      });
+    });
+
+    it('should show prominent Copy Amount button', async () => {
+      render(<PublicPaymentPage />);
+
+      await waitFor(() => {
+        const btn = screen.getByTestId('copy-amount-btn');
+        expect(btn).toBeInTheDocument();
+        expect(btn.textContent).toContain('Copy Amount');
+      });
+    });
+
+    it('should show success state after copying address', async () => {
+      render(<PublicPaymentPage />);
+
+      await waitFor(() => {
+        screen.getByTestId('copy-address-btn');
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('copy-address-btn'));
+      });
+
+      expect(screen.getByTestId('copy-address-btn').textContent).toContain('Address Copied!');
+    });
+
+    it('should show success state after copying amount', async () => {
+      render(<PublicPaymentPage />);
+
+      await waitFor(() => {
+        screen.getByTestId('copy-amount-btn');
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('copy-amount-btn'));
+      });
+
+      expect(screen.getByTestId('copy-amount-btn').textContent).toContain('Amount Copied!');
+    });
+  });
+
+  describe('Countdown Timer Urgency', () => {
+    it('should show urgent styling when less than 5 minutes remain', async () => {
+      // Create payment that expires in 4 minutes
+      const fourMinutesFromNow = new Date(Date.now() + 4 * 60 * 1000).toISOString();
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: { ...mockPayment, status: 'pending', expires_at: fourMinutesFromNow },
+        }),
+      } as Response);
+
+      render(<PublicPaymentPage />);
+
+      await waitFor(() => {
+        const timer = screen.getByTestId('countdown-timer');
+        expect(timer.className).toContain('text-red-400');
+        expect(timer.className).toContain('animate-pulse');
+      });
+    });
+
+    it('should show "expiring soon" warning when urgent', async () => {
+      const twoMinutesFromNow = new Date(Date.now() + 2 * 60 * 1000).toISOString();
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: { ...mockPayment, status: 'pending', expires_at: twoMinutesFromNow },
+        }),
+      } as Response);
+
+      render(<PublicPaymentPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/expiring soon/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should show normal styling when more than 5 minutes remain', async () => {
+      const tenMinutesFromNow = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          payment: { ...mockPayment, status: 'pending', expires_at: tenMinutesFromNow },
+        }),
+      } as Response);
+
+      render(<PublicPaymentPage />);
+
+      await waitFor(() => {
+        const timer = screen.getByTestId('countdown-timer');
+        expect(timer.className).toContain('text-white');
+        expect(timer.className).not.toContain('text-red-400');
+      });
+    });
+  });
+
   describe('Currency Display', () => {
     it('should show Bitcoin name for BTC', async () => {
       vi.mocked(fetch).mockResolvedValue({
