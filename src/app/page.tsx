@@ -73,6 +73,31 @@ export default function Home() {
                 </div>
               </div>
             </Link>
+
+            {/* DID Reputation Banner */}
+            <Link href="/reputation" className="block group">
+              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-violet-500/20 via-purple-500/20 to-fuchsia-500/20 border border-violet-500/30 p-4 sm:p-5 transition-all group-hover:border-violet-400/50 group-hover:shadow-lg group-hover:shadow-violet-500/10">
+                <div className="relative flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
+                  <div className="flex-shrink-0">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-400 to-fuchsia-400 flex items-center justify-center text-2xl">
+                      🆔
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="inline-flex items-center gap-2 mb-1">
+                      <span className="px-2 py-0.5 text-xs font-bold uppercase tracking-wider bg-violet-500/30 text-violet-300 rounded-full">
+                        New: DID Reputation
+                      </span>
+                      <span className="text-violet-400 text-xs group-hover:translate-x-1 transition-transform">→ Claim your DID</span>
+                    </div>
+                    <p className="text-gray-200 text-sm leading-relaxed">
+                      <span className="font-semibold text-white">Portable, cross-platform reputation.</span>{' '}
+                      Claim a decentralized identity, build trust through escrow settlements, and carry your reputation across platforms like ugig.net.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </Link>
           </div>
 
           {/* Logo/Brand */}
@@ -472,6 +497,96 @@ coinpay escrow release <id> --token esc_abc...`}
                   </code>
                 </pre>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* DID Reputation Section */}
+      <section className="relative py-24" id="reputation">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-300 text-sm mb-6">
+              🆔 Decentralized Identity &amp; Reputation
+            </div>
+            <h2 className="text-4xl sm:text-5xl font-bold text-white mb-4">
+              Portable Reputation,{' '}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-fuchsia-400">
+                Anchored in Trust
+              </span>
+            </h2>
+            <p className="text-xl text-gray-400 max-w-3xl mx-auto">
+              Claim a DID, build reputation through real transactions, and carry your trust score across any platform in the agent economy.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-8 mb-16">
+            {[
+              {
+                icon: '🔑',
+                title: 'Claim Your DID',
+                description: 'Get a did:key identity tied to your merchant account. One identity across every platform — no central authority.',
+                color: 'violet',
+              },
+              {
+                icon: '📊',
+                title: '7-Dimension Trust Vector',
+                description: 'Your reputation is computed across Economic, Productivity, Behavioral, Dispute, Recency, Activity, and Cross-platform dimensions.',
+                color: 'purple',
+              },
+              {
+                icon: '🌐',
+                title: 'Cross-Platform Portability',
+                description: 'Platforms like ugig.net submit reputation signals to your DID. Your trust travels with you — not locked in any single app.',
+                color: 'fuchsia',
+              },
+            ].map((feature, index) => (
+              <div key={index} className="p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 hover:border-violet-500/30 transition-colors">
+                <div className="text-4xl mb-4">{feature.icon}</div>
+                <h3 className="text-xl font-bold text-white mb-3">{feature.title}</h3>
+                <p className="text-gray-400 leading-relaxed">{feature.description}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* How Reputation Works */}
+          <div className="max-w-4xl mx-auto">
+            <div className="p-8 rounded-2xl bg-gradient-to-br from-violet-500/10 to-fuchsia-500/10 border border-violet-500/20">
+              <h3 className="text-2xl font-bold text-white mb-6 text-center">How It Works</h3>
+              <div className="grid sm:grid-cols-4 gap-6">
+                {[
+                  { step: '1', label: 'Claim DID', desc: 'Create your decentralized identity' },
+                  { step: '2', label: 'Transact', desc: 'Complete escrows, gigs, and interactions' },
+                  { step: '3', label: 'Build Trust', desc: 'Each action generates a signed receipt' },
+                  { step: '4', label: 'Port It', desc: 'Use your reputation on any platform' },
+                ].map((item, i) => (
+                  <div key={i} className="text-center">
+                    <div className="w-10 h-10 rounded-full bg-violet-500/30 text-violet-300 font-bold flex items-center justify-center mx-auto mb-3">
+                      {item.step}
+                    </div>
+                    <h4 className="text-white font-semibold mb-1">{item.label}</h4>
+                    <p className="text-gray-400 text-sm">{item.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* CTA */}
+          <div className="text-center mt-12">
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <Link
+                href="/reputation/did"
+                className="px-8 py-4 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold rounded-xl shadow-lg shadow-violet-500/50 hover:shadow-violet-500/70 hover:scale-105 transition-all duration-200"
+              >
+                Claim Your DID
+              </Link>
+              <Link
+                href="/reputation"
+                className="px-8 py-4 bg-white/10 backdrop-blur-sm text-white font-semibold rounded-xl border border-white/20 hover:bg-white/20 hover:scale-105 transition-all duration-200"
+              >
+                Explore Reputation
+              </Link>
             </div>
           </div>
         </div>
