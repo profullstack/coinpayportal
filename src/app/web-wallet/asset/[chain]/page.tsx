@@ -194,53 +194,199 @@ function LightningAssetView() {
             onSetupComplete={(node) => setLnNode(node)}
           />
         ) : (
-          <div className="space-y-6">
-            {/* Node status */}
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-400">Node Status</span>
-                <span className={`text-sm font-medium ${lnNode.status === 'active' ? 'text-green-400' : 'text-yellow-400'}`}>
-                  {lnNode.status}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-gray-500 font-mono truncate">{lnNode.node_pubkey}</p>
-            </div>
-
-            {/* Tabs */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setActiveTab('offers')}
-                className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                  activeTab === 'offers'
-                    ? 'bg-purple-600 text-white'
-                    : 'bg-white/5 text-gray-400 hover:text-white'
-                }`}
-              >
-                Offers
-              </button>
-              <button
-                onClick={() => setActiveTab('payments')}
-                className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                  activeTab === 'payments'
-                    ? 'bg-purple-600 text-white'
-                    : 'bg-white/5 text-gray-400 hover:text-white'
-                }`}
-              >
-                Payments
-              </button>
-            </div>
-
-            {/* Tab content */}
-            {activeTab === 'offers' && (
-              <LightningOfferCard nodeId={lnNode.id} />
-            )}
-            {activeTab === 'payments' && (
-              <LightningPayments nodeId={lnNode.id} />
-            )}
-          </div>
+          <LightningDashboard lnNode={lnNode} />
         )}
       </div>
     </>
+  );
+}
+
+// ── Lightning Dashboard ──
+
+function LightningDashboard({ lnNode }: { lnNode: { id: string; status: string; node_pubkey: string | null } }) {
+  const [activeTab, setActiveTab] = useState<'receive' | 'send' | 'payments'>('receive');
+  const [createOfferLoading, setCreateOfferLoading] = useState(false);
+  const [newOfferDesc, setNewOfferDesc] = useState('');
+  const [newOfferAmount, setNewOfferAmount] = useState('');
+  const [payBolt12, setPayBolt12] = useState('');
+  const [payAmount, setPayAmount] = useState('');
+  const [payLoading, setPayLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const createOffer = async () => {
+    if (!newOfferDesc) {
+      setMessage({ type: 'error', text: 'Description is required' });
+      return;
+    }
+    setCreateOfferLoading(true);
+    setMessage(null);
+    try {
+      const resp = await fetch('/api/lightning/offers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          node_id: lnNode.id,
+          description: newOfferDesc,
+          amount_msat: newOfferAmount ? parseInt(newOfferAmount) * 1000 : undefined,
+        }),
+      });
+      const data = await resp.json();
+      if (data.success) {
+        setMessage({ type: 'success', text: 'Offer created! Share it to receive payments.' });
+        setNewOfferDesc('');
+        setNewOfferAmount('');
+      } else {
+        setMessage({ type: 'error', text: data.error?.message || 'Failed to create offer' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Network error' });
+    } finally {
+      setCreateOfferLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Node status */}
+      <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-gray-400">Node Status</span>
+          <span className={`text-sm font-medium ${lnNode.status === 'active' ? 'text-green-400' : 'text-yellow-400'}`}>
+            {lnNode.status}
+          </span>
+        </div>
+        {lnNode.node_pubkey && (
+          <p className="mt-1 text-xs text-gray-500 font-mono truncate">{lnNode.node_pubkey}</p>
+        )}
+      </div>
+
+      {/* Message */}
+      {message && (
+        <div className={`rounded-lg p-3 text-sm ${
+          message.type === 'success' ? 'bg-green-900/30 text-green-400 border border-green-800' : 'bg-red-900/30 text-red-400 border border-red-800'
+        }`}>
+          {message.text}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="flex gap-2">
+        {(['receive', 'send', 'payments'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => { setActiveTab(tab); setMessage(null); }}
+            className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors capitalize ${
+              activeTab === tab
+                ? 'bg-purple-600 text-white'
+                : 'bg-white/5 text-gray-400 hover:text-white'
+            }`}
+          >
+            {tab === 'receive' ? '⬇ Receive' : tab === 'send' ? '⬆ Send' : '📋 History'}
+          </button>
+        ))}
+      </div>
+
+      {/* Receive Tab */}
+      {activeTab === 'receive' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-white/10 bg-white/5 p-5 space-y-4">
+            <h3 className="text-white font-semibold">Create BOLT12 Offer</h3>
+            <p className="text-xs text-gray-400">Create a reusable payment request that anyone can pay.</p>
+            <input
+              type="text"
+              placeholder="What is this for? (e.g. Donation, Payment)"
+              value={newOfferDesc}
+              onChange={(e) => setNewOfferDesc(e.target.value)}
+              className="w-full rounded-lg bg-white/5 border border-white/10 px-4 py-2.5 text-white text-sm placeholder:text-gray-500 focus:outline-none focus:border-purple-500"
+            />
+            <input
+              type="number"
+              placeholder="Amount in sats (leave empty for any amount)"
+              value={newOfferAmount}
+              onChange={(e) => setNewOfferAmount(e.target.value)}
+              className="w-full rounded-lg bg-white/5 border border-white/10 px-4 py-2.5 text-white text-sm placeholder:text-gray-500 focus:outline-none focus:border-purple-500"
+            />
+            <button
+              onClick={createOffer}
+              disabled={createOfferLoading}
+              className="w-full rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50 transition-colors"
+            >
+              {createOfferLoading ? 'Creating...' : '⚡ Create Offer'}
+            </button>
+          </div>
+
+          {/* Existing offers */}
+          <div>
+            <h3 className="text-white font-semibold mb-3">Your Offers</h3>
+            <LightningOfferCard nodeId={lnNode.id} />
+          </div>
+        </div>
+      )}
+
+      {/* Send Tab */}
+      {activeTab === 'send' && (
+        <div className="rounded-xl border border-white/10 bg-white/5 p-5 space-y-4">
+          <h3 className="text-white font-semibold">Pay a BOLT12 Offer</h3>
+          <p className="text-xs text-gray-400">Paste a BOLT12 offer or invoice to send a payment.</p>
+          <textarea
+            placeholder="Paste BOLT12 offer (lno1...) or invoice (lnbc...)"
+            value={payBolt12}
+            onChange={(e) => setPayBolt12(e.target.value)}
+            rows={3}
+            className="w-full rounded-lg bg-white/5 border border-white/10 px-4 py-2.5 text-white text-sm placeholder:text-gray-500 focus:outline-none focus:border-purple-500 font-mono"
+          />
+          <input
+            type="number"
+            placeholder="Amount in sats (if offer is any-amount)"
+            value={payAmount}
+            onChange={(e) => setPayAmount(e.target.value)}
+            className="w-full rounded-lg bg-white/5 border border-white/10 px-4 py-2.5 text-white text-sm placeholder:text-gray-500 focus:outline-none focus:border-purple-500"
+          />
+          <button
+            onClick={async () => {
+              if (!payBolt12) {
+                setMessage({ type: 'error', text: 'Paste an offer or invoice' });
+                return;
+              }
+              setPayLoading(true);
+              setMessage(null);
+              try {
+                const resp = await fetch('/api/lightning/payments', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    node_id: lnNode.id,
+                    bolt12: payBolt12,
+                    amount_sats: payAmount ? parseInt(payAmount) : undefined,
+                  }),
+                });
+                const data = await resp.json();
+                if (data.success) {
+                  setMessage({ type: 'success', text: 'Payment sent!' });
+                  setPayBolt12('');
+                  setPayAmount('');
+                } else {
+                  setMessage({ type: 'error', text: data.error?.message || 'Payment failed' });
+                }
+              } catch {
+                setMessage({ type: 'error', text: 'Network error' });
+              } finally {
+                setPayLoading(false);
+              }
+            }}
+            disabled={payLoading}
+            className="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50 transition-colors"
+          >
+            {payLoading ? 'Sending...' : '⚡ Send Payment'}
+          </button>
+        </div>
+      )}
+
+      {/* Payments Tab */}
+      {activeTab === 'payments' && (
+        <LightningPayments nodeId={lnNode.id} />
+      )}
+    </div>
   );
 }
 
