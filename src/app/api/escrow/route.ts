@@ -87,6 +87,7 @@ export async function GET(request: NextRequest) {
     const authHeader = request.headers.get('authorization');
     const apiKeyHeader = request.headers.get('x-api-key');
     let merchantId: string | undefined;
+    let businessIds: string[] | undefined;
 
     if (authHeader || apiKeyHeader) {
       try {
@@ -113,7 +114,7 @@ export async function GET(request: NextRequest) {
         .eq('merchant_id', merchantId);
       
       if (businesses && businesses.length > 0) {
-        filters.business_ids = businesses.map((b: { id: string }) => b.id);
+        businessIds = businesses.map((b: { id: string }) => b.id);
       } else {
         // Merchant has no businesses — return empty
         return NextResponse.json({ escrows: [], total: 0, limit: filters.limit, offset: filters.offset });
@@ -122,7 +123,7 @@ export async function GET(request: NextRequest) {
 
     // Must have at least one scoping filter (don't allow listing all escrows)
     const hasFilter = filters.status || filters.depositor_address ||
-      filters.beneficiary_address || filters.business_id || filters.business_ids;
+      filters.beneficiary_address || filters.business_id || businessIds;
     if (!hasFilter) {
       return NextResponse.json(
         { error: 'At least one filter required (status, depositor, beneficiary, or business_id)' },
@@ -130,7 +131,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const result = await listEscrows(supabase, filters as any);
+    const result = await listEscrows(supabase, { ...filters, business_ids: businessIds } as any);
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 500 });
