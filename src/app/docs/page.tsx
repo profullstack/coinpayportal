@@ -140,6 +140,7 @@ export default function DocsPage() {
               { name: 'SDK Documentation', href: '/docs/sdk', external: true },
               { name: 'Web Wallet API', href: '#web-wallet' },
               { name: 'Escrow API', href: '#escrow' },
+              { name: 'Recurring Escrow', href: '#recurring-escrow' },
               { name: 'Reputation & DID', href: '#reputation' },
               { name: 'Exchange Rates', href: '#rates' },
               { name: 'Authentication', href: '#authentication' },
@@ -489,6 +490,155 @@ coinpay escrow dispute <escrow_id> --token esc_def456... \\
 # View audit log
 coinpay escrow events <escrow_id>`}
             </CodeBlock>
+          </DocSection>
+        </div>
+
+        {/* Recurring Escrow */}
+        <div id="recurring-escrow">
+          <DocSection title="Recurring Escrow Series">
+            <p className="text-gray-300 mb-6">
+              Recurring escrow series automate periodic escrow payments for ongoing work — freelance retainers, 
+              milestone-based projects, or any situation where you need regular, trustless payments. 
+              Supports both <strong className="text-purple-400">crypto</strong> and <strong className="text-purple-400">credit card</strong> payments.
+            </p>
+
+            <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+              <h4 className="font-semibold text-amber-300 mb-2">How Recurring Escrow Works</h4>
+              <ol className="text-amber-200 text-sm space-y-1 list-decimal list-inside">
+                <li><strong>Create Series</strong> — Define the amount, interval (weekly/biweekly/monthly), payment method, and beneficiary.</li>
+                <li><strong>Auto-Charge</strong> — The payment monitor daemon automatically creates and funds a new escrow each period. No cron needed.</li>
+                <li><strong>Individual Release</strong> — The merchant reviews and releases each escrow individually when work is delivered.</li>
+                <li><strong>Manage Anytime</strong> — Pause, resume, or cancel the series at any time.</li>
+              </ol>
+            </div>
+
+            <div className="mb-8 grid md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-lg bg-slate-800/50 border border-white/10">
+                <h4 className="font-semibold text-white mb-2">Supported Intervals</h4>
+                <div className="text-gray-300 text-sm space-y-1">
+                  <p><code className="text-purple-400">weekly</code> — Every 7 days</p>
+                  <p><code className="text-purple-400">biweekly</code> — Every 14 days</p>
+                  <p><code className="text-purple-400">monthly</code> — Every calendar month</p>
+                </div>
+              </div>
+              <div className="p-4 rounded-lg bg-slate-800/50 border border-white/10">
+                <h4 className="font-semibold text-white mb-2">Payment Methods</h4>
+                <div className="text-gray-300 text-sm space-y-1">
+                  <p><code className="text-purple-400">crypto</code> — On-chain escrow (BTC, ETH, SOL, POL, USDC, etc.)</p>
+                  <p><code className="text-purple-400">card</code> — Stripe Connect card payments held in escrow</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-8 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+              <h4 className="font-semibold text-green-300 mb-2">Integrated Daemon — No Cron Needed</h4>
+              <p className="text-green-200 text-sm">
+                Recurring escrow is powered by the built-in payment monitor daemon. When a series is active, 
+                the monitor automatically creates and charges new escrows at each interval. 
+                Each child escrow follows the standard escrow lifecycle (created → funded → released → settled).
+              </p>
+            </div>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Series Statuses</h3>
+            <div className="grid md:grid-cols-3 gap-4 mb-8">
+              {[
+                { status: 'active', desc: 'Series is running, auto-charges each period', color: 'green' },
+                { status: 'paused', desc: 'Temporarily stopped, can resume', color: 'yellow' },
+                { status: 'completed', desc: 'All periods fulfilled (max_periods reached)', color: 'blue' },
+                { status: 'cancelled', desc: 'Permanently stopped by user', color: 'red' },
+              ].map((item) => (
+                <div key={item.status} className="p-3 rounded-lg bg-slate-800/50">
+                  <code className={`text-${item.color}-400 font-mono`}>{item.status}</code>
+                  <p className="text-gray-300 text-sm mt-1">{item.desc}</p>
+                </div>
+              ))}
+            </div>
+
+            <ApiEndpoint method="POST" path="/api/escrow/series" description="Create a new recurring escrow series. Requires authentication.">
+              <CodeBlock title="Request Body">
+{`{
+  "business_id": "uuid",
+  "payment_method": "crypto",          // "crypto" or "card"
+  "customer_email": "client@example.com",
+  "description": "Weekly retainer — frontend development",
+  "amount": 500,
+  "currency": "USD",
+  "coin": "USDC_SOL",                  // Required for crypto method
+  "interval": "weekly",                // "weekly", "biweekly", "monthly"
+  "max_periods": 12,                   // Optional: auto-complete after N periods
+  "beneficiary_address": "0xBob...",   // Required for crypto method
+  "stripe_account_id": "acct_..."      // Required for card method
+}`}
+              </CodeBlock>
+
+              <CodeBlock title="Response (201 Created)">
+{`{
+  "id": "series_abc123",
+  "business_id": "uuid",
+  "payment_method": "crypto",
+  "status": "active",
+  "interval": "weekly",
+  "amount": 500,
+  "currency": "USD",
+  "coin": "USDC_SOL",
+  "periods_completed": 0,
+  "max_periods": 12,
+  "next_charge_at": "2024-01-08T00:00:00Z",
+  "created_at": "2024-01-01T00:00:00Z"
+}`}
+              </CodeBlock>
+            </ApiEndpoint>
+
+            <ApiEndpoint method="GET" path="/api/escrow/series?business_id=uuid&status=active" description="List escrow series for a business. Optionally filter by status.">
+              <CodeBlock title="Response">
+{`{
+  "series": [
+    {
+      "id": "series_abc123",
+      "status": "active",
+      "interval": "weekly",
+      "amount": 500,
+      "currency": "USD",
+      "periods_completed": 3,
+      "max_periods": 12,
+      "next_charge_at": "2024-01-22T00:00:00Z"
+    }
+  ],
+  "total": 1
+}`}
+              </CodeBlock>
+            </ApiEndpoint>
+
+            <ApiEndpoint method="GET" path="/api/escrow/series/:id" description="Get series details including all child escrows.">
+              <CodeBlock title="Response">
+{`{
+  "series": { "id": "series_abc123", "status": "active", ... },
+  "escrows": [
+    { "id": "esc_1", "status": "settled", "amount": 500, "period": 1 },
+    { "id": "esc_2", "status": "released", "amount": 500, "period": 2 },
+    { "id": "esc_3", "status": "funded", "amount": 500, "period": 3 }
+  ]
+}`}
+              </CodeBlock>
+            </ApiEndpoint>
+
+            <ApiEndpoint method="PATCH" path="/api/escrow/series/:id" description="Update a series — pause, resume, or change amount.">
+              <CodeBlock title="Request Body">
+{`{
+  "status": "paused",    // "paused" or "active" (to resume)
+  "amount": 600          // Optional: change amount for future periods
+}`}
+              </CodeBlock>
+            </ApiEndpoint>
+
+            <ApiEndpoint method="DELETE" path="/api/escrow/series/:id" description="Cancel a series permanently. In-flight escrows are not affected.">
+              <CodeBlock title="Response">
+{`{
+  "success": true,
+  "series": { "id": "series_abc123", "status": "cancelled" }
+}`}
+              </CodeBlock>
+            </ApiEndpoint>
           </DocSection>
         </div>
 

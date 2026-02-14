@@ -697,6 +697,174 @@ async function processEscrowSettlement(escrows: Escrow[], action: 'release' | 'r
 }
 
 // ────────────────────────────────────────────────────────────
+// Recurring Escrow Series
+// ────────────────────────────────────────────────────────────
+
+interface RecurringStats {
+  processed: number;
+  created: number;
+  completed: number;
+  errors: number;
+}
+
+function calculateNextChargeAt(current: Date, interval: string): Date {
+  const next = new Date(current);
+  switch (interval) {
+    case 'weekly':
+      next.setDate(next.getDate() + 7);
+      break;
+    case 'biweekly':
+      next.setDate(next.getDate() + 14);
+      break;
+    case 'monthly':
+      next.setMonth(next.getMonth() + 1);
+      break;
+  }
+  return next;
+}
+
+async function runRecurringEscrowCycle(supabase: any, now: Date): Promise<RecurringStats> {
+  const stats: RecurringStats = { processed: 0, created: 0, completed: 0, errors: 0 };
+
+  try {
+    const { data: dueSeries, error: fetchError } = await supabase
+      .from('escrow_series')
+      .select('*')
+      .eq('status', 'active')
+      .lte('next_charge_at', now.toISOString())
+      .limit(50);
+
+    if (fetchError || !dueSeries || dueSeries.length === 0) {
+      return stats;
+    }
+
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
+    const internalApiKey = process.env.INTERNAL_API_KEY;
+
+    if (!internalApiKey) {
+      console.error('[Monitor] INTERNAL_API_KEY not configured - cannot process recurring escrows');
+      stats.errors += dueSeries.length;
+      return stats;
+    }
+
+    console.log(`[Monitor] Processing ${dueSeries.length} due recurring escrow series`);
+
+    for (const series of dueSeries) {
+      stats.processed++;
+      try {
+        let childCreated = false;
+
+        if (series.payment_method === 'crypto') {
+          // Create crypto escrow via internal API
+          const res = await fetch(`${appUrl}/api/escrow`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${internalApiKey}`,
+            },
+            body: JSON.stringify({
+              business_id: series.merchant_id,
+              chain: series.coin,
+              amount: series.amount,
+              currency: series.currency,
+              depositor_address: series.depositor_address,
+              beneficiary_address: series.beneficiary_address,
+              description: series.description,
+              series_id: series.id,
+            }),
+          });
+
+          if (res.ok) {
+            const escrow = await res.json();
+            // Link series_id
+            await supabase
+              .from('escrows')
+              .update({ series_id: series.id })
+              .eq('id', escrow.id);
+            childCreated = true;
+            console.log(`[Monitor] Created crypto escrow ${escrow.id} for series ${series.id}`);
+          } else {
+            const errText = await res.text();
+            console.error(`[Monitor] Failed to create crypto escrow for series ${series.id}: ${errText}`);
+            stats.errors++;
+            continue;
+          }
+        } else if (series.payment_method === 'card') {
+          // Create Stripe escrow via internal API
+          const res = await fetch(`${appUrl}/api/stripe/payments/create`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${internalApiKey}`,
+            },
+            body: JSON.stringify({
+              businessId: series.merchant_id,
+              amount: Number(series.amount),
+              currency: series.currency?.toLowerCase() || 'usd',
+              description: series.description,
+              mode: 'escrow',
+              series_id: series.id,
+            }),
+          });
+
+          if (res.ok) {
+            const result = await res.json();
+            // Link series_id if we got an escrow id back
+            if (result.escrow_id) {
+              await supabase
+                .from('stripe_escrows')
+                .update({ series_id: series.id })
+                .eq('id', result.escrow_id);
+            }
+            childCreated = true;
+            console.log(`[Monitor] Created card escrow for series ${series.id}`);
+          } else {
+            const errText = await res.text();
+            console.error(`[Monitor] Failed to create card escrow for series ${series.id}: ${errText}`);
+            stats.errors++;
+            continue;
+          }
+        }
+
+        if (childCreated) {
+          stats.created++;
+          const newPeriodsCompleted = series.periods_completed + 1;
+          const nextChargeAt = calculateNextChargeAt(now, series.interval);
+          const isCompleted = series.max_periods && newPeriodsCompleted >= series.max_periods;
+
+          await supabase
+            .from('escrow_series')
+            .update({
+              periods_completed: newPeriodsCompleted,
+              next_charge_at: nextChargeAt.toISOString(),
+              status: isCompleted ? 'completed' : 'active',
+              updated_at: now.toISOString(),
+            })
+            .eq('id', series.id);
+
+          if (isCompleted) {
+            stats.completed++;
+            console.log(`[Monitor] Series ${series.id} completed (${newPeriodsCompleted}/${series.max_periods})`);
+          }
+        }
+      } catch (seriesError) {
+        console.error(`[Monitor] Error processing series ${series.id}:`, seriesError);
+        stats.errors++;
+      }
+    }
+
+    if (stats.processed > 0) {
+      console.log(`[Monitor] Recurring cycle: processed=${stats.processed}, created=${stats.created}, completed=${stats.completed}, errors=${stats.errors}`);
+    }
+  } catch (error) {
+    console.error('[Monitor] Recurring escrow monitor error:', error);
+    stats.errors++;
+  }
+
+  return stats;
+}
+
+// ────────────────────────────────────────────────────────────
 // Main Monitor Cycle
 // ────────────────────────────────────────────────────────────
 
@@ -763,6 +931,12 @@ async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; 
     stats.expired += escrowStats.expired;
     stats.errors += escrowStats.errors;
     
+    // ── 4. Recurring escrow series ──
+    const recurringStats = await runRecurringEscrowCycle(supabase, now);
+    stats.checked += recurringStats.processed;
+    stats.confirmed += recurringStats.created;
+    stats.errors += recurringStats.errors;
+
     if (stats.checked > 0) {
       console.log(`[Monitor] Cycle complete: checked=${stats.checked}, confirmed=${stats.confirmed}, expired=${stats.expired}, errors=${stats.errors}`);
     }

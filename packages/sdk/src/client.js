@@ -722,6 +722,64 @@ export class CoinPayClient {
       }),
     });
   }
+  // ── Escrow Series (Recurring) Methods ────────────────────
+
+  /**
+   * Create a recurring escrow series
+   * @param {Object} params
+   * @returns {Promise<Object>} Created series
+   */
+  async createEscrowSeries(params) {
+    return this.request('/escrow/series', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  /**
+   * List escrow series for a business
+   * @param {string} businessId
+   * @param {string} [status]
+   * @returns {Promise<Object>}
+   */
+  async listEscrowSeries(businessId, status) {
+    const params = new URLSearchParams({ business_id: businessId });
+    if (status) params.set('status', status);
+    return this.request(`/escrow/series?${params.toString()}`);
+  }
+
+  /**
+   * Get escrow series detail with child escrows
+   * @param {string} id
+   * @returns {Promise<Object>}
+   */
+  async getEscrowSeries(id) {
+    return this.request(`/escrow/series/${id}`);
+  }
+
+  /**
+   * Update escrow series (pause/resume/cancel, update amount/interval)
+   * @param {string} id
+   * @param {Object} params - { status?, amount?, interval? }
+   * @returns {Promise<Object>}
+   */
+  async updateEscrowSeries(id, params) {
+    return this.request(`/escrow/series/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(params),
+    });
+  }
+
+  /**
+   * Cancel an escrow series
+   * @param {string} id
+   * @returns {Promise<Object>}
+   */
+  async cancelEscrowSeries(id) {
+    return this.request(`/escrow/series/${id}`, {
+      method: 'DELETE',
+    });
+  }
 }
 
 export default CoinPayClient;

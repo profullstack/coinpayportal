@@ -1,0 +1,142 @@
+/**
+ * POST /api/escrow/series — Create recurring escrow series
+ * GET  /api/escrow/series — List series for a business
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { authenticateRequest, isMerchantAuth } from '@/lib/auth/middleware';
+
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error('Supabase not configured');
+  return createClient(url, key);
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+
+    const {
+      business_id,
+      payment_method,
+      customer_email,
+      description,
+      amount,
+      currency = 'USD',
+      coin,
+      interval,
+      max_periods,
+      beneficiary_address,
+      depositor_address,
+      stripe_account_id,
+    } = body;
+
+    // Validate required fields before touching DB
+    if (!business_id || !payment_method || !amount || !interval) {
+      return NextResponse.json(
+        { error: 'Required: business_id, payment_method, amount, interval' },
+        { status: 400 }
+      );
+    }
+
+    if (!['crypto', 'card'].includes(payment_method)) {
+      return NextResponse.json({ error: 'payment_method must be crypto or card' }, { status: 400 });
+    }
+
+    if (!['weekly', 'biweekly', 'monthly'].includes(interval)) {
+      return NextResponse.json({ error: 'interval must be weekly, biweekly, or monthly' }, { status: 400 });
+    }
+
+    if (payment_method === 'crypto' && !coin) {
+      return NextResponse.json({ error: 'coin is required for crypto payment method' }, { status: 400 });
+    }
+
+    if (payment_method === 'card' && !stripe_account_id) {
+      return NextResponse.json({ error: 'stripe_account_id is required for card payment method' }, { status: 400 });
+    }
+
+    const supabase = getSupabase();
+
+    // Auth required
+    const authHeader = request.headers.get('authorization');
+    const apiKeyHeader = request.headers.get('x-api-key');
+    const authResult = await authenticateRequest(supabase, authHeader || apiKeyHeader);
+    if (!authResult.success || !authResult.context || !isMerchantAuth(authResult.context)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { data, error } = await supabase
+      .from('escrow_series')
+      .insert({
+        merchant_id: business_id,
+        payment_method,
+        customer_email,
+        description,
+        amount,
+        currency,
+        coin,
+        interval,
+        next_charge_at: new Date().toISOString(),
+        max_periods: max_periods || null,
+        beneficiary_address,
+        depositor_address,
+        stripe_account_id,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Failed to create escrow series:', error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json(data, { status: 201 });
+  } catch (error) {
+    console.error('Failed to create escrow series:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+
+    const businessId = searchParams.get('business_id');
+    if (!businessId) {
+      return NextResponse.json({ error: 'business_id required' }, { status: 400 });
+    }
+
+    const supabase = getSupabase();
+
+    const authHeader = request.headers.get('authorization');
+    const apiKeyHeader = request.headers.get('x-api-key');
+    const authResult = await authenticateRequest(supabase, authHeader || apiKeyHeader);
+    if (!authResult.success || !authResult.context || !isMerchantAuth(authResult.context)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    let query = supabase
+      .from('escrow_series')
+      .select('*')
+      .eq('merchant_id', businessId)
+      .order('created_at', { ascending: false });
+
+    const status = searchParams.get('status');
+    if (status) {
+      query = query.eq('status', status);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ series: data });
+  } catch (error) {
+    console.error('Failed to list escrow series:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}

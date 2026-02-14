@@ -1598,9 +1598,119 @@ async function handleEscrow(subcommand, args, flags) {
       break;
     }
 
+    case 'series': {
+      const seriesCmd = args[0];
+      const seriesId = args[1];
+
+      switch (seriesCmd) {
+        case 'create': {
+          const rl = createInterface({ input: process.stdin, output: process.stdout });
+          const ask = (q) => new Promise((r) => rl.question(q, r));
+
+          try {
+            const businessId = flags['business-id'] || await ask('Business ID: ');
+            const paymentMethod = flags['payment-method'] || await ask('Payment method (crypto/card): ');
+            const amount = flags.amount || await ask('Amount (cents for card, satoshis-equiv for crypto): ');
+            const currency = flags.currency || await ask('Currency [USD]: ') || 'USD';
+            const interval = flags.interval || await ask('Interval (weekly/biweekly/monthly): ');
+            const maxPeriods = flags['max-periods'] || await ask('Max periods (blank=infinite): ') || undefined;
+            const customerEmail = flags.email || await ask('Customer email (optional): ') || undefined;
+            const description = flags.description || await ask('Description (optional): ') || undefined;
+
+            const params = {
+              business_id: businessId,
+              payment_method: paymentMethod,
+              amount: parseInt(amount),
+              currency,
+              interval,
+              max_periods: maxPeriods ? parseInt(maxPeriods) : undefined,
+              customer_email: customerEmail,
+              description,
+            };
+
+            if (paymentMethod === 'crypto') {
+              params.coin = flags.coin || await ask('Coin (BTC/ETH/SOL/etc): ');
+              params.beneficiary_address = flags.beneficiary || await ask('Beneficiary address: ');
+              params.depositor_address = flags.depositor || await ask('Depositor address: ');
+            } else {
+              params.stripe_account_id = flags['stripe-account'] || await ask('Stripe account ID: ');
+            }
+
+            rl.close();
+
+            const series = await client.createEscrowSeries(params);
+            print.success(`Escrow series created: ${series.id}`);
+            print.info(`  Status: ${series.status}`);
+            print.info(`  Interval: ${series.interval}`);
+            print.info(`  Amount: ${series.amount} ${series.currency}`);
+            if (flags.json) print.json(series);
+          } catch (e) {
+            rl.close();
+            throw e;
+          }
+          break;
+        }
+
+        case 'list': {
+          const businessId = flags['business-id'];
+          if (!businessId) { print.error('--business-id required'); process.exit(1); }
+          const result = await client.listEscrowSeries(businessId, flags.status);
+          print.info(`Series (${result.series.length}):`);
+          for (const s of result.series) {
+            console.log(`  ${s.id} | ${s.status} | ${s.payment_method} | ${s.interval} | ${s.amount} ${s.currency}`);
+          }
+          if (flags.json) print.json(result);
+          break;
+        }
+
+        case 'get': {
+          if (!seriesId) { print.error('Series ID required'); process.exit(1); }
+          const result = await client.getEscrowSeries(seriesId);
+          print.success(`Series ${result.series.id}`);
+          print.info(`  Status: ${result.series.status}`);
+          print.info(`  Method: ${result.series.payment_method}`);
+          print.info(`  Amount: ${result.series.amount} ${result.series.currency}`);
+          print.info(`  Interval: ${result.series.interval}`);
+          print.info(`  Periods: ${result.series.periods_completed}${result.series.max_periods ? '/' + result.series.max_periods : ''}`);
+          print.info(`  Next charge: ${result.series.next_charge_at}`);
+          print.info(`  Crypto escrows: ${result.escrows.crypto.length}`);
+          print.info(`  Stripe escrows: ${result.escrows.stripe.length}`);
+          if (flags.json) print.json(result);
+          break;
+        }
+
+        case 'pause': {
+          if (!seriesId) { print.error('Series ID required'); process.exit(1); }
+          await client.updateEscrowSeries(seriesId, { status: 'paused' });
+          print.success(`Series ${seriesId} paused`);
+          break;
+        }
+
+        case 'resume': {
+          if (!seriesId) { print.error('Series ID required'); process.exit(1); }
+          await client.updateEscrowSeries(seriesId, { status: 'active' });
+          print.success(`Series ${seriesId} resumed`);
+          break;
+        }
+
+        case 'cancel': {
+          if (!seriesId) { print.error('Series ID required'); process.exit(1); }
+          await client.cancelEscrowSeries(seriesId);
+          print.success(`Series ${seriesId} cancelled`);
+          break;
+        }
+
+        default:
+          print.error(`Unknown series command: ${seriesCmd}`);
+          print.info('Available: create, list, get, pause, resume, cancel');
+          process.exit(1);
+      }
+      break;
+    }
+
     default:
       print.error(`Unknown escrow command: ${subcommand}`);
-      print.info('Available: create, get, list, release, refund, dispute, events, auth');
+      print.info('Available: create, get, list, release, refund, dispute, events, auth, series');
       process.exit(1);
   }
 }

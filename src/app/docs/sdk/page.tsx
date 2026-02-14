@@ -60,6 +60,7 @@ export default function SDKDocsPage() {
               { name: 'Credit Card Payments', href: '#card-payments' },
               { name: 'Businesses API', href: '#businesses' },
               { name: 'Escrow API', href: '#escrow' },
+              { name: 'Recurring Escrow', href: '#recurring-escrow' },
               { name: 'Exchange Rates', href: '#rates' },
               { name: 'Webhook Verification', href: '#webhooks' },
               { name: 'CLI Commands', href: '#cli' },
@@ -804,6 +805,101 @@ if (auth.role === 'beneficiary') {
                 <strong>Web Management:</strong> Both parties can also manage escrows through the web interface at <code className="text-purple-200">/escrow/manage?id=xxx&token=yyy</code>. Share the escrow ID and appropriate token for easy access.
               </p>
             </div>
+          </DocSection>
+        </div>
+
+        {/* Recurring Escrow */}
+        <div id="recurring-escrow">
+          <DocSection title="Recurring Escrow Series">
+            <p className="text-gray-300 mb-6">
+              Create and manage automated periodic escrow payments. Supports both crypto and card payment methods.
+            </p>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Create Escrow Series</h3>
+            <CodeBlock title="Create a recurring escrow series" language="javascript">
+{`const series = await client.createEscrowSeries({
+  business_id: 'biz_123',
+  payment_method: 'crypto',             // 'crypto' or 'card'
+  customer_email: 'client@example.com',
+  description: 'Weekly retainer — frontend dev',
+  amount: 500,
+  currency: 'USD',
+  coin: 'USDC_SOL',                     // Required for crypto
+  interval: 'weekly',                   // 'weekly' | 'biweekly' | 'monthly'
+  max_periods: 12,                      // Optional: stop after N periods
+  beneficiary_address: 'Bob...',        // Required for crypto
+  // stripe_account_id: 'acct_...',     // Required for card method
+});
+
+console.log('Series ID:', series.id);
+console.log('Next charge:', series.next_charge_at);`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">List Escrow Series</h3>
+            <CodeBlock title="List series for a business" language="javascript">
+{`// List all active series
+const { series, total } = await client.listEscrowSeries('biz_123', 'active');
+
+// List all series (no status filter)
+const all = await client.listEscrowSeries('biz_123');`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Get Series Details</h3>
+            <CodeBlock title="Get series with child escrows" language="javascript">
+{`const { series, escrows } = await client.getEscrowSeries('series_abc123');
+
+console.log('Status:', series.status);
+console.log('Periods completed:', series.periods_completed);
+escrows.forEach(e => {
+  console.log(\`  Period \${e.period}: \${e.status} — \${e.amount} \${series.currency}\`);
+});`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Update Series</h3>
+            <CodeBlock title="Pause, resume, or change amount" language="javascript">
+{`// Pause a series
+await client.updateEscrowSeries('series_abc123', { status: 'paused' });
+
+// Resume a series
+await client.updateEscrowSeries('series_abc123', { status: 'active' });
+
+// Change amount for future periods
+await client.updateEscrowSeries('series_abc123', { amount: 750 });`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Cancel Series</h3>
+            <CodeBlock title="Permanently cancel a series" language="javascript">
+{`await client.cancelEscrowSeries('series_abc123');
+// In-flight escrows are not affected — release or refund them individually`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">CLI Commands</h3>
+            <CodeBlock title="Recurring escrow CLI" language="bash">
+{`# Create a recurring escrow series
+coinpay escrow series create \\
+  --business-id biz_123 \\
+  --payment-method crypto \\
+  --email client@example.com \\
+  --amount 500 --currency USD --coin USDC_SOL \\
+  --interval weekly --max-periods 12 \\
+  --beneficiary Bob...
+
+# List series for a business
+coinpay escrow series list --business-id biz_123
+coinpay escrow series list --business-id biz_123 --status active
+
+# Get series details (includes child escrows)
+coinpay escrow series get series_abc123
+
+# Pause a series
+coinpay escrow series pause series_abc123
+
+# Resume a series
+coinpay escrow series resume series_abc123
+
+# Cancel a series permanently
+coinpay escrow series cancel series_abc123`}
+            </CodeBlock>
           </DocSection>
         </div>
 
