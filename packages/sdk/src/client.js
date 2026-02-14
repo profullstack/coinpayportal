@@ -3,6 +3,8 @@
  * Main client class for interacting with the CoinPay API
  */
 
+import { LightningClient } from './lightning.js';
+
 const DEFAULT_BASE_URL = 'https://coinpayportal.com/api';
 
 /**
@@ -24,6 +26,9 @@ export class CoinPayClient {
     this.#apiKey = apiKey;
     this.#baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
     this.#timeout = timeout;
+
+    /** @type {LightningClient} Lightning/BOLT12 operations */
+    this.lightning = new LightningClient(this);
   }
 
   /**

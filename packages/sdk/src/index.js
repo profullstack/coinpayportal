@@ -147,6 +147,9 @@ import {
   SubscriptionStatus,
 } from './subscriptions.js';
 
+// Lightning
+import { LightningClient } from './lightning.js';
+
 export {
   // Client
   CoinPayClient,
@@ -234,6 +237,9 @@ export {
   claimDid,
   linkDid,
   getMyDid,
+  
+  // Lightning
+  LightningClient,
   
   // Auth
   registerMerchant,
