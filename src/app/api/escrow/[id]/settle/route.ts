@@ -201,6 +201,28 @@ export async function POST(
       },
     });
 
+    // Record in wallet_transactions so it appears in wallet history
+    if (txHash) {
+      const { data: walletAddr } = await supabase
+        .from('wallet_addresses')
+        .select('wallet_id')
+        .eq('address', addressData.address)
+        .single();
+
+      if (walletAddr?.wallet_id) {
+        await supabase.from('wallet_transactions').insert({
+          wallet_id: walletAddr.wallet_id,
+          chain: escrow.chain,
+          tx_hash: txHash,
+          direction: 'outgoing',
+          amount: String(amountToSend),
+          from_address: addressData.address,
+          to_address: destinationAddress,
+          status: 'confirmed',
+        });
+      }
+    }
+
     // Mark the escrow address as used
     await supabase
       .from('payment_addresses')

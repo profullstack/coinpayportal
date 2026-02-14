@@ -43,6 +43,7 @@ interface Payment {
 
 // Track if monitor is running
 let isMonitorRunning = false;
+let isCycleInProgress = false;
 let monitorInterval: NodeJS.Timeout | null = null;
 
 interface BalanceResult {
@@ -906,6 +907,12 @@ async function runRecurringEscrowCycle(supabase: any, now: Date): Promise<Recurr
  */
 async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; expired: number; errors: number }> {
   const stats = { checked: 0, confirmed: 0, expired: 0, errors: 0 };
+
+  if (isCycleInProgress) {
+    console.log('[Monitor] Previous cycle still running, skipping');
+    return stats;
+  }
+  isCycleInProgress = true;
   
   try {
     if (!supabaseUrl || !supabaseServiceKey) {
@@ -975,6 +982,8 @@ async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; 
     }
   } catch (error) {
     console.error('[Monitor] Error in monitor cycle:', error);
+  } finally {
+    isCycleInProgress = false;
   }
   
   return stats;
