@@ -75,22 +75,35 @@ export class GreenlightService {
     const path = await import('path');
     const fs = await import('fs');
 
-    const scriptPath = path.join(process.cwd(), 'scripts', 'gl-bridge.py');
-    if (!fs.existsSync(scriptPath)) {
-      throw new Error('gl-bridge.py not found');
+    // Find the script — check multiple possible locations
+    const cwd = process.cwd();
+    const scriptCandidates = [
+      path.join(cwd, 'scripts', 'gl-bridge.py'),
+      path.join('/app', 'scripts', 'gl-bridge.py'),
+      path.resolve(__dirname, '..', '..', '..', 'scripts', 'gl-bridge.py'),
+    ];
+    const scriptPath = scriptCandidates.find(p => fs.existsSync(p));
+    if (!scriptPath) {
+      throw new Error(`gl-bridge.py not found (tried: ${scriptCandidates.join(', ')}; cwd=${cwd})`);
     }
 
+    // Find Python — check venv locations relative to both cwd and /app
     const pythonPaths = [
+      path.join(cwd, '.venv', 'bin', 'python3'),
       '/app/.venv/bin/python3',
+      path.join(cwd, 'gl-venv', 'bin', 'python3'),
+      '/app/gl-venv/bin/python3',
       '/tmp/glvenv/bin/python3',
       'python3',
     ];
 
+    const errors: string[] = [];
     for (const pythonPath of pythonPaths) {
       try {
         const result = execFileSync(pythonPath, [scriptPath, command, ...args], {
           timeout: 60_000,
           encoding: 'utf-8',
+          env: { ...process.env, PYTHONUNBUFFERED: '1' },
         });
         const parsed = JSON.parse(result.trim());
         if (parsed.error) {
@@ -98,13 +111,15 @@ export class GreenlightService {
         }
         return parsed;
       } catch (err: any) {
-        if (err.message && !err.message.includes('ENOENT') && !err.message.includes('spawn')) {
-          throw err; // Real error, not a missing python path
+        const msg = err?.message || String(err);
+        if (!msg.includes('ENOENT') && !msg.includes('spawn')) {
+          throw err; // Real error from the script, not a missing python
         }
+        errors.push(`${pythonPath}: ${msg.substring(0, 100)}`);
         continue;
       }
     }
-    throw new Error('Failed to call gl-bridge.py — no working Python path found');
+    throw new Error(`Failed to call gl-bridge.py — no working Python path found. Tried: ${errors.join('; ')}`);
   }
 
   /**
