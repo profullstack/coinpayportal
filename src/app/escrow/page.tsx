@@ -120,8 +120,6 @@ export default function EscrowDashboardPage() {
       setLoading(true);
       const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
-      // Need at least one filter — use status or a broad one
-      if (!statusFilter) params.set('status', '');
 
       const result = await authFetch(`/api/escrow?${params.toString()}`, {}, router);
       if (!result) return;

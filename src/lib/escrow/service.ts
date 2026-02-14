@@ -361,6 +361,7 @@ export async function listEscrows(
   supabase: SupabaseClient,
   filters: {
     business_id?: string;
+    business_ids?: string[];
     status?: EscrowStatus;
     depositor_address?: string;
     beneficiary_address?: string;
@@ -371,6 +372,7 @@ export async function listEscrows(
   let query = supabase.from('escrows').select('*', { count: 'exact' });
 
   if (filters.business_id) query = query.eq('business_id', filters.business_id);
+  if (filters.business_ids) query = query.in('business_id', filters.business_ids);
   if (filters.status) query = query.eq('status', filters.status);
   if (filters.depositor_address) query = query.eq('depositor_address', filters.depositor_address);
   if (filters.beneficiary_address) query = query.eq('beneficiary_address', filters.beneficiary_address);

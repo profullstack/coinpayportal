@@ -86,21 +86,43 @@ export async function GET(request: NextRequest) {
     // If authenticated, scope to merchant's businesses
     const authHeader = request.headers.get('authorization');
     const apiKeyHeader = request.headers.get('x-api-key');
+    let merchantId: string | undefined;
 
     if (authHeader || apiKeyHeader) {
       try {
         const authResult = await authenticateRequest(supabase, authHeader || apiKeyHeader);
-        if (authResult.success && authResult.context && isMerchantAuth(authResult.context)) {
-          filters.business_id = searchParams.get('business_id') || undefined;
+        if (authResult.success && authResult.context) {
+          if (isMerchantAuth(authResult.context)) {
+            merchantId = authResult.context.merchantId;
+            filters.business_id = searchParams.get('business_id') || undefined;
+          } else {
+            // Business API key — scope to that business
+            filters.business_id = (authResult.context as any).businessId;
+          }
         }
       } catch {
         // Continue — address-based filtering still works
       }
     }
 
-    // Must have at least one filter (don't allow listing all escrows)
+    // Scope to merchant's businesses if authenticated as merchant
+    if (merchantId && !filters.business_id) {
+      const { data: businesses } = await supabase
+        .from('businesses')
+        .select('id')
+        .eq('merchant_id', merchantId);
+      
+      if (businesses && businesses.length > 0) {
+        filters.business_ids = businesses.map((b: { id: string }) => b.id);
+      } else {
+        // Merchant has no businesses — return empty
+        return NextResponse.json({ escrows: [], total: 0, limit: filters.limit, offset: filters.offset });
+      }
+    }
+
+    // Must have at least one scoping filter (don't allow listing all escrows)
     const hasFilter = filters.status || filters.depositor_address ||
-      filters.beneficiary_address || filters.business_id;
+      filters.beneficiary_address || filters.business_id || filters.business_ids;
     if (!hasFilter) {
       return NextResponse.json(
         { error: 'At least one filter required (status, depositor, beneficiary, or business_id)' },
