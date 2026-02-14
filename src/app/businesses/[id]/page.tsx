@@ -3,17 +3,43 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { authFetch } from '@/lib/auth/client';
-import { Business, Wallet, TabType } from '@/components/business/types';
+import { Business, Wallet, TabType, PaymentMode } from '@/components/business/types';
 import { GeneralTab } from '@/components/business/GeneralTab';
 import { WalletsTab } from '@/components/business/WalletsTab';
 import { WebhooksTab } from '@/components/business/WebhooksTab';
 import { ApiKeysTab } from '@/components/business/ApiKeysTab';
+import { StripeConnectTab } from '@/components/business/StripeConnectTab';
+import { StripeTransactionsTab } from '@/components/business/StripeTransactionsTab';
+import { StripeDisputesTab } from '@/components/business/StripeDisputesTab';
+import { StripePayoutsTab } from '@/components/business/StripePayoutsTab';
+import { StripeEscrowsTab } from '@/components/business/StripeEscrowsTab';
+import { StripeWebhooksTab } from '@/components/business/StripeWebhooksTab';
+import { StripeApiKeysTab } from '@/components/business/StripeApiKeysTab';
+
+const CRYPTO_TABS: { id: TabType; label: string | ((w: Wallet[]) => string) }[] = [
+  { id: 'general', label: 'General' },
+  { id: 'wallets', label: (w) => `Wallets (${w.length})` },
+  { id: 'webhooks', label: 'Webhooks' },
+  { id: 'api-keys', label: 'API Keys' },
+];
+
+const CARD_TABS: { id: TabType; label: string }[] = [
+  { id: 'general', label: 'General' },
+  { id: 'stripe-connect', label: 'Stripe Connect' },
+  { id: 'stripe-transactions', label: 'Transactions' },
+  { id: 'stripe-disputes', label: 'Disputes' },
+  { id: 'stripe-payouts', label: 'Payouts' },
+  { id: 'stripe-escrows', label: 'Escrows' },
+  { id: 'stripe-webhooks', label: 'Webhooks' },
+  { id: 'stripe-api-keys', label: 'API Keys' },
+];
 
 export default function BusinessDetailPage() {
   const router = useRouter();
   const params = useParams();
   const businessId = params?.id as string;
 
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>('crypto');
   const [activeTab, setActiveTab] = useState<TabType>('general');
   const [business, setBusiness] = useState<Business | null>(null);
   const [wallets, setWallets] = useState<Wallet[]>([]);
@@ -27,6 +53,12 @@ export default function BusinessDetailPage() {
       fetchWallets();
     }
   }, [businessId]);
+
+  // Reset to general tab when switching modes
+  const handleModeChange = (mode: PaymentMode) => {
+    setPaymentMode(mode);
+    setActiveTab('general');
+  };
 
   const fetchBusiness = async () => {
     try {
@@ -108,6 +140,8 @@ export default function BusinessDetailPage() {
     );
   }
 
+  const currentTabs = paymentMode === 'crypto' ? CRYPTO_TABS : CARD_TABS;
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
@@ -146,27 +180,55 @@ export default function BusinessDetailPage() {
           </div>
         )}
 
+        {/* Payment Mode Switcher */}
+        <div className="mb-6 flex justify-center">
+          <div className="inline-flex rounded-lg bg-gray-200 p-1" role="tablist" aria-label="Payment mode">
+            <button
+              role="tab"
+              aria-selected={paymentMode === 'crypto'}
+              onClick={() => handleModeChange('crypto')}
+              className={`px-6 py-2.5 text-sm font-semibold rounded-md transition-all ${
+                paymentMode === 'crypto'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              🪙 Crypto
+            </button>
+            <button
+              role="tab"
+              aria-selected={paymentMode === 'card'}
+              onClick={() => handleModeChange('card')}
+              className={`px-6 py-2.5 text-sm font-semibold rounded-md transition-all ${
+                paymentMode === 'card'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              💳 Credit Card
+            </button>
+          </div>
+        </div>
+
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           <div className="border-b border-gray-200">
-            <nav className="flex -mb-px">
-              {[
-                { id: 'general', label: 'General' },
-                { id: 'wallets', label: `Wallets (${wallets.length})` },
-                { id: 'webhooks', label: 'Webhooks' },
-                { id: 'api-keys', label: 'API Keys' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as TabType)}
-                  className={`px-6 py-4 text-sm font-medium border-b-2 ${
-                    activeTab === tab.id
-                      ? 'border-purple-600 text-purple-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            <nav className="flex -mb-px overflow-x-auto">
+              {currentTabs.map((tab) => {
+                const label = typeof tab.label === 'function' ? tab.label(wallets) : tab.label;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap ${
+                      activeTab === tab.id
+                        ? 'border-purple-600 text-purple-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </nav>
           </div>
 
@@ -202,6 +264,34 @@ export default function BusinessDetailPage() {
                 onUpdate={handleUpdate}
                 onCopy={copyToClipboard}
               />
+            )}
+
+            {activeTab === 'stripe-connect' && (
+              <StripeConnectTab businessId={businessId} />
+            )}
+
+            {activeTab === 'stripe-transactions' && (
+              <StripeTransactionsTab businessId={businessId} />
+            )}
+
+            {activeTab === 'stripe-disputes' && (
+              <StripeDisputesTab businessId={businessId} />
+            )}
+
+            {activeTab === 'stripe-payouts' && (
+              <StripePayoutsTab businessId={businessId} />
+            )}
+
+            {activeTab === 'stripe-escrows' && (
+              <StripeEscrowsTab businessId={businessId} />
+            )}
+
+            {activeTab === 'stripe-webhooks' && (
+              <StripeWebhooksTab businessId={businessId} />
+            )}
+
+            {activeTab === 'stripe-api-keys' && (
+              <StripeApiKeysTab businessId={businessId} />
             )}
           </div>
         </div>

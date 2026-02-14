@@ -243,6 +243,90 @@ describe('BusinessDetailPage', () => {
     });
   });
 
+  describe('Payment Mode Switcher', () => {
+    beforeEach(async () => {
+      vi.mocked(fetch).mockImplementation((url: string | URL | Request) => {
+        const urlString = url.toString();
+        if (urlString.includes('/wallets')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, wallets: mockWallets }),
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, business: mockBusiness }),
+        } as Response);
+      });
+    });
+
+    it('should default to Crypto mode', async () => {
+      render(<BusinessDetailPage />);
+      await waitFor(() => {
+        const cryptoTab = screen.getByRole('tab', { name: /Crypto/i });
+        expect(cryptoTab).toHaveAttribute('aria-selected', 'true');
+      });
+    });
+
+    it('should switch to Credit Card mode and show card tabs', async () => {
+      render(<BusinessDetailPage />);
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Test Business' })).toBeInTheDocument();
+      });
+
+      const cardTab = screen.getByRole('tab', { name: /Credit Card/i });
+      fireEvent.click(cardTab);
+
+      await waitFor(() => {
+        expect(cardTab).toHaveAttribute('aria-selected', 'true');
+        expect(screen.getByRole('button', { name: /Stripe Connect/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Transactions/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Disputes/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Payouts/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Escrows/i })).toBeInTheDocument();
+      });
+    });
+
+    it('should reset to General tab when switching modes', async () => {
+      render(<BusinessDetailPage />);
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Test Business' })).toBeInTheDocument();
+      });
+
+      // Switch to wallets tab in crypto mode
+      const walletsTab = screen.getByRole('button', { name: /Wallets/i });
+      fireEvent.click(walletsTab);
+      await waitFor(() => {
+        expect(screen.getByText('Multi-Crypto Wallets')).toBeInTheDocument();
+      });
+
+      // Switch to card mode - should reset to General
+      const cardTab = screen.getByRole('tab', { name: /Credit Card/i });
+      fireEvent.click(cardTab);
+      await waitFor(() => {
+        expect(screen.getByText('Business Information')).toBeInTheDocument();
+      });
+    });
+
+    it('should switch back to Crypto mode from Card mode', async () => {
+      render(<BusinessDetailPage />);
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Test Business' })).toBeInTheDocument();
+      });
+
+      // Switch to card then back to crypto
+      fireEvent.click(screen.getByRole('tab', { name: /Credit Card/i }));
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Stripe Connect/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('tab', { name: /Crypto/i }));
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Wallets/i })).toBeInTheDocument();
+      });
+    });
+  });
+
   describe('Back Navigation', () => {
     beforeEach(async () => {
       vi.mocked(fetch).mockImplementation((url: string | URL | Request) => {

@@ -17,7 +17,21 @@ export interface Wallet {
   created_at: string;
 }
 
-export type TabType = 'general' | 'wallets' | 'webhooks' | 'api-keys';
+export type PaymentMode = 'crypto' | 'card';
+
+export type TabType =
+  | 'general'
+  | 'wallets'
+  | 'webhooks'
+  | 'api-keys'
+  | 'stripe'
+  | 'stripe-connect'
+  | 'stripe-transactions'
+  | 'stripe-disputes'
+  | 'stripe-payouts'
+  | 'stripe-escrows'
+  | 'stripe-webhooks'
+  | 'stripe-api-keys';
 
 export const SUPPORTED_CRYPTOS = [
   { value: 'BTC', label: 'Bitcoin (BTC)' },
