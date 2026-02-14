@@ -21,6 +21,26 @@ import json
 from pathlib import Path
 
 
+def fix_pem(value):
+    """Fix PEM that may have escaped newlines or be on a single line."""
+    # Replace literal \n with real newlines
+    value = value.replace('\\n', '\n')
+    # Strip surrounding quotes if present
+    value = value.strip().strip('"').strip("'")
+    # Ensure proper PEM line breaks (some env vars collapse to one line)
+    if '-----BEGIN' in value and '\n' not in value.split('-----')[1]:
+        # Single line PEM — reformat
+        parts = value.split('-----')
+        if len(parts) >= 5:
+            header = f"-----{parts[1]}-----"
+            footer = f"-----{parts[3]}-----"
+            body = parts[2].strip()
+            # Split body into 64-char lines
+            lines = [body[i:i+64] for i in range(0, len(body), 64)]
+            value = header + '\n' + '\n'.join(lines) + '\n' + footer + '\n'
+    return value
+
+
 def get_credentials():
     """Load Greenlight developer credentials from env."""
     cert_env = os.environ.get('GL_NOBODY_CRT', '')
@@ -29,9 +49,9 @@ def get_credentials():
     if not cert_env or not key_env:
         raise RuntimeError("GL_NOBODY_CRT and GL_NOBODY_KEY must be set")
 
-    if cert_env.lstrip().startswith('-----'):
-        cert_data = cert_env.encode()
-        key_data = key_env.encode()
+    if cert_env.lstrip().startswith('-----') or '\\n' in cert_env:
+        cert_data = fix_pem(cert_env).encode()
+        key_data = fix_pem(key_env).encode()
     else:
         cert_path = Path(os.path.expanduser(cert_env))
         key_path = Path(os.path.expanduser(key_env))
@@ -40,14 +60,29 @@ def get_credentials():
         cert_data = cert_path.read_bytes()
         key_data = key_path.read_bytes()
 
+    # Debug: log cert info (not the actual cert)
+    print(json.dumps({
+        "_debug_cert_len": len(cert_data),
+        "_debug_key_len": len(key_data),
+        "_debug_cert_starts": cert_data[:30].decode(errors='replace'),
+        "_debug_cert_lines": cert_data.count(b'\n'),
+    }), file=sys.stderr)
+
     return cert_data, key_data
+
+
+def clean_network(network):
+    """Strip comments and whitespace from network string."""
+    return network.split('#')[0].strip()
 
 
 def get_scheduler(network='bitcoin'):
     """Create a Greenlight Scheduler with developer credentials."""
     from glclient import Scheduler, Credentials
+    network = clean_network(network)
     cert_data, key_data = get_credentials()
     creds = Credentials.nobody_with(cert_data, key_data)
+    print(json.dumps({"_debug_network": network}), file=sys.stderr)
     return Scheduler(network, creds)
 
 

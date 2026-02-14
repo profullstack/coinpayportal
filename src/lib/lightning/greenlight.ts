@@ -123,7 +123,9 @@ export class GreenlightService {
           continue;
         }
         // Real error — include stderr for debugging
-        throw new Error(`gl-bridge ${command} failed: ${msg}${stderr ? ` | stderr: ${stderr.substring(0, 300)}` : ''}`);
+        const stderrStr = typeof stderr === 'string' ? stderr : (stderr?.toString() || '');
+        console.error(`[gl-bridge] stderr: ${stderrStr.substring(0, 500)}`);
+        throw new Error(`gl-bridge ${command} failed: ${msg}${stderrStr ? ` | stderr: ${stderrStr.substring(0, 300)}` : ''}`);
       }
     }
     throw new Error(`Failed to call gl-bridge.py — no working Python path found. Tried: ${errors.join('; ')}`);
