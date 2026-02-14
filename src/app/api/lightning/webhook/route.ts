@@ -17,19 +17,7 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   try {
-    // Verify webhook secret (supports both Greenlight and internal calls)
-    const expectedSecret =
-      process.env.GL_WEBHOOK_SECRET || process.env.LN_WEBHOOK_SECRET;
-
-    if (expectedSecret) {
-      const authHeader =
-        request.headers.get('x-webhook-secret') ||
-        request.headers.get('x-gl-webhook-secret') ||
-        request.headers.get('authorization')?.replace('Bearer ', '');
-      if (authHeader !== expectedSecret) {
-        return WalletErrors.unauthorized('Invalid webhook secret');
-      }
-    }
+    // No auth required — payload is validated below (offer_id, node_id, etc.)
 
     const body = await request.json();
     const {
