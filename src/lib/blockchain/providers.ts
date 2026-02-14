@@ -1784,7 +1784,8 @@ export class AdaProvider implements BlockchainProvider {
     privateKey: string
   ): Promise<string> {
     try {
-      const CardanoWasm = await import('@emurgo/cardano-serialization-lib-nodejs');
+      const CardanoWasmModule = await import('@emurgo/cardano-serialization-lib-nodejs');
+      const CardanoWasm = ('default' in CardanoWasmModule ? CardanoWasmModule.default : CardanoWasmModule) as typeof import('@emurgo/cardano-serialization-lib-nodejs');
 
       // 1. Fetch UTXOs
       const utxoRes = await axios.get(`${this.rpcUrl}/addresses/${from}/utxos`, {
@@ -1825,8 +1826,18 @@ export class AdaProvider implements BlockchainProvider {
         if (!lovelaceIn) continue;
         const utxoAmount = BigInt(lovelaceIn.quantity);
 
-        txBuilder.add_input(
-          CardanoWasm.Address.from_bech32(from),
+        // Extract the public key hash from the sender address for add_key_input
+        const senderAddr = CardanoWasm.Address.from_bech32(from);
+        const baseAddr = CardanoWasm.BaseAddress.from_address(senderAddr)
+          || CardanoWasm.EnterpriseAddress.from_address(senderAddr);
+        const keyHash = baseAddr
+          ? (baseAddr as any).payment_cred().to_keyhash()
+          : CardanoWasm.Ed25519KeyHash.from_bytes(
+              CardanoWasm.Address.from_bech32(from).to_bytes().slice(1, 29)
+            );
+
+        txBuilder.add_key_input(
+          keyHash,
           CardanoWasm.TransactionInput.new(
             CardanoWasm.TransactionHash.from_bytes(Buffer.from(utxo.tx_hash, 'hex')),
             utxo.output_index
@@ -1851,18 +1862,15 @@ export class AdaProvider implements BlockchainProvider {
       // Build transaction body
       const txBody = txBuilder.build();
 
-      // 4. Sign
+      // 4. Sign using FixedTransaction which handles hashing internally
       const privHex = privateKey.startsWith('0x') ? privateKey.slice(2) : privateKey;
       const privKeyObj = CardanoWasm.PrivateKey.from_normal_bytes(Buffer.from(privHex, 'hex'));
-      const txHash = CardanoWasm.hash_transaction(txBody);
 
       const witnesses = CardanoWasm.TransactionWitnessSet.new();
-      const vkeyWitnesses = CardanoWasm.Vkeywitnesses.new();
-      vkeyWitnesses.add(CardanoWasm.make_vkey_witness(txHash, privKeyObj));
-      witnesses.set_vkeys(vkeyWitnesses);
-
-      const signedTx = CardanoWasm.Transaction.new(txBody, witnesses);
-      const txBytes = signedTx.to_bytes();
+      const unsignedTx = CardanoWasm.Transaction.new(txBody, witnesses);
+      const fixedTx = CardanoWasm.FixedTransaction.from_bytes(unsignedTx.to_bytes());
+      fixedTx.sign_and_add_vkey_signature(privKeyObj);
+      const txBytes = fixedTx.to_bytes();
 
       // 5. Submit
       const submitRes = await axios.post(

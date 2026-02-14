@@ -5,6 +5,8 @@ import {
   EthereumProvider,
   PolygonProvider,
   SolanaProvider,
+  XrpProvider,
+  AdaProvider,
   getProvider,
   getRpcUrl,
   cashAddrToLegacy,
@@ -14,6 +16,7 @@ import {
 vi.mock('axios', () => ({
   default: {
     get: vi.fn(),
+    post: vi.fn(),
   },
 }));
 
@@ -829,6 +832,164 @@ describe('Blockchain Providers', () => {
       } else {
         delete process.env.ETHEREUM_RPC_URL;
       }
+    });
+  });
+
+  describe('XrpProvider', () => {
+    let provider: XrpProvider;
+
+    beforeEach(() => {
+      provider = new XrpProvider('https://xrplcluster.com');
+      vi.clearAllMocks();
+    });
+
+    it('should have correct chain type', () => {
+      expect(provider.chain).toBe('XRP');
+    });
+
+    it('should require 1 confirmation', () => {
+      expect(provider.getRequiredConfirmations()).toBe(1);
+    });
+
+    it('should return balance from account_info', async () => {
+      const axios = (await import('axios')).default;
+      vi.mocked(axios.post).mockResolvedValueOnce({
+        data: {
+          result: {
+            account_data: { Balance: '50000000' }, // 50 XRP in drops
+          },
+        },
+      } as any);
+
+      const balance = await provider.getBalance('rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh');
+      expect(balance).toBe('50');
+      expect(axios.post).toHaveBeenCalledWith('https://xrplcluster.com', {
+        method: 'account_info',
+        params: [{ account: 'rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh', ledger_index: 'validated' }],
+      });
+    });
+
+    it('should return 0 for unfunded account', async () => {
+      const axios = (await import('axios')).default;
+      vi.mocked(axios.post).mockRejectedValueOnce({
+        response: { data: { result: { error: 'actNotFound' } } },
+      });
+
+      const balance = await provider.getBalance('rNotFunded123');
+      expect(balance).toBe('0');
+    });
+
+    it('should fetch transaction details', async () => {
+      const axios = (await import('axios')).default;
+      vi.mocked(axios.post).mockResolvedValueOnce({
+        data: {
+          result: {
+            hash: 'ABCDEF123456',
+            Account: 'rSender',
+            Destination: 'rReceiver',
+            Amount: '10000000',
+            validated: true,
+            ledger_index: 12345,
+            date: 700000000,
+            meta: { TransactionResult: 'tesSUCCESS' },
+          },
+        },
+      } as any);
+
+      const tx = await provider.getTransaction('ABCDEF123456');
+      expect(tx.hash).toBe('ABCDEF123456');
+      expect(tx.from).toBe('rSender');
+      expect(tx.to).toBe('rReceiver');
+      expect(tx.value).toBe('10');
+      expect(tx.status).toBe('confirmed');
+      expect(tx.confirmations).toBe(1);
+    });
+
+    it('should be created by getProvider factory', () => {
+      const p = getProvider('XRP', 'https://xrplcluster.com');
+      expect(p).toBeInstanceOf(XrpProvider);
+    });
+  });
+
+  describe('AdaProvider', () => {
+    let provider: AdaProvider;
+
+    beforeEach(() => {
+      provider = new AdaProvider('https://cardano-mainnet.blockfrost.io/api/v0');
+      process.env.BLOCKFROST_API_KEY = 'test-project-id';
+      vi.clearAllMocks();
+    });
+
+    it('should have correct chain type', () => {
+      expect(provider.chain).toBe('ADA');
+    });
+
+    it('should require 15 confirmations', () => {
+      expect(provider.getRequiredConfirmations()).toBe(15);
+    });
+
+    it('should return balance from Blockfrost', async () => {
+      const axios = (await import('axios')).default;
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        data: {
+          amount: [
+            { unit: 'lovelace', quantity: '25000000' }, // 25 ADA
+          ],
+        },
+      } as any);
+
+      const balance = await provider.getBalance('addr1qxtest');
+      expect(balance).toBe('25');
+      expect(axios.get).toHaveBeenCalledWith(
+        'https://cardano-mainnet.blockfrost.io/api/v0/addresses/addr1qxtest',
+        { headers: { project_id: 'test-project-id' } }
+      );
+    });
+
+    it('should return 0 for unknown address (404)', async () => {
+      const axios = (await import('axios')).default;
+      vi.mocked(axios.get).mockRejectedValueOnce({
+        response: { status: 404 },
+      });
+
+      const balance = await provider.getBalance('addr1unknown');
+      expect(balance).toBe('0');
+    });
+
+    it('should fetch transaction details from Blockfrost', async () => {
+      const axios = (await import('axios')).default;
+      vi.mocked(axios.get)
+        .mockResolvedValueOnce({
+          data: {
+            hash: 'abc123',
+            block_height: 9000,
+            block_time: 1700000000,
+            index: 0,
+          },
+        } as any)
+        .mockResolvedValueOnce({
+          data: {
+            inputs: [{ address: 'addr1sender' }],
+            outputs: [
+              {
+                address: 'addr1receiver',
+                amount: [{ unit: 'lovelace', quantity: '5000000' }],
+              },
+            ],
+          },
+        } as any);
+
+      const tx = await provider.getTransaction('abc123');
+      expect(tx.hash).toBe('abc123');
+      expect(tx.from).toBe('addr1sender');
+      expect(tx.to).toBe('addr1receiver');
+      expect(tx.value).toBe('5');
+      expect(tx.blockNumber).toBe(9000);
+    });
+
+    it('should be created by getProvider factory', () => {
+      const p = getProvider('ADA', 'https://cardano-mainnet.blockfrost.io/api/v0');
+      expect(p).toBeInstanceOf(AdaProvider);
     });
   });
 });
