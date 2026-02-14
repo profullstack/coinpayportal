@@ -1632,6 +1632,262 @@ export class DogecoinProvider implements BlockchainProvider {
 }
 
 /**
+ * XRP (Ripple) provider implementation using xrpl.js
+ */
+export class XrpProvider implements BlockchainProvider {
+  chain: BlockchainType = 'XRP';
+  rpcUrl: string;
+
+  constructor(rpcUrl: string) {
+    this.rpcUrl = rpcUrl;
+  }
+
+  async getBalance(address: string): Promise<string> {
+    try {
+      const response = await axios.post(this.rpcUrl, {
+        method: 'account_info',
+        params: [{ account: address, ledger_index: 'validated' }],
+      });
+      const balance = response.data.result?.account_data?.Balance;
+      if (!balance) return '0';
+      return (Number(balance) / 1_000_000).toString();
+    } catch (error: any) {
+      if (error?.response?.data?.result?.error === 'actNotFound') return '0';
+      console.error('[XRP] Error fetching balance:', error);
+      return '0';
+    }
+  }
+
+  async getTransaction(txHash: string): Promise<TransactionDetails> {
+    try {
+      const response = await axios.post(this.rpcUrl, {
+        method: 'tx',
+        params: [{ transaction: txHash }],
+      });
+      const tx = response.data.result;
+      const confirmed = tx.validated === true;
+      return {
+        hash: tx.hash,
+        from: tx.Account || '',
+        to: tx.Destination || '',
+        value: tx.Amount ? (Number(tx.Amount) / 1_000_000).toString() : '0',
+        confirmations: confirmed ? 1 : 0,
+        blockNumber: tx.ledger_index,
+        timestamp: tx.date ? tx.date + 946684800 : undefined, // XRP epoch offset
+        status: confirmed ? (tx.meta?.TransactionResult === 'tesSUCCESS' ? 'confirmed' : 'failed') : 'pending',
+      };
+    } catch (error) {
+      throw new Error(`Failed to fetch XRP transaction: ${error}`);
+    }
+  }
+
+  async sendTransaction(
+    from: string,
+    to: string,
+    amount: string,
+    privateKey: string
+  ): Promise<string> {
+    const { Client, Wallet } = await import('xrpl');
+    const client = new Client(this.rpcUrl.replace(/^http/, 'ws'));
+    try {
+      await client.connect();
+
+      // Create wallet from hex private key
+      const privHex = privateKey.startsWith('0x') ? privateKey.slice(2) : privateKey;
+      const wallet = Wallet.fromEntropy(Buffer.from(privHex, 'hex'));
+
+      const payment = {
+        TransactionType: 'Payment' as const,
+        Account: from,
+        Destination: to,
+        Amount: String(Math.round(parseFloat(amount) * 1_000_000)),
+      };
+
+      const prepared = await client.autofill(payment);
+      const signed = wallet.sign(prepared);
+      const result = await client.submitAndWait(signed.tx_blob);
+      return result.result.hash;
+    } finally {
+      await client.disconnect().catch(() => {});
+    }
+  }
+
+  getRequiredConfirmations(): number {
+    return 1;
+  }
+}
+
+/**
+ * ADA (Cardano) provider implementation using Blockfrost API
+ */
+export class AdaProvider implements BlockchainProvider {
+  chain: BlockchainType = 'ADA';
+  rpcUrl: string;
+
+  constructor(rpcUrl: string) {
+    this.rpcUrl = rpcUrl;
+  }
+
+  private get headers() {
+    return { project_id: process.env.BLOCKFROST_API_KEY || '' };
+  }
+
+  async getBalance(address: string): Promise<string> {
+    try {
+      const response = await axios.get(`${this.rpcUrl}/addresses/${address}`, {
+        headers: this.headers,
+      });
+      const lovelace = response.data.amount?.find((a: any) => a.unit === 'lovelace');
+      if (!lovelace) return '0';
+      return (Number(lovelace.quantity) / 1_000_000).toString();
+    } catch (error: any) {
+      if (error?.response?.status === 404) return '0';
+      console.error('[ADA] Error fetching balance:', error);
+      return '0';
+    }
+  }
+
+  async getTransaction(txHash: string): Promise<TransactionDetails> {
+    try {
+      const [txRes, utxoRes] = await Promise.all([
+        axios.get(`${this.rpcUrl}/txs/${txHash}`, { headers: this.headers }),
+        axios.get(`${this.rpcUrl}/txs/${txHash}/utxos`, { headers: this.headers }),
+      ]);
+      const tx = txRes.data;
+      const utxos = utxoRes.data;
+
+      const fromAddr = utxos.inputs?.[0]?.address || '';
+      const toOutput = utxos.outputs?.[0];
+      const toAddr = toOutput?.address || '';
+      const lovelace = toOutput?.amount?.find((a: any) => a.unit === 'lovelace');
+      const value = lovelace ? (Number(lovelace.quantity) / 1_000_000).toString() : '0';
+
+      return {
+        hash: tx.hash,
+        from: fromAddr,
+        to: toAddr,
+        value,
+        confirmations: tx.block ? 15 : 0, // Blockfrost only returns confirmed txs
+        blockNumber: tx.block_height,
+        timestamp: tx.block_time,
+        status: tx.block ? 'confirmed' : 'pending',
+      };
+    } catch (error) {
+      throw new Error(`Failed to fetch ADA transaction: ${error}`);
+    }
+  }
+
+  async sendTransaction(
+    from: string,
+    to: string,
+    amount: string,
+    privateKey: string
+  ): Promise<string> {
+    try {
+      const CardanoWasm = await import('@emurgo/cardano-serialization-lib-nodejs');
+
+      // 1. Fetch UTXOs
+      const utxoRes = await axios.get(`${this.rpcUrl}/addresses/${from}/utxos`, {
+        headers: this.headers,
+      });
+      const utxos = utxoRes.data;
+      if (!utxos || utxos.length === 0) throw new Error('No UTXOs available');
+
+      // 2. Fetch protocol parameters
+      const paramsRes = await axios.get(`${this.rpcUrl}/epochs/latest/parameters`, {
+        headers: this.headers,
+      });
+      const params = paramsRes.data;
+
+      // 3. Build transaction
+      const lovelaceAmount = BigInt(Math.round(parseFloat(amount) * 1_000_000));
+
+      const txBuilder = CardanoWasm.TransactionBuilder.new(
+        CardanoWasm.TransactionBuilderConfigBuilder.new()
+          .fee_algo(CardanoWasm.LinearFee.new(
+            CardanoWasm.BigNum.from_str(params.min_fee_a.toString()),
+            CardanoWasm.BigNum.from_str(params.min_fee_b.toString()),
+          ))
+          .pool_deposit(CardanoWasm.BigNum.from_str(params.pool_deposit))
+          .key_deposit(CardanoWasm.BigNum.from_str(params.key_deposit))
+          .coins_per_utxo_byte(CardanoWasm.BigNum.from_str(
+            (params.coins_per_utxo_size || params.coins_per_utxo_word || '4310').toString()
+          ))
+          .max_tx_size(params.max_tx_size || 16384)
+          .max_value_size(parseInt(params.max_val_size || '5000'))
+          .build()
+      );
+
+      // Add inputs
+      let totalInput = BigInt(0);
+      for (const utxo of utxos) {
+        const lovelaceIn = utxo.amount?.find((a: any) => a.unit === 'lovelace');
+        if (!lovelaceIn) continue;
+        const utxoAmount = BigInt(lovelaceIn.quantity);
+
+        txBuilder.add_input(
+          CardanoWasm.Address.from_bech32(from),
+          CardanoWasm.TransactionInput.new(
+            CardanoWasm.TransactionHash.from_bytes(Buffer.from(utxo.tx_hash, 'hex')),
+            utxo.output_index
+          ),
+          CardanoWasm.Value.new(CardanoWasm.BigNum.from_str(lovelaceIn.quantity))
+        );
+        totalInput += utxoAmount;
+        if (totalInput >= lovelaceAmount + BigInt(500_000)) break; // enough for amount + fee estimate
+      }
+
+      // Add output
+      txBuilder.add_output(
+        CardanoWasm.TransactionOutput.new(
+          CardanoWasm.Address.from_bech32(to),
+          CardanoWasm.Value.new(CardanoWasm.BigNum.from_str(lovelaceAmount.toString()))
+        )
+      );
+
+      // Add change back to sender
+      txBuilder.add_change_if_needed(CardanoWasm.Address.from_bech32(from));
+
+      // Build transaction body
+      const txBody = txBuilder.build();
+
+      // 4. Sign
+      const privHex = privateKey.startsWith('0x') ? privateKey.slice(2) : privateKey;
+      const privKeyObj = CardanoWasm.PrivateKey.from_normal_bytes(Buffer.from(privHex, 'hex'));
+      const txHash = CardanoWasm.hash_transaction(txBody);
+
+      const witnesses = CardanoWasm.TransactionWitnessSet.new();
+      const vkeyWitnesses = CardanoWasm.Vkeywitnesses.new();
+      vkeyWitnesses.add(CardanoWasm.make_vkey_witness(txHash, privKeyObj));
+      witnesses.set_vkeys(vkeyWitnesses);
+
+      const signedTx = CardanoWasm.Transaction.new(txBody, witnesses);
+      const txBytes = signedTx.to_bytes();
+
+      // 5. Submit
+      const submitRes = await axios.post(
+        `${this.rpcUrl}/tx/submit`,
+        Buffer.from(txBytes),
+        {
+          headers: {
+            ...this.headers,
+            'Content-Type': 'application/cbor',
+          },
+        }
+      );
+
+      return submitRes.data; // Blockfrost returns the tx hash as string
+    } catch (error: any) {
+      throw new Error(`Failed to send ADA transaction: ${error?.message || error}`);
+    }
+  }
+
+  getRequiredConfirmations(): number {
+    return 15;
+  }
+}
+
+/**
  * Factory function to get the appropriate provider for a blockchain
  */
 export function getProvider(
@@ -1659,17 +1915,9 @@ export function getProvider(
     case 'DOGE':
       return new DogecoinProvider(rpcUrl);
     case 'XRP':
+      return new XrpProvider(rpcUrl);
     case 'ADA':
-      // Minimal read-only providers — sendTransaction not yet supported
-      return {
-        chain,
-        rpcUrl,
-        async getBalance() { return '0'; },
-        async getTransaction(txHash: string) {
-          return { hash: txHash, from: '', to: '', value: '0', confirmations: 0, status: 'pending' as const };
-        },
-        getRequiredConfirmations() { return chain === 'XRP' ? 1 : 15; },
-      };
+      return new AdaProvider(rpcUrl);
     default:
       throw new Error(`Unsupported blockchain: ${chain}`);
   }
