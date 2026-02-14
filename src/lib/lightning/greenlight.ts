@@ -173,9 +173,11 @@ export class GreenlightService {
         }
         console.log(`[Greenlight] Node ${result.action}: ${greenlightNodeId}`);
       } catch (err) {
-        console.error('[Greenlight] Registration failed, using local ID:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error('[Greenlight] Registration failed:', errMsg);
+        // Store the error in the node record for debugging
         // Still create the DB record and mark active so the UI works
-        // GL registration can be retried later
+        greenlightNodeId = `gl-err:${errMsg.substring(0, 80)}`;
       }
     }
 
