@@ -176,7 +176,16 @@ async function settleReleasedEscrows(supabase: SupabaseClient): Promise<void> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
   const internalApiKey = process.env.INTERNAL_API_KEY;
 
+  // Chains that support automated on-chain settlement
+  const SETTLEABLE_CHAINS = ['BTC', 'ETH', 'SOL', 'POL', 'BCH', 'USDC_ETH', 'USDC_SOL', 'USDC_POL'];
+
   for (const escrow of releasedEscrows) {
+    // Skip chains without sendTransaction support to avoid retry spam
+    if (!SETTLEABLE_CHAINS.includes(escrow.chain)) {
+      console.log(`[Monitor] Skipping escrow ${escrow.id} — chain ${escrow.chain} requires manual settlement`);
+      continue;
+    }
+
     try {
       if (internalApiKey) {
         const settleResponse = await fetch(`${appUrl}/api/escrow/${escrow.id}/settle`, {
@@ -195,7 +204,8 @@ async function settleReleasedEscrows(supabase: SupabaseClient): Promise<void> {
             console.error(`Reputation receipt error for escrow ${escrow.id}:`, repErr);
           }
         } else {
-          console.error(`Settlement failed for escrow ${escrow.id}: ${settleResponse.status}`);
+          const body = await settleResponse.text();
+          console.error(`Settlement failed for escrow ${escrow.id}: ${settleResponse.status} - ${body}`);
         }
       }
     } catch (settleError) {
