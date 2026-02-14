@@ -12,11 +12,15 @@ The CoinPay Lightning API enables BOLT12 offer-based payments via Greenlight (CL
 |----------|--------|-------------|
 | `/nodes` | POST | Provision a Greenlight CLN node |
 | `/nodes/:id` | GET | Get node status |
+| `/nodes?wallet_id=` | GET | Get node by wallet ID |
 | `/offers` | POST | Create a BOLT12 offer |
 | `/offers/:id` | GET | Get offer details + QR URI |
 | `/offers` | GET | List offers |
+| `/payments` | POST | Send a payment to a BOLT12 offer |
 | `/payments` | GET | List Lightning payments |
 | `/payments/:hash` | GET | Get payment by hash |
+| `/webhook` | GET | Webhook health check |
+| `/webhook` | POST | Payment settlement webhook |
 
 ---
 
@@ -91,6 +95,43 @@ Get Lightning node status.
 | Status | Code | Description |
 |--------|------|-------------|
 | 404 | NODE_NOT_FOUND | Node does not exist |
+
+---
+
+### GET /api/lightning/nodes?wallet_id=
+
+Look up the Lightning node associated with a wallet.
+
+**Query Parameters:**
+| Param | Type | Description |
+|-------|------|-------------|
+| `wallet_id` | string | Wallet UUID |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "node": {
+      "id": "uuid",
+      "wallet_id": "uuid",
+      "business_id": "uuid",
+      "greenlight_node_id": "gl-abc123ef",
+      "node_pubkey": "02abcdef...",
+      "status": "active",
+      "created_at": "2026-02-14T12:00:00.000Z",
+      "updated_at": "2026-02-14T12:00:00.000Z"
+    }
+  },
+  "timestamp": "2026-02-14T12:00:00.000Z"
+}
+```
+
+**Errors:**
+| Status | Code | Description |
+|--------|------|-------------|
+| 400 | VALIDATION_ERROR | `wallet_id` missing or invalid |
+| 404 | NODE_NOT_FOUND | No node found for this wallet |
 
 ---
 
@@ -266,6 +307,88 @@ Get a single payment by its payment hash.
 | Status | Code | Description |
 |--------|------|-------------|
 | 404 | PAYMENT_NOT_FOUND | Payment hash not found |
+
+---
+
+### POST /api/lightning/payments
+
+Send a payment to a BOLT12 offer or invoice.
+
+**Request:**
+```json
+{
+  "node_id": "uuid",
+  "bolt12": "lno1...",
+  "amount_sats": 1000
+}
+```
+
+- `node_id` — The sending node's UUID
+- `bolt12` — BOLT12 offer or invoice string
+- `amount_sats` — Amount to send in satoshis
+
+**Response (201):**
+```json
+{
+  "success": true,
+  "data": {
+    "payment": {
+      "id": "uuid",
+      "node_id": "uuid",
+      "payment_hash": "abc123...",
+      "bolt12": "lno1...",
+      "amount_msat": 1000000,
+      "status": "pending",
+      "created_at": "2026-02-14T12:00:00.000Z"
+    }
+  },
+  "timestamp": "2026-02-14T12:00:00.000Z"
+}
+```
+
+**Errors:**
+| Status | Code | Description |
+|--------|------|-------------|
+| 400 | VALIDATION_ERROR | Missing required fields or invalid BOLT12 string |
+| 404 | NODE_NOT_FOUND | Sending node not found |
+| 500 | PAYMENT_FAILED | Payment could not be initiated |
+
+---
+
+### GET /api/lightning/webhook
+
+Health check for the webhook endpoint.
+
+**Response (200):**
+```json
+{
+  "status": "ok"
+}
+```
+
+---
+
+### POST /api/lightning/webhook
+
+Payment settlement webhook. Called by the Greenlight service when a payment settles on a node.
+
+**Request:**
+```json
+{
+  "payment_hash": "abc123...",
+  "amount_msat": 100000,
+  "settled_at": "2026-02-14T12:05:00.000Z"
+}
+```
+
+Accepts `{ "test": true }` as a ping/health test — returns `200` without processing.
+
+**Response (200):**
+```json
+{
+  "success": true
+}
+```
 
 ---
 

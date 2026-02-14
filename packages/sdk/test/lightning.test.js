@@ -50,6 +50,13 @@ describe('LightningClient (via CoinPayClient)', () => {
     });
   });
 
+  describe('getNodeByWallet', () => {
+    it('should GET /lightning/nodes?wallet_id=...', async () => {
+      await client.lightning.getNodeByWallet('wallet-123');
+      expect(client.request).toHaveBeenCalledWith('/lightning/nodes?wallet_id=wallet-123');
+    });
+  });
+
   describe('createOffer', () => {
     it('should POST to /lightning/offers', async () => {
       await client.lightning.createOffer({
@@ -98,6 +105,25 @@ describe('LightningClient (via CoinPayClient)', () => {
       expect(client.request).toHaveBeenCalledWith(
         expect.stringContaining('status=settled')
       );
+    });
+  });
+
+  describe('sendPayment', () => {
+    it('should POST to /lightning/payments', async () => {
+      await client.lightning.sendPayment({
+        node_id: 'n-1',
+        bolt12: 'lno1abc...',
+        amount_sats: 1000,
+      });
+
+      expect(client.request).toHaveBeenCalledWith('/lightning/payments', {
+        method: 'POST',
+        body: JSON.stringify({
+          node_id: 'n-1',
+          bolt12: 'lno1abc...',
+          amount_sats: 1000,
+        }),
+      });
     });
   });
 

@@ -48,6 +48,15 @@ export class LightningClient {
     return this.#client.request(`/lightning/nodes/${nodeId}`);
   }
 
+  /**
+   * Get node by wallet ID.
+   * @param {string} walletId - Wallet UUID
+   * @returns {Promise<Object>}
+   */
+  async getNodeByWallet(walletId) {
+    return this.#client.request(`/lightning/nodes?wallet_id=${walletId}`);
+  }
+
   // ──────────────────────────────────────────────
   // Offers
   // ──────────────────────────────────────────────
@@ -117,6 +126,21 @@ export class LightningClient {
       if (v !== undefined && v !== null) qs.set(k, String(v));
     }
     return this.#client.request(`/lightning/payments?${qs}`);
+  }
+
+  /**
+   * Send a payment to a BOLT12 offer or invoice.
+   * @param {Object} params
+   * @param {string} params.node_id - Node UUID
+   * @param {string} params.bolt12 - BOLT12 offer or invoice string
+   * @param {number} params.amount_sats - Amount in satoshis
+   * @returns {Promise<Object>}
+   */
+  async sendPayment({ node_id, bolt12, amount_sats }) {
+    return this.#client.request('/lightning/payments', {
+      method: 'POST',
+      body: JSON.stringify({ node_id, bolt12, amount_sats }),
+    });
   }
 
   /**

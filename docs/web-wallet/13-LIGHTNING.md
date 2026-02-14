@@ -41,14 +41,20 @@ The Greenlight service runs CLN (Core Lightning) nodes in the cloud. Your wallet
 2. **Click "Enable Lightning"** — this calls `POST /api/lightning/nodes` with the wallet's mnemonic
 3. The server derives Lightning keys from the seed and provisions a Greenlight CLN node
 4. The node is immediately **active** and ready to receive payments
+5. **The node is persisted** — no need to re-enable Lightning on subsequent visits. The wallet automatically detects the existing node via `GET /api/lightning/nodes?wallet_id=...`
+
+Once enabled, **Lightning (LN) appears in the wallet asset list automatically** alongside BTC, ETH, and other assets.
 
 ```typescript
-// SDK example
+// SDK example — provision a new node
 const wallet = await WalletClient.fromSeed('your twelve word mnemonic ...');
 const node = await client.lightning.provisionNode({
   wallet_id: wallet.id,
   mnemonic: wallet.getMnemonic(),
 });
+
+// SDK example — retrieve existing node on wallet load
+const existingNode = await client.lightning.getNodeByWallet(wallet.id);
 ```
 
 ---
@@ -88,7 +94,50 @@ Each offer returns a `bolt12_offer` string (starts with `lno1...`) and a `qr_uri
 
 ---
 
-## Receiving Payments
+## Sending Payments (Send Tab)
+
+The **Send** tab lets you pay BOLT12 offers and invoices directly from the wallet.
+
+1. Navigate to **Lightning → Send**
+2. Paste a BOLT12 offer (`lno1...`) or invoice
+3. Enter the amount in sats (if the offer doesn't specify a fixed amount)
+4. Click **Send Payment**
+
+The wallet calls `POST /api/lightning/payments` with your node ID, the BOLT12 string, and the amount.
+
+```typescript
+// SDK example
+const payment = await client.lightning.sendPayment({
+  node_id: 'your-node-id',
+  bolt12: 'lno1...',
+  amount_sats: 1000,
+});
+```
+
+### Payment Flow
+
+1. Your CLN node fetches an invoice from the recipient's offer (via onion message)
+2. Payment routes through the Lightning Network
+3. On success, the payment status moves to `settled`
+4. The payment appears in your transaction history
+
+---
+
+## Receiving Payments (Receive Tab)
+
+The **Receive** tab lets you create BOLT12 offers to receive payments.
+
+1. Navigate to **Lightning → Receive**
+2. Enter a description (e.g., "Coffee ☕")
+3. Optionally set a fixed amount in sats
+4. Click **Create Offer** — a QR code and copyable `lno1...` string are displayed
+5. Share the QR code or offer string with the sender
+
+Offers are **reusable** — a single offer can receive unlimited payments.
+
+---
+
+## Payment Settlement
 
 When someone pays your BOLT12 offer:
 
