@@ -67,6 +67,54 @@ export class GreenlightService {
   }
 
   /**
+   * Call the Python Greenlight bridge script.
+   * Returns parsed JSON result or throws on error.
+   */
+  private async callBridge(command: string, args: string[]): Promise<Record<string, unknown>> {
+    const { execFileSync } = await import('child_process');
+    const path = await import('path');
+    const fs = await import('fs');
+
+    const scriptPath = path.join(process.cwd(), 'scripts', 'gl-bridge.py');
+    if (!fs.existsSync(scriptPath)) {
+      throw new Error('gl-bridge.py not found');
+    }
+
+    const pythonPaths = [
+      '/app/.venv/bin/python3',
+      '/tmp/glvenv/bin/python3',
+      'python3',
+    ];
+
+    for (const pythonPath of pythonPaths) {
+      try {
+        const result = execFileSync(pythonPath, [scriptPath, command, ...args], {
+          timeout: 60_000,
+          encoding: 'utf-8',
+        });
+        const parsed = JSON.parse(result.trim());
+        if (parsed.error) {
+          throw new Error(parsed.error);
+        }
+        return parsed;
+      } catch (err: any) {
+        if (err.message && !err.message.includes('ENOENT') && !err.message.includes('spawn')) {
+          throw err; // Real error, not a missing python path
+        }
+        continue;
+      }
+    }
+    throw new Error('Failed to call gl-bridge.py — no working Python path found');
+  }
+
+  /**
+   * Check if Greenlight credentials are configured.
+   */
+  private hasGreenlightCreds(): boolean {
+    return !!(process.env.GL_NOBODY_CRT && process.env.GL_NOBODY_KEY);
+  }
+
+  /**
    * Provision a new Greenlight CLN node for a wallet.
    * Derives LN identity from the wallet's BIP39 seed.
    */
@@ -87,10 +135,27 @@ export class GreenlightService {
     // Derive LN node keys from seed
     const { nodeSeed, nodePublicKey } = deriveLnNodeKeys(seed);
 
-    // In production: call Greenlight API to register/schedule the node
-    // gl.Scheduler.register(nodeSeed) → returns node_id
-    // For now, we create the DB record and mark as active
-    const greenlightNodeId = `gl-${Buffer.from(nodeSeed.subarray(0, 8)).toString('hex')}`;
+    let greenlightNodeId = `gl-${Buffer.from(nodeSeed.subarray(0, 8)).toString('hex')}`;
+    let status = 'active';
+
+    // If GL creds are available, register with real Greenlight
+    if (this.hasGreenlightCreds()) {
+      try {
+        const network = process.env.GL_NETWORK || 'bitcoin';
+        const result = await this.callBridge('register', [
+          nodeSeed.toString('hex'),
+          network,
+        ]);
+        if (result.node_id) {
+          greenlightNodeId = result.node_id as string;
+        }
+        console.log(`[Greenlight] Node ${result.action}: ${greenlightNodeId}`);
+      } catch (err) {
+        console.error('[Greenlight] Registration failed, using local ID:', err);
+        // Still create the DB record so the UI works
+        status = 'error';
+      }
+    }
 
     const { data, error } = await this.supabase
       .from('ln_nodes')
@@ -99,7 +164,7 @@ export class GreenlightService {
         business_id: business_id || null,
         greenlight_node_id: greenlightNodeId,
         node_pubkey: nodePublicKey,
-        status: 'active',
+        status,
       })
       .select()
       .single();
@@ -137,20 +202,35 @@ export class GreenlightService {
     if (!node) throw new Error('Node not found');
     if (node.status !== 'active') throw new Error('Node is not active');
 
-    // In production: call CLN via Greenlight
-    // const clnResult = await glNode.offer({
-    //   amount: amount_msat ? `${amount_msat}msat` : 'any',
-    //   description,
-    //   label: offerId,
-    // });
-    //
-    // For now, generate a placeholder BOLT12 offer string
     const offerId = crypto.randomUUID();
-    const bolt12Offer = generatePlaceholderBolt12(
-      node.node_pubkey || '',
-      description,
-      amount_msat
-    );
+    let bolt12Offer: string;
+
+    // Call real Greenlight if creds available
+    if (this.hasGreenlightCreds()) {
+      try {
+        const network = process.env.GL_NETWORK || 'bitcoin';
+        const result = await this.callBridge('offer', [
+          node.greenlight_node_id || node.id,
+          description,
+          amount_msat ? String(amount_msat) : 'any',
+          network,
+        ]);
+        bolt12Offer = (result.bolt12 as string) || '';
+        if (!bolt12Offer) {
+          throw new Error('Greenlight returned empty offer');
+        }
+      } catch (err) {
+        console.error('[Greenlight] Offer creation failed:', err);
+        throw new Error(`Failed to create BOLT12 offer: ${err instanceof Error ? err.message : err}`);
+      }
+    } else {
+      // Fallback placeholder for development
+      bolt12Offer = generatePlaceholderBolt12(
+        node.node_pubkey || '',
+        description,
+        amount_msat
+      );
+    }
 
     const { data, error } = await this.supabase
       .from('ln_offers')
@@ -172,6 +252,65 @@ export class GreenlightService {
     }
 
     return data as LnOffer;
+  }
+
+  /**
+   * Pay a BOLT12 offer or BOLT11 invoice via Greenlight.
+   */
+  async payOffer(params: {
+    node_id: string;
+    bolt12: string;
+    amount_sats?: number;
+  }): Promise<{ payment_hash: string; preimage: string; amount_msat: number; status: string }> {
+    const node = await this.getNode(params.node_id);
+    if (!node) throw new Error('Node not found');
+    if (!this.hasGreenlightCreds()) {
+      throw new Error('Greenlight credentials not configured — cannot send payments');
+    }
+
+    const network = process.env.GL_NETWORK || 'bitcoin';
+    const result = await this.callBridge('pay', [
+      node.greenlight_node_id || node.id,
+      params.bolt12,
+      params.amount_sats ? String(params.amount_sats * 1000) : '',
+      network,
+    ]);
+
+    return {
+      payment_hash: result.payment_hash as string,
+      preimage: result.payment_preimage as string || '',
+      amount_msat: result.amount_msat as number || 0,
+      status: result.status as string || 'complete',
+    };
+  }
+
+  /**
+   * Create a BOLT11 invoice via Greenlight.
+   */
+  async createInvoice(params: {
+    node_id: string;
+    amount_sats: number;
+    description: string;
+  }): Promise<{ bolt11: string; payment_hash: string; expires_at: number }> {
+    const node = await this.getNode(params.node_id);
+    if (!node) throw new Error('Node not found');
+    if (!this.hasGreenlightCreds()) {
+      throw new Error('Greenlight credentials not configured');
+    }
+
+    const network = process.env.GL_NETWORK || 'bitcoin';
+    const result = await this.callBridge('invoice', [
+      node.greenlight_node_id || node.id,
+      String(params.amount_sats * 1000),
+      params.description,
+      network,
+    ]);
+
+    return {
+      bolt11: result.bolt11 as string,
+      payment_hash: result.payment_hash as string,
+      expires_at: result.expires_at as number,
+    };
   }
 
   /**
