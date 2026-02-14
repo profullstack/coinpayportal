@@ -30,7 +30,7 @@ const KRAKEN_PAIR_MAP: Record<string, string> = {
 /**
  * Currencies that should use Kraken (Tatum returns NaN for these)
  */
-const USE_KRAKEN = ['POL', 'MATIC', 'USDC_POL', 'USDC_MATIC'];
+const USE_KRAKEN = ['POL', 'MATIC', 'USDC_POL', 'USDC_MATIC', 'USDT_ETH', 'USDT_SOL', 'USDT_POL', 'USDC_ETH', 'USDC_SOL'];
 
 /**
  * Rate cache to minimize API calls
@@ -193,7 +193,7 @@ export async function getExchangeRate(
     // Use Kraken for POL/MATIC (Tatum returns NaN for these)
     if (USE_KRAKEN.includes(upperFrom)) {
       // For USDC on Polygon, get USDC rate
-      const symbol = upperFrom.startsWith('USDC_') ? 'USDC' : from;
+      const symbol = upperFrom.startsWith('USDC_') ? 'USDC' : upperFrom.startsWith('USDT_') ? 'USDT' : from;
       rate = await getExchangeRateFromKraken(symbol, to);
     } else {
       // Try Tatum first, fall back to Kraken on error
