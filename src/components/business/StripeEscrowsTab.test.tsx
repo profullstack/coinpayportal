@@ -58,19 +58,13 @@ describe('StripeEscrowsTab', () => {
   });
 
   it('calls release endpoint when Release clicked', async () => {
-    mockAuthFetch
-      .mockResolvedValueOnce({
-        response: { ok: true },
-        data: { success: true, escrows: [{ id: 'esc-1', amount: 10000, currency: 'usd', status: 'held' }] },
-      })
-      .mockResolvedValueOnce({
-        response: { ok: true },
-        data: { success: true },
-      })
-      .mockResolvedValueOnce({
-        response: { ok: true },
-        data: { success: true, escrows: [] },
-      });
+    const heldEscrow = { id: 'esc-1', amount: 10000, currency: 'usd', status: 'held' };
+    mockAuthFetch.mockImplementation(async (url: string, opts?: any) => {
+      if (opts?.method === 'POST') {
+        return { response: { ok: true }, data: { success: true } };
+      }
+      return { response: { ok: true }, data: { success: true, escrows: [heldEscrow] } };
+    });
 
     render(<StripeEscrowsTab businessId="biz-1" />);
     await waitFor(() => screen.getByText('Release'));

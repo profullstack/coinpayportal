@@ -13,9 +13,9 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# Run tests (without rebuilding)
+# Run tests (without rebuilding) — limit memory to avoid OOM on 15GB server
 echo "Running tests..."
-npx vitest run
+NODE_OPTIONS="--max-old-space-size=2048" npx vitest run --no-file-parallelism
 if [ $? -ne 0 ]; then
   echo "❌ Tests failed. Please fix failing tests before committing."
   exit 1
