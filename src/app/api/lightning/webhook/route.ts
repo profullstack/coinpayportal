@@ -1,6 +1,14 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { getGreenlightService } from '@/lib/lightning/greenlight';
+
+/**
+ * GET /api/lightning/webhook
+ * Health check endpoint for webhook ping tests.
+ */
+export async function GET() {
+  return NextResponse.json({ status: 'ok', service: 'lightning-webhook' });
+}
 
 /**
  * POST /api/lightning/webhook
@@ -10,14 +18,17 @@ import { getGreenlightService } from '@/lib/lightning/greenlight';
 export async function POST(request: NextRequest) {
   try {
     // Verify webhook secret (supports both Greenlight and internal calls)
-    const authHeader =
-      request.headers.get('x-webhook-secret') ||
-      request.headers.get('x-gl-webhook-secret') ||
-      request.headers.get('authorization')?.replace('Bearer ', '');
     const expectedSecret =
       process.env.GL_WEBHOOK_SECRET || process.env.LN_WEBHOOK_SECRET;
-    if (expectedSecret && authHeader !== expectedSecret) {
-      return WalletErrors.unauthorized('Invalid webhook secret');
+
+    if (expectedSecret) {
+      const authHeader =
+        request.headers.get('x-webhook-secret') ||
+        request.headers.get('x-gl-webhook-secret') ||
+        request.headers.get('authorization')?.replace('Bearer ', '');
+      if (authHeader !== expectedSecret) {
+        return WalletErrors.unauthorized('Invalid webhook secret');
+      }
     }
 
     const body = await request.json();
