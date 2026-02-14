@@ -38,6 +38,15 @@ import { GET } from './route';
 
 function mockFromChain(overrides: Record<string, any> = {}) {
   const defaults: Record<string, any> = {
+    businesses: {
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          single: vi.fn().mockResolvedValue({
+            data: { merchant_id: 'merchant_uuid_123' },
+          }),
+        }),
+      }),
+    },
     stripe_accounts: {
       select: vi.fn().mockReturnValue({
         eq: vi.fn().mockReturnValue({
@@ -83,6 +92,15 @@ describe('GET /api/stripe/connect/status/[accountId]', () => {
 
   it('should return 404 when stripe account not found', async () => {
     mockFromChain({
+      businesses: {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: { merchant_id: 'merchant_uuid_123' },
+            }),
+          }),
+        }),
+      },
       stripe_accounts: {
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({

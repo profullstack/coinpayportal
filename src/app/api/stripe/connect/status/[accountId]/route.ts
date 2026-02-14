@@ -21,11 +21,20 @@ export async function GET(
   try {
     const { accountId } = await params;
 
+    // accountId here is actually the businessId — look up merchant_id first
+    const { data: business } = await supabase
+      .from('businesses')
+      .select('merchant_id')
+      .eq('id', accountId)
+      .single();
+
+    const merchantId = business?.merchant_id || accountId;
+
     // Get Stripe account from database
     const { data: accountRecord } = await supabase
       .from('stripe_accounts')
       .select('stripe_account_id')
-      .eq('merchant_id', accountId)
+      .eq('merchant_id', merchantId)
       .single();
 
     if (!accountRecord?.stripe_account_id) {

@@ -58,14 +58,26 @@ describe('POST /api/stripe/connect/onboard', () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     process.env.NEXT_PUBLIC_APP_URL = 'https://coinpayportal.com';
 
-    // Reset default mock behavior
-    mockSupabase.from.mockReturnValue({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({ data: null }),
+    // Reset default mock behavior — handle both businesses and stripe_accounts tables
+    mockSupabase.from.mockImplementation((table: string) => {
+      if (table === 'businesses') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({ data: { merchant_id: 'merchant_uuid_123' } }),
+            }),
+          }),
+        };
+      }
+      // stripe_accounts
+      return {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({ data: null }),
+          }),
         }),
-      }),
-      insert: vi.fn().mockResolvedValue({ data: [{ id: 'stripe_account_123' }] }),
+        insert: vi.fn().mockResolvedValue({ data: [{ id: 'stripe_account_123' }], error: null }),
+      };
     });
   });
 
@@ -122,6 +134,25 @@ describe('POST /api/stripe/connect/onboard', () => {
   });
 
   it('should handle Stripe errors gracefully', async () => {
+    mockSupabase.from.mockImplementation((table: string) => {
+      if (table === 'businesses') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({ data: { merchant_id: 'merchant_uuid_123' } }),
+            }),
+          }),
+        };
+      }
+      return {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({ data: null }),
+          }),
+        }),
+        insert: vi.fn().mockResolvedValue({ data: null, error: null }),
+      };
+    });
     mockStripe.accounts.create.mockRejectedValue(new Error('Stripe API error'));
 
     const request = new NextRequest('http://localhost:3000/api/stripe/connect/onboard', {

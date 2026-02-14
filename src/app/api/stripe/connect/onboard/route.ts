@@ -24,11 +24,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'businessId is required' }, { status: 400 });
     }
 
+    // Look up the merchant_id from the business
+    const { data: business } = await supabase
+      .from('businesses')
+      .select('merchant_id')
+      .eq('id', businessId)
+      .single();
+
+    if (!business?.merchant_id) {
+      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+    }
+
+    const merchantId = business.merchant_id;
+
     // Check if merchant already has a Stripe account
     const { data: existingAccount } = await supabase
       .from('stripe_accounts')
       .select('stripe_account_id')
-      .eq('merchant_id', businessId)
+      .eq('merchant_id', merchantId)
       .single();
 
     let stripeAccountId = existingAccount?.stripe_account_id;
@@ -49,10 +62,10 @@ export async function POST(request: NextRequest) {
       stripeAccountId = account.id;
 
       // Store in database
-      await supabase
+      const { error: insertError } = await supabase
         .from('stripe_accounts')
         .insert({
-          merchant_id: businessId,
+          merchant_id: merchantId,
           stripe_account_id: stripeAccountId,
           account_type: 'express',
           charges_enabled: account.charges_enabled,
@@ -61,6 +74,14 @@ export async function POST(request: NextRequest) {
           country: account.country,
           email: account.email,
         });
+
+      if (insertError) {
+        console.error('Failed to save Stripe account to database:', insertError);
+        return NextResponse.json(
+          { error: 'Stripe account created but failed to save. Contact support.', stripe_account_id: stripeAccountId },
+          { status: 500 }
+        );
+      }
     }
 
     // Create onboarding link
