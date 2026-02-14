@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { monitorPayments } from './payment-monitor';
 import { monitorEscrows } from './escrow-monitor';
+import { monitorLightningPayments } from './lightning-monitor';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -60,11 +61,15 @@ export async function GET(request: NextRequest) {
     // Monitor escrows
     const escrowStats = await monitorEscrows(supabase, now);
 
+    // Monitor Lightning payments
+    const lightningStats = await monitorLightningPayments(supabase, now);
+
     const response = {
       success: true,
       timestamp: now.toISOString(),
       stats,
       escrow: escrowStats,
+      lightning: lightningStats,
     };
 
     console.log('Monitor complete:', response);

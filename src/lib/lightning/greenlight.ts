@@ -260,6 +260,58 @@ export class GreenlightService {
   }
 
   /**
+   * Get settled payments from CLN since a given pay_index.
+   * Used by the payment monitor daemon to poll for new payments.
+   *
+   * In production: calls CLN listinvoices via Greenlight gRPC,
+   * filtered to status=paid with pay_index > lastPayIndex.
+   */
+  async getSettledPayments(
+    greenlightNodeId: string,
+    lastPayIndex: number
+  ): Promise<
+    Array<{
+      payment_hash: string;
+      preimage: string;
+      amount_msat: number;
+      pay_index: number;
+      bolt12_offer: string | null;
+      payer_note: string | null;
+      settled_at: string;
+    }>
+  > {
+    // TODO: Replace with real Greenlight gRPC call:
+    //
+    // const creds = this.loadDevCredentials();
+    // const signer = new Signer(seed, 'bitcoin', creds);
+    // const scheduler = new Scheduler(greenlightNodeId, 'bitcoin', creds);
+    // const node = await scheduler.schedule();
+    //
+    // const invoices = await node.listInvoices({
+    //   index: 'created',  // or use waitanyinvoice for blocking
+    // });
+    //
+    // return invoices
+    //   .filter(inv => inv.status === 'paid' && inv.pay_index > lastPayIndex)
+    //   .map(inv => ({
+    //     payment_hash: inv.payment_hash,
+    //     preimage: inv.payment_preimage,
+    //     amount_msat: inv.amount_received_msat,
+    //     pay_index: inv.pay_index,
+    //     bolt12_offer: inv.local_offer_id || null,
+    //     payer_note: inv.description || null,
+    //     settled_at: new Date(inv.paid_at * 1000).toISOString(),
+    //   }));
+
+    console.log(
+      `[Greenlight] getSettledPayments for node ${greenlightNodeId} since pay_index ${lastPayIndex}`
+    );
+
+    // Stub: return empty until Greenlight gRPC is wired up
+    return [];
+  }
+
+  /**
    * Subscribe to incoming payments for a node.
    * In production: uses CLN's waitanyinvoice via Greenlight gRPC streaming.
    * Returns an unsubscribe function.

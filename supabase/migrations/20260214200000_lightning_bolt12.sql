@@ -12,13 +12,14 @@ CREATE TABLE IF NOT EXISTS ln_nodes (
   node_pubkey       text,
   status            text NOT NULL DEFAULT 'provisioning'
                     CHECK (status IN ('provisioning', 'active', 'inactive', 'error')),
+  last_pay_index    integer DEFAULT 0,
   created_at        timestamptz DEFAULT now(),
   updated_at        timestamptz DEFAULT now()
 );
 
-CREATE INDEX idx_ln_nodes_wallet_id ON ln_nodes(wallet_id);
-CREATE INDEX idx_ln_nodes_business_id ON ln_nodes(business_id);
-CREATE INDEX idx_ln_nodes_status ON ln_nodes(status);
+CREATE INDEX IF NOT EXISTS idx_ln_nodes_wallet_id ON ln_nodes(wallet_id);
+CREATE INDEX IF NOT EXISTS idx_ln_nodes_business_id ON ln_nodes(business_id);
+CREATE INDEX IF NOT EXISTS idx_ln_nodes_status ON ln_nodes(status);
 
 -- Lightning offers (BOLT12)
 CREATE TABLE IF NOT EXISTS ln_offers (
@@ -38,9 +39,9 @@ CREATE TABLE IF NOT EXISTS ln_offers (
   created_at           timestamptz DEFAULT now()
 );
 
-CREATE INDEX idx_ln_offers_node_id ON ln_offers(node_id);
-CREATE INDEX idx_ln_offers_business_id ON ln_offers(business_id);
-CREATE INDEX idx_ln_offers_status ON ln_offers(status);
+CREATE INDEX IF NOT EXISTS idx_ln_offers_node_id ON ln_offers(node_id);
+CREATE INDEX IF NOT EXISTS idx_ln_offers_business_id ON ln_offers(business_id);
+CREATE INDEX IF NOT EXISTS idx_ln_offers_status ON ln_offers(status);
 
 -- Lightning payments
 CREATE TABLE IF NOT EXISTS ln_payments (
@@ -58,11 +59,11 @@ CREATE TABLE IF NOT EXISTS ln_payments (
   created_at        timestamptz DEFAULT now()
 );
 
-CREATE INDEX idx_ln_payments_offer_id ON ln_payments(offer_id);
-CREATE INDEX idx_ln_payments_node_id ON ln_payments(node_id);
-CREATE INDEX idx_ln_payments_business_id ON ln_payments(business_id);
-CREATE INDEX idx_ln_payments_payment_hash ON ln_payments(payment_hash);
-CREATE INDEX idx_ln_payments_settled_at ON ln_payments(settled_at);
+CREATE INDEX IF NOT EXISTS idx_ln_payments_offer_id ON ln_payments(offer_id);
+CREATE INDEX IF NOT EXISTS idx_ln_payments_node_id ON ln_payments(node_id);
+CREATE INDEX IF NOT EXISTS idx_ln_payments_business_id ON ln_payments(business_id);
+CREATE INDEX IF NOT EXISTS idx_ln_payments_payment_hash ON ln_payments(payment_hash);
+CREATE INDEX IF NOT EXISTS idx_ln_payments_settled_at ON ln_payments(settled_at);
 
 -- Trigger to update offer aggregates on payment insert
 CREATE OR REPLACE FUNCTION update_ln_offer_aggregates()
