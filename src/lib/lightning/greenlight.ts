@@ -104,18 +104,26 @@ export class GreenlightService {
           encoding: 'utf-8',
           env: { ...process.env, PYTHONUNBUFFERED: '1' },
         });
-        const parsed = JSON.parse(result.trim());
+        const trimmed = result.trim();
+        let parsed;
+        try {
+          parsed = JSON.parse(trimmed);
+        } catch {
+          throw new Error(`gl-bridge returned non-JSON: ${trimmed.substring(0, 200)}`);
+        }
         if (parsed.error) {
           throw new Error(parsed.error);
         }
         return parsed;
       } catch (err: any) {
         const msg = err?.message || String(err);
-        if (!msg.includes('ENOENT') && !msg.includes('spawn')) {
-          throw err; // Real error from the script, not a missing python
+        const stderr = err?.stderr || '';
+        if (msg.includes('ENOENT') || msg.includes('spawn')) {
+          errors.push(`${pythonPath}: not found`);
+          continue;
         }
-        errors.push(`${pythonPath}: ${msg.substring(0, 100)}`);
-        continue;
+        // Real error — include stderr for debugging
+        throw new Error(`gl-bridge ${command} failed: ${msg}${stderr ? ` | stderr: ${stderr.substring(0, 300)}` : ''}`);
       }
     }
     throw new Error(`Failed to call gl-bridge.py — no working Python path found. Tried: ${errors.join('; ')}`);
