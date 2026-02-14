@@ -64,6 +64,7 @@ export default function SDKDocsPage() {
               { name: 'Exchange Rates', href: '#rates' },
               { name: 'Webhook Verification', href: '#webhooks' },
               { name: 'CLI Commands', href: '#cli' },
+              { name: 'Account & Auth', href: '#auth' },
               { name: 'Reputation & DID', href: '#reputation' },
               { name: 'Error Handling', href: '#errors' },
             ].map((item) => (
@@ -1250,6 +1251,76 @@ try {
                 </div>
               ))}
             </div>
+          </DocSection>
+        </div>
+
+        {/* Account & Auth */}
+        <div id="auth">
+          <DocSection title="Account & Auth">
+            <p className="text-gray-300 mb-6">
+              Create merchant accounts, authenticate, and manage sessions — all from the CLI or SDK.
+            </p>
+
+            <h3 className="text-xl font-semibold text-white mb-4">CLI Commands</h3>
+
+            <CodeBlock title="Account management" language="bash">
+{`# Register a new merchant account
+coinpay auth register --email you@example.com --password yourpassword --name "Your Name"
+
+# Login to get a JWT token (saved to config)
+coinpay auth login --email you@example.com --password yourpassword
+
+# Check who you're logged in as
+coinpay auth me`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">SDK Methods</h3>
+
+            <CodeBlock title="Authentication" language="javascript">
+{`import { CoinPayClient, registerMerchant, loginMerchant, getMe } from '@profullstack/coinpay';
+
+// Create a client (no API key needed for registration)
+const client = new CoinPayClient({ apiKey: 'unused', baseUrl: 'https://coinpayportal.com' });
+
+// Register a new merchant
+const { token, merchant } = await registerMerchant(client, {
+  email: 'agent@example.com',
+  password: 'securepassword',
+  name: 'My Agent'
+});
+console.log('JWT:', token);
+console.log('Merchant ID:', merchant.id);
+
+// Login
+const login = await loginMerchant(client, {
+  email: 'agent@example.com',
+  password: 'securepassword'
+});
+console.log('JWT:', login.token);
+
+// Get current merchant info (requires JWT auth)
+const me = await getMe(client);
+console.log('Logged in as:', me.email);`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Full Onboarding Flow</h3>
+
+            <CodeBlock title="Register → Create Business → Claim DID" language="bash">
+{`# 1. Register your account
+coinpay auth register --email agent@example.com --password mypass123
+
+# 2. Create a business (generates API key)
+coinpay business create --name "My Agency" --chain ETH,SOL,BTC
+
+# 3. Set your API key
+coinpay config set-key cp_live_your_key_here
+
+# 4. Claim your DID
+coinpay reputation did claim
+
+# 5. Check your reputation
+coinpay reputation did`}
+            </CodeBlock>
           </DocSection>
         </div>
 

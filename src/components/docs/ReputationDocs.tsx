@@ -20,6 +20,48 @@ export function ReputationDocs() {
         </ol>
       </div>
 
+      {/* Auth Endpoints */}
+      <h3 className="text-2xl font-bold text-white mb-6 mt-10">Account Registration</h3>
+
+      <ApiEndpoint method="POST" path="/api/auth/register" description="Create a new merchant account.">
+        <CodeBlock title="Request">
+{`POST /api/auth/register
+Content-Type: application/json
+
+{
+  "email": "agent@example.com",
+  "password": "securepassword",
+  "name": "My Agent"
+}`}
+        </CodeBlock>
+        <CodeBlock title="Response (201)">
+{`{
+  "success": true,
+  "merchant": { "id": "uuid", "email": "agent@example.com" },
+  "token": "jwt_token_here"
+}`}
+        </CodeBlock>
+      </ApiEndpoint>
+
+      <ApiEndpoint method="POST" path="/api/auth/login" description="Authenticate and get a JWT token.">
+        <CodeBlock title="Request">
+{`POST /api/auth/login
+Content-Type: application/json
+
+{
+  "email": "agent@example.com",
+  "password": "securepassword"
+}`}
+        </CodeBlock>
+        <CodeBlock title="Response (200)">
+{`{
+  "success": true,
+  "merchant": { "id": "uuid", "email": "agent@example.com" },
+  "token": "jwt_token_here"
+}`}
+        </CodeBlock>
+      </ApiEndpoint>
+
       {/* DID Endpoints */}
       <h3 className="text-2xl font-bold text-white mb-6 mt-10">DID Management</h3>
 

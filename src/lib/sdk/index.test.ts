@@ -235,10 +235,9 @@ describe('SDK Integration Module', () => {
       expect(typeof client.createPayment).toBe('function');
     });
 
-    it('should throw error without API key', () => {
-      expect(() => {
-        new CoinPayClient({} as any);
-      }).toThrow();
+    it('should allow creation without API key (for auth operations)', () => {
+      const client = new CoinPayClient({} as any);
+      expect(client).toBeInstanceOf(CoinPayClient);
     });
   });
 
