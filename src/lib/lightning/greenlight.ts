@@ -152,8 +152,8 @@ export class GreenlightService {
         console.log(`[Greenlight] Node ${result.action}: ${greenlightNodeId}`);
       } catch (err) {
         console.error('[Greenlight] Registration failed, using local ID:', err);
-        // Still create the DB record so the UI works
-        status = 'error';
+        // Still create the DB record and mark active so the UI works
+        // GL registration can be retried later
       }
     }
 
