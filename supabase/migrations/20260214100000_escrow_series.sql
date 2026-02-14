@@ -29,20 +29,24 @@ ALTER TABLE stripe_escrows ADD COLUMN IF NOT EXISTS series_id uuid REFERENCES es
 -- RLS
 ALTER TABLE escrow_series ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "escrow_series_merchant_select" ON escrow_series;
 CREATE POLICY "escrow_series_merchant_select" ON escrow_series
   FOR SELECT USING (merchant_id IN (
     SELECT id FROM businesses WHERE merchant_id = auth.uid()
   ));
 
+DROP POLICY IF EXISTS "escrow_series_merchant_insert" ON escrow_series;
 CREATE POLICY "escrow_series_merchant_insert" ON escrow_series
   FOR INSERT WITH CHECK (merchant_id IN (
     SELECT id FROM businesses WHERE merchant_id = auth.uid()
   ));
 
+DROP POLICY IF EXISTS "escrow_series_merchant_update" ON escrow_series;
 CREATE POLICY "escrow_series_merchant_update" ON escrow_series
   FOR UPDATE USING (merchant_id IN (
     SELECT id FROM businesses WHERE merchant_id = auth.uid()
   ));
 
+DROP POLICY IF EXISTS "escrow_series_service_all" ON escrow_series;
 CREATE POLICY "escrow_series_service_all" ON escrow_series
   FOR ALL USING (current_setting('role') = 'service_role');
