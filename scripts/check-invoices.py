@@ -24,15 +24,26 @@ def main():
     last_pay_index = int(sys.argv[2])
     network = sys.argv[3] if len(sys.argv) > 3 else os.environ.get('GL_NETWORK', 'bitcoin')
 
-    cert_path = Path(os.path.expanduser(os.environ.get('GL_NOBODY_CRT', '~/.greenlight/client.crt')))
-    key_path = Path(os.path.expanduser(os.environ.get('GL_NOBODY_KEY', '~/.greenlight/client-key.pem')))
+    # Support both file paths and inline env var contents
+    cert_env = os.environ.get('GL_NOBODY_CRT', '')
+    key_env = os.environ.get('GL_NOBODY_KEY', '')
 
-    if not cert_path.exists() or not key_path.exists():
-        print(json.dumps({"error": "Greenlight credentials not found", "payments": []}))
-        sys.exit(0)
+    if cert_env.startswith('-----') or cert_env.startswith('MII'):
+        # Inline PEM content in env var
+        cert_data = cert_env.encode()
+        key_data = key_env.encode()
+    else:
+        # File path
+        cert_path = Path(os.path.expanduser(cert_env or '~/.greenlight/client.crt'))
+        key_path = Path(os.path.expanduser(key_env or '~/.greenlight/client-key.pem'))
+        if not cert_path.exists() or not key_path.exists():
+            print(json.dumps({"error": "Greenlight credentials not found", "payments": []}))
+            sys.exit(0)
+        cert_data = cert_path.read_bytes()
+        key_data = key_path.read_bytes()
 
     try:
-        creds = Credentials.nobody_with(cert_path.read_bytes(), key_path.read_bytes())
+        creds = Credentials.nobody_with(cert_data, key_data)
         scheduler = Scheduler(network, creds)
         node = scheduler.node()
 
