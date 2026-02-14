@@ -156,17 +156,21 @@ export class GreenlightService {
       return existing as LnNode;
     }
 
-    // Derive LN node keys from seed
-    const { nodeSeed, nodePublicKey } = deriveLnNodeKeys(seed);
+    // Derive LN node keys for the pubkey (used for display)
+    const { nodePublicKey } = deriveLnNodeKeys(seed);
 
     if (!this.hasGreenlightCreds()) {
       throw new Error('Greenlight credentials not configured (GL_NOBODY_CRT, GL_NOBODY_KEY). Cannot provision Lightning node.');
     }
 
+    // Greenlight Signer expects the raw BIP39 seed (first 32 bytes),
+    // NOT a derived child key. It does its own internal derivation.
+    const glSeed = seed.subarray(0, 32);
+
     // Register with real Greenlight
     const network = process.env.GL_NETWORK || 'bitcoin';
     const result = await this.callBridge('register', [
-      nodeSeed.toString('hex'),
+      Buffer.from(glSeed).toString('hex'),
       network,
     ]);
 

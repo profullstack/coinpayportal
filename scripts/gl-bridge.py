@@ -22,20 +22,23 @@ from pathlib import Path
 
 
 def fix_pem(value):
-    """Fix PEM that may have escaped newlines or be on a single line."""
+    """Fix PEM that may have escaped newlines or be on a single line.
+    Handles multi-cert chains (e.g., cert + intermediate CA)."""
     # Replace literal \n with real newlines
     value = value.replace('\\n', '\n')
     # Strip surrounding quotes if present
     value = value.strip().strip('"').strip("'")
-    # Ensure proper PEM line breaks (some env vars collapse to one line)
+    # If it already has proper newlines, return as-is
+    lines = value.strip().split('\n')
+    if len(lines) > 1 and lines[0].startswith('-----BEGIN'):
+        return value.strip() + '\n'
+    # Single line PEM — reformat
     if '-----BEGIN' in value and '\n' not in value.split('-----')[1]:
-        # Single line PEM — reformat
         parts = value.split('-----')
         if len(parts) >= 5:
             header = f"-----{parts[1]}-----"
             footer = f"-----{parts[3]}-----"
             body = parts[2].strip()
-            # Split body into 64-char lines
             lines = [body[i:i+64] for i in range(0, len(body), 64)]
             value = header + '\n' + '\n'.join(lines) + '\n' + footer + '\n'
     return value
@@ -98,37 +101,49 @@ def cmd_register(args):
 
     seed_hex = args[0]
     network = args[1] if len(args) > 1 else os.environ.get('GL_NETWORK', 'bitcoin')
+    network = clean_network(network)
     seed = bytes.fromhex(seed_hex)
 
     from glclient import Scheduler, Credentials, Signer
 
     cert_data, key_data = get_credentials()
     creds = Credentials.nobody_with(cert_data, key_data)
-
-    # Create a signer from the seed
     signer = Signer(seed, network, creds)
+    scheduler = Scheduler(network, creds)
 
+    # Try register first, then recover if already exists
     try:
-        # Try to register a new node
-        scheduler = Scheduler(network, creds)
-        result = scheduler.register(signer)
+        reg = scheduler.register(signer)
+        node_id = reg.node_id if hasattr(reg, 'node_id') else ''
+        device_cert = reg.device_cert if hasattr(reg, 'device_cert') else ''
+        device_key = reg.device_key if hasattr(reg, 'device_key') else ''
+        
+        # Log registration response fields for debugging
+        reg_fields = [f for f in dir(reg) if not f.startswith('_')]
+        print(json.dumps({"_debug_reg_fields": reg_fields}), file=sys.stderr)
+        
         return {
             "action": "registered",
-            "node_id": result.node_id if hasattr(result, 'node_id') else str(result),
+            "node_id": node_id,
             "network": network,
+            "has_device_cert": bool(device_cert),
         }
     except Exception as reg_err:
-        # If already registered, try to recover
+        reg_err_str = str(reg_err)
+        print(json.dumps({"_debug_register_error": reg_err_str}), file=sys.stderr)
+
         try:
-            scheduler = Scheduler(network, creds)
-            result = scheduler.recover(signer)
+            rec = scheduler.recover(signer)
+            node_id = rec.node_id if hasattr(rec, 'node_id') else ''
             return {
                 "action": "recovered",
-                "node_id": result.node_id if hasattr(result, 'node_id') else str(result),
+                "node_id": node_id,
                 "network": network,
             }
         except Exception as rec_err:
-            return {"error": f"Register failed: {reg_err}; Recover failed: {rec_err}"}
+            rec_err_str = str(rec_err)
+            print(json.dumps({"_debug_recover_error": rec_err_str}), file=sys.stderr)
+            return {"error": f"Register failed: {reg_err_str}; Recover failed: {rec_err_str}"}
 
 
 def cmd_get_info(args):
