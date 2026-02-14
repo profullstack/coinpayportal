@@ -73,6 +73,17 @@ export class GreenlightService {
   async provisionNode(params: ProvisionNodeParams): Promise<LnNode> {
     const { wallet_id, business_id, seed } = params;
 
+    // Check if node already exists for this wallet (idempotent)
+    const { data: existing } = await this.supabase
+      .from('ln_nodes')
+      .select('*')
+      .eq('wallet_id', wallet_id)
+      .maybeSingle();
+
+    if (existing) {
+      return existing as LnNode;
+    }
+
     // Derive LN node keys from seed
     const { nodeSeed, nodePublicKey } = deriveLnNodeKeys(seed);
 

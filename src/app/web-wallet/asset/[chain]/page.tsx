@@ -220,6 +220,7 @@ function LightningDashboard({ lnNode }: { lnNode: { id: string; status: string; 
   const [payAmount, setPayAmount] = useState('');
   const [payLoading, setPayLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const createOffer = async () => {
     if (!newOfferDesc) {
@@ -243,6 +244,7 @@ function LightningDashboard({ lnNode }: { lnNode: { id: string; status: string; 
         setMessage({ type: 'success', text: 'Offer created! Share it to receive payments.' });
         setNewOfferDesc('');
         setNewOfferAmount('');
+        setRefreshKey((k) => k + 1);
       } else {
         setMessage({ type: 'error', text: data.error?.message || 'Failed to create offer' });
       }
@@ -326,7 +328,7 @@ function LightningDashboard({ lnNode }: { lnNode: { id: string; status: string; 
           {/* Existing offers */}
           <div>
             <h3 className="text-white font-semibold mb-3">Your Offers</h3>
-            <LightningOfferCard nodeId={lnNode.id} />
+            <LightningOfferCard nodeId={lnNode.id} refreshKey={refreshKey} />
           </div>
         </div>
       )}

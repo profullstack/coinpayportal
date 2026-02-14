@@ -56,13 +56,13 @@ export function LightningSetup({
 
   if (node) {
     return (
-      <div className="rounded-lg border border-green-200 bg-green-50 p-6 text-center">
+      <div className="rounded-xl border border-green-800 bg-green-900/30 p-6 text-center">
         <div className="mb-2 text-3xl">⚡</div>
-        <h3 className="text-lg font-semibold text-green-800">Lightning Enabled!</h3>
-        <p className="mt-1 text-sm text-green-600">
+        <h3 className="text-lg font-semibold text-green-400">Lightning Enabled!</h3>
+        <p className="mt-1 text-sm text-green-500">
           Your node is ready to receive BOLT12 payments.
         </p>
-        <p className="mt-2 text-xs text-green-500 font-mono">
+        <p className="mt-2 text-xs text-green-600 font-mono">
           {node.node_pubkey?.substring(0, 20)}...
         </p>
       </div>
@@ -70,22 +70,22 @@ export function LightningSetup({
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-6 text-center">
+    <div className="rounded-xl border border-white/10 bg-white/5 p-6 text-center">
       <div className="mb-3 text-3xl">⚡</div>
-      <h3 className="text-lg font-semibold text-gray-900">Enable Lightning Network</h3>
-      <p className="mt-1 mb-4 text-sm text-gray-500">
+      <h3 className="text-lg font-semibold text-white">Enable Lightning Network</h3>
+      <p className="mt-1 mb-4 text-sm text-gray-400">
         Receive instant Bitcoin payments via BOLT12 offers.
         Your existing wallet seed derives the Lightning node identity.
       </p>
 
       {error && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">{error}</div>
+        <div className="mb-4 rounded-lg bg-red-900/30 border border-red-800 p-3 text-sm text-red-400">{error}</div>
       )}
 
       <button
         onClick={enableLightning}
         disabled={loading}
-        className="w-full rounded-md bg-amber-500 px-6 py-3 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="w-full rounded-lg bg-purple-600 px-6 py-3 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
         {loading ? (
           <span className="flex items-center justify-center gap-2">

@@ -57,7 +57,7 @@ export function LightningPayments({ nodeId, businessId, offerId }: LightningPaym
 
   if (error) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+      <div className="rounded-xl border border-red-800 bg-red-900/30 p-4 text-sm text-red-400">
         {error}
       </div>
     );
@@ -65,7 +65,7 @@ export function LightningPayments({ nodeId, businessId, offerId }: LightningPaym
 
   if (payments.length === 0) {
     return (
-      <div className="rounded-lg border border-gray-200 bg-gray-50 p-8 text-center text-sm text-gray-500">
+      <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center text-sm text-gray-400">
         <div className="mb-2 text-2xl">⚡</div>
         No Lightning payments yet
       </div>
@@ -74,8 +74,7 @@ export function LightningPayments({ nodeId, businessId, offerId }: LightningPaym
 
   return (
     <div className="space-y-2">
-      <h3 className="text-lg font-semibold text-gray-900">Lightning Payments</h3>
-      <div className="divide-y rounded-lg border border-gray-200 bg-white">
+      <div className="divide-y divide-white/10 rounded-xl border border-white/10 bg-white/5">
         {payments.map((payment) => (
           <div key={payment.id} className="flex items-center justify-between p-4">
             <div>
@@ -85,19 +84,19 @@ export function LightningPayments({ nodeId, businessId, offerId }: LightningPaym
                     payment.status === 'settled' ? 'bg-green-500' : 'bg-yellow-500'
                   }`}
                 />
-                <span className="text-sm font-medium text-gray-900">
+                <span className="text-sm font-medium text-white">
                   {Math.floor(payment.amount_msat / 1000)} sats
                 </span>
               </div>
               {payment.payer_note && (
-                <p className="mt-1 text-xs text-gray-500">{payment.payer_note}</p>
+                <p className="mt-1 text-xs text-gray-400">{payment.payer_note}</p>
               )}
-              <p className="mt-1 text-xs text-gray-400">
+              <p className="mt-1 text-xs text-gray-500 font-mono">
                 {payment.payment_hash.substring(0, 16)}...
               </p>
             </div>
-            <div className="text-right text-xs text-gray-500">
-              <div>{payment.status}</div>
+            <div className="text-right text-xs text-gray-400">
+              <div className={payment.status === 'settled' ? 'text-green-400' : 'text-yellow-400'}>{payment.status}</div>
               <div>
                 {payment.settled_at
                   ? new Date(payment.settled_at).toLocaleString()
