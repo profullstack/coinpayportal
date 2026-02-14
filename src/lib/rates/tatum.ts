@@ -25,12 +25,22 @@ const KRAKEN_PAIR_MAP: Record<string, string> = {
   'BCH': 'BCHUSD',
   'USDC': 'USDCUSD',
   'USDT': 'USDTUSD',
+  'DOGE': 'XDGUSD',
+  'XRP': 'XXRPZUSD',
+  'ADA': 'ADAUSD',
+  'BNB': 'BNBUSD',
 };
 
 /**
  * Currencies that should use Kraken (Tatum returns NaN for these)
  */
-const USE_KRAKEN = ['POL', 'MATIC', 'USDC_POL', 'USDC_MATIC', 'USDT_ETH', 'USDT_SOL', 'USDT_POL', 'USDC_ETH', 'USDC_SOL'];
+/**
+ * Currencies routed directly to Kraken (free, no rate limit).
+ * Tatum is only used for chains NOT in KRAKEN_PAIR_MAP.
+ */
+const USE_KRAKEN = Object.keys(KRAKEN_PAIR_MAP).concat([
+  'USDC_POL', 'USDC_MATIC', 'USDT_ETH', 'USDT_SOL', 'USDT_POL', 'USDC_ETH', 'USDC_SOL',
+]);
 
 /**
  * Rate cache to minimize API calls
@@ -128,10 +138,22 @@ async function getExchangeRateFromKraken(
  * @param to - Target fiat currency (USD, EUR, etc.)
  * @returns Exchange rate value
  */
+// Simple rate limiter for Tatum (3 req/sec free tier)
+let lastTatumCall = 0;
+const TATUM_MIN_INTERVAL = 350; // ms between calls (~2.8/sec, safe margin)
+
 async function getExchangeRateFromTatum(
   from: string,
   to: string
 ): Promise<number> {
+  // Throttle to stay under 3 req/sec
+  const now = Date.now();
+  const elapsed = now - lastTatumCall;
+  if (elapsed < TATUM_MIN_INTERVAL) {
+    await new Promise((r) => setTimeout(r, TATUM_MIN_INTERVAL - elapsed));
+  }
+  lastTatumCall = Date.now();
+
   const apiKey = getApiKey();
   const url = `${TATUM_API_BASE}/v3/tatum/rate/${from.toUpperCase()}?basePair=${to.toUpperCase()}`;
   
