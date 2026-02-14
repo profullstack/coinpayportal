@@ -145,7 +145,7 @@ export default function AssetDetailPage() {
 
 function LightningAssetView() {
   const { wallet } = useWebWallet();
-  const [lnNode, setLnNode] = useState<{ id: string; status: string; node_pubkey: string } | null>(null);
+  const [lnNode, setLnNode] = useState<{ id: string; status: string; node_pubkey: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'offers' | 'payments'>('offers');
 
@@ -190,7 +190,8 @@ function LightningAssetView() {
         {!lnNode ? (
           <LightningSetup
             walletId={wallet?.walletId || ''}
-            onNodeProvisioned={(node) => setLnNode(node)}
+            mnemonic={wallet?.getMnemonic() || ''}
+            onSetupComplete={(node) => setLnNode(node)}
           />
         ) : (
           <div className="space-y-6">

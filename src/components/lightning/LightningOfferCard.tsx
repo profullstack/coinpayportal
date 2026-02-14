@@ -1,18 +1,58 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { LnOffer } from '@/lib/lightning/types';
 
-interface LightningOfferCardProps {
-  offer: LnOffer;
+export interface LightningOfferCardProps {
+  offer?: LnOffer;
+  nodeId?: string;
 }
 
 /**
- * Displays a BOLT12 offer as a QR code with copy functionality.
- * Uses a simple SVG-based QR placeholder — in production, use a
- * proper QR library (qrcode.react or similar).
+ * Displays BOLT12 offer(s) as a QR code with copy functionality.
+ * Pass `offer` directly, or `nodeId` to fetch offers for a node.
  */
-export function LightningOfferCard({ offer }: LightningOfferCardProps) {
+export function LightningOfferCard({ offer: offerProp, nodeId }: LightningOfferCardProps) {
+  const [offers, setOffers] = useState<LnOffer[]>(offerProp ? [offerProp] : []);
+  const [loading, setLoading] = useState(!offerProp && !!nodeId);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (offerProp || !nodeId) return;
+    fetch(`/api/lightning/offers?node_id=${nodeId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && data.data?.offers) {
+          setOffers(data.data.offers);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [nodeId, offerProp]);
+
+  if (loading) {
+    return <div className="text-center text-sm text-gray-400 py-8">Loading offers...</div>;
+  }
+
+  if (offers.length === 0) {
+    return (
+      <div className="text-center text-sm text-gray-400 py-8">
+        No offers yet. Create one to start receiving payments.
+      </div>
+    );
+  }
+
+  // Render each offer
+  return (
+    <div className="space-y-4">
+      {offers.map((offer) => (
+        <SingleOfferCard key={offer.id} offer={offer} />
+      ))}
+    </div>
+  );
+}
+
+function SingleOfferCard({ offer }: { offer: LnOffer }) {
   const [copied, setCopied] = useState(false);
 
   const copyToClipboard = async () => {
