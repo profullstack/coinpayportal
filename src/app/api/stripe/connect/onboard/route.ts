@@ -16,7 +16,9 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    const { businessId, email, country = 'US' } = await request.json();
+    const body = await request.json();
+    const businessId = body.businessId || body.business_id;
+    const { email, country = 'US' } = body;
 
     if (!businessId) {
       return NextResponse.json({ error: 'businessId is required' }, { status: 400 });
@@ -70,7 +72,9 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({
+      success: true,
       stripe_account_id: stripeAccountId,
+      url: accountLink.url,
       onboarding_url: accountLink.url,
     });
 

@@ -51,6 +51,8 @@ export async function GET(
     const hasDisabledReason = account.requirements?.disabled_reason;
 
     return NextResponse.json({
+      success: true,
+      account_id: account.id,
       stripe_account_id: account.id,
       charges_enabled: account.charges_enabled,
       payouts_enabled: account.payouts_enabled,
