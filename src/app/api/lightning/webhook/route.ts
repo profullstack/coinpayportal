@@ -30,11 +30,22 @@ export async function POST(request: NextRequest) {
       payer_note,
     } = body;
 
+    // Handle test/ping requests
+    if (body.test || body.ping) {
+      return NextResponse.json({ status: 'ok', message: 'Webhook is reachable' });
+    }
+
     if (!offer_id || !node_id || !payment_hash || !amount_msat) {
       return WalletErrors.badRequest(
         'VALIDATION_ERROR',
         'offer_id, node_id, payment_hash, and amount_msat are required'
       );
+    }
+
+    // Validate UUID format for IDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(node_id)) {
+      return WalletErrors.badRequest('VALIDATION_ERROR', 'node_id must be a valid UUID');
     }
 
     const service = getGreenlightService();
