@@ -189,7 +189,7 @@ function LightningAssetView() {
 
         {!lnNode ? (
           <LightningSetup
-            walletId={wallet?.id || ''}
+            walletId={wallet?.walletId || ''}
             onNodeProvisioned={(node) => setLnNode(node)}
           />
         ) : (
