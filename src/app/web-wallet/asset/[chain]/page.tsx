@@ -152,8 +152,8 @@ function LightningAssetView() {
   useEffect(() => {
     if (!wallet) return;
     // Check if LN node exists for this wallet
-    fetch(`/api/lightning/nodes?wallet_id=${wallet.id}`, {
-      headers: { 'Authorization': `Bearer ${wallet.id}` },
+    fetch(`/api/lightning/nodes?wallet_id=${wallet.walletId}`, {
+      headers: { 'Authorization': `Bearer ${wallet.walletId}` },
     })
       .then((r) => r.json())
       .then((data) => {
