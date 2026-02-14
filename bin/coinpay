@@ -802,10 +802,91 @@ async function handleReputation(subCommand, args) {
       }
       break;
     }
+    case 'claim': {
+      // Import and use the reputation claim functionality
+      const { CoinPayClient } = await import('../packages/sdk/src/client.js');
+      const { claimDid, getMyDid } = await import('../packages/sdk/src/reputation.js');
+      
+      const apiKey = opts['api-key'] || process.env.COINPAY_API_KEY;
+      const jwt = opts.jwt || process.env.COINPAY_JWT_TOKEN;
+
+      if (!apiKey && !jwt) {
+        console.error('Error: --api-key or --jwt required');
+        console.error('Set COINPAY_API_KEY or COINPAY_JWT_TOKEN environment variable');
+        process.exit(1);
+      }
+
+      try {
+        const client = new CoinPayClient({
+          apiKey: apiKey || undefined,
+          bearerToken: jwt || undefined,
+          baseUrl: `${API_BASE}/api`,
+        });
+
+        console.log('🔐 Checking existing DID...');
+        
+        // Check if DID already exists
+        let existingDid;
+        try {
+          existingDid = await getMyDid(client);
+          console.log(`✅ Found existing DID: ${existingDid.did}`);
+          console.log(`   Public Key: ${existingDid.public_key}`);
+          console.log(`   Verified: ${existingDid.verified ? '✅ Yes' : '❌ No'}`);
+          console.log(`   Created: ${existingDid.created_at}`);
+          
+          const reputationUrl = `${API_BASE}/api/reputation/agent/${encodeURIComponent(existingDid.did)}/reputation`;
+          console.log(`   Reputation: ${reputationUrl}`);
+          return;
+        } catch (error) {
+          if (!error.message.includes('not found')) {
+            throw error;
+          }
+        }
+
+        console.log('🚀 Claiming new DID...');
+        
+        const result = await claimDid(client);
+        
+        console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+        console.log('║                          DID CLAIMED                            ║');
+        console.log('╠══════════════════════════════════════════════════════════════════╣');
+        console.log(`║  DID:        ${result.did}`);
+        console.log(`║  Public Key: ${result.public_key}`);
+        console.log(`║  Verified:   ${result.verified ? '✅ Yes' : '❌ No'}`);
+        console.log(`║  Created:    ${result.created_at}`);
+        console.log('╚══════════════════════════════════════════════════════════════════╝\n');
+        
+        const reputationUrl = `${API_BASE}/api/reputation/agent/${encodeURIComponent(result.did)}/reputation`;
+        console.log(`🔍 **View Reputation:** ${reputationUrl}`);
+        console.log(`📊 **Badge URL:** ${API_BASE}/api/reputation/badge/${encodeURIComponent(result.did)}`);
+        
+        console.log('\n💡 **Next Steps:**');
+        console.log('  • Submit task receipts to build reputation');
+        console.log('  • Add DID to your platform profiles');
+        console.log('  • Share reputation URL with clients');
+        console.log(`  • Use this DID: ${result.did}`);
+
+      } catch (error) {
+        const msg = error?.response
+          ? formatError(error.response.error || error.response.message || error.response)
+          : formatError(error);
+        console.error('\n❌ **DID Claim Failed:**', msg);
+        
+        if (msg.includes('Unauthorized')) {
+          console.error('\nTip: Verify your API key or JWT token is correct and has merchant permissions.');
+        } else if (msg.includes('already has a DID')) {
+          console.error('\nTip: Each merchant can only have one DID. Use `coinpay reputation profile <did>` to view existing.');
+        }
+        
+        process.exit(1);
+      }
+      break;
+    }
     case 'help': case '--help': case '-h': default:
       console.log(`
 Reputation Commands:
-  coinpay reputation profile <did>   Show trust vector and reputation for a DID
+  coinpay reputation profile <did>       Show trust vector and reputation for a DID
+  coinpay reputation claim [--api-key]   Claim a new DID for your merchant account
 `);
       break;
   }

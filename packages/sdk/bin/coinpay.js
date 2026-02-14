@@ -120,6 +120,13 @@ function createClient() {
 }
 
 /**
+ * Create unauthenticated client for auth operations
+ */
+function createUnauthenticatedClient() {
+  return new CoinPayClient({ baseUrl: getBaseUrl() });
+}
+
+/**
  * Parse command line arguments
  */
 function parseArgs(args) {
@@ -170,6 +177,11 @@ ${colors.cyan}Commands:${colors.reset}
     set-key <api-key>     Set your API key
     set-url <base-url>    Set custom API URL
     show                  Show current configuration
+
+  ${colors.bright}auth${colors.reset}
+    register              Register new merchant account
+    login                 Login to merchant account
+    me                    Show current merchant info
 
   ${colors.bright}payment${colors.reset}
     create                Create a new payment
@@ -241,6 +253,8 @@ ${colors.cyan}Commands:${colors.reset}
     badge [did]           Get embeddable reputation badge URL
     verify <id>           Verify a credential
     revocations           List revoked credentials
+    did claim             Claim (auto-generate) a new DID
+    did me                Show your current DID
     issuer register       Register platform issuer (--name, --domain)
     issuer list           List your platform issuers
     issuer rotate         Rotate issuer API key (--id)
@@ -1716,6 +1730,136 @@ async function handleEscrow(subcommand, args, flags) {
 }
 
 /**
+ * Auth commands
+ */
+async function handleAuth(subcommand, args, flags) {
+  const config = loadConfig();
+  
+  switch (subcommand) {
+    case 'register': {
+      const email = flags.email;
+      const password = flags.password;
+      const name = flags.name;
+      
+      if (!email || !password) {
+        print.error('Required: --email <email> --password <password>');
+        print.info('Example: coinpay auth register --email user@example.com --password mysecret --name "My Company"');
+        return;
+      }
+      
+      try {
+        const client = createUnauthenticatedClient();
+        const { registerMerchant } = await import('../src/auth.js');
+        const result = await registerMerchant(client, { email, password, name });
+        
+        if (result.success) {
+          // Store the JWT token in config
+          config.jwtToken = result.token;
+          saveConfig(config);
+          
+          print.success('Registration successful!');
+          print.info(`Merchant ID: ${result.merchant.id}`);
+          print.info(`Email: ${result.merchant.email}`);
+          if (result.merchant.name) {
+            print.info(`Name: ${result.merchant.name}`);
+          }
+          print.success('JWT token saved to config');
+        } else {
+          print.error(result.error || 'Registration failed');
+        }
+        
+        if (flags.json) {
+          print.json(result);
+        }
+      } catch (error) {
+        print.error(error.message);
+      }
+      break;
+    }
+    
+    case 'login': {
+      const email = flags.email;
+      const password = flags.password;
+      
+      if (!email || !password) {
+        print.error('Required: --email <email> --password <password>');
+        print.info('Example: coinpay auth login --email user@example.com --password mysecret');
+        return;
+      }
+      
+      try {
+        const client = createUnauthenticatedClient();
+        const { loginMerchant } = await import('../src/auth.js');
+        const result = await loginMerchant(client, { email, password });
+        
+        if (result.success) {
+          // Store the JWT token in config
+          config.jwtToken = result.token;
+          saveConfig(config);
+          
+          print.success('Login successful!');
+          print.info(`Merchant ID: ${result.merchant.id}`);
+          print.info(`Email: ${result.merchant.email}`);
+          if (result.merchant.name) {
+            print.info(`Name: ${result.merchant.name}`);
+          }
+          print.success('JWT token saved to config');
+        } else {
+          print.error(result.error || 'Login failed');
+        }
+        
+        if (flags.json) {
+          print.json(result);
+        }
+      } catch (error) {
+        print.error(error.message);
+      }
+      break;
+    }
+    
+    case 'me': {
+      try {
+        // Check if we have a JWT token
+        const jwtToken = config.jwtToken;
+        if (!jwtToken) {
+          print.error('Not authenticated. Run: coinpay auth login');
+          return;
+        }
+        
+        // Create client with JWT token instead of API key
+        const client = new CoinPayClient({ apiKey: jwtToken, baseUrl: getBaseUrl() });
+        const { getMe } = await import('../src/auth.js');
+        const result = await getMe(client);
+        
+        print.success('Current merchant:');
+        print.info(`ID: ${result.id}`);
+        print.info(`Email: ${result.email}`);
+        if (result.name) {
+          print.info(`Name: ${result.name}`);
+        }
+        print.info(`Created: ${result.created_at}`);
+        
+        if (flags.json) {
+          print.json(result);
+        }
+      } catch (error) {
+        if (error.message.includes('401') || error.message.includes('403')) {
+          print.error('Authentication failed. Please run: coinpay auth login');
+        } else {
+          print.error(error.message);
+        }
+      }
+      break;
+    }
+    
+    default:
+      print.error(`Unknown auth command: ${subcommand}`);
+      print.info('Available: register, login, me');
+      process.exit(1);
+  }
+}
+
+/**
  * Reputation commands
  */
 async function handleReputation(subcommand, args, flags) {
@@ -1894,6 +2038,21 @@ async function handleReputation(subcommand, args, flags) {
           console.log(`  Verified: ${result.verified}`);
         } else {
           print.error(result.error || 'Failed to link DID');
+        }
+
+        if (flags.json) print.json(result);
+      } else if (didSubcommand === 'me') {
+        // Show current DID
+        const { getMyDid } = await import('../src/reputation.js');
+        const result = await getMyDid(client);
+
+        if (result.did) {
+          print.success(`Your DID: ${result.did}`);
+          console.log(`  Public Key: ${result.public_key}`);
+          console.log(`  Verified: ${result.verified}`);
+          console.log(`  Created: ${result.created_at}`);
+        } else {
+          print.info('No DID found. Run: coinpay reputation did claim');
         }
 
         if (flags.json) print.json(result);
@@ -2449,6 +2608,10 @@ async function main() {
         await handleCard(subcommand, args, flags);
         break;
 
+      case 'auth':
+        await handleAuth(subcommand, args, flags);
+        break;
+        
       case 'reputation':
         await handleReputation(subcommand, args, flags);
         break;

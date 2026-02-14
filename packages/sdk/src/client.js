@@ -16,15 +16,11 @@ export class CoinPayClient {
   /**
    * Create a new CoinPay client
    * @param {Object} options - Client options
-   * @param {string} options.apiKey - Your CoinPay API key
+   * @param {string} [options.apiKey] - Your CoinPay API key (optional for auth operations)
    * @param {string} [options.baseUrl] - API base URL (default: https://coinpayportal.com/api)
    * @param {number} [options.timeout] - Request timeout in ms (default: 30000)
    */
-  constructor({ apiKey, baseUrl = DEFAULT_BASE_URL, timeout = 30000 }) {
-    if (!apiKey) {
-      throw new Error('API key is required');
-    }
-
+  constructor({ apiKey, baseUrl = DEFAULT_BASE_URL, timeout = 30000 } = {}) {
     this.#apiKey = apiKey;
     this.#baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
     this.#timeout = timeout;
@@ -37,6 +33,10 @@ export class CoinPayClient {
    * @returns {Promise<Object>} API response
    */
   async request(endpoint, options = {}) {
+    if (!this.#apiKey) {
+      throw new Error('API key is required for authenticated requests. Use requestUnauthenticated() for registration/login.');
+    }
+
     const url = `${this.#baseUrl}${endpoint}`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.#timeout);
@@ -48,6 +48,47 @@ export class CoinPayClient {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.#apiKey}`,
+          ...options.headers,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        const error = new Error(data.error || `HTTP ${response.status}`);
+        error.status = response.status;
+        error.response = data;
+        throw error;
+      }
+
+      return data;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error(`Request timeout after ${this.#timeout}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
+   * Make an unauthenticated API request (for registration/login)
+   * @param {string} endpoint - API endpoint
+   * @param {Object} [options] - Fetch options
+   * @returns {Promise<Object>} API response
+   */
+  async requestUnauthenticated(endpoint, options = {}) {
+    const url = `${this.#baseUrl}${endpoint}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.#timeout);
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
           ...options.headers,
         },
       });

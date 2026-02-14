@@ -88,7 +88,17 @@ import {
   getBadgeUrl,
   verifyCredential,
   getRevocationList,
+  claimDid,
+  linkDid,
+  getMyDid,
 } from './reputation.js';
+
+// Auth exports
+import {
+  registerMerchant,
+  loginMerchant,
+  getMe,
+} from './auth.js';
 
 import {
   SwapClient,
@@ -216,8 +226,19 @@ export {
   submitReceipt,
   getReputation,
   getCredential,
+  getCredentials,
+  getReceipts,
+  getBadgeUrl,
   verifyCredential,
   getRevocationList,
+  claimDid,
+  linkDid,
+  getMyDid,
+  
+  // Auth
+  registerMerchant,
+  loginMerchant,
+  getMe,
   
   // Webhook utilities
   verifyWebhookSignature,

@@ -13,12 +13,14 @@ describe('CoinPayClient', () => {
       expect(client).toBeInstanceOf(CoinPayClient);
     });
 
-    it('should throw error when API key is missing', () => {
-      expect(() => new CoinPayClient({})).toThrow('API key is required');
+    it('should allow creating client without API key (for auth operations)', () => {
+      const client = new CoinPayClient({});
+      expect(client).toBeInstanceOf(CoinPayClient);
     });
 
-    it('should throw error when API key is empty', () => {
-      expect(() => new CoinPayClient({ apiKey: '' })).toThrow('API key is required');
+    it('should allow creating client with empty API key', () => {
+      const client = new CoinPayClient({ apiKey: '' });
+      expect(client).toBeInstanceOf(CoinPayClient);
     });
 
     it('should use default base URL when not provided', () => {

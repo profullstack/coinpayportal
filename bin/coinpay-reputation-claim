@@ -1,0 +1,180 @@
+#!/usr/bin/env node
+
+/**
+ * CoinPay CLI - Reputation DID Claim Command
+ * 
+ * Usage:
+ *   coinpay reputation claim --api-key <key>
+ *   coinpay reputation claim --jwt <token>
+ * 
+ * This adds the missing `claim` command to the reputation module.
+ */
+
+import { CoinPayClient } from '../packages/sdk/src/client.js';
+import { claimDid, getMyDid } from '../packages/sdk/src/reputation.js';
+
+const API_BASE = process.env.COINPAY_API_URL || 'https://coinpayportal.com';
+
+function parseArgs(args) {
+  const opts = {};
+  const positional = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith('--')) {
+      const key = arg.slice(2);
+      const value = args[i + 1];
+      if (value && !value.startsWith('--')) {
+        opts[key] = value;
+        i++;
+      } else {
+        opts[key] = true;
+      }
+    } else {
+      positional.push(arg);
+    }
+  }
+  opts._positional = positional;
+  return opts;
+}
+
+function formatError(err) {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  try { return JSON.stringify(err); } catch { return String(err); }
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const opts = parseArgs(args);
+
+  if (opts.help || opts.h || opts._positional.includes('help')) {
+    showHelp();
+    return;
+  }
+
+  // Get API key or JWT token
+  const apiKey = opts['api-key'] || process.env.COINPAY_API_KEY;
+  const jwt = opts.jwt || process.env.COINPAY_JWT_TOKEN;
+
+  if (!apiKey && !jwt) {
+    console.error('Error: --api-key or --jwt required');
+    console.error('Set COINPAY_API_KEY or COINPAY_JWT_TOKEN environment variable');
+    process.exit(1);
+  }
+
+  try {
+    // Create client
+    const client = new CoinPayClient({
+      apiKey: apiKey || undefined,
+      bearerToken: jwt || undefined,
+      baseUrl: `${API_BASE}/api`,
+    });
+
+    console.log('🔐 Checking existing DID...');
+    
+    // Check if DID already exists
+    let existingDid;
+    try {
+      existingDid = await getMyDid(client);
+      console.log(`✅ Found existing DID: ${existingDid.did}`);
+      console.log(`   Public Key: ${existingDid.public_key}`);
+      console.log(`   Verified: ${existingDid.verified ? '✅ Yes' : '❌ No'}`);
+      console.log(`   Created: ${existingDid.created_at}`);
+      
+      // Display reputation URL
+      const reputationUrl = `${API_BASE}/api/reputation/agent/${encodeURIComponent(existingDid.did)}/reputation`;
+      console.log(`   Reputation: ${reputationUrl}`);
+      
+      return;
+    } catch (error) {
+      if (!error.message.includes('not found')) {
+        throw error;
+      }
+    }
+
+    console.log('🚀 Claiming new DID...');
+    
+    // Claim new DID
+    const result = await claimDid(client);
+    
+    console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+    console.log('║                          DID CLAIMED                            ║');
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+    console.log(`║  DID:        ${result.did}`);
+    console.log(`║  Public Key: ${result.public_key}`);
+    console.log(`║  Verified:   ${result.verified ? '✅ Yes' : '❌ No'}`);
+    console.log(`║  Created:    ${result.created_at}`);
+    console.log('╚══════════════════════════════════════════════════════════════════╝\n');
+    
+    // Display reputation URL
+    const reputationUrl = `${API_BASE}/api/reputation/agent/${encodeURIComponent(result.did)}/reputation`;
+    console.log(`🔍 **View Reputation:** ${reputationUrl}`);
+    console.log(`📊 **Badge URL:** ${API_BASE}/api/reputation/badge/${encodeURIComponent(result.did)}`);
+    
+    console.log('\n💡 **Next Steps:**');
+    console.log('  • Submit task receipts to build reputation');
+    console.log('  • Add DID to your platform profiles');
+    console.log('  • Share reputation URL with clients');
+    console.log(`  • Use this DID: ${result.did}`);
+
+  } catch (error) {
+    const msg = error?.response
+      ? formatError(error.response.error || error.response.message || error.response)
+      : formatError(error);
+    console.error('\n❌ **DID Claim Failed:**', msg);
+    
+    if (msg.includes('Unauthorized')) {
+      console.error('\nTip: Verify your API key or JWT token is correct and has merchant permissions.');
+    } else if (msg.includes('already has a DID')) {
+      console.error('\nTip: Each merchant can only have one DID. Use `coinpay reputation profile <did>` to view existing.');
+    }
+    
+    process.exit(1);
+  }
+}
+
+function showHelp() {
+  console.log(`
+CoinPay Reputation - DID Claim
+
+USAGE
+  coinpay reputation claim [options]
+
+OPTIONS
+  --api-key <key>     Business API key (or COINPAY_API_KEY env)
+  --jwt <token>       JWT token (or COINPAY_JWT_TOKEN env)
+  --help, -h          Show this help
+
+DESCRIPTION
+  Claims a new DID (Decentralized Identifier) for the authenticated merchant
+  account. Each merchant can only have one DID. The DID is automatically 
+  generated using ed25519 cryptography and follows the did:key specification.
+
+EXAMPLES
+  coinpay reputation claim --api-key cp_live_abc123...
+  coinpay reputation claim --jwt eyJhbGciOiJIUzI1NiI...
+  
+  # Using environment variables
+  export COINPAY_API_KEY=cp_live_abc123...
+  coinpay reputation claim
+
+OUTPUT
+  The command will display your DID, public key, verification status, and
+  provide links to view your reputation profile and badge.
+
+NEXT STEPS
+  After claiming your DID:
+  1. Submit task receipts to build reputation
+  2. Add DID to your platform profiles  
+  3. Share reputation URL with clients
+  4. Monitor trust vector development
+
+More info: https://coinpayportal.com/docs/reputation
+`);
+}
+
+// Run the command
+main().catch((error) => {
+  console.error('Fatal error:', error);
+  process.exit(1);
+});
