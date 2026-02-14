@@ -43,3 +43,4 @@ next-env.d.ts
 # Wallet backups (encrypted)
 backups/
 packages/sdk/node_modules/
+.venv/
