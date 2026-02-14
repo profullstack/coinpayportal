@@ -613,6 +613,39 @@ async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowStats> {
       }
     }
 
+    // ── 1b. Check funded escrows for expiration (auto-refund) ──
+    const { data: fundedEscrows } = await supabase
+      .from('escrows')
+      .select('id, escrow_address, escrow_address_id, chain, deposited_amount, depositor_address, expires_at')
+      .eq('status', 'funded')
+      .lt('expires_at', now.toISOString())
+      .limit(50);
+
+    if (fundedEscrows && fundedEscrows.length > 0) {
+      console.log(`[Monitor] ${fundedEscrows.length} funded escrows expired — auto-refunding`);
+      for (const escrow of fundedEscrows) {
+        try {
+          // Mark as refunded so step 3 picks it up for settlement
+          await supabase
+            .from('escrows')
+            .update({ status: 'refunded' })
+            .eq('id', escrow.id)
+            .eq('status', 'funded');
+          await supabase.from('escrow_events').insert({
+            escrow_id: escrow.id,
+            event_type: 'expired_refund',
+            actor: 'system',
+            details: { reason: 'Funded escrow expired without release' },
+          });
+          stats.expired++;
+          console.log(`[Monitor] Funded escrow ${escrow.id} expired — marked for refund`);
+        } catch (err) {
+          console.error(`[Monitor] Error expiring funded escrow ${escrow.id}:`, err);
+          stats.errors++;
+        }
+      }
+    }
+
     // ── 2. Process released escrows (trigger settlement/forwarding) ──
     const { data: releasedEscrows } = await supabase
       .from('escrows')
