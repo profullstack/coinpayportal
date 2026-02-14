@@ -1,5 +1,5 @@
 [build]
-buildCommand = "pnpm install --no-frozen-lockfile && (sh scripts/install-gl-client.sh || echo 'GL install failed, continuing...') && pnpm run build"
+buildCommand = "pnpm install --no-frozen-lockfile && sh scripts/install-gl-client.sh; pnpm run build"
 
 [deploy]
 startCommand = "NODE_OPTIONS=--max-old-space-size=512 pnpm start"
