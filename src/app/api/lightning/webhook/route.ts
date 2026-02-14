@@ -26,15 +26,13 @@ export async function POST(request: NextRequest) {
       // Empty body or invalid JSON — treat as ping
       return NextResponse.json({ status: 'ok', message: 'Webhook is reachable' });
     }
-    const {
-      offer_id,
-      node_id,
-      business_id,
-      payment_hash,
-      preimage,
-      amount_msat,
-      payer_note,
-    } = body;
+    const offer_id = body.offer_id as string;
+    const node_id = body.node_id as string;
+    const business_id = body.business_id as string | undefined;
+    const payment_hash = body.payment_hash as string;
+    const preimage = body.preimage as string | undefined;
+    const amount_msat = body.amount_msat as number;
+    const payer_note = body.payer_note as string | undefined;
 
     // Handle test/ping requests
     if (body.test || body.ping) {
@@ -50,7 +48,7 @@ export async function POST(request: NextRequest) {
 
     // Validate UUID format for IDs
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(node_id)) {
+    if (!uuidRegex.test(String(node_id))) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'node_id must be a valid UUID');
     }
 

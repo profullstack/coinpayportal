@@ -177,7 +177,7 @@ async function settleReleasedEscrows(supabase: SupabaseClient): Promise<void> {
   const internalApiKey = process.env.INTERNAL_API_KEY;
 
   // Chains that support automated on-chain settlement
-  const SETTLEABLE_CHAINS = ['BTC', 'ETH', 'SOL', 'POL', 'BCH', 'USDC_ETH', 'USDC_SOL', 'USDC_POL'];
+  const SETTLEABLE_CHAINS = ['BTC', 'ETH', 'SOL', 'POL', 'BCH', 'BNB', 'DOGE', 'USDC_ETH', 'USDC_SOL', 'USDC_POL'];
 
   for (const escrow of releasedEscrows) {
     // Skip chains without sendTransaction support to avoid retry spam
