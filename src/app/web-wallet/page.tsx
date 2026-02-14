@@ -119,16 +119,26 @@ function DashboardView() {
       const balanceData = await wallet.getTotalBalanceUSD();
       setTotalUsd(balanceData.totalUsd);
       const CHAIN_ORDER: Record<string, number> = {
-        BTC: 0, ETH: 1, SOL: 2, POL: 3, BCH: 4,
+        BTC: 0, LN: 1, ETH: 2, SOL: 3, POL: 4, BCH: 5,
         USDC_ETH: 5, USDC_SOL: 6, USDC_POL: 7,
       };
-      const sorted = balanceData.balances
+      const mapped = balanceData.balances
         .map((b) => ({
           chain: b.chain,
           address: b.address,
           balance: b.balance,
           usdValue: b.usdValue,
-        }))
+        }));
+      // Add Lightning Network entry if not already present
+      if (!mapped.some((a) => a.chain === 'LN')) {
+        mapped.push({
+          chain: 'LN',
+          address: 'Lightning Network',
+          balance: '⚡',
+          usdValue: 0,
+        });
+      }
+      const sorted = mapped
         .sort((a, b) => (CHAIN_ORDER[a.chain] ?? 99) - (CHAIN_ORDER[b.chain] ?? 99));
       setAssets(sorted);
     } catch (err) {
@@ -188,6 +198,7 @@ function DashboardView() {
         'DOGE', 'XRP', 'ADA', 'BNB',
         'USDT', 'USDC',
         'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+        'LN',
       ];
       for (const chain of walletChains) {
         try {

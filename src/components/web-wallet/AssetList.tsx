@@ -92,6 +92,7 @@ export function AssetList({ assets, isLoading, onSelect, onDeriveAll, isDeriving
 function getSymbol(chain: string): string {
   const map: Record<string, string> = {
     BTC: 'BTC',
+    LN: '⚡ LN',
     BCH: 'BCH',
     ETH: 'ETH',
     POL: 'POL',
