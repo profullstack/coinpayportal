@@ -9,9 +9,13 @@ import { getGreenlightService } from '@/lib/lightning/greenlight';
  */
 export async function POST(request: NextRequest) {
   try {
-    // Verify internal webhook secret
-    const authHeader = request.headers.get('x-webhook-secret');
-    const expectedSecret = process.env.LN_WEBHOOK_SECRET;
+    // Verify webhook secret (supports both Greenlight and internal calls)
+    const authHeader =
+      request.headers.get('x-webhook-secret') ||
+      request.headers.get('x-gl-webhook-secret') ||
+      request.headers.get('authorization')?.replace('Bearer ', '');
+    const expectedSecret =
+      process.env.GL_WEBHOOK_SECRET || process.env.LN_WEBHOOK_SECRET;
     if (expectedSecret && authHeader !== expectedSecret) {
       return WalletErrors.unauthorized('Invalid webhook secret');
     }
