@@ -1,5 +1,5 @@
 [build]
-buildCommand = "pnpm install --no-frozen-lockfile && pnpm run build"
+buildCommand = "pnpm install --no-frozen-lockfile && python3 -m venv .venv && .venv/bin/pip install gl-client requests && pnpm run build"
 
 [deploy]
 startCommand = "NODE_OPTIONS=--max-old-space-size=512 pnpm start"
