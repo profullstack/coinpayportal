@@ -34,6 +34,8 @@ const EXPLORER_URLS: Record<string, string> = {
   USDC_ETH: 'https://etherscan.io/tx/',
   USDC_POL: 'https://polygonscan.com/tx/',
   USDC_SOL: 'https://explorer.solana.com/tx/',
+  XRP: 'https://xrpscan.com/tx/',
+  ADA: 'https://cardanoscan.io/transaction/',
 };
 
 // ── Constants ──
@@ -47,6 +49,8 @@ const CHAIN_NAMES: Record<string, string> = {
   USDC_ETH: 'USDC (Ethereum)',
   USDC_POL: 'USDC (Polygon)',
   USDC_SOL: 'USDC (Solana)',
+  XRP: 'XRP',
+  ADA: 'Cardano',
 };
 
 const CHAIN_SYMBOLS: Record<string, string> = {
@@ -58,6 +62,8 @@ const CHAIN_SYMBOLS: Record<string, string> = {
   USDC_ETH: 'USDC',
   USDC_POL: 'USDC',
   USDC_SOL: 'USDC',
+  XRP: 'XRP',
+  ADA: 'ADA',
 };
 
 const CHAIN_WARNINGS: Record<string, string> = {
@@ -69,6 +75,8 @@ const CHAIN_WARNINGS: Record<string, string> = {
   USDC_ETH: 'Only send USDC on Ethereum to this address. USDC on other networks is not compatible.',
   USDC_POL: 'Only send USDC on Polygon to this address. USDC on other networks is not compatible.',
   USDC_SOL: 'Only send USDC on Solana to this address. USDC on other networks is not compatible.',
+  XRP: 'Only send XRP to this address. Sending other assets will result in permanent loss.',
+  ADA: 'Only send ADA to this address. Sending other assets will result in permanent loss.',
 };
 
 type Tab = 'send' | 'receive' | 'history';

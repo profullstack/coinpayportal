@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",
+    "@emurgo/cardano-serialization-lib-nodejs": "^15.0.3",
     "@grpc/grpc-js": "^1.14.3",
     "@grpc/proto-loader": "^0.8.0",
     "@metamask/sdk": "^0.34.0",
@@ -63,6 +64,7 @@
     "tiny-secp256k1": "^2.2.4",
     "tweetnacl": "^1.0.3",
     "viem": "^2.40.3",
+    "xrpl": "^4.6.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {

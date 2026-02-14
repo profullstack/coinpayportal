@@ -274,6 +274,102 @@ async function scanSOLTransactions(address: string, rpcUrl: string): Promise<Raw
   return results;
 }
 
+/**
+ * Fetch XRP transactions for an address via XRPL JSON-RPC.
+ */
+async function scanXRPTransactions(address: string): Promise<RawTransaction[]> {
+  const rpcUrl = process.env.XRP_RPC_URL || 'https://xrplcluster.com';
+  const response = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      method: 'account_tx',
+      params: [{ account: address, limit: 50, ledger_index_min: -1, ledger_index_max: -1 }],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`XRP tx scan failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  if (data.result?.error === 'actNotFound') {
+    return [];
+  }
+  if (data.result?.error) {
+    throw new Error(`XRP RPC error: ${data.result.error}`);
+  }
+
+  const results: RawTransaction[] = [];
+  for (const entry of data.result?.transactions || []) {
+    const tx = entry.tx || entry.tx_json;
+    if (!tx || tx.TransactionType !== 'Payment') continue;
+
+    const amountDrops = typeof tx.Amount === 'string' ? parseInt(tx.Amount, 10) : 0;
+    if (amountDrops === 0) continue; // Skip non-XRP payments
+
+    results.push({
+      tx_hash: tx.hash || entry.hash,
+      from_address: tx.Account || 'unknown',
+      to_address: tx.Destination || 'unknown',
+      amount: (amountDrops / 1_000_000).toString(),
+      fee_amount: tx.Fee ? (parseInt(tx.Fee, 10) / 1_000_000).toString() : undefined,
+      block_number: entry.ledger_index,
+      block_timestamp: tx.date
+        ? new Date((tx.date + 946684800) * 1000).toISOString() // XRPL epoch offset
+        : undefined,
+      confirmations: entry.validated ? 1 : 0,
+      status: entry.validated ? 'confirmed' : 'pending',
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Fetch ADA transactions for an address via Blockfrost API.
+ */
+async function scanADATransactions(address: string): Promise<RawTransaction[]> {
+  const rpcUrl = process.env.ADA_RPC_URL || 'https://cardano-mainnet.blockfrost.io/api/v0';
+  const apiKey = process.env.BLOCKFROST_API_KEY;
+  if (!apiKey) {
+    console.error('[ADA] BLOCKFROST_API_KEY not configured');
+    return [];
+  }
+
+  const response = await fetch(`${rpcUrl}/addresses/${address}/transactions?order=desc&count=50`, {
+    method: 'GET',
+    headers: { 'project_id': apiKey },
+  });
+
+  if (response.status === 404) {
+    return [];
+  }
+  if (!response.ok) {
+    throw new Error(`ADA tx scan failed: ${response.status}`);
+  }
+
+  const txs = await response.json();
+  const results: RawTransaction[] = [];
+
+  for (const tx of txs) {
+    results.push({
+      tx_hash: tx.tx_hash,
+      from_address: 'unknown',
+      to_address: address,
+      amount: '0', // Would need /txs/{hash}/utxos for exact amounts
+      block_number: tx.block_height,
+      block_timestamp: tx.block_time
+        ? new Date(tx.block_time * 1000).toISOString()
+        : undefined,
+      confirmations: 1, // If returned by Blockfrost, it's confirmed
+      status: 'confirmed',
+    });
+  }
+
+  return results;
+}
+
 // ──────────────────────────────────────────────
 // Unified Scanner
 // ──────────────────────────────────────────────
@@ -303,6 +399,10 @@ export async function scanTransactions(
     case 'SOL':
     case 'USDC_SOL':
       return scanSOLTransactions(address, rpc.SOL);
+    case 'XRP':
+      return scanXRPTransactions(address);
+    case 'ADA':
+      return scanADATransactions(address);
     default:
       return [];
   }

@@ -338,6 +338,79 @@ export async function checkSolanaBalance(address: string, rpcUrl: string): Promi
 }
 
 /**
+ * Check balance for an XRP address using XRPL JSON-RPC
+ */
+export async function checkXRPBalance(address: string, rpcUrl: string): Promise<number> {
+  try {
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        method: 'account_info',
+        params: [{ account: address, ledger_index: 'validated' }],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`Failed to fetch XRP balance for ${address}: ${response.status}`);
+      return 0;
+    }
+
+    const data = await response.json();
+
+    if (data.result?.error === 'actNotFound') {
+      return 0;
+    }
+
+    if (data.result?.error) {
+      console.error(`XRP RPC error for ${address}:`, data.result.error);
+      return 0;
+    }
+
+    const balanceDrops = parseInt(data.result?.account_data?.Balance || '0', 10);
+    return balanceDrops / 1_000_000;
+  } catch (error) {
+    console.error(`Error checking XRP balance for ${address}:`, error);
+    return 0;
+  }
+}
+
+/**
+ * Check balance for a Cardano (ADA) address using Blockfrost API
+ */
+export async function checkADABalance(address: string, rpcUrl: string): Promise<number> {
+  try {
+    const apiKey = process.env.BLOCKFROST_API_KEY;
+    if (!apiKey) {
+      console.error('[ADA] BLOCKFROST_API_KEY not configured');
+      return 0;
+    }
+
+    const response = await fetch(`${rpcUrl}/addresses/${address}`, {
+      method: 'GET',
+      headers: { 'project_id': apiKey },
+    });
+
+    if (response.status === 404) {
+      return 0;
+    }
+
+    if (!response.ok) {
+      console.error(`Failed to fetch ADA balance for ${address}: ${response.status}`);
+      return 0;
+    }
+
+    const data = await response.json();
+    const lovelaceEntry = (data.amount || []).find((a: { unit: string; quantity: string }) => a.unit === 'lovelace');
+    const lovelace = parseInt(lovelaceEntry?.quantity || '0', 10);
+    return lovelace / 1_000_000;
+  } catch (error) {
+    console.error(`Error checking ADA balance for ${address}:`, error);
+    return 0;
+  }
+}
+
+/**
  * Check balance for any supported blockchain
  */
 export async function checkBalance(address: string, blockchain: string): Promise<number> {
@@ -363,11 +436,9 @@ export async function checkBalance(address: string, blockchain: string): Promise
       console.log(`DOGE balance check not yet implemented for ${address}`);
       return 0;
     case 'XRP':
-      console.log(`XRP balance check not yet implemented for ${address}`);
-      return 0;
+      return checkXRPBalance(address, RPC_ENDPOINTS.XRP);
     case 'ADA':
-      console.log(`ADA balance check not yet implemented for ${address}`);
-      return 0;
+      return checkADABalance(address, RPC_ENDPOINTS.ADA);
     default:
       console.error(`Unsupported blockchain: ${blockchain}`);
       return 0;

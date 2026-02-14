@@ -55,6 +55,8 @@ const CHAIN_COLORS: Record<string, string> = {
   USDC_ETH: 'bg-blue-500/20 text-blue-300',
   USDC_POL: 'bg-purple-500/20 text-purple-300',
   USDC_SOL: 'bg-cyan-500/20 text-cyan-300',
+  XRP: 'bg-teal-500/20 text-teal-400',
+  ADA: 'bg-blue-600/20 text-blue-400',
 };
 
 export function ChainBadge({ chain }: { chain: string }) {
