@@ -21,6 +21,9 @@ import type { WalletChain } from '@/lib/web-wallet/identity';
 import { isValidChain } from '@/lib/web-wallet/identity';
 import type { TransactionListOptions } from '@/lib/wallet-sdk/types';
 import { SUPPORTED_FIAT_CURRENCIES, type FiatCurrency } from '@/lib/web-wallet/settings';
+import { LightningSetup } from '@/components/lightning/LightningSetup';
+import { LightningOfferCard } from '@/components/lightning/LightningOfferCard';
+import { LightningPayments } from '@/components/lightning/LightningPayments';
 
 const EXPLORER_URLS: Record<string, string> = {
   BTC: 'https://blockstream.info/tx/',
@@ -130,7 +133,114 @@ export default function AssetDetailPage() {
     );
   }
 
+  // Lightning Network gets its own dedicated view
+  if (rawChain === 'LN') {
+    return <LightningAssetView />;
+  }
+
   return <AssetDetailView chain={rawChain} />;
+}
+
+// ── Lightning Asset View ──
+
+function LightningAssetView() {
+  const { wallet } = useWebWallet();
+  const [lnNode, setLnNode] = useState<{ id: string; status: string; node_pubkey: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'offers' | 'payments'>('offers');
+
+  useEffect(() => {
+    if (!wallet) return;
+    // Check if LN node exists for this wallet
+    fetch(`/api/lightning/nodes?wallet_id=${wallet.id}`, {
+      headers: { 'Authorization': `Bearer ${wallet.id}` },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && data.data?.node) {
+          setLnNode(data.data.node);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [wallet]);
+
+  if (loading) {
+    return (
+      <>
+        <WalletHeader />
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-purple-500 border-t-transparent" />
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <WalletHeader />
+      <div className="mx-auto max-w-lg px-4 py-8">
+        <div className="mb-6 flex items-center gap-3">
+          <Link href="/web-wallet" className="text-gray-400 hover:text-white transition-colors">
+            ← Back
+          </Link>
+          <h1 className="text-2xl font-bold text-white">⚡ Lightning Network</h1>
+        </div>
+
+        {!lnNode ? (
+          <LightningSetup
+            walletId={wallet?.id || ''}
+            onNodeProvisioned={(node) => setLnNode(node)}
+          />
+        ) : (
+          <div className="space-y-6">
+            {/* Node status */}
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-400">Node Status</span>
+                <span className={`text-sm font-medium ${lnNode.status === 'active' ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {lnNode.status}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-gray-500 font-mono truncate">{lnNode.node_pubkey}</p>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setActiveTab('offers')}
+                className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                  activeTab === 'offers'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-white/5 text-gray-400 hover:text-white'
+                }`}
+              >
+                Offers
+              </button>
+              <button
+                onClick={() => setActiveTab('payments')}
+                className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                  activeTab === 'payments'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-white/5 text-gray-400 hover:text-white'
+                }`}
+              >
+                Payments
+              </button>
+            </div>
+
+            {/* Tab content */}
+            {activeTab === 'offers' && (
+              <LightningOfferCard nodeId={lnNode.id} />
+            )}
+            {activeTab === 'payments' && (
+              <LightningPayments nodeId={lnNode.id} />
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
 }
 
 // ── Asset Detail View ──
