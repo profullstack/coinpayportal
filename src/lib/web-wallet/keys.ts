@@ -70,6 +70,7 @@ export const DERIVABLE_CHAINS = [
   'XRP',
   'ADA',
   'BNB',
+  'LN',
   // USDC tokens (same address as parent chain)
   'USDC_ETH',
   'USDC_POL',
@@ -95,6 +96,7 @@ export const DERIVABLE_CHAIN_INFO: Record<DerivableChain, { name: string; symbol
   XRP: { name: 'XRP', symbol: 'XRP' },
   ADA: { name: 'Cardano', symbol: 'ADA' },
   BNB: { name: 'BNB Smart Chain', symbol: 'BNB' },
+  LN: { name: 'Lightning Network', symbol: 'LN' },
   USDC_ETH: { name: 'USDC (Ethereum)', symbol: 'USDC' },
   USDC_POL: { name: 'USDC (Polygon)', symbol: 'USDC' },
   USDC_SOL: { name: 'USDC (Solana)', symbol: 'USDC' },
@@ -237,6 +239,8 @@ export async function deriveKeyForChain(
       return deriveXRP(seed, index);
     case 'ADA':
       return deriveADA(seed, index);
+    case 'LN':
+      return deriveLN(seed, index);
     default:
       throw new Error(`Unsupported chain: ${chain}`);
   }
@@ -517,6 +521,30 @@ async function deriveEd25519(
     address,
     publicKey: address, // Solana public key IS the address
     privateKey: key.toString('hex'),
+  };
+}
+
+/**
+ * Derive Lightning Network node identity key.
+ * Uses m/535'/0' (535 = "LN" in l33t, hardened).
+ * The public key serves as the node identity for Greenlight.
+ */
+function deriveLN(seed: Uint8Array, index: number): DerivedKey {
+  const hdKey = HDKey.fromMasterSeed(seed);
+  const path = `m/535'/${index}'`;
+  const child = hdKey.derive(path);
+
+  if (!child.privateKey) throw new Error('Failed to derive LN key');
+
+  const publicKey = secp256k1.getPublicKey(child.privateKey, true);
+
+  return {
+    chain: 'LN',
+    address: Buffer.from(publicKey).toString('hex'), // Node pubkey as "address"
+    publicKey: Buffer.from(publicKey).toString('hex'),
+    privateKey: Buffer.from(child.privateKey).toString('hex'),
+    derivationPath: path,
+    index,
   };
 }
 

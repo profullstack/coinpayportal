@@ -10,14 +10,14 @@ import { secp256k1 } from '@noble/curves/secp256k1';
 /** Supported chains for web wallet */
 export type WalletChain =
   | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
-  | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
+  | 'DOGE' | 'XRP' | 'ADA' | 'BNB' | 'LN'
   | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL'
   | 'USDT_ETH' | 'USDT_POL' | 'USDT_SOL';
 
 /** All valid chain values */
 export const VALID_CHAINS: WalletChain[] = [
   'BTC', 'BCH', 'ETH', 'POL', 'SOL',
-  'DOGE', 'XRP', 'ADA', 'BNB',
+  'DOGE', 'XRP', 'ADA', 'BNB', 'LN',
   'USDC_ETH', 'USDC_POL', 'USDC_SOL',
   'USDT_ETH', 'USDT_POL', 'USDT_SOL',
 ];
@@ -33,6 +33,7 @@ export const DERIVATION_PATHS: Record<string, string> = {
   XRP: "m/44'/144'/0'/0",
   ADA: "m/1852'/1815'/0'/0'",
   BNB: "m/44'/60'/0'/0",
+  LN: "m/535'/0'",
   USDC_ETH: "m/44'/60'/0'/0",
   USDC_POL: "m/44'/60'/0'/0",
   USDC_SOL: "m/44'/501'",

@@ -26,6 +26,8 @@
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",
+    "@grpc/grpc-js": "^1.14.3",
+    "@grpc/proto-loader": "^0.8.0",
     "@metamask/sdk": "^0.34.0",
     "@noble/curves": "^2.0.1",
     "@noble/ed25519": "^3.0.0",

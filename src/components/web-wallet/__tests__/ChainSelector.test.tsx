@@ -9,9 +9,9 @@ describe('ChainSelector', () => {
     const select = screen.getByRole('combobox');
     expect(select).toBeInTheDocument();
 
-    // Should have "Select chain" + 17 chain options
+    // Should have "Select chain" + 16 chain options (including LN)
     const options = screen.getAllByRole('option');
-    expect(options.length).toBe(16); // 1 placeholder + 15 derivable chains
+    expect(options.length).toBe(17); // 1 placeholder + 16 derivable chains
   });
 
   it('should render with label', () => {
