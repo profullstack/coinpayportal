@@ -157,29 +157,23 @@ export class GreenlightService {
     // Derive LN node keys from seed
     const { nodeSeed, nodePublicKey } = deriveLnNodeKeys(seed);
 
-    let greenlightNodeId = `gl-${Buffer.from(nodeSeed.subarray(0, 8)).toString('hex')}`;
-    let status = 'active';
-
-    // If GL creds are available, register with real Greenlight
-    if (this.hasGreenlightCreds()) {
-      try {
-        const network = process.env.GL_NETWORK || 'bitcoin';
-        const result = await this.callBridge('register', [
-          nodeSeed.toString('hex'),
-          network,
-        ]);
-        if (result.node_id) {
-          greenlightNodeId = result.node_id as string;
-        }
-        console.log(`[Greenlight] Node ${result.action}: ${greenlightNodeId}`);
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        console.error('[Greenlight] Registration failed:', errMsg);
-        // Store the error in the node record for debugging
-        // Still create the DB record and mark active so the UI works
-        greenlightNodeId = `gl-err:${errMsg.substring(0, 80)}`;
-      }
+    if (!this.hasGreenlightCreds()) {
+      throw new Error('Greenlight credentials not configured (GL_NOBODY_CRT, GL_NOBODY_KEY). Cannot provision Lightning node.');
     }
+
+    // Register with real Greenlight
+    const network = process.env.GL_NETWORK || 'bitcoin';
+    const result = await this.callBridge('register', [
+      nodeSeed.toString('hex'),
+      network,
+    ]);
+
+    const greenlightNodeId = (result.node_id as string) || '';
+    if (!greenlightNodeId) {
+      throw new Error(`Greenlight registration returned no node_id: ${JSON.stringify(result)}`);
+    }
+
+    console.log(`[Greenlight] Node ${result.action}: ${greenlightNodeId}`);
 
     const { data, error } = await this.supabase
       .from('ln_nodes')
@@ -188,7 +182,7 @@ export class GreenlightService {
         business_id: business_id || null,
         greenlight_node_id: greenlightNodeId,
         node_pubkey: nodePublicKey,
-        status,
+        status: 'active',
       })
       .select()
       .single();
@@ -229,31 +223,16 @@ export class GreenlightService {
     const offerId = crypto.randomUUID();
     let bolt12Offer: string;
 
-    // Call real Greenlight if creds available
-    if (this.hasGreenlightCreds()) {
-      try {
-        const network = process.env.GL_NETWORK || 'bitcoin';
-        const result = await this.callBridge('offer', [
-          node.greenlight_node_id || node.id,
-          description,
-          amount_msat ? String(amount_msat) : 'any',
-          network,
-        ]);
-        bolt12Offer = (result.bolt12 as string) || '';
-        if (!bolt12Offer) {
-          throw new Error('Greenlight returned empty offer');
-        }
-      } catch (err) {
-        console.error('[Greenlight] Offer creation failed:', err);
-        throw new Error(`Failed to create BOLT12 offer: ${err instanceof Error ? err.message : err}`);
-      }
-    } else {
-      // Fallback placeholder for development
-      bolt12Offer = generatePlaceholderBolt12(
-        node.node_pubkey || '',
-        description,
-        amount_msat
-      );
+    const network = process.env.GL_NETWORK || 'bitcoin';
+    const result = await this.callBridge('offer', [
+      node.greenlight_node_id!,
+      description,
+      amount_msat ? String(amount_msat) : 'any',
+      network,
+    ]);
+    bolt12Offer = (result.bolt12 as string) || '';
+    if (!bolt12Offer) {
+      throw new Error(`Greenlight returned empty offer: ${JSON.stringify(result)}`);
     }
 
     const { data, error } = await this.supabase
@@ -591,28 +570,6 @@ export class GreenlightService {
 // ──────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────
-
-/**
- * Generate a placeholder BOLT12 offer string for development.
- * In production, CLN generates real bech32m-encoded offers.
- */
-function generatePlaceholderBolt12(
-  nodePubkey: string,
-  description: string,
-  amountMsat?: number
-): string {
-  // Real BOLT12 offers start with "lno1" and are bech32m encoded.
-  // This placeholder is for development/testing only.
-  const payload = Buffer.from(
-    JSON.stringify({
-      node: nodePubkey.substring(0, 16),
-      desc: description.substring(0, 32),
-      amt: amountMsat || 'any',
-      t: Date.now(),
-    })
-  ).toString('hex');
-  return `lno1${payload}`;
-}
 
 // Singleton export
 let _instance: GreenlightService | null = null;
