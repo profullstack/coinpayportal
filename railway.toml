@@ -1,5 +1,5 @@
 [build]
-buildCommand = "pnpm install --no-frozen-lockfile && pip install --break-system-packages gl-client requests && pnpm run build"
+buildCommand = "pnpm install --no-frozen-lockfile && (apt-get update && apt-get install -y python3-pip python3-venv && python3 -m venv /tmp/glvenv && /tmp/glvenv/bin/pip install gl-client requests && cp -r /tmp/glvenv /app/.venv || echo 'GL SDK install skipped') && pnpm run build"
 
 [deploy]
 startCommand = "NODE_OPTIONS=--max-old-space-size=512 pnpm start"

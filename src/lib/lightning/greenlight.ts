@@ -288,8 +288,9 @@ export class GreenlightService {
 
     // Try multiple possible Python paths
     const pythonPaths = [
+      '/app/.venv/bin/python3',
+      '/tmp/glvenv/bin/python3',
       'python3',
-      '/usr/bin/python3',
     ];
     const scriptPath = path.join(process.cwd(), 'scripts', 'check-invoices.py');
 
