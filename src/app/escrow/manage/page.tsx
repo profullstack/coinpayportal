@@ -361,7 +361,31 @@ function EscrowManagePage() {
 
           {/* Escrow Information */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Escrow Details</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Escrow Details</h2>
+              <button
+                onClick={() => {
+                  const info = [
+                    `Escrow ID: ${escrow.id}`,
+                    `Payment Address: ${escrow.escrow_address}`,
+                    `Amount: ${escrow.amount} ${escrow.chain}`,
+                    `Chain: ${escrow.chain}`,
+                    `Status: ${escrow.status}`,
+                    `Created: ${formatDate(escrow.created_at)}`,
+                    `Expires: ${formatDate(escrow.expires_at)}`,
+                    `Depositor: ${escrow.depositor_address}`,
+                    `Beneficiary: ${escrow.beneficiary_address}`,
+                    ...(escrow.amount_usd ? [`USD Value: $${escrow.amount_usd.toFixed(2)}`] : []),
+                    ...(escrow.deposit_tx_hash ? [`Deposit TX: ${escrow.deposit_tx_hash}`] : []),
+                    ...(escrow.settlement_tx_hash ? [`Settlement TX: ${escrow.settlement_tx_hash}`] : []),
+                  ].join('\n');
+                  copyToClipboard(info, 'all_info');
+                }}
+                className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                {copiedField === 'all_info' ? '✓ Copied!' : '📋 Copy All Info'}
+              </button>
+            </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>

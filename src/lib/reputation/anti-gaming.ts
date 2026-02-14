@@ -93,6 +93,41 @@ export async function calculateBuyerDiversity(
 }
 
 /**
+ * Calculate buyer diversity for economic transactions only (excludes social/platform actions)
+ */
+export async function calculateEconomicDiversity(
+  supabase: SupabaseClient,
+  agentDid: string
+): Promise<{ uniqueBuyers: number; totalTasks: number; diversityScore: number }> {
+  const SOCIAL_CATEGORIES = ['social'];
+  const SOCIAL_ACTIONS = ['post_created', 'comment_created', 'upvoted', 'content_downvoted', 'followed_user', 'endorsement_given', 'profile_completed', 'resume_uploaded', 'portfolio_added', 'verification_requested'];
+
+  const { data: receipts } = await supabase
+    .from('reputation_receipts')
+    .select('buyer_did, category, action_type')
+    .eq('agent_did', agentDid);
+
+  if (!receipts || receipts.length === 0) {
+    return { uniqueBuyers: 0, totalTasks: 0, diversityScore: 0 };
+  }
+
+  // Filter out social/platform actions
+  const economicReceipts = receipts.filter((r: { buyer_did: string; category: string; action_type: string }) =>
+    !SOCIAL_CATEGORIES.includes(r.category) && !SOCIAL_ACTIONS.includes(r.action_type)
+  );
+
+  if (economicReceipts.length === 0) {
+    return { uniqueBuyers: 0, totalTasks: 0, diversityScore: 1 }; // No economic activity = no penalty
+  }
+
+  const uniqueBuyers = new Set(economicReceipts.map((r: { buyer_did: string }) => r.buyer_did)).size;
+  const totalTasks = economicReceipts.length;
+  const diversityScore = Math.min(uniqueBuyers / totalTasks, 1);
+
+  return { uniqueBuyers, totalTasks, diversityScore };
+}
+
+/**
  * Run full anti-gaming analysis on an agent
  */
 export async function analyzeAgent(
@@ -109,10 +144,11 @@ export async function analyzeAgent(
     weight *= 0.5;
   }
 
-  // Check buyer diversity
+  // Check buyer diversity (only for economic transactions, not social/platform actions)
   const diversity = await calculateBuyerDiversity(supabase, agentDid);
-  if (diversity.totalTasks > 5 && diversity.diversityScore < 0.2) {
-    flags.push(`low_buyer_diversity: ${diversity.uniqueBuyers}/${diversity.totalTasks}`);
+  const economicDiversity = await calculateEconomicDiversity(supabase, agentDid);
+  if (economicDiversity.totalTasks > 5 && economicDiversity.diversityScore < 0.2) {
+    flags.push(`low_buyer_diversity: ${economicDiversity.uniqueBuyers}/${economicDiversity.totalTasks}`);
     weight *= 0.3;
   }
 

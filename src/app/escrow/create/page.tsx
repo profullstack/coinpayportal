@@ -76,6 +76,11 @@ export default function CreateEscrowPage() {
     business_id: '',
   });
 
+  // Recurring escrow state
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurringInterval, setRecurringInterval] = useState<'weekly' | 'biweekly' | 'monthly'>('monthly');
+  const [maxPeriods, setMaxPeriods] = useState('');
+
   // Dual input system state
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrency>('USD');
   const [fiatAmount, setFiatAmount] = useState('');
@@ -249,29 +254,69 @@ export default function CreateEscrowPage() {
         body.business_id = formData.business_id;
       }
 
-      // Use authFetch to include credentials (for logged-in merchants)
-      const result = await authFetch('/api/escrow', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      if (isRecurring) {
+        // Create recurring series
+        const seriesBody = {
+          ...body,
+          interval: recurringInterval,
+          ...(maxPeriods ? { max_periods: parseInt(maxPeriods) } : {}),
+        };
 
-      if (result && result.response.ok) {
-        setCreatedEscrow(result.data);
-      } else if (result) {
-        setError(result.data?.error || 'Failed to create escrow');
+        const result = await authFetch('/api/escrow/series', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(seriesBody),
+        });
+
+        if (result && result.response.ok) {
+          // Series created — show the first escrow from the series
+          const seriesData = result.data;
+          if (seriesData.escrow) {
+            setCreatedEscrow(seriesData.escrow);
+          } else {
+            setCreatedEscrow(seriesData);
+          }
+        } else if (result) {
+          setError(result.data?.error || 'Failed to create recurring escrow series');
+        } else {
+          const res = await fetch('/api/escrow/series', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(seriesBody),
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            setError(errData?.error || `Failed to create series (${res.status})`);
+          } else {
+            const seriesData = await res.json();
+            setCreatedEscrow(seriesData.escrow || seriesData);
+          }
+        }
       } else {
-        // authFetch returned null (redirect to login) — try anonymous
-        const res = await fetch('/api/escrow', {
+        // Use authFetch to include credentials (for logged-in merchants)
+        const result = await authFetch('/api/escrow', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          setError(errData?.error || `Failed to create escrow (${res.status})`);
+
+        if (result && result.response.ok) {
+          setCreatedEscrow(result.data);
+        } else if (result) {
+          setError(result.data?.error || 'Failed to create escrow');
         } else {
-          setCreatedEscrow(await res.json());
+          // authFetch returned null (redirect to login) — try anonymous
+          const res = await fetch('/api/escrow', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            setError(errData?.error || `Failed to create escrow (${res.status})`);
+          } else {
+            setCreatedEscrow(await res.json());
+          }
         }
       }
     } catch (err) {
@@ -498,6 +543,10 @@ export default function CreateEscrowPage() {
                   setPrimaryInput('fiat');
                   setExchangeRate(null);
                   setRateError('');
+                  // Reset recurring state
+                  setIsRecurring(false);
+                  setRecurringInterval('monthly');
+                  setMaxPeriods('');
                 }}
                 className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
               >
@@ -783,6 +832,54 @@ export default function CreateEscrowPage() {
               placeholder="What is this escrow for? (e.g., freelance job, NFT trade)"
               rows={3}
             />
+          </div>
+
+          {/* Make Recurring Toggle */}
+          <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isRecurring}
+                onChange={(e) => setIsRecurring(e.target.checked)}
+                className="w-5 h-5 text-blue-600 bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
+              />
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Make Recurring</span>
+            </label>
+
+            {isRecurring && (
+              <div className="space-y-4 pl-8">
+                <div>
+                  <label htmlFor="interval" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Interval
+                  </label>
+                  <select
+                    id="interval"
+                    value={recurringInterval}
+                    onChange={(e) => setRecurringInterval(e.target.value as 'weekly' | 'biweekly' | 'monthly')}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  >
+                    <option value="weekly">Weekly</option>
+                    <option value="biweekly">Biweekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="maxPeriods" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Max Periods <span className="text-gray-400">(leave empty for infinite)</span>
+                  </label>
+                  <input
+                    id="maxPeriods"
+                    type="number"
+                    min="1"
+                    value={maxPeriods}
+                    onChange={(e) => setMaxPeriods(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="∞"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Info box */}

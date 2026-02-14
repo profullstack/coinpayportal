@@ -66,6 +66,44 @@ function formatDate(dateStr: string): string {
   });
 }
 
+function CopyAllInfoButton({ escrow }: { escrow: Escrow }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    const info = [
+      `Escrow ID: ${escrow.id}`,
+      `Payment Address: ${escrow.escrow_address}`,
+      `Amount: ${escrow.amount} ${escrow.chain}`,
+      `Chain: ${escrow.chain}`,
+      `Status: ${escrow.status}`,
+      `Created: ${formatDate(escrow.created_at)}`,
+      `Expires: ${formatDate(escrow.expires_at)}`,
+      `Depositor: ${escrow.depositor_address}`,
+      `Beneficiary: ${escrow.beneficiary_address}`,
+      ...(escrow.amount_usd ? [`USD Value: $${escrow.amount_usd.toFixed(2)}`] : []),
+      ...(escrow.deposit_tx_hash ? [`Deposit TX: ${escrow.deposit_tx_hash}`] : []),
+      ...(escrow.settlement_tx_hash ? [`Settlement TX: ${escrow.settlement_tx_hash}`] : []),
+    ].join('\n');
+
+    try {
+      await navigator.clipboard.writeText(info);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="w-full mb-4 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+    >
+      {copied ? '✓ Copied!' : '📋 Copy All Info'}
+    </button>
+  );
+}
+
 export default function EscrowDashboardPage() {
   const router = useRouter();
   const [escrows, setEscrows] = useState<Escrow[]>([]);
@@ -241,6 +279,8 @@ export default function EscrowDashboardPage() {
                   <h2 className="text-lg font-bold text-gray-900 dark:text-white">Details</h2>
                   <StatusBadge status={selectedEscrow.status} />
                 </div>
+
+                <CopyAllInfoButton escrow={selectedEscrow} />
 
                 <dl className="space-y-3 text-sm">
                   <div>
