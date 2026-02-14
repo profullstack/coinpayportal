@@ -19,7 +19,13 @@ export async function POST(request: NextRequest) {
   try {
     // No auth required — payload is validated below (offer_id, node_id, etc.)
 
-    const body = await request.json();
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      // Empty body or invalid JSON — treat as ping
+      return NextResponse.json({ status: 'ok', message: 'Webhook is reachable' });
+    }
     const {
       offer_id,
       node_id,
