@@ -87,12 +87,11 @@ export class GreenlightService {
       throw new Error(`gl-bridge.py not found (tried: ${scriptCandidates.join(', ')}; cwd=${cwd})`);
     }
 
-    // Find Python — check venv locations relative to both cwd and /app
+    // Find Python — check venv locations
     const pythonPaths = [
+      '/opt/gl-venv/bin/python3',
       path.join(cwd, '.venv', 'bin', 'python3'),
       '/app/.venv/bin/python3',
-      path.join(cwd, 'gl-venv', 'bin', 'python3'),
-      '/app/gl-venv/bin/python3',
       '/tmp/glvenv/bin/python3',
       'python3',
     ];

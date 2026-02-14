@@ -22,8 +22,8 @@ fi
 
 echo "Python3 found: $(python3 --version)"
 
-# Create venv IN the project directory so it persists to the deploy image
-VENV_DIR="$(pwd)/gl-venv"
+# Create venv OUTSIDE the project directory to avoid Turbopack symlink issues
+VENV_DIR="/opt/gl-venv"
 echo "Creating venv at: $VENV_DIR"
 
 if ! python3 -m venv "$VENV_DIR" 2>&1; then
