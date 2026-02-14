@@ -76,6 +76,10 @@ export async function POST(request: NextRequest) {
       finalized_at: now,
     }));
 
+    // Negative actions (downvotes, violations) count as disputed
+    const NEGATIVE_ACTIONS = ['content_downvoted', 'violation', 'incident'];
+    const isNegative = NEGATIVE_ACTIONS.includes(action_type || '');
+
     const { data: receipt, error } = await supabase
       .from('reputation_receipts')
       .insert({
@@ -89,8 +93,8 @@ export async function POST(request: NextRequest) {
         category: action_category.split('.')[0],
         amount: value_usd || 0,
         currency: 'USD',
-        outcome: 'accepted',
-        dispute: false,
+        outcome: isNegative ? 'disputed' : 'accepted',
+        dispute: isNegative,
         sla: metadata || {},
         signatures: { platform_sig: platformSig },
         finalized_at: now,
