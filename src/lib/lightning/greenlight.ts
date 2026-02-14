@@ -280,34 +280,63 @@ export class GreenlightService {
       settled_at: string;
     }>
   > {
-    // TODO: Replace with real Greenlight gRPC call:
-    //
-    // const creds = this.loadDevCredentials();
-    // const signer = new Signer(seed, 'bitcoin', creds);
-    // const scheduler = new Scheduler(greenlightNodeId, 'bitcoin', creds);
-    // const node = await scheduler.schedule();
-    //
-    // const invoices = await node.listInvoices({
-    //   index: 'created',  // or use waitanyinvoice for blocking
-    // });
-    //
-    // return invoices
-    //   .filter(inv => inv.status === 'paid' && inv.pay_index > lastPayIndex)
-    //   .map(inv => ({
-    //     payment_hash: inv.payment_hash,
-    //     preimage: inv.payment_preimage,
-    //     amount_msat: inv.amount_received_msat,
-    //     pay_index: inv.pay_index,
-    //     bolt12_offer: inv.local_offer_id || null,
-    //     payer_note: inv.description || null,
-    //     settled_at: new Date(inv.paid_at * 1000).toISOString(),
-    //   }));
+    // Call the Python Greenlight SDK via child process
+    // (no Node.js SDK available — gl-client is Python/Rust only)
+    const { execFileSync } = await import('child_process');
+    const path = await import('path');
+    const network = process.env.GL_NETWORK || 'bitcoin';
 
-    console.log(
-      `[Greenlight] getSettledPayments for node ${greenlightNodeId} since pay_index ${lastPayIndex}`
-    );
+    // Try multiple possible Python paths
+    const pythonPaths = [
+      path.join(process.cwd(), '.venv', 'bin', 'python3'),
+      '/app/.venv/bin/python3',
+      'python3',
+    ];
+    const scriptPath = path.join(process.cwd(), 'scripts', 'check-invoices.py');
 
-    // Stub: return empty until Greenlight gRPC is wired up
+    // Check if script exists
+    const fs = await import('fs');
+    if (!fs.existsSync(scriptPath)) {
+      console.log('[Greenlight] check-invoices.py not found, skipping');
+      return [];
+    }
+
+    for (const pythonPath of pythonPaths) {
+      try {
+        const result = execFileSync(pythonPath, [
+          scriptPath,
+          greenlightNodeId,
+          String(lastPayIndex),
+          network,
+        ], {
+          timeout: 30_000,
+          encoding: 'utf-8',
+        });
+
+        const parsed = JSON.parse(result.trim());
+        if (parsed.error) {
+          console.error(`[Greenlight] check-invoices error: ${parsed.error}`);
+          return [];
+        }
+
+        return (parsed.payments || []).map((p: Record<string, unknown>) => ({
+          payment_hash: p.payment_hash as string,
+          preimage: (p.preimage as string) || '',
+          amount_msat: p.amount_msat as number,
+          pay_index: p.pay_index as number,
+          bolt12_offer: (p.bolt12_offer as string) || null,
+          payer_note: (p.payer_note as string) || null,
+          settled_at: p.settled_at
+            ? new Date((p.settled_at as number) * 1000).toISOString()
+            : new Date().toISOString(),
+        }));
+      } catch (err) {
+        // Try next python path
+        continue;
+      }
+    }
+
+    console.error('[Greenlight] Failed to run check-invoices.py with any Python path');
     return [];
   }
 
