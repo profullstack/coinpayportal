@@ -69,7 +69,7 @@ describe('POST /api/stripe/connect/onboard', () => {
     });
   });
 
-  it('should create new Stripe account and onboarding link', async () => {
+  it('should create new Stripe account and onboarding link with camelCase businessId', async () => {
     const request = new NextRequest('http://localhost:3000/api/stripe/connect/onboard', {
       method: 'POST',
       body: JSON.stringify({
@@ -83,8 +83,27 @@ describe('POST /api/stripe/connect/onboard', () => {
     const data = await response.json();
 
     expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
     expect(data.stripe_account_id).toBe('acct_test123');
+    expect(data.url).toBe('https://connect.stripe.com/setup/onboarding/acct_test123');
     expect(data.onboarding_url).toBe('https://connect.stripe.com/setup/onboarding/acct_test123');
+  });
+
+  it('should accept snake_case business_id', async () => {
+    const request = new NextRequest('http://localhost:3000/api/stripe/connect/onboard', {
+      method: 'POST',
+      body: JSON.stringify({
+        business_id: 'biz_456',
+        email: 'merchant@example.com',
+      }),
+    });
+
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.url).toBeTruthy();
   });
 
   it('should return 400 for missing businessId', async () => {
