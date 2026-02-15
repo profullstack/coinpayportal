@@ -5,6 +5,26 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
 
+interface EscrowSeries {
+  id: string;
+  merchant_id: string;
+  payment_method: string;
+  customer_email: string | null;
+  description: string | null;
+  amount: number;
+  currency: string;
+  coin: string | null;
+  interval: string;
+  next_charge_at: string;
+  max_periods: number | null;
+  periods_completed: number;
+  status: string;
+  beneficiary_address: string | null;
+  depositor_address: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 interface Escrow {
   id: string;
   depositor_address: string;
@@ -107,6 +127,7 @@ function CopyAllInfoButton({ escrow }: { escrow: Escrow }) {
 export default function EscrowDashboardPage() {
   const router = useRouter();
   const [escrows, setEscrows] = useState<Escrow[]>([]);
+  const [series, setSeries] = useState<EscrowSeries[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -127,6 +148,12 @@ export default function EscrowDashboardPage() {
       const { data } = result;
       setEscrows(data.escrows || []);
       setTotal(data.total || 0);
+
+      // Also fetch recurring series
+      const seriesResult = await authFetch('/api/escrow/series?business_id=all', {}, router);
+      if (seriesResult) {
+        setSeries(seriesResult.data.series || []);
+      }
     } catch (err) {
       setError('Failed to load escrows');
       console.error(err);
@@ -207,11 +234,57 @@ export default function EscrowDashboardPage() {
         </div>
       )}
 
+      {/* Recurring Series */}
+      {!loading && series.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">🔄 Recurring Series</h2>
+          <div className="space-y-3">
+            {series.map((s) => (
+              <div
+                key={s.id}
+                className="p-4 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-mono text-sm text-gray-500 dark:text-gray-400">
+                    {s.id.slice(0, 8)}...
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 capitalize">
+                      {s.interval}
+                    </span>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[s.status] || 'bg-gray-100 text-gray-800'}`}>
+                      {s.status}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                    {s.amount} {s.coin || s.currency}
+                  </span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    {s.periods_completed}/{s.max_periods || '∞'} periods
+                  </span>
+                </div>
+                {s.description && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">{s.description}</p>
+                )}
+                <div className="flex items-center justify-between mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  {s.beneficiary_address && (
+                    <span>→ {shortenAddress(s.beneficiary_address)}</span>
+                  )}
+                  <span>Next: {new Date(s.next_charge_at).toLocaleDateString()}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
         </div>
-      ) : escrows.length === 0 ? (
+      ) : escrows.length === 0 && series.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
           <p className="text-gray-500 dark:text-gray-400">No escrows found</p>
           <Link href="/escrow/create" className="text-blue-600 hover:underline mt-2 inline-block">

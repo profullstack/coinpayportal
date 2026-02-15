@@ -157,9 +157,6 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
 
     const businessId = searchParams.get('business_id');
-    if (!businessId) {
-      return NextResponse.json({ error: 'business_id required' }, { status: 400 });
-    }
 
     const supabase = getSupabase();
 
@@ -173,8 +170,25 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('escrow_series')
       .select('*')
-      .eq('merchant_id', businessId)
       .order('created_at', { ascending: false });
+
+    // If business_id specified (and not 'all'), filter by it
+    // Otherwise list all series for the merchant's businesses
+    if (businessId && businessId !== 'all') {
+      query = query.eq('merchant_id', businessId);
+    } else {
+      // Get all businesses for this merchant
+      const merchantId = (authResult.context as any).merchantId;
+      if (merchantId) {
+        const { data: businesses } = await supabase
+          .from('businesses')
+          .select('id')
+          .eq('merchant_id', merchantId);
+        if (businesses && businesses.length > 0) {
+          query = query.in('merchant_id', businesses.map((b: { id: string }) => b.id));
+        }
+      }
+    }
 
     const status = searchParams.get('status');
     if (status) {
