@@ -27,6 +27,14 @@ export async function GET(
       );
     }
 
+    // Basic sanity check — reject obviously invalid IDs
+    if (id.length < 6 || id.length > 128 || /\s/.test(id)) {
+      return NextResponse.json(
+        { error: 'Invalid swap ID format' },
+        { status: 400 }
+      );
+    }
+
     // Get status from ChangeNOW
     const swap = await getSwapStatus(id);
 

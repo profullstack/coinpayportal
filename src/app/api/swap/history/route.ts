@@ -32,6 +32,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Validate UUID format to avoid DB errors
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(walletId)) {
+      return NextResponse.json(
+        { error: 'Invalid walletId format' },
+        { status: 400 }
+      );
+    }
+
     // Build query
     let query = supabase
       .from('swaps')

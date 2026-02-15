@@ -55,8 +55,8 @@ vi.mock('@/lib/lightning/greenlight', () => ({
 // ──────────────────────────────────────────────
 
 vi.mock('@/lib/web-wallet/keys', () => ({
-  mnemonicToSeed: vi.fn(() => new Uint8Array(64)),
-  isValidMnemonic: vi.fn((m: string) => m === 'valid mnemonic phrase here twelve words okay test banana apple cherry dog elephant fox'),
+  mnemonicToSeed: vi.fn(() => Buffer.alloc(64, 0xaa).toString('hex')),
+  isValidMnemonic: vi.fn((m: string) => m && m.split(' ').length >= 12),
 }));
 
 // ──────────────────────────────────────────────
@@ -171,7 +171,7 @@ describe('Lightning Route Handlers', () => {
   // POST /api/lightning/offers
   // ────────────────────────────────────
 
-  describe.skip('POST /api/lightning/offers', () => {
+  describe('POST /api/lightning/offers', () => {
     it('should return 400 if node_id missing', async () => {
       const { POST } = await import('./offers/route');
       const req = makeRequest('http://localhost:3000/api/lightning/offers', {
@@ -210,6 +210,7 @@ describe('Lightning Route Handlers', () => {
           node_id: 'n1',
           description: 'Coffee',
           amount_msat: 100000,
+          mnemonic: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
         }),
         headers: { 'content-type': 'application/json' },
       });

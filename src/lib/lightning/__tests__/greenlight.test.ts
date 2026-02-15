@@ -85,7 +85,17 @@ describe('GreenlightService', () => {
   // provisionNode
   // ──────────────────────────────────────────
 
-  describe.skip('provisionNode', () => {
+  describe('provisionNode', () => {
+    beforeEach(() => {
+      vi.stubEnv('GL_NOBODY_CRT', 'fake');
+      vi.stubEnv('GL_NOBODY_KEY', 'fake');
+      vi.spyOn(GreenlightService.prototype as any, 'callBridge').mockResolvedValue({
+        node_id: 'gl-abc123',
+        creds: 'fakecreds',
+        rune: 'fakerune',
+      });
+    });
+
     it('should provision a node and return it', async () => {
       const fakeNode = {
         id: 'node-1',
@@ -95,6 +105,8 @@ describe('GreenlightService', () => {
         node_pubkey: '02abc...',
         status: 'active',
       };
+      // First call: maybeSingle for existing check returns null
+      mockChain.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mockSingle.mockResolvedValue({ data: fakeNode, error: null });
 
       const result = await service.provisionNode({
@@ -115,6 +127,7 @@ describe('GreenlightService', () => {
         business_id: null,
         status: 'active',
       };
+      mockChain.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mockSingle.mockResolvedValue({ data: fakeNode, error: null });
 
       const result = await service.provisionNode({
@@ -126,6 +139,7 @@ describe('GreenlightService', () => {
     });
 
     it('should throw on supabase error', async () => {
+      mockChain.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mockSingle.mockResolvedValue({
         data: null,
         error: { message: 'duplicate key' },
@@ -144,7 +158,13 @@ describe('GreenlightService', () => {
   // createOffer
   // ──────────────────────────────────────────
 
-  describe.skip('createOffer', () => {
+  describe('createOffer', () => {
+    beforeEach(() => {
+      vi.spyOn(GreenlightService.prototype as any, 'callBridge').mockResolvedValue({
+        bolt12: 'lno1test...',
+      });
+    });
+
     it('should create an offer for an active node', async () => {
       // First call: getNode (via .single())
       mockSingle.mockResolvedValueOnce({
@@ -164,6 +184,7 @@ describe('GreenlightService', () => {
       const result = await service.createOffer({
         node_id: 'node-1',
         description: 'Test offer',
+        seed: Buffer.alloc(64, 0xcc),
       });
 
       expect(result).toEqual(fakeOffer);
@@ -176,7 +197,7 @@ describe('GreenlightService', () => {
       });
 
       await expect(
-        service.createOffer({ node_id: 'bad-id', description: 'test' })
+        service.createOffer({ node_id: 'bad-id', description: 'test', seed: Buffer.alloc(64, 0xcc) })
       ).rejects.toThrow('Node not found');
     });
 
@@ -187,7 +208,7 @@ describe('GreenlightService', () => {
       });
 
       await expect(
-        service.createOffer({ node_id: 'node-1', description: 'test' })
+        service.createOffer({ node_id: 'node-1', description: 'test', seed: Buffer.alloc(64, 0xcc) })
       ).rejects.toThrow('Node is not active');
     });
 
@@ -202,7 +223,7 @@ describe('GreenlightService', () => {
       });
 
       await expect(
-        service.createOffer({ node_id: 'node-1', description: 'test' })
+        service.createOffer({ node_id: 'node-1', description: 'test', seed: Buffer.alloc(64, 0xcc) })
       ).rejects.toThrow('Failed to create offer: insert failed');
     });
   });
@@ -211,7 +232,7 @@ describe('GreenlightService', () => {
   // getPaymentStatus
   // ──────────────────────────────────────────
 
-  describe.skip('getPaymentStatus', () => {
+  describe('getPaymentStatus', () => {
     it('should return payment when found', async () => {
       const fakePayment = {
         id: 'pay-1',

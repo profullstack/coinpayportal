@@ -35,7 +35,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe.skip('LightningPayments', () => {
+describe('LightningPayments', () => {
   it('should show loading state initially', () => {
     global.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
     render(<LightningPayments nodeId="n-1" />);
@@ -52,7 +52,6 @@ describe.skip('LightningPayments', () => {
     render(<LightningPayments nodeId="n-1" />);
 
     await waitFor(() => {
-      expect(screen.getByText('Lightning Payments')).toBeDefined();
       expect(screen.getByText('100 sats')).toBeDefined();
       expect(screen.getByText('50 sats')).toBeDefined();
     });

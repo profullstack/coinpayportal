@@ -19,7 +19,7 @@ const baseOffer: LnOffer = {
   created_at: '2026-02-01T00:00:00Z',
 };
 
-describe.skip('LightningOfferCard', () => {
+describe('LightningOfferCard', () => {
   it('should render offer description', () => {
     render(<LightningOfferCard offer={baseOffer} />);
     expect(screen.getByText('Coffee Payment')).toBeDefined();
@@ -58,12 +58,12 @@ describe.skip('LightningOfferCard', () => {
 
   it('should render copy button', () => {
     render(<LightningOfferCard offer={baseOffer} />);
-    expect(screen.getByText('Copy BOLT12 Offer')).toBeDefined();
+    expect(screen.getByText(/Copy BOLT12 Offer/)).toBeDefined();
   });
 
   it('should render open in wallet link', () => {
     render(<LightningOfferCard offer={baseOffer} />);
-    const link = screen.getByText('Open in Wallet');
+    const link = screen.getByText(/Open in Wallet/);
     expect(link.closest('a')?.getAttribute('href')).toBe('lightning:lno1abcdef1234567890');
   });
 
@@ -72,7 +72,7 @@ describe.skip('LightningOfferCard', () => {
     Object.assign(navigator, { clipboard: { writeText } });
 
     render(<LightningOfferCard offer={baseOffer} />);
-    fireEvent.click(screen.getByText('Copy BOLT12 Offer'));
+    fireEvent.click(screen.getByText(/Copy BOLT12 Offer/));
 
     expect(writeText).toHaveBeenCalledWith('lno1abcdef1234567890');
   });
