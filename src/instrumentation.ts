@@ -10,6 +10,17 @@
 export async function register() {
   // Only run on the server
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    // Catch unhandled errors to prevent server crashes
+    process.on('uncaughtException', (err) => {
+      console.error('[FATAL] Uncaught exception (caught by handler):', err?.message || err);
+      console.error(err?.stack || '');
+      // Don't exit — let the server keep running
+    });
+
+    process.on('unhandledRejection', (reason) => {
+      console.error('[FATAL] Unhandled rejection (caught by handler):', reason);
+    });
+
     console.log('[Instrumentation] Starting background services...');
     
     // Dynamically import to avoid issues with client-side bundling

@@ -71,64 +71,77 @@ export class GreenlightService {
    * Returns parsed JSON result or throws on error.
    */
   private async callBridge(command: string, args: string[]): Promise<Record<string, unknown>> {
-    const { execFileSync } = await import('child_process');
-    const path = await import('path');
-    const fs = await import('fs');
+    try {
+      const { execFileSync } = await import('child_process');
+      const path = await import('path');
+      const fs = await import('fs');
 
-    // Find the script — check multiple possible locations
-    const cwd = process.cwd();
-    const scriptCandidates = [
-      path.join(cwd, 'scripts', 'gl-bridge.py'),
-      path.join('/app', 'scripts', 'gl-bridge.py'),
-      path.resolve(__dirname, '..', '..', '..', 'scripts', 'gl-bridge.py'),
-    ];
-    const scriptPath = scriptCandidates.find(p => fs.existsSync(p));
-    if (!scriptPath) {
-      throw new Error(`gl-bridge.py not found (tried: ${scriptCandidates.join(', ')}; cwd=${cwd})`);
-    }
-
-    // Find Python — check venv locations
-    const pythonPaths = [
-      '/opt/gl-venv/bin/python3',
-      path.join(cwd, '.venv', 'bin', 'python3'),
-      '/app/.venv/bin/python3',
-      '/tmp/glvenv/bin/python3',
-      'python3',
-    ];
-
-    const errors: string[] = [];
-    for (const pythonPath of pythonPaths) {
-      try {
-        const result = execFileSync(pythonPath, [scriptPath, command, ...args], {
-          timeout: 60_000,
-          encoding: 'utf-8',
-          env: { ...process.env, PYTHONUNBUFFERED: '1' },
-        });
-        const trimmed = result.trim();
-        let parsed;
-        try {
-          parsed = JSON.parse(trimmed);
-        } catch {
-          throw new Error(`gl-bridge returned non-JSON: ${trimmed.substring(0, 200)}`);
-        }
-        if (parsed.error) {
-          throw new Error(parsed.error);
-        }
-        return parsed;
-      } catch (err: any) {
-        const msg = err?.message || String(err);
-        const stderr = err?.stderr || '';
-        if (msg.includes('ENOENT') || msg.includes('spawn')) {
-          errors.push(`${pythonPath}: not found`);
-          continue;
-        }
-        // Real error — include stderr for debugging
-        const stderrStr = typeof stderr === 'string' ? stderr : (stderr?.toString() || '');
-        console.error(`[gl-bridge] stderr: ${stderrStr.substring(0, 500)}`);
-        throw new Error(`gl-bridge ${command} failed: ${msg}${stderrStr ? ` | stderr: ${stderrStr.substring(0, 300)}` : ''}`);
+      // Find the script — check multiple possible locations
+      const cwd = process.cwd();
+      const scriptCandidates = [
+        path.join(cwd, 'scripts', 'gl-bridge.py'),
+        path.join('/app', 'scripts', 'gl-bridge.py'),
+        path.resolve(__dirname, '..', '..', '..', 'scripts', 'gl-bridge.py'),
+      ];
+      const scriptPath = scriptCandidates.find(p => fs.existsSync(p));
+      if (!scriptPath) {
+        console.error(`[gl-bridge] Script not found (tried: ${scriptCandidates.join(', ')}; cwd=${cwd})`);
+        throw new Error('Lightning bridge not available');
       }
+
+      // Find Python — check venv locations
+      const pythonPaths = [
+        '/opt/gl-venv/bin/python3',
+        path.join(cwd, '.venv', 'bin', 'python3'),
+        '/app/.venv/bin/python3',
+        '/tmp/glvenv/bin/python3',
+        'python3',
+      ];
+
+      const errors: string[] = [];
+      for (const pythonPath of pythonPaths) {
+        try {
+          const result = execFileSync(pythonPath, [scriptPath, command, ...args], {
+            timeout: 60_000,
+            encoding: 'utf-8',
+            env: { ...process.env, PYTHONUNBUFFERED: '1' },
+          });
+          const trimmed = result.trim();
+          let parsed;
+          try {
+            parsed = JSON.parse(trimmed);
+          } catch {
+            console.error(`[gl-bridge] Non-JSON output: ${trimmed.substring(0, 200)}`);
+            throw new Error('Lightning bridge returned invalid response');
+          }
+          if (parsed.error) {
+            throw new Error(parsed.error);
+          }
+          return parsed;
+        } catch (err: any) {
+          const msg = err?.message || String(err);
+          const stderr = err?.stderr || '';
+          if (msg.includes('ENOENT') || msg.includes('spawn')) {
+            errors.push(`${pythonPath}: not found`);
+            continue;
+          }
+          // Log stderr but don't expose internals to caller
+          const stderrStr = typeof stderr === 'string' ? stderr : (stderr?.toString() || '');
+          if (stderrStr) {
+            console.error(`[gl-bridge] ${command} stderr: ${stderrStr.substring(0, 500)}`);
+          }
+          console.error(`[gl-bridge] ${command} error: ${msg.substring(0, 300)}`);
+          throw new Error(`Lightning operation failed: ${command}`);
+        }
+      }
+      throw new Error(`Lightning bridge not available (no Python runtime found)`);
+    } catch (err: any) {
+      // Catch-all: never let gl-bridge crash the server
+      console.error(`[gl-bridge] Unhandled error in ${command}:`, err?.message || err);
+      // Re-throw as a clean error (not the raw crash)
+      if (err instanceof Error) throw err;
+      throw new Error(`Lightning operation failed: ${command}`);
     }
-    throw new Error(`Failed to call gl-bridge.py — no working Python path found. Tried: ${errors.join('; ')}`);
   }
 
   /**
