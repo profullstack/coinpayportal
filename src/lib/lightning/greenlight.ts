@@ -237,14 +237,13 @@ export class GreenlightService {
    * Create a BOLT12 offer on a Greenlight node.
    * In production: calls CLN's `offer` command via Greenlight gRPC.
    */
-  async createOffer(params: CreateOfferParams & { seed?: Buffer }): Promise<LnOffer> {
+  async createOffer(params: CreateOfferParams & { seed: Buffer }): Promise<LnOffer> {
     const { node_id, business_id, description, amount_msat, currency, seed } = params;
 
     // Verify node exists and is active
     const node = await this.getNode(node_id);
     if (!node) throw new Error('Node not found');
     if (node.status !== 'active') throw new Error('Node is not active');
-    if (!params.seed) throw new Error('Seed is required for signing operations');
 
     const offerId = crypto.randomUUID();
     let bolt12Offer: string;
@@ -330,7 +329,6 @@ export class GreenlightService {
   }): Promise<{ bolt11: string; payment_hash: string; expires_at: number }> {
     const node = await this.getNode(params.node_id);
     if (!node) throw new Error('Node not found');
-    if (!params.seed) throw new Error('Seed is required for signing operations');
     if (!this.hasGreenlightCreds()) {
       throw new Error('Greenlight credentials not configured');
     }
