@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
       .insert({
         did,
         public_key: public_key || '',
+        platform: platformName || platform.name,
         verified: true,
       });
 
