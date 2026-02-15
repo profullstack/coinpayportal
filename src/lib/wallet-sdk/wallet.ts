@@ -18,6 +18,7 @@ import {
 import { signTransaction } from '../web-wallet/signing';
 import { buildDerivationPath } from '../web-wallet/identity';
 import { encryptSeedPhrase, decryptSeedPhrase, type EncryptedBackup } from './backup';
+import { createLightningMethods } from './lightning';
 import type {
   WalletSDKConfig,
   WalletChain,
@@ -46,10 +47,6 @@ import type {
   Swap,
   SwapCoin,
   SwapHistoryOptions,
-  LightningAddress,
-  LightningInvoice,
-  LightningPayment,
-  LightningPaymentStatus,
 } from './types';
 
 type EventCallback = (...args: any[]) => void;
@@ -914,109 +911,19 @@ export class Wallet {
     return this._events;
   }
 
-  // ── Lightning Network ──
+  // ── Lightning Network (see lightning.ts) ──
 
-  /**
-   * Get the Lightning Address for this wallet.
-   */
-  async getLightningAddress(): Promise<LightningAddress> {
-    const data = await this.client.request<any>({
-      method: 'GET',
-      path: '/api/lightning/address',
-      query: { wallet_id: this._walletId },
-      authenticated: false,
-    });
-    return {
-      lightning_address: data.lightning_address || null,
-      username: data.username,
-    };
+  private _ln: ReturnType<typeof createLightningMethods> | null = null;
+  private get ln() {
+    return (this._ln ??= createLightningMethods(this.client, this._walletId, () => this.getMnemonic()));
   }
 
-  /**
-   * Register a Lightning Address (username@coinpayportal.com).
-   * @param username - Desired username (lowercase, 3-32 chars)
-   */
-  async setLightningAddress(username: string): Promise<LightningAddress> {
-    const data = await this.client.request<any>({
-      method: 'POST',
-      path: '/api/lightning/address',
-      body: { wallet_id: this._walletId, username },
-      authenticated: true,
-    });
-    return {
-      lightning_address: data.lightning_address,
-      username: data.username,
-    };
-  }
-
-  /**
-   * Create a Lightning invoice (BOLT11).
-   * @param amount - Amount in sats
-   * @param memo - Invoice description
-   */
-  async createLightningInvoice(amount: number, memo?: string): Promise<LightningInvoice> {
-    const data = await this.client.request<any>({
-      method: 'POST',
-      path: '/api/lightning/invoices',
-      body: {
-        node_id: this._walletId,
-        amount_sats: amount,
-        description: memo || '',
-        mnemonic: this.getMnemonic(),
-      },
-      authenticated: true,
-    });
-    return {
-      payment_hash: data.data?.payment_hash || data.payment_hash,
-      payment_request: data.data?.invoice?.bolt11 || data.payment_request,
-      checking_id: data.data?.checking_id || data.checking_id,
-    };
-  }
-
-  /**
-   * Pay a Lightning invoice (BOLT11).
-   * @param bolt11 - BOLT11 invoice string
-   */
-  async payLightningInvoice(bolt11: string): Promise<LightningPayment> {
-    const data = await this.client.request<any>({
-      method: 'POST',
-      path: '/api/lightning/payments',
-      body: {
-        node_id: this._walletId,
-        bolt11,
-        mnemonic: this.getMnemonic(),
-      },
-      authenticated: true,
-    });
-    return data.data || data;
-  }
-
-  /**
-   * Check a Lightning payment status.
-   * @param paymentHash - Payment hash to check
-   */
-  async checkLightningPayment(paymentHash: string): Promise<LightningPaymentStatus> {
-    const data = await this.client.request<any>({
-      method: 'GET',
-      path: `/api/lightning/payments/${paymentHash}`,
-      authenticated: true,
-    });
-    return { paid: data.paid ?? data.data?.paid ?? false };
-  }
-
-  /**
-   * List Lightning payments.
-   * @param limit - Max number of payments to return
-   */
-  async listLightningPayments(limit: number = 20): Promise<LightningPayment[]> {
-    const data = await this.client.request<any>({
-      method: 'GET',
-      path: '/api/lightning/payments',
-      query: { node_id: this._walletId, limit: String(limit) },
-      authenticated: true,
-    });
-    return data.data?.payments || data.payments || [];
-  }
+  getLightningAddress() { return this.ln.getLightningAddress(); }
+  setLightningAddress(username: string) { return this.ln.setLightningAddress(username); }
+  createLightningInvoice(amount: number, memo?: string) { return this.ln.createLightningInvoice(amount, memo); }
+  payLightningInvoice(bolt11: string) { return this.ln.payLightningInvoice(bolt11); }
+  checkLightningPayment(hash: string) { return this.ln.checkLightningPayment(hash); }
+  listLightningPayments(limit?: number) { return this.ln.listLightningPayments(limit); }
 }
 
 // ── Mapping Helpers ──
