@@ -247,8 +247,11 @@ def cmd_offer(args):
     network = args[3] if len(args) > 3 else os.environ.get('GL_NETWORK', 'bitcoin')
     device_creds_hex = args[4] if len(args) > 4 else None
 
+    print(json.dumps({"_debug_offer": "creating scheduler", "has_device_creds": bool(device_creds_hex), "creds_len": len(device_creds_hex) if device_creds_hex else 0}), file=sys.stderr)
     scheduler = get_scheduler(network, device_creds_hex)
+    print(json.dumps({"_debug_offer": "getting node"}), file=sys.stderr)
     node = get_node(scheduler, device_creds_hex)
+    print(json.dumps({"_debug_offer": "node obtained, building offer"}), file=sys.stderr)
 
     # Build offer request
     params = {"description": description}
