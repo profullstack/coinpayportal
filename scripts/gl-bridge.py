@@ -44,6 +44,24 @@ def fix_pem(value):
     return value
 
 
+def ensure_cert_files():
+    """Write PEM env vars to temp files so the Rust binary can find them.
+    The GL Rust binary reads GL_NOBODY_CRT/GL_NOBODY_KEY as file paths internally."""
+    cert_env = os.environ.get('GL_NOBODY_CRT', '')
+    key_env = os.environ.get('GL_NOBODY_KEY', '')
+    
+    if cert_env and cert_env.lstrip().startswith('-----'):
+        os.makedirs('/tmp/gl-certs', exist_ok=True)
+        with open('/tmp/gl-certs/nobody.crt', 'w') as f:
+            f.write(fix_pem(cert_env))
+        os.environ['GL_NOBODY_CRT'] = '/tmp/gl-certs/nobody.crt'
+    if key_env and key_env.lstrip().startswith('-----'):
+        os.makedirs('/tmp/gl-certs', exist_ok=True)
+        with open('/tmp/gl-certs/nobody.key', 'w') as f:
+            f.write(fix_pem(key_env))
+        os.environ['GL_NOBODY_KEY'] = '/tmp/gl-certs/nobody.key'
+
+
 def get_credentials():
     """Load Greenlight developer credentials from env."""
     cert_env = os.environ.get('GL_NOBODY_CRT', '')
@@ -410,6 +428,9 @@ COMMANDS = {
 
 
 def main():
+    # Write inline PEM env vars to files for the Rust binary
+    ensure_cert_files()
+
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
         print(json.dumps({
             "error": f"Usage: gl-bridge.py <command> [args...]\nCommands: {', '.join(COMMANDS.keys())}"

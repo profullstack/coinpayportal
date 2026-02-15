@@ -32,3 +32,5 @@ if /opt/gl-venv/bin/python3 -c "import glclient" 2>/dev/null; then
 else
   echo "[GL] WARN: glclient install failed"
 fi
+
+# GL cert files written by gl-bridge.py at runtime
