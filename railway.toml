@@ -2,7 +2,7 @@
 buildCommand = "pnpm install --no-frozen-lockfile && sh scripts/install-gl-client.sh; pnpm run build"
 
 [deploy]
-startCommand = "sh scripts/ensure-python.sh; NODE_OPTIONS=--max-old-space-size=512 pnpm start"
+startCommand = "sh scripts/start.sh"
 healthcheckPath = "/"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
