@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
       // Map interval to expiry hours: weekly=168h, biweekly=336h, monthly=720h
       const expiresMap: Record<string, number> = { weekly: 168, biweekly: 336, monthly: 720 };
 
-      const escrowResult = await createEscrow(supabase, {
+      const escrowInput = {
         chain: coin,
         amount,
         depositor_address,
@@ -120,7 +120,15 @@ export async function POST(request: NextRequest) {
           period: 1,
           description: description || undefined,
         },
-      }, isPaidTier);
+      };
+      console.log('[Series] Creating first escrow with input:', JSON.stringify(escrowInput));
+
+      const escrowResult = await createEscrow(supabase, escrowInput, isPaidTier);
+      console.log('[Series] createEscrow result:', JSON.stringify({
+        success: escrowResult.success,
+        error: escrowResult.error,
+        hasEscrow: !!escrowResult.escrow,
+      }));
 
       if (escrowResult.success && escrowResult.escrow) {
         return NextResponse.json({
