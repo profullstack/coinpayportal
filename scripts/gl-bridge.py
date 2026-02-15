@@ -253,22 +253,25 @@ def cmd_offer(args):
     node = get_node(scheduler, device_creds_hex)
     print(json.dumps({"_debug_offer": "node obtained, building offer"}), file=sys.stderr)
 
-    # Build offer request
-    params = {"description": description}
-    if amount_msat:
-        params["amount"] = f"{amount_msat}msat"
-    else:
-        params["amount"] = "any"
+    # Build offer request using raw gRPC call (no offer() method in SDK)
+    from glclient import clnpb
 
-    response = node.call('offer', json.dumps(params))
-    data = json.loads(response) if isinstance(response, (str, bytes)) else response
+    amount_str = f"{amount_msat}msat" if amount_msat else "any"
+    req = clnpb.OfferRequest(amount=amount_str, description=description)
 
-    return {
-        "bolt12": data.get('bolt12', ''),
-        "offer_id": data.get('offer_id', ''),
-        "active": data.get('active', True),
-        "single_use": data.get('single_use', False),
-    }
+    try:
+        uri = "/cln.Node/Offer"
+        raw_resp = node.inner.call(uri, bytes(req))
+        resp = clnpb.OfferResponse.FromString(bytes(raw_resp))
+        return {
+            "bolt12": resp.bolt12 if hasattr(resp, 'bolt12') else '',
+            "offer_id": resp.offer_id.hex() if hasattr(resp, 'offer_id') and resp.offer_id else '',
+            "active": resp.active if hasattr(resp, 'active') else True,
+            "single_use": resp.single_use if hasattr(resp, 'single_use') else False,
+        }
+    except Exception as e:
+        print(json.dumps({"_debug_offer_error": str(e)}), file=sys.stderr)
+        return {"error": f"Offer creation failed: {str(e)}"}
 
 
 def cmd_invoice(args):
