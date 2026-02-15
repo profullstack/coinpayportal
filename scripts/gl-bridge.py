@@ -122,8 +122,18 @@ def cmd_register(args):
         # Extract node_id from device_cert CN (hex pubkey in the path)
         node_id = ''
         if device_cert:
-            import re
+            import re, base64
+            # Try plaintext first, then decode base64 to find CN in raw DER bytes
             m = re.search(r'/users/([0-9a-f]{66})', device_cert)
+            if not m:
+                try:
+                    pem_lines = [l for l in device_cert.split('\n')
+                                 if l.strip() and not l.startswith('-----')]
+                    raw = base64.b64decode(''.join(pem_lines[:20]))  # first cert only
+                    raw_str = raw.decode('ascii', errors='replace')
+                    m = re.search(r'/users/([0-9a-f]{66})', raw_str)
+                except Exception:
+                    pass
             if m:
                 node_id = m.group(1)
         
@@ -149,8 +159,17 @@ def cmd_register(args):
 
             node_id = ''
             if device_cert:
-                import re
+                import re, base64
                 m = re.search(r'/users/([0-9a-f]{66})', device_cert)
+                if not m:
+                    try:
+                        pem_lines = [l for l in device_cert.split('\n')
+                                     if l.strip() and not l.startswith('-----')]
+                        raw = base64.b64decode(''.join(pem_lines[:20]))
+                        raw_str = raw.decode('ascii', errors='replace')
+                        m = re.search(r'/users/([0-9a-f]{66})', raw_str)
+                    except Exception:
+                        pass
                 if m:
                     node_id = m.group(1)
 
