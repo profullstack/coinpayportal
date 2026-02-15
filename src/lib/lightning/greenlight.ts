@@ -179,7 +179,10 @@ export class GreenlightService {
       throw new Error(`Greenlight registration returned no node_id: ${JSON.stringify(result)}`);
     }
 
-    console.log(`[Greenlight] Node ${result.action}: ${greenlightNodeId}`);
+    const glCreds = (result.creds as string) || '';
+    const glRune = (result.rune as string) || '';
+
+    console.log(`[Greenlight] Node ${result.action}: ${greenlightNodeId} (creds: ${glCreds.length} bytes, rune: ${glRune.length > 0})`);
 
     const { data, error } = await this.supabase
       .from('ln_nodes')
@@ -188,6 +191,8 @@ export class GreenlightService {
         business_id: business_id || null,
         greenlight_node_id: greenlightNodeId,
         node_pubkey: nodePublicKey,
+        gl_creds: glCreds || null,
+        gl_rune: glRune || null,
         status: 'active',
       })
       .select()

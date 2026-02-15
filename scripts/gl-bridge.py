@@ -114,19 +114,27 @@ def cmd_register(args):
     # Try register first, then recover if already exists
     try:
         reg = scheduler.register(signer)
-        node_id = reg.node_id if hasattr(reg, 'node_id') else ''
         device_cert = reg.device_cert if hasattr(reg, 'device_cert') else ''
         device_key = reg.device_key if hasattr(reg, 'device_key') else ''
-        
-        # Log registration response fields for debugging
-        reg_fields = [f for f in dir(reg) if not f.startswith('_')]
-        print(json.dumps({"_debug_reg_fields": reg_fields}), file=sys.stderr)
+        creds_bytes = reg.creds if hasattr(reg, 'creds') else b''
+        rune = reg.rune if hasattr(reg, 'rune') else ''
+
+        # Extract node_id from device_cert CN (hex pubkey in the path)
+        node_id = ''
+        if device_cert:
+            import re
+            m = re.search(r'/users/([0-9a-f]{66})/', device_cert)
+            if m:
+                node_id = m.group(1)
         
         return {
             "action": "registered",
             "node_id": node_id,
+            "device_cert": device_cert,
+            "device_key": device_key,
+            "creds": creds_bytes.hex() if isinstance(creds_bytes, bytes) else '',
+            "rune": rune,
             "network": network,
-            "has_device_cert": bool(device_cert),
         }
     except Exception as reg_err:
         reg_err_str = str(reg_err)
@@ -134,10 +142,25 @@ def cmd_register(args):
 
         try:
             rec = scheduler.recover(signer)
-            node_id = rec.node_id if hasattr(rec, 'node_id') else ''
+            device_cert = rec.device_cert if hasattr(rec, 'device_cert') else ''
+            device_key = rec.device_key if hasattr(rec, 'device_key') else ''
+            creds_bytes = rec.creds if hasattr(rec, 'creds') else b''
+            rune = rec.rune if hasattr(rec, 'rune') else ''
+
+            node_id = ''
+            if device_cert:
+                import re
+                m = re.search(r'/users/([0-9a-f]{66})/', device_cert)
+                if m:
+                    node_id = m.group(1)
+
             return {
                 "action": "recovered",
                 "node_id": node_id,
+                "device_cert": device_cert,
+                "device_key": device_key,
+                "creds": creds_bytes.hex() if isinstance(creds_bytes, bytes) else '',
+                "rune": rune,
                 "network": network,
             }
         except Exception as rec_err:
