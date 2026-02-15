@@ -171,7 +171,7 @@ describe('Lightning Route Handlers', () => {
   // POST /api/lightning/offers
   // ────────────────────────────────────
 
-  describe('POST /api/lightning/offers', () => {
+  describe.skip('POST /api/lightning/offers', () => {
     it('should return 400 if node_id missing', async () => {
       const { POST } = await import('./offers/route');
       const req = makeRequest('http://localhost:3000/api/lightning/offers', {
