@@ -75,7 +75,13 @@ export async function POST(request: NextRequest) {
 
     return walletSuccess({ node }, 201);
   } catch (error) {
-    console.error('[Lightning] POST /nodes error:', error);
-    return WalletErrors.serverError((error as Error).message);
+    const msg = (error as Error).message || 'Unknown error';
+    // Log full error server-side but sanitize client response
+    console.error('[Lightning] POST /nodes error:', msg);
+    const safeMsg = msg.includes('not configured') ? msg
+      : msg.includes('no node_id') ? 'Lightning node registration failed — please try again'
+      : msg.includes('already exists') ? 'A Lightning node already exists for this wallet'
+      : 'Lightning node provisioning failed';
+    return WalletErrors.serverError(safeMsg);
   }
 }

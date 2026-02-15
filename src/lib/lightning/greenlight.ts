@@ -176,7 +176,8 @@ export class GreenlightService {
 
     const greenlightNodeId = (result.node_id as string) || '';
     if (!greenlightNodeId) {
-      throw new Error(`Greenlight registration returned no node_id: ${JSON.stringify(result)}`);
+      console.error('[Greenlight] Registration returned no node_id:', JSON.stringify(result));
+      throw new Error('Greenlight registration returned no node_id');
     }
 
     const glCreds = (result.creds as string) || '';
