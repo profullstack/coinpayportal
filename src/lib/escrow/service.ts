@@ -48,6 +48,7 @@ const createEscrowSchema = z.object({
   arbiter_address: z.string().min(10).optional(),
   metadata: z.record(z.unknown()).optional(),
   business_id: z.string().uuid().optional(),
+  series_id: z.string().uuid().optional(),
   expires_in_hours: z.number().positive().max(720).optional(), // max 30 days
 });
 
@@ -178,6 +179,7 @@ export async function createEscrow(
         release_token: releaseToken,
         beneficiary_token: beneficiaryToken,
         business_id: businessId,
+        series_id: data.series_id || null,
         expires_at: expiresAt,
       })
       .select()

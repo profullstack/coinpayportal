@@ -114,9 +114,9 @@ export async function POST(request: NextRequest) {
         depositor_address,
         beneficiary_address,
         business_id,
+        series_id: series.id,
         expires_in_hours: expiresMap[interval] || 168,
         metadata: {
-          series_id: series.id,
           period: 1,
           description: description || undefined,
         },

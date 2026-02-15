@@ -136,6 +136,24 @@ export default function EscrowDashboardPage() {
   const [events, setEvents] = useState<EscrowEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
 
+  const cancelSeries = async (seriesId: string) => {
+    if (!confirm('Cancel this recurring series? This cannot be undone.')) return;
+    try {
+      const result = await authFetch(`/api/escrow/series/${seriesId}`, {
+        method: 'DELETE',
+      }, router);
+      if (result && result.response.ok) {
+        // Refresh
+        fetchEscrows();
+      } else {
+        setError(result?.data?.error || 'Failed to cancel series');
+      }
+    } catch (err) {
+      setError('Failed to cancel series');
+      console.error(err);
+    }
+  };
+
   const fetchEscrows = useCallback(async () => {
     try {
       setLoading(true);
@@ -274,6 +292,16 @@ export default function EscrowDashboardPage() {
                   )}
                   <span>Next: {new Date(s.next_charge_at).toLocaleDateString()}</span>
                 </div>
+                {s.status === 'active' && (
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={() => cancelSeries(s.id)}
+                      className="px-3 py-1 text-xs font-medium text-red-600 border border-red-300 dark:border-red-700 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    >
+                      Cancel Series
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
