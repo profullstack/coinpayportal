@@ -202,7 +202,7 @@ function LightningAssetView() {
             onSetupComplete={(node) => setLnNode(node)}
           />
         ) : (
-          <LightningDashboard lnNode={lnNode} />
+          <LightningDashboard lnNode={lnNode} mnemonic={wallet?.getMnemonic() || ''} />
         )}
       </div>
     </>
@@ -211,7 +211,7 @@ function LightningAssetView() {
 
 // ── Lightning Dashboard ──
 
-function LightningDashboard({ lnNode }: { lnNode: { id: string; status: string; node_pubkey: string | null } }) {
+function LightningDashboard({ lnNode, mnemonic }: { lnNode: { id: string; status: string; node_pubkey: string | null }; mnemonic: string }) {
   const [activeTab, setActiveTab] = useState<'receive' | 'send' | 'payments'>('receive');
   const [createOfferLoading, setCreateOfferLoading] = useState(false);
   const [newOfferDesc, setNewOfferDesc] = useState('');
@@ -237,6 +237,7 @@ function LightningDashboard({ lnNode }: { lnNode: { id: string; status: string; 
           node_id: lnNode.id,
           description: newOfferDesc,
           amount_msat: newOfferAmount ? parseInt(newOfferAmount) * 1000 : undefined,
+          mnemonic,
         }),
       });
       const data = await resp.json();
@@ -368,6 +369,7 @@ function LightningDashboard({ lnNode }: { lnNode: { id: string; status: string; 
                     node_id: lnNode.id,
                     bolt12: payBolt12,
                     amount_sats: payAmount ? parseInt(payAmount) : undefined,
+                    mnemonic,
                   }),
                 });
                 const data = await resp.json();
