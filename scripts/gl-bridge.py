@@ -233,7 +233,7 @@ def cmd_offer(args):
         amount_str = f"{amount_msat}msat" if amount_msat else "any"
         req = clnpb.OfferRequest(amount=amount_str, description=description)
         uri = "/cln.Node/Offer"
-        raw_resp = node.inner.call(uri, bytes(req))
+        raw_resp = node.inner.call(uri, req.SerializeToString())
         resp = clnpb.OfferResponse.FromString(bytes(raw_resp))
         return {
             "bolt12": resp.bolt12 if hasattr(resp, 'bolt12') else '',
