@@ -1008,11 +1008,15 @@ export function startMonitor(): void {
   isMonitorRunning = true;
   
   // Run immediately
-  runMonitorCycle();
+  runMonitorCycle().catch(err => {
+    console.error('[Monitor] Fatal error in initial cycle:', err?.message || err);
+  });
   
   // Then run on interval
   monitorInterval = setInterval(() => {
-    runMonitorCycle();
+    runMonitorCycle().catch(err => {
+      console.error('[Monitor] Fatal error in cycle:', err?.message || err);
+    });
   }, MONITOR_INTERVAL_MS);
 }
 
