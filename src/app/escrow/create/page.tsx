@@ -258,7 +258,10 @@ export default function CreateEscrowPage() {
         // Create recurring series
         const seriesBody = {
           ...body,
+          payment_method: 'crypto' as const,
+          coin: formData.chain,
           interval: recurringInterval,
+          ...(formData.description.trim() ? { description: formData.description.trim() } : {}),
           ...(maxPeriods ? { max_periods: parseInt(maxPeriods) } : {}),
         };
 
