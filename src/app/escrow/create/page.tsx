@@ -80,6 +80,7 @@ export default function CreateEscrowPage() {
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringInterval, setRecurringInterval] = useState<'weekly' | 'biweekly' | 'monthly'>('monthly');
   const [maxPeriods, setMaxPeriods] = useState('');
+  const [createdSeries, setCreatedSeries] = useState<Record<string, unknown> | null>(null);
 
   // Dual input system state
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrency>('USD');
@@ -272,13 +273,7 @@ export default function CreateEscrowPage() {
         });
 
         if (result && result.response.ok) {
-          // Series created — show the first escrow from the series
-          const seriesData = result.data;
-          if (seriesData.escrow) {
-            setCreatedEscrow(seriesData.escrow);
-          } else {
-            setCreatedEscrow(seriesData);
-          }
+          setCreatedSeries(result.data);
         } else if (result) {
           setError(result.data?.error || 'Failed to create recurring escrow series');
         } else {
@@ -291,8 +286,7 @@ export default function CreateEscrowPage() {
             const errData = await res.json().catch(() => ({}));
             setError(errData?.error || `Failed to create series (${res.status})`);
           } else {
-            const seriesData = await res.json();
-            setCreatedEscrow(seriesData.escrow || seriesData);
+            setCreatedSeries(await res.json());
           }
         }
       } else {
@@ -331,6 +325,103 @@ export default function CreateEscrowPage() {
   };
 
   // ── Success view ──────────────────────────────────────
+  if (createdSeries) {
+    const s = createdSeries;
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-8">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+          <div className="bg-green-50 dark:bg-green-900/30 px-6 py-4 border-b border-green-200 dark:border-green-800">
+            <div className="flex items-center gap-2">
+              <svg className="h-6 w-6 text-green-600" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
+                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <h2 className="text-lg font-semibold text-green-900 dark:text-green-300">
+                Recurring Escrow Series Created!
+              </h2>
+            </div>
+          </div>
+          <div className="px-6 py-4 space-y-4">
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <h3 className="font-semibold text-blue-900 dark:text-blue-300">Series ID</h3>
+              <div className="flex items-center gap-2 mt-1">
+                <code className="text-sm font-mono break-all">{String(s.id)}</code>
+                <button
+                  type="button"
+                  className="text-blue-600 hover:text-blue-800 text-sm"
+                  onClick={() => copyToClipboard(String(s.id), 'series_id')}
+                >
+                  {copiedField === 'series_id' ? '✓' : '📋'}
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Amount</p>
+                <p className="font-medium">{String(s.amount)} {String(s.coin || s.currency || '')}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Interval</p>
+                <p className="font-medium capitalize">{String(s.interval)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Payment Method</p>
+                <p className="font-medium capitalize">{String(s.payment_method)}</p>
+              </div>
+              {s.max_periods ? (
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Max Periods</p>
+                  <p className="font-medium">{String(s.max_periods)}</p>
+                </div>
+              ) : null}
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Status</p>
+                <p className="font-medium capitalize">{String(s.status)}</p>
+              </div>
+              {s.next_charge_at ? (
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Next Charge</p>
+                  <p className="font-medium">{new Date(String(s.next_charge_at)).toLocaleString()}</p>
+                </div>
+              ) : null}
+            </div>
+
+            {(s.depositor_address || s.beneficiary_address) ? (
+              <div className="space-y-2 text-sm">
+                {s.depositor_address ? (
+                  <p><span className="text-gray-500 dark:text-gray-400">Depositor:</span> <code className="ml-2 break-all">{String(s.depositor_address)}</code></p>
+                ) : null}
+                {s.beneficiary_address ? (
+                  <p><span className="text-gray-500 dark:text-gray-400">Beneficiary:</span> <code className="ml-2 break-all">{String(s.beneficiary_address)}</code></p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {s.description ? (
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Description</p>
+                <p className="text-sm">{String(s.description)}</p>
+              </div>
+            ) : null}
+
+            <div className="pt-4 flex gap-3">
+              <button
+                type="button"
+                className="btn-primary px-4 py-2 text-sm"
+                onClick={() => { setCreatedSeries(null); setError(''); }}
+              >
+                Create Another
+              </button>
+              <a href="/dashboard" className="btn-secondary px-4 py-2 text-sm">
+                Go to Dashboard
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (createdEscrow) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-8">
