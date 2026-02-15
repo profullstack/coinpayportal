@@ -79,17 +79,25 @@ def clean_network(network):
     return network.split('#')[0].strip()
 
 
-def get_scheduler(network='bitcoin'):
-    """Create a Greenlight Scheduler with developer credentials."""
+def get_scheduler(network='bitcoin', device_creds_hex=None):
+    """Create a Greenlight Scheduler with credentials.
+    If device_creds_hex is provided, authenticate with device credentials.
+    Otherwise use nobody (developer) credentials."""
     from glclient import Scheduler, Credentials
     network = clean_network(network)
-    cert_data, key_data = get_credentials()
-    creds = Credentials.nobody_with(cert_data, key_data)
     print(json.dumps({"_debug_network": network}), file=sys.stderr)
-    return Scheduler(network, creds)
+
+    if device_creds_hex:
+        creds = Credentials.from_bytes(bytes.fromhex(device_creds_hex))
+        scheduler = Scheduler(network, creds)
+        return scheduler
+    else:
+        cert_data, key_data = get_credentials()
+        creds = Credentials.nobody_with(cert_data, key_data)
+        return Scheduler(network, creds)
 
 
-def get_node(scheduler, node_id=None):
+def get_node(scheduler, device_creds_hex=None):
     """Get a node connection from the scheduler."""
     return scheduler.node()
 
@@ -192,9 +200,10 @@ def cmd_get_info(args):
     """Get node info."""
     node_id = args[0] if args else None
     network = args[1] if len(args) > 1 else os.environ.get('GL_NETWORK', 'bitcoin')
+    device_creds_hex = args[2] if len(args) > 2 else None
 
-    scheduler = get_scheduler(network)
-    node = get_node(scheduler, node_id)
+    scheduler = get_scheduler(network, device_creds_hex)
+    node = get_node(scheduler)
 
     response = node.call('getinfo', '{}')
     data = json.loads(response) if isinstance(response, (str, bytes)) else response
@@ -212,15 +221,16 @@ def cmd_get_info(args):
 def cmd_offer(args):
     """Create a BOLT12 offer."""
     if len(args) < 2:
-        return {"error": "Usage: offer <node_id> <description> [amount_msat] [network]"}
+        return {"error": "Usage: offer <node_id> <description> [amount_msat] [network] [device_creds_hex]"}
 
     node_id = args[0]
     description = args[1]
     amount_msat = args[2] if len(args) > 2 and args[2] != 'any' else None
     network = args[3] if len(args) > 3 else os.environ.get('GL_NETWORK', 'bitcoin')
+    device_creds_hex = args[4] if len(args) > 4 else None
 
-    scheduler = get_scheduler(network)
-    node = get_node(scheduler, node_id)
+    scheduler = get_scheduler(network, device_creds_hex)
+    node = get_node(scheduler, device_creds_hex)
 
     # Build offer request
     params = {"description": description}
@@ -243,15 +253,16 @@ def cmd_offer(args):
 def cmd_invoice(args):
     """Create a BOLT11 invoice."""
     if len(args) < 3:
-        return {"error": "Usage: invoice <node_id> <amount_msat> <description> [network]"}
+        return {"error": "Usage: invoice <node_id> <amount_msat> <description> [network] [device_creds_hex]"}
 
     node_id = args[0]
     amount_msat = args[1]
     description = args[2]
     network = args[3] if len(args) > 3 else os.environ.get('GL_NETWORK', 'bitcoin')
+    device_creds_hex = args[4] if len(args) > 4 else None
 
-    scheduler = get_scheduler(network)
-    node = get_node(scheduler, node_id)
+    scheduler = get_scheduler(network, device_creds_hex)
+    node = get_node(scheduler)
 
     import secrets
     label = f"coinpay-{secrets.token_hex(8)}"
@@ -282,9 +293,10 @@ def cmd_pay(args):
     bolt = args[1]
     amount_msat = args[2] if len(args) > 2 and args[2] != '' else None
     network = args[3] if len(args) > 3 else os.environ.get('GL_NETWORK', 'bitcoin')
+    device_creds_hex = args[4] if len(args) > 4 else None
 
-    scheduler = get_scheduler(network)
-    node = get_node(scheduler, node_id)
+    scheduler = get_scheduler(network, device_creds_hex)
+    node = get_node(scheduler)
 
     if bolt.startswith('lno1'):
         # BOLT12 offer — use fetchinvoice then pay
@@ -324,9 +336,10 @@ def cmd_list_invoices(args):
     node_id = args[0] if args else None
     last_pay_index = int(args[1]) if len(args) > 1 else 0
     network = args[2] if len(args) > 2 else os.environ.get('GL_NETWORK', 'bitcoin')
+    device_creds_hex = args[3] if len(args) > 3 else None
 
-    scheduler = get_scheduler(network)
-    node = get_node(scheduler, node_id)
+    scheduler = get_scheduler(network, device_creds_hex)
+    node = get_node(scheduler)
 
     response = node.call('listinvoices', '{}')
     data = json.loads(response) if isinstance(response, (str, bytes)) else response
@@ -361,9 +374,10 @@ def cmd_list_pays(args):
     """List outgoing payments."""
     node_id = args[0] if args else None
     network = args[1] if len(args) > 1 else os.environ.get('GL_NETWORK', 'bitcoin')
+    device_creds_hex = args[2] if len(args) > 2 else None
 
-    scheduler = get_scheduler(network)
-    node = get_node(scheduler, node_id)
+    scheduler = get_scheduler(network, device_creds_hex)
+    node = get_node(scheduler)
 
     response = node.call('listpays', '{}')
     data = json.loads(response) if isinstance(response, (str, bytes)) else response

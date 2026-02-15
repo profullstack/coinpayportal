@@ -241,6 +241,7 @@ export class GreenlightService {
       description,
       amount_msat ? String(amount_msat) : 'any',
       network,
+      node.gl_creds || '',
     ]);
     bolt12Offer = (result.bolt12 as string) || '';
     if (!bolt12Offer) {
@@ -289,6 +290,7 @@ export class GreenlightService {
       params.bolt12,
       params.amount_sats ? String(params.amount_sats * 1000) : '',
       network,
+      node.gl_creds || '',
     ]);
 
     return {
@@ -319,6 +321,7 @@ export class GreenlightService {
       String(params.amount_sats * 1000),
       params.description,
       network,
+      node.gl_creds || '',
     ]);
 
     return {

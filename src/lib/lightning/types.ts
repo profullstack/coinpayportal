@@ -8,6 +8,8 @@ export interface LnNode {
   business_id: string | null;
   greenlight_node_id: string | null;
   node_pubkey: string | null;
+  gl_creds: string | null;
+  gl_rune: string | null;
   status: 'provisioning' | 'active' | 'inactive' | 'error';
   created_at: string;
   updated_at: string;
