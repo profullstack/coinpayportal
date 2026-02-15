@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authenticateRequest, isMerchantAuth } from '@/lib/auth/middleware';
+import { createEscrow } from '@/lib/escrow';
+import { isBusinessPaidTier } from '@/lib/entitlements/service';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -67,7 +69,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data, error } = await supabase
+    // Calculate next charge based on interval
+    const now = new Date();
+    const nextCharge = new Date(now);
+    if (interval === 'weekly') nextCharge.setDate(now.getDate() + 7);
+    else if (interval === 'biweekly') nextCharge.setDate(now.getDate() + 14);
+    else nextCharge.setMonth(now.getMonth() + 1);
+
+    const { data: series, error } = await supabase
       .from('escrow_series')
       .insert({
         merchant_id: business_id,
@@ -78,7 +87,7 @@ export async function POST(request: NextRequest) {
         currency,
         coin,
         interval,
-        next_charge_at: new Date().toISOString(),
+        next_charge_at: nextCharge.toISOString(),
         max_periods: max_periods || null,
         beneficiary_address,
         depositor_address,
@@ -92,7 +101,43 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json(data, { status: 201 });
+    // Create the first escrow in the series
+    if (payment_method === 'crypto' && depositor_address && beneficiary_address) {
+      const isPaidTier = await isBusinessPaidTier(supabase, business_id).catch(() => false);
+
+      // Map interval to expiry hours: weekly=168h, biweekly=336h, monthly=720h
+      const expiresMap: Record<string, number> = { weekly: 168, biweekly: 336, monthly: 720 };
+
+      const escrowResult = await createEscrow(supabase, {
+        chain: coin,
+        amount,
+        depositor_address,
+        beneficiary_address,
+        business_id,
+        expires_in_hours: expiresMap[interval] || 168,
+        metadata: {
+          series_id: series.id,
+          period: 1,
+          description: description || undefined,
+        },
+      }, isPaidTier);
+
+      if (escrowResult.success && escrowResult.escrow) {
+        return NextResponse.json({
+          series,
+          escrow: escrowResult.escrow,
+        }, { status: 201 });
+      }
+
+      // Series created but first escrow failed — return series with warning
+      return NextResponse.json({
+        series,
+        escrow: null,
+        warning: escrowResult.error || 'Failed to create first escrow payment',
+      }, { status: 201 });
+    }
+
+    return NextResponse.json({ series, escrow: null }, { status: 201 });
   } catch (error) {
     console.error('Failed to create escrow series:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

@@ -1,108 +1,143 @@
-/**
- * Escrow Series API Route Tests
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextRequest } from 'next/server';
 
-// Mock supabase
-const mockSelect = vi.fn();
-const mockInsert = vi.fn();
-const mockUpdate = vi.fn();
-const mockEq = vi.fn();
-const mockSingle = vi.fn();
-const mockOrder = vi.fn();
-const mockLte = vi.fn();
-const mockLimit = vi.fn();
+const mockSupabase = vi.hoisted(() => {
+  const mock = {
+    from: vi.fn(),
+  };
+  return mock;
+});
 
-const mockFrom = vi.fn(() => ({
-  select: mockSelect,
-  insert: mockInsert,
-  update: mockUpdate,
-  eq: mockEq,
-  single: mockSingle,
-  order: mockOrder,
-  lte: mockLte,
-  limit: mockLimit,
+const mockAuthResult = vi.hoisted(() => ({
+  current: { success: true, context: { type: 'merchant', merchantId: 'merch_1' } } as any,
 }));
 
-// Chain mocks
-mockSelect.mockReturnValue({ eq: mockEq, single: mockSingle, order: mockOrder });
-mockInsert.mockReturnValue({ select: mockSelect });
-mockUpdate.mockReturnValue({ eq: mockEq, select: mockSelect });
-mockEq.mockReturnValue({ eq: mockEq, single: mockSingle, order: mockOrder, select: mockSelect, lte: mockLte, limit: mockLimit });
-mockOrder.mockReturnValue({ data: [], error: null });
-mockSingle.mockReturnValue({ data: null, error: null });
-
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(() => ({ from: mockFrom })),
+  createClient: vi.fn().mockReturnValue(mockSupabase),
 }));
 
 vi.mock('@/lib/auth/middleware', () => ({
-  authenticateRequest: vi.fn().mockResolvedValue({
-    success: true,
-    context: { type: 'merchant', merchantId: 'merch_123' },
-  }),
-  isMerchantAuth: vi.fn().mockReturnValue(true),
+  authenticateRequest: vi.fn().mockImplementation(() => Promise.resolve(mockAuthResult.current)),
+  isMerchantAuth: vi.fn().mockImplementation((ctx: any) => ctx?.type === 'merchant'),
 }));
 
-describe('Escrow Series API', () => {
+import { POST, GET } from './route';
+
+function setupInsert(data: any = { id: 'series_1' }, error: any = null) {
+  mockSupabase.from.mockReturnValue({
+    insert: vi.fn().mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        single: vi.fn().mockResolvedValue({ data, error }),
+      }),
+    }),
+  });
+}
+
+function setupSelect(data: any[] = [], error: any = null) {
+  const query = {
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    order: vi.fn().mockResolvedValue({ data, error }),
+  };
+  mockSupabase.from.mockReturnValue(query);
+}
+
+describe('POST /api/escrow/series', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Re-setup chains after clear
-    mockFrom.mockReturnValue({
-      select: mockSelect,
-      insert: mockInsert,
-      update: mockUpdate,
-      eq: mockEq,
-    });
-    mockSelect.mockReturnValue({ eq: mockEq, single: mockSingle, order: mockOrder });
-    mockInsert.mockReturnValue({ select: mockSelect });
-    mockSingle.mockReturnValue({ data: { id: 'ser_123', status: 'active' }, error: null });
-    mockEq.mockReturnValue({ eq: mockEq, single: mockSingle, order: mockOrder, select: mockSelect });
-    mockOrder.mockReturnValue({ data: [], error: null });
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+    mockAuthResult.current = { success: true, context: { type: 'merchant', merchantId: 'merch_1' } };
+    setupInsert();
   });
 
-  it('should validate required fields on POST', async () => {
-    const { POST } = await import('./route');
+  const validBody = {
+    business_id: 'biz_1',
+    payment_method: 'crypto',
+    amount: 100,
+    interval: 'monthly',
+    coin: 'BTC',
+  };
 
-    const request = new Request('http://localhost/api/escrow/series', {
+  const makeReq = (body: any) =>
+    new NextRequest('http://localhost:3000/api/escrow/series', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer test' },
-      body: JSON.stringify({ business_id: 'biz_123' }), // missing required fields
+      headers: { 'Content-Type': 'application/json', authorization: 'Bearer test' },
+      body: JSON.stringify(body),
     });
 
-    const response = await POST(request as any);
-    const data = await response.json();
-    expect(response.status).toBe(400);
-    expect(data.error).toContain('Required');
+  it('returns 400 for missing required fields', async () => {
+    const res = await POST(makeReq({ amount: 100 }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/Required/);
   });
 
-  it('should validate payment_method', async () => {
-    const { POST } = await import('./route');
-
-    const request = new Request('http://localhost/api/escrow/series', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer test' },
-      body: JSON.stringify({
-        business_id: 'biz_123',
-        payment_method: 'invalid',
-        amount: 5000,
-        interval: 'monthly',
-      }),
-    });
-
-    const response = await POST(request as any);
-    expect(response.status).toBe(400);
+  it('returns 400 for invalid payment_method', async () => {
+    const res = await POST(makeReq({ ...validBody, payment_method: 'paypal' }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/payment_method/);
   });
 
-  it('should require business_id on GET', async () => {
-    const { GET } = await import('./route');
+  it('returns 400 for invalid interval', async () => {
+    const res = await POST(makeReq({ ...validBody, interval: 'daily' }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/interval/);
+  });
 
-    const request = new Request('http://localhost/api/escrow/series', {
-      headers: { 'Authorization': 'Bearer test' },
+  it('returns 400 for crypto without coin', async () => {
+    const res = await POST(makeReq({ ...validBody, coin: undefined }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/coin/);
+  });
+
+  it('returns 400 for card without stripe_account_id', async () => {
+    const res = await POST(makeReq({ ...validBody, payment_method: 'card', coin: undefined }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/stripe_account_id/);
+  });
+
+  it('returns 401 when unauthorized', async () => {
+    mockAuthResult.current = { success: false, context: null };
+    const res = await POST(makeReq(validBody));
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 201 with series data on success', async () => {
+    const seriesData = { id: 'series_1', amount: 100, coin: 'BTC', interval: 'monthly', status: 'active' };
+    setupInsert(seriesData);
+    const res = await POST(makeReq(validBody));
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    expect(json.series).toEqual(seriesData);
+    expect(json).toHaveProperty('escrow');
+  });
+});
+
+describe('GET /api/escrow/series', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+    mockAuthResult.current = { success: true, context: { type: 'merchant', merchantId: 'merch_1' } };
+  });
+
+  it('returns 400 without business_id', async () => {
+    const req = new NextRequest('http://localhost:3000/api/escrow/series', {
+      headers: { authorization: 'Bearer test' },
     });
+    const res = await GET(req);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/business_id/);
+  });
 
-    const response = await GET(request as any);
-    expect(response.status).toBe(400);
+  it('returns series list on success', async () => {
+    const seriesList = [{ id: 's1' }, { id: 's2' }];
+    setupSelect(seriesList);
+    const req = new NextRequest('http://localhost:3000/api/escrow/series?business_id=biz_1', {
+      headers: { authorization: 'Bearer test' },
+    });
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ series: seriesList });
   });
 });

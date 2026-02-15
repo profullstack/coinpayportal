@@ -273,7 +273,11 @@ export default function CreateEscrowPage() {
         });
 
         if (result && result.response.ok) {
-          setCreatedSeries(result.data);
+          const data = result.data;
+          setCreatedSeries(data.series || data);
+          if (data.escrow) {
+            setCreatedEscrow(data.escrow);
+          }
         } else if (result) {
           setError(result.data?.error || 'Failed to create recurring escrow series');
         } else {
@@ -286,7 +290,11 @@ export default function CreateEscrowPage() {
             const errData = await res.json().catch(() => ({}));
             setError(errData?.error || `Failed to create series (${res.status})`);
           } else {
-            setCreatedSeries(await res.json());
+            const data = await res.json();
+            setCreatedSeries(data.series || data);
+            if (data.escrow) {
+              setCreatedEscrow(data.escrow);
+            }
           }
         }
       } else {
@@ -404,11 +412,61 @@ export default function CreateEscrowPage() {
               </div>
             ) : null}
 
+            {/* First escrow details if created */}
+            {createdEscrow && (
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-3">
+                <h3 className="font-semibold text-green-800 dark:text-green-300">First Escrow Payment Created</h3>
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                  <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300 mb-2">⚠️ Save These Tokens!</p>
+                  <div className="space-y-2">
+                    <div>
+                      <p className="text-xs text-gray-500">Release Token (for depositor)</p>
+                      <div className="flex items-center gap-2">
+                        <code className="text-sm break-all">{createdEscrow.release_token}</code>
+                        <button type="button" className="text-blue-600 text-sm" onClick={() => copyToClipboard(createdEscrow.release_token, 'release')}>
+                          {copiedField === 'release' ? '✓' : '📋'}
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Beneficiary Token (for recipient)</p>
+                      <div className="flex items-center gap-2">
+                        <code className="text-sm break-all">{createdEscrow.beneficiary_token}</code>
+                        <button type="button" className="text-blue-600 text-sm" onClick={() => copyToClipboard(createdEscrow.beneficiary_token, 'beneficiary')}>
+                          {copiedField === 'beneficiary' ? '✓' : '📋'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-gray-500 dark:text-gray-400">Deposit Address</p>
+                    <code className="text-xs break-all">{createdEscrow.escrow_address}</code>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 dark:text-gray-400">Crypto Amount</p>
+                    <p className="font-medium">{createdEscrow.amount} {createdEscrow.chain}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 dark:text-gray-400">Expires</p>
+                    <p className="font-medium">{new Date(createdEscrow.expires_at).toLocaleString()}</p>
+                  </div>
+                  {createdEscrow.amount_usd != null && (
+                    <div>
+                      <p className="text-gray-500 dark:text-gray-400">USD Value</p>
+                      <p className="font-medium">≈ ${createdEscrow.amount_usd.toFixed(2)}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="pt-4 flex gap-3">
               <button
                 type="button"
                 className="btn-primary px-4 py-2 text-sm"
-                onClick={() => { setCreatedSeries(null); setError(''); }}
+                onClick={() => { setCreatedSeries(null); setCreatedEscrow(null); setError(''); }}
               >
                 Create Another
               </button>
