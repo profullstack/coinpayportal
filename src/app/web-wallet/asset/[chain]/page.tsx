@@ -213,47 +213,86 @@ function LightningAssetView() {
 
 function LightningDashboard({ lnNode, mnemonic }: { lnNode: { id: string; status: string; node_pubkey: string | null }; mnemonic: string }) {
   const [activeTab, setActiveTab] = useState<'receive' | 'send' | 'payments'>('receive');
-  const [createOfferLoading, setCreateOfferLoading] = useState(false);
-  const [newOfferDesc, setNewOfferDesc] = useState('');
-  const [newOfferAmount, setNewOfferAmount] = useState('');
+  const [createLoading, setCreateLoading] = useState(false);
+  const [newDesc, setNewDesc] = useState('');
+  const [newAmount, setNewAmount] = useState('');
   const [payBolt12, setPayBolt12] = useState('');
   const [payAmount, setPayAmount] = useState('');
   const [payLoading, setPayLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [lastInvoice, setLastInvoice] = useState<string | null>(null);
+  const [invoiceCopied, setInvoiceCopied] = useState(false);
 
-  const createOffer = async () => {
-    if (!newOfferDesc) {
+  const createPaymentRequest = async () => {
+    if (!newDesc) {
       setMessage({ type: 'error', text: 'Description is required' });
       return;
     }
-    setCreateOfferLoading(true);
+    setCreateLoading(true);
     setMessage(null);
+    setLastInvoice(null);
+
+    const amountSats = newAmount ? parseInt(newAmount) : 0;
+    const results: string[] = [];
+    const errors: string[] = [];
+
+    // Create BOLT12 offer (reusable, works with modern wallets)
     try {
       const resp = await fetch('/api/lightning/offers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           node_id: lnNode.id,
-          description: newOfferDesc,
-          amount_msat: newOfferAmount ? parseInt(newOfferAmount) * 1000 : undefined,
+          description: newDesc,
+          amount_msat: amountSats ? amountSats * 1000 : undefined,
           mnemonic,
         }),
       });
       const data = await resp.json();
       if (data.success) {
-        setMessage({ type: 'success', text: 'Offer created! Share it to receive payments.' });
-        setNewOfferDesc('');
-        setNewOfferAmount('');
+        results.push('BOLT12 offer created');
         setRefreshKey((k) => k + 1);
       } else {
-        setMessage({ type: 'error', text: data.error?.message || 'Failed to create offer' });
+        errors.push(`BOLT12: ${data.error?.message || 'failed'}`);
       }
     } catch {
-      setMessage({ type: 'error', text: 'Network error' });
-    } finally {
-      setCreateOfferLoading(false);
+      errors.push('BOLT12: network error');
     }
+
+    // Create BOLT11 invoice (one-time, works with all wallets)
+    if (amountSats > 0) {
+      try {
+        const resp = await fetch('/api/lightning/invoices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            node_id: lnNode.id,
+            amount_sats: amountSats,
+            description: newDesc,
+            mnemonic,
+          }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+          results.push('BOLT11 invoice created');
+          setLastInvoice(data.data.invoice.bolt11);
+        } else {
+          errors.push(`BOLT11: ${data.error?.message || 'failed'}`);
+        }
+      } catch {
+        errors.push('BOLT11: network error');
+      }
+    }
+
+    if (results.length > 0) {
+      setMessage({ type: 'success', text: results.join(' + ') + '!' });
+      setNewDesc('');
+      setNewAmount('');
+    } else {
+      setMessage({ type: 'error', text: errors.join('; ') || 'Failed to create payment request' });
+    }
+    setCreateLoading(false);
   };
 
   return (
@@ -301,34 +340,67 @@ function LightningDashboard({ lnNode, mnemonic }: { lnNode: { id: string; status
       {activeTab === 'receive' && (
         <div className="space-y-4">
           <div className="rounded-xl border border-white/10 bg-white/5 p-5 space-y-4">
-            <h3 className="text-white font-semibold">Create BOLT12 Offer</h3>
-            <p className="text-xs text-gray-400">Create a reusable payment request that anyone can pay.</p>
+            <h3 className="text-white font-semibold">Create Payment Request</h3>
+            <p className="text-xs text-gray-400">
+              Creates a BOLT12 offer (reusable, modern wallets) and a BOLT11 invoice (one-time, all wallets).
+            </p>
             <input
               type="text"
               placeholder="What is this for? (e.g. Donation, Payment)"
-              value={newOfferDesc}
-              onChange={(e) => setNewOfferDesc(e.target.value)}
+              value={newDesc}
+              onChange={(e) => setNewDesc(e.target.value)}
               className="w-full rounded-lg bg-white/5 border border-white/10 px-4 py-2.5 text-white text-sm placeholder:text-gray-500 focus:outline-none focus:border-purple-500"
             />
             <input
               type="number"
-              placeholder="Amount in sats (leave empty for any amount)"
-              value={newOfferAmount}
-              onChange={(e) => setNewOfferAmount(e.target.value)}
+              placeholder="Amount in sats (required for BOLT11 invoice)"
+              value={newAmount}
+              onChange={(e) => setNewAmount(e.target.value)}
               className="w-full rounded-lg bg-white/5 border border-white/10 px-4 py-2.5 text-white text-sm placeholder:text-gray-500 focus:outline-none focus:border-purple-500"
             />
             <button
-              onClick={createOffer}
-              disabled={createOfferLoading}
+              onClick={createPaymentRequest}
+              disabled={createLoading}
               className="w-full rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50 transition-colors"
             >
-              {createOfferLoading ? 'Creating...' : '⚡ Create Offer'}
+              {createLoading ? 'Creating...' : '⚡ Create Payment Request'}
             </button>
           </div>
 
-          {/* Existing offers */}
+          {/* BOLT11 invoice (just created) */}
+          {lastInvoice && (
+            <div className="rounded-xl border border-yellow-800 bg-yellow-900/20 p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-yellow-400 font-semibold text-sm">⚡ BOLT11 Invoice (one-time)</h3>
+                <span className="text-xs text-yellow-600">Compatible with all LN wallets</span>
+              </div>
+              <div className="rounded-lg bg-black/30 p-3 font-mono text-xs text-gray-300 break-all max-h-24 overflow-y-auto">
+                {lastInvoice}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(lastInvoice);
+                    setInvoiceCopied(true);
+                    setTimeout(() => setInvoiceCopied(false), 2000);
+                  }}
+                  className="flex-1 rounded-lg bg-yellow-600 px-4 py-2 text-sm font-medium text-white hover:bg-yellow-700 transition-colors"
+                >
+                  {invoiceCopied ? '✓ Copied!' : '📋 Copy Invoice'}
+                </button>
+                <a
+                  href={`lightning:${lastInvoice}`}
+                  className="flex-1 rounded-lg border border-yellow-600 px-4 py-2 text-center text-sm font-medium text-yellow-400 hover:bg-yellow-900/30 transition-colors"
+                >
+                  Open in Wallet
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Existing BOLT12 offers */}
           <div>
-            <h3 className="text-white font-semibold mb-3">Your Offers</h3>
+            <h3 className="text-white font-semibold mb-3">Your BOLT12 Offers</h3>
             <LightningOfferCard nodeId={lnNode.id} refreshKey={refreshKey} />
           </div>
         </div>
@@ -337,8 +409,8 @@ function LightningDashboard({ lnNode, mnemonic }: { lnNode: { id: string; status
       {/* Send Tab */}
       {activeTab === 'send' && (
         <div className="rounded-xl border border-white/10 bg-white/5 p-5 space-y-4">
-          <h3 className="text-white font-semibold">Pay a BOLT12 Offer</h3>
-          <p className="text-xs text-gray-400">Paste a BOLT12 offer or invoice to send a payment.</p>
+          <h3 className="text-white font-semibold">Send Payment</h3>
+          <p className="text-xs text-gray-400">Paste a BOLT11 invoice (lnbc...) or BOLT12 offer (lno...) to pay.</p>
           <textarea
             placeholder="Paste BOLT12 offer (lno1...) or invoice (lnbc...)"
             value={payBolt12}
