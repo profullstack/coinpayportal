@@ -3,7 +3,7 @@
  */
 
 export type EscrowStatus =
-  | 'created'
+  | 'pending'
   | 'funded'
   | 'released'
   | 'settled'
@@ -12,7 +12,7 @@ export type EscrowStatus =
   | 'expired';
 
 export type EscrowEventType =
-  | 'created'
+  | 'pending'
   | 'funded'
   | 'released'
   | 'settled'

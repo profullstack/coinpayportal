@@ -555,7 +555,7 @@ async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowStats> {
     const { data: pendingEscrows, error: escrowFetchError } = await supabase
       .from('escrows')
       .select('id, escrow_address, chain, amount, status, expires_at')
-      .eq('status', 'created')
+      .eq('status', 'pending')
       .limit(50);
 
     if (!escrowFetchError && pendingEscrows && pendingEscrows.length > 0) {
@@ -570,7 +570,7 @@ async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowStats> {
               .from('escrows')
               .update({ status: 'expired' })
               .eq('id', escrow.id)
-              .eq('status', 'created');
+              .eq('status', 'pending');
             await supabase.from('escrow_events').insert({
               escrow_id: escrow.id,
               event_type: 'expired',
@@ -597,7 +597,7 @@ async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowStats> {
                 deposited_amount: balance,
               })
               .eq('id', escrow.id)
-              .eq('status', 'created');
+              .eq('status', 'pending');
             await supabase.from('escrow_events').insert({
               escrow_id: escrow.id,
               event_type: 'funded',

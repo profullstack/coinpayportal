@@ -33,7 +33,7 @@ const STATUS_DESCRIPTIONS: Record<string, string> = {
 };
 
 function StatusBadge({ status }: { status: string }) {
-  const statusDisplay = status === 'created' ? 'pending_deposit' : status;
+  const statusDisplay = status === 'pending' ? 'pending_deposit' : status;
   return (
     <div className="text-center">
       <span className={`px-3 py-1 rounded-full text-sm font-medium ${STATUS_COLORS[status] || 'bg-gray-100 text-gray-800'}`}>
@@ -418,7 +418,7 @@ function EscrowManagePage() {
                     {copiedField === 'address' ? '✓' : '📋'}
                   </button>
                 </div>
-                {escrow.status === 'created' && role === 'depositor' && (
+                {escrow.status === 'pending' && role === 'depositor' && (
                   <div className="mt-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded">
                     <p className="text-sm text-amber-800 dark:text-amber-400">
                       <strong>Send exactly {escrow.amount} {escrow.chain}</strong> to this address to fund the escrow.

@@ -52,7 +52,7 @@ async function checkPendingEscrows(
   const { data: pendingEscrows, error: escrowFetchError } = await supabase
     .from('escrows')
     .select('id, escrow_address, chain, amount, status, expires_at')
-    .eq('status', 'created')
+    .eq('status', 'pending')
     .limit(50);
 
   if (escrowFetchError || !pendingEscrows) return;
@@ -68,7 +68,7 @@ async function checkPendingEscrows(
           .from('escrows')
           .update({ status: 'expired' })
           .eq('id', escrow.id)
-          .eq('status', 'created');
+          .eq('status', 'pending');
         await supabase.from('escrow_events').insert({
           escrow_id: escrow.id,
           event_type: 'expired',
@@ -94,7 +94,7 @@ async function checkPendingEscrows(
             deposited_amount: balance,
           })
           .eq('id', escrow.id)
-          .eq('status', 'created');
+          .eq('status', 'pending');
         await supabase.from('escrow_events').insert({
           escrow_id: escrow.id,
           event_type: 'funded',

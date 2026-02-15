@@ -213,7 +213,7 @@ export default function EscrowDashboardPage() {
 
       {/* Filters */}
       <div className="flex gap-2 mb-6">
-        {['', 'created', 'funded', 'released', 'settled', 'disputed', 'refunded', 'expired'].map((s) => (
+        {['', 'pending', 'funded', 'released', 'settled', 'disputed', 'refunded', 'expired'].map((s) => (
           <button
             key={s}
             onClick={() => setStatusFilter(s)}

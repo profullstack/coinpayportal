@@ -173,7 +173,7 @@ export async function createEscrow(
         amount: data.amount,
         amount_usd: amountUsd,
         fee_amount: feeAmount,
-        status: 'created',
+        status: 'pending',
         metadata: data.metadata || {},
         release_token: releaseToken,
         beneficiary_token: beneficiaryToken,
@@ -188,7 +188,7 @@ export async function createEscrow(
     }
 
     // Log creation event
-    await logEvent(supabase, escrow.id, 'created', data.depositor_address, {
+    await logEvent(supabase, escrow.id, 'pending', data.depositor_address, {
       chain: data.chain,
       amount: data.amount,
       amount_usd: amountUsd,
@@ -603,7 +603,7 @@ export async function markEscrowFunded(
       deposit_tx_hash: txHash,
     })
     .eq('id', escrowId)
-    .eq('status', 'created')
+    .eq('status', 'pending')
     .select()
     .single();
 
@@ -672,7 +672,7 @@ export async function expireStaleEscrows(
     .update({
       status: 'expired',
     })
-    .eq('status', 'created')
+    .eq('status', 'pending')
     .lt('expires_at', new Date().toISOString())
     .select('id');
 

@@ -220,7 +220,7 @@ export default function DocsPage() {
             <h3 className="text-xl font-semibold text-white mb-4">Escrow Statuses</h3>
             <div className="grid md:grid-cols-3 gap-4 mb-8">
               {[
-                { status: 'created', desc: 'Awaiting deposit', color: 'yellow' },
+                { status: 'pending', desc: 'Awaiting deposit', color: 'yellow' },
                 { status: 'funded', desc: 'Deposit received on-chain', color: 'blue' },
                 { status: 'released', desc: 'Depositor released funds', color: 'green' },
                 { status: 'settled', desc: 'Funds forwarded to beneficiary', color: 'green' },
