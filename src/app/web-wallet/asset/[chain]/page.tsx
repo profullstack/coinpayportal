@@ -24,6 +24,7 @@ import { SUPPORTED_FIAT_CURRENCIES, type FiatCurrency } from '@/lib/web-wallet/s
 import { LightningSetup } from '@/components/lightning/LightningSetup';
 import { LightningOfferCard } from '@/components/lightning/LightningOfferCard';
 import { LightningPayments } from '@/components/lightning/LightningPayments';
+import { LightningAddress } from '@/components/lightning/LightningAddress';
 
 const EXPLORER_URLS: Record<string, string> = {
   BTC: 'https://blockstream.info/tx/',
@@ -202,7 +203,7 @@ function LightningAssetView() {
             onSetupComplete={(node) => setLnNode(node)}
           />
         ) : (
-          <LightningDashboard lnNode={lnNode} mnemonic={wallet?.getMnemonic() || ''} />
+          <LightningDashboard lnNode={lnNode} mnemonic={wallet?.getMnemonic() || ''} walletId={wallet?.walletId || ''} />
         )}
       </div>
     </>
@@ -211,7 +212,7 @@ function LightningAssetView() {
 
 // ── Lightning Dashboard ──
 
-function LightningDashboard({ lnNode, mnemonic }: { lnNode: { id: string; status: string; node_pubkey: string | null }; mnemonic: string }) {
+function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: string; status: string; node_pubkey: string | null }; mnemonic: string; walletId: string }) {
   const [activeTab, setActiveTab] = useState<'receive' | 'send' | 'payments'>('receive');
   const [createLoading, setCreateLoading] = useState(false);
   const [newDesc, setNewDesc] = useState('');
@@ -309,6 +310,9 @@ function LightningDashboard({ lnNode, mnemonic }: { lnNode: { id: string; status
           <p className="mt-1 text-xs text-gray-500 font-mono truncate">{lnNode.node_pubkey}</p>
         )}
       </div>
+
+      {/* Lightning Address */}
+      <LightningAddress walletId={walletId} />
 
       {/* Message */}
       {message && (
