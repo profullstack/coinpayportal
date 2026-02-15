@@ -27,6 +27,7 @@ const registerSchema = z.object({
   did: z.string().startsWith('did:', 'Must be a valid DID'),
   public_key: z.string().optional(),
   platform: z.string().optional(),
+  email: z.string().email().optional(),
   metadata: z.record(z.unknown()).optional(),
 });
 
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { did, public_key, platform: platformName, metadata } = parsed.data;
+    const { did, public_key, platform: platformName, email, metadata } = parsed.data;
 
     // Check if DID already exists in merchant_dids
     const { data: existing } = await supabase
@@ -83,12 +84,27 @@ export async function POST(request: NextRequest) {
     }
 
     // Register the DID in merchant_dids (without merchant_id — platform-managed DID)
+    // If email is provided, check if a merchant already exists and link them
+    let merchantId: string | null = null;
+    if (email) {
+      const { data: merchant } = await supabase
+        .from('merchants')
+        .select('id')
+        .eq('email', email.toLowerCase())
+        .maybeSingle();
+      if (merchant) {
+        merchantId = merchant.id;
+      }
+    }
+
     const { error: insertError } = await supabase
       .from('merchant_dids')
       .insert({
         did,
         public_key: public_key || '',
         platform: platformName || platform.name,
+        email: email?.toLowerCase() || null,
+        merchant_id: merchantId,
         verified: true,
       });
 

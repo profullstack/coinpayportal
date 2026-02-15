@@ -114,6 +114,28 @@ export async function register(
       };
     }
 
+    // Link any platform-registered DIDs (e.g., from ugig.net) to this merchant
+    try {
+      const { data: platformDids } = await supabase
+        .from('merchant_dids')
+        .select('id, did')
+        .eq('email', input.email.toLowerCase())
+        .is('merchant_id', null);
+
+      if (platformDids && platformDids.length > 0) {
+        for (const pd of platformDids) {
+          await supabase
+            .from('merchant_dids')
+            .update({ merchant_id: merchant.id })
+            .eq('id', pd.id);
+          console.log(`[Auth] Linked platform DID ${pd.did} to merchant ${merchant.id}`);
+        }
+      }
+    } catch (linkErr) {
+      // Non-fatal — don't block registration
+      console.error('[Auth] Failed to link platform DIDs:', linkErr);
+    }
+
     // Generate JWT token
     const token = generateToken(
       {
