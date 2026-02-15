@@ -311,3 +311,31 @@ export interface SwapHistoryOptions {
   limit?: number;
   offset?: number;
 }
+
+// ── Lightning Network ──
+
+export interface LightningAddress {
+  lightning_address: string | null;
+  username?: string;
+}
+
+export interface LightningInvoice {
+  payment_hash: string;
+  payment_request: string;
+  checking_id: string;
+}
+
+export interface LightningPayment {
+  payment_hash: string;
+  pending: boolean;
+  amount: number;
+  fee: number;
+  memo: string;
+  time: number;
+  bolt11: string;
+  preimage: string;
+}
+
+export interface LightningPaymentStatus {
+  paid: boolean;
+}

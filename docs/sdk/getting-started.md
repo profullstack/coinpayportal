@@ -255,6 +255,47 @@ The SDK is written in JavaScript with JSDoc types. TypeScript projects get full 
 
 ---
 
+## Lightning Network
+
+The SDK includes full Lightning Network support via LNbits.
+
+### Lightning Address
+
+```typescript
+// Get current Lightning Address
+const addr = await wallet.getLightningAddress();
+console.log(addr.lightning_address); // "alice@coinpayportal.com"
+
+// Register a Lightning Address
+const result = await wallet.setLightningAddress('alice');
+console.log(result.lightning_address); // "alice@coinpayportal.com"
+```
+
+### Create & Pay Invoices
+
+```typescript
+// Create a BOLT11 invoice (receive payment)
+const invoice = await wallet.createLightningInvoice(1000, 'Coffee payment');
+console.log(invoice.payment_request); // "lnbc10u1p..."
+
+// Pay a BOLT11 invoice
+const payment = await wallet.payLightningInvoice('lnbc10u1p...');
+console.log(payment.payment_hash);
+
+// Check payment status
+const status = await wallet.checkLightningPayment(payment.payment_hash);
+console.log(status.paid); // true
+
+// List recent payments
+const payments = await wallet.listLightningPayments(20);
+```
+
+### Lightning Address Resolution
+
+Anyone can pay `alice@coinpayportal.com` from any Lightning wallet (Phoenix, Muun, Wallet of Satoshi, etc). The address resolves via the LNURL-pay protocol at `coinpayportal.com/.well-known/lnurlp/alice`.
+
+---
+
 ## Next Steps
 
 - [Integration Examples](../integration-examples/) — Node.js bot, browser app, e-commerce

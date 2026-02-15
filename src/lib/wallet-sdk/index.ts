@@ -46,6 +46,10 @@ export type {
   SwapCoin,
   SwapStatus,
   SwapHistoryOptions,
+  LightningAddress,
+  LightningInvoice,
+  LightningPayment,
+  LightningPaymentStatus,
 } from './types';
 
 export type { EncryptedBackup } from './backup';
