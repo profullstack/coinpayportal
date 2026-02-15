@@ -186,7 +186,7 @@ beforeEach(() => {
 // Dual Input System Tests
 // ─────────────────────────────────────────────
 
-describe.skip('AssetDetailPage - Send Tab - Dual Input System', () => {
+describe('AssetDetailPage - Send Tab - Dual Input System', () => {
   it('should render dual input system with fiat currency selector', async () => {
     renderUnlockedPage('BTC');
     

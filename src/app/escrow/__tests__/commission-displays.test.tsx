@@ -35,7 +35,7 @@ import EscrowDashboardPage from '../page';
 import CreateEscrowPage from '../create/page';
 import { authFetch } from '@/lib/auth/client';
 
-describe.skip('Escrow Commission Displays', () => {
+describe('Escrow Commission Displays', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockClipboardWriteText.mockResolvedValue(undefined);

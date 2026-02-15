@@ -365,7 +365,7 @@ describe('AssetDetailPage – tab switching', () => {
 // 3. Send tab
 // ─────────────────────────────────────────────
 
-describe.skip('AssetDetailPage – Send tab [FIXME: amount-field testid removed]', () => {
+describe('AssetDetailPage – Send tab', () => {
   it('should render the from address selector', async () => {
     renderUnlockedPage('BTC');
 
