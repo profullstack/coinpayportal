@@ -397,6 +397,83 @@ def cmd_list_pays(args):
 # Main
 # ──────────────────────────────────────────────
 
+def cmd_lsp_info(args):
+    """List available LSPs and their protocols."""
+    if len(args) < 1:
+        return {"error": "Usage: lsp-info <seed_hex> [network] [device_creds_hex]"}
+
+    seed_hex = args[0]
+    network = args[1] if len(args) > 1 else os.environ.get('GL_NETWORK', 'bitcoin')
+    device_creds_hex = args[2] if len(args) > 2 else None
+
+    node, signer_handle, signer = start_node_with_signer(seed_hex, network, device_creds_hex)
+    try:
+        lsp_client = node.get_lsp_client()
+        servers = lsp_client.list_lsp_servers()
+        
+        protocols = {}
+        for server in servers:
+            try:
+                proto_list = lsp_client.list_protocols(server)
+                protocols[server] = str(proto_list)
+            except Exception as e:
+                protocols[server] = f"error: {e}"
+        
+        # Also get node info for connectivity status
+        info = node.get_info()
+        funds = node.list_funds()
+        channels = node.list_channels()
+        
+        return {
+            "lsp_servers": servers,
+            "protocols": protocols,
+            "node_id": info.id.hex() if isinstance(info.id, bytes) else str(info.id),
+            "num_peers": info.num_peers,
+            "num_channels": info.num_active_channels,
+            "channels": [
+                {
+                    "peer_id": ch.peer_id.hex() if isinstance(ch.peer_id, bytes) else str(ch.peer_id),
+                    "spendable_msat": ch.spendable_msat.msat if hasattr(ch, 'spendable_msat') and ch.spendable_msat else 0,
+                    "receivable_msat": ch.receivable_msat.msat if hasattr(ch, 'receivable_msat') and ch.receivable_msat else 0,
+                    "state": str(ch.state) if hasattr(ch, 'state') else '',
+                }
+                for ch in (channels.channels if hasattr(channels, 'channels') else [])
+            ],
+        }
+    except Exception as e:
+        log({"_debug_lsp_error": str(e)})
+        return {"error": f"LSP info failed: {e}"}
+    finally:
+        signer_handle.shutdown()
+
+
+def cmd_connect_peer(args):
+    """Connect to a peer node."""
+    if len(args) < 2:
+        return {"error": "Usage: connect-peer <seed_hex> <peer_id@host:port> [network] [device_creds_hex]"}
+
+    seed_hex = args[0]
+    peer_addr = args[1]
+    network = args[2] if len(args) > 2 else os.environ.get('GL_NETWORK', 'bitcoin')
+    device_creds_hex = args[3] if len(args) > 3 else None
+
+    node, signer_handle, signer = start_node_with_signer(seed_hex, network, device_creds_hex)
+    try:
+        # Parse peer_id@host:port
+        if '@' in peer_addr:
+            peer_id, host_port = peer_addr.split('@', 1)
+        else:
+            return {"error": "Peer address must be in format peer_id@host:port"}
+        
+        node.connect_peer(peer_id, host_port)
+        return {"connected": True, "peer_id": peer_id, "host": host_port}
+    except Exception as e:
+        log({"_debug_connect_error": str(e)})
+        return {"error": f"Connect failed: {e}"}
+    finally:
+        signer_handle.shutdown()
+
+
 COMMANDS = {
     'register': cmd_register,
     'get-info': cmd_get_info,
@@ -405,6 +482,8 @@ COMMANDS = {
     'pay': cmd_pay,
     'list-invoices': cmd_list_invoices,
     'list-pays': cmd_list_pays,
+    'lsp-info': cmd_lsp_info,
+    'connect-peer': cmd_connect_peer,
 }
 
 
