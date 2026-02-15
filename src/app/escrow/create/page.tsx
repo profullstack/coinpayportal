@@ -256,9 +256,12 @@ export default function CreateEscrowPage() {
       }
 
       if (isRecurring) {
-        // Create recurring series
+        // Create recurring series — store USD amount (bigint column),
+        // each period's escrow converts to crypto at current rates
+        const seriesAmount = fiatAmount ? parseFloat(fiatAmount) : parseFloat(formData.amount);
         const seriesBody = {
           ...body,
+          amount: Math.round(seriesAmount), // escrow_series.amount is bigint (whole USD)
           payment_method: 'crypto' as const,
           coin: formData.chain,
           interval: recurringInterval,

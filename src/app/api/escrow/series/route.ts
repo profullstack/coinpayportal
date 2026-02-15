@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { authenticateRequest, isMerchantAuth } from '@/lib/auth/middleware';
 import { createEscrow } from '@/lib/escrow';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
+import { getExchangeRate } from '@/lib/rates/tatum';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -108,9 +109,20 @@ export async function POST(request: NextRequest) {
       // Map interval to expiry hours: weekly=168h, biweekly=336h, monthly=720h
       const expiresMap: Record<string, number> = { weekly: 168, biweekly: 336, monthly: 720 };
 
+      // Convert USD amount to crypto for the escrow
+      const rate = await getExchangeRate(coin, 'USD');
+      if (!rate || rate === 0) {
+        return NextResponse.json({
+          series,
+          escrow: null,
+          warning: `Could not fetch exchange rate for ${coin}`,
+        }, { status: 201 });
+      }
+      const cryptoAmount = amount / rate;
+
       const escrowResult = await createEscrow(supabase, {
         chain: coin,
-        amount,
+        amount: cryptoAmount,
         depositor_address,
         beneficiary_address,
         business_id,
