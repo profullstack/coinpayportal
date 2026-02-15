@@ -123,7 +123,7 @@ def cmd_register(args):
         node_id = ''
         if device_cert:
             import re
-            m = re.search(r'/users/([0-9a-f]{66})/', device_cert)
+            m = re.search(r'/users/([0-9a-f]{66})', device_cert)
             if m:
                 node_id = m.group(1)
         
@@ -150,7 +150,7 @@ def cmd_register(args):
             node_id = ''
             if device_cert:
                 import re
-                m = re.search(r'/users/([0-9a-f]{66})/', device_cert)
+                m = re.search(r'/users/([0-9a-f]{66})', device_cert)
                 if m:
                     node_id = m.group(1)
 
