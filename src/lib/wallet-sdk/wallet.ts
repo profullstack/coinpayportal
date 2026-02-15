@@ -913,54 +913,7 @@ export class Wallet {
     }
     return this._events;
   }
-}
 
-// ── Mapping Helpers ──
-
-function mapTransaction(raw: any): Transaction {
-  return {
-    id: raw.id,
-    walletId: raw.wallet_id,
-    chain: raw.chain,
-    txHash: raw.tx_hash,
-    direction: raw.direction,
-    status: raw.status,
-    amount: raw.amount?.toString() || '0',
-    fromAddress: raw.from_address,
-    toAddress: raw.to_address,
-    feeAmount: raw.fee_amount?.toString() ?? null,
-    feeCurrency: raw.fee_currency ?? null,
-    confirmations: raw.confirmations || 0,
-    blockNumber: raw.block_number ?? null,
-    blockTimestamp: raw.block_timestamp ?? null,
-    createdAt: raw.created_at,
-  };
-}
-
-function mapSettings(data: any): WalletSettings {
-  return {
-    walletId: data.wallet_id,
-    dailySpendLimit: data.daily_spend_limit,
-    whitelistAddresses: data.whitelist_addresses || [],
-    whitelistEnabled: data.whitelist_enabled,
-    requireConfirmation: data.require_confirmation,
-    confirmationDelaySeconds: data.confirmation_delay_seconds,
-    displayCurrency: data.display_currency || 'USD',
-  };
-}
-
-function mapWebhook(raw: any): WebhookRegistration {
-  return {
-    id: raw.id,
-    url: raw.url,
-    events: raw.events || [],
-    isActive: raw.is_active ?? true,
-    secret: raw.secret,
-    lastDeliveredAt: raw.last_delivered_at ?? null,
-    lastError: raw.last_error ?? null,
-    consecutiveFailures: raw.consecutive_failures ?? 0,
-    createdAt: raw.created_at,
-  };
   // ── Lightning Network ──
 
   /**
@@ -1064,6 +1017,54 @@ function mapWebhook(raw: any): WebhookRegistration {
     });
     return data.data?.payments || data.payments || [];
   }
+}
+
+// ── Mapping Helpers ──
+
+function mapTransaction(raw: any): Transaction {
+  return {
+    id: raw.id,
+    walletId: raw.wallet_id,
+    chain: raw.chain,
+    txHash: raw.tx_hash,
+    direction: raw.direction,
+    status: raw.status,
+    amount: raw.amount?.toString() || '0',
+    fromAddress: raw.from_address,
+    toAddress: raw.to_address,
+    feeAmount: raw.fee_amount?.toString() ?? null,
+    feeCurrency: raw.fee_currency ?? null,
+    confirmations: raw.confirmations || 0,
+    blockNumber: raw.block_number ?? null,
+    blockTimestamp: raw.block_timestamp ?? null,
+    createdAt: raw.created_at,
+  };
+}
+
+function mapSettings(data: any): WalletSettings {
+  return {
+    walletId: data.wallet_id,
+    dailySpendLimit: data.daily_spend_limit,
+    whitelistAddresses: data.whitelist_addresses || [],
+    whitelistEnabled: data.whitelist_enabled,
+    requireConfirmation: data.require_confirmation,
+    confirmationDelaySeconds: data.confirmation_delay_seconds,
+    displayCurrency: data.display_currency || 'USD',
+  };
+}
+
+function mapWebhook(raw: any): WebhookRegistration {
+  return {
+    id: raw.id,
+    url: raw.url,
+    events: raw.events || [],
+    isActive: raw.is_active ?? true,
+    secret: raw.secret,
+    lastDeliveredAt: raw.last_delivered_at ?? null,
+    lastError: raw.last_error ?? null,
+    consecutiveFailures: raw.consecutive_failures ?? 0,
+    createdAt: raw.created_at,
+  };
 }
 
 function mapSwap(raw: any): Swap {
