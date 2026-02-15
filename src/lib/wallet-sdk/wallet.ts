@@ -893,5 +893,3 @@ function mapWebhook(raw: any): WebhookRegistration {
     createdAt: raw.created_at,
   };
 }
-
-}
