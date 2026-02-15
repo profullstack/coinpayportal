@@ -21,8 +21,9 @@ import CreateEscrowPage from '../create/page';
 describe('Escrow Confirmation Screens', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: not logged in, rate fetch returns a rate
+    // Default: not logged in
     mockAuthFetch.mockResolvedValue(null);
+    // Rate API mock (default for all fetch calls)
     mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ success: true, rate: 50000 }),
@@ -70,11 +71,21 @@ describe('Escrow Confirmation Screens', () => {
     };
 
     it('shows confirmation with all expected fields', async () => {
-      // First call: businesses check (not logged in → null)
-      // Second call: escrow creation (success)
-      mockAuthFetch
-        .mockResolvedValueOnce(null) // businesses
-        .mockResolvedValueOnce({ response: { ok: true }, data: escrowResponse });
+      // authFetch: businesses (null=not logged in), then escrow create (null=fallback to fetch)
+      mockAuthFetch.mockResolvedValue(null);
+      // global fetch: rate API calls, then escrow creation fallback
+      mockFetch.mockImplementation((url: string) => {
+        if (typeof url === 'string' && url.includes('/api/escrow')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(escrowResponse),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, rate: 50000 }),
+        });
+      });
 
       render(<CreateEscrowPage />);
       await waitFor(() => expect(screen.getByRole('button', { name: /create escrow/i })).toBeInTheDocument());
@@ -88,8 +99,8 @@ describe('Escrow Confirmation Screens', () => {
       // Escrow ID
       expect(screen.getByText('esc_abc123')).toBeInTheDocument();
 
-      // Amount with chain
-      expect(screen.getByText(/1\.5 USDC_POL/)).toBeInTheDocument();
+      // Amount with chain (appears in multiple places on confirmation)
+      expect(screen.getAllByText(/1\.5 USDC_POL/).length).toBeGreaterThan(0);
 
       // Tokens
       expect(screen.getByText('rel_token_xyz')).toBeInTheDocument();
@@ -122,12 +133,24 @@ describe('Escrow Confirmation Screens', () => {
     };
 
     it('shows recurring confirmation with correct fields', async () => {
-      mockAuthFetch
-        .mockResolvedValueOnce(null) // businesses
-        .mockResolvedValueOnce({ response: { ok: true }, data: seriesResponse });
+      // authFetch: businesses (null), then series create (null=fallback to fetch)
+      mockAuthFetch.mockResolvedValue(null);
+      // global fetch: rate API calls, then series creation fallback
+      mockFetch.mockImplementation((url: string) => {
+        if (typeof url === 'string' && url.includes('/api/escrow/series')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(seriesResponse),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, rate: 50000 }),
+        });
+      });
 
       render(<CreateEscrowPage />);
-      await waitFor(() => expect(screen.getByText(/create escrow/i)).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByRole('button', { name: /create escrow/i })).toBeInTheDocument());
 
       // Enable recurring
       fireEvent.click(screen.getByLabelText(/make recurring/i));
