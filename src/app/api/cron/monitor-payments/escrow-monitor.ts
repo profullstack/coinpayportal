@@ -164,10 +164,12 @@ async function autoRefundExpiredFundedEscrows(
  * Step 2: Trigger settlement for released escrows
  */
 async function settleReleasedEscrows(supabase: SupabaseClient): Promise<void> {
+  const MAX_SETTLE_ATTEMPTS = 3;
   const { data: releasedEscrows } = await supabase
     .from('escrows')
-    .select('id, escrow_address, escrow_address_id, chain, amount, deposited_amount, fee_amount, beneficiary_address, business_id')
+    .select('id, escrow_address, escrow_address_id, chain, amount, deposited_amount, fee_amount, beneficiary_address, business_id, settle_attempts')
     .eq('status', 'released')
+    .or(`settle_attempts.is.null,settle_attempts.lt.${MAX_SETTLE_ATTEMPTS}`)
     .limit(20);
 
   if (!releasedEscrows || releasedEscrows.length === 0) return;
@@ -205,11 +207,23 @@ async function settleReleasedEscrows(supabase: SupabaseClient): Promise<void> {
           }
         } else {
           const body = await settleResponse.text();
-          console.error(`Settlement failed for escrow ${escrow.id}: ${settleResponse.status} - ${body}`);
+          console.error(`[Monitor] Settlement failed for escrow ${escrow.id}: ${settleResponse.status} - ${body}`);
+          const attempts = (escrow.settle_attempts || 0) + 1;
+          await supabase.from('escrows').update({ settle_attempts: attempts }).eq('id', escrow.id);
+          if (attempts >= MAX_SETTLE_ATTEMPTS) {
+            console.error(`[Monitor] Escrow ${escrow.id} exceeded max settle attempts (${MAX_SETTLE_ATTEMPTS}), marking as settle_failed`);
+            await supabase.from('escrows').update({ status: 'settle_failed' }).eq('id', escrow.id);
+          }
         }
       }
     } catch (settleError) {
-      console.error(`Error settling escrow ${escrow.id}:`, settleError);
+      console.error(`[Monitor] Escrow settle error ${escrow.id}:`, settleError);
+      const attempts = (escrow.settle_attempts || 0) + 1;
+      await supabase.from('escrows').update({ settle_attempts: attempts }).eq('id', escrow.id);
+      if (attempts >= MAX_SETTLE_ATTEMPTS) {
+        console.error(`[Monitor] Escrow ${escrow.id} exceeded max settle attempts, marking as settle_failed`);
+        await supabase.from('escrows').update({ status: 'settle_failed' }).eq('id', escrow.id);
+      }
     }
   }
 }
