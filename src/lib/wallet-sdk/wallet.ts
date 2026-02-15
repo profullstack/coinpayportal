@@ -19,6 +19,7 @@ import { signTransaction } from '../web-wallet/signing';
 import { buildDerivationPath } from '../web-wallet/identity';
 import { encryptSeedPhrase, decryptSeedPhrase, type EncryptedBackup } from './backup';
 import { createLightningMethods } from './lightning';
+import { createSwapMethods } from './swap';
 import type {
   WalletSDKConfig,
   WalletChain,
@@ -726,99 +727,18 @@ export class Wallet {
     });
   }
 
-  // ── Swap ──
+  // ── Swap (see swap.ts) ──
 
-  /**
-   * Get a swap quote for exchanging coins.
-   * @param from - Source coin (e.g., 'BTC', 'ETH')
-   * @param to - Destination coin (e.g., 'SOL', 'USDC_ETH')
-   * @param amount - Amount to swap (in source coin units)
-   */
-  async getSwapQuote(from: string, to: string, amount: string): Promise<SwapQuote> {
-    const data = await this.client.request<any>({
-      method: 'GET',
-      path: '/api/swap/quote',
-      query: { from, to, amount },
-      authenticated: false,
-    });
-
-    return {
-      from: data.from || from,
-      to: data.to || to,
-      depositAmount: data.depositAmount,
-      settleAmount: data.settleAmount,
-      rate: data.rate,
-      minAmount: data.minAmount,
-      expiresAt: data.expiresAt,
-    };
+  private _swap: ReturnType<typeof createSwapMethods> | null = null;
+  private get swap() {
+    return (this._swap ??= createSwapMethods(this.client, this._walletId));
   }
 
-  /**
-   * Create a swap transaction.
-   * @param params - Swap parameters including coins, amount, and addresses
-   */
-  async createSwap(params: SwapCreateParams): Promise<Swap> {
-    const data = await this.client.request<any>({
-      method: 'POST',
-      path: '/api/swap/create',
-      body: {
-        from: params.from,
-        to: params.to,
-        amount: params.amount,
-        settleAddress: params.settleAddress,
-        refundAddress: params.refundAddress,
-        walletId: params.walletId || this._walletId,
-      },
-      authenticated: false,
-    });
-
-    return mapSwap(data.swap || data);
-  }
-
-  /**
-   * Get the status of a swap by ID.
-   */
-  async getSwapStatus(swapId: string): Promise<Swap> {
-    const data = await this.client.request<any>({
-      method: 'GET',
-      path: `/api/swap/${swapId}`,
-      authenticated: false,
-    });
-
-    return mapSwap(data.swap || data);
-  }
-
-  /**
-   * Get swap history for this wallet.
-   */
-  async getSwapHistory(options?: SwapHistoryOptions): Promise<Swap[]> {
-    const data = await this.client.request<any>({
-      method: 'GET',
-      path: '/api/swap/history',
-      query: {
-        walletId: this._walletId,
-        status: options?.status,
-        limit: options?.limit?.toString(),
-        offset: options?.offset?.toString(),
-      },
-      authenticated: true,
-    });
-
-    return (data.swaps || []).map(mapSwap);
-  }
-
-  /**
-   * Get list of coins supported for swaps.
-   */
-  async getSwapCoins(): Promise<SwapCoin[]> {
-    const data = await this.client.request<any>({
-      method: 'GET',
-      path: '/api/swap/coins',
-      authenticated: false,
-    });
-
-    return data.coins || [];
-  }
+  getSwapQuote(from: string, to: string, amount: string) { return this.swap.getSwapQuote(from, to, amount); }
+  createSwap(params: SwapCreateParams) { return this.swap.createSwap(params); }
+  getSwapStatus(swapId: string) { return this.swap.getSwapStatus(swapId); }
+  getSwapHistory(options?: SwapHistoryOptions) { return this.swap.getSwapHistory(options); }
+  getSwapCoins() { return this.swap.getSwapCoins(); }
 
   // ── Events ──
 
@@ -974,17 +894,4 @@ function mapWebhook(raw: any): WebhookRegistration {
   };
 }
 
-function mapSwap(raw: any): Swap {
-  return {
-    id: raw.id,
-    from: raw.from_coin || raw.from || raw.depositCoin,
-    to: raw.to_coin || raw.to || raw.settleCoin,
-    depositAddress: raw.deposit_address || raw.depositAddress,
-    depositAmount: raw.deposit_amount || raw.depositAmount,
-    settleAddress: raw.settle_address || raw.settleAddress,
-    settleAmount: raw.settle_amount || raw.settleAmount || null,
-    status: raw.status,
-    createdAt: raw.created_at || raw.createdAt,
-    expiresAt: raw.expires_at || raw.expiresAt,
-  };
 }
