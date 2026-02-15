@@ -1,15 +1,16 @@
 import { NextRequest } from 'next/server';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { getGreenlightService } from '@/lib/lightning/greenlight';
+import { mnemonicToSeed, isValidMnemonic } from '@/lib/web-wallet/keys';
 
 /**
  * POST /api/lightning/offers
- * Create a BOLT12 offer.
+ * Create a BOLT12 offer. Requires mnemonic for Signer.
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { node_id, business_id, description, amount_msat, currency } = body;
+    const { node_id, business_id, description, amount_msat, currency, mnemonic } = body;
 
     if (!node_id) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'node_id is required');
@@ -17,7 +18,11 @@ export async function POST(request: NextRequest) {
     if (!description) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'description is required');
     }
+    if (!mnemonic || !isValidMnemonic(mnemonic)) {
+      return WalletErrors.badRequest('VALIDATION_ERROR', 'Valid mnemonic is required for signing');
+    }
 
+    const seed = Buffer.from(mnemonicToSeed(mnemonic));
     const service = getGreenlightService();
     const offer = await service.createOffer({
       node_id,
@@ -25,6 +30,7 @@ export async function POST(request: NextRequest) {
       description,
       amount_msat,
       currency,
+      seed,
     });
 
     return walletSuccess({ offer }, 201);

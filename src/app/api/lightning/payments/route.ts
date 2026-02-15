@@ -1,15 +1,17 @@
 import { NextRequest } from 'next/server';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { getGreenlightService } from '@/lib/lightning/greenlight';
+import { mnemonicToSeed, isValidMnemonic } from '@/lib/web-wallet/keys';
 
 /**
  * POST /api/lightning/payments
  * Send a Lightning payment (pay a BOLT12 offer or BOLT11 invoice).
+ * Requires mnemonic for Signer.
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { node_id, bolt12, amount_sats } = body;
+    const { node_id, bolt12, amount_sats, mnemonic } = body;
 
     if (!node_id) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'node_id is required');
@@ -17,15 +19,19 @@ export async function POST(request: NextRequest) {
     if (!bolt12) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'bolt12 (offer or invoice) is required');
     }
+    if (!mnemonic || !isValidMnemonic(mnemonic)) {
+      return WalletErrors.badRequest('VALIDATION_ERROR', 'Valid mnemonic is required for signing');
+    }
 
+    const seed = Buffer.from(mnemonicToSeed(mnemonic));
     const service = getGreenlightService();
-    const result = await service.payOffer({ node_id, bolt12, amount_sats });
+    const result = await service.payOffer({ node_id, bolt12, amount_sats, seed });
 
     // Record the outgoing payment in DB
     const node = await service.getNode(node_id);
     if (node) {
       await service.recordPayment({
-        offer_id: '', // outgoing — no local offer
+        offer_id: '',
         node_id,
         business_id: node.business_id || undefined,
         payment_hash: result.payment_hash,

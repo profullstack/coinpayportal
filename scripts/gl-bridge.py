@@ -4,13 +4,16 @@ Greenlight Python bridge for CoinPay Portal.
 Called from TypeScript via execFileSync. Outputs JSON to stdout.
 
 Commands:
-  register <seed_hex> [network]     — Register a new node (or recover existing)
-  get-info <node_id> [network]      — Get node info (pubkey, alias, etc.)
-  offer <node_id> <description> [amount_msat] [network] — Create a BOLT12 offer
-  invoice <node_id> <amount_msat> <description> [network] — Create a BOLT11 invoice
-  pay <node_id> <bolt12_or_bolt11> [amount_msat] [network] — Pay an offer/invoice
-  list-invoices <node_id> <last_pay_index> [network] — List settled invoices
-  list-pays <node_id> [network]     — List outgoing payments
+  register <seed_hex> [network]
+  get-info <seed_hex> [network] [device_creds_hex]
+  offer <seed_hex> <description> [amount_msat] [network] [device_creds_hex]
+  invoice <seed_hex> <amount_msat> <description> [network] [device_creds_hex]
+  pay <seed_hex> <bolt12_or_bolt11> [amount_msat] [network] [device_creds_hex]
+  list-invoices <seed_hex> <last_pay_index> [network] [device_creds_hex]
+  list-pays <seed_hex> [network] [device_creds_hex]
+
+NOTE: Most commands now take seed_hex (not node_id) because the Signer
+needs the seed to run. The Signer MUST be running for any node operation.
 
 Requires GL_NOBODY_CRT and GL_NOBODY_KEY env vars (inline PEM or file paths).
 """
@@ -22,17 +25,12 @@ from pathlib import Path
 
 
 def fix_pem(value):
-    """Fix PEM that may have escaped newlines or be on a single line.
-    Handles multi-cert chains (e.g., cert + intermediate CA)."""
-    # Replace literal \n with real newlines
+    """Fix PEM that may have escaped newlines or be on a single line."""
     value = value.replace('\\n', '\n')
-    # Strip surrounding quotes if present
     value = value.strip().strip('"').strip("'")
-    # If it already has proper newlines, return as-is
     lines = value.strip().split('\n')
     if len(lines) > 1 and lines[0].startswith('-----BEGIN'):
         return value.strip() + '\n'
-    # Single line PEM — reformat
     if '-----BEGIN' in value and '\n' not in value.split('-----')[1]:
         parts = value.split('-----')
         if len(parts) >= 5:
@@ -42,24 +40,6 @@ def fix_pem(value):
             lines = [body[i:i+64] for i in range(0, len(body), 64)]
             value = header + '\n' + '\n'.join(lines) + '\n' + footer + '\n'
     return value
-
-
-def ensure_cert_files():
-    """Write PEM env vars to temp files so the Rust binary can find them.
-    The GL Rust binary reads GL_NOBODY_CRT/GL_NOBODY_KEY as file paths internally."""
-    cert_env = os.environ.get('GL_NOBODY_CRT', '')
-    key_env = os.environ.get('GL_NOBODY_KEY', '')
-    
-    if cert_env and cert_env.lstrip().startswith('-----'):
-        os.makedirs('/tmp/gl-certs', exist_ok=True)
-        with open('/tmp/gl-certs/nobody.crt', 'w') as f:
-            f.write(fix_pem(cert_env))
-        os.environ['GL_NOBODY_CRT'] = '/tmp/gl-certs/nobody.crt'
-    if key_env and key_env.lstrip().startswith('-----'):
-        os.makedirs('/tmp/gl-certs', exist_ok=True)
-        with open('/tmp/gl-certs/nobody.key', 'w') as f:
-            f.write(fix_pem(key_env))
-        os.environ['GL_NOBODY_KEY'] = '/tmp/gl-certs/nobody.key'
 
 
 def get_credentials():
@@ -81,14 +61,6 @@ def get_credentials():
         cert_data = cert_path.read_bytes()
         key_data = key_path.read_bytes()
 
-    # Debug: log cert info (not the actual cert)
-    print(json.dumps({
-        "_debug_cert_len": len(cert_data),
-        "_debug_key_len": len(key_data),
-        "_debug_cert_starts": cert_data[:30].decode(errors='replace'),
-        "_debug_cert_lines": cert_data.count(b'\n'),
-    }), file=sys.stderr)
-
     return cert_data, key_data
 
 
@@ -97,28 +69,81 @@ def clean_network(network):
     return network.split('#')[0].strip()
 
 
-def get_scheduler(network='bitcoin', device_creds_hex=None):
-    """Create a Greenlight Scheduler with credentials.
-    If device_creds_hex is provided, authenticate with device credentials.
-    Otherwise use nobody (developer) credentials."""
-    from glclient import Scheduler, Credentials
+def start_node_with_signer(seed_hex, network='bitcoin', device_creds_hex=None):
+    """
+    Start a Greenlight node WITH the Signer running.
+    
+    The Signer must be running for any operation that requires signing
+    (offers, invoices, payments, etc.). This is the correct way to use
+    the Greenlight SDK.
+    
+    Returns (node, signer_handle) — caller should call signer_handle.shutdown()
+    when done (or just let the process exit).
+    """
+    from glclient import Scheduler, Credentials, Signer
+
     network = clean_network(network)
-    print(json.dumps({"_debug_network": network}), file=sys.stderr)
+    seed = bytes.fromhex(seed_hex)
 
     if device_creds_hex:
+        # Use device credentials (post-registration)
         creds = Credentials.from_bytes(bytes.fromhex(device_creds_hex))
-        scheduler = Scheduler(network, creds)
-        return scheduler
     else:
+        # Use developer (nobody) credentials
         cert_data, key_data = get_credentials()
         creds = Credentials.nobody_with(cert_data, key_data)
-        return Scheduler(network, creds)
+
+    # Create Signer and start it in a background thread
+    signer = Signer(seed, network, creds)
+    signer_handle = signer.run_in_thread()
+
+    log({"_debug": "signer started in thread", "node_id": signer.node_id().hex()})
+
+    # Connect to the node via scheduler
+    scheduler = Scheduler(network, creds)
+    
+    # Schedule wakes the node up on GL infrastructure
+    try:
+        scheduler.schedule()
+        log({"_debug": "node scheduled"})
+    except Exception as e:
+        log({"_debug_schedule": str(e)})
+
+    node = scheduler.node()
+    log({"_debug": "node connected"})
+
+    return node, signer_handle, signer
 
 
-def get_node(scheduler, device_creds_hex=None):
-    """Get a node connection from the scheduler."""
-    return scheduler.node()
+def log(obj):
+    """Log debug info to stderr (not captured by TypeScript caller)."""
+    print(json.dumps(obj), file=sys.stderr)
 
+
+def extract_node_id_from_cert(device_cert):
+    """Extract node_id (66-char hex pubkey) from device cert DER bytes."""
+    import re, base64
+    # Try plaintext first
+    m = re.search(r'/users/([0-9a-f]{66})', device_cert)
+    if m:
+        return m.group(1)
+    # Decode DER and search raw bytes
+    try:
+        pem_lines = [l for l in device_cert.split('\n')
+                     if l.strip() and not l.startswith('-----')]
+        raw = base64.b64decode(''.join(pem_lines[:20]))
+        raw_str = raw.decode('ascii', errors='replace')
+        m = re.search(r'/users/([0-9a-f]{66})', raw_str)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return ''
+
+
+# ──────────────────────────────────────────────
+# Commands
+# ──────────────────────────────────────────────
 
 def cmd_register(args):
     """Register or recover a Greenlight node from seed."""
@@ -137,34 +162,14 @@ def cmd_register(args):
     signer = Signer(seed, network, creds)
     scheduler = Scheduler(network, creds)
 
-    # Try register first, then recover if already exists
-    try:
-        reg = scheduler.register(signer)
-        device_cert = reg.device_cert if hasattr(reg, 'device_cert') else ''
-        device_key = reg.device_key if hasattr(reg, 'device_key') else ''
-        creds_bytes = reg.creds if hasattr(reg, 'creds') else b''
-        rune = reg.rune if hasattr(reg, 'rune') else ''
-
-        # Extract node_id from device_cert CN (hex pubkey in the path)
-        node_id = ''
-        if device_cert:
-            import re, base64
-            # Try plaintext first, then decode base64 to find CN in raw DER bytes
-            m = re.search(r'/users/([0-9a-f]{66})', device_cert)
-            if not m:
-                try:
-                    pem_lines = [l for l in device_cert.split('\n')
-                                 if l.strip() and not l.startswith('-----')]
-                    raw = base64.b64decode(''.join(pem_lines[:20]))  # first cert only
-                    raw_str = raw.decode('ascii', errors='replace')
-                    m = re.search(r'/users/([0-9a-f]{66})', raw_str)
-                except Exception:
-                    pass
-            if m:
-                node_id = m.group(1)
-        
+    def extract_result(res, action):
+        device_cert = res.device_cert if hasattr(res, 'device_cert') else ''
+        device_key = res.device_key if hasattr(res, 'device_key') else ''
+        creds_bytes = res.creds if hasattr(res, 'creds') else b''
+        rune = res.rune if hasattr(res, 'rune') else ''
+        node_id = extract_node_id_from_cert(device_cert) if device_cert else signer.node_id().hex()
         return {
-            "action": "registered",
+            "action": action,
             "node_id": node_id,
             "device_cert": device_cert,
             "device_key": device_key,
@@ -172,94 +177,61 @@ def cmd_register(args):
             "rune": rune,
             "network": network,
         }
-    except Exception as reg_err:
-        reg_err_str = str(reg_err)
-        print(json.dumps({"_debug_register_error": reg_err_str}), file=sys.stderr)
 
+    try:
+        reg = scheduler.register(signer)
+        return extract_result(reg, "registered")
+    except Exception as reg_err:
+        log({"_debug_register_error": str(reg_err)})
         try:
             rec = scheduler.recover(signer)
-            device_cert = rec.device_cert if hasattr(rec, 'device_cert') else ''
-            device_key = rec.device_key if hasattr(rec, 'device_key') else ''
-            creds_bytes = rec.creds if hasattr(rec, 'creds') else b''
-            rune = rec.rune if hasattr(rec, 'rune') else ''
-
-            node_id = ''
-            if device_cert:
-                import re, base64
-                m = re.search(r'/users/([0-9a-f]{66})', device_cert)
-                if not m:
-                    try:
-                        pem_lines = [l for l in device_cert.split('\n')
-                                     if l.strip() and not l.startswith('-----')]
-                        raw = base64.b64decode(''.join(pem_lines[:20]))
-                        raw_str = raw.decode('ascii', errors='replace')
-                        m = re.search(r'/users/([0-9a-f]{66})', raw_str)
-                    except Exception:
-                        pass
-                if m:
-                    node_id = m.group(1)
-
-            return {
-                "action": "recovered",
-                "node_id": node_id,
-                "device_cert": device_cert,
-                "device_key": device_key,
-                "creds": creds_bytes.hex() if isinstance(creds_bytes, bytes) else '',
-                "rune": rune,
-                "network": network,
-            }
+            return extract_result(rec, "recovered")
         except Exception as rec_err:
-            rec_err_str = str(rec_err)
-            print(json.dumps({"_debug_recover_error": rec_err_str}), file=sys.stderr)
-            return {"error": f"Register failed: {reg_err_str}; Recover failed: {rec_err_str}"}
+            log({"_debug_recover_error": str(rec_err)})
+            return {"error": f"Register: {reg_err}; Recover: {rec_err}"}
 
 
 def cmd_get_info(args):
-    """Get node info."""
-    node_id = args[0] if args else None
+    """Get node info using proper SDK method."""
+    if len(args) < 1:
+        return {"error": "Usage: get-info <seed_hex> [network] [device_creds_hex]"}
+
+    seed_hex = args[0]
     network = args[1] if len(args) > 1 else os.environ.get('GL_NETWORK', 'bitcoin')
     device_creds_hex = args[2] if len(args) > 2 else None
 
-    scheduler = get_scheduler(network, device_creds_hex)
-    node = get_node(scheduler)
-
-    response = node.call('getinfo', '{}')
-    data = json.loads(response) if isinstance(response, (str, bytes)) else response
-    return {
-        "id": data.get('id', ''),
-        "alias": data.get('alias', ''),
-        "color": data.get('color', ''),
-        "num_peers": data.get('num_peers', 0),
-        "num_active_channels": data.get('num_active_channels', 0),
-        "blockheight": data.get('blockheight', 0),
-        "network": data.get('network', network),
-    }
+    node, signer_handle, signer = start_node_with_signer(seed_hex, network, device_creds_hex)
+    try:
+        info = node.get_info()
+        return {
+            "id": info.id.hex() if isinstance(info.id, bytes) else str(info.id),
+            "alias": info.alias,
+            "color": info.color.hex() if isinstance(info.color, bytes) else str(info.color),
+            "num_peers": info.num_peers,
+            "num_active_channels": info.num_active_channels,
+            "blockheight": info.blockheight,
+            "network": info.network,
+        }
+    finally:
+        signer_handle.shutdown()
 
 
 def cmd_offer(args):
-    """Create a BOLT12 offer."""
+    """Create a BOLT12 offer. Uses raw gRPC since Node has no offer() method."""
     if len(args) < 2:
-        return {"error": "Usage: offer <node_id> <description> [amount_msat] [network] [device_creds_hex]"}
+        return {"error": "Usage: offer <seed_hex> <description> [amount_msat] [network] [device_creds_hex]"}
 
-    node_id = args[0]
+    seed_hex = args[0]
     description = args[1]
     amount_msat = args[2] if len(args) > 2 and args[2] != 'any' else None
     network = args[3] if len(args) > 3 else os.environ.get('GL_NETWORK', 'bitcoin')
     device_creds_hex = args[4] if len(args) > 4 else None
 
-    print(json.dumps({"_debug_offer": "creating scheduler", "has_device_creds": bool(device_creds_hex), "creds_len": len(device_creds_hex) if device_creds_hex else 0}), file=sys.stderr)
-    scheduler = get_scheduler(network, device_creds_hex)
-    print(json.dumps({"_debug_offer": "getting node"}), file=sys.stderr)
-    node = get_node(scheduler, device_creds_hex)
-    print(json.dumps({"_debug_offer": "node obtained, building offer"}), file=sys.stderr)
-
-    # Build offer request using raw gRPC call (no offer() method in SDK)
-    from glclient import clnpb
-
-    amount_str = f"{amount_msat}msat" if amount_msat else "any"
-    req = clnpb.OfferRequest(amount=amount_str, description=description)
-
+    node, signer_handle, signer = start_node_with_signer(seed_hex, network, device_creds_hex)
     try:
+        from glclient import clnpb
+        amount_str = f"{amount_msat}msat" if amount_msat else "any"
+        req = clnpb.OfferRequest(amount=amount_str, description=description)
         uri = "/cln.Node/Offer"
         raw_resp = node.inner.call(uri, bytes(req))
         resp = clnpb.OfferResponse.FromString(bytes(raw_resp))
@@ -270,157 +242,160 @@ def cmd_offer(args):
             "single_use": resp.single_use if hasattr(resp, 'single_use') else False,
         }
     except Exception as e:
-        print(json.dumps({"_debug_offer_error": str(e)}), file=sys.stderr)
-        return {"error": f"Offer creation failed: {str(e)}"}
+        log({"_debug_offer_error": str(e)})
+        return {"error": f"Offer creation failed: {e}"}
+    finally:
+        signer_handle.shutdown()
 
 
 def cmd_invoice(args):
-    """Create a BOLT11 invoice."""
+    """Create a BOLT11 invoice using proper SDK method."""
     if len(args) < 3:
-        return {"error": "Usage: invoice <node_id> <amount_msat> <description> [network] [device_creds_hex]"}
+        return {"error": "Usage: invoice <seed_hex> <amount_msat> <description> [network] [device_creds_hex]"}
 
-    node_id = args[0]
-    amount_msat = args[1]
+    seed_hex = args[0]
+    amount_msat = int(args[1])
     description = args[2]
     network = args[3] if len(args) > 3 else os.environ.get('GL_NETWORK', 'bitcoin')
     device_creds_hex = args[4] if len(args) > 4 else None
 
-    scheduler = get_scheduler(network, device_creds_hex)
-    node = get_node(scheduler)
+    node, signer_handle, signer = start_node_with_signer(seed_hex, network, device_creds_hex)
+    try:
+        import secrets
+        from glclient import AmountOrAny, Amount
+        label = f"coinpay-{secrets.token_hex(8)}"
 
-    import secrets
-    label = f"coinpay-{secrets.token_hex(8)}"
+        resp = node.invoice(
+            amount_msat=AmountOrAny(amount=Amount(msat=amount_msat)),
+            label=label,
+            description=description,
+        )
 
-    params = {
-        "amount_msat": int(amount_msat),
-        "label": label,
-        "description": description,
-    }
-
-    response = node.call('invoice', json.dumps(params))
-    data = json.loads(response) if isinstance(response, (str, bytes)) else response
-
-    return {
-        "bolt11": data.get('bolt11', ''),
-        "payment_hash": data.get('payment_hash', ''),
-        "expires_at": data.get('expires_at', 0),
-        "label": label,
-    }
+        return {
+            "bolt11": resp.bolt11,
+            "payment_hash": resp.payment_hash.hex() if isinstance(resp.payment_hash, bytes) else str(resp.payment_hash),
+            "payment_secret": resp.payment_secret.hex() if isinstance(resp.payment_secret, bytes) else str(resp.payment_secret),
+            "expires_at": resp.expires_at,
+            "label": label,
+        }
+    except Exception as e:
+        log({"_debug_invoice_error": str(e)})
+        return {"error": f"Invoice creation failed: {e}"}
+    finally:
+        signer_handle.shutdown()
 
 
 def cmd_pay(args):
-    """Pay a BOLT12 offer or BOLT11 invoice."""
+    """Pay a BOLT11 invoice or fetch+pay a BOLT12 offer using proper SDK methods."""
     if len(args) < 2:
-        return {"error": "Usage: pay <node_id> <bolt12_or_bolt11> [amount_msat] [network]"}
+        return {"error": "Usage: pay <seed_hex> <bolt12_or_bolt11> [amount_msat] [network] [device_creds_hex]"}
 
-    node_id = args[0]
-    bolt = args[1]
-    amount_msat = args[2] if len(args) > 2 and args[2] != '' else None
+    seed_hex = args[0]
+    payment_str = args[1]
+    amount_msat = int(args[2]) if len(args) > 2 and args[2] else None
     network = args[3] if len(args) > 3 else os.environ.get('GL_NETWORK', 'bitcoin')
     device_creds_hex = args[4] if len(args) > 4 else None
 
-    scheduler = get_scheduler(network, device_creds_hex)
-    node = get_node(scheduler)
+    node, signer_handle, signer = start_node_with_signer(seed_hex, network, device_creds_hex)
+    try:
+        from glclient import Amount
 
-    if bolt.startswith('lno1'):
-        # BOLT12 offer — use fetchinvoice then pay
-        fetch_params = {"offer": bolt}
-        if amount_msat:
-            fetch_params["amount_msat"] = int(amount_msat)
+        if payment_str.startswith('lno'):
+            # BOLT12 offer — fetch invoice first, then pay
+            amount_arg = Amount(msat=amount_msat) if amount_msat else None
+            fetch_resp = node.fetch_invoice(offer=payment_str, amount_msat=amount_arg)
+            bolt11 = fetch_resp.invoice
+            log({"_debug": "fetched invoice from offer", "invoice": bolt11[:40] + "..."})
+        else:
+            bolt11 = payment_str
 
-        fetch_resp = node.call('fetchinvoice', json.dumps(fetch_params))
-        fetch_data = json.loads(fetch_resp) if isinstance(fetch_resp, (str, bytes)) else fetch_resp
-        invoice = fetch_data.get('invoice', '')
+        amount_arg = Amount(msat=amount_msat) if amount_msat else None
+        resp = node.pay(bolt11=bolt11, amount_msat=amount_arg)
 
-        if not invoice:
-            return {"error": "Failed to fetch invoice from offer", "raw": fetch_data}
-
-        # Pay the fetched invoice
-        pay_params = {"bolt11": invoice}
-        response = node.call('pay', json.dumps(pay_params))
-    else:
-        # BOLT11 invoice — pay directly
-        pay_params = {"bolt11": bolt}
-        if amount_msat:
-            pay_params["amount_msat"] = int(amount_msat)
-        response = node.call('pay', json.dumps(pay_params))
-
-    data = json.loads(response) if isinstance(response, (str, bytes)) else response
-
-    return {
-        "payment_hash": data.get('payment_hash', ''),
-        "payment_preimage": data.get('payment_preimage', ''),
-        "amount_msat": data.get('amount_msat', data.get('msatoshi', 0)),
-        "status": data.get('status', ''),
-    }
+        return {
+            "payment_preimage": resp.payment_preimage.hex() if isinstance(resp.payment_preimage, bytes) else str(resp.payment_preimage),
+            "payment_hash": resp.payment_hash.hex() if isinstance(resp.payment_hash, bytes) else str(resp.payment_hash),
+            "status": str(resp.status) if hasattr(resp, 'status') else 'complete',
+            "amount_msat": resp.amount_msat.msat if hasattr(resp, 'amount_msat') and resp.amount_msat else amount_msat,
+            "amount_sent_msat": resp.amount_sent_msat.msat if hasattr(resp, 'amount_sent_msat') and resp.amount_sent_msat else None,
+        }
+    except Exception as e:
+        log({"_debug_pay_error": str(e)})
+        return {"error": f"Payment failed: {e}"}
+    finally:
+        signer_handle.shutdown()
 
 
 def cmd_list_invoices(args):
-    """List settled invoices since last_pay_index."""
-    node_id = args[0] if args else None
-    last_pay_index = int(args[1]) if len(args) > 1 else 0
+    """List invoices using proper SDK method."""
+    if len(args) < 1:
+        return {"error": "Usage: list-invoices <seed_hex> [last_pay_index] [network] [device_creds_hex]"}
+
+    seed_hex = args[0]
+    last_pay_index = int(args[1]) if len(args) > 1 and args[1] else 0
     network = args[2] if len(args) > 2 else os.environ.get('GL_NETWORK', 'bitcoin')
     device_creds_hex = args[3] if len(args) > 3 else None
 
-    scheduler = get_scheduler(network, device_creds_hex)
-    node = get_node(scheduler)
-
-    response = node.call('listinvoices', '{}')
-    data = json.loads(response) if isinstance(response, (str, bytes)) else response
-    invoices = data.get('invoices', [])
-
-    payments = []
-    for inv in invoices:
-        if inv.get('status') != 'paid':
-            continue
-        pay_index = inv.get('pay_index', 0)
-        if pay_index <= last_pay_index:
-            continue
-
-        amount_msat = inv.get('amount_received_msat', inv.get('msatoshi_received', 0))
-        if isinstance(amount_msat, str) and amount_msat.endswith('msat'):
-            amount_msat = int(amount_msat[:-4])
-
-        payments.append({
-            'payment_hash': inv.get('payment_hash', ''),
-            'preimage': inv.get('payment_preimage', ''),
-            'amount_msat': amount_msat,
-            'pay_index': pay_index,
-            'bolt12_offer': inv.get('local_offer_id'),
-            'payer_note': inv.get('description'),
-            'settled_at': inv.get('paid_at'),
-        })
-
-    return {"payments": payments}
+    node, signer_handle, signer = start_node_with_signer(seed_hex, network, device_creds_hex)
+    try:
+        resp = node.list_invoices()
+        invoices = []
+        for inv in resp.invoices:
+            invoices.append({
+                "label": inv.label,
+                "bolt11": inv.bolt11 if hasattr(inv, 'bolt11') else '',
+                "bolt12": inv.bolt12 if hasattr(inv, 'bolt12') else '',
+                "payment_hash": inv.payment_hash.hex() if isinstance(inv.payment_hash, bytes) else str(inv.payment_hash),
+                "status": str(inv.status),
+                "amount_msat": inv.amount_msat.msat if hasattr(inv, 'amount_msat') and inv.amount_msat else None,
+                "amount_received_msat": inv.amount_received_msat.msat if hasattr(inv, 'amount_received_msat') and inv.amount_received_msat else None,
+                "paid_at": inv.paid_at if hasattr(inv, 'paid_at') else None,
+                "pay_index": inv.pay_index if hasattr(inv, 'pay_index') else None,
+                "expires_at": inv.expires_at if hasattr(inv, 'expires_at') else None,
+            })
+        return {"invoices": invoices}
+    except Exception as e:
+        log({"_debug_list_invoices_error": str(e)})
+        return {"error": f"List invoices failed: {e}"}
+    finally:
+        signer_handle.shutdown()
 
 
 def cmd_list_pays(args):
-    """List outgoing payments."""
-    node_id = args[0] if args else None
+    """List outgoing payments using proper SDK method."""
+    if len(args) < 1:
+        return {"error": "Usage: list-pays <seed_hex> [network] [device_creds_hex]"}
+
+    seed_hex = args[0]
     network = args[1] if len(args) > 1 else os.environ.get('GL_NETWORK', 'bitcoin')
     device_creds_hex = args[2] if len(args) > 2 else None
 
-    scheduler = get_scheduler(network, device_creds_hex)
-    node = get_node(scheduler)
+    node, signer_handle, signer = start_node_with_signer(seed_hex, network, device_creds_hex)
+    try:
+        resp = node.listpays()
+        pays = []
+        for p in resp.pays:
+            pays.append({
+                "payment_hash": p.payment_hash.hex() if isinstance(p.payment_hash, bytes) else str(p.payment_hash),
+                "status": str(p.status),
+                "amount_msat": p.amount_msat.msat if hasattr(p, 'amount_msat') and p.amount_msat else None,
+                "amount_sent_msat": p.amount_sent_msat.msat if hasattr(p, 'amount_sent_msat') and p.amount_sent_msat else None,
+                "destination": p.destination.hex() if hasattr(p, 'destination') and isinstance(p.destination, bytes) else str(p.destination) if hasattr(p, 'destination') else '',
+                "bolt11": p.bolt11 if hasattr(p, 'bolt11') else '',
+                "bolt12": p.bolt12 if hasattr(p, 'bolt12') else '',
+                "preimage": p.preimage.hex() if hasattr(p, 'preimage') and isinstance(p.preimage, bytes) else '',
+            })
+        return {"pays": pays}
+    except Exception as e:
+        log({"_debug_list_pays_error": str(e)})
+        return {"error": f"List pays failed: {e}"}
+    finally:
+        signer_handle.shutdown()
 
-    response = node.call('listpays', '{}')
-    data = json.loads(response) if isinstance(response, (str, bytes)) else response
-    pays = data.get('pays', [])
 
-    return {
-        "payments": [
-            {
-                "payment_hash": p.get('payment_hash', ''),
-                "status": p.get('status', ''),
-                "amount_msat": p.get('amount_sent_msat', p.get('msatoshi_sent', 0)),
-                "destination": p.get('destination', ''),
-                "created_at": p.get('created_at', 0),
-                "preimage": p.get('preimage', ''),
-            }
-            for p in pays
-        ]
-    }
-
+# ──────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────
 
 COMMANDS = {
     'register': cmd_register,
@@ -434,22 +409,24 @@ COMMANDS = {
 
 
 def main():
-    # Write inline PEM env vars to files for the Rust binary
-    ensure_cert_files()
-
-    if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
-        print(json.dumps({
-            "error": f"Usage: gl-bridge.py <command> [args...]\nCommands: {', '.join(COMMANDS.keys())}"
-        }))
+    if len(sys.argv) < 2:
+        print(json.dumps({"error": f"Usage: gl-bridge.py <command> [args...]\nCommands: {', '.join(COMMANDS.keys())}"}))
         sys.exit(1)
 
-    command = sys.argv[1]
+    cmd = sys.argv[1]
     args = sys.argv[2:]
 
+    if cmd not in COMMANDS:
+        print(json.dumps({"error": f"Unknown command: {cmd}. Available: {', '.join(COMMANDS.keys())}"}))
+        sys.exit(1)
+
     try:
-        result = COMMANDS[command](args)
-        print(json.dumps(result))
+        result = COMMANDS[cmd](args)
+        # Filter out _debug keys from result
+        clean = {k: v for k, v in result.items() if not k.startswith('_debug')}
+        print(json.dumps(clean))
     except Exception as e:
+        log({"_debug_fatal": str(e)})
         print(json.dumps({"error": str(e)}))
         sys.exit(1)
 

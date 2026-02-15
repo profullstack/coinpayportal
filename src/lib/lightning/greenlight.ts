@@ -224,20 +224,23 @@ export class GreenlightService {
    * Create a BOLT12 offer on a Greenlight node.
    * In production: calls CLN's `offer` command via Greenlight gRPC.
    */
-  async createOffer(params: CreateOfferParams): Promise<LnOffer> {
-    const { node_id, business_id, description, amount_msat, currency } = params;
+  async createOffer(params: CreateOfferParams & { seed?: Buffer }): Promise<LnOffer> {
+    const { node_id, business_id, description, amount_msat, currency, seed } = params;
 
     // Verify node exists and is active
     const node = await this.getNode(node_id);
     if (!node) throw new Error('Node not found');
     if (node.status !== 'active') throw new Error('Node is not active');
+    if (!params.seed) throw new Error('Seed is required for signing operations');
 
     const offerId = crypto.randomUUID();
     let bolt12Offer: string;
 
+    // The Signer needs the raw BIP39 seed (first 32 bytes)
+    const glSeedHex = Buffer.from(seed.subarray(0, 32)).toString('hex');
     const network = process.env.GL_NETWORK || 'bitcoin';
     const result = await this.callBridge('offer', [
-      node.greenlight_node_id!,
+      glSeedHex,
       description,
       amount_msat ? String(amount_msat) : 'any',
       network,
@@ -277,6 +280,7 @@ export class GreenlightService {
     node_id: string;
     bolt12: string;
     amount_sats?: number;
+    seed: Buffer;
   }): Promise<{ payment_hash: string; preimage: string; amount_msat: number; status: string }> {
     const node = await this.getNode(params.node_id);
     if (!node) throw new Error('Node not found');
@@ -284,9 +288,10 @@ export class GreenlightService {
       throw new Error('Greenlight credentials not configured — cannot send payments');
     }
 
+    const glSeedHex = Buffer.from(params.seed.subarray(0, 32)).toString('hex');
     const network = process.env.GL_NETWORK || 'bitcoin';
     const result = await this.callBridge('pay', [
-      node.greenlight_node_id || node.id,
+      glSeedHex,
       params.bolt12,
       params.amount_sats ? String(params.amount_sats * 1000) : '',
       network,
@@ -308,16 +313,19 @@ export class GreenlightService {
     node_id: string;
     amount_sats: number;
     description: string;
+    seed: Buffer;
   }): Promise<{ bolt11: string; payment_hash: string; expires_at: number }> {
     const node = await this.getNode(params.node_id);
     if (!node) throw new Error('Node not found');
+    if (!params.seed) throw new Error('Seed is required for signing operations');
     if (!this.hasGreenlightCreds()) {
       throw new Error('Greenlight credentials not configured');
     }
 
+    const glSeedHex = Buffer.from(params.seed.subarray(0, 32)).toString('hex');
     const network = process.env.GL_NETWORK || 'bitcoin';
     const result = await this.callBridge('invoice', [
-      node.greenlight_node_id || node.id,
+      glSeedHex,
       String(params.amount_sats * 1000),
       params.description,
       network,
