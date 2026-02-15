@@ -45,3 +45,4 @@ backups/
 packages/sdk/node_modules/
 .venv/
 gl-venv/
+certs/
