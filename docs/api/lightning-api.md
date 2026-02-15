@@ -21,6 +21,84 @@ The CoinPay Lightning API enables BOLT12 offer-based payments via Greenlight (CL
 | `/payments/:hash` | GET | Get payment by hash |
 | `/webhook` | GET | Webhook health check |
 | `/webhook` | POST | Payment settlement webhook |
+| `/address` | POST | Register a Lightning Address |
+| `/address?wallet_id=` | GET | Get Lightning Address for wallet |
+| `/.well-known/lnurlp/:username` | GET | LNURL-pay endpoint (Lightning Address resolution) |
+
+---
+
+## Lightning Addresses
+
+Lightning Addresses let users receive payments at `username@coinpayportal.com` from any Lightning wallet.
+
+### Architecture
+
+```
+Sender's wallet → coinpayportal.com/.well-known/lnurlp/<username>
+                → proxied to ln.coinpayportal.com (LNbits)
+                → LNbits creates BOLT11 invoice via CLN
+                → Sender pays invoice
+                → Payment arrives in user's LNbits wallet
+```
+
+### POST /api/lightning/address
+
+Register a Lightning Address for a wallet.
+
+**Request Body:**
+```json
+{
+  "wallet_id": "uuid",
+  "username": "chovy"
+}
+```
+
+**Username Rules:**
+- 3-32 characters
+- Lowercase alphanumeric, dots, hyphens, underscores
+- Must start and end with alphanumeric
+
+**Response (201):**
+```json
+{
+  "success": true,
+  "lightning_address": "chovy@coinpayportal.com",
+  "username": "chovy"
+}
+```
+
+**Errors:**
+- `400` — Invalid username format
+- `409` — Username already taken
+- `404` — Wallet not found
+
+### GET /api/lightning/address?wallet_id=xxx
+
+Get the Lightning Address for a wallet.
+
+**Response:**
+```json
+{
+  "lightning_address": "chovy@coinpayportal.com",
+  "username": "chovy"
+}
+```
+
+### GET /.well-known/lnurlp/:username
+
+LNURL-pay endpoint. This is called by Lightning wallets when resolving a Lightning Address. Proxied to LNbits.
+
+**Response (LNURL-pay spec):**
+```json
+{
+  "callback": "https://coinpayportal.com/.well-known/lnurlp/chovy?amount=...",
+  "maxSendable": 1000000000,
+  "minSendable": 1000,
+  "metadata": "[[\"text/plain\",\"Lightning Address for chovy@coinpayportal.com\"]]",
+  "tag": "payRequest",
+  "commentAllowed": 255
+}
+```
 
 ---
 
