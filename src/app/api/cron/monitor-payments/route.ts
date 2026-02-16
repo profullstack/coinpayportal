@@ -15,6 +15,7 @@ import { createClient } from '@supabase/supabase-js';
 import { monitorPayments } from './payment-monitor';
 import { monitorEscrows } from './escrow-monitor';
 import { monitorLightningPayments } from './lightning-monitor';
+import { monitorSeries } from './series-monitor';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -64,12 +65,16 @@ export async function GET(request: NextRequest) {
     // Monitor Lightning payments
     const lightningStats = await monitorLightningPayments(supabase, now);
 
+    // Process recurring escrow series
+    const seriesStats = await monitorSeries(supabase, now);
+
     const response = {
       success: true,
       timestamp: now.toISOString(),
       stats,
       escrow: escrowStats,
       lightning: lightningStats,
+      series: seriesStats,
     };
 
     console.log('Monitor complete:', response);
