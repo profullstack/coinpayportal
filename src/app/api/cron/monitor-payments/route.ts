@@ -16,6 +16,7 @@ import { monitorPayments } from './payment-monitor';
 import { monitorEscrows } from './escrow-monitor';
 import { monitorLightningPayments } from './lightning-monitor';
 import { monitorSeries } from './series-monitor';
+import { monitorEmails } from './email-monitor';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -68,6 +69,9 @@ export async function GET(request: NextRequest) {
     // Process recurring escrow series
     const seriesStats = await monitorSeries(supabase, now);
 
+    // Send email notifications
+    const emailStats = await monitorEmails(supabase, now);
+
     const response = {
       success: true,
       timestamp: now.toISOString(),
@@ -75,6 +79,7 @@ export async function GET(request: NextRequest) {
       escrow: escrowStats,
       lightning: lightningStats,
       series: seriesStats,
+      emails: emailStats,
     };
 
     console.log('Monitor complete:', response);

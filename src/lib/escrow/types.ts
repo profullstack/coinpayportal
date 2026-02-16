@@ -38,6 +38,8 @@ export interface CreateEscrowInput {
   business_id?: string;                    // optional merchant association
   series_id?: string;                      // recurring series link
   expires_in_hours?: number;               // default 24h
+  depositor_email?: string;                // optional email for expiry reminders
+  beneficiary_email?: string;              // optional email for settlement notifications
 }
 
 export interface Escrow {

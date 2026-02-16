@@ -1,0 +1,7 @@
+-- Add email notification fields to escrows table
+ALTER TABLE escrows ADD COLUMN IF NOT EXISTS depositor_email TEXT;
+ALTER TABLE escrows ADD COLUMN IF NOT EXISTS beneficiary_email TEXT;
+ALTER TABLE escrows ADD COLUMN IF NOT EXISTS reminder_24h_sent BOOLEAN DEFAULT FALSE;
+ALTER TABLE escrows ADD COLUMN IF NOT EXISTS reminder_12h_sent BOOLEAN DEFAULT FALSE;
+ALTER TABLE escrows ADD COLUMN IF NOT EXISTS reminder_2h_sent BOOLEAN DEFAULT FALSE;
+ALTER TABLE escrows ADD COLUMN IF NOT EXISTS settled_email_sent BOOLEAN DEFAULT FALSE;

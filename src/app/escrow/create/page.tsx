@@ -71,6 +71,8 @@ export default function CreateEscrowPage() {
     depositor_address: '',
     beneficiary_address: '',
     arbiter_address: '',
+    depositor_email: '',
+    beneficiary_email: '',
     description: '',
     expires_in_hours: 168,
     business_id: '',
@@ -246,6 +248,12 @@ export default function CreateEscrowPage() {
 
       if (formData.arbiter_address.trim()) {
         body.arbiter_address = formData.arbiter_address.trim();
+      }
+      if (formData.depositor_email.trim()) {
+        body.depositor_email = formData.depositor_email.trim();
+      }
+      if (formData.beneficiary_email.trim()) {
+        body.beneficiary_email = formData.beneficiary_email.trim();
       }
       if (formData.description.trim()) {
         body.metadata = { description: formData.description.trim() };
@@ -783,6 +791,8 @@ export default function CreateEscrowPage() {
                     depositor_address: '',
                     beneficiary_address: '',
                     arbiter_address: '',
+                    depositor_email: '',
+                    beneficiary_email: '',
                     description: '',
                   }));
                   // Reset dual input state
@@ -1047,6 +1057,36 @@ export default function CreateEscrowPage() {
               onChange={(e) => setFormData({ ...formData, arbiter_address: e.target.value })}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm"
               placeholder="Third-party dispute resolver (optional)"
+            />
+          </div>
+
+          {/* Depositor Email */}
+          <div>
+            <label htmlFor="depositor_email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Depositor Email <span className="text-gray-400">(optional)</span>
+            </label>
+            <input
+              id="depositor_email"
+              type="email"
+              value={formData.depositor_email}
+              onChange={(e) => setFormData({ ...formData, depositor_email: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+              placeholder="Receive expiration reminders (optional)"
+            />
+          </div>
+
+          {/* Beneficiary Email */}
+          <div>
+            <label htmlFor="beneficiary_email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Beneficiary Email <span className="text-gray-400">(optional)</span>
+            </label>
+            <input
+              id="beneficiary_email"
+              type="email"
+              value={formData.beneficiary_email}
+              onChange={(e) => setFormData({ ...formData, beneficiary_email: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+              placeholder="Receive settlement notifications (optional)"
             />
           </div>
 

@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
       max_periods,
       beneficiary_address,
       depositor_address,
+      beneficiary_email,
     } = body;
 
     // Validate required fields before touching DB
@@ -114,6 +115,8 @@ export async function POST(request: NextRequest) {
           period: 1,
           description: description || undefined,
         },
+        ...(customer_email ? { depositor_email: customer_email } : {}),
+        ...(beneficiary_email ? { beneficiary_email } : {}),
       };
       console.log('[Series] Creating first escrow with input:', JSON.stringify(escrowInput));
 
