@@ -366,7 +366,12 @@ export default function CreateEscrowPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Amount</p>
-                <p className="font-medium">{String(s.amount)} {String(s.coin || s.currency || '')}</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-medium">{String(s.amount)} {String(s.coin || s.currency || '')}</p>
+                  <button type="button" className="text-blue-600 hover:text-blue-800 text-sm" onClick={() => copyToClipboard(String(s.amount), 'series_amount')}>
+                    {copiedField === 'series_amount' ? '✓' : '📋'}
+                  </button>
+                </div>
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Interval</p>
@@ -397,10 +402,22 @@ export default function CreateEscrowPage() {
             {(s.depositor_address || s.beneficiary_address) ? (
               <div className="space-y-2 text-sm">
                 {s.depositor_address ? (
-                  <p><span className="text-gray-500 dark:text-gray-400">Depositor:</span> <code className="ml-2 break-all">{String(s.depositor_address)}</code></p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-500 dark:text-gray-400">Depositor:</span>
+                    <code className="break-all flex-1">{String(s.depositor_address)}</code>
+                    <button type="button" className="flex-shrink-0 text-blue-600 hover:text-blue-800 text-sm" onClick={() => copyToClipboard(String(s.depositor_address), 'series_depositor')}>
+                      {copiedField === 'series_depositor' ? '✓' : '📋'}
+                    </button>
+                  </div>
                 ) : null}
                 {s.beneficiary_address ? (
-                  <p><span className="text-gray-500 dark:text-gray-400">Beneficiary:</span> <code className="ml-2 break-all">{String(s.beneficiary_address)}</code></p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-500 dark:text-gray-400">Beneficiary:</span>
+                    <code className="break-all flex-1">{String(s.beneficiary_address)}</code>
+                    <button type="button" className="flex-shrink-0 text-blue-600 hover:text-blue-800 text-sm" onClick={() => copyToClipboard(String(s.beneficiary_address), 'series_beneficiary')}>
+                      {copiedField === 'series_beneficiary' ? '✓' : '📋'}
+                    </button>
+                  </div>
                 ) : null}
               </div>
             ) : null}
@@ -411,6 +428,39 @@ export default function CreateEscrowPage() {
                 <p className="text-sm">{String(s.description)}</p>
               </div>
             ) : null}
+
+            {/* Copy All button */}
+            <button
+              type="button"
+              className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              onClick={() => {
+                const lines = [
+                  `Series ID: ${String(s.id)}`,
+                  `Amount: ${String(s.amount)} ${String(s.coin || s.currency || '')}`,
+                  `Interval: ${String(s.interval)}`,
+                  `Payment Method: ${String(s.payment_method)}`,
+                  ...(s.max_periods ? [`Max Periods: ${String(s.max_periods)}`] : []),
+                  `Status: ${String(s.status)}`,
+                  ...(s.next_charge_at ? [`Next Charge: ${new Date(String(s.next_charge_at)).toLocaleString()}`] : []),
+                  ...(s.depositor_address ? [`Depositor: ${String(s.depositor_address)}`] : []),
+                  ...(s.beneficiary_address ? [`Beneficiary: ${String(s.beneficiary_address)}`] : []),
+                  ...(s.description ? [`Description: ${String(s.description)}`] : []),
+                  ...(createdEscrow ? [
+                    '',
+                    '--- First Escrow ---',
+                    `Escrow ID: ${createdEscrow.id}`,
+                    `Deposit Address: ${createdEscrow.escrow_address}`,
+                    `Amount: ${createdEscrow.amount} ${createdEscrow.chain}`,
+                    `Release Token: ${createdEscrow.release_token}`,
+                    `Beneficiary Token: ${createdEscrow.beneficiary_token}`,
+                    `Expires: ${new Date(createdEscrow.expires_at).toLocaleString()}`,
+                  ] : []),
+                ];
+                copyToClipboard(lines.join('\n'), 'series_all');
+              }}
+            >
+              {copiedField === 'series_all' ? '✓ Copied!' : '📋 Copy All Info'}
+            </button>
 
             {/* First escrow details if created */}
             {createdEscrow && (
@@ -496,6 +546,30 @@ export default function CreateEscrowPage() {
           </div>
 
           <div className="p-6 space-y-6">
+            {/* Copy All */}
+            <button
+              type="button"
+              className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              onClick={() => {
+                const lines = [
+                  `Escrow ID: ${createdEscrow.id}`,
+                  `Deposit Address: ${createdEscrow.escrow_address}`,
+                  `Amount: ${createdEscrow.amount} ${createdEscrow.chain}`,
+                  ...(createdEscrow.amount_usd ? [`USD Value: ≈ $${createdEscrow.amount_usd.toFixed(2)}`] : []),
+                  `Status: ${createdEscrow.status}`,
+                  `Depositor: ${createdEscrow.depositor_address}`,
+                  `Beneficiary: ${createdEscrow.beneficiary_address}`,
+                  `Expires: ${new Date(createdEscrow.expires_at).toLocaleString()}`,
+                  `Release Token: ${createdEscrow.release_token}`,
+                  `Beneficiary Token: ${createdEscrow.beneficiary_token}`,
+                  ...(createdEscrow.fee_amount ? [`Commission: ${createdEscrow.fee_amount} ${createdEscrow.chain}`] : []),
+                ];
+                copyToClipboard(lines.join('\n'), 'escrow_all');
+              }}
+            >
+              {copiedField === 'escrow_all' ? '✓ Copied!' : '📋 Copy All Info'}
+            </button>
+
             {/* Escrow ID — prominent, first thing shown */}
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
               <div className="flex items-start gap-2">
@@ -634,13 +708,25 @@ export default function CreateEscrowPage() {
 
             {/* Addresses */}
             <div className="space-y-3 text-sm">
-              <div>
+              <div className="flex items-center gap-2">
                 <span className="text-gray-500 dark:text-gray-400">Depositor:</span>
-                <code className="ml-2 text-gray-900 dark:text-white break-all">{createdEscrow.depositor_address}</code>
+                <code className="text-gray-900 dark:text-white break-all flex-1">{createdEscrow.depositor_address}</code>
+                <button
+                  onClick={() => copyToClipboard(createdEscrow.depositor_address, 'depositor_addr')}
+                  className="flex-shrink-0 text-gray-500 hover:text-blue-600 transition-colors"
+                >
+                  {copiedField === 'depositor_addr' ? '✓' : '📋'}
+                </button>
               </div>
-              <div>
+              <div className="flex items-center gap-2">
                 <span className="text-gray-500 dark:text-gray-400">Beneficiary:</span>
-                <code className="ml-2 text-gray-900 dark:text-white break-all">{createdEscrow.beneficiary_address}</code>
+                <code className="text-gray-900 dark:text-white break-all flex-1">{createdEscrow.beneficiary_address}</code>
+                <button
+                  onClick={() => copyToClipboard(createdEscrow.beneficiary_address, 'beneficiary_addr')}
+                  className="flex-shrink-0 text-gray-500 hover:text-blue-600 transition-colors"
+                >
+                  {copiedField === 'beneficiary_addr' ? '✓' : '📋'}
+                </button>
               </div>
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Expires:</span>
