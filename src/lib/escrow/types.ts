@@ -36,6 +36,7 @@ export interface CreateEscrowInput {
   arbiter_address?: string;                // optional dispute resolver
   metadata?: Record<string, unknown>;      // job details, milestones, etc.
   business_id?: string;                    // optional merchant association
+  series_id?: string;                      // recurring series link
   expires_in_hours?: number;               // default 24h
 }
 
