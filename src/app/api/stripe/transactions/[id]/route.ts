@@ -106,30 +106,6 @@ export async function GET(request: NextRequest, { params: paramsPromise }: { par
       }
     }
 
-    // Check for related escrow record if applicable
-    let escrowInfo = null;
-    if (transaction.stripe_payment_intent_id) {
-      const { data: escrow } = await supabase
-        .from('stripe_escrows')
-        .select('*')
-        .eq('stripe_payment_intent_id', transaction.stripe_payment_intent_id)
-        .single();
-      
-      if (escrow) {
-        escrowInfo = {
-          id: escrow.id,
-          total_amount: escrow.total_amount,
-          platform_fee: escrow.platform_fee,
-          stripe_fee: escrow.stripe_fee,
-          releasable_amount: escrow.releasable_amount,
-          status: escrow.status,
-          release_after: escrow.release_after,
-          released_at: escrow.released_at,
-          refunded_at: escrow.refunded_at,
-        };
-      }
-    }
-
     const transformedTransaction = {
       id: transaction.id,
       business_id: businessId,
@@ -150,7 +126,6 @@ export async function GET(request: NextRequest, { params: paramsPromise }: { par
       stripe_balance_txn_id: transaction.stripe_balance_txn_id || null,
       created_at: transaction.created_at,
       updated_at: transaction.updated_at,
-      escrow: escrowInfo,
       // For UI compatibility, add card-specific fields
       last4: null, // Will be populated when we have actual card data
       brand: null, // Will be populated when we have actual card data

@@ -53,9 +53,6 @@ function mockFromChain(overrides: Record<string, any> = {}) {
     stripe_transactions: {
       insert: vi.fn().mockResolvedValue({ data: [{}] }),
     },
-    stripe_escrows: {
-      insert: vi.fn().mockResolvedValue({ data: [{}] }),
-    },
   };
 
   const merged = { ...defaults, ...overrides };

@@ -24,7 +24,6 @@ export async function POST(request: NextRequest) {
       metadata = {},
       successUrl,
       cancelUrl,
-      escrowMode = false
     } = await request.json();
 
     if (!businessId || !amount || !currency) {
@@ -68,46 +67,10 @@ export async function POST(request: NextRequest) {
       business_id: businessId,
       merchant_id: business.merchant_id,
       platform_fee_amount: platformFeeAmount.toString(),
-      escrow_mode: escrowMode ? 'true' : 'false',
     };
 
-    let session: Stripe.Checkout.Session;
-
-    if (escrowMode) {
-      // Escrow Mode: charge to platform, hold funds, transfer later
-      session = await getStripe().checkout.sessions.create({
-        line_items: [
-          {
-            price_data: {
-              currency,
-              product_data: { name: description || 'Payment' },
-              unit_amount: amount,
-            },
-            quantity: 1,
-          },
-        ],
-        mode: 'payment',
-        success_url: successUrl || `${process.env.NEXT_PUBLIC_APP_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: cancelUrl || `${process.env.NEXT_PUBLIC_APP_URL}/payment/cancel`,
-        metadata: sessionMetadata,
-      });
-
-      // Create escrow record
-      await supabase
-        .from('stripe_escrows')
-        .insert({
-          merchant_id: business.merchant_id,
-          total_amount: amount,
-          platform_fee: platformFeeAmount,
-          stripe_fee: 0,
-          releasable_amount: amount - platformFeeAmount,
-          status: 'pending_payment',
-          release_after: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        });
-
-    } else {
-      // Gateway Mode: destination charge, funds go directly to merchant
-      session = await getStripe().checkout.sessions.create({
+    // Gateway Mode: destination charge, funds go directly to merchant
+    const session = await getStripe().checkout.sessions.create({
         line_items: [
           {
             price_data: {
@@ -129,7 +92,6 @@ export async function POST(request: NextRequest) {
         cancel_url: cancelUrl || `${process.env.NEXT_PUBLIC_APP_URL}/payment/cancel`,
         metadata: sessionMetadata,
       });
-    }
 
     // Create transaction record
     await supabase
@@ -149,7 +111,6 @@ export async function POST(request: NextRequest) {
       amount,
       currency,
       platform_fee_amount: platformFeeAmount,
-      escrow_mode: escrowMode,
     });
 
   } catch (error: any) {

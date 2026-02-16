@@ -97,18 +97,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Calculate pending escrows that will affect balance
-    const { data: pendingEscrows, error: escrowError } = await supabase
-      .from('stripe_escrows')
-      .select('releasable_amount')
-      .eq('merchant_id', merchantId)
-      .in('status', ['funded', 'pending_release']);
-
-    const totalPendingEscrows = (pendingEscrows || []).reduce(
-      (sum, escrow) => sum + (escrow.releasable_amount || 0), 
-      0
-    );
-
     // Transform Stripe balance data
     const available = stripeBalance.available.map(balance => ({
       amount_cents: balance.amount,
@@ -134,10 +122,6 @@ export async function GET(request: NextRequest) {
       pending: {
         total_usd: (totalPending / 100).toFixed(2),
         by_currency: pending,
-      },
-      escrows: {
-        pending_release_usd: (totalPendingEscrows / 100).toFixed(2),
-        pending_release_cents: totalPendingEscrows,
       },
       account_status: {
         charges_enabled: stripeAccount.charges_enabled,

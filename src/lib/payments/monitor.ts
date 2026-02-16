@@ -842,16 +842,8 @@ async function runRecurringEscrowCycle(supabase: any, now: Date): Promise<Recurr
           });
 
           if (res.ok) {
-            const result = await res.json();
-            // Link series_id if we got an escrow id back
-            if (result.escrow_id) {
-              await supabase
-                .from('stripe_escrows')
-                .update({ series_id: series.id })
-                .eq('id', result.escrow_id);
-            }
             childCreated = true;
-            console.log(`[Monitor] Created card escrow for series ${series.id}`);
+            console.log(`[Monitor] Created card payment for series ${series.id}`);
           } else {
             const errText = await res.text();
             console.error(`[Monitor] Failed to create card escrow for series ${series.id}: ${errText}`);

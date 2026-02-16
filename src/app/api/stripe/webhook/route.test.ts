@@ -39,11 +39,6 @@ function mockFromChain(overrides: Record<string, any> = {}) {
         eq: vi.fn().mockResolvedValue({ data: [{}] }),
       }),
     },
-    stripe_escrows: {
-      update: vi.fn().mockReturnValue({
-        eq: vi.fn().mockResolvedValue({ data: [{}] }),
-      }),
-    },
     merchants: {
       select: vi.fn().mockReturnValue({
         eq: vi.fn().mockReturnValue({
@@ -117,7 +112,6 @@ describe('POST /api/stripe/webhook', () => {
       metadata: {
         merchant_id: 'merch_123',
         business_id: 'biz_123',
-        escrow_mode: 'false',
         platform_fee_amount: '50',
       },
     };
@@ -277,11 +271,6 @@ describe('POST /api/stripe/webhook', () => {
 function getDefaultChain() {
   return {
     stripe_transactions: {
-      update: vi.fn().mockReturnValue({
-        eq: vi.fn().mockResolvedValue({ data: [{}] }),
-      }),
-    },
-    stripe_escrows: {
       update: vi.fn().mockReturnValue({
         eq: vi.fn().mockResolvedValue({ data: [{}] }),
       }),

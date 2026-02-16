@@ -68,8 +68,6 @@ async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
   try {
     const merchantId = paymentIntent.metadata.merchant_id;
     const businessId = paymentIntent.metadata.business_id;
-    const isEscrow = paymentIntent.metadata.escrow_mode === 'true';
-
     // Get the charge details for fees
     const charges = await getStripe().charges.list({
       payment_intent: paymentIntent.id,
@@ -96,20 +94,6 @@ async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
       })
       .eq('stripe_payment_intent_id', paymentIntent.id);
 
-    // Update escrow record if applicable
-    if (isEscrow) {
-      await supabase
-        .from('stripe_escrows')
-        .update({
-          stripe_charge_id: charge.id,
-          stripe_fee: stripeFee,
-          releasable_amount: paymentIntent.amount - stripeFee - parseInt(paymentIntent.metadata.platform_fee_amount || '0'),
-          status: 'funded',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('stripe_payment_intent_id', paymentIntent.id);
-    }
-
     // Create DID reputation event
     if (merchantId) {
       const { data: merchant } = await supabase
@@ -131,7 +115,6 @@ async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
               amount: paymentIntent.amount,
               currency: paymentIntent.currency,
               business_id: businessId,
-              escrow_mode: isEscrow,
             },
           });
       }
