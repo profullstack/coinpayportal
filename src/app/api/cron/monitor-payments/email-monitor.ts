@@ -4,6 +4,7 @@
  * Sends escrow-related email notifications:
  * 1. Expiration reminders (24h, 12h, 2h) to depositor
  * 2. Settlement notifications to beneficiary
+ * 3. Status change notifications to both parties
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -12,6 +13,7 @@ import { sendEmail } from '@/lib/email';
 export interface EmailStats {
   reminders_sent: number;
   settlements_sent: number;
+  status_change_sent: number;
   errors: number;
 }
 
@@ -24,11 +26,21 @@ const REMINDER_THRESHOLDS = [
   { hours: 2, field: 'reminder_2h_sent', label: '2 hours' },
 ] as const;
 
+const STATUS_EMAIL_CONFIG: Record<string, { emoji: string; label: string; description: string }> = {
+  funded: { emoji: '✅', label: 'funded', description: 'The escrow has been funded. The deposited amount has been received.' },
+  expired: { emoji: '⏰', label: 'expired', description: 'The escrow has expired without being funded in time.' },
+  disputed: { emoji: '⚠️', label: 'disputed', description: 'A dispute has been opened on this escrow.' },
+  refunded: { emoji: '↩️', label: 'refunded', description: 'The escrow has been refunded to the depositor.' },
+  released: { emoji: '🔓', label: 'released', description: 'The escrow has been released. Funds will be settled to the beneficiary.' },
+};
+
+const NOTIFIABLE_STATUSES = Object.keys(STATUS_EMAIL_CONFIG);
+
 export async function monitorEmails(
   supabase: SupabaseClient,
   now: Date
 ): Promise<EmailStats> {
-  const stats: EmailStats = { reminders_sent: 0, settlements_sent: 0, errors: 0 };
+  const stats: EmailStats = { reminders_sent: 0, settlements_sent: 0, status_change_sent: 0, errors: 0 };
 
   try {
     await sendExpirationReminders(supabase, now, stats);
@@ -41,6 +53,13 @@ export async function monitorEmails(
     await sendSettlementNotifications(supabase, stats);
   } catch (err) {
     console.error('Settlement notification error:', err);
+    stats.errors++;
+  }
+
+  try {
+    await sendStatusChangeNotifications(supabase, stats);
+  } catch (err) {
+    console.error('Status change notification error:', err);
     stats.errors++;
   }
 
@@ -130,6 +149,60 @@ async function sendSettlementNotifications(
   }
 }
 
+async function sendStatusChangeNotifications(
+  supabase: SupabaseClient,
+  stats: EmailStats
+): Promise<void> {
+  const { data: escrows, error } = await supabase
+    .from('escrows')
+    .select('id, status, depositor_email, beneficiary_email, amount, chain, escrow_address, dispute_reason, settlement_tx_hash, status_emails_sent')
+    .in('status', NOTIFIABLE_STATUSES)
+    .limit(200);
+
+  if (error || !escrows) return;
+
+  for (const escrow of escrows) {
+    const alreadySent: string[] = escrow.status_emails_sent || [];
+    if (alreadySent.includes(escrow.status)) continue;
+
+    const recipients = [
+      escrow.depositor_email,
+      escrow.beneficiary_email,
+    ].filter(Boolean) as string[];
+
+    if (recipients.length === 0) continue;
+
+    const config = STATUS_EMAIL_CONFIG[escrow.status];
+    if (!config) continue;
+
+    const subject = `${config.emoji} Escrow ${config.label} — ${escrow.amount} ${escrow.chain}`;
+    const html = buildStatusChangeHtml(escrow, config);
+
+    let allSent = true;
+    for (const recipient of recipients) {
+      try {
+        await sendEmail({ to: recipient, from: FROM_EMAIL, subject, html });
+        stats.status_change_sent++;
+        console.log(`Sent ${escrow.status} status email to ${recipient} for escrow ${escrow.id}`);
+      } catch (err) {
+        console.error(`Failed to send ${escrow.status} status email to ${recipient} for escrow ${escrow.id}:`, err);
+        stats.errors++;
+        allSent = false;
+      }
+    }
+
+    if (allSent) {
+      const updatedSent = [...alreadySent, escrow.status];
+      await supabase
+        .from('escrows')
+        .update({ status_emails_sent: updatedSent })
+        .eq('id', escrow.id);
+    }
+  }
+}
+
+// ── HTML Builders ───────────────────────────────────────────
+
 function buildReminderHtml(
   escrow: { id: string; escrow_address: string; amount: number; chain: string; expires_at: string },
   timeframe: string,
@@ -174,6 +247,50 @@ function buildSettlementHtml(
       </table>
       <a href="${manageUrl}" style="display: inline-block; background: #16a34a; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500;">
         View Details
+      </a>
+      <p style="color: #999; font-size: 12px; margin-top: 30px;">
+        This is an automated message from CoinPayPortal. Do not reply to this email.
+      </p>
+    </div>
+  `;
+}
+
+function buildStatusChangeHtml(
+  escrow: { id: string; status: string; amount: number; chain: string; escrow_address: string; dispute_reason: string | null; settlement_tx_hash: string | null },
+  config: { emoji: string; label: string; description: string }
+): string {
+  const manageUrl = `${APP_URL}/escrow/${escrow.id}`;
+  const extraRows: string[] = [];
+
+  if (escrow.dispute_reason && escrow.status === 'disputed') {
+    extraRows.push(`<tr><td style="padding: 8px 0; color: #666;">Dispute Reason</td><td style="padding: 8px 0;">${escrow.dispute_reason}</td></tr>`);
+  }
+  if (escrow.settlement_tx_hash && (escrow.status === 'released' || escrow.status === 'refunded')) {
+    extraRows.push(`<tr><td style="padding: 8px 0; color: #666;">Transaction</td><td style="padding: 8px 0; font-family: monospace; word-break: break-all;">${escrow.settlement_tx_hash}</td></tr>`);
+  }
+
+  const statusColors: Record<string, string> = {
+    funded: '#16a34a',
+    expired: '#dc2626',
+    disputed: '#d97706',
+    refunded: '#6366f1',
+    released: '#2563eb',
+  };
+  const color = statusColors[escrow.status] || '#2563eb';
+
+  return `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #1a1a1a;">${config.emoji} Escrow ${config.label.charAt(0).toUpperCase() + config.label.slice(1)}</h2>
+      <p style="color: #4a4a4a; line-height: 1.6;">${config.description}</p>
+      <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+        <tr><td style="padding: 8px 0; color: #666;">Escrow ID</td><td style="padding: 8px 0; font-family: monospace;">${escrow.id}</td></tr>
+        <tr><td style="padding: 8px 0; color: #666;">Status</td><td style="padding: 8px 0; font-weight: bold; color: ${color};">${escrow.status.toUpperCase()}</td></tr>
+        <tr><td style="padding: 8px 0; color: #666;">Amount</td><td style="padding: 8px 0; font-weight: bold;">${escrow.amount} ${escrow.chain}</td></tr>
+        <tr><td style="padding: 8px 0; color: #666;">Deposit Address</td><td style="padding: 8px 0; font-family: monospace; word-break: break-all;">${escrow.escrow_address}</td></tr>
+        ${extraRows.join('\n        ')}
+      </table>
+      <a href="${manageUrl}" style="display: inline-block; background: ${color}; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500;">
+        View Escrow
       </a>
       <p style="color: #999; font-size: 12px; margin-top: 30px;">
         This is an automated message from CoinPayPortal. Do not reply to this email.
