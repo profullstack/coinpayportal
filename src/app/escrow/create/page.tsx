@@ -492,11 +492,21 @@ export default function CreateEscrowPage() {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <p className="text-gray-500 dark:text-gray-400">Deposit Address</p>
-                    <code className="text-xs break-all">{createdEscrow.escrow_address}</code>
+                    <div className="flex items-center gap-1">
+                      <code className="text-xs break-all flex-1">{createdEscrow.escrow_address}</code>
+                      <button type="button" className="flex-shrink-0 text-blue-600 hover:text-blue-800 text-sm" onClick={() => copyToClipboard(createdEscrow.escrow_address, 'series_esc_addr')}>
+                        {copiedField === 'series_esc_addr' ? '✓' : '📋'}
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <p className="text-gray-500 dark:text-gray-400">Crypto Amount</p>
-                    <p className="font-medium">{createdEscrow.amount} {createdEscrow.chain}</p>
+                    <div className="flex items-center gap-1">
+                      <p className="font-medium">{createdEscrow.amount} {createdEscrow.chain}</p>
+                      <button type="button" className="flex-shrink-0 text-blue-600 hover:text-blue-800 text-sm" onClick={() => copyToClipboard(String(createdEscrow.amount), 'series_esc_amount')}>
+                        {copiedField === 'series_esc_amount' ? '✓' : '📋'}
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <p className="text-gray-500 dark:text-gray-400">Expires</p>
