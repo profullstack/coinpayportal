@@ -61,6 +61,7 @@ const STATUS_COLORS: Record<string, string> = {
   settled: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
   disputed: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
   refunded: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400',
+  cancelled: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
   expired: 'bg-gray-100 text-gray-600 dark:bg-gray-900/30 dark:text-gray-500',
 };
 
@@ -167,8 +168,10 @@ export default function EscrowDashboardPage() {
       setEscrows(data.escrows || []);
       setTotal(data.total || 0);
 
-      // Also fetch recurring series
-      const seriesResult = await authFetch('/api/escrow/series?business_id=all', {}, router);
+      // Also fetch recurring series (pass status filter)
+      const seriesParams = new URLSearchParams({ business_id: 'all' });
+      if (statusFilter) seriesParams.set('status', statusFilter);
+      const seriesResult = await authFetch(`/api/escrow/series?${seriesParams.toString()}`, {}, router);
       if (seriesResult) {
         setSeries(seriesResult.data.series || []);
       }
@@ -231,7 +234,7 @@ export default function EscrowDashboardPage() {
 
       {/* Filters */}
       <div className="flex gap-2 mb-6">
-        {['', 'pending', 'funded', 'released', 'settled', 'disputed', 'refunded', 'expired'].map((s) => (
+        {['', 'pending', 'funded', 'released', 'settled', 'disputed', 'refunded', 'cancelled', 'expired'].map((s) => (
           <button
             key={s}
             onClick={() => setStatusFilter(s)}
