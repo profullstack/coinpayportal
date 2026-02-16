@@ -108,12 +108,12 @@ describe('monitorSeries', () => {
     );
   });
 
-  it('skips non-crypto series', async () => {
+  it('skips series with missing addresses', async () => {
     const series = {
       id: 'ser_3',
       status: 'active',
-      payment_method: 'card',
-      coin: null,
+      payment_method: 'crypto',
+      coin: 'BTC',
       amount: 50,
       interval: 'monthly',
       max_periods: null,

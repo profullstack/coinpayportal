@@ -47,19 +47,9 @@ export async function GET(
       .eq('series_id', id)
       .order('created_at', { ascending: false });
 
-    // Fetch linked stripe escrows
-    const { data: stripeEscrows } = await supabase
-      .from('stripe_escrows')
-      .select('*')
-      .eq('series_id', id)
-      .order('created_at', { ascending: false });
-
     return NextResponse.json({
       series,
-      escrows: {
-        crypto: cryptoEscrows || [],
-        stripe: stripeEscrows || [],
-      },
+      escrows: cryptoEscrows || [],
     });
   } catch (error) {
     console.error('Failed to get escrow series:', error);

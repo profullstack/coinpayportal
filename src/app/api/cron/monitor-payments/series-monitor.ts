@@ -65,9 +65,9 @@ export async function monitorSeries(
           continue;
         }
 
-        // Only crypto series with both addresses can auto-create escrows
-        if (series.payment_method !== 'crypto' || !series.depositor_address || !series.beneficiary_address) {
-          console.log(`[Series] ${series.id} skipped — missing addresses or not crypto`);
+        // Need both addresses to create escrow
+        if (!series.depositor_address || !series.beneficiary_address) {
+          console.log(`[Series] ${series.id} skipped — missing depositor or beneficiary address`);
           continue;
         }
 

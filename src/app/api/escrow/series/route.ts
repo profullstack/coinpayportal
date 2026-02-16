@@ -32,7 +32,6 @@ export async function POST(request: NextRequest) {
       max_periods,
       beneficiary_address,
       depositor_address,
-      stripe_account_id,
     } = body;
 
     // Validate required fields before touching DB
@@ -43,8 +42,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!['crypto', 'card'].includes(payment_method)) {
-      return NextResponse.json({ error: 'payment_method must be crypto or card' }, { status: 400 });
+    if (payment_method !== 'crypto') {
+      return NextResponse.json({ error: 'Only crypto escrow series are supported' }, { status: 400 });
     }
 
     if (!['weekly', 'biweekly', 'monthly'].includes(interval)) {
@@ -53,10 +52,6 @@ export async function POST(request: NextRequest) {
 
     if (payment_method === 'crypto' && !coin) {
       return NextResponse.json({ error: 'coin is required for crypto payment method' }, { status: 400 });
-    }
-
-    if (payment_method === 'card' && !stripe_account_id) {
-      return NextResponse.json({ error: 'stripe_account_id is required for card payment method' }, { status: 400 });
     }
 
     const supabase = getSupabase();
@@ -91,7 +86,6 @@ export async function POST(request: NextRequest) {
         max_periods: max_periods || null,
         beneficiary_address,
         depositor_address,
-        stripe_account_id,
       })
       .select()
       .single();
