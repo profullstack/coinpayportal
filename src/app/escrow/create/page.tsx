@@ -84,6 +84,10 @@ export default function CreateEscrowPage() {
   const [maxPeriods, setMaxPeriods] = useState('');
   const [createdSeries, setCreatedSeries] = useState<Record<string, unknown> | null>(null);
 
+  // Auto-detected emails from wallet lookup
+  const [autoDepositorEmail, setAutoDepositorEmail] = useState<string | null>(null);
+  const [autoBeneficiaryEmail, setAutoBeneficiaryEmail] = useState<string | null>(null);
+
   // Dual input system state
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrency>('USD');
   const [fiatAmount, setFiatAmount] = useState('');
@@ -115,6 +119,30 @@ export default function CreateEscrowPage() {
   useEffect(() => {
     fetchBusinesses();
   }, [fetchBusinesses]);
+
+  // Look up wallet address to auto-fill email
+  const lookupWalletEmail = useCallback(async (address: string, role: 'depositor' | 'beneficiary') => {
+    if (!address || address.trim().length < 10) return;
+    try {
+      const res = await fetch(`/api/wallets/lookup?address=${encodeURIComponent(address.trim())}`);
+      const data = await res.json();
+      if (data.found && data.email) {
+        if (role === 'depositor') {
+          setAutoDepositorEmail(data.email);
+          // Only auto-fill if field is empty
+          setFormData(prev => prev.depositor_email ? prev : { ...prev, depositor_email: data.email });
+        } else {
+          setAutoBeneficiaryEmail(data.email);
+          setFormData(prev => prev.beneficiary_email ? prev : { ...prev, beneficiary_email: data.email });
+        }
+      } else {
+        if (role === 'depositor') setAutoDepositorEmail(null);
+        else setAutoBeneficiaryEmail(null);
+      }
+    } catch {
+      // Non-critical — silently fail
+    }
+  }, []);
 
   // Fetch exchange rate
   const fetchRate = useCallback(async (chain: string, fiat: string) => {
@@ -341,204 +369,46 @@ export default function CreateEscrowPage() {
   };
 
   // ── Success view ──────────────────────────────────────
-  if (createdSeries) {
+  // For recurring escrow: if first escrow was created, show it with the same
+  // UI as single escrow (deposit address + tokens front-and-center).
+  // The `createdSeries` check feeds into the shared `createdEscrow` view below.
+  if (createdSeries && !createdEscrow) {
+    // Series created but first escrow failed — show error/warning
     const s = createdSeries;
     return (
       <div className="max-w-2xl mx-auto px-4 py-8">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-          <div className="bg-green-50 dark:bg-green-900/30 px-6 py-4 border-b border-green-200 dark:border-green-800">
+          <div className="bg-yellow-50 dark:bg-yellow-900/30 px-6 py-4 border-b border-yellow-200 dark:border-yellow-800">
             <div className="flex items-center gap-2">
-              <svg className="h-6 w-6 text-green-600" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
-                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <h2 className="text-lg font-semibold text-green-900 dark:text-green-300">
-                Recurring Escrow Series Created!
+              <span className="text-yellow-600 text-lg">⚠️</span>
+              <h2 className="text-lg font-semibold text-yellow-900 dark:text-yellow-300">
+                Recurring Series Created — But First Payment Failed
               </h2>
             </div>
           </div>
           <div className="px-6 py-4 space-y-4">
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <h3 className="font-semibold text-blue-900 dark:text-blue-300">Series ID</h3>
-              <div className="flex items-center gap-2 mt-1">
-                <code className="text-sm font-mono break-all">{String(s.id)}</code>
-                <button
-                  type="button"
-                  className="text-blue-600 hover:text-blue-800 text-sm"
-                  onClick={() => copyToClipboard(String(s.id), 'series_id')}
-                >
-                  {copiedField === 'series_id' ? '✓' : '📋'}
-                </button>
-              </div>
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-sm text-red-700 dark:text-red-400">
+              The recurring series was created (ID: <code className="break-all">{String(s.id)}</code>), but the first escrow payment could not be generated. Please try creating a new escrow from the dashboard or contact support.
             </div>
-
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Amount</p>
-                <div className="flex items-center gap-2">
-                  <p className="font-medium">{String(s.amount)} {String(s.coin || s.currency || '')}</p>
-                  <button type="button" className="text-blue-600 hover:text-blue-800 text-sm" onClick={() => copyToClipboard(String(s.amount), 'series_amount')}>
-                    {copiedField === 'series_amount' ? '✓' : '📋'}
-                  </button>
-                </div>
+                <p className="text-gray-500 dark:text-gray-400">Amount</p>
+                <p className="font-medium">{String(s.amount)} {String(s.coin || s.currency || '')}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Interval</p>
+                <p className="text-gray-500 dark:text-gray-400">Interval</p>
                 <p className="font-medium capitalize">{String(s.interval)}</p>
               </div>
-              <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Payment Method</p>
-                <p className="font-medium capitalize">{String(s.payment_method)}</p>
-              </div>
-              {s.max_periods ? (
-                <div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Max Periods</p>
-                  <p className="font-medium">{String(s.max_periods)}</p>
-                </div>
-              ) : null}
-              <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Status</p>
-                <p className="font-medium capitalize">{String(s.status)}</p>
-              </div>
-              {s.next_charge_at ? (
-                <div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Next Charge</p>
-                  <p className="font-medium">{new Date(String(s.next_charge_at)).toLocaleString()}</p>
-                </div>
-              ) : null}
             </div>
-
-            {(s.depositor_address || s.beneficiary_address) ? (
-              <div className="space-y-2 text-sm">
-                {s.depositor_address ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-gray-500 dark:text-gray-400">Depositor:</span>
-                    <code className="break-all flex-1">{String(s.depositor_address)}</code>
-                    <button type="button" className="flex-shrink-0 text-blue-600 hover:text-blue-800 text-sm" onClick={() => copyToClipboard(String(s.depositor_address), 'series_depositor')}>
-                      {copiedField === 'series_depositor' ? '✓' : '📋'}
-                    </button>
-                  </div>
-                ) : null}
-                {s.beneficiary_address ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-gray-500 dark:text-gray-400">Beneficiary:</span>
-                    <code className="break-all flex-1">{String(s.beneficiary_address)}</code>
-                    <button type="button" className="flex-shrink-0 text-blue-600 hover:text-blue-800 text-sm" onClick={() => copyToClipboard(String(s.beneficiary_address), 'series_beneficiary')}>
-                      {copiedField === 'series_beneficiary' ? '✓' : '📋'}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {s.description ? (
-              <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Description</p>
-                <p className="text-sm">{String(s.description)}</p>
-              </div>
-            ) : null}
-
-            {/* Copy All button */}
-            <button
-              type="button"
-              className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-              onClick={() => {
-                const lines = [
-                  `Series ID: ${String(s.id)}`,
-                  `Amount: ${String(s.amount)} ${String(s.coin || s.currency || '')}`,
-                  `Interval: ${String(s.interval)}`,
-                  `Payment Method: ${String(s.payment_method)}`,
-                  ...(s.max_periods ? [`Max Periods: ${String(s.max_periods)}`] : []),
-                  `Status: ${String(s.status)}`,
-                  ...(s.next_charge_at ? [`Next Charge: ${new Date(String(s.next_charge_at)).toLocaleString()}`] : []),
-                  ...(s.depositor_address ? [`Depositor: ${String(s.depositor_address)}`] : []),
-                  ...(s.beneficiary_address ? [`Beneficiary: ${String(s.beneficiary_address)}`] : []),
-                  ...(s.description ? [`Description: ${String(s.description)}`] : []),
-                  ...(createdEscrow ? [
-                    '',
-                    '--- First Escrow ---',
-                    `Escrow ID: ${createdEscrow.id}`,
-                    `Deposit Address: ${createdEscrow.escrow_address}`,
-                    `Amount: ${createdEscrow.amount} ${createdEscrow.chain}`,
-                    `Release Token: ${createdEscrow.release_token}`,
-                    `Beneficiary Token: ${createdEscrow.beneficiary_token}`,
-                    `Expires: ${new Date(createdEscrow.expires_at).toLocaleString()}`,
-                  ] : []),
-                ];
-                copyToClipboard(lines.join('\n'), 'series_all');
-              }}
-            >
-              {copiedField === 'series_all' ? '✓ Copied!' : '📋 Copy All Info'}
-            </button>
-
-            {/* First escrow details if created */}
-            {createdEscrow && (
-              <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-3">
-                <h3 className="font-semibold text-green-800 dark:text-green-300">First Escrow Payment Created</h3>
-                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-                  <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300 mb-2">⚠️ Save These Tokens!</p>
-                  <div className="space-y-2">
-                    <div>
-                      <p className="text-xs text-gray-500">Release Token (for depositor)</p>
-                      <div className="flex items-center gap-2">
-                        <code className="text-sm break-all">{createdEscrow.release_token}</code>
-                        <button type="button" className="text-blue-600 text-sm" onClick={() => copyToClipboard(createdEscrow.release_token, 'release')}>
-                          {copiedField === 'release' ? '✓' : '📋'}
-                        </button>
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">Beneficiary Token (for recipient)</p>
-                      <div className="flex items-center gap-2">
-                        <code className="text-sm break-all">{createdEscrow.beneficiary_token}</code>
-                        <button type="button" className="text-blue-600 text-sm" onClick={() => copyToClipboard(createdEscrow.beneficiary_token, 'beneficiary')}>
-                          {copiedField === 'beneficiary' ? '✓' : '📋'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <p className="text-gray-500 dark:text-gray-400">Deposit Address</p>
-                    <div className="flex items-center gap-1">
-                      <code className="text-xs break-all flex-1">{createdEscrow.escrow_address}</code>
-                      <button type="button" className="flex-shrink-0 text-blue-600 hover:text-blue-800 text-sm" onClick={() => copyToClipboard(createdEscrow.escrow_address, 'series_esc_addr')}>
-                        {copiedField === 'series_esc_addr' ? '✓' : '📋'}
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-gray-500 dark:text-gray-400">Crypto Amount</p>
-                    <div className="flex items-center gap-1">
-                      <p className="font-medium">{createdEscrow.amount} {createdEscrow.chain}</p>
-                      <button type="button" className="flex-shrink-0 text-blue-600 hover:text-blue-800 text-sm" onClick={() => copyToClipboard(String(createdEscrow.amount), 'series_esc_amount')}>
-                        {copiedField === 'series_esc_amount' ? '✓' : '📋'}
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-gray-500 dark:text-gray-400">Expires</p>
-                    <p className="font-medium">{new Date(createdEscrow.expires_at).toLocaleString()}</p>
-                  </div>
-                  {createdEscrow.amount_usd != null && (
-                    <div>
-                      <p className="text-gray-500 dark:text-gray-400">USD Value</p>
-                      <p className="font-medium">≈ ${createdEscrow.amount_usd.toFixed(2)}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
             <div className="pt-4 flex gap-3">
               <button
                 type="button"
-                className="btn-primary px-4 py-2 text-sm"
+                className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors text-sm"
                 onClick={() => { setCreatedSeries(null); setCreatedEscrow(null); setError(''); }}
               >
-                Create Another
+                Try Again
               </button>
-              <a href="/dashboard" className="btn-secondary px-4 py-2 text-sm">
+              <a href="/dashboard" className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm">
                 Go to Dashboard
               </a>
             </div>
@@ -558,18 +428,57 @@ export default function CreateEscrowPage() {
                 <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <h2 className="text-lg font-semibold text-green-900 dark:text-green-300">
-                Escrow Created!
+                {createdSeries ? 'Recurring Escrow Created!' : 'Escrow Created!'}
               </h2>
             </div>
           </div>
 
           <div className="p-6 space-y-6">
+            {/* Recurring series banner */}
+            {createdSeries && (
+              <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
+                <div className="flex items-start gap-2">
+                  <span className="text-purple-600 text-lg">🔄</span>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-purple-900 dark:text-purple-300">Recurring Series</h3>
+                    <p className="text-sm text-purple-700 dark:text-purple-400 mt-1">
+                      This is the first payment in a <strong className="capitalize">{String(createdSeries.interval)}</strong> recurring series.
+                      {createdSeries.max_periods ? ` ${String(createdSeries.max_periods)} payments total.` : ' Runs until cancelled.'}
+                    </p>
+                    <div className="flex items-center gap-2 mt-2 text-xs text-purple-600 dark:text-purple-400">
+                      <span>Series ID:</span>
+                      <code className="break-all">{String(createdSeries.id)}</code>
+                      <button
+                        type="button"
+                        className="text-purple-600 hover:text-purple-800"
+                        onClick={() => copyToClipboard(String(createdSeries.id), 'series_id')}
+                      >
+                        {copiedField === 'series_id' ? '✓' : '📋'}
+                      </button>
+                    </div>
+                    {createdSeries.next_charge_at ? (
+                      <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">
+                        Next payment: {new Date(String(createdSeries.next_charge_at)).toLocaleString()}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Copy All */}
             <button
               type="button"
               className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               onClick={() => {
                 const lines = [
+                  ...(createdSeries ? [
+                    `Series ID: ${String(createdSeries.id)}`,
+                    `Interval: ${String(createdSeries.interval)}`,
+                    ...(createdSeries.max_periods ? [`Max Periods: ${String(createdSeries.max_periods)}`] : []),
+                    ...(createdSeries.next_charge_at ? [`Next Payment: ${new Date(String(createdSeries.next_charge_at)).toLocaleString()}`] : []),
+                    '',
+                  ] : []),
                   `Escrow ID: ${createdEscrow.id}`,
                   `Deposit Address: ${createdEscrow.escrow_address}`,
                   `Amount: ${createdEscrow.amount} ${createdEscrow.chain}`,
@@ -785,6 +694,7 @@ export default function CreateEscrowPage() {
               <button
                 onClick={() => {
                   setCreatedEscrow(null);
+                  setCreatedSeries(null);
                   setFormData(prev => ({
                     ...prev,
                     amount: '',
@@ -1024,6 +934,7 @@ export default function CreateEscrowPage() {
               required
               value={formData.depositor_address}
               onChange={(e) => setFormData({ ...formData, depositor_address: e.target.value })}
+              onBlur={(e) => lookupWalletEmail(e.target.value, 'depositor')}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm"
               placeholder="Your wallet address (sender)"
             />
@@ -1040,6 +951,7 @@ export default function CreateEscrowPage() {
               required
               value={formData.beneficiary_address}
               onChange={(e) => setFormData({ ...formData, beneficiary_address: e.target.value })}
+              onBlur={(e) => lookupWalletEmail(e.target.value, 'beneficiary')}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm"
               placeholder="Recipient wallet address"
             />
@@ -1073,6 +985,11 @@ export default function CreateEscrowPage() {
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
               placeholder="Receive expiration reminders (optional)"
             />
+            {autoDepositorEmail && formData.depositor_email === autoDepositorEmail && (
+              <p className="mt-1 text-xs text-green-600 dark:text-green-400">
+                ✓ Auto-detected CoinPay user
+              </p>
+            )}
           </div>
 
           {/* Beneficiary Email */}
@@ -1088,6 +1005,11 @@ export default function CreateEscrowPage() {
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
               placeholder="Receive settlement notifications (optional)"
             />
+            {autoBeneficiaryEmail && formData.beneficiary_email === autoBeneficiaryEmail && (
+              <p className="mt-1 text-xs text-green-600 dark:text-green-400">
+                ✓ Auto-detected CoinPay user
+              </p>
+            )}
           </div>
 
           {/* Expiry */}

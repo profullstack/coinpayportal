@@ -107,11 +107,55 @@ export async function createEscrow(
   if (!parsed.success) {
     return { success: false, error: parsed.error.errors[0].message };
   }
-  const data = parsed.data;
+  let data = parsed.data;
 
   // Depositor and beneficiary can't be the same
   if (data.depositor_address === data.beneficiary_address) {
     return { success: false, error: 'Depositor and beneficiary must be different addresses' };
+  }
+
+  // Auto-detect emails from wallet addresses if not provided
+  // Checks both merchant_wallets and business_wallets → merchants
+  if (!data.depositor_email || !data.beneficiary_email) {
+    const lookupEmail = async (address: string): Promise<string | null> => {
+      // 1. merchant_wallets → merchants
+      try {
+        const { data: row } = await supabase
+          .from('merchant_wallets')
+          .select('merchant_id, merchants!inner(email)')
+          .eq('wallet_address', address)
+          .eq('is_active', true)
+          .limit(1)
+          .single();
+        const m = Array.isArray(row?.merchants) ? row.merchants[0] : row?.merchants;
+        if (m?.email) return m.email;
+      } catch { /* not found */ }
+
+      // 2. business_wallets → businesses → merchants
+      try {
+        const { data: row } = await supabase
+          .from('business_wallets')
+          .select('business_id, businesses!inner(merchant_id, merchants!inner(email))')
+          .eq('wallet_address', address)
+          .eq('is_active', true)
+          .limit(1)
+          .single();
+        const biz = Array.isArray(row?.businesses) ? row.businesses[0] : row?.businesses;
+        const m = biz ? (Array.isArray(biz.merchants) ? biz.merchants[0] : biz.merchants) : null;
+        if (m?.email) return m.email;
+      } catch { /* not found */ }
+
+      return null;
+    };
+
+    if (!data.depositor_email) {
+      const email = await lookupEmail(data.depositor_address);
+      if (email) data = { ...data, depositor_email: email };
+    }
+    if (!data.beneficiary_email) {
+      const email = await lookupEmail(data.beneficiary_address);
+      if (email) data = { ...data, beneficiary_email: email };
+    }
   }
 
   try {
