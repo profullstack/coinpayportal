@@ -21,6 +21,15 @@ vi.mock('@/lib/auth/middleware', () => ({
   isMerchantAuth: vi.fn().mockImplementation((ctx: any) => ctx?.type === 'merchant'),
 }));
 
+// Mock createEscrow + isBusinessPaidTier (used in POST)
+vi.mock('@/lib/escrow', () => ({
+  createEscrow: vi.fn().mockResolvedValue({ success: true, escrow: { id: 'esc_1' } }),
+}));
+
+vi.mock('@/lib/entitlements/service', () => ({
+  isBusinessPaidTier: vi.fn().mockResolvedValue(false),
+}));
+
 import { POST, GET } from './route';
 
 function setupInsert(data: any = { id: 'series_1' }, error: any = null) {
@@ -33,13 +42,22 @@ function setupInsert(data: any = { id: 'series_1' }, error: any = null) {
   });
 }
 
-function setupSelect(data: any[] = [], error: any = null) {
-  const query = {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    order: vi.fn().mockResolvedValue({ data, error }),
+function setupSelectChained(data: any[] = [], error: any = null) {
+  // The GET route chains: .select().order() then conditionally .eq() or .in()
+  // Each method must return the query object; the final call resolves as a thenable
+  const makeQuery = (resolveData: any[], resolveError: any) => {
+    const q: any = {};
+    q.select = vi.fn().mockReturnValue(q);
+    q.eq = vi.fn().mockReturnValue(q);
+    q.in = vi.fn().mockReturnValue(q);
+    q.order = vi.fn().mockReturnValue(q);
+    // Make it thenable so await works on the final chained call
+    q.then = (resolve: any, reject?: any) => {
+      return Promise.resolve({ data: resolveData, error: resolveError }).then(resolve, reject);
+    };
+    return q;
   };
-  mockSupabase.from.mockReturnValue(query);
+  mockSupabase.from.mockReturnValue(makeQuery(data, error));
 }
 
 describe('POST /api/escrow/series', () => {
@@ -72,10 +90,10 @@ describe('POST /api/escrow/series', () => {
     expect((await res.json()).error).toMatch(/Required/);
   });
 
-  it('returns 400 for invalid payment_method', async () => {
+  it('returns 400 for non-crypto payment_method', async () => {
     const res = await POST(makeReq({ ...validBody, payment_method: 'paypal' }));
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/payment_method/);
+    expect((await res.json()).error).toMatch(/crypto/i);
   });
 
   it('returns 400 for invalid interval', async () => {
@@ -90,10 +108,10 @@ describe('POST /api/escrow/series', () => {
     expect((await res.json()).error).toMatch(/coin/);
   });
 
-  it('returns 400 for card without stripe_account_id', async () => {
+  it('returns 400 for card payment method (not supported)', async () => {
     const res = await POST(makeReq({ ...validBody, payment_method: 'card', coin: undefined }));
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/stripe_account_id/);
+    expect((await res.json()).error).toMatch(/crypto/i);
   });
 
   it('returns 401 when unauthorized', async () => {
@@ -121,18 +139,39 @@ describe('GET /api/escrow/series', () => {
     mockAuthResult.current = { success: true, context: { type: 'merchant', merchantId: 'merch_1' } };
   });
 
-  it('returns 400 without business_id', async () => {
+  it('returns series scoped to merchant businesses when no business_id', async () => {
+    mockSupabase.from.mockImplementation((table: string) => {
+      if (table === 'businesses') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({ data: [{ id: 'biz_1' }], error: null }),
+          }),
+        };
+      }
+      // escrow_series — needs thenable query object
+      const q: any = {};
+      q.select = vi.fn().mockReturnValue(q);
+      q.eq = vi.fn().mockReturnValue(q);
+      q.in = vi.fn().mockReturnValue(q);
+      q.order = vi.fn().mockReturnValue(q);
+      q.then = (resolve: any, reject?: any) => {
+        return Promise.resolve({ data: [{ id: 's1' }], error: null }).then(resolve, reject);
+      };
+      return q;
+    });
+
     const req = new NextRequest('http://localhost:3000/api/escrow/series', {
       headers: { authorization: 'Bearer test' },
     });
     const res = await GET(req);
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/business_id/);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.series).toEqual([{ id: 's1' }]);
   });
 
-  it('returns series list on success', async () => {
+  it('returns series list filtered by business_id', async () => {
     const seriesList = [{ id: 's1' }, { id: 's2' }];
-    setupSelect(seriesList);
+    setupSelectChained(seriesList);
     const req = new NextRequest('http://localhost:3000/api/escrow/series?business_id=biz_1', {
       headers: { authorization: 'Bearer test' },
     });

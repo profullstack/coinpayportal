@@ -247,7 +247,7 @@ describe('EscrowManagePage - Commission Displays', () => {
   it('should show copy amount functionality on pending deposit escrow', async () => {
     const pendingEscrow = {
       ...mockEscrowWithCommission,
-      status: 'created',
+      status: 'pending',
       deposited_amount: null,
       deposit_tx_hash: null
     };
@@ -281,7 +281,9 @@ describe('EscrowManagePage - Commission Displays', () => {
     });
 
     // Check deposit instructions
-    expect(screen.getByText('Send exactly 200 USDC_POL')).toBeInTheDocument();
+    expect(screen.getByText((content, element) => {
+      return element?.tagName === 'P' && (element.textContent || '').includes('Send exactly 200 USDC_POL');
+    })).toBeInTheDocument();
     
     // Check copy amount functionality
     expect(screen.getByText('Copy amount')).toBeInTheDocument();
@@ -290,7 +292,7 @@ describe('EscrowManagePage - Commission Displays', () => {
   it('should copy amount correctly when copy button is clicked', async () => {
     const pendingEscrow = {
       ...mockEscrowWithCommission,
-      status: 'created',
+      status: 'pending',
       deposited_amount: null,
       deposit_tx_hash: null,
       amount: 1.5

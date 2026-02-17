@@ -355,15 +355,15 @@ describe('EscrowManagePage', () => {
     });
   });
 
-  it('should show pending deposit instructions for created escrow', async () => {
-    const createdEscrow = { ...mockEscrowData, status: 'created' };
+  it('should show pending deposit instructions for pending escrow', async () => {
+    const pendingEscrow = { ...mockEscrowData, status: 'pending' };
     
     (global.fetch as any).mockImplementation((url: string) => {
       if (url.includes('/auth')) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({
-            escrow: createdEscrow,
+            escrow: pendingEscrow,
             role: 'depositor',
           }),
         });
@@ -383,7 +383,10 @@ describe('EscrowManagePage', () => {
     render(<EscrowManagePage />);
     
     await waitFor(() => {
-      expect(screen.getByText('Send exactly 100 USDC_POL')).toBeInTheDocument();
+      // Text is split across elements (<strong> tag), so use a function matcher
+      expect(screen.getByText((content, element) => {
+        return element?.tagName === 'P' && (element.textContent || '').includes('Send exactly 100 USDC_POL');
+      })).toBeInTheDocument();
       expect(screen.getByText('Copy amount')).toBeInTheDocument();
     });
   });
@@ -415,7 +418,8 @@ describe('EscrowManagePage', () => {
     
     await waitFor(() => {
       expect(screen.getByText('Event Timeline')).toBeInTheDocument();
-      expect(screen.getByText('created')).toBeInTheDocument();
+      // "created" appears both as status badge and event type — just check multiple exist
+      expect(screen.getAllByText('created').length).toBeGreaterThanOrEqual(1);
     });
   });
 
