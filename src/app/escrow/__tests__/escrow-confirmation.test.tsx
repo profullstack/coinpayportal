@@ -120,27 +120,55 @@ describe('Escrow Confirmation Screens', () => {
   });
 
   describe('Recurring series confirmation', () => {
-    const seriesResponse = {
-      id: 'series_xyz789',
+    const escrowInSeries = {
+      id: 'esc_series_001',
+      escrow_address: '0xSeriesEscrowAddr',
+      chain: 'USDC_POL',
       amount: 1.5,
-      coin: 'USDC_POL',
-      interval: 'monthly',
-      max_periods: 12,
-      status: 'active',
-      payment_method: 'crypto',
-      next_charge_at: '2026-03-15T20:00:00Z',
-      currency: 'USD',
+      release_token: 'rel_series_token',
+      beneficiary_token: 'ben_series_token',
+      expires_at: '2026-04-15T20:00:00Z',
+      status: 'pending',
+      depositor_address: '0xDepositor123',
+      beneficiary_address: '0xBeneficiary456',
+      amount_usd: null,
+      fee_amount: null,
+      deposited_amount: null,
+      created_at: '2026-02-15T20:00:00Z',
+      metadata: {},
+      business_id: null,
     };
 
-    it('shows recurring confirmation with correct fields', async () => {
+    const seriesResponse = {
+      series: {
+        id: 'series_xyz789',
+        amount: 1.5,
+        coin: 'USDC_POL',
+        interval: 'monthly',
+        max_periods: 12,
+        status: 'active',
+        payment_method: 'crypto',
+        next_charge_at: '2026-03-15T20:00:00Z',
+        currency: 'USD',
+      },
+      escrow: escrowInSeries,
+    };
+
+    it('shows recurring confirmation with deposit address and tokens (same as single escrow)', async () => {
       // authFetch: businesses (null), then series create (null=fallback to fetch)
       mockAuthFetch.mockResolvedValue(null);
-      // global fetch: rate API calls, then series creation fallback
+      // global fetch: rate API calls, wallet lookup, then series creation fallback
       mockFetch.mockImplementation((url: string) => {
         if (typeof url === 'string' && url.includes('/api/escrow/series')) {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve(seriesResponse),
+          });
+        }
+        if (typeof url === 'string' && url.includes('/api/wallets/lookup')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ found: false }),
           });
         }
         return Promise.resolve({
@@ -158,24 +186,22 @@ describe('Escrow Confirmation Screens', () => {
       fillFormAndSubmit();
 
       await waitFor(() => {
-        expect(screen.getByText('Recurring Escrow Series Created!')).toBeInTheDocument();
+        expect(screen.getByText('Recurring Escrow Created!')).toBeInTheDocument();
       });
 
-      // Series ID
+      // Recurring series banner with series ID
       expect(screen.getByText('series_xyz789')).toBeInTheDocument();
+      expect(screen.getByText(/monthly/i)).toBeInTheDocument();
 
-      // Amount with coin
-      expect(screen.getByText(/1\.5 USDC_POL/)).toBeInTheDocument();
+      // Deposit address (same UI as single escrow)
+      expect(screen.getByText('0xSeriesEscrowAddr')).toBeInTheDocument();
 
-      // Interval
-      expect(screen.getByText('monthly')).toBeInTheDocument();
+      // Tokens shown (critical for funding)
+      expect(screen.getByText('rel_series_token')).toBeInTheDocument();
+      expect(screen.getByText('ben_series_token')).toBeInTheDocument();
 
-      // Max periods
-      expect(screen.getByText('12')).toBeInTheDocument();
-
-      // Should NOT have release/beneficiary tokens
-      expect(screen.queryByText('rel_token')).not.toBeInTheDocument();
-      expect(screen.queryByText('ben_token')).not.toBeInTheDocument();
+      // Escrow ID
+      expect(screen.getByText('esc_series_001')).toBeInTheDocument();
 
       // No "Invalid Date"
       const pageText = document.body.textContent || '';
