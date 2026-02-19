@@ -130,9 +130,9 @@ TATUM_API_KEY=your_tatum_api_key
 # Webhook
 WEBHOOK_SIGNING_SECRET=your_webhook_secret
 
-# Lightning (optional)
-GREENLIGHT_PARTNER_CERT=base64_encoded_cert
-GREENLIGHT_PARTNER_KEY=base64_encoded_key
+# Greenlight / Lightning (optional)
+GL_NOBODY_CRT=/path/to/client.crt
+GL_NOBODY_KEY=/path/to/client-key.pem
 
 # Stripe (optional)
 STRIPE_SECRET_KEY=sk_live_xxx
