@@ -99,8 +99,8 @@ export async function calculateEconomicDiversity(
   supabase: SupabaseClient,
   agentDid: string
 ): Promise<{ uniqueBuyers: number; totalTasks: number; diversityScore: number }> {
-  const SOCIAL_CATEGORIES = ['social'];
-  const SOCIAL_ACTIONS = ['post_created', 'comment_created', 'upvoted', 'content_downvoted', 'followed_user', 'endorsement_given', 'profile_completed', 'resume_uploaded', 'portfolio_added', 'verification_requested'];
+  const PLATFORM_CATEGORIES = ['social', 'identity'];
+  const PLATFORM_ACTIONS = ['post_created', 'comment_created', 'upvoted', 'content_downvoted', 'followed_user', 'endorsement_given', 'profile_completed', 'resume_uploaded', 'portfolio_added', 'verification_requested', 'gig_posted', 'application_submitted'];
 
   const { data: receipts } = await supabase
     .from('reputation_receipts')
@@ -111,9 +111,9 @@ export async function calculateEconomicDiversity(
     return { uniqueBuyers: 0, totalTasks: 0, diversityScore: 0 };
   }
 
-  // Filter out social/platform actions
+  // Filter out social/platform/identity actions — only real economic transactions count
   const economicReceipts = receipts.filter((r: { buyer_did: string; category: string; action_type: string }) =>
-    !SOCIAL_CATEGORIES.includes(r.category) && !SOCIAL_ACTIONS.includes(r.action_type)
+    !PLATFORM_CATEGORIES.includes(r.category) && !PLATFORM_ACTIONS.includes(r.action_type)
   );
 
   if (economicReceipts.length === 0) {
