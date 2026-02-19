@@ -108,6 +108,65 @@ When a client hits a 402-protected endpoint, they receive ALL available payment 
 
 The client (browser, AI agent, or bot) picks the option it can pay with and sends the appropriate proof.
 
+### How Clients Create Payment Proofs
+
+Each payment method requires a different type of proof:
+
+| Method | Proof Type | Details |
+|--------|-----------|---------|
+| **USDC (EVM)** | EIP-712 signature | Gasless `transferFrom` authorization — no on-chain tx until settlement |
+| **Bitcoin / BCH** | Transaction ID | Broadcast tx to `payTo` address, include txid |
+| **Lightning** | Preimage | Pay the BOLT12 offer, include the preimage |
+| **Solana** | Transaction signature | Sign and broadcast transfer, include the sig |
+| **Stripe** | Payment Intent ID | Complete card checkout, include the intent ID |
+
+The proof is base64-encoded as JSON and sent in the `X-PAYMENT` header:
+
+```http
+GET /api/premium HTTP/1.1
+X-PAYMENT: eyJzY2hlbWUiOiJleGFjdCIsIm5ldHdvcmsiOiJiYXNlIi4uLn0=
+```
+
+Decoded (USDC on Base example):
+
+```json
+{
+  "scheme": "exact",
+  "network": "base",
+  "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+  "payload": {
+    "signature": "0xabc123...",
+    "authorization": {
+      "from": "0xBuyerAddress...",
+      "to": "0xMerchantAddress...",
+      "value": "5000000",
+      "validAfter": 0,
+      "validBefore": 1739980800,
+      "nonce": "0xUniqueNonce..."
+    }
+  }
+}
+```
+
+### Client Library for Automated Payments
+
+For AI agents, bots, and programmatic clients, use `x402fetch()` — it wraps `fetch()` and automatically handles the 402 → pay → retry loop:
+
+```js
+import { x402fetch } from '@profullstack/coinpay';
+
+const response = await x402fetch('https://api.example.com/premium', {
+  paymentMethods: {
+    base: { signer: wallet },           // EVM wallet (ethers/viem)
+    lightning: { macaroon, host },       // LND credentials
+    bitcoin: { wif: 'privateKey...' },   // BTC wallet
+  },
+  preferredMethod: 'usdc_base',          // optional: try this first
+});
+
+const data = await response.json();
+```
+
 ## Integration Guide
 
 ### Quick Start

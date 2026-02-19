@@ -1175,6 +1175,117 @@ For a complete integration walkthrough, see [x402 Integration Guide](../X402_INT
 
 ---
 
+### How Clients Pay (Detailed)
+
+#### Step 1: Receive the 402 Response
+
+When a client hits an x402-protected endpoint without payment, they receive:
+
+```http
+HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "x402Version": 1,
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "bitcoin",
+      "asset": "BTC",
+      "maxAmountRequired": "769",
+      "payTo": "bc1qMerchant...",
+      "extra": { "label": "Bitcoin" }
+    },
+    {
+      "scheme": "exact",
+      "network": "base",
+      "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "maxAmountRequired": "5000000",
+      "payTo": "0xMerchant...",
+      "extra": { "label": "USDC on Base", "chainId": 8453 }
+    },
+    {
+      "scheme": "exact",
+      "network": "lightning",
+      "asset": "BTC",
+      "maxAmountRequired": "769",
+      "payTo": "lno1Merchant...",
+      "extra": { "label": "Lightning" }
+    }
+  ],
+  "error": "Payment required"
+}
+```
+
+The `accepts` array contains one entry per payment method. Amounts are in the asset's smallest unit (satoshis for BTC, 6 decimals for USDC, etc.).
+
+#### Step 2: Pick a Method and Create Payment Proof
+
+The client chooses a method from `accepts` and creates a payment proof:
+
+| Method | How to Pay |
+|--------|-----------|
+| **USDC (EVM)** | Sign an EIP-712 typed message authorizing `transferFrom` — no on-chain tx yet, just a gasless signature |
+| **Bitcoin / BCH** | Broadcast a transaction to the merchant's `payTo` address, use the txid as proof |
+| **Lightning** | Pay the BOLT12 offer, use the preimage as proof |
+| **Solana** | Sign and broadcast a transfer, use the transaction signature as proof |
+| **Stripe** | Complete the card checkout flow, use the payment intent ID as proof |
+
+#### Step 3: Retry with the X-Payment Header
+
+The payment proof goes in the `X-Payment` header as base64-encoded JSON:
+
+```http
+GET /api/premium HTTP/1.1
+X-Payment: eyJzY2hlbWUiOiJleGFjdCIsIm5ldHdvcmsiOiJiYXNlIi4uLn0=
+```
+
+Decoded payload (USDC on Base example):
+
+```json
+{
+  "scheme": "exact",
+  "network": "base",
+  "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+  "payload": {
+    "signature": "0xabc123...",
+    "authorization": {
+      "from": "0xBuyerAddress...",
+      "to": "0xMerchantAddress...",
+      "value": "5000000",
+      "validAfter": 0,
+      "validBefore": 1739980800,
+      "nonce": "0xUniqueNonce..."
+    }
+  }
+}
+```
+
+#### Step 4: Verification and Settlement
+
+The merchant's middleware sends the proof to `POST /api/x402/verify`. If valid, the resource is served. Settlement (`POST /api/x402/settle`) happens asynchronously to claim funds on-chain.
+
+#### Client Library (for AI Agents / Bots)
+
+Use `x402fetch()` to automate the entire 402 → pay → retry loop:
+
+```js
+import { x402fetch } from '@profullstack/coinpay';
+
+const response = await x402fetch('https://api.example.com/premium', {
+  paymentMethods: {
+    base: { signer: wallet },           // EVM wallet (ethers/viem)
+    lightning: { macaroon, host },       // LND credentials
+    bitcoin: { wif: 'privateKey...' },   // BTC wallet
+  },
+  preferredMethod: 'usdc_base',          // optional: try this first
+});
+
+const data = await response.json();
+```
+
+---
+
 ### POST /api/x402/verify
 
 Verify an x402 payment proof. Supports EVM signatures (EIP-712), Bitcoin/BCH transaction proofs, Solana transaction signatures, Lightning BOLT12 preimages, and Stripe payment intents.
