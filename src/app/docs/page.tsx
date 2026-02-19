@@ -158,7 +158,7 @@ export default function DocsPage() {
           <h2 className="text-xl font-bold text-white mb-4">Quick Navigation</h2>
           <div className="grid md:grid-cols-3 gap-4">
             {[
-              { name: 'x402 Protocol', href: '/x402', external: true },
+              { name: 'x402 Protocol', href: '#x402' },
               { name: 'SDK Documentation', href: '/docs/sdk', external: true },
               { name: 'Web Wallet API', href: '#web-wallet' },
               { name: 'Escrow API', href: '#escrow' },
@@ -196,6 +196,319 @@ export default function DocsPage() {
             ))}
           </div>
         </nav>
+
+        {/* x402 Protocol */}
+        <div id="x402">
+          <DocSection title="x402 Payment Protocol">
+            <p className="text-gray-300 mb-6">
+              HTTP-native machine payments using the <strong>HTTP 402 Payment Required</strong> status code. 
+              Paywall any API route — clients (browsers, AI agents, bots) automatically negotiate payment inline with HTTP requests. 
+              CoinPayPortal is the <strong>only multi-chain x402 facilitator</strong>: BTC, ETH, SOL, POL, BCH, USDC (4 chains), Lightning, and Stripe.
+            </p>
+
+            <div className="mb-8 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+              <h4 className="font-semibold text-yellow-300 mb-2">How x402 Works</h4>
+              <ol className="text-yellow-200 text-sm space-y-1 list-decimal list-inside">
+                <li><strong>Client requests</strong> a paid API endpoint (e.g. <code className="text-yellow-100">GET /api/premium</code>)</li>
+                <li><strong>Server returns 402</strong> with an <code className="text-yellow-100">accepts[]</code> array listing all payment methods + prices</li>
+                <li><strong>Client picks a method</strong> (BTC, USDC, Lightning, card...) and creates a payment proof</li>
+                <li><strong>Client retries</strong> the request with an <code className="text-yellow-100">X-Payment</code> header containing the proof</li>
+                <li><strong>Server verifies</strong> the proof via CoinPayPortal&apos;s facilitator and serves the content</li>
+              </ol>
+            </div>
+
+            {/* Merchant: Paywall a Route */}
+            <h3 className="text-lg font-bold text-white mt-8 mb-4">Merchant: Paywall a Route</h3>
+            <p className="text-gray-300 text-sm mb-4">
+              Install the SDK and add x402 middleware to any Express or Next.js route. Set a USD price — the middleware handles multi-chain pricing and 402 responses automatically.
+            </p>
+
+            <CodeBlock language="bash">{`npm install @profullstack/coinpay`}</CodeBlock>
+
+            <h4 className="text-md font-semibold text-white mt-6 mb-3">Express</h4>
+            <CodeBlock language="javascript">{`import { createX402Middleware } from '@profullstack/coinpay';
+
+const x402 = createX402Middleware({
+  apiKey: 'cp_live_xxxxx',                // from /businesses
+  payTo: {
+    bitcoin: 'bc1qYourBtcAddress',
+    ethereum: '0xYourEvmAddress',         // also receives USDC on ETH
+    polygon: '0xYourEvmAddress',
+    base: '0xYourEvmAddress',             // also receives USDC on Base
+    solana: 'YourSolanaAddress',
+    lightning: 'lno1YourBolt12Offer',
+    stripe: 'acct_YourStripeId',
+    'bitcoin-cash': 'bitcoincash:qYourBchAddress',
+  },
+  rates: { BTC: 65000, ETH: 3500, SOL: 150, POL: 0.50, BCH: 350 },
+});
+
+// Paywall — charge $5, buyer picks their chain/asset
+app.get('/api/premium', x402({ amountUsd: 5.00 }), (req, res) => {
+  res.json({ data: 'premium content', paidWith: req.x402Payment });
+});`}</CodeBlock>
+
+            <h4 className="text-md font-semibold text-white mt-6 mb-3">Next.js (App Router)</h4>
+            <CodeBlock language="typescript">{`import { buildPaymentRequired, verifyX402Payment } from '@profullstack/coinpay';
+
+export async function GET(request: Request) {
+  const paymentHeader = request.headers.get('x-payment');
+
+  if (!paymentHeader) {
+    // No payment — return 402 with all accepted methods
+    const body = buildPaymentRequired({
+      payTo: {
+        bitcoin: 'bc1q...',
+        ethereum: '0x...',
+        solana: 'So1...',
+        lightning: 'lno1...',
+      },
+      amountUsd: 5.00,
+      rates: { BTC: 65000, ETH: 3500, SOL: 150 },
+    });
+    return Response.json(body, { status: 402 });
+  }
+
+  // Verify payment proof via CoinPayPortal facilitator
+  const result = await verifyX402Payment(paymentHeader, {
+    apiKey: 'cp_live_xxxxx',
+  });
+
+  if (!result.valid) {
+    return Response.json({ error: result.reason }, { status: 402 });
+  }
+
+  return Response.json({ data: 'premium content' });
+}`}</CodeBlock>
+
+            {/* Customer: How to Pay */}
+            <h3 className="text-lg font-bold text-white mt-10 mb-4">Customer: How to Pay</h3>
+            <p className="text-gray-300 text-sm mb-4">
+              When you hit an x402-protected endpoint, you receive a <strong>402 response</strong> with the payment options. Here&apos;s what the response looks like and how to pay with each method.
+            </p>
+
+            <h4 className="text-md font-semibold text-white mt-6 mb-3">The 402 Response</h4>
+            <CodeBlock language="json">{`{
+  "x402Version": 1,
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "bitcoin",
+      "asset": "BTC",
+      "maxAmountRequired": "769",
+      "payTo": "bc1qMerchant...",
+      "extra": { "label": "Bitcoin" }
+    },
+    {
+      "scheme": "exact",
+      "network": "base",
+      "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "maxAmountRequired": "5000000",
+      "payTo": "0xMerchant...",
+      "extra": { "label": "USDC on Base", "chainId": 8453 }
+    },
+    {
+      "scheme": "exact",
+      "network": "lightning",
+      "asset": "BTC",
+      "maxAmountRequired": "769",
+      "payTo": "lno1Merchant...",
+      "extra": { "label": "Lightning" }
+    },
+    {
+      "scheme": "exact",
+      "network": "stripe",
+      "asset": "USD",
+      "maxAmountRequired": "500",
+      "payTo": "acct_MerchantStripe",
+      "extra": { "label": "Card (Stripe)" }
+    }
+  ],
+  "error": "Payment required"
+}`}</CodeBlock>
+
+            <h4 className="text-md font-semibold text-white mt-6 mb-3">Payment Methods</h4>
+            <div className="overflow-x-auto mb-6">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <th className="px-4 py-3 text-left text-gray-300 font-semibold">Method</th>
+                    <th className="px-4 py-3 text-left text-gray-300 font-semibold">How to Pay</th>
+                    <th className="px-4 py-3 text-left text-gray-300 font-semibold">Proof</th>
+                  </tr>
+                </thead>
+                <tbody className="text-gray-400">
+                  <tr className="border-b border-white/5">
+                    <td className="px-4 py-3 font-medium text-white">USDC (EVM)</td>
+                    <td className="px-4 py-3">Sign an EIP-712 typed message authorizing <code className="text-purple-300">transferFrom</code> — gasless, no on-chain tx until settlement</td>
+                    <td className="px-4 py-3"><code className="text-purple-300">signature</code> + <code className="text-purple-300">authorization</code> object</td>
+                  </tr>
+                  <tr className="border-b border-white/5">
+                    <td className="px-4 py-3 font-medium text-white">Bitcoin / BCH</td>
+                    <td className="px-4 py-3">Broadcast a transaction to the merchant&apos;s <code className="text-purple-300">payTo</code> address</td>
+                    <td className="px-4 py-3">Transaction ID (<code className="text-purple-300">txid</code>)</td>
+                  </tr>
+                  <tr className="border-b border-white/5">
+                    <td className="px-4 py-3 font-medium text-white">Lightning</td>
+                    <td className="px-4 py-3">Pay the BOLT12 offer via any Lightning wallet</td>
+                    <td className="px-4 py-3">Payment preimage</td>
+                  </tr>
+                  <tr className="border-b border-white/5">
+                    <td className="px-4 py-3 font-medium text-white">Solana</td>
+                    <td className="px-4 py-3">Sign and broadcast a SOL/USDC transfer</td>
+                    <td className="px-4 py-3">Transaction signature</td>
+                  </tr>
+                  <tr className="border-b border-white/5">
+                    <td className="px-4 py-3 font-medium text-white">Stripe (Card)</td>
+                    <td className="px-4 py-3">Complete card checkout (redirect or embedded form)</td>
+                    <td className="px-4 py-3">Payment Intent ID</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h4 className="text-md font-semibold text-white mt-6 mb-3">Sending the Payment Proof</h4>
+            <p className="text-gray-300 text-sm mb-3">
+              After paying, retry the original request with the proof in the <code className="text-purple-300">X-Payment</code> header (base64-encoded JSON):
+            </p>
+            <CodeBlock language="http">{`GET /api/premium HTTP/1.1
+Host: api.example.com
+X-Payment: eyJzY2hlbWUiOiJleGFjdCIsIm5ldHdvcmsiOiJiYXNlIi4uLn0=`}</CodeBlock>
+
+            <p className="text-gray-400 text-sm mt-3 mb-3">Decoded payload (USDC on Base example):</p>
+            <CodeBlock language="json">{`{
+  "scheme": "exact",
+  "network": "base",
+  "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+  "payload": {
+    "signature": "0xabc123...",
+    "authorization": {
+      "from": "0xBuyerAddress...",
+      "to": "0xMerchantAddress...",
+      "value": "5000000",
+      "validAfter": 0,
+      "validBefore": 1739980800,
+      "nonce": "0xUniqueNonce..."
+    }
+  }
+}`}</CodeBlock>
+
+            {/* Paying with CoinPay Wallet */}
+            <h4 className="text-md font-semibold text-white mt-6 mb-3">Paying with CoinPay Web Wallet</h4>
+            <p className="text-gray-300 text-sm mb-3">
+              If the customer has a <a href="/web-wallet" className="text-purple-400 hover:text-purple-300 underline">CoinPay Web Wallet</a>, the flow is seamless — the wallet can read the 402 response, display the payment options, and sign the proof automatically:
+            </p>
+            <CodeBlock language="javascript">{`// Using CoinPay Wallet SDK (browser)
+import { CoinPayWallet } from '@profullstack/coinpay/wallet';
+
+const wallet = new CoinPayWallet();
+
+// Fetch with automatic x402 handling
+const response = await wallet.x402fetch('https://api.example.com/premium');
+// Wallet prompts user to pick a chain → signs → retries → done
+
+const data = await response.json();`}</CodeBlock>
+
+            {/* Paying with any wallet */}
+            <h4 className="text-md font-semibold text-white mt-6 mb-3">Paying with Any Wallet (Programmatic)</h4>
+            <p className="text-gray-300 text-sm mb-3">
+              AI agents, bots, or any programmatic client can use <code className="text-purple-300">x402fetch()</code> — it wraps <code className="text-purple-300">fetch()</code> and handles the entire 402 → pay → retry loop:
+            </p>
+            <CodeBlock language="javascript">{`import { x402fetch } from '@profullstack/coinpay';
+
+const response = await x402fetch('https://api.example.com/premium', {
+  paymentMethods: {
+    // Provide wallet/signer for each chain you can pay with
+    base: { signer: evmWallet },           // ethers.js or viem signer
+    lightning: { macaroon, host },          // LND or CLN credentials
+    bitcoin: { wif: 'L4rK1yD...' },        // BTC private key (WIF)
+    solana: { secretKey: keypair },         // Solana Keypair
+  },
+  preferredMethod: 'usdc_base',            // try this first
+  maxAmount: '10.00',                      // USD safety cap
+});
+
+const data = await response.json();
+// data = { data: 'premium content' }`}</CodeBlock>
+
+            {/* Manual cURL flow */}
+            <h4 className="text-md font-semibold text-white mt-6 mb-3">Manual Flow (cURL)</h4>
+            <CodeBlock language="bash">{`# Step 1: Hit the endpoint — get 402 with payment options
+curl -s https://api.example.com/api/premium | jq .
+# → { "x402Version": 1, "accepts": [...], "error": "Payment required" }
+
+# Step 2: Pay using your preferred method (e.g. send BTC to payTo address)
+# ... broadcast transaction, get txid ...
+
+# Step 3: Retry with the payment proof
+curl -H "X-Payment: $(echo -n '{"scheme":"exact","network":"bitcoin","asset":"BTC","payload":{"txid":"abc123..."}}' | base64)" \\
+  https://api.example.com/api/premium
+# → { "data": "premium content" }`}</CodeBlock>
+
+            {/* Facilitator API */}
+            <h3 className="text-lg font-bold text-white mt-10 mb-4">Facilitator API</h3>
+            <p className="text-gray-300 text-sm mb-4">
+              The facilitator endpoints are used by the merchant&apos;s middleware to verify and settle payments. You typically don&apos;t call these directly — the SDK handles it.
+            </p>
+
+            <ApiEndpoint
+              method="POST"
+              path="/api/x402/verify"
+              description="Verify an x402 payment proof. Validates signatures, checks expiry, prevents replay attacks."
+            />
+            <CodeBlock language="json">{`// Request
+{
+  "proof": "<base64-encoded X-Payment header>",
+  "expectedAmount": "5000000",
+  "expectedAsset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+  "expectedNetwork": "base",
+  "expectedPayTo": "0xMerchantAddress..."
+}
+
+// Response (200 OK)
+{
+  "valid": true,
+  "network": "base",
+  "asset": "USDC",
+  "amount": "5000000",
+  "from": "0xBuyerAddress...",
+  "to": "0xMerchantAddress..."
+}
+
+// Response (invalid)
+{
+  "valid": false,
+  "reason": "Signature expired"
+}`}</CodeBlock>
+
+            <ApiEndpoint
+              method="POST"
+              path="/api/x402/settle"
+              description="Settle (claim) a verified payment on-chain. For USDC, executes the transferFrom. Called after successful verification."
+            />
+            <CodeBlock language="json">{`// Request
+{
+  "proof": "<base64-encoded X-Payment header>",
+  "network": "base"
+}
+
+// Response (200 OK)
+{
+  "settled": true,
+  "txHash": "0xdef456...",
+  "network": "base",
+  "amount": "5000000",
+  "asset": "USDC"
+}`}</CodeBlock>
+
+            <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+              <p className="text-blue-300 text-sm">
+                <strong>💡 Tip:</strong> For a full interactive setup guide and payment history dashboard, visit the{' '}
+                <a href="/x402" className="text-blue-400 hover:text-blue-300 underline">x402 Dashboard</a>.
+              </p>
+            </div>
+          </DocSection>
+        </div>
 
         {/* Web Wallet API */}
         <div id="web-wallet">
