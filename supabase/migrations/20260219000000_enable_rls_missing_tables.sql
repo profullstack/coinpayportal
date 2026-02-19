@@ -90,15 +90,15 @@ CREATE POLICY "Merchants can view their own Stripe accounts"
 CREATE POLICY "Merchants can view their own disputes"
   ON stripe_disputes FOR SELECT
   TO authenticated
-  USING (business_id IN (SELECT id FROM businesses WHERE merchant_id = auth.uid()));
+  USING (merchant_id = auth.uid());
 
 -- stripe_payouts: merchants see their own
 CREATE POLICY "Merchants can view their own payouts"
   ON stripe_payouts FOR SELECT
   TO authenticated
-  USING (business_id IN (SELECT id FROM businesses WHERE merchant_id = auth.uid()));
+  USING (merchant_id = auth.uid());
 
--- stripe_transactions: merchants see their own
+-- stripe_transactions: merchants see their own (via business_id)
 CREATE POLICY "Merchants can view their own transactions"
   ON stripe_transactions FOR SELECT
   TO authenticated
