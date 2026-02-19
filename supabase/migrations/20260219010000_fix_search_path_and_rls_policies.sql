@@ -99,13 +99,9 @@ CREATE POLICY "Service role full access to ln_payments"
   USING (true)
   WITH CHECK (true);
 
--- swaps: scoped via wallet ownership
+-- swaps: wallets are key-based (no user_id), so scope to service_role only
+-- Authenticated users access swaps through API routes which use service_role
 DROP POLICY IF EXISTS "Service role access" ON swaps;
-
-CREATE POLICY "Users can view their own swaps"
-  ON swaps FOR SELECT
-  TO authenticated
-  USING (wallet_id IN (SELECT id FROM wallets WHERE user_id = auth.uid()));
 
 CREATE POLICY "Service role full access to swaps"
   ON swaps FOR ALL
