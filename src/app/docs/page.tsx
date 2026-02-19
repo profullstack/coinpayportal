@@ -111,6 +111,27 @@ export default function DocsPage() {
           </div>
         </div>
 
+        {/* x402 Banner */}
+        <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-yellow-500/20 to-red-500/20 border border-yellow-500/30">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white mb-2">⚡ x402 Payment Protocol</h2>
+              <p className="text-gray-300 text-sm">
+                HTTP-native machine payments — the only multi-chain x402 facilitator. BTC, ETH, SOL, USDC, Lightning &amp; more.
+              </p>
+            </div>
+            <Link
+              href="/x402"
+              className="px-6 py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              x402 Dashboard
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+          </div>
+        </div>
+
         {/* Reputation Banner */}
         <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 border border-violet-500/30">
           <div className="flex items-center justify-between">
@@ -137,6 +158,7 @@ export default function DocsPage() {
           <h2 className="text-xl font-bold text-white mb-4">Quick Navigation</h2>
           <div className="grid md:grid-cols-3 gap-4">
             {[
+              { name: 'x402 Protocol', href: '/x402', external: true },
               { name: 'SDK Documentation', href: '/docs/sdk', external: true },
               { name: 'Web Wallet API', href: '#web-wallet' },
               { name: 'Escrow API', href: '#escrow' },

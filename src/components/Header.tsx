@@ -53,6 +53,7 @@ export default function Header() {
     { name: 'API', href: '/docs' },
     { name: 'Reputation', href: '/reputation' },
     { name: 'Pricing', href: '/pricing' },
+    { name: 'x402', href: '/x402' },
   ];
 
   const loggedInNavigation = [
@@ -61,6 +62,7 @@ export default function Header() {
     { name: 'Wallet', href: '/web-wallet' },
     { name: 'API', href: '/docs' },
     { name: 'Reputation', href: '/reputation' },
+    { name: 'x402', href: '/x402' },
   ];
 
   const currentNav = isLoggedIn ? loggedInNavigation : navigation;

@@ -98,6 +98,31 @@ export default function Home() {
                 </div>
               </div>
             </Link>
+
+            {/* x402 Protocol Banner */}
+            <Link href="/x402" className="block group">
+              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-yellow-500/20 via-orange-500/20 to-red-500/20 border border-yellow-500/30 p-4 sm:p-5 transition-all group-hover:border-yellow-400/50 group-hover:shadow-lg group-hover:shadow-yellow-500/10">
+                <div className="relative flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
+                  <div className="flex-shrink-0">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-yellow-400 to-red-400 flex items-center justify-center text-2xl">
+                      ⚡
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="inline-flex items-center gap-2 mb-1">
+                      <span className="px-2 py-0.5 text-xs font-bold uppercase tracking-wider bg-yellow-500/30 text-yellow-300 rounded-full">
+                        New: x402 Protocol
+                      </span>
+                      <span className="text-yellow-400 text-xs group-hover:translate-x-1 transition-transform">→ Get started</span>
+                    </div>
+                    <p className="text-gray-200 text-sm leading-relaxed">
+                      <span className="font-semibold text-white">HTTP-native machine payments.</span>{' '}
+                      The only multi-chain x402 facilitator. AI agents pay for APIs with BTC, ETH, SOL, USDC, Lightning &amp; more — all via HTTP 402.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </Link>
           </div>
 
           {/* Logo/Brand */}
@@ -269,6 +294,15 @@ export default function Home() {
                 ),
                 title: 'Multi-Chain Wallet',
                 description: 'Non-custodial web wallet with BTC, ETH, SOL, POL, BCH, and USDC. CLI, REST API, and web UI included.',
+              },
+              {
+                icon: (
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                ),
+                title: 'x402 Protocol',
+                description: 'HTTP-native machine payments via HTTP 402. The only multi-chain facilitator — agents pay with any crypto, Lightning, or fiat.',
               },
             ].map((feature, index) => (
               <div
