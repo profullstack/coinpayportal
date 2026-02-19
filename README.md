@@ -99,7 +99,52 @@ git clone https://github.com/profullstack/coinpayportal.git
 cd coinpayportal
 pnpm install
 cp .env.example .env.local
-# Configure .env.local with your credentials
+```
+
+Configure your `.env.local` with the required credentials:
+
+```env
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+# Encryption
+ENCRYPTION_KEY=your_32_byte_encryption_key
+
+# RPC Providers
+BITCOIN_RPC_URL=https://your-bitcoin-rpc
+ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
+POLYGON_RPC_URL=https://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY
+SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+
+# Platform Fee Wallets
+PLATFORM_FEE_WALLET_BTC=your_btc_address
+PLATFORM_FEE_WALLET_ETH=your_eth_address
+PLATFORM_FEE_WALLET_POL=your_pol_address
+PLATFORM_FEE_WALLET_SOL=your_sol_address
+
+# Tatum API (exchange rates)
+TATUM_API_KEY=your_tatum_api_key
+
+# Webhook
+WEBHOOK_SIGNING_SECRET=your_webhook_secret
+
+# Lightning (optional)
+GREENLIGHT_PARTNER_CERT=base64_encoded_cert
+GREENLIGHT_PARTNER_KEY=base64_encoded_key
+
+# Stripe (optional)
+STRIPE_SECRET_KEY=sk_live_xxx
+STRIPE_WEBHOOK_SECRET=whsec_xxx
+
+# x402 (optional)
+X402_FACILITATOR_PRIVATE_KEY=your_evm_private_key
+```
+
+Run the dev server:
+
+```bash
 pnpm dev
 ```
 
