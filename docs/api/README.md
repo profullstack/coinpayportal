@@ -1159,6 +1159,162 @@ See [Web Wallet API Reference](./web-wallet-api.md) for the complete specificati
 
 ---
 
+## x402 Facilitator
+
+CoinPayPortal serves as a multi-chain, multi-asset **x402 facilitator** — enabling HTTP 402 payment-gated APIs across Bitcoin, Ethereum, Polygon, Base, Solana, Lightning, and Stripe.
+
+For a complete integration walkthrough, see [x402 Integration Guide](../X402_INTEGRATION.md).
+
+### Payment Flow Overview
+
+1. **Client requests a paid resource** → server responds with `HTTP 402` and an `accepts` array listing supported payment methods
+2. **Client picks a method** (e.g. USDC on Base) and constructs a signed payment proof
+3. **Client retries the request** with an `X-Payment` header containing the base64-encoded proof
+4. **Server calls `POST /api/x402/verify`** to validate the proof via CoinPayPortal's facilitator
+5. **Server delivers the resource** and later calls `POST /api/x402/settle` to claim funds on-chain
+
+---
+
+### POST /api/x402/verify
+
+Verify an x402 payment proof. Supports EVM signatures (EIP-712), Bitcoin/BCH transaction proofs, Solana transaction signatures, Lightning BOLT12 preimages, and Stripe payment intents.
+
+**Auth required:** Yes (API Key via `X-API-Key` header)
+
+**Request:**
+```json
+{
+  "payment": {
+    "scheme": "exact",
+    "signature": "0xabc...",
+    "payload": {
+      "from": "0xBuyerAddress",
+      "to": "0xMerchantAddress",
+      "amount": "5000000",
+      "nonce": "1234",
+      "expiresAt": 1740000000,
+      "network": "base",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+    }
+  }
+}
+```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `payment` | object | ✅ | The full payment proof object |
+| `payment.scheme` | string | ✅ | `exact`, `bolt12`, or `stripe-checkout` |
+| `payment.signature` | string | ✅* | EVM signature (not required for UTXO/Lightning/Stripe) |
+| `payment.payload` | object | ✅ | Payment details |
+| `payment.payload.network` | string | ✅ | `ethereum`, `polygon`, `base`, `bitcoin`, `bitcoin-cash`, `solana`, `lightning`, `stripe` |
+| `payment.payload.from` | string | ✅ | Payer address |
+| `payment.payload.to` | string | ✅ | Merchant address |
+| `payment.payload.amount` | string | ✅ | Amount in smallest unit |
+| `payment.payload.nonce` | string | ✅* | Unique nonce (EVM) |
+| `payment.payload.expiresAt` | number | ❌ | Unix timestamp |
+| `payment.payload.txId` | string | ✅* | Transaction ID (UTXO networks) |
+| `payment.payload.txSignature` | string | ✅* | Transaction signature (Solana) |
+| `payment.payload.preimage` | string | ✅* | Payment preimage (Lightning) |
+| `payment.payload.paymentHash` | string | ✅* | Payment hash (Lightning) |
+| `payment.payload.paymentIntentId` | string | ✅* | Stripe payment intent ID |
+
+\* Required for the respective payment scheme/network.
+
+**Response (200) — Valid:**
+```json
+{
+  "valid": true,
+  "payment": {
+    "from": "0xBuyerAddress",
+    "to": "0xMerchantAddress",
+    "amount": "5000000",
+    "network": "base",
+    "asset": "USDC",
+    "method": "usdc_base",
+    "pendingConfirmation": false
+  }
+}
+```
+
+**Errors:**
+| Status | Error | When |
+|--------|-------|------|
+| 400 | Invalid payment proof: missing payload | Malformed request |
+| 400 | Invalid payment signature | EVM signature doesn't match `from` |
+| 400 | Payment proof has expired | `expiresAt` is in the past |
+| 400 | Payment proof already used (replay detected) | Nonce/txId already seen |
+| 400 | Unsupported network/scheme | Unknown network or scheme |
+| 401 | API key required | Missing `X-API-Key` header |
+| 401 | Invalid or inactive API key | Bad API key |
+| 500 | Internal server error | Unexpected failure |
+
+---
+
+### POST /api/x402/settle
+
+Settle (claim) a verified x402 payment on-chain. For EVM chains, this executes a `transferFrom` on the USDC contract. Must be called after a successful verify.
+
+**Auth required:** Yes (API Key via `X-API-Key` header)
+
+**Request:**
+```json
+{
+  "payment": {
+    "payload": {
+      "from": "0xBuyerAddress",
+      "to": "0xMerchantAddress",
+      "amount": "5000000",
+      "nonce": "1234",
+      "network": "base"
+    }
+  }
+}
+```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `payment` | object | ✅ | The payment proof (same as verify) |
+| `payment.payload.from` | string | ✅ | Payer address |
+| `payment.payload.to` | string | ✅ | Merchant address |
+| `payment.payload.amount` | string | ✅ | Amount in smallest unit |
+| `payment.payload.nonce` | string | ✅ | Payment nonce |
+| `payment.payload.network` | string | ✅ | Network name |
+
+**Response (200) — Settled:**
+```json
+{
+  "settled": true,
+  "txHash": "0xabc123def456...",
+  "network": "base",
+  "from": "0xBuyerAddress",
+  "to": "0xMerchantAddress",
+  "amount": "5000000"
+}
+```
+
+**Response (200) — Pending settlement:**
+```json
+{
+  "settled": false,
+  "status": "pending_settlement",
+  "message": "Settlement queued — facilitator key not configured for automatic settlement"
+}
+```
+
+**Errors:**
+| Status | Error | When |
+|--------|-------|------|
+| 400 | Invalid payment data | Malformed request |
+| 400 | Payment not found or not verified | Must verify first |
+| 400 | Cannot settle payment in status: X | Wrong status |
+| 400 | Insufficient USDC allowance | Buyer didn't approve enough |
+| 401 | API key required | Missing `X-API-Key` header |
+| 409 | Payment already settled | Duplicate settle attempt (returns `txHash`) |
+| 500 | On-chain settlement failed | Transaction reverted |
+| 501 | Solana x402 settlement coming soon | Not yet implemented |
+
+---
+
 ## Error Codes
 
 All error responses follow this shape:

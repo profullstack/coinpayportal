@@ -296,6 +296,97 @@ Anyone can pay `alice@coinpayportal.com` from any Lightning wallet (Phoenix, Muu
 
 ---
 
+## x402 Payment-Gated APIs
+
+The SDK includes full support for the [x402 protocol](https://x402.org) — gate any API endpoint behind crypto payments with a single middleware.
+
+### Express Middleware
+
+```javascript
+import express from 'express';
+import { createX402Middleware } from '@profullstack/coinpay';
+
+const app = express();
+
+// Initialize x402 with your wallet addresses
+const x402 = createX402Middleware({
+  apiKey: 'cp_live_your_api_key_here',
+  payTo: {
+    ethereum: '0xYourEthAddress',
+    base: '0xYourBaseAddress',
+    bitcoin: 'bc1qYourBtcAddress',
+    solana: 'YourSolanaAddress',
+    lightning: 'lno1YourBolt12Offer',
+    stripe: 'acct_YourStripeAccount',
+  },
+  rates: { BTC: 65000, ETH: 3500, SOL: 150, POL: 0.50, BCH: 350 },
+});
+
+// Gate a route — buyer picks their preferred chain
+app.get('/api/premium', x402({ amountUsd: 5.00 }), (req, res) => {
+  // req.x402Payment contains the verified payment info
+  res.json({ data: 'Premium content', paidBy: req.x402Payment.from });
+});
+
+// Different price per route
+app.get('/api/report', x402({ amountUsd: 25.00, description: 'Monthly report' }), handler);
+
+// Accept only specific methods
+app.get('/api/fast', x402({ amountUsd: 1.00, methods: ['usdc_base', 'lightning'] }), handler);
+
+app.listen(3000);
+```
+
+### Next.js Middleware
+
+```javascript
+// middleware.js
+import { buildPaymentRequired, verifyX402Payment } from '@profullstack/coinpay';
+
+export async function middleware(request) {
+  const paymentHeader = request.headers.get('x-payment');
+
+  if (!paymentHeader) {
+    const body = buildPaymentRequired({
+      payTo: { base: '0xYourAddress' },
+      amountUsd: 1.00,
+      methods: ['usdc_base'],
+      resource: request.url,
+    });
+    return new Response(JSON.stringify(body), {
+      status: 402,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const result = await verifyX402Payment(paymentHeader, {
+    apiKey: process.env.COINPAY_API_KEY,
+  });
+
+  if (!result.valid) {
+    return new Response(JSON.stringify({ error: result.reason }), { status: 402 });
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: '/api/premium/:path*',
+};
+```
+
+### CLI Commands
+
+```bash
+# Check x402 facilitator status and configuration
+coinpay x402 status
+
+# Test your x402 setup end-to-end (uses testnet)
+coinpay x402 test
+```
+
+---
+
 ## Next Steps
 
 - [Integration Examples](../integration-examples/) — Node.js bot, browser app, e-commerce
