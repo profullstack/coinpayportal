@@ -1,356 +1,271 @@
-# CoinPay 🚀
+# CoinPay ⚡
 
-A non-custodial cryptocurrency payment gateway for e-commerce that enables merchants to accept crypto payments with automatic fee handling and real-time transaction monitoring.
+The multi-chain payment infrastructure for humans and AI agents. Non-custodial crypto payments, escrow, web wallet, Lightning, x402 protocol, and Stripe — all in one platform.
+
+**[coinpayportal.com](https://coinpayportal.com)** · [Docs](https://coinpayportal.com/docs) · [SDK](https://coinpayportal.com/docs/sdk) · [Discord](https://discord.gg/U7dEXfBA3s)
+
+---
+
+## What is CoinPay?
+
+CoinPay is a non-custodial payment gateway that lets merchants accept crypto, Lightning, and card payments. It's designed for both traditional e-commerce and the agent economy — AI agents can create wallets, send payments, manage escrows, and pay for APIs autonomously.
 
 ## 🌟 Features
 
-### Core Payment Features
-- **Multi-Chain Support**: Bitcoin, Bitcoin Cash, Ethereum, Polygon, Solana, and USDC across major blockchains
-- **Non-Custodial**: Merchants maintain full control of their funds
-- **Real-Time Processing**: Instant payment detection and forwarding (no batching)
-- **Automatic Fee Handling**: 0.5% platform fee automatically deducted during forwarding
-- **Multi-Business Support**: Manage multiple businesses under one merchant account
-- **Wallet Integration**: Connect MetaMask, WalletConnect, or Phantom wallet
-- **QR Code Payments**: Easy-to-integrate payment QR codes
-- **Webhook Notifications**: Real-time payment callbacks for your system
-- **CLI & SDK**: Command-line interface and ESM module for programmatic integration
-- **Exchange Rates**: Real-time crypto/fiat rates via Tatum API
+### 💰 Multi-Chain Payments
+- **7 blockchains**: Bitcoin, Bitcoin Cash, Ethereum, Polygon, Solana, USDC (ETH/POL/SOL/Base)
+- **Non-custodial**: Funds go directly to merchant wallets — no intermediaries
+- **Real-time processing**: Instant payment detection and forwarding
+- **0.5% platform fee**: Automatically deducted during forwarding
+- **QR codes**: BIP21/EIP-681/Solana Pay URIs for one-tap wallet opens
+- **Webhook notifications**: Real-time payment callbacks
 
-### Escrow Service
-- **On-Chain Escrow**: Trustless buyer-seller escrow with automatic settlement
-- **Multi-Chain**: Escrow support across BTC, ETH, POL, SOL
-- **Auto-Refund**: Expired funded escrows automatically refunded on-chain
-- **Event Logging**: Full escrow lifecycle audit trail
+### ⚡ Lightning Network (BOLT12)
+- **Instant payments**: Sub-second settlement via Lightning
+- **BOLT12 offers**: Static payment endpoints — no invoice management
+- **Greenlight nodes**: Managed CLN nodes for merchants
+- **Near-zero fees**: Fractions of a cent per payment
 
-### DID Reputation Protocol (CPTL)
-- **Decentralized Identifiers**: Claim a `did:web:coinpayportal.com:merchant:<id>` tied to your merchant account
-- **7-Dimension Trust Vectors**: Economic, Productivity, Behavioral, Delivery, Reliability, Accountability, Compliance scores
-- **ActionReceipt Schema**: Cryptographically signed receipts from escrow settlements and platform actions
-- **Cross-Platform Portability**: Reputation travels with your DID across integrated platforms
-- **Embeddable Badges**: SVG trust badges for external sites (`/api/reputation/badge/[did]`)
-- **Platform Action API**: Lightweight endpoint for external platforms to submit reputation signals
-- **Diminishing Returns + Recency Decay**: Anti-gaming math with 90-day half-life
-- **SDK + CLI**: Full programmatic access — `submitActionReceipt()`, `getTrustProfile()`, `coinpay reputation profile <did>`
+### 🔐 Escrow Service
+- **Trustless escrow**: Hold funds until both parties are satisfied
+- **Multi-chain**: BTC, ETH, POL, SOL escrow support
+- **Token-based auth**: No accounts needed — unique tokens for each party
+- **Recurring escrow**: Automated periodic escrow creation (subscriptions, rent, etc.)
+- **Auto-refund**: Expired funded escrows automatically refunded on-chain
+- **Dispute resolution**: Built-in dispute flow with evidence submission
+- **Shareable links**: `/escrow/manage?id=xxx&token=yyy` for both parties
 
-### Subscription Plans & Entitlements
-- **Starter Plan (Free)**: Up to 100 transactions/month, all supported chains, basic API access, email support
-- **Professional Plan ($49/month)**: Unlimited transactions, priority support, advanced analytics, custom webhooks, white-label option
-- **Crypto Payments for Subscriptions**: Pay for upgrades using BTC, BCH, ETH, POL, or SOL
-- **Usage Tracking**: Real-time transaction counting with automatic limit enforcement
-- **Feature Gating**: API-level enforcement of plan-specific features
+### 💳 Non-Custodial Web Wallet
+- **No signup, no KYC**: Create a wallet instantly in the browser
+- **Multi-chain**: BTC, ETH, SOL, POL, BCH + USDC addresses
+- **Client-side encryption**: Private keys never leave the browser
+- **Send & receive**: Full transaction support across all chains
+- **Seed phrase backup**: Standard BIP-39 mnemonic with encrypted export
+- **API-first**: REST API + SDK for programmatic access (AI agents, bots)
+- **Transaction history**: Full tx history with explorer links
 
-### Business Collection
-- **Platform Payments**: Collect subscription fees and service charges from businesses
-- **100% Forwarding**: Business collection payments forward entirely to platform wallets
-- **Multiple Blockchains**: Support for BTC, BCH, ETH, POL, SOL
+### ⚡ x402 Payment Protocol
+- **HTTP-native machine payments**: Paywall any API route with HTTP 402
+- **Multi-chain facilitator**: The only x402 implementation supporting BTC, ETH, SOL, POL, BCH, USDC (4 chains), Lightning, and Stripe
+- **SDK middleware**: Express/Next.js middleware — set a USD price, buyers pick their chain
+- **Client library**: `x402fetch()` wraps `fetch()` — handles 402 → pay → retry automatically
+- **Facilitator API**: `/api/x402/verify` and `/api/x402/settle` endpoints
+- **Built for agents**: AI agents pay for API calls with any crypto or Lightning
 
-### Payment UX
-- **QR Codes**: BIP21/EIP-681/Solana Pay URI-encoded QR codes for one-tap wallet opens
-- **Copy Buttons**: One-click copy for addresses and amounts with success states
-- **Progress Indicator**: 4-step visual flow (Copy → Send → Confirming → Done)
-- **Countdown Timer**: Expiry countdown with red pulse warning at <5 minutes
+```javascript
+// Merchant: paywall a route
+app.get('/api/premium', x402({ amountUsd: 5.00 }), (req, res) => {
+  res.json({ data: 'premium content' });
+});
 
-## 🏗️ Architecture
+// Client: pay automatically
+const response = await x402fetch('https://api.example.com/premium', {
+  paymentMethods: { base: { signer: wallet } },
+});
+```
 
-CoinPay uses a modern, scalable architecture:
+### 💳 Stripe Card Payments *(coming soon)*
+- **Stripe Connect**: Merchant onboarding with Connect Express
+- **Card + crypto**: Accept both card and crypto on the same checkout
+- **Escrow mode**: Card-funded escrows with Stripe as payment method
+- **Payouts**: Automated merchant payouts via Stripe
 
-- **Frontend**: Next.js 14+ with TypeScript and TailwindCSS
-- **Backend**: Next.js API Routes (serverless)
-- **Database**: Supabase (PostgreSQL)
-- **Blockchain**: Self-hosted wallet generation with RPC provider monitoring
-- **Testing**: Vitest for unit and integration tests
+### 🆔 DID Reputation Protocol (CPTL)
+- **Decentralized identifiers**: `did:web:coinpayportal.com:merchant:<id>`
+- **7-dimension trust vectors**: Economic, Productivity, Behavioral, Delivery, Reliability, Accountability, Compliance
+- **ActionReceipt schema**: Cryptographically signed receipts from escrow settlements
+- **Cross-platform portability**: Reputation travels with your DID across platforms (e.g. [ugig.net](https://ugig.net))
+- **Embeddable badges**: SVG trust badges for external sites
+- **Anti-gaming**: Diminishing returns + 90-day recency decay
+- **Platform Action API**: External platforms submit reputation signals
 
-See [Architecture Documentation](./docs/ARCHITECTURE.md) for detailed system design.
+### 📦 SDK & CLI
+- **NPM package**: `@profullstack/coinpay`
+- **Full CLI**: `coinpay payment create`, `coinpay escrow create`, `coinpay wallet create`, `coinpay x402 test`
+- **ESM module**: Import directly into Node.js applications
+- **AI agent skill**: Feed `/skill.md` to any AI agent for autonomous operation
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-
-- Node.js 18+ and npm/yarn/pnpm
-- Supabase account (free tier available)
+- Node.js 18+ and pnpm
+- Supabase account
 - RPC provider accounts (Alchemy, Infura, or public nodes)
-- Tatum API key (for exchange rates)
 
 ### Installation
 
-1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/coinpayportal.git
+git clone https://github.com/profullstack/coinpayportal.git
 cd coinpayportal
-```
-
-2. Install dependencies:
-```bash
-npm install
-```
-
-3. Copy environment variables:
-```bash
+pnpm install
 cp .env.example .env.local
+# Configure .env.local with your credentials
+pnpm dev
 ```
 
-4. Configure your `.env.local` file with required credentials:
-```env
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+### Using the SDK
 
-# Encryption
-ENCRYPTION_KEY=your_32_byte_encryption_key
-
-# RPC Providers
-BITCOIN_RPC_URL=https://your-bitcoin-rpc
-ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
-POLYGON_RPC_URL=https://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY
-SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
-
-# Platform Fee Wallets
-PLATFORM_FEE_WALLET_BTC=your_btc_address
-PLATFORM_FEE_WALLET_ETH=your_eth_address
-PLATFORM_FEE_WALLET_POL=your_pol_address
-PLATFORM_FEE_WALLET_SOL=your_sol_address
-
-# Tatum API
-TATUM_API_KEY=your_tatum_api_key
-
-# Webhook
-WEBHOOK_SIGNING_SECRET=your_webhook_secret
-```
-
-5. Set up the database:
 ```bash
-npm run db:setup
+npm install @profullstack/coinpay
 ```
 
-6. Run the development server:
-```bash
-npm run dev
-```
+```javascript
+import { CoinPay } from '@profullstack/coinpay';
 
-7. Open [http://localhost:3000](http://localhost:3000) in your browser.
+const client = new CoinPay({ apiKey: 'cp_live_xxxxx' });
 
-## 📖 Documentation
-
-- [Architecture Overview](./docs/ARCHITECTURE.md)
-- [API Documentation](./docs/API.md)
-- [Database Schema](./docs/DATABASE.md)
-- [Subscriptions & Entitlements](./docs/SUBSCRIPTIONS.md)
-- [Business Collection](./docs/BUSINESS_COLLECTION.md)
-- [Security Best Practices](./docs/SECURITY.md)
-- [CPTL v2 PRD](./docs/CPTL-PRD-v2.md) — Reputation protocol design document
-- [Platform Integration Guide](./docs/PLATFORM_INTEGRATION.md) — Integrate your platform with CPTL reputation
-
-## 💻 Usage Examples
-
-### Creating a Payment Request (API)
-
-```typescript
-const response = await fetch('/api/payments/create', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`
-  },
-  body: JSON.stringify({
-    businessId: 'your-business-id',
-    amount: 100.00,
-    currency: 'USD',
-    blockchain: 'eth',
-    merchantWalletAddress: '0x...',
-    metadata: {
-      orderId: 'ORDER-123',
-      customerEmail: 'customer@example.com'
-    }
-  })
+// Create a payment
+const payment = await client.payments.create({
+  businessId: 'biz_123',
+  amount: 100,
+  currency: 'USD',
+  blockchain: 'eth',
 });
 
-const payment = await response.json();
-// Returns: { id, address, qrCode, amount, expiresAt }
+// Create an escrow
+const escrow = await client.escrow.create({
+  chain: 'sol',
+  amount: 500,
+  depositorAddress: 'So1...',
+  beneficiaryAddress: 'So2...',
+  expiresIn: '7d',
+});
+
+// Create a web wallet
+const wallet = await client.wallet.create({ password: 'secure' });
+// → { id, addresses: { btc, eth, sol, pol, bch } }
 ```
 
 ### Using the CLI
 
 ```bash
-# Create a payment
-coinpay payment create \
-  --business-id abc123 \
-  --amount 100 \
-  --currency USD \
-  --blockchain eth \
-  --wallet 0x...
+# Payments
+coinpay payment create --amount 100 --currency USD --blockchain eth
+coinpay payment status --id pay_xyz
 
-# Check payment status
-coinpay payment status --id payment_xyz
+# Escrow
+coinpay escrow create --chain sol --amount 500 --depositor So1... --beneficiary So2...
+coinpay escrow release --id esc_123 --token rel_xxx
 
-# List businesses
-coinpay business list
+# Web Wallet
+coinpay wallet create
+coinpay wallet send --chain eth --to 0x... --amount 0.1
 
-# Configure webhook
-coinpay webhook set --url https://yoursite.com/webhook
+# x402
+coinpay x402 test --url http://localhost:3000/api/premium
+coinpay x402 status
+
+# Reputation
+coinpay reputation profile did:web:coinpayportal.com:merchant:123
 ```
 
-### Using the SDK
+## 📖 Documentation
 
-```typescript
-import { CoinPay } from '@coinpayportal/sdk';
+- [API Reference](https://coinpayportal.com/docs) — Full REST API documentation
+- [SDK & CLI](https://coinpayportal.com/docs/sdk) — Node.js SDK and CLI reference
+- [x402 Integration](./docs/X402_INTEGRATION.md) — x402 payment protocol guide
+- [Architecture](./docs/ARCHITECTURE.md) — System design overview
+- [Database Schema](./docs/DATABASE.md) — Supabase schema reference
+- [Security](./docs/SECURITY.md) — Security best practices
+- [CPTL PRD](./docs/CPTL-PRD-v2.md) — Reputation protocol design document
+- [Platform Integration](./docs/PLATFORM_INTEGRATION.md) — Integrate CPTL reputation
 
-const client = new CoinPay({
-  apiKey: 'your-api-key',
-  environment: 'production'
-});
+## 🏗️ Architecture
 
-// Create payment
-const payment = await client.payments.create({
-  businessId: 'your-business-id',
-  amount: 100,
-  currency: 'USD',
-  blockchain: 'eth',
-  merchantWalletAddress: '0x...'
-});
-
-// Monitor payment
-client.payments.on('confirmed', (payment) => {
-  console.log('Payment confirmed:', payment.id);
-});
-```
-
-### Embedding Payment QR Code
-
-```html
-<!-- Simple integration -->
-<div id="coinpay-widget"
-     data-business-id="your-business-id"
-     data-amount="100"
-     data-currency="USD"
-     data-blockchain="eth">
-</div>
-<script src="https://coinpayportal.com/widget.js"></script>
-```
-
-## 🔐 Security
-
-- Private keys are encrypted at rest using AES-256
-- All API routes require authentication
-- Rate limiting on all endpoints
-- Webhook signatures for verification
-- Multi-confirmation requirements before forwarding
-- See [Security Documentation](./docs/SECURITY.md) for details
-
-## 🧪 Testing
-
-```bash
-# Run all tests
-npm test
-
-# Run tests in watch mode
-npm run test:watch
-
-# Run tests with coverage
-npm run test:coverage
-
-# Run E2E tests
-npm run test:e2e
-```
+- **Frontend**: Next.js 16 + TypeScript + TailwindCSS
+- **Backend**: Next.js API Routes (serverless)
+- **Database**: Supabase (PostgreSQL) with Row-Level Security
+- **Blockchain**: Self-hosted wallet generation, multi-RPC failover
+- **Lightning**: Greenlight (CLN) managed nodes
+- **Testing**: Vitest — 2,800+ tests
+- **CI**: GitHub Actions with automated build + test
 
 ## 📦 Project Structure
 
 ```
 coinpayportal/
-├── docs/                    # Documentation
-│   ├── ARCHITECTURE.md
-│   ├── API.md
-│   ├── DATABASE.md
-│   ├── SUBSCRIPTIONS.md    # Subscription plans & entitlements
-│   ├── BUSINESS_COLLECTION.md
-│   └── SECURITY.md
+├── docs/                     # Documentation
 ├── src/
-│   ├── app/                # Next.js app directory
-│   │   ├── api/           # API routes
-│   │   │   ├── auth/      # Authentication endpoints
-│   │   │   ├── payments/  # Payment endpoints
-│   │   │   ├── businesses/ # Business management
-│   │   │   ├── business-collection/ # Platform payments
-│   │   │   ├── escrow/    # Escrow endpoints
-│   │   │   ├── reputation/ # DID & trust endpoints
-│   │   │   ├── subscriptions/ # Subscription management
-│   │   │   └── entitlements/ # Entitlements API
-│   │   ├── dashboard/     # Merchant dashboard
-│   │   ├── pricing/       # Pricing & upgrade page
-│   │   ├── reputation/   # DID claim & trust profile pages
-│   │   ├── docs/          # API documentation page
-│   │   └── page.tsx       # Landing page
-│   ├── components/        # React components
-│   │   ├── business/      # Business management components
-│   │   └── docs/          # Documentation components
-│   ├── lib/              # Utility libraries
-│   │   ├── auth/         # Authentication services
-│   │   ├── blockchain/   # Blockchain services
-│   │   ├── business/     # Business services
-│   │   ├── entitlements/ # Entitlements & usage tracking
-│   │   ├── payments/     # Payment processing & monitoring
-│   │   ├── reputation/   # Trust engine, receipts, DID management
-│   │   ├── subscriptions/ # Subscription management
-│   │   ├── supabase/     # Supabase client
-│   │   └── crypto/       # Encryption utilities
-│   └── types/            # TypeScript types
-├── supabase/
-│   └── migrations/       # Database migrations
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── auth/        # Authentication
+│   │   │   ├── payments/    # Payment endpoints
+│   │   │   ├── escrow/      # Escrow endpoints
+│   │   │   ├── lightning/   # Lightning endpoints
+│   │   │   ├── reputation/  # DID & trust endpoints
+│   │   │   ├── x402/       # x402 facilitator (verify/settle)
+│   │   │   └── ...
+│   │   ├── dashboard/       # Merchant dashboard
+│   │   ├── web-wallet/      # Non-custodial wallet UI
+│   │   ├── escrow/          # Escrow management UI
+│   │   ├── x402/           # x402 dashboard
+│   │   └── reputation/     # DID & trust profile
+│   ├── components/
+│   ├── lib/
+│   │   ├── blockchain/      # Multi-chain providers
+│   │   ├── lightning/       # Greenlight + LNbits
+│   │   ├── payments/        # Payment processing
+│   │   ├── web-wallet/      # Wallet SDK (keys, signing, fees)
+│   │   ├── reputation/      # Trust engine
+│   │   └── crypto/          # Encryption
+│   └── types/
 ├── packages/
-│   └── sdk/              # SDK + CLI package (@profullstack/coinpay)
-│       ├── src/          # SDK source (payments, reputation, DID)
-│       └── bin/          # CLI entry point
-└── package.json
+│   └── sdk/                  # @profullstack/coinpay (SDK + CLI)
+└── supabase/
+    └── migrations/           # Database migrations
 ```
+
+## 🧪 Testing
+
+```bash
+pnpm test              # Run all 2,800+ tests
+pnpm test:watch        # Watch mode
+pnpm test:coverage     # Coverage report
+pnpm build             # Production build
+```
+
+## 🔐 Security
+
+- Private keys encrypted at rest (AES-256)
+- Client-side key generation for web wallet (keys never leave browser)
+- Row-Level Security on all Supabase tables
+- API key + JWT authentication
+- Rate limiting on all endpoints
+- Webhook signature verification
+- Replay protection on x402 payments (nonce-based)
 
 ## 🛣️ Roadmap
 
-- [x] Core payment processing
-- [x] Multi-chain support (BTC, BCH, ETH, POL, SOL, USDC)
-- [x] Merchant dashboard
-- [x] Webhook system
-- [x] Subscription plans (Starter/Professional)
-- [x] Entitlements & usage tracking
-- [x] Business collection payments
-- [x] Crypto-based subscription payments
-- [x] On-chain escrow with auto-refund
-- [x] Password reset flow
-- [x] Payment UX — QR codes, copy buttons, progress indicator, countdown
-- [x] DID Reputation Protocol (CPTL Phase 1) — ActionReceipts, trust vectors, badges
-- [x] CPTL Phase 2 — Advanced trust math, diminishing returns, recency decay
-- [x] Platform Action API — external platform reputation signals
-- [x] CLI & SDK — full reputation, DID, and escrow commands
-- [ ] **CPTL Phase 3** — Anti-collusion engine (graph clustering, burst detection) *(coming soon)*
-- [ ] **CPTL Phase 4** — ZK proofs, cross-chain anchoring, slashing bonds *(future)*
+- [x] Multi-chain payments (BTC, BCH, ETH, POL, SOL, USDC)
+- [x] Non-custodial web wallet
+- [x] On-chain escrow with auto-refund + recurring
+- [x] Lightning Network (BOLT12 via Greenlight)
+- [x] x402 payment protocol (multi-chain facilitator)
+- [x] DID reputation protocol (CPTL)
+- [x] SDK & CLI
+- [x] Subscription plans & entitlements
+- [ ] Stripe card payments *(in progress)*
+- [ ] x402 Solana signature verification
+- [ ] CPTL Phase 3 — Anti-collusion engine
+- [ ] CPTL Phase 4 — ZK proofs, cross-chain anchoring
 - [ ] Mobile SDK
-- [ ] WooCommerce plugin
-- [ ] Shopify app
-- [ ] Recurring payments (auto-renewal)
+- [ ] WooCommerce / Shopify plugins
 - [ ] Fiat off-ramp
-- [ ] Advanced analytics dashboard
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](./CONTRIBUTING.md) for details.
+Contributions welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+MIT — see [LICENSE](./LICENSE).
 
 ## 🆘 Support
 
-- Documentation: [coinpayportal.com/docs](https://coinpayportal.com/docs)
-- Email: support@coinpayportal.com
-- Discord: [Join our community](https://discord.gg/U7dEXfBA3s)
-- GitHub Issues: [Report a bug](https://github.com/profullstack/coinpayportal/issues)
-
-## 🙏 Acknowledgments
-
-- [Next.js](https://nextjs.org/) - React framework
-- [Supabase](https://supabase.com/) - Backend as a service
-- [Tatum](https://tatum.io/) - Blockchain API and exchange rates
-- [Alchemy](https://www.alchemy.com/) - Blockchain infrastructure
-- [WalletConnect](https://walletconnect.com/) - Wallet connection protocol
+- **Docs**: [coinpayportal.com/docs](https://coinpayportal.com/docs)
+- **Discord**: [discord.gg/U7dEXfBA3s](https://discord.gg/U7dEXfBA3s)
+- **Email**: support@coinpayportal.com
+- **Issues**: [GitHub Issues](https://github.com/profullstack/coinpayportal/issues)
 
 ---
 
