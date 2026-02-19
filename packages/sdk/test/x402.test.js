@@ -413,7 +413,8 @@ describe('x402 Module', () => {
 
       await middleware(req, res, next);
 
-      expect(res.status).toHaveBeenCalledWith(500);
+      // On verification failure, middleware falls back to 402 (re-prompt payment)
+      expect(res.status).toHaveBeenCalledWith(402);
       expect(next).not.toHaveBeenCalled();
     });
   });
