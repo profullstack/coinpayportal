@@ -151,6 +151,43 @@ export default function X402Page() {
         </div>
       </section>
 
+      {/* Fees */}
+      <section className="mb-10 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+        <h2 className="text-xl font-semibold mb-4">Fees</h2>
+        <p className="text-gray-600 dark:text-gray-400 mb-4">
+          CoinPayPortal charges a small commission on each x402 payment, deducted before forwarding to the merchant. The same fee structure applies to all CoinPayPortal payment methods.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 dark:bg-gray-700">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-300">Plan</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-300">Commission</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-300">Merchant Receives</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-300">Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-t border-gray-200 dark:border-gray-700">
+                <td className="px-4 py-3 font-medium">Starter (Free)</td>
+                <td className="px-4 py-3">1.0%</td>
+                <td className="px-4 py-3">99.0%</td>
+                <td className="px-4 py-3">$0/mo</td>
+              </tr>
+              <tr className="border-t border-gray-200 dark:border-gray-700">
+                <td className="px-4 py-3 font-medium">Professional</td>
+                <td className="px-4 py-3">0.5%</td>
+                <td className="px-4 py-3">99.5%</td>
+                <td className="px-4 py-3">$49/mo</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="text-gray-500 dark:text-gray-400 text-xs mt-3">
+          Network fees (gas, miner fees) are separate and vary by chain. Lightning payments have near-zero network fees. No hidden fees — what you see is what you pay.
+        </p>
+      </section>
+
       {/* How Clients Actually Pay */}
       <section className="mb-10 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
         <h2 className="text-xl font-semibold mb-4">How Clients Pay</h2>

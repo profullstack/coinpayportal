@@ -1286,6 +1286,19 @@ const data = await response.json();
 
 ---
 
+### Fees
+
+CoinPayPortal takes a commission on each x402 payment, deducted before forwarding to the merchant:
+
+| Plan | Commission | Merchant Receives |
+|------|-----------|-------------------|
+| Starter (Free) | 1.0% | 99.0% |
+| Professional ($49/mo) | 0.5% | 99.5% |
+
+Network fees (gas, miner fees) are separate and vary by chain. No hidden fees.
+
+---
+
 ### POST /api/x402/verify
 
 Verify an x402 payment proof. Supports EVM signatures (EIP-712), Bitcoin/BCH transaction proofs, Solana transaction signatures, Lightning BOLT12 preimages, and Stripe payment intents.

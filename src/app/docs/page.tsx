@@ -445,6 +445,38 @@ curl -H "X-Payment: $(echo -n '{"scheme":"exact","network":"bitcoin","asset":"BT
   https://api.example.com/api/premium
 # → { "data": "premium content" }`}</CodeBlock>
 
+            {/* Fees */}
+            <h3 className="text-lg font-bold text-white mt-10 mb-4">Fees</h3>
+            <p className="text-gray-300 text-sm mb-4">
+              CoinPayPortal takes a small commission on each x402 payment, deducted before forwarding to the merchant:
+            </p>
+            <div className="overflow-x-auto mb-4">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <th className="px-4 py-3 text-left text-gray-300 font-semibold">Plan</th>
+                    <th className="px-4 py-3 text-left text-gray-300 font-semibold">Commission</th>
+                    <th className="px-4 py-3 text-left text-gray-300 font-semibold">Merchant Receives</th>
+                  </tr>
+                </thead>
+                <tbody className="text-gray-400">
+                  <tr className="border-b border-white/5">
+                    <td className="px-4 py-3 font-medium text-white">Starter (Free)</td>
+                    <td className="px-4 py-3">1.0%</td>
+                    <td className="px-4 py-3">99.0%</td>
+                  </tr>
+                  <tr className="border-b border-white/5">
+                    <td className="px-4 py-3 font-medium text-white">Professional ($49/mo)</td>
+                    <td className="px-4 py-3">0.5%</td>
+                    <td className="px-4 py-3">99.5%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="text-gray-500 text-xs mb-6">
+              Network fees (gas, miner fees) are separate and vary by chain. Lightning has near-zero network fees. No hidden fees.
+            </p>
+
             {/* Facilitator API */}
             <h3 className="text-lg font-bold text-white mt-10 mb-4">Facilitator API</h3>
             <p className="text-gray-300 text-sm mb-4">

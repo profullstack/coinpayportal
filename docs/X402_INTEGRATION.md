@@ -167,6 +167,17 @@ const response = await x402fetch('https://api.example.com/premium', {
 const data = await response.json();
 ```
 
+## Fees
+
+CoinPayPortal takes a commission on each x402 payment, deducted before forwarding to the merchant:
+
+| Plan | Commission | Merchant Receives | Price |
+|------|-----------|-------------------|-------|
+| **Starter** (Free) | 1.0% | 99.0% | $0/mo |
+| **Professional** | 0.5% | 99.5% | $49/mo |
+
+Network fees (gas, miner fees) are separate and vary by chain. Lightning payments have near-zero network fees. No hidden fees — what you see is what you pay.
+
 ## Integration Guide
 
 ### Quick Start
