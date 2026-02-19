@@ -151,6 +151,131 @@ export default function X402Page() {
         </div>
       </section>
 
+      {/* How Clients Actually Pay */}
+      <section className="mb-10 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+        <h2 className="text-xl font-semibold mb-4">How Clients Pay</h2>
+        <p className="text-gray-600 dark:text-gray-400 mb-6">
+          When a client (browser, AI agent, or bot) hits an x402-protected endpoint, they get back a <strong>402 response</strong> with all accepted payment methods. Here&apos;s what happens:
+        </p>
+
+        <div className="space-y-6">
+          {/* Step 1: 402 Response */}
+          <div className="border-l-4 border-blue-500 pl-4">
+            <h3 className="font-semibold mb-2">1. Client receives payment options</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+              The 402 response body contains an <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs">accepts</code> array — one entry per payment method the merchant supports:
+            </p>
+            <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-xs">{`HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "x402Version": 1,
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "bitcoin",
+      "asset": "BTC",
+      "maxAmountRequired": "769",       // satoshis
+      "payTo": "bc1qMerchant...",
+      "extra": { "label": "Bitcoin" }
+    },
+    {
+      "scheme": "exact",
+      "network": "base",
+      "asset": "0xA0b8...eB48",         // USDC contract
+      "maxAmountRequired": "5000000",    // 6 decimals = $5.00
+      "payTo": "0xMerchant...",
+      "extra": { "label": "USDC on Base", "chainId": 8453 }
+    },
+    {
+      "scheme": "exact",
+      "network": "lightning",
+      "asset": "BTC",
+      "maxAmountRequired": "769",
+      "payTo": "lno1Merchant...",        // BOLT12 offer
+      "extra": { "label": "Lightning" }
+    }
+    // ... more methods
+  ],
+  "error": "Payment required"
+}`}</pre>
+          </div>
+
+          {/* Step 2: Client picks and pays */}
+          <div className="border-l-4 border-green-500 pl-4">
+            <h3 className="font-semibold mb-2">2. Client picks a method and creates payment proof</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+              The client chooses a payment method from the <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs">accepts</code> array, then:
+            </p>
+            <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2 ml-4 list-disc">
+              <li><strong>USDC (EVM chains):</strong> Sign an EIP-712 typed message authorizing a <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs">transferFrom</code> — no on-chain tx yet, just a signature</li>
+              <li><strong>Bitcoin/BCH:</strong> Broadcast a transaction to the merchant&apos;s address, include the txid as proof</li>
+              <li><strong>Lightning:</strong> Pay the BOLT12 offer, include the preimage as proof</li>
+              <li><strong>Solana:</strong> Sign and broadcast a transfer, include the signature</li>
+              <li><strong>Stripe:</strong> Complete card checkout, include the payment intent ID</li>
+            </ul>
+          </div>
+
+          {/* Step 3: Retry with header */}
+          <div className="border-l-4 border-purple-500 pl-4">
+            <h3 className="font-semibold mb-2">3. Client retries the request with payment proof</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+              The payment proof goes in the <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs">X-PAYMENT</code> header as a base64-encoded JSON payload:
+            </p>
+            <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-xs">{`GET /api/premium HTTP/1.1
+X-PAYMENT: eyJzY2hlbWUiOiJleGFjdCIsIm5ldHdvcmsiOiJiYXNlIiwiYXNzZXQiOiIweEEwYjg2OTkx...
+
+// Decoded X-PAYMENT payload:
+{
+  "scheme": "exact",
+  "network": "base",
+  "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+  "payload": {
+    "signature": "0xabc123...",       // EIP-712 sig (USDC)
+    "authorization": {
+      "from": "0xBuyerAddress...",
+      "to": "0xMerchantAddress...",
+      "value": "5000000",
+      "validAfter": 0,
+      "validBefore": 1739980800,      // expiry timestamp
+      "nonce": "0xUniqueNonce..."
+    }
+  }
+}`}</pre>
+          </div>
+
+          {/* Step 4: Verification */}
+          <div className="border-l-4 border-yellow-500 pl-4">
+            <h3 className="font-semibold mb-2">4. Server verifies and serves content</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              The middleware sends the proof to CoinPayPortal&apos;s facilitator (<code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs">/api/x402/verify</code>) which validates the signature, checks expiry, prevents replay attacks, and optionally settles on-chain. If valid → content is served. If invalid → another 402.
+            </p>
+          </div>
+        </div>
+
+        {/* Client Libraries */}
+        <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+          <h3 className="font-semibold text-blue-700 dark:text-blue-300 mb-2">Client Libraries</h3>
+          <p className="text-sm text-blue-600 dark:text-blue-400 mb-3">
+            For automated clients (AI agents, bots), use a library that handles the 402 → pay → retry loop:
+          </p>
+          <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-xs">{`import { x402fetch } from '@profullstack/coinpay';
+
+// Wraps fetch() — automatically handles 402 responses
+const response = await x402fetch('https://api.example.com/premium', {
+  paymentMethods: {
+    // Provide wallet/signer for chains you want to pay with
+    base: { signer: wallet },           // EVM wallet (ethers/viem)
+    lightning: { macaroon, host },       // LND credentials
+    bitcoin: { wif: 'privateKey...' },   // BTC wallet
+  },
+  preferredMethod: 'usdc_base',          // optional: try this first
+});
+
+const data = await response.json();`}</pre>
+        </div>
+      </section>
+
       {/* Setup Instructions */}
       <section className="mb-10 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
         <h2 className="text-xl font-semibold mb-4">Quick Setup</h2>
