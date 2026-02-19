@@ -243,7 +243,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Route to the appropriate settler
-    let result;
+    let result: { txHash: string; pending?: boolean; confirmations?: number; instant?: boolean };
     try {
       if (scheme === 'bolt12' || network === 'lightning') {
         result = await settleLightningPayment(payment);

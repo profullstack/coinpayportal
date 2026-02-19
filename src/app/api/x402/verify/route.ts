@@ -203,7 +203,7 @@ export async function POST(request: NextRequest) {
     const methodKey = payment.payload.methodKey || payment.payload.extra?.methodKey;
 
     // Route to the appropriate verifier based on network/scheme
-    let result;
+    let result: { valid: boolean; error?: string; pendingConfirmation?: boolean };
 
     if (scheme === 'bolt12' || network === 'lightning') {
       result = await verifyLightningPayment(payment);
