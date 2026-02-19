@@ -2,132 +2,205 @@
 
 ## What is x402?
 
-x402 is Coinbase's open HTTP-native payment protocol that uses the HTTP 402 "Payment Required" status code to enable machine-to-machine and human-to-machine payments. When a client requests a paid resource, the server responds with HTTP 402 containing payment instructions. The client signs a USDC transaction on-chain, then retries the request with a payment proof in the `X-PAYMENT` header.
+x402 is Coinbase's open HTTP-native payment protocol that uses the HTTP 402 "Payment Required" status code to enable machine-to-machine and human-to-machine payments. When a client requests a paid resource, the server responds with HTTP 402 containing payment instructions. The client signs a payment, then retries the request with proof in the `X-PAYMENT` header.
 
-**Why it matters for CoinPayPortal:**
-- Enables pay-per-request APIs, paywalled content, and metered services
-- No redirect flows, no checkout pages — payments happen inline with HTTP requests
-- USDC stablecoin removes crypto volatility concerns
-- Non-custodial: merchants receive payments directly to their wallets
-- Programmable: AI agents and scripts can pay autonomously
+## Why CoinPayPortal + x402?
 
-## Architecture: CoinPayPortal as x402 Facilitator
+Everyone else's x402 implementation is USDC-on-Base only. **CoinPayPortal is the first multi-chain, multi-asset x402 facilitator.**
 
-In the x402 protocol, a **facilitator** is the trusted middleman that:
-1. Defines payment instructions (amount, recipient, network)
-2. Verifies payment proofs (signature validation)
-3. Settles payments on-chain (claims USDC to merchant wallet)
+The 402 response's `accepts` array includes every payment method CoinPayPortal supports — the buyer picks their preferred chain and asset:
 
-CoinPayPortal acts as a **multi-chain x402 facilitator**, extending x402 beyond Base to support USDC on:
-- **Ethereum** (ERC-20 USDC)
-- **Polygon** (PoS USDC)
-- **Solana** (SPL USDC)
-- **Base** (native x402 chain)
+| Category | Methods |
+|----------|---------|
+| **Native Crypto** | BTC, ETH, SOL, POL, BCH |
+| **Stablecoins** | USDC on Ethereum, Polygon, Solana, Base |
+| **Lightning** | BOLT12 (instant, near-zero fees) |
+| **Fiat** | Stripe (card payments) |
+
+Plus all existing CoinPayPortal features work alongside x402: **escrow**, **swaps**, **subscriptions**, and **payouts**.
+
+## Architecture
 
 ```
 ┌─────────┐     1. GET /api/resource      ┌──────────────┐
 │  Client  │ ───────────────────────────→  │  Merchant    │
-│ (browser │     2. HTTP 402 + payment     │  Server      │
-│  or bot) │ ←─────────────────────────── │  (with x402  │
-│          │     3. Sign USDC tx           │   middleware) │
-│          │     4. GET + X-PAYMENT header │              │
+│ (browser │     2. HTTP 402 + accepts[]   │  Server      │
+│  AI agent│ ←─────────────────────────── │  (with x402  │
+│  or bot) │                               │   middleware) │
+│          │  3. Pick method (e.g. BTC)    │              │
+│          │  4. Sign/send payment         │              │
+│          │  5. GET + X-PAYMENT header    │              │
 │          │ ───────────────────────────→  │              │
-│          │                               │              │
 └─────────┘                               └──────┬───────┘
                                                   │
-                                           5. Verify & Settle
+                                           6. Verify & Settle
                                                   │
                                            ┌──────▼───────┐
                                            │ CoinPayPortal │
                                            │  Facilitator  │
                                            │               │
-                                           │ - Verify sig  │
-                                           │ - Settle USDC │
-                                           │ - Multi-chain │
+                                           │ Multi-chain:  │
+                                           │ BTC·ETH·SOL   │
+                                           │ POL·BCH·USDC  │
+                                           │ Lightning·Fiat│
                                            └───────────────┘
 ```
 
-### Flow
+### How the `accepts` Array Works
 
-1. Client requests a paid resource from the merchant's server
-2. Merchant's x402 middleware (from CoinPayPortal SDK) returns HTTP 402 with payment details:
-   ```json
-   {
-     "x402Version": 1,
-     "accepts": [{
-       "scheme": "exact",
-       "network": "base",
-       "maxAmountRequired": "1000000",
-       "resource": "https://api.merchant.com/premium",
-       "description": "API call",
-       "mimeType": "application/json",
-       "payTo": "0xMerchantAddress",
-       "maxTimeoutSeconds": 300,
-       "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-       "extra": {
-         "facilitator": "https://coinpayportal.com/api/x402"
-       }
-     }]
-   }
-   ```
-3. Client signs a USDC payment authorization
-4. Client retries the request with `X-PAYMENT` header containing the signed proof
-5. Merchant middleware calls CoinPayPortal facilitator to verify and settle
-6. On success, the merchant serves the resource
+When a client hits a 402-protected endpoint, they receive ALL available payment options:
+
+```json
+{
+  "x402Version": 1,
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "bitcoin",
+      "asset": "BTC",
+      "maxAmountRequired": "769",
+      "payTo": "bc1qMerchant...",
+      "extra": { "label": "Bitcoin", "facilitator": "https://coinpayportal.com/api/x402" }
+    },
+    {
+      "scheme": "exact",
+      "network": "ethereum",
+      "asset": "ETH",
+      "maxAmountRequired": "1428571428571429",
+      "payTo": "0xMerchant...",
+      "extra": { "label": "Ethereum", "chainId": 1 }
+    },
+    {
+      "scheme": "exact",
+      "network": "ethereum",
+      "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "maxAmountRequired": "5000000",
+      "payTo": "0xMerchant...",
+      "extra": { "label": "USDC on Ethereum", "assetSymbol": "USDC", "chainId": 1 }
+    },
+    {
+      "scheme": "exact",
+      "network": "solana",
+      "asset": "SOL",
+      "maxAmountRequired": "33333333",
+      "payTo": "SoMerchant...",
+      "extra": { "label": "Solana" }
+    },
+    {
+      "scheme": "bolt12",
+      "network": "lightning",
+      "asset": "BTC",
+      "maxAmountRequired": "76900",
+      "payTo": "lno1Merchant...",
+      "extra": { "label": "Lightning (BOLT12)" }
+    },
+    {
+      "scheme": "stripe-checkout",
+      "network": "stripe",
+      "asset": "USD",
+      "maxAmountRequired": "500",
+      "payTo": "acct_xxx",
+      "extra": { "label": "Card (Stripe)" }
+    }
+  ]
+}
+```
+
+The client (browser, AI agent, or bot) picks the option it can pay with and sends the appropriate proof.
 
 ## Integration Guide
 
-### Quick Start (Express/Next.js)
+### Quick Start
 
 ```bash
 npm install @profullstack/coinpay
 ```
 
+#### Express — Multi-Asset (Recommended)
+
 ```javascript
 import { createX402Middleware } from '@profullstack/coinpay';
 
-// Express
 const x402 = createX402Middleware({
   apiKey: 'cp_live_xxxxx',
-  payTo: '0xYourWalletAddress',
-  network: 'base',           // or 'ethereum', 'polygon', 'solana'
-  description: 'API access',
+  payTo: {
+    bitcoin: 'bc1qYourBtcAddress',
+    ethereum: '0xYourEvmAddress',    // also used for USDC on ETH
+    polygon: '0xYourEvmAddress',     // also used for USDC on POL
+    base: '0xYourEvmAddress',        // also used for USDC on Base
+    solana: 'YourSolanaAddress',     // also used for USDC on SOL
+    lightning: 'lno1YourBolt12Offer',
+    stripe: 'acct_YourStripeId',
+    'bitcoin-cash': 'bitcoincash:qYourBchAddress',
+  },
+  rates: { BTC: 65000, ETH: 3500, SOL: 150, POL: 0.50, BCH: 350 },
+  // Or fetch live rates automatically:
+  // ratesEndpoint: 'https://coinpayportal.com/api/rates',
 });
 
-app.get('/api/premium', x402({ amount: '1000000' }), (req, res) => {
-  res.json({ data: 'premium content' });
+// Charge $5 — buyer picks their chain
+app.get('/api/premium', x402({ amountUsd: 5.00 }), (req, res) => {
+  res.json({ data: 'premium content', paidWith: req.x402Payment });
 });
 ```
 
+#### Express — Single Asset (Simple)
+
 ```javascript
-// Next.js App Router (in route.ts)
-import { createX402Middleware, verifyX402Payment } from '@profullstack/coinpay';
+const x402 = createX402Middleware({
+  apiKey: 'cp_live_xxxxx',
+  payTo: 'bc1qYourBtcAddress',
+});
+
+// Accept only BTC, raw satoshi amount
+app.get('/api/data', x402({ amount: '1000', network: 'bitcoin' }), handler);
+```
+
+#### Next.js App Router
+
+```javascript
+import { buildPaymentRequired, verifyX402Payment } from '@profullstack/coinpay';
 
 export async function GET(request) {
   const paymentHeader = request.headers.get('x-payment');
 
   if (!paymentHeader) {
-    return Response.json({
-      x402Version: 1,
-      accepts: [{
-        scheme: 'exact',
-        network: 'base',
-        maxAmountRequired: '1000000',
-        payTo: '0xYourWallet',
-        asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-        maxTimeoutSeconds: 300,
-        extra: { facilitator: 'https://coinpayportal.com/api/x402' }
-      }]
-    }, { status: 402 });
+    const body = buildPaymentRequired({
+      payTo: {
+        bitcoin: 'bc1q...',
+        ethereum: '0x...',
+        solana: 'So1...',
+        lightning: 'lno1...',
+      },
+      amountUsd: 5.00,
+      rates: { BTC: 65000, ETH: 3500, SOL: 150 },
+    });
+    return Response.json(body, { status: 402 });
   }
 
   const result = await verifyX402Payment(paymentHeader, { apiKey: 'cp_live_xxxxx' });
   if (!result.valid) {
-    return Response.json({ error: 'Invalid payment' }, { status: 402 });
+    return Response.json({ error: result.reason }, { status: 402 });
   }
 
   return Response.json({ data: 'premium content' });
 }
+```
+
+#### Only USDC + Lightning (Limit Methods)
+
+```javascript
+const x402 = createX402Middleware({
+  apiKey: 'cp_live_xxxxx',
+  payTo: {
+    ethereum: '0x...',
+    polygon: '0x...',
+    base: '0x...',
+    solana: 'So1...',
+    lightning: 'lno1...',
+  },
+  methods: ['usdc_eth', 'usdc_polygon', 'usdc_base', 'usdc_solana', 'lightning'],
+});
 ```
 
 ### CLI Testing
@@ -146,7 +219,19 @@ Log into CoinPayPortal and navigate to the **x402** section to:
 - View setup instructions and code snippets
 - Monitor active x402-protected endpoints
 - See payment history for x402 transactions
-- Configure multi-chain settlement preferences
+- Configure which payment methods to accept per endpoint
+
+## Verification & Settlement by Payment Type
+
+| Payment Type | Verification | Settlement |
+|-------------|-------------|------------|
+| **EVM native** (ETH, POL) | EIP-712 signature | Confirm tx on-chain |
+| **EVM token** (USDC) | EIP-712 signature | `transferFrom` on-chain |
+| **Bitcoin** | Transaction proof (txId) | Confirm block inclusion |
+| **Bitcoin Cash** | Transaction proof (txId) | Confirm block inclusion |
+| **Solana** (SOL, USDC) | Transaction signature | Confirm finality via RPC |
+| **Lightning** | SHA256(preimage) === paymentHash | Instant (preimage = proof) |
+| **Stripe** | Payment intent status check | Capture payment intent |
 
 ## Comparison: x402 vs Traditional Checkout
 
@@ -154,27 +239,36 @@ Log into CoinPayPortal and navigate to the **x402** section to:
 |---------|---------------------|---------------|
 | User experience | Redirect to payment page | Inline with HTTP request |
 | Machine payments | Not supported | Native (AI agents, scripts) |
-| Integration complexity | Webhook handlers, status polling | Single middleware + header |
-| Settlement | Via CoinPayPortal dashboard | Automatic on-chain |
-| Supported currencies | BTC, ETH, SOL, POL, BCH, USDC | USDC (stablecoin) |
-| Volatility risk | Yes (crypto) | No (stablecoin) |
-| Checkout abandonment | Common | N/A (no checkout page) |
+| Payment options | Depends on provider | BTC, ETH, SOL, POL, BCH, USDC, Lightning, Stripe |
+| Integration | Webhook handlers, status polling | Single middleware + header |
+| Settlement | Via dashboard | Automatic per-chain |
+| Buyer choice | Limited | Full — buyer picks chain/asset |
 
-## Supported Networks
+## Supported Payment Methods Reference
 
-| Network | USDC Contract | Chain ID |
-|---------|--------------|----------|
-| Base | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | 8453 |
-| Ethereum | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` | 1 |
-| Polygon | `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359` | 137 |
-| Solana | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` | — |
+| Key | Network | Asset | Decimals | Notes |
+|-----|---------|-------|----------|-------|
+| `btc` | bitcoin | BTC | 8 | On-chain Bitcoin |
+| `bch` | bitcoin-cash | BCH | 8 | On-chain Bitcoin Cash |
+| `eth` | ethereum | ETH | 18 | Native Ether |
+| `pol` | polygon | POL | 18 | Native Polygon |
+| `sol` | solana | SOL | 9 | Native Solana |
+| `usdc_eth` | ethereum | USDC | 6 | `0xA0b8...eB48` |
+| `usdc_polygon` | polygon | USDC | 6 | `0x3c49...3359` |
+| `usdc_solana` | solana | USDC | 6 | `EPjF...Dt1v` |
+| `usdc_base` | base | USDC | 6 | `0x8335...2913` |
+| `lightning` | lightning | BTC | 0 (sats) | BOLT12 offers |
+| `stripe` | stripe | USD | 2 (cents) | Card via Stripe |
 
 ## Security Considerations
 
-- Payment proofs are cryptographically signed — cannot be forged
-- CoinPayPortal verifies signatures server-side before settlement
-- Replay protection: each payment proof includes a nonce and expiry
-- Non-custodial: USDC settles directly to the merchant's wallet
+- EVM payments use EIP-712 typed data signatures — cannot be forged
+- Bitcoin/BCH payments verified via block explorer / full node
+- Solana payments verified via RPC transaction lookup
+- Lightning payments use cryptographic preimage verification
+- Stripe payments verified via Stripe API
+- Replay protection via unique keys (nonce, txId, txSignature, preimage)
+- Non-custodial: funds settle directly to the merchant's wallet(s)
 - API key required for facilitator access (rate-limited)
 
 ## Resources
@@ -182,3 +276,4 @@ Log into CoinPayPortal and navigate to the **x402** section to:
 - [x402 Protocol Specification](https://docs.x402.org)
 - [CoinPayPortal Documentation](https://docs.coinpayportal.com)
 - [USDC Developer Docs](https://developers.circle.com/stablecoins/docs)
+- [BOLT12 Specification](https://bolt12.org)

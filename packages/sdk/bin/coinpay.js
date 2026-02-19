@@ -2701,7 +2701,6 @@ Options:
       const amount = flags.amount || '1000000';
 
       print.info(`Testing x402 flow against ${url}`);
-      print.info(`Network: ${network}, Amount: ${amount} (${(parseInt(amount) / 1e6).toFixed(2)} USDC)`);
 
       // Step 1: Request without payment
       try {
@@ -2717,13 +2716,17 @@ Options:
           }
 
           if (body.accepts && body.accepts.length > 0) {
-            const accept = body.accepts[0];
-            print.info(`  Network: ${accept.network || 'not specified'}`);
-            print.info(`  Amount: ${accept.maxAmountRequired} (${(parseInt(accept.maxAmountRequired || '0') / 1e6).toFixed(2)} USDC)`);
-            print.info(`  Pay to: ${accept.payTo || 'not specified'}`);
-            print.info(`  Asset: ${accept.asset || 'not specified'}`);
-            if (accept.extra?.facilitator) {
-              print.info(`  Facilitator: ${accept.extra.facilitator}`);
+            print.success(`${body.accepts.length} payment method(s) offered:`);
+            for (const accept of body.accepts) {
+              const label = accept.extra?.label || `${accept.asset} on ${accept.network}`;
+              const symbol = accept.extra?.assetSymbol || accept.asset || '';
+              print.info(`  • ${label}`);
+              print.info(`    Amount: ${accept.maxAmountRequired} ${symbol}`);
+              print.info(`    Pay to: ${accept.payTo || 'not specified'}`);
+            }
+            const facilitator = body.accepts[0]?.extra?.facilitator;
+            if (facilitator) {
+              print.info(`  Facilitator: ${facilitator}`);
             }
           }
 

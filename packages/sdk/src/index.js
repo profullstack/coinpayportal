@@ -156,6 +156,8 @@ import {
   verifyX402Payment,
   settleX402Payment,
   buildPaymentRequired,
+  convertUsdToAssetAmount,
+  PAYMENT_METHODS,
   USDC_CONTRACTS,
   CHAIN_IDS,
 } from './x402.js';
@@ -261,6 +263,8 @@ export {
   verifyX402Payment,
   settleX402Payment,
   buildPaymentRequired,
+  convertUsdToAssetAmount,
+  PAYMENT_METHODS,
   USDC_CONTRACTS,
   CHAIN_IDS,
   
