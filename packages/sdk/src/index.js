@@ -150,6 +150,16 @@ import {
 // Lightning
 import { LightningClient } from './lightning.js';
 
+// x402 Protocol
+import {
+  createX402Middleware,
+  verifyX402Payment,
+  settleX402Payment,
+  buildPaymentRequired,
+  USDC_CONTRACTS,
+  CHAIN_IDS,
+} from './x402.js';
+
 export {
   // Client
   CoinPayClient,
@@ -245,6 +255,14 @@ export {
   registerMerchant,
   loginMerchant,
   getMe,
+  
+  // x402 Protocol
+  createX402Middleware,
+  verifyX402Payment,
+  settleX402Payment,
+  buildPaymentRequired,
+  USDC_CONTRACTS,
+  CHAIN_IDS,
   
   // Webhook utilities
   verifyWebhookSignature,

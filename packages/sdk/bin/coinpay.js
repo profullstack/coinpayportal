@@ -2615,6 +2615,10 @@ async function main() {
       case 'reputation':
         await handleReputation(subcommand, args, flags);
         break;
+
+      case 'x402':
+        await handleX402(subcommand, args, flags);
+        break;
         
       default:
         print.error(`Unknown command: ${command}`);
@@ -2627,6 +2631,118 @@ async function main() {
       console.error(error);
     }
     process.exit(1);
+  }
+}
+
+/**
+ * Handle x402 commands
+ */
+async function handleX402(subcommand, args, flags) {
+  const config = loadConfig();
+
+  if (!subcommand) {
+    console.log(`
+${colors.bright}x402 Payment Protocol${colors.reset}
+
+Usage: coinpay x402 <command> [options]
+
+Commands:
+  status          Check x402 facilitator status
+  test            Test x402 flow against an endpoint
+
+Options:
+  --url <url>     Endpoint URL for testing
+  --network <net> Network: base, ethereum, polygon (default: base)
+  --amount <amt>  Amount in USDC smallest unit (default: 1000000 = 1 USDC)
+`);
+    return;
+  }
+
+  switch (subcommand) {
+    case 'status': {
+      const apiKey = flags['api-key'] || config.apiKey;
+      const baseUrl = flags['base-url'] || config.baseUrl || 'https://coinpayportal.com';
+
+      print.info('Checking x402 facilitator status...');
+
+      try {
+        const response = await fetch(`${baseUrl}/api/x402/verify`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+          },
+          body: JSON.stringify({ payment: { test: true } }),
+        });
+
+        if (response.status === 401) {
+          print.error('API key required or invalid. Set with: coinpay config set apiKey <key>');
+        } else if (response.status === 400) {
+          print.success('x402 facilitator is reachable and responding');
+          print.info(`Facilitator URL: ${baseUrl}/api/x402`);
+          print.info('Networks: Base, Ethereum, Polygon (Solana coming soon)');
+        } else {
+          print.warn(`Unexpected response: HTTP ${response.status}`);
+        }
+      } catch (err) {
+        print.error(`Cannot reach facilitator at ${baseUrl}: ${err.message}`);
+      }
+      break;
+    }
+
+    case 'test': {
+      const url = flags.url || args[0];
+      if (!url) {
+        print.error('URL required: coinpay x402 test --url http://localhost:3000/api/premium');
+        return;
+      }
+
+      const network = flags.network || 'base';
+      const amount = flags.amount || '1000000';
+
+      print.info(`Testing x402 flow against ${url}`);
+      print.info(`Network: ${network}, Amount: ${amount} (${(parseInt(amount) / 1e6).toFixed(2)} USDC)`);
+
+      // Step 1: Request without payment
+      try {
+        print.info('Step 1: Requesting resource without payment...');
+        const response = await fetch(url);
+
+        if (response.status === 402) {
+          const body = await response.json();
+          print.success('Received HTTP 402 Payment Required');
+
+          if (body.x402Version) {
+            print.success(`x402 version: ${body.x402Version}`);
+          }
+
+          if (body.accepts && body.accepts.length > 0) {
+            const accept = body.accepts[0];
+            print.info(`  Network: ${accept.network || 'not specified'}`);
+            print.info(`  Amount: ${accept.maxAmountRequired} (${(parseInt(accept.maxAmountRequired || '0') / 1e6).toFixed(2)} USDC)`);
+            print.info(`  Pay to: ${accept.payTo || 'not specified'}`);
+            print.info(`  Asset: ${accept.asset || 'not specified'}`);
+            if (accept.extra?.facilitator) {
+              print.info(`  Facilitator: ${accept.extra.facilitator}`);
+            }
+          }
+
+          print.success('x402 endpoint is correctly configured!');
+          print.warn('Note: Full payment test requires a funded wallet. Use the dashboard for end-to-end testing.');
+        } else if (response.status === 200) {
+          print.warn('Endpoint returned 200 OK — no payment required (is x402 middleware active?)');
+        } else {
+          print.warn(`Unexpected status: HTTP ${response.status}`);
+        }
+      } catch (err) {
+        print.error(`Failed to reach ${url}: ${err.message}`);
+      }
+      break;
+    }
+
+    default:
+      print.error(`Unknown x402 command: ${subcommand}`);
+      print.info('Available: status, test');
   }
 }
 
