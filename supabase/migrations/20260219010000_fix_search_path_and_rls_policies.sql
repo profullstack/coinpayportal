@@ -105,7 +105,7 @@ DROP POLICY IF EXISTS "Service role access" ON swaps;
 CREATE POLICY "Users can view their own swaps"
   ON swaps FOR SELECT
   TO authenticated
-  USING (wallet_id IN (SELECT id FROM web_wallets WHERE user_id = auth.uid()));
+  USING (wallet_id IN (SELECT id FROM wallets WHERE user_id = auth.uid()));
 
 CREATE POLICY "Service role full access to swaps"
   ON swaps FOR ALL
