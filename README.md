@@ -138,8 +138,6 @@ GL_NOBODY_KEY=/path/to/client-key.pem
 STRIPE_SECRET_KEY=sk_live_xxx
 STRIPE_WEBHOOK_SECRET=whsec_xxx
 
-# x402 (optional)
-X402_FACILITATOR_PRIVATE_KEY=your_evm_private_key
 ```
 
 Run the dev server:
