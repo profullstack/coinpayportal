@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createWallet } from '@/lib/web-wallet/service';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
-import { checkRateLimit } from '@/lib/web-wallet/rate-limit';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 
 /**
  * POST /api/web-wallet/create
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
   try {
     // Rate limit by IP
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
-    const rateCheck = checkRateLimit(clientIp, 'wallet_creation');
+    const rateCheck = await checkRateLimitAsync(clientIp, 'wallet_creation');
     if (!rateCheck.allowed) {
       console.log(`[WebWallet] POST /create rate limited for IP ${clientIp}`);
       return WalletErrors.rateLimited(rateCheck.resetAt - Math.floor(Date.now() / 1000));
