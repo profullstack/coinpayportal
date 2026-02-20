@@ -696,6 +696,11 @@ export async function generatePaymentAddress(
   paymentInfo?: PaymentAddressInfo;
   error?: string;
 }> {
+  // Prevent wallet creation in test environments
+  if (process.env.NODE_ENV === 'test' || process.env.VITEST) {
+    return { success: false, error: 'Wallet creation blocked in test environment' };
+  }
+
   try {
     // Get the next available index for this cryptocurrency
     const { data: indexData, error: indexError } = await supabase

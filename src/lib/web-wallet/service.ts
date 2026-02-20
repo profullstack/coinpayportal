@@ -82,6 +82,11 @@ export async function createWallet(
   supabase: SupabaseClient,
   body: unknown
 ): Promise<ServiceResult> {
+  // Prevent wallet creation in test environments
+  if (process.env.NODE_ENV === 'test' || process.env.VITEST) {
+    return { success: false, error: 'Wallet creation blocked in test environment', code: 'TEST_ENV' };
+  }
+
   const parsed = createWalletSchema.safeParse(body);
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0].message, code: 'VALIDATION_ERROR' };

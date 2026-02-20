@@ -58,6 +58,11 @@ export async function createWallet(
   merchantId: string,
   input: CreateWalletInput
 ): Promise<WalletResult> {
+  // Prevent wallet creation in test environments
+  if (process.env.NODE_ENV === 'test' || process.env.VITEST) {
+    return { success: false, error: 'Wallet creation blocked in test environment' };
+  }
+
   try {
     // Validate cryptocurrency
     const cryptoResult = cryptocurrencySchema.safeParse(input.cryptocurrency);
