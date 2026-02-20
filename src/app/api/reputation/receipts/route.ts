@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { data: receipts, error } = await supabase
-      .from('task_receipts')
+      .from('reputation_receipts')
       .select('*')
       .eq('agent_did', did)
       .order('created_at', { ascending: false });
