@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getExchangeRate, getMultipleRates } from '@/lib/rates/tatum';
 import { SUPPORTED_FIAT_CURRENCIES, type FiatCurrency } from '@/lib/web-wallet/settings';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
 
 // Valid fiat currency codes
 const VALID_FIATS = SUPPORTED_FIAT_CURRENCIES.map(c => c.code);
@@ -18,6 +20,21 @@ const VALID_FIATS = SUPPORTED_FIAT_CURRENCIES.map(c => c.code);
  */
 export async function GET(request: NextRequest) {
   try {
+    // Rate limit
+    const clientIp = getClientIp(request);
+    const rateCheck = await checkRateLimitAsync(clientIp, 'rates_query');
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Rate limit exceeded. Please try again later.' },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(rateCheck.resetAt - Math.floor(Date.now() / 1000)),
+          },
+        }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const singleCoin = searchParams.get('coin');
     const multipleCoins = searchParams.get('coins');
@@ -56,7 +73,19 @@ export async function GET(request: NextRequest) {
 
       // Get base coin for tokens
       const baseCoin = getBaseCoin(coin);
-      const rate = await getExchangeRate(baseCoin, fiat);
+      let rate: number;
+      try {
+        rate = await getExchangeRate(baseCoin, fiat);
+      } catch (e) {
+        return NextResponse.json({
+          success: false,
+          error: e instanceof Error ? e.message : 'Failed to fetch rate',
+          coin,
+          rate: null,
+          fiat,
+          timestamp: new Date().toISOString(),
+        });
+      }
 
       return NextResponse.json({
         success: true,
@@ -121,6 +150,7 @@ export async function GET(request: NextRequest) {
       {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to fetch rates',
+        rates: {},
       },
       { status: 500 }
     );
