@@ -600,6 +600,7 @@ export default function DashboardPage() {
             {/* Business Filter */}
             {businesses.length > 0 && (
               <div className="relative">
+                <label htmlFor="business-filter" className="sr-only">Filter by business</label>
                 <select
                   id="business-filter"
                   value={selectedBusinessId}
