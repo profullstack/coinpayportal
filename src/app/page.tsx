@@ -179,7 +179,7 @@ export default function Home() {
           {/* Secondary Stats */}
           <div className="flex flex-wrap justify-center gap-8 text-center">
             {[
-              { label: 'Transaction Fee', value: '0.5-1%' },
+              { label: 'Transaction Fee', value: '0.5–1%', subtext: 'Pro 0.5% · Starter 1%' },
               { label: 'Supported Chains', value: '10+' },
               { label: 'Avg. Processing', value: '<1 min' },
               { label: 'Uptime', value: '99.9%' },
@@ -187,6 +187,9 @@ export default function Home() {
               <div key={index} className="flex items-center gap-2">
                 <span className="text-purple-400 font-semibold">{stat.value}</span>
                 <span className="text-gray-500 text-sm">{stat.label}</span>
+                {'subtext' in stat && stat.subtext && (
+                  <span className="text-gray-600 text-xs">({stat.subtext})</span>
+                )}
               </div>
             ))}
           </div>
