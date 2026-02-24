@@ -23,9 +23,8 @@ function getSupabase() {
 export async function POST(request: NextRequest) {
   try {
     const supabase = getSupabase();
-    const body = await request.json();
 
-    // Authentication required for escrow creation
+    // Authentication required for escrow creation — check before parsing body
     let isPaidTier = false;
     let businessId: string | undefined;
 
@@ -39,6 +38,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let authContext: any;
     try {
       const authResult = await authenticateRequest(supabase, authHeader || apiKeyHeader);
       if (!authResult.success) {
@@ -47,18 +47,21 @@ export async function POST(request: NextRequest) {
           { status: 401 }
         );
       }
-      if (authResult.context && isMerchantAuth(authResult.context)) {
-        // Check if merchant has paid tier
-        if (body.business_id) {
-          isPaidTier = await isBusinessPaidTier(supabase, body.business_id);
-          businessId = body.business_id;
-        }
-      }
+      authContext = authResult.context;
     } catch {
       return NextResponse.json(
         { error: 'Authentication failed' },
         { status: 401 }
       );
+    }
+
+    const body = await request.json();
+
+    if (authContext && isMerchantAuth(authContext)) {
+      if (body.business_id) {
+        isPaidTier = await isBusinessPaidTier(supabase, body.business_id);
+        businessId = body.business_id;
+      }
     }
 
     const result = await createEscrow(supabase, {

@@ -7,17 +7,6 @@ import { getJwtSecret } from '@/lib/secrets';
 export { POST } from './create/route';
 
 /**
- * POST /api/payments
- * Payment creation should use POST /api/payments/create
- */
-export async function POST() {
-  return NextResponse.json(
-    { success: false, error: 'Use POST /api/payments/create to create a payment' },
-    { status: 400 }
-  );
-}
-
-/**
  * GET /api/payments
  * List all payments for authenticated merchant's businesses
  * Supports filtering by business_id, status, currency, date_from, date_to
