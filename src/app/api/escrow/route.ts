@@ -18,32 +18,49 @@ function getSupabase() {
 
 /**
  * POST /api/escrow
- * Create a new escrow — anonymous, no auth required
+ * Create a new escrow — requires authentication
  */
 export async function POST(request: NextRequest) {
   try {
     const supabase = getSupabase();
-    const body = await request.json();
 
-    // Check if authenticated (optional — for merchant association + paid tier)
+    // Authentication required for escrow creation — check before parsing body
     let isPaidTier = false;
     let businessId: string | undefined;
 
     const authHeader = request.headers.get('authorization');
     const apiKeyHeader = request.headers.get('x-api-key');
 
-    if (authHeader || apiKeyHeader) {
-      try {
-        const authResult = await authenticateRequest(supabase, authHeader || apiKeyHeader);
-        if (authResult.success && authResult.context && isMerchantAuth(authResult.context)) {
-          // Check if merchant has paid tier
-          if (body.business_id) {
-            isPaidTier = await isBusinessPaidTier(supabase, body.business_id);
-            businessId = body.business_id;
-          }
-        }
-      } catch {
-        // Auth is optional — continue as anonymous
+    if (!authHeader && !apiKeyHeader) {
+      return NextResponse.json(
+        { error: 'Authentication required. Provide Authorization header or X-API-Key.' },
+        { status: 401 }
+      );
+    }
+
+    let authContext: any;
+    try {
+      const authResult = await authenticateRequest(supabase, authHeader || apiKeyHeader);
+      if (!authResult.success) {
+        return NextResponse.json(
+          { error: 'Invalid or expired authentication' },
+          { status: 401 }
+        );
+      }
+      authContext = authResult.context;
+    } catch {
+      return NextResponse.json(
+        { error: 'Authentication failed' },
+        { status: 401 }
+      );
+    }
+
+    const body = await request.json();
+
+    if (authContext && isMerchantAuth(authContext)) {
+      if (body.business_id) {
+        isPaidTier = await isBusinessPaidTier(supabase, body.business_id);
+        businessId = body.business_id;
       }
     }
 

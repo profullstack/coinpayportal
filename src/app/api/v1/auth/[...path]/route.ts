@@ -8,7 +8,7 @@ function handler(request: NextRequest, { params }: { params: Promise<{ path: str
         error: `The /api/v1/auth/* routes have been removed. Use ${correctPath} instead.`,
         redirect: correctPath,
       },
-      { status: 404 }
+      { status: 410 }
     );
   });
 }
