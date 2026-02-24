@@ -41,7 +41,12 @@ const chainSchema = z.enum([
 ]);
 
 const createEscrowSchema = z.object({
-  chain: chainSchema,
+  chain: z.enum([
+    'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+    'DOGE', 'XRP', 'ADA', 'BNB',
+    'USDT', 'USDC',
+    'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+  ], { required_error: 'chain is required', invalid_type_error: 'chain is required' }),
   amount: z.number({ required_error: 'amount is required', invalid_type_error: 'amount must be a number' }).positive('amount must be greater than zero'),
   depositor_address: z.string({ required_error: 'depositor_address is required' }).min(10, 'depositor_address must be at least 10 characters'),
   beneficiary_address: z.string({ required_error: 'beneficiary_address is required' }).min(10, 'beneficiary_address must be at least 10 characters'),

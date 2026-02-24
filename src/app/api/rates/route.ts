@@ -56,7 +56,19 @@ export async function GET(request: NextRequest) {
 
       // Get base coin for tokens
       const baseCoin = getBaseCoin(coin);
-      const rate = await getExchangeRate(baseCoin, fiat);
+      let rate: number;
+      try {
+        rate = await getExchangeRate(baseCoin, fiat);
+      } catch (e) {
+        return NextResponse.json({
+          success: false,
+          error: e instanceof Error ? e.message : 'Failed to fetch rate',
+          coin,
+          rate: null,
+          fiat,
+          timestamp: new Date().toISOString(),
+        });
+      }
 
       return NextResponse.json({
         success: true,
@@ -121,8 +133,9 @@ export async function GET(request: NextRequest) {
       {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to fetch rates',
+        rates: {},
       },
-      { status: 500 }
+      { status: 200 }
     );
   }
 }
