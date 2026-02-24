@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
         error: error instanceof Error ? error.message : 'Failed to fetch rates',
         rates: {},
       },
-      { status: 200 }
+      { status: 500 }
     );
   }
 }
