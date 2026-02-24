@@ -5,8 +5,13 @@ export async function GET() {
     {
       status: 'ok',
       timestamp: new Date().toISOString(),
-      version: process.env.npm_package_version || 'unknown',
+      version: process.env.NEXT_PUBLIC_APP_VERSION || process.env.npm_package_version || 'unknown',
     },
-    { status: 200 }
+    {
+      status: 200,
+      headers: {
+        'Cache-Control': 'no-store',
+      },
+    }
   );
 }

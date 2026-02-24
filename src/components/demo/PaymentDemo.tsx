@@ -228,11 +228,11 @@ export function PaymentDemo() {
 
           {step === 'crypto' && (
             <div className="space-y-6">
-              <div>
-                <label htmlFor="crypto-select" className="block text-sm font-medium text-gray-300 mb-3">
+              <fieldset>
+                <legend className="block text-sm font-medium text-gray-300 mb-3">
                   Select Cryptocurrency
-                </label>
-                <div className="grid grid-cols-2 gap-3">
+                </legend>
+                <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label="Select cryptocurrency">
                   {DEMO_CRYPTOS.map((crypto) => (
                     <button
                       key={crypto.symbol}
@@ -249,7 +249,7 @@ export function PaymentDemo() {
                     </button>
                   ))}
                 </div>
-              </div>
+              </fieldset>
 
               <div className="p-4 bg-slate-700/30 rounded-xl">
                 <div className="flex justify-between text-sm">
