@@ -188,7 +188,7 @@ export default function Home() {
                 <span className="text-purple-400 font-semibold">{stat.value}</span>
                 <span className="text-gray-500 text-sm">{stat.label}</span>
                 {'subtext' in stat && stat.subtext && (
-                  <span className="text-gray-600 text-xs">({stat.subtext})</span>
+                  <span className="text-gray-400 text-xs">({stat.subtext})</span>
                 )}
               </div>
             ))}
@@ -231,7 +231,7 @@ export default function Home() {
       </section>
 
       {/* Features Section */}
-      <section className="relative py-24">
+      <section id="features" className="relative py-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-4xl sm:text-5xl font-bold text-white mb-4">

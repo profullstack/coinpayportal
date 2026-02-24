@@ -4,7 +4,7 @@
   "description": " A non-custodial payment gateway for crypto e-commerce payments ",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
+  "background_color": "#0f172a",
   "theme_color": "#0f172a",
   "orientation": "portrait-primary",
   "icons": [
