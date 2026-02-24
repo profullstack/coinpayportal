@@ -1,2 +1,7 @@
 User-agent: *
 Allow: /*
+Disallow: /api/
+Disallow: /admin/
+Disallow: /dashboard/
+
+Sitemap: https://coinpayportal.com/sitemap.xml
