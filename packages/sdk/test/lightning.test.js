@@ -70,6 +70,14 @@ describe('LightningClient (via CoinPayClient)', () => {
         method: 'POST',
         body: expect.stringContaining('"wallet_id":"w-1"'),
       });
+      expect(client.request).toHaveBeenCalledWith('/lightning/offers', {
+        method: 'POST',
+        body: expect.stringContaining('"node_id":"n-1"'),
+      });
+      expect(client.request).toHaveBeenCalledWith('/lightning/offers', {
+        method: 'POST',
+        body: expect.stringContaining('"description":"Coffee"'),
+      });
     });
   });
 

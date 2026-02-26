@@ -22,6 +22,27 @@ export function createLightningMethods(
   walletId: string,
   getMnemonic: () => string | null
 ) {
+  let cachedNodeId: string | null = null;
+
+  const resolveNodeId = async (): Promise<string> => {
+    if (cachedNodeId) return cachedNodeId;
+
+    const data = await client.request<any>({
+      method: 'GET',
+      path: '/api/lightning/nodes',
+      query: { wallet_id: walletId },
+      authenticated: true,
+    });
+
+    const node = data?.data?.node || data?.node;
+    if (!node?.id) {
+      throw new Error('Lightning node not found for wallet');
+    }
+
+    cachedNodeId = node.id;
+    return node.id;
+  };
+
   return {
     /**
      * Get the Lightning Address for this wallet.
@@ -59,11 +80,13 @@ export function createLightningMethods(
      * Create a Lightning invoice (BOLT11).
      */
     async createLightningInvoice(amount: number, memo?: string): Promise<LightningInvoice> {
+      const nodeId = await resolveNodeId();
       const data = await client.request<any>({
         method: 'POST',
         path: '/api/lightning/invoices',
         body: {
-          node_id: walletId,
+          wallet_id: walletId,
+          node_id: nodeId,
           amount_sats: amount,
           description: memo || '',
           mnemonic: getMnemonic(),
@@ -81,12 +104,14 @@ export function createLightningMethods(
      * Pay a Lightning invoice (BOLT11).
      */
     async payLightningInvoice(bolt11: string): Promise<LightningPayment> {
+      const nodeId = await resolveNodeId();
       const data = await client.request<any>({
         method: 'POST',
         path: '/api/lightning/payments',
         body: {
-          node_id: walletId,
-          bolt11,
+          wallet_id: walletId,
+          node_id: nodeId,
+          bolt12: bolt11,
           mnemonic: getMnemonic(),
         },
         authenticated: true,
@@ -110,10 +135,11 @@ export function createLightningMethods(
      * List Lightning payments.
      */
     async listLightningPayments(limit: number = 20): Promise<LightningPayment[]> {
+      const nodeId = await resolveNodeId();
       const data = await client.request<any>({
         method: 'GET',
         path: '/api/lightning/payments',
-        query: { node_id: walletId, limit: String(limit) },
+        query: { wallet_id: walletId, node_id: nodeId, limit: String(limit) },
         authenticated: true,
       });
       return data.data?.payments || data.payments || [];

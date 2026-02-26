@@ -31,6 +31,7 @@ export function LightningPayments({ nodeId, walletId, businessId, offerId }: Lig
       if (walletId) params.set('wallet_id', walletId);
       if (businessId) params.set('business_id', businessId);
       if (offerId) params.set('offer_id', offerId);
+      params.set('direction', 'incoming');
 
       const res = await fetch(`/api/lightning/payments?${params}`);
       const json = await res.json();

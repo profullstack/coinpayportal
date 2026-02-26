@@ -70,11 +70,19 @@ export async function GET(request: NextRequest) {
     const node_id = searchParams.get('node_id') || undefined;
     const wallet_id = searchParams.get('wallet_id') || undefined;
     const offer_id = searchParams.get('offer_id') || undefined;
+    const directionParam = searchParams.get('direction');
+    const direction = directionParam === 'incoming' || directionParam === 'outgoing'
+      ? directionParam
+      : undefined;
     const status = searchParams.get('status') || undefined;
     const limit = parseInt(searchParams.get('limit') || '50', 10);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
 
     const service = getGreenlightService();
+
+    if (node_id && !wallet_id) {
+      return WalletErrors.badRequest('VALIDATION_ERROR', 'wallet_id is required when node_id is provided');
+    }
 
     if (node_id && wallet_id) {
       const node = await service.getNode(node_id);
@@ -88,6 +96,7 @@ export async function GET(request: NextRequest) {
       business_id,
       node_id,
       offer_id,
+      direction,
       status,
       limit,
       offset,

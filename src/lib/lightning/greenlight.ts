@@ -404,6 +404,7 @@ export class GreenlightService {
     node_id?: string;
     business_id?: string;
     offer_id?: string;
+    direction?: 'incoming' | 'outgoing';
     status?: string;
     limit?: number;
     offset?: number;
@@ -413,6 +414,7 @@ export class GreenlightService {
     if (filters.node_id) query = query.eq('node_id', filters.node_id);
     if (filters.business_id) query = query.eq('business_id', filters.business_id);
     if (filters.offer_id) query = query.eq('offer_id', filters.offer_id);
+    if (filters.direction) query = query.eq('direction', filters.direction);
     if (filters.status) query = query.eq('status', filters.status);
 
     query = query
@@ -584,11 +586,15 @@ export class GreenlightService {
     amount_msat: number;
     payer_note?: string;
   }): Promise<LnPayment> {
+    if (params.direction === 'incoming' && (!params.offer_id || params.offer_id.trim().length === 0)) {
+      throw new Error('offer_id is required for incoming payments');
+    }
+
     const { data, error } = await this.supabase
       .from('ln_payments')
       .insert({
         ...params,
-        offer_id: params.offer_id || null,
+        offer_id: params.offer_id ?? null,
         status: 'settled',
         settled_at: new Date().toISOString(),
       })
