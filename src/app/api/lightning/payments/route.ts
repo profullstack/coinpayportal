@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
     if (node) {
       await service.recordPayment({
         offer_id: null,
+        direction: 'outgoing',
         node_id,
         business_id: node.business_id || undefined,
         payment_hash: result.payment_hash,

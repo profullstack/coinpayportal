@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
     const service = getGreenlightService();
     const payment = await service.recordPayment({
       offer_id,
+      direction: 'incoming',
       node_id,
       business_id,
       payment_hash,

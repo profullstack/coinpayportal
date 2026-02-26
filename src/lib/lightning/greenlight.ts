@@ -576,6 +576,7 @@ export class GreenlightService {
    */
   async recordPayment(params: {
     offer_id?: string | null;
+    direction: 'incoming' | 'outgoing';
     node_id: string;
     business_id?: string;
     payment_hash: string;
