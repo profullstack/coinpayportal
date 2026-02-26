@@ -5,6 +5,7 @@ import type { LnPayment } from '@/lib/lightning/types';
 
 interface LightningPaymentsProps {
   nodeId?: string;
+  walletId?: string;
   businessId?: string;
   offerId?: string;
 }
@@ -12,14 +13,14 @@ interface LightningPaymentsProps {
 /**
  * Lists received Lightning payments with status and amount.
  */
-export function LightningPayments({ nodeId, businessId, offerId }: LightningPaymentsProps) {
+export function LightningPayments({ nodeId, walletId, businessId, offerId }: LightningPaymentsProps) {
   const [payments, setPayments] = useState<LnPayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPayments();
-  }, [nodeId, businessId, offerId]);
+  }, [nodeId, walletId, businessId, offerId]);
 
   const fetchPayments = async () => {
     setLoading(true);
@@ -27,8 +28,10 @@ export function LightningPayments({ nodeId, businessId, offerId }: LightningPaym
     try {
       const params = new URLSearchParams();
       if (nodeId) params.set('node_id', nodeId);
+      if (walletId) params.set('wallet_id', walletId);
       if (businessId) params.set('business_id', businessId);
       if (offerId) params.set('offer_id', offerId);
+      params.set('direction', 'incoming');
 
       const res = await fetch(`/api/lightning/payments?${params}`);
       const json = await res.json();

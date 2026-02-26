@@ -245,6 +245,7 @@ function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: stri
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           node_id: lnNode.id,
+          wallet_id: walletId,
           description: newDesc,
           amount_msat: amountSats ? amountSats * 1000 : undefined,
           mnemonic,
@@ -269,6 +270,7 @@ function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: stri
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             node_id: lnNode.id,
+            wallet_id: walletId,
             amount_sats: amountSats,
             description: newDesc,
             mnemonic,
@@ -405,7 +407,7 @@ function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: stri
           {/* Existing BOLT12 offers */}
           <div>
             <h3 className="text-white font-semibold mb-3">Your BOLT12 Offers</h3>
-            <LightningOfferCard nodeId={lnNode.id} refreshKey={refreshKey} />
+            <LightningOfferCard nodeId={lnNode.id} walletId={walletId} refreshKey={refreshKey} />
           </div>
         </div>
       )}
@@ -443,6 +445,7 @@ function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: stri
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     node_id: lnNode.id,
+                    wallet_id: walletId,
                     bolt12: payBolt12,
                     amount_sats: payAmount ? parseInt(payAmount) : undefined,
                     mnemonic,
@@ -472,7 +475,7 @@ function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: stri
 
       {/* Payments Tab */}
       {activeTab === 'payments' && (
-        <LightningPayments nodeId={lnNode.id} />
+        <LightningPayments nodeId={lnNode.id} walletId={walletId} />
       )}
     </div>
   );

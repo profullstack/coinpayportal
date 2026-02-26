@@ -64,6 +64,7 @@ export class LightningClient {
   /**
    * Create a BOLT12 offer.
    * @param {Object} params
+   * @param {string} params.wallet_id - Wallet UUID (required for wallet ownership checks)
    * @param {string} params.node_id - Node UUID
    * @param {string} params.description - Human-readable description
    * @param {number} [params.amount_msat] - Fixed amount in millisatoshis (omit for any-amount)
@@ -71,10 +72,10 @@ export class LightningClient {
    * @param {string} [params.business_id] - Optional business UUID
    * @returns {Promise<Object>}
    */
-  async createOffer({ node_id, description, amount_msat, currency, business_id }) {
+  async createOffer({ wallet_id, node_id, description, amount_msat, currency, business_id }) {
     return this.#client.request('/lightning/offers', {
       method: 'POST',
-      body: JSON.stringify({ node_id, description, amount_msat, currency, business_id }),
+      body: JSON.stringify({ wallet_id, node_id, description, amount_msat, currency, business_id }),
     });
   }
 
@@ -131,15 +132,16 @@ export class LightningClient {
   /**
    * Send a payment to a BOLT12 offer or invoice.
    * @param {Object} params
+   * @param {string} params.wallet_id - Wallet UUID (required for wallet ownership checks)
    * @param {string} params.node_id - Node UUID
    * @param {string} params.bolt12 - BOLT12 offer or invoice string
    * @param {number} params.amount_sats - Amount in satoshis
    * @returns {Promise<Object>}
    */
-  async sendPayment({ node_id, bolt12, amount_sats }) {
+  async sendPayment({ wallet_id, node_id, bolt12, amount_sats }) {
     return this.#client.request('/lightning/payments', {
       method: 'POST',
-      body: JSON.stringify({ node_id, bolt12, amount_sats }),
+      body: JSON.stringify({ wallet_id, node_id, bolt12, amount_sats }),
     });
   }
 
