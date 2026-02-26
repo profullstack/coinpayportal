@@ -575,7 +575,7 @@ export class GreenlightService {
    * Record a settled payment (called by webhook/settlement worker).
    */
   async recordPayment(params: {
-    offer_id: string;
+    offer_id?: string | null;
     node_id: string;
     business_id?: string;
     payment_hash: string;
@@ -587,6 +587,7 @@ export class GreenlightService {
       .from('ln_payments')
       .insert({
         ...params,
+        offer_id: params.offer_id || null,
         status: 'settled',
         settled_at: new Date().toISOString(),
       })

@@ -33,7 +33,7 @@ export interface LnOffer {
 
 export interface LnPayment {
   id: string;
-  offer_id: string;
+  offer_id: string | null;
   node_id: string;
   business_id: string | null;
   payment_hash: string;

@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     const node = await service.getNode(node_id);
     if (node) {
       await service.recordPayment({
-        offer_id: '',
+        offer_id: null,
         node_id,
         business_id: node.business_id || undefined,
         payment_hash: result.payment_hash,
