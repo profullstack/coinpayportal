@@ -6,6 +6,7 @@ import type { LnOffer } from '@/lib/lightning/types';
 export interface LightningOfferCardProps {
   offer?: LnOffer;
   nodeId?: string;
+  walletId?: string;
   refreshKey?: number;
 }
 
@@ -13,14 +14,17 @@ export interface LightningOfferCardProps {
  * Displays BOLT12 offer(s) as a QR code with copy functionality.
  * Pass `offer` directly, or `nodeId` to fetch offers for a node.
  */
-export function LightningOfferCard({ offer: offerProp, nodeId, refreshKey }: LightningOfferCardProps) {
+export function LightningOfferCard({ offer: offerProp, nodeId, walletId, refreshKey }: LightningOfferCardProps) {
   const [offers, setOffers] = useState<LnOffer[]>(offerProp ? [offerProp] : []);
   const [loading, setLoading] = useState(!offerProp && !!nodeId);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (offerProp || !nodeId) return;
-    fetch(`/api/lightning/offers?node_id=${nodeId}`)
+    const params = new URLSearchParams({ node_id: nodeId });
+    if (walletId) params.set('wallet_id', walletId);
+
+    fetch(`/api/lightning/offers?${params.toString()}`)
       .then((r) => r.json())
       .then((data) => {
         if (data.success && data.data?.offers) {
@@ -29,7 +33,7 @@ export function LightningOfferCard({ offer: offerProp, nodeId, refreshKey }: Lig
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [nodeId, offerProp, refreshKey]);
+  }, [nodeId, walletId, offerProp, refreshKey]);
 
   if (loading) {
     return <div className="text-center text-sm text-gray-400 py-8">Loading offers...</div>;
