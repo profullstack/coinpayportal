@@ -8,7 +8,6 @@ const supabase = createClient(
 );
 
 const LIGHTNING_USERNAME_REGEX = /^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$/;
-
 function isMissingLnbitsWalletError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
   return /no wallet found|wallet not found|404/i.test(msg);
