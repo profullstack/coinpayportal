@@ -7,6 +7,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const LIGHTNING_USERNAME_REGEX = /^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$/;
 function isMissingLnbitsWalletError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
   return /no wallet found|wallet not found|404/i.test(msg);
@@ -88,8 +89,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate username format
-    const usernameRegex = /^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$/;
-    if (!usernameRegex.test(username)) {
+    if (!LIGHTNING_USERNAME_REGEX.test(username)) {
       return NextResponse.json(
         { error: 'Username must be 3-32 chars, lowercase alphanumeric, dots, hyphens, underscores' },
         { status: 400 }
@@ -165,9 +165,8 @@ export async function GET(request: NextRequest) {
   const username = request.nextUrl.searchParams.get('username');
   if (username) {
     const normalized = username.trim().toLowerCase();
-    const usernameRegex = /^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$/;
 
-    if (!usernameRegex.test(normalized)) {
+    if (!LIGHTNING_USERNAME_REGEX.test(normalized)) {
       return NextResponse.json({ available: false, reason: 'invalid_format' });
     }
 
