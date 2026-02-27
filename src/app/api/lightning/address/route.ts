@@ -44,8 +44,8 @@ async function ensureLightningAddressBackend(walletId: string, username: string,
   }
 
   try {
-    if (wallet.ln_paylink_id) {
-      await getPayLink(adminKey!, wallet.ln_paylink_id);
+    if (wallet.ln_paylink_id && adminKey) {
+      await getPayLink(adminKey, wallet.ln_paylink_id);
       return;
     }
 

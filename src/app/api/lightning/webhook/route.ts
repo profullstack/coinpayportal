@@ -5,7 +5,10 @@ import { getGreenlightService } from '@/lib/lightning/greenlight';
 
 function isAuthorizedWebhook(request: NextRequest): boolean {
   const secret = process.env.CRON_SECRET || process.env.INTERNAL_API_KEY;
-  if (!secret) return false;
+  if (!secret) {
+    console.warn('[Lightning] Webhook secret is not configured. Set CRON_SECRET or INTERNAL_API_KEY.');
+    return false;
+  }
 
   const provided = request.headers.get('x-lightning-webhook-secret')
     || request.headers.get('x-internal-api-key')

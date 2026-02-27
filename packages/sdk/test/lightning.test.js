@@ -66,17 +66,15 @@ describe('LightningClient (via CoinPayClient)', () => {
         amount_msat: 100000,
       });
 
-      expect(client.request).toHaveBeenCalledWith('/lightning/offers', {
-        method: 'POST',
-        body: expect.stringContaining('"wallet_id":"w-1"'),
-      });
-      expect(client.request).toHaveBeenCalledWith('/lightning/offers', {
-        method: 'POST',
-        body: expect.stringContaining('"node_id":"n-1"'),
-      });
-      expect(client.request).toHaveBeenCalledWith('/lightning/offers', {
-        method: 'POST',
-        body: expect.stringContaining('"description":"Coffee"'),
+      expect(client.request).toHaveBeenCalledTimes(1);
+      const [url, opts] = client.request.mock.calls[0];
+      expect(url).toBe('/lightning/offers');
+      expect(opts.method).toBe('POST');
+      expect(JSON.parse(opts.body)).toMatchObject({
+        wallet_id: 'w-1',
+        node_id: 'n-1',
+        description: 'Coffee',
+        amount_msat: 100000,
       });
     });
   });
