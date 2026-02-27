@@ -162,8 +162,26 @@ export async function POST(request: NextRequest) {
  * Get current Lightning Address for a wallet
  */
 export async function GET(request: NextRequest) {
+  const username = request.nextUrl.searchParams.get('username');
+  if (username) {
+    const normalized = username.trim().toLowerCase();
+    const usernameRegex = /^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$/;
+
+    if (!usernameRegex.test(normalized)) {
+      return NextResponse.json({ available: false, reason: 'invalid_format' });
+    }
+
+    const { data: existing } = await supabase
+      .from('wallets')
+      .select('id')
+      .eq('ln_username', normalized)
+      .maybeSingle();
+
+    return NextResponse.json({ available: !existing });
+  }
+
   const walletId = request.nextUrl.searchParams.get('wallet_id');
-  
+
   if (!walletId) {
     return NextResponse.json(
       { error: 'wallet_id required' },

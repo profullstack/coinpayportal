@@ -52,6 +52,15 @@ describe('/api/lightning/address', () => {
           state.updateValues = values;
           return query;
         }),
+        maybeSingle: vi.fn(async () => {
+          if (table !== 'wallets') return { data: null, error: null };
+
+          if (state.selectCols === 'id' && state.eqMap.ln_username) {
+            return { data: null, error: null };
+          }
+
+          return { data: null, error: null };
+        }),
         single: vi.fn(async () => {
           if (table !== 'wallets') return { data: null, error: null };
 
@@ -118,6 +127,7 @@ describe('/api/lightning/address', () => {
         eq: vi.fn(() => query),
         neq: vi.fn(() => query),
         update: vi.fn(() => query),
+        maybeSingle: vi.fn(async () => ({ data: null, error: null })),
         single: vi.fn(async () => ({ data: null, error: { message: 'not found' } })),
       };
       return query;
