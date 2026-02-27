@@ -13,6 +13,8 @@ export function LightningAddress({ walletId }: LightningAddressProps) {
   const [checking, setChecking] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isCheckingAvailability, setIsCheckingAvailability] = useState(false);
+  const [isUsernameAvailable, setIsUsernameAvailable] = useState<boolean | null>(null);
 
   // Check existing Lightning Address
   useEffect(() => {
@@ -28,9 +30,48 @@ export function LightningAddress({ walletId }: LightningAddressProps) {
       .finally(() => setChecking(false));
   }, [walletId]);
 
+  useEffect(() => {
+    if (currentAddress) return;
+
+    const normalized = username.trim().toLowerCase();
+    if (normalized.length < 3) {
+      setIsUsernameAvailable(null);
+      setIsCheckingAvailability(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(async () => {
+      try {
+        setIsCheckingAvailability(true);
+        const res = await fetch(`/api/lightning/address?username=${encodeURIComponent(normalized)}`, {
+          signal: controller.signal,
+        });
+        const data = await res.json();
+        setIsUsernameAvailable(Boolean(data.available));
+      } catch {
+        if (!controller.signal.aborted) {
+          setIsUsernameAvailable(null);
+        }
+      } finally {
+        if (!controller.signal.aborted) setIsCheckingAvailability(false);
+      }
+    }, 300);
+
+    return () => {
+      controller.abort();
+      clearTimeout(timeout);
+    };
+  }, [username, currentAddress]);
+
   const handleRegister = async () => {
     if (!username.trim()) {
       setMessage({ type: 'error', text: 'Enter a username' });
+      return;
+    }
+
+    if (isUsernameAvailable === false) {
+      setMessage({ type: 'error', text: 'Username already taken' });
       return;
     }
 
@@ -118,9 +159,28 @@ export function LightningAddress({ walletId }: LightningAddressProps) {
               </span>
             </div>
           </div>
+          {username.trim().length >= 3 && (
+            <p className={`text-xs ${
+              isCheckingAvailability
+                ? 'text-gray-400'
+                : isUsernameAvailable === true
+                  ? 'text-green-400'
+                  : isUsernameAvailable === false
+                    ? 'text-red-400'
+                    : 'text-gray-400'
+            }`}>
+              {isCheckingAvailability
+                ? 'Checking availability...'
+                : isUsernameAvailable === true
+                  ? 'Username is available'
+                  : isUsernameAvailable === false
+                    ? 'Username is taken'
+                    : ''}
+            </p>
+          )}
           <button
             onClick={handleRegister}
-            disabled={loading || !username.trim()}
+            disabled={loading || isCheckingAvailability || isUsernameAvailable === false || !username.trim()}
             className="w-full rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? 'Registering...' : 'Claim Lightning Address'}

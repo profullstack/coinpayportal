@@ -1,11 +1,74 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { createPayLink, createUserWallet } from '@/lib/lightning/lnbits';
+import { createPayLink, createUserWallet, getPayLink } from '@/lib/lightning/lnbits';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+function isMissingLnbitsWalletError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /no wallet found|wallet not found|404/i.test(msg);
+}
+
+async function ensureLightningAddressBackend(walletId: string, username: string, wallet: {
+  ln_wallet_adminkey?: string | null;
+  ln_paylink_id?: number | null;
+}) {
+  let adminKey = wallet.ln_wallet_adminkey || null;
+
+  const upsertLnbitsWallet = async () => {
+    const lnWallet = await createUserWallet(username);
+    adminKey = lnWallet.adminkey;
+
+    await supabase
+      .from('wallets')
+      .update({
+        ln_wallet_adminkey: lnWallet.adminkey,
+        ln_wallet_inkey: lnWallet.inkey,
+        ln_wallet_id: lnWallet.id,
+      })
+      .eq('id', walletId);
+  };
+
+  const createPayLinkForWallet = async () => createPayLink(adminKey!, {
+    description: `Lightning Address for ${username}@coinpayportal.com`,
+    min: 1,
+    max: 1000000,
+    username,
+  });
+
+  if (!adminKey) {
+    await upsertLnbitsWallet();
+  }
+
+  try {
+    if (wallet.ln_paylink_id && adminKey) {
+      await getPayLink(adminKey, wallet.ln_paylink_id);
+      return;
+    }
+
+    const payLink = await createPayLinkForWallet();
+    await supabase
+      .from('wallets')
+      .update({ ln_paylink_id: payLink.id })
+      .eq('id', walletId);
+  } catch (error) {
+    if (!isMissingLnbitsWalletError(error)) {
+      throw error;
+    }
+
+    // Auto-heal stale LNbits linkage, then retry once.
+    await upsertLnbitsWallet();
+    const payLink = await createPayLinkForWallet();
+
+    await supabase
+      .from('wallets')
+      .update({ ln_paylink_id: payLink.id })
+      .eq('id', walletId);
+  }
+}
 
 /**
  * POST /api/lightning/address
@@ -51,7 +114,7 @@ export async function POST(request: NextRequest) {
     // Get wallet to check ownership
     const { data: wallet, error: walletError } = await supabase
       .from('wallets')
-      .select('id, user_id, ln_username, ln_wallet_adminkey')
+      .select('id, user_id, ln_username, ln_wallet_adminkey, ln_paylink_id')
       .eq('id', wallet_id)
       .single();
 
@@ -62,39 +125,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let adminKey = wallet.ln_wallet_adminkey;
-
-    // Create LNbits wallet if user doesn't have one yet
-    if (!adminKey) {
-      const lnWallet = await createUserWallet(username);
-      adminKey = lnWallet.adminkey;
-
-      // Store LNbits wallet keys
-      await supabase
-        .from('wallets')
-        .update({
-          ln_wallet_adminkey: lnWallet.adminkey,
-          ln_wallet_inkey: lnWallet.inkey,
-          ln_wallet_id: lnWallet.id,
-        })
-        .eq('id', wallet_id);
-    }
-
-    // Create pay link in LNbits (this enables the Lightning Address)
-    const payLink = await createPayLink(adminKey, {
-      description: `Lightning Address for ${username}@coinpayportal.com`,
-      min: 1,
-      max: 1000000, // 1M sats max
-      username,
+    await ensureLightningAddressBackend(wallet_id, username, {
+      ln_wallet_adminkey: wallet.ln_wallet_adminkey,
+      ln_paylink_id: wallet.ln_paylink_id,
     });
 
     // Save username to wallet
     const { error: updateError } = await supabase
       .from('wallets')
-      .update({
-        ln_username: username,
-        ln_paylink_id: payLink.id,
-      })
+      .update({ ln_username: username })
       .eq('id', wallet_id);
 
     if (updateError) {
@@ -123,8 +162,26 @@ export async function POST(request: NextRequest) {
  * Get current Lightning Address for a wallet
  */
 export async function GET(request: NextRequest) {
+  const username = request.nextUrl.searchParams.get('username');
+  if (username) {
+    const normalized = username.trim().toLowerCase();
+    const usernameRegex = /^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$/;
+
+    if (!usernameRegex.test(normalized)) {
+      return NextResponse.json({ available: false, reason: 'invalid_format' });
+    }
+
+    const { data: existing } = await supabase
+      .from('wallets')
+      .select('id')
+      .eq('ln_username', normalized)
+      .maybeSingle();
+
+    return NextResponse.json({ available: !existing });
+  }
+
   const walletId = request.nextUrl.searchParams.get('wallet_id');
-  
+
   if (!walletId) {
     return NextResponse.json(
       { error: 'wallet_id required' },
@@ -134,12 +191,24 @@ export async function GET(request: NextRequest) {
 
   const { data: wallet } = await supabase
     .from('wallets')
-    .select('ln_username')
+    .select('ln_username, ln_wallet_adminkey, ln_paylink_id')
     .eq('id', walletId)
     .single();
 
   if (!wallet?.ln_username) {
     return NextResponse.json({ lightning_address: null });
+  }
+
+  // Keep Lightning Address restorable after seed imports by self-healing
+  // stale/missing LNbits wallet or paylink metadata in background.
+  try {
+    await ensureLightningAddressBackend(walletId, wallet.ln_username, {
+      ln_wallet_adminkey: wallet.ln_wallet_adminkey,
+      ln_paylink_id: wallet.ln_paylink_id,
+    });
+  } catch (error) {
+    console.error('Lightning address backend self-heal failed:', error);
+    // Do not block read response if backend repair fails.
   }
 
   return NextResponse.json({

@@ -59,6 +59,16 @@ describe('LightningAddress', () => {
       target: { value: 'bob' },
     });
 
+    // Availability check
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ available: true }),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Username is available')).toBeInTheDocument();
+    });
+
     // Mock registration
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -76,7 +86,7 @@ describe('LightningAddress', () => {
     });
   });
 
-  it('shows error on duplicate username', async () => {
+  it('shows unavailable state for duplicate username and blocks submit', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ lightning_address: null }),
@@ -93,15 +103,16 @@ describe('LightningAddress', () => {
     });
 
     mockFetch.mockResolvedValueOnce({
-      ok: false,
-      json: () => Promise.resolve({ error: 'Username already taken' }),
+      ok: true,
+      json: () => Promise.resolve({ available: false }),
     });
-
-    fireEvent.click(screen.getByText('Claim Lightning Address'));
 
     await waitFor(() => {
-      expect(screen.getByText('Username already taken')).toBeInTheDocument();
+      expect(screen.getByText('Username is taken')).toBeInTheDocument();
     });
+
+    const claimButton = screen.getByText('Claim Lightning Address') as HTMLButtonElement;
+    expect(claimButton.disabled).toBe(true);
   });
 
   it('filters invalid characters from username input', async () => {

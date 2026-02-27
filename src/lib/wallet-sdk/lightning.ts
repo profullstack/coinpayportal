@@ -111,6 +111,7 @@ export function createLightningMethods(
         body: {
           wallet_id: walletId,
           node_id: nodeId,
+          bolt11,
           bolt12: bolt11,
           mnemonic: getMnemonic(),
         },
