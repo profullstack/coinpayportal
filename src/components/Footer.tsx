@@ -22,6 +22,8 @@ export default function Footer() {
     support: [
       { name: 'Help Center', href: '/help' },
       { name: 'Status', href: '/status' },
+      { name: 'Email: support@coinpayportal.com', href: 'mailto:support@coinpayportal.com' },
+      { name: 'Phone: +1-888-526-4640', href: 'tel:+18885264640' },
       { name: 'GitHub', href: 'https://github.com/profullstack/coinpayportal' },
       { name: 'Discord', href: 'https://discord.gg/U7dEXfBA3s' },
     ],
@@ -134,27 +136,29 @@ export default function Footer() {
             <ul className="mt-4 space-y-3">
               {footerLinks.support.map((link) => (
                 <li key={link.name}>
-                  {link.href.startsWith('http') ? (
+                  {/^(https?:|mailto:|tel:)/.test(link.href) ? (
                     <a
                       href={link.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      target={link.href.startsWith('http') ? '_blank' : undefined}
+                      rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
                       className="text-sm text-gray-400 hover:text-purple-400 transition-colors inline-flex items-center"
                     >
                       {link.name}
-                      <svg
-                        className="ml-1 h-3 w-3"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                        />
-                      </svg>
+                      {link.href.startsWith('http') && (
+                        <svg
+                          className="ml-1 h-3 w-3"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                          />
+                        </svg>
+                      )}
                     </a>
                   ) : (
                     <Link
