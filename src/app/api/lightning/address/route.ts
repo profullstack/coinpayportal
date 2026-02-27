@@ -80,13 +80,39 @@ export async function POST(request: NextRequest) {
         .eq('id', wallet_id);
     }
 
-    // Create pay link in LNbits (this enables the Lightning Address)
-    const payLink = await createPayLink(adminKey, {
+    const createPayLinkWithCurrentWallet = () => createPayLink(adminKey, {
       description: `Lightning Address for ${username}@coinpayportal.com`,
       min: 1,
       max: 1000000, // 1M sats max
       username,
     });
+
+    let payLink: Awaited<ReturnType<typeof createPayLink>>;
+    try {
+      // Create pay link in LNbits (this enables the Lightning Address)
+      payLink = await createPayLinkWithCurrentWallet();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+
+      // If LNbits says this wallet does not exist anymore, auto-heal by recreating it once.
+      if (/no wallet found|wallet not found|404/i.test(msg)) {
+        const lnWallet = await createUserWallet(username);
+        adminKey = lnWallet.adminkey;
+
+        await supabase
+          .from('wallets')
+          .update({
+            ln_wallet_adminkey: lnWallet.adminkey,
+            ln_wallet_inkey: lnWallet.inkey,
+            ln_wallet_id: lnWallet.id,
+          })
+          .eq('id', wallet_id);
+
+        payLink = await createPayLinkWithCurrentWallet();
+      } else {
+        throw error;
+      }
+    }
 
     // Save username to wallet
     const { error: updateError } = await supabase
