@@ -3,11 +3,13 @@ import { NextRequest } from 'next/server';
 
 const mockCreatePayLink = vi.fn();
 const mockCreateUserWallet = vi.fn();
+const mockGetPayLink = vi.fn();
 const mockFrom = vi.fn();
 
 vi.mock('@/lib/lightning/lnbits', () => ({
   createPayLink: (...args: unknown[]) => mockCreatePayLink(...args),
   createUserWallet: (...args: unknown[]) => mockCreateUserWallet(...args),
+  getPayLink: (...args: unknown[]) => mockGetPayLink(...args),
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -16,7 +18,7 @@ vi.mock('@supabase/supabase-js', () => ({
   })),
 }));
 
-describe('POST /api/lightning/address', () => {
+describe('/api/lightning/address', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://localhost:54321');
@@ -66,6 +68,7 @@ describe('POST /api/lightning/address', () => {
                 user_id: 'u1',
                 ln_username: null,
                 ln_wallet_adminkey: 'stale-admin-key',
+                ln_paylink_id: null,
               },
               error: null,
             };
@@ -132,5 +135,54 @@ describe('POST /api/lightning/address', () => {
 
     expect(res.status).toBe(404);
     expect(body.error).toBe('Wallet not found');
+  });
+
+  it('self-heals LNbits wallet linkage on GET when username exists', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      const state: { selectCols?: string; eqMap: Record<string, unknown> } = { eqMap: {} };
+      const query = {
+        select: vi.fn((cols: string) => {
+          state.selectCols = cols;
+          return query;
+        }),
+        eq: vi.fn((key: string, value: unknown) => {
+          state.eqMap[key] = value;
+          return query;
+        }),
+        update: vi.fn(() => query),
+        single: vi.fn(async () => {
+          if (table !== 'wallets') return { data: null, error: null };
+          return {
+            data: {
+              ln_username: 'chovy',
+              ln_wallet_adminkey: 'stale-admin-key',
+              ln_paylink_id: 99,
+            },
+            error: null,
+          };
+        }),
+      };
+      return query;
+    });
+
+    mockGetPayLink.mockRejectedValueOnce(new Error('LNbits API error 404: No wallet found'));
+    mockCreateUserWallet.mockResolvedValue({
+      id: 'ln-wallet-2',
+      adminkey: 'fresh-admin-key',
+      inkey: 'fresh-invoice-key',
+    });
+    mockCreatePayLink.mockResolvedValue({ id: 321 });
+
+    const { GET } = await import('./route');
+    const req = new NextRequest('http://localhost:3000/api/lightning/address?wallet_id=w1');
+
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.lightning_address).toBe('chovy@coinpayportal.com');
+    expect(mockGetPayLink).toHaveBeenCalledTimes(1);
+    expect(mockCreateUserWallet).toHaveBeenCalledTimes(1);
+    expect(mockCreatePayLink).toHaveBeenCalledTimes(1);
   });
 });
