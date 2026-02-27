@@ -19,6 +19,13 @@ export default function ContactPage() {
             </div>
             
             <div>
+              <h3 className="font-semibold mb-2 text-white">Phone</h3>
+              <a href="tel:+18885264640" className="text-purple-600 hover:text-purple-700">
+                +1-888-526-4640
+              </a>
+            </div>
+
+            <div>
               <h3 className="font-semibold mb-2 text-white">Discord</h3>
               <a href="https://discord.gg/w5nHdzpQ29" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:text-purple-700">
                 Join our Discord community
