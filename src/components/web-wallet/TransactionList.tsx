@@ -110,7 +110,7 @@ export function TransactionList({
                 }`}
               >
                 {tx.type === 'send' ? '-' : '+'}
-                {tx.amount}
+                {tx.amount} {getChainSymbol(tx.chain)}
               </p>
               <p className="text-xs text-gray-400">
                 {formatRelativeTime(tx.createdAt)}
@@ -158,6 +158,29 @@ function StatusBadge({ status }: { status: string }) {
       {status}
     </span>
   );
+}
+
+function getChainSymbol(chain: string): string {
+  const map: Record<string, string> = {
+    BTC: 'BTC',
+    LN: 'sats',
+    BCH: 'BCH',
+    ETH: 'ETH',
+    POL: 'POL',
+    SOL: 'SOL',
+    USDC_ETH: 'USDC',
+    USDC_POL: 'USDC',
+    USDC_SOL: 'USDC',
+    USDT_ETH: 'USDT',
+    USDT_POL: 'USDT',
+    USDT_SOL: 'USDT',
+    DOGE: 'DOGE',
+    XRP: 'XRP',
+    ADA: 'ADA',
+    BNB: 'BNB',
+  };
+
+  return map[chain] || chain;
 }
 
 function formatRelativeTime(dateStr: string): string {
