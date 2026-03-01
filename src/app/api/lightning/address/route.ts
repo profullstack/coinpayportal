@@ -137,11 +137,22 @@ export async function POST(request: NextRequest) {
       walletError = fallback.error;
     }
 
-    if (walletError || !wallet) {
-      console.error('[LightningAddress] Wallet lookup failed', { wallet_id, walletError });
+    if (!wallet) {
+      const code = (walletError as any)?.code || null;
+      const message = (walletError as any)?.message || String(walletError || 'unknown wallet lookup error');
+      console.error('[LightningAddress] Wallet lookup failed', JSON.stringify({ wallet_id, code, message }));
+
+      // PGRST116: no rows returned for .single() -> true not-found
+      if (code === 'PGRST116' || /no rows|not found/i.test(message)) {
+        return NextResponse.json(
+          { error: 'Wallet not found', wallet_id },
+          { status: 404 }
+        );
+      }
+
       return NextResponse.json(
-        { error: 'Wallet not found', wallet_id },
-        { status: 404 }
+        { error: 'Wallet lookup failed', details: message, wallet_id },
+        { status: 500 }
       );
     }
 
