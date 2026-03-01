@@ -124,6 +124,16 @@ describe('Web Wallet Identity', () => {
       expect(validateAddress('11111111111111111111111111111111', 'USDC_SOL')).toBe(true);
     });
 
+    it('should validate Lightning node pubkeys', () => {
+      expect(validateAddress('0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798', 'LN')).toBe(true);
+      expect(validateAddress('0379be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798', 'LN')).toBe(true);
+    });
+
+    it('should reject invalid Lightning addresses', () => {
+      expect(validateAddress('not-a-pubkey', 'LN')).toBe(false);
+      expect(validateAddress('04' + 'a'.repeat(128), 'LN')).toBe(false);
+    });
+
     it('should reject empty address', () => {
       expect(validateAddress('', 'ETH')).toBe(false);
     });
@@ -165,6 +175,11 @@ describe('Web Wallet Identity', () => {
 
     it('should validate USDC_ETH derivation paths', () => {
       expect(validateDerivationPath("m/44'/60'/0'/0/0", 'USDC_ETH')).toBe(true);
+    });
+
+    it('should validate LN derivation paths', () => {
+      expect(validateDerivationPath("m/535'/0'", 'LN')).toBe(true);
+      expect(validateDerivationPath("m/535'/7'", 'LN')).toBe(true);
     });
 
     it('should reject invalid paths', () => {
@@ -222,6 +237,11 @@ describe('Web Wallet Identity', () => {
       expect(buildDerivationPath('USDC_ETH', 0)).toBe("m/44'/60'/0'/0/0");
       expect(buildDerivationPath('USDC_POL', 0)).toBe("m/44'/60'/0'/0/0");
       expect(buildDerivationPath('USDC_SOL', 0)).toBe("m/44'/501'/0'/0'");
+    });
+
+    it('should build LN path', () => {
+      expect(buildDerivationPath('LN', 0)).toBe("m/535'/0'");
+      expect(buildDerivationPath('LN', 3)).toBe("m/535'/3'");
     });
 
     it('should throw for unsupported chain', () => {

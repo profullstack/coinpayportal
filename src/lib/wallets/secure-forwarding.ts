@@ -326,11 +326,19 @@ export async function forwardPaymentSecurely(
         platformFee,
       };
     } catch (txError) {
-      // Update payment status to forwarding_failed
+      // Persist forwarding failure details for debugging/retry queue processors
+      const forwardingError = txError instanceof Error ? txError.message : String(txError);
+      const existingMetadata = (payment.metadata && typeof payment.metadata === 'object') ? payment.metadata : {};
+
       await supabase
         .from('payments')
         .update({
           status: 'forwarding_failed',
+          metadata: {
+            ...existingMetadata,
+            forwarding_error: forwardingError,
+            forwarding_failed_at: new Date().toISOString(),
+          },
           updated_at: new Date().toISOString(),
         })
         .eq('id', paymentId);

@@ -688,8 +688,8 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
 
     await user.selectOptions(screen.getByLabelText('Escrow Model *'), 'multisig_2of3');
 
-    const depositorInput = screen.getByPlaceholderText('Depositor public key');
-    const beneficiaryInput = screen.getByPlaceholderText('Beneficiary public key');
+    const depositorInput = screen.getByPlaceholderText('Depositor signer address (0x...)');
+    const beneficiaryInput = screen.getByPlaceholderText('Beneficiary signer address (0x...)');
 
     await user.type(depositorInput, '02abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef');
     fireEvent.blur(depositorInput);
@@ -746,9 +746,9 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
     await user.clear(screen.getByPlaceholderText(/0\.00 USD/));
     await user.type(screen.getByPlaceholderText(/0\.00 USD/), '42');
 
-    await user.type(screen.getByPlaceholderText('Depositor public key'), 'dep-pub');
-    await user.type(screen.getByPlaceholderText('Beneficiary public key'), 'ben-pub');
-    await user.type(screen.getByPlaceholderText('Arbiter public key (required)'), 'arb-pub');
+    await user.type(screen.getByPlaceholderText('Depositor signer address (0x...)'), '0xdep');
+    await user.type(screen.getByPlaceholderText('Beneficiary signer address (0x...)'), '0xben');
+    await user.type(screen.getByPlaceholderText('Arbiter signer address (0x...)'), '0xarb');
 
     await user.click(screen.getByRole('button', { name: 'Create Escrow' }));
 
@@ -763,9 +763,9 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
     const body = JSON.parse((createCall?.[1] as any).body);
 
     expect(body).toMatchObject({
-      depositor_pubkey: 'dep-pub',
-      beneficiary_pubkey: 'ben-pub',
-      arbiter_pubkey: 'arb-pub',
+      depositor_pubkey: '0xdep',
+      beneficiary_pubkey: '0xben',
+      arbiter_pubkey: '0xarb',
     });
     expect(body.depositor_address).toBeUndefined();
     expect(body.beneficiary_address).toBeUndefined();
@@ -790,9 +790,9 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
 
     await user.clear(screen.getByPlaceholderText(/0\.00 USD/));
     await user.type(screen.getByPlaceholderText(/0\.00 USD/), '12');
-    await user.type(screen.getByPlaceholderText('Depositor public key'), 'dep-pub');
-    await user.type(screen.getByPlaceholderText('Beneficiary public key'), 'ben-pub');
-    await user.type(screen.getByPlaceholderText('Arbiter public key (required)'), 'arb-pub');
+    await user.type(screen.getByPlaceholderText('Depositor signer address (0x...)'), '0xdep');
+    await user.type(screen.getByPlaceholderText('Beneficiary signer address (0x...)'), '0xben');
+    await user.type(screen.getByPlaceholderText('Arbiter signer address (0x...)'), '0xarb');
 
     await user.click(screen.getByRole('button', { name: 'Create Escrow' }));
 

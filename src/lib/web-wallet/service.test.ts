@@ -38,6 +38,7 @@ function createMockSupabase() {
       select: vi.fn().mockReturnValue(chain),
       insert: vi.fn().mockReturnValue(chain),
       update: vi.fn().mockReturnValue(chain),
+      upsert: vi.fn().mockReturnValue(chain),
       delete: vi.fn().mockReturnValue(chain),
       eq: vi.fn().mockReturnValue(chain),
       in: vi.fn().mockReturnValue(chain),
@@ -69,6 +70,7 @@ function mockTableSingle(supabase: any, table: string, data: any, error: any = n
     select: vi.fn().mockReturnValue(chain),
     insert: vi.fn().mockReturnValue(chain),
     update: vi.fn().mockReturnValue(chain),
+    upsert: vi.fn().mockReturnValue(chain),
     delete: vi.fn().mockReturnValue(chain),
     eq: vi.fn().mockReturnValue(chain),
     in: vi.fn().mockReturnValue(chain),
@@ -95,7 +97,7 @@ function createSequentialMockSupabase() {
 
   const buildChain = (table: string) => {
     const chain: any = {};
-    const methods = ['select', 'insert', 'update', 'delete', 'eq', 'in', 'order'];
+    const methods = ['select', 'insert', 'update', 'upsert', 'delete', 'eq', 'in', 'order'];
     for (const m of methods) {
       chain[m] = vi.fn().mockReturnValue(chain);
     }
@@ -238,6 +240,44 @@ describe('Web Wallet Service', () => {
       expect(result.success).toBe(true);
       expect(result.data?.addresses).toHaveLength(1);
     });
+
+    it('should create wallet with LN initial address (pubkey + LN derivation path)', async () => {
+      const keypair = generateTestKeypair();
+      const supabase = createSequentialMockSupabase();
+
+      supabase._configure('wallets', [
+        { data: null, error: { code: 'PGRST116' } },
+        { data: { id: 'test-wallet-ln', created_at: '2026-01-31T00:00:00Z' }, error: null },
+      ]);
+      supabase._configure('wallet_addresses', [
+        {
+          data: {
+            chain: 'LN',
+            address: '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
+            derivation_index: 0,
+          },
+          error: null,
+        },
+      ]);
+      supabase._configure('wallet_settings', [
+        { data: null, error: null },
+      ]);
+
+      const result = await createWallet(supabase, {
+        public_key_secp256k1: keypair.publicKeyHex,
+        initial_addresses: [
+          {
+            chain: 'LN',
+            address: '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
+            derivation_path: "m/535'/0'",
+          },
+        ],
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data?.addresses).toHaveLength(1);
+      expect(result.data?.addresses?.[0]?.chain).toBe('LN');
+    });
   });
 
   describe('importWallet', () => {
@@ -309,6 +349,38 @@ describe('Web Wallet Service', () => {
       expect(result.success).toBe(true);
       expect(result.data?.wallet_id).toBe('existing-wallet-id');
       expect(result.data?.already_exists).toBe(true);
+    });
+
+    it('should allow existing wallet to register LN address during import', async () => {
+      const keypair = generateTestKeypair();
+      const message = `CoinPayPortal wallet import: ${Math.floor(Date.now() / 1000)}`;
+      const signature = signMessage(message, keypair.privateKey);
+      const supabase = createSequentialMockSupabase();
+
+      // Existing wallet found
+      supabase._configure('wallets', [
+        { data: { id: 'existing-wallet-id' }, error: null },
+      ]);
+      supabase._configure('wallet_addresses', [
+        { data: null, error: null },
+      ]);
+
+      const result = await importWallet(supabase, {
+        public_key_secp256k1: keypair.publicKeyHex,
+        addresses: [
+          {
+            chain: 'LN',
+            address: '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
+            derivation_path: "m/535'/0'",
+          },
+        ],
+        proof_of_ownership: { message, signature },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data?.wallet_id).toBe('existing-wallet-id');
+      expect(result.data?.already_exists).toBe(true);
+      expect(result.data?.addresses_registered).toBe(1);
     });
   });
 
@@ -401,6 +473,39 @@ describe('Web Wallet Service', () => {
       expect(result.success).toBe(true);
       expect(result.data?.address_id).toBe('addr-1');
       expect(result.data?.derivation_index).toBe(1);
+    });
+
+    it('should register a valid LN address for existing wallet', async () => {
+      const supabase = createSequentialMockSupabase();
+
+      supabase._configure('wallets', [
+        { data: { id: 'w1' }, error: null },
+      ]);
+      supabase._configure('wallet_addresses', [
+        { data: null, error: { code: 'PGRST116' } },
+        {
+          data: {
+            id: 'addr-ln-1',
+            chain: 'LN',
+            address: '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
+            derivation_index: 0,
+            derivation_path: "m/535'/0'",
+            created_at: '2026-01-31T00:00:00Z',
+          },
+          error: null,
+        },
+      ]);
+
+      const result = await deriveAddress(supabase, 'w1', {
+        chain: 'LN',
+        address: '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
+        derivation_index: 0,
+        derivation_path: "m/535'/0'",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data?.address_id).toBe('addr-ln-1');
+      expect(result.data?.chain).toBe('LN');
     });
   });
 

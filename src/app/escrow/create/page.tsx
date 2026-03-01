@@ -88,6 +88,22 @@ function isMultisigEscrow(escrow: CreatedEscrow): escrow is MultisigEscrow {
   return escrow.escrow_model === 'multisig_2of3';
 }
 
+function isEvmMultisigChain(chain: string): boolean {
+  return ['ETH', 'POL', 'BASE', 'ARB', 'OP', 'BNB', 'AVAX'].includes(chain);
+}
+
+function multisigSignerFieldLabel(role: 'Depositor' | 'Beneficiary' | 'Arbiter', chain: string): string {
+  const field = isEvmMultisigChain(chain) ? 'Signer Address' : 'Public Key';
+  return `${role} ${field} *`;
+}
+
+function multisigSignerPlaceholder(role: 'Depositor' | 'Beneficiary' | 'Arbiter', chain: string): string {
+  if (isEvmMultisigChain(chain)) {
+    return `${role} signer address (0x...)`;
+  }
+  return `${role} compressed public key`;
+}
+
 export default function CreateEscrowPage() {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
@@ -302,7 +318,7 @@ export default function CreateEscrowPage() {
     try {
       const isMultisig = formData.escrow_model === 'multisig_2of3';
       if (isMultisig && !formData.arbiter_address.trim()) {
-        setError('Arbiter public key is required for multisig escrow');
+        setError('Arbiter signer address/public key is required for multisig escrow');
         return;
       }
 
@@ -1033,7 +1049,9 @@ export default function CreateEscrowPage() {
           {/* Depositor Address */}
           <div>
             <label htmlFor="depositor" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {formData.escrow_model === 'multisig_2of3' ? 'Depositor Public Key *' : 'Depositor Address *'}
+              {formData.escrow_model === 'multisig_2of3'
+                ? multisigSignerFieldLabel('Depositor', formData.chain)
+                : 'Depositor Address *'}
             </label>
             <input
               id="depositor"
@@ -1047,14 +1065,18 @@ export default function CreateEscrowPage() {
                 }
               }}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm"
-              placeholder={formData.escrow_model === 'multisig_2of3' ? 'Depositor public key' : 'Your wallet address (sender)'}
+              placeholder={formData.escrow_model === 'multisig_2of3'
+                ? multisigSignerPlaceholder('Depositor', formData.chain)
+                : 'Your wallet address (sender)'}
             />
           </div>
 
           {/* Beneficiary Address */}
           <div>
             <label htmlFor="beneficiary" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {formData.escrow_model === 'multisig_2of3' ? 'Beneficiary Public Key *' : 'Beneficiary Address *'}
+              {formData.escrow_model === 'multisig_2of3'
+                ? multisigSignerFieldLabel('Beneficiary', formData.chain)
+                : 'Beneficiary Address *'}
             </label>
             <input
               id="beneficiary"
@@ -1068,14 +1090,18 @@ export default function CreateEscrowPage() {
                 }
               }}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm"
-              placeholder={formData.escrow_model === 'multisig_2of3' ? 'Beneficiary public key' : 'Recipient wallet address'}
+              placeholder={formData.escrow_model === 'multisig_2of3'
+                ? multisigSignerPlaceholder('Beneficiary', formData.chain)
+                : 'Recipient wallet address'}
             />
           </div>
 
           {/* Arbiter Address (optional) */}
           <div>
             <label htmlFor="arbiter" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Arbiter {formData.escrow_model === 'multisig_2of3' ? 'Public Key *' : 'Address '} {formData.escrow_model === 'multisig_2of3' ? null : <span className="text-gray-400">(optional)</span>}
+              {formData.escrow_model === 'multisig_2of3'
+                ? multisigSignerFieldLabel('Arbiter', formData.chain)
+                : <>Arbiter Address <span className="text-gray-400">(optional)</span></>}
             </label>
             <input
               id="arbiter"
@@ -1083,7 +1109,9 @@ export default function CreateEscrowPage() {
               value={formData.arbiter_address}
               onChange={(e) => setFormData({ ...formData, arbiter_address: e.target.value })}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm"
-              placeholder={formData.escrow_model === 'multisig_2of3' ? 'Arbiter public key (required)' : 'Third-party dispute resolver (optional)'}
+              placeholder={formData.escrow_model === 'multisig_2of3'
+                ? multisigSignerPlaceholder('Arbiter', formData.chain)
+                : 'Third-party dispute resolver (optional)'}
             />
           </div>
 

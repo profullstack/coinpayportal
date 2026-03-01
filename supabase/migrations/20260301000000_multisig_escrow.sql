@@ -131,4 +131,9 @@ COMMENT ON COLUMN escrows.dispute_status IS 'Dispute sub-status for arbiter reso
 COMMENT ON TABLE multisig_proposals IS 'Proposed transactions for multisig escrows';
 COMMENT ON TABLE multisig_signatures IS 'Signatures collected for multisig proposals';
 
+-- Validate NOT VALID constraints so existing rows are checked post-migration.
+ALTER TABLE escrows VALIDATE CONSTRAINT escrows_status_check;
+ALTER TABLE escrow_events VALIDATE CONSTRAINT escrow_events_event_type_check;
+ALTER TABLE escrows VALIDATE CONSTRAINT escrows_chain_check;
+
 COMMIT;

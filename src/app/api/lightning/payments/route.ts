@@ -81,10 +81,6 @@ export async function GET(request: NextRequest) {
 
     const service = getGreenlightService();
 
-    if (node_id && !wallet_id) {
-      return WalletErrors.badRequest('VALIDATION_ERROR', 'wallet_id is required when node_id is provided');
-    }
-
     if (node_id && wallet_id) {
       const node = await service.getNode(node_id);
       if (!node) return WalletErrors.notFound('node');
@@ -96,6 +92,7 @@ export async function GET(request: NextRequest) {
     const result = await service.listPayments({
       business_id,
       node_id,
+      wallet_id,
       offer_id,
       direction,
       status,
