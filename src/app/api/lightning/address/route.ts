@@ -13,6 +13,11 @@ function isMissingLnbitsWalletError(error: unknown): boolean {
   return /no wallet found|wallet not found|404/i.test(msg);
 }
 
+function isLnbitsMissingUserAuthError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /missing user id or access token|api error 401/i.test(msg);
+}
+
 async function ensureLightningAddressBackend(walletId: string, username: string, wallet: {
   ln_wallet_adminkey?: string | null;
   ln_paylink_id?: number | null;
@@ -20,17 +25,37 @@ async function ensureLightningAddressBackend(walletId: string, username: string,
   let adminKey = wallet.ln_wallet_adminkey || null;
 
   const upsertLnbitsWallet = async () => {
-    const lnWallet = await createUserWallet(username);
-    adminKey = lnWallet.adminkey;
+    try {
+      const lnWallet = await createUserWallet(username);
+      adminKey = lnWallet.adminkey;
 
-    await supabase
-      .from('wallets')
-      .update({
-        ln_wallet_adminkey: lnWallet.adminkey,
-        ln_wallet_inkey: lnWallet.inkey,
-        ln_wallet_id: lnWallet.id,
-      })
-      .eq('id', walletId);
+      await supabase
+        .from('wallets')
+        .update({
+          ln_wallet_adminkey: lnWallet.adminkey,
+          ln_wallet_inkey: lnWallet.inkey,
+          ln_wallet_id: lnWallet.id,
+        })
+        .eq('id', walletId);
+      return;
+    } catch (error) {
+      if (!isLnbitsMissingUserAuthError(error)) throw error;
+
+      // Some LNbits setups require user-token auth for wallet creation.
+      // Fallback to configured admin key for LNURLp management so username
+      // claims still work for anonymous wallets.
+      const fallbackAdmin = process.env.LNBITS_ADMIN_KEY;
+      if (!fallbackAdmin) throw error;
+
+      adminKey = fallbackAdmin;
+
+      await supabase
+        .from('wallets')
+        .update({
+          ln_wallet_adminkey: fallbackAdmin,
+        })
+        .eq('id', walletId);
+    }
   };
 
   const createPayLinkForWallet = async () => createPayLink(adminKey!, {
