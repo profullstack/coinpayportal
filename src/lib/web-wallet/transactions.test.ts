@@ -298,6 +298,77 @@ describe('getTransactionHistory', () => {
       expect(result.code).toBe('DB_ERROR');
     }
   });
+
+  it('should merge LN payments into wallet transaction history', async () => {
+    const walletTxs = [
+      {
+        id: 'tx-onchain-1',
+        wallet_id: 'w1',
+        chain: 'BTC',
+        tx_hash: 'btc-hash',
+        direction: 'incoming',
+        status: 'confirmed',
+        amount: '0.0001',
+        from_address: 'a',
+        to_address: 'b',
+        created_at: '2026-03-01T10:00:00Z',
+      },
+    ];
+
+    const lnPayments = [
+      {
+        id: 'lnp-1',
+        node_id: 'node-1',
+        direction: 'incoming',
+        status: 'settled',
+        payment_hash: 'ln-hash-1',
+        amount_msat: 5000,
+        created_at: '2026-03-01T11:00:00Z',
+      },
+    ];
+
+    const makeWalletTxQuery = () => {
+      const q: any = {};
+      q.eq = vi.fn().mockReturnValue(q);
+      q.order = vi.fn().mockReturnValue(q);
+      q.range = vi.fn().mockResolvedValue({ data: walletTxs, count: 1, error: null });
+      return q;
+    };
+
+    const makeLnNodesQuery = () => {
+      const q: any = {};
+      q.eq = vi.fn().mockResolvedValue({ data: [{ id: 'node-1' }], error: null });
+      return q;
+    };
+
+    const makeLnPaymentsQuery = () => {
+      const q: any = {};
+      q.in = vi.fn().mockReturnValue(q);
+      q.order = vi.fn().mockResolvedValue({ data: lnPayments, error: null });
+      q.eq = vi.fn().mockReturnValue(q);
+      q.gte = vi.fn().mockReturnValue(q);
+      q.lte = vi.fn().mockReturnValue(q);
+      return q;
+    };
+
+    const supabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'wallet_transactions') return { select: vi.fn().mockReturnValue(makeWalletTxQuery()) };
+        if (table === 'ln_nodes') return { select: vi.fn().mockReturnValue(makeLnNodesQuery()) };
+        if (table === 'ln_payments') return { select: vi.fn().mockReturnValue(makeLnPaymentsQuery()) };
+        return { select: vi.fn() };
+      }),
+    } as any;
+
+    const result = await getTransactionHistory(supabase, 'w1');
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.transactions).toHaveLength(2);
+      expect(result.data.transactions[0].chain).toBe('LN');
+      expect(result.data.transactions[0].amount).toBe('5');
+      expect(result.data.total).toBe(2);
+    }
+  });
 });
 
 // ──────────────────────────────────────────────

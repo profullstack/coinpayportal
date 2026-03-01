@@ -292,15 +292,19 @@ describe('Lightning Route Handlers', () => {
   // ────────────────────────────────────
 
   describe('GET /api/lightning/payments', () => {
-    it('should return 400 when node_id is provided without wallet_id', async () => {
+    it('should list payments by node_id without requiring wallet_id', async () => {
       const { GET } = await import('./payments/route');
+      mockListPayments.mockResolvedValue({
+        payments: [{ id: 'p-1', status: 'settled' }],
+        total: 1,
+      });
+
       const req = makeRequest('http://localhost:3000/api/lightning/payments?node_id=n1');
       const res = await GET(req);
       const body = await res.json();
 
-      expect(res.status).toBe(400);
-      expect(body.success).toBe(false);
-      expect(body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.status).toBe(200);
+      expect(body.data.payments).toHaveLength(1);
     });
 
     it('should list payments', async () => {

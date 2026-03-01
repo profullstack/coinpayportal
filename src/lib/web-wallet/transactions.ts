@@ -487,7 +487,7 @@ export async function getTransactionHistory(
   const limit = Math.min(options.limit || 50, 100);
   const offset = options.offset || 0;
 
-  // Build query
+  // Build query for on-chain history table
   let query = supabase
     .from('wallet_transactions')
     .select('*', { count: 'exact' })
@@ -518,13 +518,87 @@ export async function getTransactionHistory(
     return { success: false, error: 'Failed to load transactions', code: 'DB_ERROR' };
   }
 
-  console.log(`[Transactions] Loaded ${data?.length || 0} of ${count || 0} transactions for wallet ${walletId}`);
+  const onchainTxs = ((data || []) as TransactionRecord[]);
+
+  // Merge Lightning payments from ln_payments for this wallet.
+  // We do this server-side so global history can show LN events too.
+  let lnTxs: TransactionRecord[] = [];
+  const wantsLn = !options.chain || options.chain === 'LN';
+  if (wantsLn) {
+    try {
+      const { data: nodes } = await supabase
+        .from('ln_nodes')
+        .select('id')
+        .eq('wallet_id', walletId);
+
+      const nodeIds = (nodes || []).map((n: any) => n.id).filter(Boolean);
+      if (nodeIds.length > 0) {
+        let lnQuery = supabase
+          .from('ln_payments')
+          .select('*')
+          .in('node_id', nodeIds)
+          .order('created_at', { ascending: false });
+
+        if (options.direction) {
+          lnQuery = lnQuery.eq('direction', options.direction);
+        }
+        if (options.status) {
+          const lnStatus = options.status === 'confirmed' ? 'settled' : options.status;
+          lnQuery = lnQuery.eq('status', lnStatus);
+        }
+        if (options.from_date) {
+          lnQuery = lnQuery.gte('created_at', options.from_date);
+        }
+        if (options.to_date) {
+          lnQuery = lnQuery.lte('created_at', options.to_date);
+        }
+
+        const { data: lnPayments, error: lnError } = await lnQuery;
+        if (lnError) {
+          console.warn(`[Transactions] Failed to load LN payments for wallet ${walletId}:`, lnError.message);
+        } else {
+          lnTxs = (lnPayments || []).map((p: any) => ({
+            id: `ln_${p.id || p.payment_hash}`,
+            wallet_id: walletId,
+            address_id: null,
+            chain: 'LN',
+            tx_hash: p.payment_hash,
+            direction: p.direction,
+            status: p.status === 'settled' ? 'confirmed' : (p.status || 'pending'),
+            amount: (Number(p.amount_msat || 0) / 1000).toString(), // sats
+            from_address: p.direction === 'incoming' ? 'lightning' : (p.node_id || 'lightning'),
+            to_address: p.direction === 'incoming' ? (p.node_id || 'lightning') : 'lightning',
+            fee_amount: null,
+            fee_currency: 'LN',
+            confirmations: p.status === 'settled' ? 1 : 0,
+            block_number: null,
+            block_timestamp: p.settled_at || null,
+            metadata: {},
+            created_at: p.created_at,
+            updated_at: p.updated_at || p.created_at,
+          })) as TransactionRecord[];
+        }
+      }
+    } catch (lnErr) {
+      console.warn(`[Transactions] LN merge failed for wallet ${walletId}:`, lnErr);
+    }
+  }
+
+  const merged = [...onchainTxs, ...lnTxs].sort((a, b) => {
+    const ta = new Date(a.created_at || 0).getTime();
+    const tb = new Date(b.created_at || 0).getTime();
+    return tb - ta;
+  });
+
+  const paged = merged.slice(offset, offset + limit);
+
+  console.log(`[Transactions] Loaded ${paged.length} of ${merged.length} transactions for wallet ${walletId}`);
 
   return {
     success: true,
     data: {
-      transactions: (data || []) as TransactionRecord[],
-      total: count || 0,
+      transactions: paged,
+      total: merged.length,
       limit,
       offset,
     },

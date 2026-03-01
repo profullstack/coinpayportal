@@ -14,6 +14,7 @@ import type { WalletChain } from '@/lib/web-wallet/identity';
 const CHAINS = [
   { value: '', label: 'All Chains' },
   { value: 'BTC', label: 'Bitcoin (BTC)' },
+  { value: 'LN', label: 'Lightning (LN)' },
   { value: 'BCH', label: 'Bitcoin Cash (BCH)' },
   { value: 'ETH', label: 'Ethereum (ETH)' },
   { value: 'POL', label: 'Polygon (POL)' },

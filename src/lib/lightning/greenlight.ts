@@ -402,6 +402,7 @@ export class GreenlightService {
    */
   async listPayments(filters: {
     node_id?: string;
+    wallet_id?: string;
     business_id?: string;
     offer_id?: string;
     direction?: 'incoming' | 'outgoing';
@@ -411,7 +412,23 @@ export class GreenlightService {
   }): Promise<{ payments: LnPayment[]; total: number }> {
     let query = this.supabase.from('ln_payments').select('*', { count: 'exact' });
 
-    if (filters.node_id) query = query.eq('node_id', filters.node_id);
+    if (filters.node_id) {
+      query = query.eq('node_id', filters.node_id);
+    } else if (filters.wallet_id) {
+      const { data: nodes, error: nodesError } = await this.supabase
+        .from('ln_nodes')
+        .select('id')
+        .eq('wallet_id', filters.wallet_id);
+
+      if (nodesError) throw new Error(`Failed to resolve wallet nodes: ${nodesError.message}`);
+
+      const nodeIds = (nodes || []).map((n: any) => n.id).filter(Boolean);
+      if (nodeIds.length === 0) {
+        return { payments: [], total: 0 };
+      }
+      query = query.in('node_id', nodeIds);
+    }
+
     if (filters.business_id) query = query.eq('business_id', filters.business_id);
     if (filters.offer_id) query = query.eq('offer_id', filters.offer_id);
     if (filters.direction) query = query.eq('direction', filters.direction);
