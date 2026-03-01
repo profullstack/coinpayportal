@@ -63,15 +63,16 @@ export async function POST(request: NextRequest) {
       // Greenlight bridge is unavailable in this runtime.
       const { data: wallet } = await supabase
         .from('wallets')
-        .select('ln_wallet_inkey')
+        .select('ln_wallet_inkey,ln_wallet_adminkey,ln_username')
         .eq('id', wallet_id)
         .single();
 
-      if (!wallet?.ln_wallet_inkey) {
+      const lnbitsInvoiceKey = wallet?.ln_wallet_inkey || wallet?.ln_wallet_adminkey || null;
+      if (!lnbitsInvoiceKey) {
         throw new Error('Lightning bridge unavailable and LNbits wallet not configured. Claim a Lightning Address first.');
       }
 
-      const lnbitsInvoice = await createLnbitsInvoice(wallet.ln_wallet_inkey, amount_sats, description);
+      const lnbitsInvoice = await createLnbitsInvoice(lnbitsInvoiceKey, amount_sats, description);
       invoice = {
         id: lnbitsInvoice.payment_hash,
         bolt11: lnbitsInvoice.payment_request,
