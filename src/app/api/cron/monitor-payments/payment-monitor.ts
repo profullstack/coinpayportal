@@ -10,6 +10,33 @@ import { checkBalance } from './balance-checkers';
 import { sendWebhook } from './webhook';
 import type { Payment, MonitorStats } from './types';
 
+const MAX_FORWARD_RETRY_ATTEMPTS = 5;
+
+function getNextRetryAt(attempts: number): string {
+  const baseSeconds = 60; // 1m
+  const delaySeconds = Math.min(baseSeconds * Math.pow(2, Math.max(0, attempts - 1)), 60 * 60); // cap at 1h
+  return new Date(Date.now() + delaySeconds * 1000).toISOString();
+}
+
+async function enqueueForwardingRetry(
+  supabase: SupabaseClient,
+  paymentId: string,
+  error: string,
+  attemptsOverride?: number
+): Promise<void> {
+  const attempts = attemptsOverride ?? 1;
+  await supabase.from('payment_forwarding_queue').upsert({
+    payment_id: paymentId,
+    status: attempts >= MAX_FORWARD_RETRY_ATTEMPTS ? 'dead' : 'retrying',
+    attempts,
+    max_attempts: MAX_FORWARD_RETRY_ATTEMPTS,
+    next_retry_at: getNextRetryAt(attempts),
+    last_error: error,
+    last_response: { error },
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'payment_id' });
+}
+
 /**
  * Monitor all pending payments
  */
@@ -124,17 +151,127 @@ export async function monitorPayments(
             if (!forwardResponse.ok) {
               const errorText = await forwardResponse.text();
               console.error(`Failed to trigger forwarding for ${payment.id}: ${forwardResponse.status} - ${errorText}`);
+
+              // Immediate auto-retry once before queueing
+              const retryResponse = await fetch(`${appUrl}/api/payments/${payment.id}/forward`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${internalApiKey}`,
+                },
+                body: JSON.stringify({ retry: true }),
+              });
+
+              if (!retryResponse.ok) {
+                const retryErrorText = await retryResponse.text();
+                console.error(`Immediate retry failed for ${payment.id}: ${retryResponse.status} - ${retryErrorText}`);
+                await enqueueForwardingRetry(
+                  supabase,
+                  payment.id,
+                  `initial=${forwardResponse.status}; retry=${retryResponse.status}; ${retryErrorText}`,
+                  1
+                );
+              } else {
+                console.log(`Forwarding retry succeeded for payment ${payment.id}`);
+                await supabase.from('payment_forwarding_queue').delete().eq('payment_id', payment.id);
+              }
             } else {
               console.log(`Forwarding triggered for payment ${payment.id}`);
+              await supabase.from('payment_forwarding_queue').delete().eq('payment_id', payment.id);
             }
           } catch (forwardError) {
+            const errMsg = forwardError instanceof Error ? forwardError.message : String(forwardError);
             console.error(`Error triggering forwarding for ${payment.id}:`, forwardError);
+            await enqueueForwardingRetry(supabase, payment.id, errMsg, 1);
           }
         }
       }
     } catch (paymentError) {
       console.error(`Error processing payment ${payment.id}:`, paymentError);
       stats.errors++;
+    }
+  }
+
+  // Process queued forwarding retries
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
+  const internalApiKey = process.env.INTERNAL_API_KEY;
+
+  if (internalApiKey) {
+    const { data: queuedRetries, error: queueFetchError } = await supabase
+      .from('payment_forwarding_queue')
+      .select('payment_id, attempts, max_attempts, status')
+      .in('status', ['pending', 'retrying'])
+      .lte('next_retry_at', now.toISOString())
+      .order('next_retry_at', { ascending: true })
+      .limit(25);
+
+    if (queueFetchError) {
+      console.error('Failed to fetch payment_forwarding_queue:', queueFetchError.message);
+      stats.errors++;
+    } else {
+      for (const item of queuedRetries || []) {
+        try {
+          await supabase
+            .from('payment_forwarding_queue')
+            .update({ status: 'processing', updated_at: new Date().toISOString() })
+            .eq('payment_id', item.payment_id);
+
+          const retryResponse = await fetch(`${appUrl}/api/payments/${item.payment_id}/forward`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${internalApiKey}`,
+            },
+            body: JSON.stringify({ retry: true }),
+          });
+
+          if (retryResponse.ok) {
+            await supabase
+              .from('payment_forwarding_queue')
+              .update({ status: 'resolved', updated_at: new Date().toISOString() })
+              .eq('payment_id', item.payment_id);
+            continue;
+          }
+
+          const errText = await retryResponse.text();
+          const attempts = (item.attempts || 0) + 1;
+          const isDead = attempts >= (item.max_attempts || MAX_FORWARD_RETRY_ATTEMPTS);
+
+          await supabase
+            .from('payment_forwarding_queue')
+            .update({
+              attempts,
+              status: isDead ? 'dead' : 'retrying',
+              next_retry_at: getNextRetryAt(attempts),
+              last_error: errText.slice(0, 1000),
+              last_response: { status: retryResponse.status, body: errText.slice(0, 4000) },
+              updated_at: new Date().toISOString(),
+            })
+            .eq('payment_id', item.payment_id);
+
+          if (isDead) {
+            console.error(`Payment ${item.payment_id} forwarding retry exhausted, moved to dead queue`);
+          }
+        } catch (retryErr) {
+          const attempts = (item.attempts || 0) + 1;
+          const isDead = attempts >= (item.max_attempts || MAX_FORWARD_RETRY_ATTEMPTS);
+          const errText = retryErr instanceof Error ? retryErr.message : String(retryErr);
+
+          await supabase
+            .from('payment_forwarding_queue')
+            .update({
+              attempts,
+              status: isDead ? 'dead' : 'retrying',
+              next_retry_at: getNextRetryAt(attempts),
+              last_error: errText.slice(0, 1000),
+              last_response: { error: errText.slice(0, 4000) },
+              updated_at: new Date().toISOString(),
+            })
+            .eq('payment_id', item.payment_id);
+
+          stats.errors++;
+        }
+      }
     }
   }
 
