@@ -28,7 +28,7 @@ ALTER TABLE escrows DROP CONSTRAINT IF EXISTS escrows_status_check;
 ALTER TABLE escrows ADD CONSTRAINT escrows_status_check CHECK (status IN (
   'created', 'pending', 'funded', 'released', 'settled',
   'disputed', 'refunded', 'expired'
-));
+)) NOT VALID;
 
 -- Update escrow_events event_type CHECK to include multisig events
 ALTER TABLE escrow_events DROP CONSTRAINT IF EXISTS escrow_events_event_type_check;
@@ -37,7 +37,7 @@ ALTER TABLE escrow_events ADD CONSTRAINT escrow_events_event_type_check CHECK (e
   'disputed', 'dispute_resolved', 'refunded', 'expired',
   'metadata_updated',
   'multisig_created', 'proposal_created', 'signature_added', 'tx_broadcast'
-));
+)) NOT VALID;
 
 -- Update chain CHECK to include additional EVM chains
 ALTER TABLE escrows DROP CONSTRAINT IF EXISTS escrows_chain_check;
@@ -48,7 +48,7 @@ ALTER TABLE escrows ADD CONSTRAINT escrows_chain_check CHECK (chain IN (
   'USDC_ETH', 'USDC_POL', 'USDC_SOL',
   'BASE', 'ARB', 'OP', 'AVAX',
   'LTC'
-));
+)) NOT VALID;
 
 CREATE INDEX IF NOT EXISTS idx_escrows_escrow_model ON escrows(escrow_model);
 
