@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { listBusinesses } from '@/lib/business/service';
 import { getJwtSecret } from '@/lib/secrets';
+// Re-export POST from create sub-route so POST /api/payments works
+export { POST } from './create/route';
 
 /**
  * GET /api/payments

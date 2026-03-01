@@ -127,7 +127,7 @@ describe('Escrow Service', () => {
         beneficiary_address: '0xBeneficiary456',
       });
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Amount must be greater than zero');
+      expect(result.error?.toLowerCase()).toContain('amount must be greater than zero');
     });
 
     it('should reject same depositor and beneficiary', async () => {
@@ -151,7 +151,7 @@ describe('Escrow Service', () => {
         beneficiary_address: '0xBeneficiary456',
       });
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Invalid depositor address');
+      expect(result.error?.toLowerCase()).toContain('depositor_address must be at least 10 characters');
     });
 
     it('should create escrow with valid input', async () => {

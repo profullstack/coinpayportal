@@ -158,6 +158,9 @@ export default function PricingPage() {
     features.push({ name: 'Custom webhooks', included: plan.features.custom_webhooks });
     features.push({ name: 'White-label option', included: plan.features.white_label });
     features.push({ name: 'Priority support', included: plan.features.priority_support });
+    if (isProfessional) {
+      features.push({ name: 'Automated Invoicing (Coming Soon)', included: true });
+    }
 
     return features;
   };
@@ -166,42 +169,42 @@ export default function PricingPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading plans...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto"></div>
+          <p className="mt-4 text-gray-400">Loading plans...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-b from-slate-950 to-slate-900 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-extrabold text-gray-900 sm:text-5xl">
+          <h1 className="text-4xl font-extrabold text-white sm:text-5xl">
             Simple, Transparent Pricing
           </h1>
-          <p className="mt-4 text-xl text-gray-600 max-w-2xl mx-auto">
+          <p className="mt-4 text-xl text-gray-400 max-w-2xl mx-auto">
             Choose the plan that's right for your business. Start free and upgrade as you grow.
           </p>
           <p className="mt-2 text-sm text-gray-500">
-            Platform fees: <span className="font-semibold">1% on Starter</span>, <span className="font-semibold text-green-600">0.5% on Professional</span> (50% savings!). Blockchain network fees are additional.
+            Platform fees: <span className="font-semibold text-gray-300">1% on Starter</span>, <span className="font-semibold text-green-400">0.5% on Professional</span> (50% savings!). Blockchain network fees are additional.
           </p>
         </div>
 
         {/* Current Plan Banner (for authenticated users) */}
         {isAuthenticated && entitlements && (
-          <div className="mb-8 bg-purple-50 border border-purple-200 rounded-lg p-4 max-w-2xl mx-auto">
+          <div className="mb-8 bg-purple-500/10 border border-purple-500/30 rounded-lg p-4 max-w-2xl mx-auto">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-purple-600 font-medium">Current Plan</p>
-                <p className="text-lg font-semibold text-purple-900">{entitlements.plan.name}</p>
+                <p className="text-sm text-purple-400 font-medium">Current Plan</p>
+                <p className="text-lg font-semibold text-white">{entitlements.plan.name}</p>
               </div>
               <div className="text-right">
-                <p className="text-sm text-purple-600">This Month's Usage</p>
-                <p className="text-lg font-semibold text-purple-900">
+                <p className="text-sm text-purple-400">This Month's Usage</p>
+                <p className="text-lg font-semibold text-white">
                   {entitlements.usage.transactions_this_month}
                   {entitlements.usage.is_unlimited ? '' : ` / ${entitlements.usage.transaction_limit}`}
                   {' '}transactions
@@ -210,15 +213,15 @@ export default function PricingPage() {
             </div>
             {!entitlements.usage.is_unlimited && entitlements.usage.transactions_remaining !== null && (
               <div className="mt-3">
-                <div className="w-full bg-purple-200 rounded-full h-2">
+                <div className="w-full bg-purple-500/20 rounded-full h-2">
                   <div 
-                    className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+                    className="bg-purple-500 h-2 rounded-full transition-all duration-300"
                     style={{ 
                       width: `${Math.min(100, (entitlements.usage.transactions_this_month / (entitlements.usage.transaction_limit || 1)) * 100)}%` 
                     }}
                   ></div>
                 </div>
-                <p className="text-xs text-purple-600 mt-1">
+                <p className="text-xs text-purple-400 mt-1">
                   {entitlements.usage.transactions_remaining} transactions remaining this month
                 </p>
               </div>
@@ -228,13 +231,13 @@ export default function PricingPage() {
 
         {/* Billing Period Toggle */}
         <div className="flex justify-center mb-8">
-          <div className="bg-gray-100 p-1 rounded-lg inline-flex">
+          <div className="bg-white/5 p-1 rounded-lg inline-flex border border-white/10">
             <button
               onClick={() => setBillingPeriod('monthly')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                 billingPeriod === 'monthly'
-                  ? 'bg-white text-gray-900 shadow'
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'bg-white/10 text-white shadow'
+                  : 'text-gray-400 hover:text-white'
               }`}
             >
               Monthly
@@ -243,8 +246,8 @@ export default function PricingPage() {
               onClick={() => setBillingPeriod('yearly')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                 billingPeriod === 'yearly'
-                  ? 'bg-white text-gray-900 shadow'
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'bg-white/10 text-white shadow'
+                  : 'text-gray-400 hover:text-white'
               }`}
             >
               Yearly
@@ -265,37 +268,37 @@ export default function PricingPage() {
             return (
               <div
                 key={plan.id}
-                className={`relative bg-white rounded-2xl shadow-lg overflow-hidden ${
-                  isProfessional ? 'ring-2 ring-purple-600' : 'border border-gray-200'
-                }`}
+                className={`relative rounded-2xl overflow-hidden ${
+                  isProfessional ? 'bg-gradient-to-br from-purple-500/20 to-pink-500/20 border-2 border-purple-500' : 'bg-white/5 border border-white/10'
+                } backdrop-blur-sm`}
               >
                 {/* Popular Badge */}
                 {isProfessional && (
-                  <div className="absolute top-0 right-0 bg-purple-600 text-white text-xs font-semibold px-3 py-1 rounded-bl-lg">
+                  <div className="absolute top-0 right-0 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-semibold px-3 py-1 rounded-bl-lg">
                     MOST POPULAR
                   </div>
                 )}
 
                 <div className="p-8">
                   {/* Plan Name */}
-                  <h3 className="text-2xl font-bold text-gray-900">{plan.name}</h3>
-                  <p className="mt-2 text-gray-600">{plan.description}</p>
+                  <h3 className="text-2xl font-bold text-white">{plan.name}</h3>
+                  <p className="mt-2 text-gray-400">{plan.description}</p>
 
                   {/* Price */}
                   <div className="mt-6">
                     <div className="flex items-baseline">
-                      <span className="text-4xl font-extrabold text-gray-900">
+                      <span className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">
                         ${price.toFixed(0)}
                       </span>
                       <span className="ml-1 text-gray-500">/month</span>
                     </div>
                     {billingPeriod === 'yearly' && plan.pricing.yearly && (
-                      <p className="text-sm text-gray-500 mt-1">
+                      <p className="text-sm text-gray-400 mt-1">
                         Billed annually (${plan.pricing.yearly}/year)
                       </p>
                     )}
                     {plan.pricing.monthly === 0 && (
-                      <p className="text-sm text-green-600 font-medium mt-1">
+                      <p className="text-sm text-green-400 font-medium mt-1">
                         Free forever
                       </p>
                     )}
@@ -306,7 +309,7 @@ export default function PricingPage() {
                     {isCurrentPlan ? (
                       <button
                         disabled
-                        className="w-full py-3 px-4 rounded-lg font-semibold bg-gray-100 text-gray-500 cursor-not-allowed"
+                        className="w-full py-3 px-4 rounded-lg font-semibold bg-white/5 text-gray-500 cursor-not-allowed border border-white/10"
                       >
                         Current Plan
                       </button>
@@ -314,21 +317,21 @@ export default function PricingPage() {
                       <button
                         onClick={() => handleUpgrade(plan.id)}
                         disabled={upgrading}
-                        className="w-full py-3 px-4 rounded-lg font-semibold bg-purple-600 text-white hover:bg-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className="w-full py-3 px-4 rounded-lg font-semibold bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-400 hover:to-pink-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-purple-500/30"
                       >
                         {upgrading ? 'Processing...' : 'Upgrade to Professional'}
                       </button>
                     ) : isAuthenticated ? (
                       <button
                         disabled
-                        className="w-full py-3 px-4 rounded-lg font-semibold bg-gray-100 text-gray-500 cursor-not-allowed"
+                        className="w-full py-3 px-4 rounded-lg font-semibold bg-white/5 text-gray-500 cursor-not-allowed border border-white/10"
                       >
                         Contact Support to Downgrade
                       </button>
                     ) : (
                       <Link
                         href="/signup"
-                        className="block w-full py-3 px-4 rounded-lg font-semibold text-center bg-gray-900 text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
+                        className="block w-full py-3 px-4 rounded-lg font-semibold text-center bg-white/10 text-white border border-white/20 hover:bg-white/20 transition-colors"
                       >
                         Get Started Free
                       </Link>
@@ -337,7 +340,7 @@ export default function PricingPage() {
 
                   {/* Features List */}
                   <div className="mt-8">
-                    <h4 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">
+                    <h4 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">
                       What's included
                     </h4>
                     <ul className="mt-4 space-y-3">
@@ -345,7 +348,7 @@ export default function PricingPage() {
                         <li key={index} className="flex items-start">
                           {feature.included ? (
                             <svg
-                              className="h-5 w-5 text-green-500 flex-shrink-0"
+                              className="h-5 w-5 text-purple-400 flex-shrink-0"
                               fill="none"
                               strokeLinecap="round"
                               strokeLinejoin="round"
@@ -368,7 +371,7 @@ export default function PricingPage() {
                               <path d="M6 18L18 6M6 6l12 12"></path>
                             </svg>
                           )}
-                          <span className={`ml-3 text-sm ${feature.included ? 'text-gray-700' : 'text-gray-400'}`}>
+                          <span className={`ml-3 text-sm ${feature.included ? 'text-gray-300' : 'text-gray-600'}`}>
                             {feature.name}
                           </span>
                         </li>
@@ -383,65 +386,65 @@ export default function PricingPage() {
 
         {/* FAQ Section */}
         <div className="mt-16 max-w-3xl mx-auto">
-          <h2 className="text-2xl font-bold text-gray-900 text-center mb-8">
+          <h2 className="text-2xl font-bold text-white text-center mb-8">
             Frequently Asked Questions
           </h2>
           <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900">
+            <div className="bg-white/5 rounded-lg border border-white/10 p-6">
+              <h3 className="text-lg font-semibold text-white">
                 What happens when I reach my transaction limit?
               </h3>
-              <p className="mt-2 text-gray-600">
+              <p className="mt-2 text-gray-400">
                 On the Starter plan, you can process up to 100 transactions per month. 
                 When you reach this limit, you'll need to upgrade to Professional for 
                 unlimited transactions. We'll notify you when you're approaching your limit.
               </p>
             </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900">
+            <div className="bg-white/5 rounded-lg border border-white/10 p-6">
+              <h3 className="text-lg font-semibold text-white">
                 Can I cancel my subscription anytime?
               </h3>
-              <p className="mt-2 text-gray-600">
+              <p className="mt-2 text-gray-400">
                 Yes! You can cancel your Professional subscription at any time. 
                 You'll continue to have access to Professional features until the 
                 end of your billing period.
               </p>
             </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900">
+            <div className="bg-white/5 rounded-lg border border-white/10 p-6">
+              <h3 className="text-lg font-semibold text-white">
                 What payment methods do you accept?
               </h3>
-              <p className="mt-2 text-gray-600">
+              <p className="mt-2 text-gray-400">
                 We accept all major credit cards (Visa, Mastercard, American Express) 
                 through our secure payment processor, Stripe. We also support 
                 cryptocurrency payments for annual subscriptions.
               </p>
             </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900">
+            <div className="bg-white/5 rounded-lg border border-white/10 p-6">
+              <h3 className="text-lg font-semibold text-white">
                 Do you offer refunds?
               </h3>
-              <p className="mt-2 text-gray-600">
+              <p className="mt-2 text-gray-400">
                 We offer a 14-day money-back guarantee for new Professional subscriptions.
                 If you're not satisfied, contact our support team within 14 days of
                 your upgrade for a full refund.
               </p>
             </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900">
+            <div className="bg-white/5 rounded-lg border border-white/10 p-6">
+              <h3 className="text-lg font-semibold text-white">
                 What about blockchain network fees?
               </h3>
-              <p className="mt-2 text-gray-600">
+              <p className="mt-2 text-gray-400">
                 Blockchain network fees (also called "gas fees" on Ethereum or "transaction fees" on other networks)
                 are charged by the blockchain network itself, not by CoinPay. These fees vary based on network
                 congestion and are deducted from the payment amount when funds are forwarded to your wallet.
                 Network fees are typically very small (fractions of a cent to a few dollars depending on the blockchain).
               </p>
-              <ul className="mt-3 text-sm text-gray-500 space-y-1">
-                <li>• <strong>Solana:</strong> ~$0.00025 per transaction</li>
-                <li>• <strong>Polygon:</strong> ~$0.001-0.01 per transaction</li>
-                <li>• <strong>Ethereum:</strong> ~$0.50-5.00 per transaction (varies with congestion)</li>
-                <li>• <strong>Bitcoin:</strong> ~$0.50-3.00 per transaction (varies with congestion)</li>
+              <ul className="mt-3 text-sm text-gray-400 space-y-1">
+                <li className="text-gray-400">• <strong className="text-gray-300">Solana:</strong> ~$0.00025 per transaction</li>
+                <li className="text-gray-400">• <strong className="text-gray-300">Polygon:</strong> ~$0.001-0.01 per transaction</li>
+                <li className="text-gray-400">• <strong className="text-gray-300">Ethereum:</strong> ~$0.50-5.00 per transaction (varies with congestion)</li>
+                <li className="text-gray-400">• <strong className="text-gray-300">Bitcoin:</strong> ~$0.50-3.00 per transaction (varies with congestion)</li>
               </ul>
             </div>
           </div>
@@ -449,9 +452,9 @@ export default function PricingPage() {
 
         {/* Contact Section */}
         <div className="mt-16 text-center">
-          <p className="text-gray-600">
+          <p className="text-gray-400">
             Need a custom plan for your enterprise?{' '}
-            <Link href="/contact" className="text-purple-600 font-semibold hover:text-purple-500">
+            <Link href="/contact" className="text-purple-400 font-semibold hover:text-purple-300">
               Contact our sales team
             </Link>
           </p>
@@ -491,7 +494,7 @@ export default function PricingPage() {
               <select
                 value={selectedBlockchain}
                 onChange={(e) => setSelectedBlockchain(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                className="w-full px-3 py-2 bg-slate-800 border border-white/10 rounded-lg text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
               >
                 <option value="BTC">Bitcoin (BTC)</option>
                 <option value="ETH">Ethereum (ETH)</option>

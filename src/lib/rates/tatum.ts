@@ -120,9 +120,11 @@ async function getExchangeRateFromKraken(
     throw new Error(`Kraken API error: ${data.error.join(', ')}`);
   }
 
-  // Kraken returns data in result object with the pair as key
-  // The 'c' field contains [price, lot_volume] for last trade
-  const pairData = data.result?.[krakenPair];
+  // Kraken returns data in result object — but the key may differ from the
+  // request pair (e.g. request "XBTUSD" → response key "XXBTZUSD").
+  // Safely grab the first (and only) result entry.
+  const resultKeys = Object.keys(data.result || {});
+  const pairData = resultKeys.length > 0 ? data.result[resultKeys[0]] : undefined;
   const rate = parseFloat(pairData?.c?.[0]);
 
   if (typeof rate !== 'number' || isNaN(rate) || rate <= 0) {

@@ -60,14 +60,21 @@ describe('LightningClient (via CoinPayClient)', () => {
   describe('createOffer', () => {
     it('should POST to /lightning/offers', async () => {
       await client.lightning.createOffer({
+        wallet_id: 'w-1',
         node_id: 'n-1',
         description: 'Coffee',
         amount_msat: 100000,
       });
 
-      expect(client.request).toHaveBeenCalledWith('/lightning/offers', {
-        method: 'POST',
-        body: expect.stringContaining('"node_id":"n-1"'),
+      expect(client.request).toHaveBeenCalledTimes(1);
+      const [url, opts] = client.request.mock.calls[0];
+      expect(url).toBe('/lightning/offers');
+      expect(opts.method).toBe('POST');
+      expect(JSON.parse(opts.body)).toMatchObject({
+        wallet_id: 'w-1',
+        node_id: 'n-1',
+        description: 'Coffee',
+        amount_msat: 100000,
       });
     });
   });
@@ -111,6 +118,7 @@ describe('LightningClient (via CoinPayClient)', () => {
   describe('sendPayment', () => {
     it('should POST to /lightning/payments', async () => {
       await client.lightning.sendPayment({
+        wallet_id: 'w-1',
         node_id: 'n-1',
         bolt12: 'lno1abc...',
         amount_sats: 1000,
@@ -119,6 +127,7 @@ describe('LightningClient (via CoinPayClient)', () => {
       expect(client.request).toHaveBeenCalledWith('/lightning/payments', {
         method: 'POST',
         body: JSON.stringify({
+          wallet_id: 'w-1',
           node_id: 'n-1',
           bolt12: 'lno1abc...',
           amount_sats: 1000,
