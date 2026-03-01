@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useWebWallet } from '@/components/web-wallet/WalletContext';
 
 interface LightningAddressProps {
   walletId: string;
@@ -16,8 +15,6 @@ export function LightningAddress({ walletId }: LightningAddressProps) {
   const [copied, setCopied] = useState(false);
   const [isCheckingAvailability, setIsCheckingAvailability] = useState(false);
   const [isUsernameAvailable, setIsUsernameAvailable] = useState<boolean | null>(null);
-  const [resyncing, setResyncing] = useState(false);
-  const { resyncWalletFromSeed } = useWebWallet();
 
   // Check existing Lightning Address
   useEffect(() => {
@@ -100,20 +97,6 @@ export function LightningAddress({ walletId }: LightningAddressProps) {
       setMessage({ type: 'error', text: 'Network error' });
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleResyncWallet = async () => {
-    setResyncing(true);
-    setMessage(null);
-    try {
-      await resyncWalletFromSeed();
-      setMessage({ type: 'success', text: 'Wallet re-synced from seed phrase. Try claiming the Lightning Address again.' });
-    } catch (error) {
-      const text = error instanceof Error ? error.message : 'Failed to re-sync wallet from seed phrase';
-      setMessage({ type: 'error', text });
-    } finally {
-      setResyncing(false);
     }
   };
 
@@ -211,13 +194,7 @@ export function LightningAddress({ walletId }: LightningAddressProps) {
             {message.text}
           </p>
           {message.type === 'error' && /wallet not found/i.test(message.text) && (
-            <button
-              onClick={handleResyncWallet}
-              disabled={resyncing}
-              className="w-full rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-300 hover:bg-amber-500/20 disabled:opacity-50"
-            >
-              {resyncing ? 'Re-syncing Wallet...' : 'Re-sync Wallet from Seed Phrase'}
-            </button>
+            <p className="text-xs text-amber-300">Go to Wallet Settings → Wallet Record Re-sync, then retry claim.</p>
           )}
         </div>
       )}

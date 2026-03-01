@@ -23,7 +23,7 @@ interface WalletSettings {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { wallet, walletId, chains, isUnlocked, deleteWallet, lock, changePassword, refreshChains } =
+  const { wallet, walletId, chains, isUnlocked, deleteWallet, lock, changePassword, refreshChains, resyncWalletFromSeed } =
     useWebWallet();
 
   const [showSeed, setShowSeed] = useState(false);
@@ -81,6 +81,11 @@ export default function SettingsPage() {
   const [derivingChains, setDerivingChains] = useState(false);
   const [deriveSuccess, setDeriveSuccess] = useState('');
   const [deriveError, setDeriveError] = useState('');
+
+  // Wallet re-sync state
+  const [resyncingWallet, setResyncingWallet] = useState(false);
+  const [resyncWalletSuccess, setResyncWalletSuccess] = useState('');
+  const [resyncWalletError, setResyncWalletError] = useState('');
 
   useEffect(() => {
     if (!isUnlocked) {
@@ -195,6 +200,23 @@ export default function SettingsPage() {
       setBackupError(err instanceof Error ? err.message : 'Backup failed');
     } finally {
       setBackupLoading(false);
+    }
+  };
+
+  const handleResyncWallet = async () => {
+    setResyncWalletError('');
+    setResyncWalletSuccess('');
+    setResyncingWallet(true);
+
+    try {
+      const result = await resyncWalletFromSeed();
+      setResyncWalletSuccess('Wallet re-synced successfully (ID: ' + result.walletId + ').');
+      await loadMissingChains();
+    } catch (err) {
+      console.error('Failed to re-sync wallet from seed:', err);
+      setResyncWalletError(err instanceof Error ? err.message : 'Failed to re-sync wallet from seed phrase');
+    } finally {
+      setResyncingWallet(false);
     }
   };
 
@@ -883,6 +905,25 @@ export default function SettingsPage() {
                   </div>
                 </div>
               )}
+            </div>
+          </Section>
+
+          {/* Wallet Record Re-sync */}
+          <Section title="Wallet Record Re-sync">
+            <div className="space-y-3">
+              <p className="text-sm text-gray-400">
+                If you see errors like <code className="bg-white/10 px-1 rounded">Wallet not found</code> when claiming Lightning Address,
+                re-sync your server wallet record from your currently unlocked seed phrase.
+              </p>
+              {resyncWalletError && <p className="text-xs text-red-400" role="alert">{resyncWalletError}</p>}
+              {resyncWalletSuccess && <p className="text-xs text-green-400" role="status">{resyncWalletSuccess}</p>}
+              <button
+                onClick={handleResyncWallet}
+                disabled={resyncingWallet || !wallet}
+                className="w-full rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300 hover:bg-amber-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {resyncingWallet ? 'Re-syncing Wallet...' : 'Re-sync Wallet from Seed Phrase'}
+              </button>
             </div>
           </Section>
 
