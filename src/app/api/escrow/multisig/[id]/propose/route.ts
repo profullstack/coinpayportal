@@ -54,9 +54,18 @@ export async function POST(
     }
 
     return NextResponse.json({
+      stage: 'prepared',
       proposal: result.proposal,
       tx_data: result.tx_data,
-    }, { status: 201 });
+      deprecated: true,
+      replacement_endpoint: '/api/escrow/multisig/:id/prepare',
+    }, {
+      status: 201,
+      headers: {
+        'Deprecation': 'true',
+        'Sunset': 'Tue, 01 Sep 2026 00:00:00 GMT',
+      },
+    });
   } catch (error) {
     console.error('Failed to propose transaction:', error);
     return NextResponse.json(

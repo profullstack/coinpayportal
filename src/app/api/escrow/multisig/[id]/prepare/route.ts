@@ -1,15 +1,15 @@
 /**
- * POST /api/escrow/multisig/:id/broadcast
+ * POST /api/escrow/multisig/:id/prepare
  *
- * Broadcast an approved multisig proposal on-chain.
- * Requires the proposal to have reached threshold (2 signatures).
+ * Prepare a transaction (release or refund) for a multisig escrow.
+ * Backward-compatible replacement for /propose naming.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import {
-  broadcastTransaction,
-  broadcastTransactionSchema,
+  proposeTransaction,
+  prepareTransactionSchema,
 } from '@/lib/multisig';
 import { requireMultisigAuth } from '../../auth';
 
@@ -32,8 +32,7 @@ export async function POST(
     const supabase = getSupabase();
     const body = await request.json();
 
-    // Validate input
-    const parsed = broadcastTransactionSchema.safeParse(body);
+    const parsed = prepareTransactionSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { error: parsed.error.errors[0].message },
@@ -41,10 +40,12 @@ export async function POST(
       );
     }
 
-    const result = await broadcastTransaction(
+    const result = await proposeTransaction(
       supabase,
       escrowId,
-      parsed.data.proposal_id,
+      parsed.data.proposal_type,
+      parsed.data.to_address,
+      parsed.data.signer_pubkey,
     );
 
     if (!result.success) {
@@ -52,13 +53,12 @@ export async function POST(
     }
 
     return NextResponse.json({
-      tx_hash: result.tx_hash,
+      stage: 'prepared',
       proposal: result.proposal,
-      broadcasted: result.broadcasted === true,
-      stage: result.stage || (result.broadcasted ? 'broadcasted' : 'prepared'),
-    });
+      tx_data: result.tx_data,
+    }, { status: 201 });
   } catch (error) {
-    console.error('Failed to broadcast transaction:', error);
+    console.error('Failed to prepare transaction:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 },

@@ -64,6 +64,9 @@ export const proposeTransactionSchema = z.object({
 
 // ── Sign Proposal ───────────────────────────────────────────
 
+// Alias for forward-compatible API naming
+export const prepareTransactionSchema = proposeTransactionSchema;
+
 export const signProposalSchema = z.object({
   proposal_id: z.string({
     required_error: 'proposal_id is required',

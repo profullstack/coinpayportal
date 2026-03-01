@@ -45,6 +45,7 @@ export type {
 export {
   createMultisigEscrowSchema,
   proposeTransactionSchema,
+  prepareTransactionSchema,
   signProposalSchema,
   broadcastTransactionSchema,
   disputeSchema,
