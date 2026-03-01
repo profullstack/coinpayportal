@@ -50,7 +50,7 @@ export const createMultisigEscrowSchema = z.object({
 
 // ── Propose Transaction ─────────────────────────────────────
 
-export const proposeTransactionSchema = z.object({
+export const prepareTransactionSchema = z.object({
   proposal_type: z.enum(['release', 'refund'], {
     required_error: 'proposal_type is required',
   }),
@@ -63,9 +63,6 @@ export const proposeTransactionSchema = z.object({
 });
 
 // ── Sign Proposal ───────────────────────────────────────────
-
-// Alias for forward-compatible API naming
-export const prepareTransactionSchema = proposeTransactionSchema;
 
 export const signProposalSchema = z.object({
   proposal_id: z.string({

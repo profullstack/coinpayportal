@@ -2,7 +2,6 @@
  * POST /api/escrow/multisig/:id/prepare
  *
  * Prepare a transaction (release or refund) for a multisig escrow.
- * Backward-compatible replacement for /propose naming.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
