@@ -51,28 +51,41 @@ interface Business {
   name: string;
 }
 
-interface CreatedEscrow {
+interface BaseEscrow {
   id: string;
-  escrow_model?: 'custodial' | 'multisig_2of3';
   escrow_address: string;
-  depositor_address?: string;
-  beneficiary_address?: string;
-  depositor_pubkey?: string;
-  beneficiary_pubkey?: string;
-  arbiter_pubkey?: string;
   chain: string;
   amount: number;
   amount_usd: number | null;
   fee_amount: number | null;
   deposited_amount: number | null;
   status: string;
-  release_token: string;
-  beneficiary_token: string;
-  allow_auto_release?: boolean;
   expires_at: string;
   created_at: string;
   metadata: Record<string, unknown>;
   business_id: string | null;
+}
+
+interface CustodialEscrow extends BaseEscrow {
+  escrow_model?: 'custodial';
+  depositor_address: string;
+  beneficiary_address: string;
+  release_token: string;
+  beneficiary_token: string;
+  allow_auto_release?: boolean;
+}
+
+interface MultisigEscrow extends BaseEscrow {
+  escrow_model: 'multisig_2of3';
+  depositor_pubkey: string;
+  beneficiary_pubkey: string;
+  arbiter_pubkey: string;
+}
+
+type CreatedEscrow = CustodialEscrow | MultisigEscrow;
+
+function isMultisigEscrow(escrow: CreatedEscrow): escrow is MultisigEscrow {
+  return escrow.escrow_model === 'multisig_2of3';
 }
 
 export default function CreateEscrowPage() {
@@ -290,7 +303,6 @@ export default function CreateEscrowPage() {
       const isMultisig = formData.escrow_model === 'multisig_2of3';
       if (isMultisig && !formData.arbiter_address.trim()) {
         setError('Arbiter public key is required for multisig escrow');
-        setCreating(false);
         return;
       }
 
@@ -383,7 +395,12 @@ export default function CreateEscrowPage() {
         } else if (result) {
           setError(result.data?.error || 'Failed to create escrow');
         } else {
-          // authFetch returned null (redirect to login) — try anonymous
+          if (isMultisig) {
+            setError('Multisig escrow creation requires authentication. Please log in and try again.');
+            return;
+          }
+
+          // authFetch returned null (redirect to login) — try anonymous for custodial only
           const res = await fetch(createEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -456,6 +473,10 @@ export default function CreateEscrowPage() {
   }
 
   if (createdEscrow) {
+    const createdIsMultisig = isMultisigEscrow(createdEscrow);
+    const custodialEscrow = createdIsMultisig ? null : createdEscrow;
+    const multisigEscrow = createdIsMultisig ? createdEscrow : null;
+
     return (
       <div className="max-w-2xl mx-auto px-4 py-8">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
@@ -521,12 +542,15 @@ export default function CreateEscrowPage() {
                   `Amount: ${createdEscrow.amount} ${createdEscrow.chain}`,
                   ...(createdEscrow.amount_usd ? [`USD Value: ≈ $${createdEscrow.amount_usd.toFixed(2)}`] : []),
                   `Status: ${createdEscrow.status}`,
-                  `Depositor: ${createdEscrow.depositor_address || createdEscrow.depositor_pubkey || ''}`,
-                  `Beneficiary: ${createdEscrow.beneficiary_address || createdEscrow.beneficiary_pubkey || ''}`,
+                  `Depositor: ${createdIsMultisig ? multisigEscrow!.depositor_pubkey : custodialEscrow!.depositor_address}`,
+                  `Beneficiary: ${createdIsMultisig ? multisigEscrow!.beneficiary_pubkey : custodialEscrow!.beneficiary_address}`,
+                  ...(createdIsMultisig ? [`Arbiter: ${multisigEscrow!.arbiter_pubkey}`] : []),
                   `Expires: ${new Date(createdEscrow.expires_at).toLocaleString()}`,
-                  `Auto-release at expiry: ${createdEscrow.allow_auto_release ? 'Enabled' : 'Disabled'}`,
-                  `Release Token: ${createdEscrow.release_token}`,
-                  `Beneficiary Token: ${createdEscrow.beneficiary_token}`,
+                  ...(!createdIsMultisig ? [
+                    `Auto-release at expiry: ${custodialEscrow!.allow_auto_release ? 'Enabled' : 'Disabled'}`,
+                    `Release Token: ${custodialEscrow!.release_token}`,
+                    `Beneficiary Token: ${custodialEscrow!.beneficiary_token}`,
+                  ] : []),
                   ...(createdEscrow.fee_amount ? [`Commission: ${createdEscrow.fee_amount} ${createdEscrow.chain}`] : []),
                 ];
                 copyToClipboard(lines.join('\n'), 'escrow_all');
@@ -609,7 +633,7 @@ export default function CreateEscrowPage() {
             </div>
 
             {/* Tokens — custodial only */}
-            {createdEscrow.escrow_model !== 'multisig_2of3' ? (
+            {!createdIsMultisig ? (
             <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 space-y-4">
               <div className="flex items-start gap-2">
                 <span className="text-amber-600 text-lg">⚠️</span>
@@ -627,10 +651,10 @@ export default function CreateEscrowPage() {
                 </label>
                 <div className="mt-1 flex items-center gap-2">
                   <code className="flex-1 bg-white dark:bg-gray-900 border border-amber-300 dark:border-amber-700 rounded px-3 py-2 text-xs break-all text-gray-900 dark:text-white">
-                    {createdEscrow.release_token}
+                    {custodialEscrow!.release_token}
                   </code>
                   <button
-                    onClick={() => copyToClipboard(createdEscrow.release_token, 'release')}
+                    onClick={() => copyToClipboard(custodialEscrow!.release_token, 'release')}
                     className="flex-shrink-0 px-3 py-2 bg-amber-600 text-white text-xs font-medium rounded hover:bg-amber-700 transition-colors"
                   >
                     {copiedField === 'release' ? 'Copied!' : 'Copy'}
@@ -638,7 +662,7 @@ export default function CreateEscrowPage() {
                 </div>
                 <div className="mt-2">
                   <button
-                    onClick={() => copyToClipboard(`${window.location.origin}/escrow/manage?id=${createdEscrow.id}&token=${createdEscrow.release_token}`, 'depositor_link')}
+                    onClick={() => copyToClipboard(`${window.location.origin}/escrow/manage?id=${createdEscrow.id}&token=${custodialEscrow!.release_token}`, 'depositor_link')}
                     className="text-xs text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 underline"
                   >
                     {copiedField === 'depositor_link' ? 'Link copied!' : 'Share depositor link'}
@@ -652,10 +676,10 @@ export default function CreateEscrowPage() {
                 </label>
                 <div className="mt-1 flex items-center gap-2">
                   <code className="flex-1 bg-white dark:bg-gray-900 border border-amber-300 dark:border-amber-700 rounded px-3 py-2 text-xs break-all text-gray-900 dark:text-white">
-                    {createdEscrow.beneficiary_token}
+                    {custodialEscrow!.beneficiary_token}
                   </code>
                   <button
-                    onClick={() => copyToClipboard(createdEscrow.beneficiary_token, 'beneficiary')}
+                    onClick={() => copyToClipboard(custodialEscrow!.beneficiary_token, 'beneficiary')}
                     className="flex-shrink-0 px-3 py-2 bg-amber-600 text-white text-xs font-medium rounded hover:bg-amber-700 transition-colors"
                   >
                     {copiedField === 'beneficiary' ? 'Copied!' : 'Copy'}
@@ -663,7 +687,7 @@ export default function CreateEscrowPage() {
                 </div>
                 <div className="mt-2">
                   <button
-                    onClick={() => copyToClipboard(`${window.location.origin}/escrow/manage?id=${createdEscrow.id}&token=${createdEscrow.beneficiary_token}`, 'beneficiary_link')}
+                    onClick={() => copyToClipboard(`${window.location.origin}/escrow/manage?id=${createdEscrow.id}&token=${custodialEscrow!.beneficiary_token}`, 'beneficiary_link')}
                     className="text-xs text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 underline"
                   >
                     {copiedField === 'beneficiary_link' ? 'Link copied!' : 'Share beneficiary link'}
@@ -685,9 +709,9 @@ export default function CreateEscrowPage() {
             <div className="space-y-3 text-sm">
               <div className="flex items-center gap-2">
                 <span className="text-gray-500 dark:text-gray-400">Depositor:</span>
-                <code className="text-gray-900 dark:text-white break-all flex-1">{createdEscrow.depositor_address || createdEscrow.depositor_pubkey || '-'}</code>
+                <code className="text-gray-900 dark:text-white break-all flex-1">{createdIsMultisig ? multisigEscrow!.depositor_pubkey : custodialEscrow!.depositor_address}</code>
                 <button
-                  onClick={() => copyToClipboard(createdEscrow.depositor_address || createdEscrow.depositor_pubkey || '', 'depositor_addr')}
+                  onClick={() => copyToClipboard(createdIsMultisig ? multisigEscrow!.depositor_pubkey : custodialEscrow!.depositor_address, 'depositor_addr')}
                   className="flex-shrink-0 text-gray-500 hover:text-blue-600 transition-colors"
                 >
                   {copiedField === 'depositor_addr' ? '✓' : '📋'}
@@ -695,9 +719,9 @@ export default function CreateEscrowPage() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-gray-500 dark:text-gray-400">Beneficiary:</span>
-                <code className="text-gray-900 dark:text-white break-all flex-1">{createdEscrow.beneficiary_address || createdEscrow.beneficiary_pubkey || '-'}</code>
+                <code className="text-gray-900 dark:text-white break-all flex-1">{createdIsMultisig ? multisigEscrow!.beneficiary_pubkey : custodialEscrow!.beneficiary_address}</code>
                 <button
-                  onClick={() => copyToClipboard(createdEscrow.beneficiary_address || createdEscrow.beneficiary_pubkey || '', 'beneficiary_addr')}
+                  onClick={() => copyToClipboard(createdIsMultisig ? multisigEscrow!.beneficiary_pubkey : custodialEscrow!.beneficiary_address, 'beneficiary_addr')}
                   className="flex-shrink-0 text-gray-500 hover:text-blue-600 transition-colors"
                 >
                   {copiedField === 'beneficiary_addr' ? '✓' : '📋'}
@@ -709,12 +733,14 @@ export default function CreateEscrowPage() {
                   {new Date(createdEscrow.expires_at).toLocaleString()}
                 </span>
               </div>
+              {!createdIsMultisig && (
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Auto-release at expiry:</span>
                 <span className="ml-2 text-gray-900 dark:text-white">
-                  {createdEscrow.allow_auto_release ? 'Enabled' : 'Disabled'}
+                  {custodialEscrow!.allow_auto_release ? 'Enabled' : 'Disabled'}
                 </span>
               </div>
+              )}
               {createdEscrow.fee_amount != null && createdEscrow.fee_amount > 0 && (
                 <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
                   <span className="text-sm font-medium text-amber-800 dark:text-amber-300">Platform Commission:</span>
@@ -1015,7 +1041,11 @@ export default function CreateEscrowPage() {
               required
               value={formData.depositor_address}
               onChange={(e) => setFormData({ ...formData, depositor_address: e.target.value })}
-              onBlur={(e) => lookupWalletEmail(e.target.value, 'depositor')}
+              onBlur={(e) => {
+                if (formData.escrow_model !== 'multisig_2of3') {
+                  lookupWalletEmail(e.target.value, 'depositor');
+                }
+              }}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm"
               placeholder={formData.escrow_model === 'multisig_2of3' ? 'Depositor public key' : 'Your wallet address (sender)'}
             />
@@ -1032,7 +1062,11 @@ export default function CreateEscrowPage() {
               required
               value={formData.beneficiary_address}
               onChange={(e) => setFormData({ ...formData, beneficiary_address: e.target.value })}
-              onBlur={(e) => lookupWalletEmail(e.target.value, 'beneficiary')}
+              onBlur={(e) => {
+                if (formData.escrow_model !== 'multisig_2of3') {
+                  lookupWalletEmail(e.target.value, 'beneficiary');
+                }
+              }}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm"
               placeholder={formData.escrow_model === 'multisig_2of3' ? 'Beneficiary public key' : 'Recipient wallet address'}
             />

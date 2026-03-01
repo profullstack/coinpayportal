@@ -676,4 +676,134 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
     // Check initial state shows anonymous rate (1%)
     expect(screen.getByText(/Platform fee: 1% \(0\.5% for logged-in merchants\)/)).toBeInTheDocument();
   });
+
+  it('should skip wallet email lookup on blur in multisig mode', async () => {
+    const user = userEvent.setup();
+
+    render(<CreateEscrowPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Create Escrow' })).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('Escrow Model *'), 'multisig_2of3');
+
+    const depositorInput = screen.getByPlaceholderText('Depositor public key');
+    const beneficiaryInput = screen.getByPlaceholderText('Beneficiary public key');
+
+    await user.type(depositorInput, '02abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef');
+    fireEvent.blur(depositorInput);
+
+    await user.type(beneficiaryInput, '03abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef');
+    fireEvent.blur(beneficiaryInput);
+
+    const lookupCalls = mockFetch.mock.calls.filter((call: any[]) =>
+      String(call[0]).includes('/api/wallets/lookup')
+    );
+
+    expect(lookupCalls.length).toBe(0);
+  });
+
+  it('should submit multisig escrow via /api/escrow/multisig with multisig payload and hide token UX', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(authFetch).mockImplementation(async (url: string) => {
+      if (url === '/api/businesses') return null as any;
+      if (url === '/api/escrow/multisig') {
+        return {
+          response: { ok: true } as any,
+          data: {
+            id: 'msig-escrow-id',
+            escrow_model: 'multisig_2of3',
+            escrow_address: 'multisig-address',
+            depositor_pubkey: 'dep-pub',
+            beneficiary_pubkey: 'ben-pub',
+            arbiter_pubkey: 'arb-pub',
+            chain: 'ETH',
+            amount: 42,
+            amount_usd: null,
+            fee_amount: null,
+            deposited_amount: null,
+            status: 'pending',
+            expires_at: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+            metadata: {},
+            business_id: null,
+          },
+        } as any;
+      }
+      return null as any;
+    });
+
+    render(<CreateEscrowPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Create Escrow' })).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('Escrow Model *'), 'multisig_2of3');
+
+    await user.clear(screen.getByPlaceholderText(/0\.00 USD/));
+    await user.type(screen.getByPlaceholderText(/0\.00 USD/), '42');
+
+    await user.type(screen.getByPlaceholderText('Depositor public key'), 'dep-pub');
+    await user.type(screen.getByPlaceholderText('Beneficiary public key'), 'ben-pub');
+    await user.type(screen.getByPlaceholderText('Arbiter public key (required)'), 'arb-pub');
+
+    await user.click(screen.getByRole('button', { name: 'Create Escrow' }));
+
+    await waitFor(() => {
+      expect(vi.mocked(authFetch)).toHaveBeenCalledWith(
+        '/api/escrow/multisig',
+        expect.objectContaining({ method: 'POST' })
+      );
+    });
+
+    const createCall = vi.mocked(authFetch).mock.calls.find((c) => c[0] === '/api/escrow/multisig');
+    const body = JSON.parse((createCall?.[1] as any).body);
+
+    expect(body).toMatchObject({
+      depositor_pubkey: 'dep-pub',
+      beneficiary_pubkey: 'ben-pub',
+      arbiter_pubkey: 'arb-pub',
+    });
+    expect(body.depositor_address).toBeUndefined();
+    expect(body.beneficiary_address).toBeUndefined();
+
+    await waitFor(() => {
+      expect(screen.getByText('Multisig escrow created')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Release Token (for depositor)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Beneficiary Token (for recipient)')).not.toBeInTheDocument();
+  });
+
+  it('should show auth-required error for multisig when authFetch returns null', async () => {
+    const user = userEvent.setup();
+
+    render(<CreateEscrowPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Create Escrow' })).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('Escrow Model *'), 'multisig_2of3');
+
+    await user.clear(screen.getByPlaceholderText(/0\.00 USD/));
+    await user.type(screen.getByPlaceholderText(/0\.00 USD/), '12');
+    await user.type(screen.getByPlaceholderText('Depositor public key'), 'dep-pub');
+    await user.type(screen.getByPlaceholderText('Beneficiary public key'), 'ben-pub');
+    await user.type(screen.getByPlaceholderText('Arbiter public key (required)'), 'arb-pub');
+
+    await user.click(screen.getByRole('button', { name: 'Create Escrow' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Multisig escrow creation requires authentication. Please log in and try again.')).toBeInTheDocument();
+    });
+
+    const anonymousMultisigCalls = mockFetch.mock.calls.filter((call: any[]) =>
+      call[0] === '/api/escrow/multisig'
+    );
+    expect(anonymousMultisigCalls.length).toBe(0);
+  });
+
 });
