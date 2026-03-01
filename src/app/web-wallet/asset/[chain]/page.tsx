@@ -464,6 +464,8 @@ function AssetDetailView({ chain }: { chain: WalletChain }) {
   const [activeTab, setActiveTab] = useState<Tab>('send');
   const [totalBalance, setTotalBalance] = useState('0');
   const [usdValue, setUsdValue] = useState(0);
+  const [displayCurrency, setDisplayCurrency] = useState<FiatCurrency>('USD');
+  const [displayFiatValue, setDisplayFiatValue] = useState(0);
   const [loadingBalance, setLoadingBalance] = useState(true);
 
   const fetchBalance = useCallback(async () => {
@@ -472,10 +474,21 @@ function AssetDetailView({ chain }: { chain: WalletChain }) {
     try {
       const data = await wallet.getTotalBalanceUSD();
       const chainBalances = data.balances.filter((b) => b.chain === chain);
-      const total = chainBalances.reduce((sum, b) => sum + parseFloat(b.balance), 0);
+      let total = chainBalances.reduce((sum, b) => sum + parseFloat(b.balance), 0);
       const usd = chainBalances.reduce((sum, b) => sum + b.usdValue, 0);
+
+      if (chain === 'LN' && total <= 0) {
+        try {
+          const nativeBalances = await wallet.getBalances({ chain, refresh: true });
+          total = nativeBalances.reduce((sum, b) => sum + parseFloat(b.balance), 0);
+        } catch (e) {
+          console.warn('Failed LN native balance fallback:', e);
+        }
+      }
+
       setTotalBalance(total > 0 ? total.toString() : '0');
       setUsdValue(usd);
+      setDisplayFiatValue(usd);
     } catch (err: unknown) {
       console.error('Failed to fetch chain balance:', err);
     } finally {
@@ -486,6 +499,43 @@ function AssetDetailView({ chain }: { chain: WalletChain }) {
   useEffect(() => {
     fetchBalance();
   }, [fetchBalance]);
+
+
+  useEffect(() => {
+    if (!wallet || typeof wallet.getSettings !== 'function') return;
+    wallet.getSettings().then((settings) => {
+      if (settings?.displayCurrency) {
+        setDisplayCurrency(settings.displayCurrency);
+      }
+    }).catch(() => {});
+  }, [wallet]);
+
+  useEffect(() => {
+    const total = parseFloat(totalBalance || '0');
+    if (!Number.isFinite(total) || total <= 0) {
+      setDisplayFiatValue(0);
+      return;
+    }
+
+    if (displayCurrency === 'USD') {
+      setDisplayFiatValue(usdValue);
+      return;
+    }
+
+    const rateCoin = chain === 'LN' ? 'BTC' : chain;
+    fetch(`/api/rates?coin=${rateCoin}&fiat=${displayCurrency}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.success && typeof data.rate === 'number' && data.rate > 0) {
+          setDisplayFiatValue(total * data.rate);
+        } else {
+          setDisplayFiatValue(usdValue);
+        }
+      })
+      .catch(() => {
+        setDisplayFiatValue(usdValue);
+      });
+  }, [chain, totalBalance, usdValue, displayCurrency]);
 
   const chainName = CHAIN_NAMES[chain] || chain;
   const chainSymbol = CHAIN_SYMBOLS[chain] || chain;
@@ -524,8 +574,13 @@ function AssetDetailView({ chain }: { chain: WalletChain }) {
               <p className="text-3xl font-bold text-white">
                 {totalBalance} {chainSymbol}
               </p>
+              {chain === 'LN' && (
+                <p className="text-xs text-gray-300 mt-1">
+                  Native: {Math.round((parseFloat(totalBalance || '0') || 0) * 100_000_000).toLocaleString('en-US')} sats
+                </p>
+              )}
               <p className="text-sm text-gray-400 mt-1">
-                ≈ ${usdValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                ≈ {SUPPORTED_FIAT_CURRENCIES.find(c => c.code === displayCurrency)?.symbol}{displayFiatValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {displayCurrency}
               </p>
             </>
           )}
