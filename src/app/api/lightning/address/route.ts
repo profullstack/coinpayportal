@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
     {
       const result = await supabase
         .from('wallets')
-        .select('id, user_id, ln_username, ln_wallet_adminkey, ln_paylink_id')
+        .select('id, ln_username, ln_wallet_adminkey, ln_paylink_id')
         .eq('id', wallet_id)
         .single();
       wallet = result.data;
@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
     if (walletError && /column .* does not exist/i.test(String(walletError.message || walletError))) {
       const fallback = await supabase
         .from('wallets')
-        .select('id, user_id, ln_username')
+        .select('id, ln_username')
         .eq('id', wallet_id)
         .single();
       wallet = fallback.data;
