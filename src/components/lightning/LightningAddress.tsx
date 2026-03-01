@@ -189,9 +189,14 @@ export function LightningAddress({ walletId }: LightningAddressProps) {
       )}
 
       {message && (
-        <p className={`text-xs ${message.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-          {message.text}
-        </p>
+        <div className="space-y-2">
+          <p className={`text-xs ${message.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+            {message.text}
+          </p>
+          {message.type === 'error' && /wallet not found/i.test(message.text) && (
+            <p className="text-xs text-amber-300">Go to Wallet Settings → Wallet Record Re-sync, then retry claim.</p>
+          )}
+        </div>
       )}
     </div>
   );

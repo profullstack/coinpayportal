@@ -10,6 +10,11 @@
 export async function register() {
   // Only run on the server
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const enableBackgroundMonitor = process.env.ENABLE_BACKGROUND_MONITOR === 'true';
+    if (!enableBackgroundMonitor) {
+      console.log('[Instrumentation] Background monitor disabled (ENABLE_BACKGROUND_MONITOR != true)');
+      return;
+    }
     // Catch unhandled errors to prevent server crashes
     process.on('uncaughtException', (err) => {
       console.error('[FATAL] Uncaught exception (caught by handler):', err?.message || err);

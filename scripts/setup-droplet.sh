@@ -412,6 +412,16 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # LNURLp API endpoints — no basic auth (API key auth)
+    location /lnurlp/ {
+        proxy_pass http://127.0.0.1:LNBITS_PORT_PLACEHOLDER;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+    }
+
     # UI — basic auth
     location / {
         auth_basic "Admin Area";
@@ -445,6 +455,33 @@ NGINXEOF
 else
   echo "  Nginx config already exists"
 fi
+
+
+# Ensure existing Nginx config allows LNURLp API without basic auth
+if [ -f "${NGINX_CONF}" ] && ! grep -q "location /lnurlp/" "${NGINX_CONF}"; then
+  echo "  Patching existing Nginx config to allow /lnurlp/ API..."
+  awk '
+  BEGIN{added=0}
+  {
+    if (!added && $0 ~ /^    # UI — basic auth/) {
+      print "    # LNURLp API endpoints — no basic auth (API key auth)";
+      print "    location /lnurlp/ {";
+      print "        proxy_pass http://127.0.0.1:${LNBITS_PORT};";
+      print "        proxy_set_header Host $host;";
+      print "        proxy_set_header X-Real-IP $remote_addr;";
+      print "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;";
+      print "        proxy_set_header X-Forwarded-Proto $scheme;";
+      print "        proxy_http_version 1.1;";
+      print "    }";
+      print "";
+      added=1;
+    }
+    print $0;
+  }' "${NGINX_CONF}" > "${NGINX_CONF}.tmp" && mv "${NGINX_CONF}.tmp" "${NGINX_CONF}"
+
+  nginx -t && systemctl reload nginx
+fi
+
 
 # Firewall
 if command -v ufw &>/dev/null; then

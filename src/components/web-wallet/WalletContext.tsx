@@ -86,6 +86,8 @@ interface WalletActions {
   refreshBalance: () => Promise<void>;
   /** Refresh chains list after deriving new addresses */
   refreshChains: () => Promise<void>;
+  /** Re-sync wallet record from currently unlocked seed phrase */
+  resyncWalletFromSeed: () => Promise<{ walletId: string }>;
 }
 
 type WalletContextType = WalletState & WalletActions;
@@ -385,6 +387,49 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const resyncWalletFromSeed = useCallback(async (): Promise<{ walletId: string }> => {
+    const mnemonic = state.wallet?.getMnemonic();
+    if (!mnemonic) {
+      throw new Error('Wallet must be unlocked to re-sync from seed phrase');
+    }
+
+    const chains = ((state.chains?.length ? state.chains : DEFAULT_CHAINS) as WalletChain[]);
+
+    setState((s) => ({ ...s, isLoading: true, error: null }));
+    try {
+      const wallet = await Wallet.fromSeed(mnemonic, {
+        baseUrl: getBaseUrl(),
+        chains,
+      });
+
+      const stored = loadWalletFromStorage();
+      if (stored) {
+        const updated: StoredWallet = {
+          ...stored,
+          walletId: wallet.walletId,
+          chains,
+        };
+        saveWalletToStorage(updated);
+      }
+
+      setState((s) => ({
+        ...s,
+        hasWallet: true,
+        isUnlocked: true,
+        wallet,
+        walletId: wallet.walletId,
+        chains,
+        isLoading: false,
+      }));
+
+      return { walletId: wallet.walletId };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to re-sync wallet from seed phrase';
+      setState((s) => ({ ...s, isLoading: false, error: message }));
+      throw err;
+    }
+  }, [state.wallet, state.chains]);
+
   const lock = useCallback(() => {
     state.wallet?.destroy();
     setState((s) => ({
@@ -481,6 +526,7 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
         changePassword,
         refreshBalance,
         refreshChains,
+        resyncWalletFromSeed,
       }}
     >
       {children}
