@@ -121,6 +121,9 @@ export function validateAddress(address: string, chain: WalletChain): boolean {
     case 'ADA':
       // Cardano Shelley address: starts with addr1
       return /^addr1[a-z0-9]{50,100}$/.test(address);
+    case 'LN':
+      // Lightning wallet identity is a compressed secp256k1 node pubkey
+      return validateSecp256k1PublicKey(address);
     default:
       return false;
   }
@@ -143,6 +146,11 @@ export function validateDerivationPath(path: string, chain: WalletChain): boolea
   if (chain === 'ADA') {
     // Cardano CIP-1852 (all hardened for Ed25519): m/1852'/1815'/account'/role'/index'
     return /^m\/1852'\/1815'\/\d+'\/\d+'\/\d+'$/.test(path);
+  }
+
+  if (chain === 'LN') {
+    // Lightning: m/535'/index' (all hardened)
+    return /^m\/535'\/\d+'$/.test(path);
   }
 
   // BTC/BCH/ETH/POL: m/44'/coinType'/0'/0/n
@@ -185,6 +193,8 @@ export function buildDerivationPath(chain: WalletChain, index: number): string {
       return `m/44'/144'/0'/0/${index}`;
     case 'ADA':
       return `m/1852'/1815'/0'/0'/${index}'`;
+    case 'LN':
+      return `m/535'/${index}'`;
     default:
       throw new Error(`Unsupported chain: ${chain}`);
   }
