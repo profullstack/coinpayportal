@@ -116,17 +116,28 @@ function DashboardView() {
     // Fetch balances
     try {
       setLoadingBalances(true);
-      const balanceData = await wallet.getTotalBalanceUSD();
+      const [balanceData, nativeBalances] = await Promise.all([
+        wallet.getTotalBalanceUSD(),
+        wallet.getBalances({ refresh: true }),
+      ]);
       setTotalUsd(balanceData.totalUsd);
       const CHAIN_ORDER: Record<string, number> = {
         BTC: 0, LN: 1, ETH: 2, SOL: 3, POL: 4, BCH: 5,
         USDC_ETH: 5, USDC_SOL: 6, USDC_POL: 7,
       };
+
+      const nativeByChain = new Map<string, string>();
+      for (const n of nativeBalances) {
+        const current = nativeByChain.get(n.chain) || '0';
+        const next = (parseFloat(current) + (parseFloat(n.balance) || 0)).toString();
+        nativeByChain.set(n.chain, next);
+      }
+
       const mapped = balanceData.balances
         .map((b) => ({
           chain: b.chain,
           address: b.address,
-          balance: b.balance,
+          balance: nativeByChain.get(b.chain) ?? b.balance,
           usdValue: b.usdValue,
         }));
       // Add Lightning Network entry if not already present
@@ -134,7 +145,7 @@ function DashboardView() {
         mapped.push({
           chain: 'LN',
           address: 'Lightning Network',
-          balance: '⚡',
+          balance: nativeByChain.get('LN') ?? '0',
           usdValue: 0,
         });
       }
