@@ -54,6 +54,8 @@ export async function POST(
     return NextResponse.json({
       tx_hash: result.tx_hash,
       proposal: result.proposal,
+      broadcasted: result.broadcasted === true,
+      stage: result.stage!,
     });
   } catch (error) {
     console.error('Failed to broadcast transaction:', error);

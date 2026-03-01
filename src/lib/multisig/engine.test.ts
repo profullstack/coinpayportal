@@ -414,6 +414,186 @@ describe('MultisigEscrowEngine', () => {
     });
   });
 
+  describe('broadcastTransaction', () => {
+    it('should return prepared stage without mutating state when adapter has not broadcasted', async () => {
+      const escrowId = 'escrow-prepared-1';
+      const proposalId = '11111111-1111-4111-8111-111111111111';
+
+      const escrow = {
+        id: escrowId,
+        escrow_model: 'multisig_2of3',
+        chain: 'ETH',
+        threshold: 2,
+        status: 'funded',
+      };
+      const proposal = {
+        id: proposalId,
+        escrow_id: escrowId,
+        status: 'approved',
+        proposal_type: 'release',
+        chain_tx_data: {},
+      };
+      const signatures = [
+        { signer_pubkey: '0x1', signature: 'sig1' },
+        { signer_pubkey: '0x2', signature: 'sig2' },
+      ];
+
+      const updateProposal = vi.fn();
+      const updateEscrow = vi.fn();
+
+      const from = vi.fn((table: string) => {
+        if (table === 'escrows') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  single: vi.fn().mockResolvedValue({ data: escrow, error: null }),
+                }),
+              }),
+            }),
+            update: vi.fn(() => ({
+              eq: updateEscrow,
+            })),
+          };
+        }
+        if (table === 'multisig_proposals') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  single: vi.fn().mockResolvedValue({ data: proposal, error: null }),
+                }),
+              }),
+            }),
+            update: vi.fn(() => ({
+              eq: updateProposal,
+            })),
+          };
+        }
+        if (table === 'multisig_signatures') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockResolvedValue({ data: signatures, error: null }),
+            }),
+          };
+        }
+        if (table === 'escrow_events') {
+          return {
+            insert: vi.fn().mockResolvedValue({ data: null, error: null }),
+          };
+        }
+        throw new Error(`Unexpected table ${table}`);
+      });
+
+      const mockSupabase = { from } as any;
+
+      const { evmSafeAdapter } = await import('./adapters/evm-safe');
+      vi.mocked(evmSafeAdapter.broadcastTransaction).mockResolvedValueOnce({
+        tx_hash: '0xprepared',
+        success: true,
+        broadcasted: false,
+      });
+
+      const result = await broadcastTransaction(mockSupabase, escrowId, proposalId);
+
+      expect(result.success).toBe(true);
+      expect(result.broadcasted).toBe(false);
+      expect(result.stage).toBe('prepared');
+      expect(result.tx_hash).toBe('0xprepared');
+      expect(updateProposal).not.toHaveBeenCalled();
+      expect(updateEscrow).not.toHaveBeenCalled();
+    });
+
+    it('should return broadcasted stage and mutate state when adapter broadcasts on-chain', async () => {
+      const escrowId = 'escrow-broadcast-1';
+      const proposalId = '22222222-2222-4222-8222-222222222222';
+
+      const escrow = {
+        id: escrowId,
+        escrow_model: 'multisig_2of3',
+        chain: 'ETH',
+        threshold: 2,
+        status: 'funded',
+      };
+      const proposal = {
+        id: proposalId,
+        escrow_id: escrowId,
+        status: 'approved',
+        proposal_type: 'release',
+        chain_tx_data: {},
+      };
+      const signatures = [
+        { signer_pubkey: '0x1', signature: 'sig1' },
+        { signer_pubkey: '0x2', signature: 'sig2' },
+      ];
+
+      const updateProposal = vi.fn().mockResolvedValue({ data: null, error: null });
+      const updateEscrow = vi.fn().mockResolvedValue({ data: null, error: null });
+
+      const from = vi.fn((table: string) => {
+        if (table === 'escrows') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  single: vi.fn().mockResolvedValue({ data: escrow, error: null }),
+                }),
+              }),
+            }),
+            update: vi.fn(() => ({
+              eq: updateEscrow,
+            })),
+          };
+        }
+        if (table === 'multisig_proposals') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  single: vi.fn().mockResolvedValue({ data: proposal, error: null }),
+                }),
+              }),
+            }),
+            update: vi.fn(() => ({
+              eq: updateProposal,
+            })),
+          };
+        }
+        if (table === 'multisig_signatures') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockResolvedValue({ data: signatures, error: null }),
+            }),
+          };
+        }
+        if (table === 'escrow_events') {
+          return {
+            insert: vi.fn().mockResolvedValue({ data: null, error: null }),
+          };
+        }
+        throw new Error(`Unexpected table ${table}`);
+      });
+
+      const mockSupabase = { from } as any;
+
+      const { evmSafeAdapter } = await import('./adapters/evm-safe');
+      vi.mocked(evmSafeAdapter.broadcastTransaction).mockResolvedValueOnce({
+        tx_hash: '0xbroadcasted',
+        success: true,
+        broadcasted: true,
+      });
+
+      const result = await broadcastTransaction(mockSupabase, escrowId, proposalId);
+
+      expect(result.success).toBe(true);
+      expect(result.broadcasted).toBe(true);
+      expect(result.stage).toBe('broadcasted');
+      expect(result.tx_hash).toBe('0xbroadcasted');
+      expect(updateProposal).toHaveBeenCalled();
+      expect(updateEscrow).toHaveBeenCalled();
+    });
+  });
+
   describe('disputeMultisigEscrow', () => {
     it('should reject dispute from arbiter', async () => {
       // Create a funded escrow

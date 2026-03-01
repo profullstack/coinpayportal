@@ -1,15 +1,14 @@
 /**
- * POST /api/escrow/multisig/:id/propose
+ * POST /api/escrow/multisig/:id/prepare
  *
- * Propose a transaction (release or refund) for a multisig escrow.
- * Returns transaction data that signers need to sign.
+ * Prepare a transaction (release or refund) for a multisig escrow.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import {
   proposeTransaction,
-  proposeTransactionSchema,
+  prepareTransactionSchema,
 } from '@/lib/multisig';
 import { requireMultisigAuth } from '../../auth';
 
@@ -32,8 +31,7 @@ export async function POST(
     const supabase = getSupabase();
     const body = await request.json();
 
-    // Validate input
-    const parsed = proposeTransactionSchema.safeParse(body);
+    const parsed = prepareTransactionSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { error: parsed.error.errors[0].message },
@@ -54,11 +52,12 @@ export async function POST(
     }
 
     return NextResponse.json({
+      stage: 'prepared',
       proposal: result.proposal,
       tx_data: result.tx_data,
     }, { status: 201 });
   } catch (error) {
-    console.error('Failed to propose transaction:', error);
+    console.error('Failed to prepare transaction:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 },

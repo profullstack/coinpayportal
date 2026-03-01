@@ -44,7 +44,7 @@ export type {
 // Validation schemas
 export {
   createMultisigEscrowSchema,
-  proposeTransactionSchema,
+  prepareTransactionSchema,
   signProposalSchema,
   broadcastTransactionSchema,
   disputeSchema,
