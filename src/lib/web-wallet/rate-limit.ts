@@ -66,6 +66,7 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'estimate_fee': { limit: 60, windowSeconds: 60 },           // 60/min
   'settings': { limit: 30, windowSeconds: 60 },               // 30/min
   'sync_history': { limit: 10, windowSeconds: 60 },           // 10/min
+  'rates_query': { limit: 60, windowSeconds: 60 },            // 60/min per IP
 };
 
 /** In-memory fallback store */

@@ -10,10 +10,13 @@ import { mnemonicToSeed, isValidMnemonic } from '@/lib/web-wallet/keys';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { node_id, business_id, description, amount_msat, currency, mnemonic } = body;
+    const { node_id, wallet_id, business_id, description, amount_msat, currency, mnemonic } = body;
 
     if (!node_id) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'node_id is required');
+    }
+    if (!wallet_id) {
+      return WalletErrors.badRequest('VALIDATION_ERROR', 'wallet_id is required');
     }
     if (!description) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'description is required');
@@ -24,6 +27,15 @@ export async function POST(request: NextRequest) {
 
     const seed = Buffer.from(mnemonicToSeed(mnemonic));
     const service = getGreenlightService();
+
+    const node = await service.getNode(node_id);
+    if (!node) {
+      return WalletErrors.notFound('node');
+    }
+    if (node.wallet_id !== wallet_id) {
+      return WalletErrors.forbidden('Node does not belong to this wallet');
+    }
+
     const offer = await service.createOffer({
       node_id,
       business_id,
@@ -49,11 +61,25 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const business_id = searchParams.get('business_id') || undefined;
     const node_id = searchParams.get('node_id') || undefined;
+    const wallet_id = searchParams.get('wallet_id') || undefined;
     const status = searchParams.get('status') || undefined;
     const limit = parseInt(searchParams.get('limit') || '20', 10);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
 
     const service = getGreenlightService();
+
+    if (node_id && !wallet_id) {
+      return WalletErrors.badRequest('VALIDATION_ERROR', 'wallet_id is required when node_id is provided');
+    }
+
+    if (node_id && wallet_id) {
+      const node = await service.getNode(node_id);
+      if (!node) return WalletErrors.notFound('node');
+      if (node.wallet_id !== wallet_id) {
+        return WalletErrors.forbidden('Node does not belong to this wallet');
+      }
+    }
+
     const result = await service.listOffers({ business_id, node_id, status, limit, offset });
 
     return walletSuccess({

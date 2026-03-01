@@ -10,10 +10,13 @@ import { mnemonicToSeed, isValidMnemonic } from '@/lib/web-wallet/keys';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { node_id, amount_sats, description, mnemonic } = body;
+    const { node_id, wallet_id, amount_sats, description, mnemonic } = body;
 
     if (!node_id) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'node_id is required');
+    }
+    if (!wallet_id) {
+      return WalletErrors.badRequest('VALIDATION_ERROR', 'wallet_id is required');
     }
     if (!amount_sats || amount_sats <= 0) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'amount_sats is required and must be > 0');
@@ -27,6 +30,15 @@ export async function POST(request: NextRequest) {
 
     const seed = Buffer.from(mnemonicToSeed(mnemonic));
     const service = getGreenlightService();
+
+    const node = await service.getNode(node_id);
+    if (!node) {
+      return WalletErrors.notFound('node');
+    }
+    if (node.wallet_id !== wallet_id) {
+      return WalletErrors.forbidden('Node does not belong to this wallet');
+    }
+
     const invoice = await service.createInvoice({
       node_id,
       amount_sats,

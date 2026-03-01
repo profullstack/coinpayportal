@@ -41,18 +41,23 @@ const chainSchema = z.enum([
 ]);
 
 const createEscrowSchema = z.object({
-  chain: chainSchema,
-  amount: z.number().positive('Amount must be greater than zero'),
-  depositor_address: z.string().min(10, 'Invalid depositor address'),
-  beneficiary_address: z.string().min(10, 'Invalid beneficiary address'),
-  allow_auto_release: z.boolean().optional(),
-  arbiter_address: z.string().min(10).optional(),
+  chain: z.enum([
+    'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+    'DOGE', 'XRP', 'ADA', 'BNB',
+    'USDT', 'USDC',
+    'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+  ], { required_error: 'chain is required', invalid_type_error: 'chain is required' }),
+  amount: z.number({ required_error: 'amount is required', invalid_type_error: 'amount must be a number' }).positive('amount must be greater than zero'),
+  depositor_address: z.string({ required_error: 'depositor_address is required' }).min(10, 'depositor_address must be at least 10 characters'),
+  beneficiary_address: z.string({ required_error: 'beneficiary_address is required' }).min(10, 'beneficiary_address must be at least 10 characters'),
+  allow_auto_release: z.boolean({ invalid_type_error: 'allow_auto_release must be a boolean' }).optional(),
+  arbiter_address: z.string().min(10, 'arbiter_address must be at least 10 characters').optional(),
   metadata: z.record(z.unknown()).optional(),
-  business_id: z.string().uuid().optional(),
-  series_id: z.string().uuid().optional(),
-  expires_in_hours: z.number().positive().max(720).optional(), // max 30 days
-  depositor_email: z.string().email().optional(),
-  beneficiary_email: z.string().email().optional(),
+  business_id: z.string({ invalid_type_error: 'business_id must be a string' }).uuid('business_id must be a valid UUID').optional(),
+  series_id: z.string({ invalid_type_error: 'series_id must be a string' }).uuid('series_id must be a valid UUID').optional(),
+  expires_in_hours: z.number({ invalid_type_error: 'expires_in_hours must be a number' }).positive('expires_in_hours must be positive').max(720, 'expires_in_hours must be at most 720 (30 days)').optional(),
+  depositor_email: z.string().email('depositor_email must be a valid email').optional(),
+  beneficiary_email: z.string().email('beneficiary_email must be a valid email').optional(),
 });
 
 // ── Helpers ─────────────────────────────────────────────────

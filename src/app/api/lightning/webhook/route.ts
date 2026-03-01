@@ -1,6 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { timingSafeEqual } from 'crypto';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { getGreenlightService } from '@/lib/lightning/greenlight';
+
+function isAuthorizedWebhook(request: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET || process.env.INTERNAL_API_KEY;
+  if (!secret) {
+    console.warn('[Lightning] Webhook secret is not configured. Set CRON_SECRET or INTERNAL_API_KEY.');
+    return false;
+  }
+
+  const provided = request.headers.get('x-lightning-webhook-secret')
+    || request.headers.get('x-internal-api-key')
+    || request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
+    || '';
+
+  const a = Buffer.from(secret);
+  const b = Buffer.from(provided);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 /**
  * GET /api/lightning/webhook
@@ -17,7 +36,9 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   try {
-    // No auth required — payload is validated below (offer_id, node_id, etc.)
+    if (!isAuthorizedWebhook(request)) {
+      return WalletErrors.unauthorized('Invalid webhook secret');
+    }
 
     let body: Record<string, unknown>;
     try {
@@ -55,6 +76,7 @@ export async function POST(request: NextRequest) {
     const service = getGreenlightService();
     const payment = await service.recordPayment({
       offer_id,
+      direction: 'incoming',
       node_id,
       business_id,
       payment_hash,

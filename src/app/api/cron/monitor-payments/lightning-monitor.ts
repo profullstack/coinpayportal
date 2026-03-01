@@ -127,6 +127,7 @@ export async function monitorLightningPayments(
             .from('ln_payments')
             .insert({
               offer_id: offerId,
+              direction: 'incoming',
               node_id: node.id,
               business_id: node.business_id,
               payment_hash: payment.payment_hash,

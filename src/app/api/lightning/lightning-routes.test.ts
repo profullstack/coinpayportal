@@ -203,11 +203,13 @@ describe('Lightning Route Handlers', () => {
       const { POST } = await import('./offers/route');
       const fakeOffer = { id: 'o-1', bolt12_offer: 'lno1abc', status: 'active' };
       mockCreateOffer.mockResolvedValue(fakeOffer);
+      mockGetNode.mockResolvedValue({ id: 'n1', wallet_id: 'w1' } as any);
 
       const req = makeRequest('http://localhost:3000/api/lightning/offers', {
         method: 'POST',
         body: JSON.stringify({
           node_id: 'n1',
+          wallet_id: 'w1',
           description: 'Coffee',
           amount_msat: 100000,
           mnemonic: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
@@ -257,6 +259,17 @@ describe('Lightning Route Handlers', () => {
   // ────────────────────────────────────
 
   describe('GET /api/lightning/offers', () => {
+    it('should return 400 when node_id is provided without wallet_id', async () => {
+      const { GET } = await import('./offers/route');
+      const req = makeRequest('http://localhost:3000/api/lightning/offers?node_id=n1');
+      const res = await GET(req);
+      const body = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe('VALIDATION_ERROR');
+    });
+
     it('should list offers with pagination', async () => {
       const { GET } = await import('./offers/route');
       mockListOffers.mockResolvedValue({
@@ -279,14 +292,26 @@ describe('Lightning Route Handlers', () => {
   // ────────────────────────────────────
 
   describe('GET /api/lightning/payments', () => {
+    it('should return 400 when node_id is provided without wallet_id', async () => {
+      const { GET } = await import('./payments/route');
+      const req = makeRequest('http://localhost:3000/api/lightning/payments?node_id=n1');
+      const res = await GET(req);
+      const body = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe('VALIDATION_ERROR');
+    });
+
     it('should list payments', async () => {
       const { GET } = await import('./payments/route');
       mockListPayments.mockResolvedValue({
         payments: [{ id: 'p-1', status: 'settled' }],
         total: 1,
       });
+      mockGetNode.mockResolvedValue({ id: 'n1', wallet_id: 'w1' } as any);
 
-      const req = makeRequest('http://localhost:3000/api/lightning/payments?node_id=n1');
+      const req = makeRequest('http://localhost:3000/api/lightning/payments?node_id=n1&wallet_id=w1');
       const res = await GET(req);
       const body = await res.json();
 

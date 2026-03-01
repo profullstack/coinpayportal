@@ -198,12 +198,13 @@ export function PaymentDemo() {
           {step === 'amount' && (
             <div className="space-y-6">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label htmlFor="payment-amount" className="block text-sm font-medium text-gray-300 mb-2">
                   Payment Amount (USD)
                 </label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">$</span>
                   <input
+                    id="payment-amount"
                     type="number"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
@@ -227,11 +228,11 @@ export function PaymentDemo() {
 
           {step === 'crypto' && (
             <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-3">
+              <fieldset>
+                <legend className="block text-sm font-medium text-gray-300 mb-3">
                   Select Cryptocurrency
-                </label>
-                <div className="grid grid-cols-2 gap-3">
+                </legend>
+                <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label="Select cryptocurrency">
                   {DEMO_CRYPTOS.map((crypto) => (
                     <button
                       key={crypto.symbol}
@@ -248,7 +249,7 @@ export function PaymentDemo() {
                     </button>
                   ))}
                 </div>
-              </div>
+              </fieldset>
 
               <div className="p-4 bg-slate-700/30 rounded-xl">
                 <div className="flex justify-between text-sm">
@@ -333,7 +334,7 @@ export function PaymentDemo() {
 
               {/* Address */}
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label htmlFor="payment-address" className="block text-sm font-medium text-gray-300 mb-2">
                   Send to this address
                 </label>
                 <div className="flex items-center gap-2">
