@@ -119,8 +119,9 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (walletError || !wallet) {
+      console.error('[LightningAddress] Wallet lookup failed', { wallet_id, walletError });
       return NextResponse.json(
-        { error: 'Wallet not found' },
+        { error: 'Wallet not found', wallet_id },
         { status: 404 }
       );
     }
@@ -188,13 +189,18 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { data: wallet } = await supabase
+  const { data: wallet, error: walletLookupError } = await supabase
     .from('wallets')
     .select('ln_username, ln_wallet_adminkey, ln_paylink_id')
     .eq('id', walletId)
     .single();
 
-  if (!wallet?.ln_username) {
+  if (!wallet) {
+    console.error('[LightningAddress] GET wallet lookup failed', { walletId, walletLookupError });
+    return NextResponse.json({ error: 'Wallet not found', wallet_id: walletId }, { status: 404 });
+  }
+
+  if (!wallet.ln_username) {
     return NextResponse.json({ lightning_address: null });
   }
 
