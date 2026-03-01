@@ -7,16 +7,53 @@ on:
 jobs:
   deploy-lnbits:
     runs-on: ubuntu-latest
+    env:
+      # Supports either secret or variable named ENV_FILE (dotenv format)
+      ENV_FILE: ${{ secrets.ENV_FILE || vars.ENV_FILE }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Load ENV_FILE
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${ENV_FILE:-}" ]; then
+            echo "ENV_FILE is empty. Add secret/variable ENV_FILE with dotenv contents."
+            exit 1
+          fi
+
+          # Export KEY=VALUE lines into job env (ignore comments/blank lines)
+          while IFS= read -r line; do
+            [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+            key="${line%%=*}"
+            value="${line#*=}"
+            key="$(echo "$key" | xargs)"
+            [[ -z "$key" ]] && continue
+            {
+              echo "$key<<__EOF__"
+              echo "$value"
+              echo "__EOF__"
+            } >> "$GITHUB_ENV"
+          done <<< "$ENV_FILE"
+
+      - name: Validate required vars
+        shell: bash
+        run: |
+          set -euo pipefail
+          for k in LNBITS_DROPLET_HOST LNBITS_DROPLET_USER LNBITS_DROPLET_SSH_KEY LNBITS_ADMIN_KEY; do
+            if [ -z "${!k:-}" ]; then
+              echo "Missing required ENV_FILE key: $k"
+              exit 1
+            fi
+          done
+
       - name: Run setup-droplet.sh on LNbits host
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.LNBITS_DROPLET_HOST }}
-          username: ${{ secrets.LNBITS_DROPLET_USER }}
-          key: ${{ secrets.LNBITS_DROPLET_SSH_KEY }}
+          host: ${{ env.LNBITS_DROPLET_HOST }}
+          username: ${{ env.LNBITS_DROPLET_USER }}
+          key: ${{ env.LNBITS_DROPLET_SSH_KEY }}
           script_stop: true
           script: |
             set -euo pipefail
@@ -29,15 +66,10 @@ jobs:
             sudo bash scripts/setup-droplet.sh
 
       - name: Verify LNURLp endpoint
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.LNBITS_DROPLET_HOST }}
-          username: ${{ secrets.LNBITS_DROPLET_USER }}
-          key: ${{ secrets.LNBITS_DROPLET_SSH_KEY }}
-          script_stop: true
-          script: |
-            set -euo pipefail
-            code=$(curl -s -o /tmp/lnurlp.json -w "%{http_code}" https://ln.coinpayportal.com/lnurlp/api/v1/links \
-              -H "X-Api-Key: $LNBITS_ADMIN_KEY")
-            test "$code" = "200"
-            cat /tmp/lnurlp.json | head -c 500
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -s -o /tmp/lnurlp.json -w "%{http_code}" "https://ln.coinpayportal.com/lnurlp/api/v1/links" \
+            -H "X-Api-Key: ${LNBITS_ADMIN_KEY}")
+          test "$code" = "200"
+          head -c 500 /tmp/lnurlp.json
