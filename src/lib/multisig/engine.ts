@@ -510,6 +510,15 @@ export async function broadcastTransaction(
       return { success: false, error: 'Broadcast failed' };
     }
 
+    if (result.broadcasted !== true) {
+      // Prepared/simulated success path: do not mutate proposal/escrow state yet.
+      return {
+        success: true,
+        tx_hash: result.tx_hash,
+        proposal: proposal as MultisigProposal,
+      };
+    }
+
     // Update proposal
     await supabase
       .from('multisig_proposals')
