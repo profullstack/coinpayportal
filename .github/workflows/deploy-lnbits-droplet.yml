@@ -11,6 +11,7 @@ jobs:
     env:
       # Supports either secret or variable named ENV_FILE (dotenv format)
       ENV_FILE: ${{ secrets.ENV_FILE || vars.ENV_FILE }}
+      DIRECT_SSH_KEY: ${{ secrets.LNBITS_DROPLET_SSH_KEY || secrets.LNBITS_DROP_SSH_KEY || vars.LNBITS_DROPLET_SSH_KEY || vars.LNBITS_DROP_SSH_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,6 +43,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Backward-compat aliases
+          if [ -z "${LNBITS_DROPLET_SSH_KEY:-}" ] && [ -n "${LNBITS_DROP_SSH_KEY:-}" ]; then
+            echo "LNBITS_DROPLET_SSH_KEY=${LNBITS_DROP_SSH_KEY}" >> "$GITHUB_ENV"
+            export LNBITS_DROPLET_SSH_KEY="${LNBITS_DROP_SSH_KEY}"
+          fi
+          if [ -z "${LNBITS_DROPLET_SSH_KEY:-}" ] && [ -n "${DIRECT_SSH_KEY:-}" ]; then
+            echo "LNBITS_DROPLET_SSH_KEY<<__EOF__" >> "$GITHUB_ENV"
+            echo "${DIRECT_SSH_KEY}" >> "$GITHUB_ENV"
+            echo "__EOF__" >> "$GITHUB_ENV"
+            export LNBITS_DROPLET_SSH_KEY="${DIRECT_SSH_KEY}"
+          fi
+
           for k in LNBITS_DROPLET_HOST LNBITS_DROPLET_USER LNBITS_DROPLET_SSH_KEY LNBITS_ADMIN_KEY; do
             if [ -z "${!k:-}" ]; then
               echo "Missing required ENV_FILE key: $k"
