@@ -2,6 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { LightningAddress } from '../LightningAddress';
 
+vi.mock('@/components/web-wallet/WalletContext', () => ({
+  useWebWallet: () => ({
+    resyncWalletFromSeed: vi.fn().mockResolvedValue({ walletId: 'w1' }),
+  }),
+}));
+
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
