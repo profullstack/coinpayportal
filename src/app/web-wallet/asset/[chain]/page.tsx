@@ -238,30 +238,6 @@ function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: stri
     const results: string[] = [];
     const errors: string[] = [];
 
-    // Create BOLT12 offer (reusable, works with modern wallets)
-    try {
-      const resp = await fetch('/api/lightning/offers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          node_id: lnNode.id,
-          wallet_id: walletId,
-          description: newDesc,
-          amount_msat: amountSats ? amountSats * 1000 : undefined,
-          mnemonic,
-        }),
-      });
-      const data = await resp.json();
-      if (data.success) {
-        results.push('BOLT12 offer created');
-        setRefreshKey((k) => k + 1);
-      } else {
-        errors.push(`BOLT12: ${data.error?.message || 'failed'}`);
-      }
-    } catch {
-      errors.push('BOLT12: network error');
-    }
-
     // Create BOLT11 invoice (one-time, works with all wallets)
     if (amountSats > 0) {
       try {
@@ -348,7 +324,7 @@ function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: stri
           <div className="rounded-xl border border-white/10 bg-white/5 p-5 space-y-4">
             <h3 className="text-white font-semibold">Create Payment Request</h3>
             <p className="text-xs text-gray-400">
-              Creates a BOLT12 offer (reusable, modern wallets) and a BOLT11 invoice (one-time, all wallets).
+              Creates a BOLT11 invoice (one-time, widely compatible). BOLT12 has been deprecated in this deployment.
             </p>
             <input
               type="text"
@@ -359,7 +335,7 @@ function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: stri
             />
             <input
               type="number"
-              placeholder="Amount in sats (required for BOLT11 invoice)"
+              placeholder="Amount in sats (required)"
               value={newAmount}
               onChange={(e) => setNewAmount(e.target.value)}
               className="w-full rounded-lg bg-white/5 border border-white/10 px-4 py-2.5 text-white text-sm placeholder:text-gray-500 focus:outline-none focus:border-purple-500"
