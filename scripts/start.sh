@@ -1,5 +1,6 @@
 #!/bin/sh
 # Railway start script
 
-export NODE_OPTIONS="--max-old-space-size=512"
+# Keep process resilient and avoid frequent OOM exits under production load
+export NODE_OPTIONS="--max-old-space-size=1024 --unhandled-rejections=warn"
 exec pnpm start
