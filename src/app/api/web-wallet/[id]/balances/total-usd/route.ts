@@ -16,6 +16,7 @@ const CHAIN_TO_RATE_SYMBOL: Record<string, string> = {
   ETH: 'ETH',
   POL: 'POL',
   SOL: 'SOL',
+  LN: 'BTC',
   USDC_ETH: 'USDC',
   USDC_POL: 'USDC',
   USDC_SOL: 'USDC',

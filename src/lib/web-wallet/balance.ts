@@ -583,6 +583,40 @@ export async function getWalletBalances(
   console.log(`[Balance] Fetching balances for wallet ${walletId}: ${addresses.length} addresses${options.chain ? ` (chain=${options.chain})` : ''}`);
 
   const now = Date.now();
+  let lnBalanceBtc: string | null = null;
+
+  // LN balance is not on-chain address based. Derive net settled LN flow
+  // from ln_payments for wallet-owned nodes and inject as a synthetic LN asset.
+  if (!options.chain || options.chain === 'LN') {
+    try {
+      const { data: nodes } = await supabase
+        .from('ln_nodes')
+        .select('id')
+        .eq('wallet_id', walletId);
+
+      const nodeIds = (nodes || []).map((n: { id: string }) => n.id).filter(Boolean);
+      if (nodeIds.length > 0) {
+        const { data: payments, error: lnError } = await supabase
+          .from('ln_payments')
+          .select('amount_msat, direction, status')
+          .in('node_id', nodeIds)
+          .eq('status', 'settled');
+
+        if (!lnError) {
+          const netMsat = (payments || []).reduce((sum: number, p: { amount_msat?: number; direction?: string }) => {
+            const amountMsat = Number(p.amount_msat || 0);
+            return p.direction === 'outgoing' ? sum - amountMsat : sum + amountMsat;
+          }, 0);
+
+          // Keep non-negative display balance. Convert msat -> BTC.
+          const sats = Math.max(0, netMsat / 1000);
+          lnBalanceBtc = (sats / 100_000_000).toString();
+        }
+      }
+    } catch (lnBalanceError) {
+      console.warn(`[Balance] Failed to compute LN balance for wallet ${walletId}:`, lnBalanceError);
+    }
+  }
   const results: BalanceResult[] = [];
   const refreshPromises: Promise<void>[] = [];
 
@@ -641,6 +675,21 @@ export async function getWalletBalances(
   if (refreshPromises.length > 0) {
     console.log(`[Balance] Refreshing ${refreshPromises.length} stale balances for wallet ${walletId}`);
     await Promise.allSettled(refreshPromises);
+  }
+
+  if (lnBalanceBtc !== null) {
+    const existingLn = results.find((r) => r.chain === 'LN');
+    if (existingLn) {
+      existingLn.balance = lnBalanceBtc;
+      existingLn.updatedAt = new Date().toISOString();
+    } else {
+      results.push({
+        chain: 'LN',
+        address: 'Lightning Network',
+        balance: lnBalanceBtc,
+        updatedAt: new Date().toISOString(),
+      });
+    }
   }
 
   return { success: true, data: results };
