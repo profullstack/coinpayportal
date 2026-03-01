@@ -1,7 +1,14 @@
 import { NextRequest } from 'next/server';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { getGreenlightService } from '@/lib/lightning/greenlight';
+import { createInvoice as createLnbitsInvoice } from '@/lib/lightning/lnbits';
+import { createClient } from '@supabase/supabase-js';
 import { mnemonicToSeed, isValidMnemonic } from '@/lib/web-wallet/keys';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 /**
  * POST /api/lightning/invoices
@@ -39,12 +46,44 @@ export async function POST(request: NextRequest) {
       return WalletErrors.forbidden('Node does not belong to this wallet');
     }
 
-    const invoice = await service.createInvoice({
-      node_id,
-      amount_sats,
-      description,
-      seed,
-    });
+    let invoice;
+    try {
+      invoice = await service.createInvoice({
+        node_id,
+        amount_sats,
+        description,
+        seed,
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      const noPython = /no Python runtime found/i.test(msg);
+      if (!noPython) throw error;
+
+      // Fallback: create BOLT11 invoice via LNbits wallet key when
+      // Greenlight bridge is unavailable in this runtime.
+      const { data: wallet } = await supabase
+        .from('wallets')
+        .select('ln_wallet_inkey')
+        .eq('id', wallet_id)
+        .single();
+
+      if (!wallet?.ln_wallet_inkey) {
+        throw new Error('Lightning bridge unavailable and LNbits wallet not configured. Claim a Lightning Address first.');
+      }
+
+      const lnbitsInvoice = await createLnbitsInvoice(wallet.ln_wallet_inkey, amount_sats, description);
+      invoice = {
+        id: lnbitsInvoice.payment_hash,
+        bolt11: lnbitsInvoice.payment_request,
+        payment_hash: lnbitsInvoice.payment_hash,
+        amount_msat: amount_sats * 1000,
+        amount_sats,
+        description,
+        status: 'unpaid',
+        created_at: new Date().toISOString(),
+        expires_at: null,
+      };
+    }
 
     return walletSuccess({ invoice }, 201);
   } catch (error) {
