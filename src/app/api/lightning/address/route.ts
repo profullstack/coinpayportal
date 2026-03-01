@@ -111,12 +111,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get wallet to check ownership
-    const { data: wallet, error: walletError } = await supabase
-      .from('wallets')
-      .select('id, user_id, ln_username, ln_wallet_adminkey, ln_paylink_id')
-      .eq('id', wallet_id)
-      .single();
+    // Get wallet to check ownership.
+    // Some environments may not have all LN columns yet; retry with a lean
+    // select in that case so claim can still proceed.
+    let wallet: any = null;
+    let walletError: any = null;
+
+    {
+      const result = await supabase
+        .from('wallets')
+        .select('id, user_id, ln_username, ln_wallet_adminkey, ln_paylink_id')
+        .eq('id', wallet_id)
+        .single();
+      wallet = result.data;
+      walletError = result.error;
+    }
+
+    if (walletError && /column .* does not exist/i.test(String(walletError.message || walletError))) {
+      const fallback = await supabase
+        .from('wallets')
+        .select('id, user_id, ln_username')
+        .eq('id', wallet_id)
+        .single();
+      wallet = fallback.data;
+      walletError = fallback.error;
+    }
 
     if (walletError || !wallet) {
       console.error('[LightningAddress] Wallet lookup failed', { wallet_id, walletError });
@@ -127,8 +146,8 @@ export async function POST(request: NextRequest) {
     }
 
     await ensureLightningAddressBackend(wallet_id, username, {
-      ln_wallet_adminkey: wallet.ln_wallet_adminkey,
-      ln_paylink_id: wallet.ln_paylink_id,
+      ln_wallet_adminkey: wallet.ln_wallet_adminkey ?? null,
+      ln_paylink_id: wallet.ln_paylink_id ?? null,
     });
 
     // Save username to wallet
@@ -189,11 +208,28 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { data: wallet, error: walletLookupError } = await supabase
-    .from('wallets')
-    .select('ln_username, ln_wallet_adminkey, ln_paylink_id')
-    .eq('id', walletId)
-    .single();
+  let wallet: any = null;
+  let walletLookupError: any = null;
+
+  {
+    const result = await supabase
+      .from('wallets')
+      .select('ln_username, ln_wallet_adminkey, ln_paylink_id')
+      .eq('id', walletId)
+      .single();
+    wallet = result.data;
+    walletLookupError = result.error;
+  }
+
+  if (walletLookupError && /column .* does not exist/i.test(String(walletLookupError.message || walletLookupError))) {
+    const fallback = await supabase
+      .from('wallets')
+      .select('ln_username')
+      .eq('id', walletId)
+      .single();
+    wallet = fallback.data;
+    walletLookupError = fallback.error;
+  }
 
   if (!wallet) {
     console.error('[LightningAddress] GET wallet lookup failed', { walletId, walletLookupError });
@@ -208,8 +244,8 @@ export async function GET(request: NextRequest) {
   // stale/missing LNbits wallet or paylink metadata in background.
   try {
     await ensureLightningAddressBackend(walletId, wallet.ln_username, {
-      ln_wallet_adminkey: wallet.ln_wallet_adminkey,
-      ln_paylink_id: wallet.ln_paylink_id,
+      ln_wallet_adminkey: (wallet as any).ln_wallet_adminkey ?? null,
+      ln_paylink_id: (wallet as any).ln_paylink_id ?? null,
     });
   } catch (error) {
     console.error('Lightning address backend self-heal failed:', error);
