@@ -48,9 +48,9 @@ export const createMultisigEscrowSchema = z.object({
   { message: 'Arbiter must be different from depositor and beneficiary', path: ['arbiter_pubkey'] },
 );
 
-// ── Propose Transaction ─────────────────────────────────────
+// ── Prepare Transaction ─────────────────────────────────────
 
-export const proposeTransactionSchema = z.object({
+export const prepareTransactionSchema = z.object({
   proposal_type: z.enum(['release', 'refund'], {
     required_error: 'proposal_type is required',
   }),

@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   createMultisigEscrowSchema,
-  proposeTransactionSchema,
+  prepareTransactionSchema,
   signProposalSchema,
   broadcastTransactionSchema,
   disputeSchema,
@@ -127,9 +127,9 @@ describe('createMultisigEscrowSchema', () => {
   });
 });
 
-describe('proposeTransactionSchema', () => {
+describe('prepareTransactionSchema', () => {
   it('should accept valid release proposal', () => {
-    const result = proposeTransactionSchema.safeParse({
+    const result = prepareTransactionSchema.safeParse({
       proposal_type: 'release',
       to_address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
       signer_pubkey: '0x1234567890123456789012345678901234567890',
@@ -138,7 +138,7 @@ describe('proposeTransactionSchema', () => {
   });
 
   it('should accept valid refund proposal', () => {
-    const result = proposeTransactionSchema.safeParse({
+    const result = prepareTransactionSchema.safeParse({
       proposal_type: 'refund',
       to_address: '0x1234567890123456789012345678901234567890',
       signer_pubkey: '0x1234567890123456789012345678901234567890',
@@ -147,7 +147,7 @@ describe('proposeTransactionSchema', () => {
   });
 
   it('should reject invalid proposal type', () => {
-    const result = proposeTransactionSchema.safeParse({
+    const result = prepareTransactionSchema.safeParse({
       proposal_type: 'cancel',
       to_address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
       signer_pubkey: '0x1234567890123456789012345678901234567890',
@@ -156,7 +156,7 @@ describe('proposeTransactionSchema', () => {
   });
 
   it('should require signer_pubkey', () => {
-    const result = proposeTransactionSchema.safeParse({
+    const result = prepareTransactionSchema.safeParse({
       proposal_type: 'release',
       to_address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
     });

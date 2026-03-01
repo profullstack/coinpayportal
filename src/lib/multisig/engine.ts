@@ -516,6 +516,8 @@ export async function broadcastTransaction(
         success: true,
         tx_hash: result.tx_hash,
         proposal: proposal as MultisigProposal,
+        broadcasted: false,
+        stage: 'prepared',
       };
     }
 
@@ -554,6 +556,8 @@ export async function broadcastTransaction(
     return {
       success: true,
       tx_hash: result.tx_hash,
+      broadcasted: true,
+      stage: 'broadcasted',
       proposal: {
         ...proposal,
         status: 'executed',

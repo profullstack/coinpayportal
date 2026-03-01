@@ -171,6 +171,8 @@ export interface BroadcastResultResponse {
   success: boolean;
   tx_hash?: string;
   proposal?: MultisigProposal;
+  broadcasted?: boolean;
+  stage?: 'prepared' | 'broadcasted';
   error?: string;
 }
 
