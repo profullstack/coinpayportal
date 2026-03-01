@@ -11,6 +11,7 @@ import {
   broadcastTransaction,
   broadcastTransactionSchema,
 } from '@/lib/multisig';
+import { requireMultisigAuth } from '../../auth';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -24,6 +25,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const auth = await requireMultisigAuth(request);
+    if (!auth.ok) return auth.response;
+
     const { id: escrowId } = await params;
     const supabase = getSupabase();
     const body = await request.json();

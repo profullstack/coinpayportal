@@ -5,6 +5,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
+import * as bitcoin from 'bitcoinjs-lib';
+import * as secp256k1 from 'tiny-secp256k1';
 import { BtcMultisigAdapter } from './btc-multisig';
 
 // Sample compressed public keys (33 bytes hex)
@@ -137,24 +139,57 @@ describe('BtcMultisigAdapter', () => {
   });
 
   describe('verifySignature', () => {
-    it('should validate signature format', async () => {
-      // 64-byte signature (128 hex chars)
-      const validSig = 'aa'.repeat(64);
+    it('should verify a valid secp256k1 signature against tx_hash_to_sign', async () => {
+      const privkey = Buffer.alloc(32, 1);
+      const pubkey = Buffer.from(secp256k1.pointFromScalar(privkey, true)!);
+      const pubkeyHex = pubkey.toString('hex');
+
+      const msgHash = Buffer.alloc(32, 7);
+      const sigCompact = Buffer.from(secp256k1.sign(msgHash, privkey));
+      const sigDerWithHashType = bitcoin.script.signature.encode(sigCompact, bitcoin.Transaction.SIGHASH_ALL);
+
       const valid = await adapter.verifySignature(
         'BTC',
-        { witness_script: 'abcdef', pubkeys: [PUB_KEY_1] },
-        validSig,
-        PUB_KEY_1,
+        {
+          witness_script: 'abcdef',
+          pubkeys: [pubkeyHex],
+          tx_hash_to_sign: msgHash.toString('hex'),
+        },
+        sigDerWithHashType.toString('hex'),
+        pubkeyHex,
       );
+
       expect(valid).toBe(true);
     });
 
-    it('should reject unknown pubkey', async () => {
-      const validSig = 'aa'.repeat(64);
+    it('should reject invalid signature bytes for tx_hash_to_sign', async () => {
+      const privkey = Buffer.alloc(32, 2);
+      const pubkey = Buffer.from(secp256k1.pointFromScalar(privkey, true)!);
+      const pubkeyHex = pubkey.toString('hex');
+
+      const msgHash = Buffer.alloc(32, 8);
+      const invalidSig = 'aa'.repeat(70);
+
       const valid = await adapter.verifySignature(
         'BTC',
-        { witness_script: 'abcdef', pubkeys: [PUB_KEY_2] },
-        validSig,
+        {
+          witness_script: 'abcdef',
+          pubkeys: [pubkeyHex],
+          tx_hash_to_sign: msgHash.toString('hex'),
+        },
+        invalidSig,
+        pubkeyHex,
+      );
+
+      expect(valid).toBe(false);
+    });
+
+    it('should reject unknown pubkey', async () => {
+      const msgHash = Buffer.alloc(32, 9).toString('hex');
+      const valid = await adapter.verifySignature(
+        'BTC',
+        { witness_script: 'abcdef', pubkeys: [PUB_KEY_2], tx_hash_to_sign: msgHash },
+        'aa'.repeat(64),
         PUB_KEY_1, // not in pubkeys list
       );
       expect(valid).toBe(false);

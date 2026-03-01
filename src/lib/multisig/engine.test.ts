@@ -51,6 +51,7 @@ vi.mock('./adapters/evm-safe', () => ({
     broadcastTransaction: vi.fn().mockResolvedValue({
       tx_hash: '0xBroadcastTxHash456',
       success: true,
+      broadcasted: true,
     }),
   },
 }));
@@ -75,6 +76,7 @@ vi.mock('./adapters/btc-multisig', () => ({
     broadcastTransaction: vi.fn().mockResolvedValue({
       tx_hash: 'btc_broadcast_hash_456',
       success: true,
+      broadcasted: true,
     }),
   },
 }));
@@ -99,6 +101,7 @@ vi.mock('./adapters/solana-multisig', () => ({
     broadcastTransaction: vi.fn().mockResolvedValue({
       tx_hash: 'sol_broadcast_hash_456',
       success: true,
+      broadcasted: true,
     }),
   },
 }));
