@@ -487,13 +487,20 @@ export async function getTransactionHistory(
   const limit = Math.min(options.limit || 50, 100);
   const offset = options.offset || 0;
 
-  // Build query for on-chain history table
+  const wantsLn = !options.chain || options.chain === 'LN';
+
+  // Build query for on-chain history table.
+  // When LN is part of the response, fetch unpaged on-chain rows first,
+  // then paginate after LN merge so LN entries are not pushed out.
   let query = supabase
     .from('wallet_transactions')
     .select('*', { count: 'exact' })
     .eq('wallet_id', walletId)
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('created_at', { ascending: false });
+
+  if (!wantsLn) {
+    query = query.range(offset, offset + limit - 1);
+  }
 
   if (options.chain) {
     query = query.eq('chain', options.chain);
@@ -523,7 +530,6 @@ export async function getTransactionHistory(
   // Merge Lightning payments from ln_payments for this wallet.
   // We do this server-side so global history can show LN events too.
   let lnTxs: TransactionRecord[] = [];
-  const wantsLn = !options.chain || options.chain === 'LN';
   if (wantsLn) {
     try {
       const { data: nodes } = await supabase
