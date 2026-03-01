@@ -1,0 +1,43 @@
+name: Deploy LNbits Droplet
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy-lnbits:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run setup-droplet.sh on LNbits host
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.LNBITS_DROPLET_HOST }}
+          username: ${{ secrets.LNBITS_DROPLET_USER }}
+          key: ${{ secrets.LNBITS_DROPLET_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            if [ ! -d ~/coinpayportal ]; then
+              git clone https://github.com/profullstack/coinpayportal.git ~/coinpayportal
+            fi
+            cd ~/coinpayportal
+            git fetch origin master
+            git reset --hard origin/master
+            sudo bash scripts/setup-droplet.sh
+
+      - name: Verify LNURLp endpoint
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.LNBITS_DROPLET_HOST }}
+          username: ${{ secrets.LNBITS_DROPLET_USER }}
+          key: ${{ secrets.LNBITS_DROPLET_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            code=$(curl -s -o /tmp/lnurlp.json -w "%{http_code}" https://ln.coinpayportal.com/lnurlp/api/v1/links \
+              -H "X-Api-Key: $LNBITS_ADMIN_KEY")
+            test "$code" = "200"
+            cat /tmp/lnurlp.json | head -c 500
