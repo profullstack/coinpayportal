@@ -214,11 +214,11 @@ export class EvmSafeAdapter implements ChainAdapter {
       ethers.ZeroAddress, // paymentReceiver
     ]);
 
-    // Generate deterministic salt from participants
+    // Generate deterministic salt from stable multisig parameters
     const saltNonce = BigInt(ethers.keccak256(
       ethers.solidityPacked(
         ['address', 'address', 'address', 'uint256'],
-        [owners[0], owners[1], owners[2], Date.now()],
+        [owners[0], owners[1], owners[2], threshold],
       ),
     ));
 
@@ -399,10 +399,11 @@ export class EvmSafeAdapter implements ChainAdapter {
       packedSignatures,
     ]);
 
-    // Return the prepared transaction for relay/execution
+    // Return a deterministic id for the prepared payload.
+    // NOTE: this does NOT broadcast to chain yet.
     return {
       tx_hash: ethers.keccak256(execData),
-      success: true,
+      success: false,
     };
   }
 }

@@ -130,10 +130,7 @@ export class SolanaMultisigAdapter implements ChainAdapter {
 
     // Generate a deterministic create key from all participant keys
     const createKeyHash = createHash('sha256')
-      .update(Buffer.concat([
-        ...members.map((m) => m.toBuffer()),
-        Buffer.from(Date.now().toString()),
-      ]))
+      .update(Buffer.concat(members.map((m) => m.toBuffer())))
       .digest();
     const createKey = new PublicKey(createKeyHash.subarray(0, 32));
 

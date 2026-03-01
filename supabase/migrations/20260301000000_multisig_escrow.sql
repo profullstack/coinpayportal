@@ -52,6 +52,17 @@ ALTER TABLE escrows ADD CONSTRAINT escrows_chain_check CHECK (chain IN (
 
 CREATE INDEX IF NOT EXISTS idx_escrows_escrow_model ON escrows(escrow_model);
 
+-- Enforce required multisig fields for multisig_2of3 escrows
+ALTER TABLE escrows DROP CONSTRAINT IF EXISTS escrows_multisig_fields_check;
+ALTER TABLE escrows ADD CONSTRAINT escrows_multisig_fields_check CHECK (
+  (escrow_model = 'multisig_2of3' AND threshold = 2
+    AND depositor_pubkey IS NOT NULL
+    AND beneficiary_pubkey IS NOT NULL
+    AND arbiter_pubkey IS NOT NULL)
+  OR
+  (escrow_model = 'custodial')
+);
+
 -- ============================================================
 -- 2. multisig_proposals — tracks proposed transactions
 -- ============================================================
@@ -73,6 +84,9 @@ CREATE TABLE IF NOT EXISTS multisig_proposals (
 
 CREATE INDEX IF NOT EXISTS idx_multisig_proposals_escrow ON multisig_proposals(escrow_id);
 CREATE INDEX IF NOT EXISTS idx_multisig_proposals_status ON multisig_proposals(status);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_multisig_proposals_escrow_pending
+  ON multisig_proposals(escrow_id)
+  WHERE status = 'pending';
 
 -- ============================================================
 -- 3. multisig_signatures — tracks collected signatures

@@ -234,6 +234,19 @@ export async function proposeTransaction(
     return { success: false, error: `Cannot propose transaction in status: ${escrow.status}` };
   }
 
+  // Arbiter may only propose while disputed
+  if (role === 'arbiter' && escrow.status !== 'disputed') {
+    return { success: false, error: 'Arbiter can only propose during disputes' };
+  }
+
+  // Enforce canonical payout recipients by proposal type
+  if (proposalType === 'release' && toAddress !== escrow.beneficiary_pubkey) {
+    return { success: false, error: 'Release proposals must pay the beneficiary address' };
+  }
+  if (proposalType === 'refund' && toAddress !== escrow.depositor_pubkey) {
+    return { success: false, error: 'Refund proposals must pay the depositor address' };
+  }
+
   // Authorization rules
   if (proposalType === 'release' && role === 'beneficiary') {
     // Beneficiary cannot self-release — needs depositor or arbiter
@@ -277,7 +290,10 @@ export async function proposeTransaction(
         proposal_type: proposalType,
         to_address: toAddress,
         amount: escrow.amount,
-        chain_tx_data: txResult.tx_data,
+        chain_tx_data: {
+          ...txResult.tx_data,
+          tx_hash_to_sign: txResult.tx_hash_to_sign,
+        },
         status: 'pending',
         created_by: signerPubkey,
       })

@@ -8,13 +8,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { authenticateRequest } from '@/lib/auth/middleware';
 import {
   createMultisigEscrow,
   getMultisigEscrow,
   createMultisigEscrowSchema,
   isMultisigEnabled,
 } from '@/lib/multisig';
+import { requireMultisigAuth } from './auth';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -36,34 +36,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const auth = await requireMultisigAuth(request);
+    if (!auth.ok) return auth.response;
+
     const supabase = getSupabase();
-
-    // Authentication required
-    const authHeader = request.headers.get('authorization');
-    const apiKeyHeader = request.headers.get('x-api-key');
-
-    if (!authHeader && !apiKeyHeader) {
-      return NextResponse.json(
-        { error: 'Authentication required. Provide Authorization header or X-API-Key.' },
-        { status: 401 },
-      );
-    }
-
-    try {
-      const authResult = await authenticateRequest(supabase, authHeader || apiKeyHeader);
-      if (!authResult.success) {
-        return NextResponse.json(
-          { error: 'Invalid or expired authentication' },
-          { status: 401 },
-        );
-      }
-    } catch {
-      return NextResponse.json(
-        { error: 'Authentication failed' },
-        { status: 401 },
-      );
-    }
-
     const body = await request.json();
 
     // Validate input
