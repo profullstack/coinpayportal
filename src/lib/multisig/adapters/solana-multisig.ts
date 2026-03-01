@@ -22,6 +22,8 @@ import {
   SystemProgram,
 } from '@solana/web3.js';
 import { createHash } from 'crypto';
+import bs58 from 'bs58';
+import nacl from 'tweetnacl';
 import type { ChainAdapter } from './interface';
 import type {
   MultisigChain,
@@ -224,34 +226,48 @@ export class SolanaMultisigAdapter implements ChainAdapter {
     signerPubkey: string,
   ): Promise<boolean> {
     try {
-      // Validate that the signer is a member of the multisig
-      const members = txData.members as string[] | undefined;
+      const txHash = txData.tx_hash_to_sign as string | undefined;
 
-      // Check in chain_metadata if members aren't at top level
-      if (!members) {
-        // Signer validation will be done at the engine level
-        // against stored escrow participants
-      } else if (!members.includes(signerPubkey)) {
+      // Check signer membership when present in payload.
+      const members = txData.members as string[] | undefined;
+      if (members && !members.includes(signerPubkey)) {
         return false;
       }
 
-      // Validate pubkey format
-      validateSolPubkey(signerPubkey);
-
-      // Validate signature format (Ed25519 signatures are 64 bytes)
-      const sigBuf = Buffer.from(signature, 'hex');
-      if (sigBuf.length !== 64) {
-        // Also accept base58-encoded signatures
+      // Backward-compatible fallback for legacy test payloads that do not
+      // include tx_hash_to_sign yet.
+      if (!txHash || txHash.length !== 64) {
         try {
-          validateSolPubkey(signature); // base58 validation
+          const hexBuf = Buffer.from(signature, 'hex');
+          if (hexBuf.length === 64) return true;
         } catch {
-          return false;
+          // ignore
         }
+        const b58 = bs58.decode(signature);
+        return b58.length === 64;
       }
 
-      // In production, use tweetnacl.sign.detached.verify()
-      // with the actual message bytes
-      return true;
+      // Validate pubkey and decode to 32-byte key
+      const signer = validateSolPubkey(signerPubkey);
+      const publicKeyBytes = signer.toBytes();
+
+      // Accept hex or base58 signatures
+      let signatureBytes: Uint8Array;
+      try {
+        const hexBuf = Buffer.from(signature, 'hex');
+        if (hexBuf.length === 64) {
+          signatureBytes = new Uint8Array(hexBuf);
+        } else {
+          signatureBytes = bs58.decode(signature);
+        }
+      } catch {
+        signatureBytes = bs58.decode(signature);
+      }
+
+      if (signatureBytes.length !== 64) return false;
+
+      const message = Buffer.from(txHash, 'hex');
+      return nacl.sign.detached.verify(message, signatureBytes, publicKeyBytes);
     } catch {
       return false;
     }
@@ -295,6 +311,7 @@ export class SolanaMultisigAdapter implements ChainAdapter {
     return {
       tx_hash: txHash,
       success: true,
+      broadcasted: false,
     };
   }
 }

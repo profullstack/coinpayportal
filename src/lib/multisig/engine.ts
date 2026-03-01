@@ -510,6 +510,10 @@ export async function broadcastTransaction(
       return { success: false, error: 'Broadcast failed' };
     }
 
+    if (result.broadcasted === false) {
+      return { success: false, error: 'Transaction prepared but not broadcasted on-chain yet' };
+    }
+
     // Update proposal
     await supabase
       .from('multisig_proposals')
