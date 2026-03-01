@@ -250,11 +250,10 @@ export class BtcMultisigAdapter implements ChainAdapter {
         return false;
       }
 
-      // Backward-compatible fallback for legacy test payloads that do not
-      // include tx_hash_to_sign yet.
+      // tx_hash_to_sign is required for cryptographic verification.
+      // Fail closed when missing/malformed.
       if (!txHash || txHash.length !== 64) {
-        const sigBuf = Buffer.from(signature, 'hex');
-        return sigBuf.length >= 64;
+        return false;
       }
 
       const msgHash = Buffer.from(txHash, 'hex');
@@ -294,7 +293,7 @@ export class BtcMultisigAdapter implements ChainAdapter {
     }
 
     if (signatures.length < 2) {
-      return { tx_hash: '', success: false };
+      return { tx_hash: '', success: false, broadcasted: false };
     }
 
     // In production:

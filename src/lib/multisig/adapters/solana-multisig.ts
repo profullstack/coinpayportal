@@ -234,17 +234,10 @@ export class SolanaMultisigAdapter implements ChainAdapter {
         return false;
       }
 
-      // Backward-compatible fallback for legacy test payloads that do not
-      // include tx_hash_to_sign yet.
+      // tx_hash_to_sign is required for cryptographic verification.
+      // Fail closed when missing/malformed.
       if (!txHash || txHash.length !== 64) {
-        try {
-          const hexBuf = Buffer.from(signature, 'hex');
-          if (hexBuf.length === 64) return true;
-        } catch {
-          // ignore
-        }
-        const b58 = bs58.decode(signature);
-        return b58.length === 64;
+        return false;
       }
 
       // Validate pubkey and decode to 32-byte key
@@ -291,7 +284,7 @@ export class SolanaMultisigAdapter implements ChainAdapter {
     }
 
     if (signatures.length < 2) {
-      return { tx_hash: '', success: false };
+      return { tx_hash: '', success: false, broadcasted: false };
     }
 
     // In production:

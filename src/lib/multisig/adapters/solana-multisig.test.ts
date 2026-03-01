@@ -5,6 +5,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
+import nacl from 'tweetnacl';
+import bs58 from 'bs58';
 import { SolanaMultisigAdapter } from './solana-multisig';
 
 // Valid Solana base58 public keys (system program and well-known program addresses)
@@ -103,24 +105,50 @@ describe('SolanaMultisigAdapter', () => {
   });
 
   describe('verifySignature', () => {
-    it('should accept valid Ed25519 signature format (64 bytes)', async () => {
-      const sig64bytes = 'aa'.repeat(64); // 64 bytes as hex
+    it('should verify a valid Ed25519 signature against tx_hash_to_sign', async () => {
+      const keypair = nacl.sign.keyPair();
+      const signerPubkey = bs58.encode(Buffer.from(keypair.publicKey));
+
+      const msgHash = Buffer.alloc(32, 5);
+      const signature = nacl.sign.detached(msgHash, keypair.secretKey);
+
       const valid = await adapter.verifySignature(
         'SOL',
-        { members: [SOL_PK_1] },
-        sig64bytes,
-        SOL_PK_1,
+        { members: [signerPubkey], tx_hash_to_sign: msgHash.toString('hex') },
+        Buffer.from(signature).toString('hex'),
+        signerPubkey,
       );
+
       expect(valid).toBe(true);
     });
 
-    it('should reject signer not in members list', async () => {
-      const sig64bytes = 'aa'.repeat(64);
+    it('should reject an invalid Ed25519 signature for tx_hash_to_sign', async () => {
+      const keypair = nacl.sign.keyPair();
+      const signerPubkey = bs58.encode(Buffer.from(keypair.publicKey));
+      const msgHash = Buffer.alloc(32, 6);
+      const badSignature = Buffer.alloc(64, 1).toString('hex');
+
       const valid = await adapter.verifySignature(
         'SOL',
-        { members: [SOL_PK_2] },
-        sig64bytes,
-        SOL_PK_1, // not in members
+        { members: [signerPubkey], tx_hash_to_sign: msgHash.toString('hex') },
+        badSignature,
+        signerPubkey,
+      );
+
+      expect(valid).toBe(false);
+    });
+
+    it('should reject signer not in members list', async () => {
+      const keypair = nacl.sign.keyPair();
+      const signerPubkey = bs58.encode(Buffer.from(keypair.publicKey));
+      const msgHash = Buffer.alloc(32, 7);
+      const signature = nacl.sign.detached(msgHash, keypair.secretKey);
+
+      const valid = await adapter.verifySignature(
+        'SOL',
+        { members: [SOL_PK_2], tx_hash_to_sign: msgHash.toString('hex') },
+        Buffer.from(signature).toString('hex'),
+        signerPubkey,
       );
       expect(valid).toBe(false);
     });

@@ -141,7 +141,7 @@ export interface AddSignatureResult {
 export interface BroadcastResult {
   tx_hash: string;
   success: boolean;
-  broadcasted?: boolean;
+  broadcasted: boolean;
 }
 
 // ── API Response Types ──────────────────────────────────────
