@@ -18,6 +18,11 @@ function isLnbitsMissingUserAuthError(error: unknown): boolean {
   return /missing user id or access token|api error 401/i.test(msg);
 }
 
+function isLnbitsAuthError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /api error 401|401 authorization required|unauthorized/i.test(msg);
+}
+
 async function ensureLightningAddressBackend(walletId: string, username: string, wallet: {
   ln_wallet_adminkey?: string | null;
   ln_paylink_id?: number | null;
@@ -81,11 +86,11 @@ async function ensureLightningAddressBackend(walletId: string, username: string,
       .update({ ln_paylink_id: payLink.id })
       .eq('id', walletId);
   } catch (error) {
-    if (!isMissingLnbitsWalletError(error)) {
+    if (!isMissingLnbitsWalletError(error) && !isLnbitsAuthError(error)) {
       throw error;
     }
 
-    // Auto-heal stale LNbits linkage, then retry once.
+    // Auto-heal stale/unauthorized LNbits linkage, then retry once.
     await upsertLnbitsWallet();
     const payLink = await createPayLinkForWallet();
 
