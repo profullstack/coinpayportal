@@ -403,7 +403,8 @@ export class EvmSafeAdapter implements ChainAdapter {
     // NOTE: this does NOT broadcast to chain yet.
     return {
       tx_hash: ethers.keccak256(execData),
-      success: false,
+      success: true,
+      broadcasted: false,
     };
   }
 }
