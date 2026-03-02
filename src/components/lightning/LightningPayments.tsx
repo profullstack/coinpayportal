@@ -97,6 +97,9 @@ export function LightningPayments({ nodeId, walletId, businessId, offerId }: Lig
               {payment.payer_note && (
                 <p className="mt-1 text-xs text-gray-400">{payment.payer_note}</p>
               )}
+              {payment.direction === 'outgoing' && payment.fee_msat != null && payment.fee_msat !== 0 && (
+                <p className="mt-0.5 text-xs text-gray-500">Fee: {Math.ceil(Math.abs(payment.fee_msat) / 1000)} sat{Math.ceil(Math.abs(payment.fee_msat) / 1000) !== 1 ? 's' : ''}</p>
+              )}
               <p className="mt-1 text-xs text-gray-500 font-mono">
                 {payment.payment_hash.substring(0, 16)}...
               </p>

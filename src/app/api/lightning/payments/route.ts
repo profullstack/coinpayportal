@@ -170,6 +170,7 @@ export async function GET(request: NextRequest) {
                 payment_hash: p.payment_hash,
                 preimage: p.preimage || null,
                 amount_msat: Math.abs(rawAmountMsat),
+                fee_msat: p.fee != null ? Math.abs(Number(p.fee)) : null,
                 status: 'settled',
                 payment_type: 'payment',
                 payer_note: p.memo || null,

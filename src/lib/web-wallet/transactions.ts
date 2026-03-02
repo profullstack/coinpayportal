@@ -579,7 +579,7 @@ export async function getTransactionHistory(
               amount,
               from_address: direction === 'incoming' ? 'lightning' : 'lnbits',
               to_address: direction === 'incoming' ? 'lnbits' : 'lightning',
-              fee_amount: null,
+              fee_amount: p.fee != null && Number(p.fee) !== 0 ? (Math.abs(Number(p.fee)) / 1000).toString() : null,
               fee_currency: 'LN',
               confirmations: 1,
               block_number: null,
