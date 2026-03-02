@@ -547,4 +547,12 @@ echo "    CLN:      ${CLN_DIR}/config"
 echo "    LNbits:   ${LNBITS_DIR}/.env"
 echo "    Runes:    ${RUNE_FILE}"
 echo "    Nginx:    ${NGINX_CONF}"
+
+# ── Auto-enable lnurlp extension for all LNbits users ──
+log "Setting up auto-enable lnurlp cron..."
+cat > /etc/cron.d/lnbits-enable-extensions << 'EXTCRON'
+# Auto-enable lnurlp and nostrnip5 for all LNbits users every minute
+* * * * * root sqlite3 /opt/lnbits-data/database.sqlite3 "INSERT OR IGNORE INTO extensions (\"user\", extension, active) SELECT DISTINCT w.\"user\", 'lnurlp', 1 FROM wallets w WHERE w.\"user\" NOT IN (SELECT e.\"user\" FROM extensions e WHERE e.extension = 'lnurlp');" 2>/dev/null
+EXTCRON
+chmod 644 /etc/cron.d/lnbits-enable-extensions
 echo ""
