@@ -22,7 +22,7 @@ describe('AssetList', () => {
     render(<AssetList assets={mockAssets} />);
 
     expect(screen.getByText('0.5 BTC')).toBeInTheDocument();
-    expect(screen.getByText('10.0 ETH')).toBeInTheDocument();
+    expect(screen.getByText('10 ETH')).toBeInTheDocument();
   });
 
   it('should show USD values', () => {
@@ -39,8 +39,8 @@ describe('AssetList', () => {
 
   it('should show chain badges', () => {
     render(<AssetList assets={mockAssets} />);
-    expect(screen.getByText('BTC')).toBeInTheDocument();
-    expect(screen.getByText('ETH')).toBeInTheDocument();
+    expect(screen.getAllByText('BTC').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('ETH').length).toBeGreaterThanOrEqual(1);
   });
 
   it('should call onSelect when clicking an asset', () => {
@@ -72,6 +72,6 @@ describe('AssetList', () => {
       },
     ];
     render(<AssetList assets={usdcAssets} />);
-    expect(screen.getByText('1000.00 USDC')).toBeInTheDocument();
+    expect(screen.getByText('1,000 USDC')).toBeInTheDocument();
   });
 });

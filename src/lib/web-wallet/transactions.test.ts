@@ -208,6 +208,29 @@ describe('REQUIRED_CONFIRMATIONS', () => {
 // getTransactionHistory (DB operations)
 // ──────────────────────────────────────────────
 
+
+function createTableAwareMock(tableResponses: Record<string, any>) {
+  return {
+    from: vi.fn((table: string) => {
+      const resp = tableResponses[table];
+      if (!resp) {
+        // Return a chainable mock that resolves empty
+        const chain: any = {};
+        chain.select = vi.fn().mockReturnValue(chain);
+        chain.eq = vi.fn().mockReturnValue(chain);
+        chain.in = vi.fn().mockReturnValue(chain);
+        chain.order = vi.fn().mockReturnValue(chain);
+        chain.range = vi.fn().mockResolvedValue({ data: [], count: 0, error: null });
+        chain.single = vi.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } });
+        chain.gte = vi.fn().mockReturnValue(chain);
+        chain.lte = vi.fn().mockReturnValue(chain);
+        return chain;
+      }
+      return resp;
+    }),
+  } as any;
+}
+
 describe('getTransactionHistory', () => {
   beforeEach(() => {
     mockFetch.mockReset();
@@ -229,14 +252,15 @@ describe('getTransactionHistory', () => {
       },
     ];
 
-    const rangeFn = vi.fn().mockResolvedValue({ data: mockTxs, count: 1, error: null });
-    const orderFn = vi.fn().mockReturnValue({ range: rangeFn });
-    const eqFn = vi.fn().mockReturnValue({ order: orderFn });
-    const selectFn = vi.fn().mockReturnValue({ eq: eqFn });
+    const walletTxChain: any = {};
+    walletTxChain.select = vi.fn().mockReturnValue(walletTxChain);
+    walletTxChain.eq = vi.fn().mockReturnValue(walletTxChain);
+    walletTxChain.order = vi.fn().mockReturnValue(walletTxChain);
+    walletTxChain.range = vi.fn().mockReturnValue(walletTxChain);
+    // When awaited (no .range() in wantsLn path), resolve with data
+    walletTxChain.then = (resolve: any) => resolve({ data: mockTxs, count: 1, error: null });
 
-    const supabase = {
-      from: vi.fn().mockReturnValue({ select: selectFn }),
-    } as any;
+    const supabase = createTableAwareMock({ wallet_transactions: walletTxChain });
 
     const result = await getTransactionHistory(supabase, 'w1');
     expect(result.success).toBe(true);
@@ -283,14 +307,14 @@ describe('getTransactionHistory', () => {
   });
 
   it('should handle DB error', async () => {
-    const rangeFn = vi.fn().mockResolvedValue({ data: null, count: null, error: { message: 'fail' } });
-    const orderFn = vi.fn().mockReturnValue({ range: rangeFn });
-    const eqFn = vi.fn().mockReturnValue({ order: orderFn });
-    const selectFn = vi.fn().mockReturnValue({ eq: eqFn });
+    const walletTxChain: any = {};
+    walletTxChain.select = vi.fn().mockReturnValue(walletTxChain);
+    walletTxChain.eq = vi.fn().mockReturnValue(walletTxChain);
+    walletTxChain.order = vi.fn().mockReturnValue(walletTxChain);
+    walletTxChain.range = vi.fn().mockReturnValue(walletTxChain);
+    walletTxChain.then = (resolve: any) => resolve({ data: null, count: null, error: { message: 'fail' } });
 
-    const supabase = {
-      from: vi.fn().mockReturnValue({ select: selectFn }),
-    } as any;
+    const supabase = createTableAwareMock({ wallet_transactions: walletTxChain });
 
     const result = await getTransactionHistory(supabase, 'w1');
     expect(result.success).toBe(false);
@@ -331,7 +355,8 @@ describe('getTransactionHistory', () => {
       const q: any = {};
       q.eq = vi.fn().mockReturnValue(q);
       q.order = vi.fn().mockReturnValue(q);
-      q.range = vi.fn().mockResolvedValue({ data: walletTxs, count: 1, error: null });
+      q.range = vi.fn().mockReturnValue(q);
+      q.then = (resolve: any) => resolve({ data: walletTxs, count: 1, error: null });
       return q;
     };
 

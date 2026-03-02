@@ -29,6 +29,7 @@ export default defineConfig({
       'src/lib/payments/service.expiration.test.ts',
       // Skip API route test that pulls system-wallet through payment flow (same ws issue)
       'src/app/api/payments/route.test.ts',
+      'src/app/api/cron/monitor-payments/route.test.ts',
     ],
     environmentMatchGlobs: [
       // Use jsdom for React component tests

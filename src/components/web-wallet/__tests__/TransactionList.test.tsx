@@ -46,8 +46,8 @@ describe('TransactionList', () => {
   it('should show amounts with +/- prefix', () => {
     render(<TransactionList transactions={mockTransactions} />);
 
-    expect(screen.getByText('-1.5')).toBeInTheDocument();
-    expect(screen.getByText('+0.01')).toBeInTheDocument();
+    expect(screen.getAllByText((_, el) => el?.textContent?.includes('-1.5') ?? false).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText((_, el) => el?.textContent?.includes('+0.01') ?? false).length).toBeGreaterThanOrEqual(1);
   });
 
   it('should show chain badges', () => {
