@@ -236,7 +236,7 @@ const x402 = createX402Middleware({
     polygon: '0xYourEvmAddress',
     base: '0xYourEvmAddress',             // also receives USDC on Base
     solana: 'YourSolanaAddress',
-    lightning: 'lno1YourBolt12Offer',
+    lightning: 'alice@coinpayportal.com',  // Lightning Address
     stripe: 'acct_YourStripeId',
     'bitcoin-cash': 'bitcoincash:qYourBchAddress',
   },
@@ -261,7 +261,7 @@ export async function GET(request: Request) {
         bitcoin: 'bc1q...',
         ethereum: '0x...',
         solana: 'So1...',
-        lightning: 'lno1...',
+        lightning: 'alice@coinpayportal.com',
       },
       amountUsd: 5.00,
       rates: { BTC: 65000, ETH: 3500, SOL: 150 },
@@ -312,7 +312,7 @@ export async function GET(request: Request) {
       "network": "lightning",
       "asset": "BTC",
       "maxAmountRequired": "769",
-      "payTo": "lno1Merchant...",
+      "payTo": "merchant@coinpayportal.com",
       "extra": { "label": "Lightning" }
     },
     {
@@ -350,7 +350,7 @@ export async function GET(request: Request) {
                   </tr>
                   <tr className="border-b border-white/5">
                     <td className="px-4 py-3 font-medium text-white">Lightning</td>
-                    <td className="px-4 py-3">Pay the BOLT12 offer via any Lightning wallet</td>
+                    <td className="px-4 py-3">Pay via Lightning Address (user@coinpayportal.com) or BOLT11 invoice</td>
                     <td className="px-4 py-3">Payment preimage</td>
                   </tr>
                   <tr className="border-b border-white/5">
@@ -420,7 +420,7 @@ const response = await x402fetch('https://api.example.com/premium', {
   paymentMethods: {
     // Provide wallet/signer for each chain you can pay with
     base: { signer: evmWallet },           // ethers.js or viem signer
-    lightning: { macaroon, host },          // LND or CLN credentials
+    lightning: true,                         // Enable Lightning (custodial via LNbits)
     bitcoin: { wif: 'L4rK1yD...' },        // BTC private key (WIF)
     solana: { secretKey: keypair },         // Solana Keypair
   },
