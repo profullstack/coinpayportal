@@ -610,9 +610,16 @@ export async function getTransactionHistory(
               const direction = rawAmount < 0 ? 'outgoing' : 'incoming';
               const status = p.pending ? 'pending' : 'confirmed';
               const amount = Math.abs(rawAmount).toString();
-              const createdAt = p.time
-                ? new Date(Number(p.time) * 1000).toISOString()
-                : new Date().toISOString();
+              let createdAt: string;
+              if (p.created_at) {
+                createdAt = new Date(p.created_at).toISOString();
+              } else if (p.time && !isNaN(Number(p.time))) {
+                createdAt = new Date(Number(p.time) * 1000).toISOString();
+              } else if (p.time) {
+                createdAt = new Date(p.time).toISOString();
+              } else {
+                createdAt = new Date().toISOString();
+              }
 
               return {
                 id: `lnbits_${p.payment_hash}`,
