@@ -38,7 +38,7 @@ describe('LNbits API Client', () => {
       const wallet = await createUserWallet('alice');
       expect(wallet.id).toBe('w1');
       expect(wallet.adminkey).toBe('ak1');
-      expect(mockFetch.mock.calls[0][0]).toContain('/api/v1/wallet');
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/v1/account');
       expect(mockFetch.mock.calls[0][1].method).toBe('POST');
     });
 
