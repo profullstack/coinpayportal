@@ -68,21 +68,24 @@ export function AssetList({ assets, isLoading, onSelect, onDeriveAll, isDeriving
         >
           <ChainBadge chain={asset.chain} />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-white">
-              {asset.balance} {getSymbol(asset.chain)}
-            </p>
+            <p className="text-sm font-medium text-white">{getSymbol(asset.chain)}</p>
             <p className="truncate text-xs text-gray-400 font-mono">
               {asset.address.slice(0, 10)}...{asset.address.slice(-6)}
             </p>
           </div>
-          {asset.usdValue !== undefined && (
-            <p className="text-sm text-gray-400">
-              ${asset.usdValue.toLocaleString('en-US', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
+          <div className="text-right">
+            <p className="text-sm font-medium text-white">
+              {asset.balance} {getSymbol(asset.chain)}
             </p>
-          )}
+            {asset.usdValue !== undefined && (
+              <p className="text-xs text-gray-400">
+                ${asset.usdValue.toLocaleString('en-US', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
+            )}
+          </div>
         </button>
       ))}
     </div>
