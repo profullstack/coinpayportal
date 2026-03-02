@@ -66,6 +66,7 @@ export default function SDKDocsPage() {
               { name: 'CLI Commands', href: '#cli' },
               { name: 'Account & Auth', href: '#auth' },
               { name: 'Reputation & DID', href: '#reputation' },
+              { name: 'Lightning Network', href: '#lightning' },
               { name: 'Error Handling', href: '#errors' },
             ].map((item) => (
               <a
@@ -1190,6 +1191,128 @@ coinpay webhook logs biz_123 --limit 50
 
 # Test webhook endpoint
 coinpay webhook test biz_123 --event payment.completed`}
+            </CodeBlock>
+          </DocSection>
+        </div>
+
+
+        {/* Lightning Network */}
+        <div id="lightning">
+          <DocSection title="Lightning Network (Custodial)">
+            <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+              <p className="text-amber-300 text-sm">
+                <strong>☝️ Custodial wallet:</strong> Lightning wallets are custodial — funds are held on CoinPay&apos;s LNbits server.
+                This enables instant payments without channel management, but means CoinPay holds the keys.
+                Keep balances small and withdraw regularly.
+              </p>
+            </div>
+
+            <h3 className="text-xl font-semibold text-white mb-4">Enable Lightning</h3>
+            <CodeBlock title="Provision a Lightning wallet" language="javascript">
+{`// Enable Lightning for a wallet (provisions LNbits custodial wallet)
+const result = await client.lightning.enableWallet({
+  wallet_id: 'your-wallet-uuid',
+  mnemonic: 'your bip39 mnemonic words...',
+});
+
+console.log('Lightning enabled!', result);`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Lightning Address</h3>
+            <CodeBlock title="Register and manage Lightning Addresses" language="javascript">
+{`// Register a Lightning Address (username@coinpayportal.com)
+const addr = await client.lightning.registerAddress({
+  wallet_id: 'your-wallet-uuid',
+  username: 'alice',  // 3-32 chars, lowercase alphanumeric
+});
+console.log('Address:', addr.lightning_address);
+// → alice@coinpayportal.com
+
+// Get current Lightning Address
+const current = await client.lightning.getAddress('your-wallet-uuid');
+console.log(current.lightning_address);
+
+// Check if a username is available
+const check = await client.lightning.checkAddressAvailable('alice');
+console.log(check.available ? 'Available!' : 'Taken');`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Create Invoice</h3>
+            <CodeBlock title="Create a BOLT11 invoice to receive sats" language="javascript">
+{`const invoice = await client.lightning.createInvoice({
+  wallet_id: 'your-wallet-uuid',
+  amount_sats: 1000,
+  description: 'Coffee payment',
+});
+
+console.log('Payment request:', invoice.payment_request);
+console.log('Payment hash:', invoice.payment_hash);
+// Share the payment_request (BOLT11 string) with the sender`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Send Payment</h3>
+            <CodeBlock title="Send sats to a Lightning Address or BOLT11 invoice" language="javascript">
+{`// Send to a Lightning Address
+const payment = await client.lightning.sendPayment({
+  wallet_id: 'your-wallet-uuid',
+  destination: 'bob@coinpayportal.com',
+  amount_sats: 100,
+});
+console.log('Sent!', payment.payment_hash);
+
+// Send to a BOLT11 invoice (amount encoded in invoice)
+const payment2 = await client.lightning.sendPayment({
+  wallet_id: 'your-wallet-uuid',
+  destination: 'lnbc1000n1p...',
+});`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">Payment History</h3>
+            <CodeBlock title="List Lightning payments" language="javascript">
+{`// List all payments
+const result = await client.lightning.listPayments({
+  wallet_id: 'your-wallet-uuid',
+});
+
+// Filter by direction
+const incoming = await client.lightning.listPayments({
+  wallet_id: 'your-wallet-uuid',
+  direction: 'incoming',
+});
+
+// Get specific payment by hash
+const payment = await client.lightning.getPayment('abc123...');`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">CLI Commands</h3>
+            <CodeBlock title="Lightning CLI" language="bash">
+{`# Enable Lightning for a wallet
+coinpay ln enable --wallet-id <uuid>
+
+# Register a Lightning Address
+coinpay ln address --wallet-id <uuid> --username alice
+
+# Check current Lightning Address
+coinpay ln address --wallet-id <uuid>
+
+# Check username availability
+coinpay ln address-check --username alice
+
+# Create an invoice
+coinpay ln invoice --wallet-id <uuid> --amount 1000 --description "Coffee"
+
+# Send a payment
+coinpay ln send --wallet-id <uuid> --to bob@coinpayportal.com --amount 100
+
+# Send to a BOLT11 invoice
+coinpay ln send --wallet-id <uuid> --to lnbc1000n1p...
+
+# List payment history
+coinpay ln payments --wallet-id <uuid>
+coinpay ln payments --wallet-id <uuid> --direction incoming
+
+# Check Lightning balance
+coinpay ln balance --wallet-id <uuid>`}
             </CodeBlock>
           </DocSection>
         </div>
