@@ -592,17 +592,17 @@ export async function getTransactionHistory(
 
     // Merge LNbits payments directly as safety net for stale/missing ln_payments.
     try {
-        const { data: walletRow } = await supabase
-          .from('wallets')
-          .select('ln_wallet_inkey, ln_wallet_adminkey')
-          .eq('id', walletId)
-          .single();
+      const { data: walletRow } = await supabase
+        .from('wallets')
+        .select('ln_wallet_inkey, ln_wallet_adminkey')
+        .eq('id', walletId)
+        .single();
 
-        const apiKey = (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_inkey
-          || (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_adminkey
-          || null;
+      const apiKey = (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_inkey
+        || (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_adminkey
+        || null;
 
-        if (apiKey) {
+      if (apiKey) {
           const lnbitsPayments = await listLnbitsPayments(apiKey, 100);
           const lnbitsTxs = (lnbitsPayments || [])
             .map((p: any) => {
@@ -647,9 +647,8 @@ export async function getTransactionHistory(
           });
           lnTxs = Array.from(byHash.values());
         }
-      } catch (lnbitsTxError) {
-        console.warn(`[Transactions] LNbits fallback failed for wallet ${walletId}:`, lnbitsTxError);
-      }
+    } catch (lnbitsTxError) {
+      console.warn(`[Transactions] LNbits fallback failed for wallet ${walletId}:`, lnbitsTxError);
     }
   }
 
