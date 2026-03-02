@@ -288,7 +288,7 @@ export async function syncLnbitsPayments(
 
         for (const p of payments as any[]) {
           // Only sync successful/completed payments
-          if (p.status !== 'success' && !p.preimage) continue;
+          if (p.status !== 'success' || p.pending) continue;
 
           const rawAmount = Number(p.amount || 0);
           const direction = rawAmount < 0 ? 'outgoing' : 'incoming';
