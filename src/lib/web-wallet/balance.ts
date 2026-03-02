@@ -10,6 +10,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { WalletChain } from './identity';
+import { getBalance as getLnbitsBalance } from '@/lib/lightning/lnbits';
 
 /** Truncate an address for safe logging */
 function truncAddr(addr: string): string {
@@ -615,6 +616,31 @@ export async function getWalletBalances(
       }
     } catch (lnBalanceError) {
       console.warn(`[Balance] Failed to compute LN balance for wallet ${walletId}:`, lnBalanceError);
+    }
+
+    // Fallback to LNbits wallet balance when ln_payments is missing/stale.
+    try {
+      const currentSats = lnBalanceBtc ? Math.round(parseFloat(lnBalanceBtc) * 100_000_000) : 0;
+      if (currentSats <= 0) {
+        const { data: walletRow } = await supabase
+          .from('wallets')
+          .select('ln_wallet_inkey, ln_wallet_adminkey')
+          .eq('id', walletId)
+          .single();
+
+        const apiKey = (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_inkey
+          || (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_adminkey
+          || null;
+
+        if (apiKey) {
+          const lnbitsSats = await getLnbitsBalance(apiKey);
+          if (Number.isFinite(lnbitsSats) && lnbitsSats > 0) {
+            lnBalanceBtc = (lnbitsSats / 100_000_000).toString();
+          }
+        }
+      }
+    } catch (lnbitsBalanceError) {
+      console.warn(`[Balance] LNbits balance fallback failed for wallet ${walletId}:`, lnbitsBalanceError);
     }
   }
   const results: BalanceResult[] = [];

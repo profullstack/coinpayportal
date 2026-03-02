@@ -7,6 +7,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { WalletChain } from './identity';
+import { listPayments as listLnbitsPayments } from '@/lib/lightning/lnbits';
 
 /** Truncate an address for safe logging */
 function truncAddr(addr: string): string {
@@ -587,6 +588,63 @@ export async function getTransactionHistory(
       }
     } catch (lnErr) {
       console.warn(`[Transactions] LN merge failed for wallet ${walletId}:`, lnErr);
+    }
+
+    // Fallback: read LNbits payments directly when ln_payments is empty/stale.
+    if (lnTxs.length === 0) {
+      try {
+        const { data: walletRow } = await supabase
+          .from('wallets')
+          .select('ln_wallet_inkey, ln_wallet_adminkey')
+          .eq('id', walletId)
+          .single();
+
+        const apiKey = (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_inkey
+          || (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_adminkey
+          || null;
+
+        if (apiKey) {
+          const lnbitsPayments = await listLnbitsPayments(apiKey, 100);
+          lnTxs = (lnbitsPayments || [])
+            .map((p: any) => {
+              const rawAmount = Number(p.amount || 0);
+              const direction = rawAmount < 0 ? 'outgoing' : 'incoming';
+              const status = p.pending ? 'pending' : 'confirmed';
+              const amount = Math.abs(rawAmount).toString();
+              const createdAt = p.time
+                ? new Date(Number(p.time) * 1000).toISOString()
+                : new Date().toISOString();
+
+              return {
+                id: `lnbits_${p.payment_hash}`,
+                wallet_id: walletId,
+                address_id: null,
+                chain: 'LN',
+                tx_hash: p.payment_hash,
+                direction,
+                status,
+                amount,
+                from_address: direction === 'incoming' ? 'lightning' : 'lnbits',
+                to_address: direction === 'incoming' ? 'lnbits' : 'lightning',
+                fee_amount: null,
+                fee_currency: 'LN',
+                confirmations: status === 'confirmed' ? 1 : 0,
+                block_number: null,
+                block_timestamp: null,
+                metadata: {},
+                created_at: createdAt,
+                updated_at: createdAt,
+              } as TransactionRecord;
+            })
+            .filter((tx) => {
+              if (options.direction && tx.direction !== options.direction) return false;
+              if (options.status && tx.status !== options.status) return false;
+              return true;
+            });
+        }
+      } catch (lnbitsTxError) {
+        console.warn(`[Transactions] LNbits fallback failed for wallet ${walletId}:`, lnbitsTxError);
+      }
     }
   }
 
