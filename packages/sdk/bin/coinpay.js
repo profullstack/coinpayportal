@@ -2567,6 +2567,147 @@ async function main() {
   }
   
   try {
+    
+async function handleLightning(subcommand, args, flags) {
+  const client = createClient();
+
+  switch (subcommand) {
+    case 'enable': {
+      const walletId = flags['wallet-id'] || flags['wallet'];
+      if (!walletId) {
+        console.error(colors.red + 'Error: --wallet-id required' + colors.reset);
+        process.exit(1);
+      }
+      const mnemonic = await getDecryptedMnemonic(flags);
+      const result = await client.lightning.enableWallet({
+        wallet_id: walletId,
+        mnemonic,
+        business_id: flags['business-id'],
+      });
+      console.log(colors.green + '⚡ Lightning wallet enabled!' + colors.reset);
+      console.log(JSON.stringify(result, null, 2));
+      break;
+    }
+
+    case 'address': {
+      const walletId = flags['wallet-id'] || flags['wallet'];
+      const username = flags['username'] || args[0];
+      if (!walletId) {
+        console.error(colors.red + 'Error: --wallet-id required' + colors.reset);
+        process.exit(1);
+      }
+      if (!username) {
+        // GET current address
+        const result = await client.lightning.getAddress(walletId);
+        if (result.lightning_address) {
+          console.log(colors.green + '⚡ ' + result.lightning_address + colors.reset);
+        } else {
+          console.log('No Lightning Address registered. Use: coinpay ln address --username <name>');
+        }
+      } else {
+        // POST register address
+        const result = await client.lightning.registerAddress({ wallet_id: walletId, username });
+        console.log(colors.green + '⚡ Registered: ' + result.lightning_address + colors.reset);
+      }
+      break;
+    }
+
+    case 'address-check': {
+      const username = flags['username'] || args[0];
+      if (!username) {
+        console.error(colors.red + 'Error: --username required' + colors.reset);
+        process.exit(1);
+      }
+      const result = await client.lightning.checkAddressAvailable(username);
+      console.log(result.available
+        ? colors.green + '✓ ' + username + ' is available' + colors.reset
+        : colors.red + '✗ ' + username + ' is taken' + colors.reset);
+      break;
+    }
+
+    case 'invoice': {
+      const walletId = flags['wallet-id'] || flags['wallet'];
+      const amount = parseInt(flags['amount'] || args[0]);
+      if (!walletId || !amount) {
+        console.error(colors.red + 'Error: --wallet-id and --amount required' + colors.reset);
+        process.exit(1);
+      }
+      const result = await client.lightning.createInvoice({
+        wallet_id: walletId,
+        amount_sats: amount,
+        description: flags['description'] || flags['desc'] || '',
+      });
+      console.log(colors.green + '⚡ Invoice created' + colors.reset);
+      console.log(JSON.stringify(result, null, 2));
+      break;
+    }
+
+    case 'send': {
+      const walletId = flags['wallet-id'] || flags['wallet'];
+      const destination = flags['to'] || args[0];
+      const amount = flags['amount'] ? parseInt(flags['amount']) : undefined;
+      if (!walletId || !destination) {
+        console.error(colors.red + 'Error: --wallet-id and --to required' + colors.reset);
+        process.exit(1);
+      }
+      const result = await client.lightning.sendPayment({
+        wallet_id: walletId,
+        destination,
+        amount_sats: amount,
+      });
+      console.log(colors.green + '⚡ Payment sent!' + colors.reset);
+      console.log(JSON.stringify(result, null, 2));
+      break;
+    }
+
+    case 'payments': {
+      const walletId = flags['wallet-id'] || flags['wallet'];
+      if (!walletId) {
+        console.error(colors.red + 'Error: --wallet-id required' + colors.reset);
+        process.exit(1);
+      }
+      const result = await client.lightning.listPayments({
+        wallet_id: walletId,
+        direction: flags['direction'],
+        limit: flags['limit'] ? parseInt(flags['limit']) : undefined,
+      });
+      const payments = result.data?.payments || result.payments || [];
+      if (payments.length === 0) {
+        console.log('No Lightning payments found.');
+      } else {
+        for (const p of payments) {
+          const dir = p.direction === 'outgoing' ? colors.red + '↑ SENT' : colors.green + '↓ RECV';
+          const sats = Math.floor((p.amount_msat || 0) / 1000);
+          console.log(`${dir}${colors.reset}  ${sats} sats  ${p.status}  ${p.created_at}`);
+        }
+      }
+      break;
+    }
+
+    case 'balance': {
+      const walletId = flags['wallet-id'] || flags['wallet'];
+      if (!walletId) {
+        console.error(colors.red + 'Error: --wallet-id required' + colors.reset);
+        process.exit(1);
+      }
+      // Use the web-wallet balance endpoint filtered by LN
+      const result = await client.request(`/web-wallet/balance?wallet_id=${walletId}`);
+      const balances = result.data?.balances || result.balances || [];
+      const ln = balances.find(b => b.chain === 'LN' || b.currency === 'LN');
+      if (ln) {
+        console.log(colors.green + '⚡ ' + ln.balance + ' BTC (' + Math.floor(parseFloat(ln.balance) * 100_000_000) + ' sats)' + colors.reset);
+      } else {
+        console.log('No Lightning balance. Enable Lightning first: coinpay ln enable');
+      }
+      break;
+    }
+
+    default:
+      console.log(`Unknown lightning command: ${subcommand}`);
+      showHelp();
+  }
+}
+
     switch (command) {
       case 'config':
         await handleConfig(subcommand, args);
@@ -2594,6 +2735,11 @@ async function main() {
         
       case 'escrow':
         await handleEscrow(subcommand, args, flags);
+        break;
+
+      case 'ln':
+      case 'lightning':
+        await handleLightning(subcommand, args, flags);
         break;
 
       case 'webhook':

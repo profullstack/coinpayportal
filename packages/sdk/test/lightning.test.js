@@ -24,9 +24,11 @@ describe('LightningClient (via CoinPayClient)', () => {
     });
   });
 
-  describe('provisionNode', () => {
+  // ── Wallet Provisioning ──
+
+  describe('enableWallet', () => {
     it('should POST to /lightning/nodes', async () => {
-      await client.lightning.provisionNode({
+      await client.lightning.enableWallet({
         wallet_id: 'w-1',
         mnemonic: 'test words',
         business_id: 'b-1',
@@ -39,6 +41,20 @@ describe('LightningClient (via CoinPayClient)', () => {
           mnemonic: 'test words',
           business_id: 'b-1',
         }),
+      });
+    });
+  });
+
+  describe('provisionNode (deprecated)', () => {
+    it('should delegate to enableWallet', async () => {
+      await client.lightning.provisionNode({
+        wallet_id: 'w-1',
+        mnemonic: 'test words',
+      });
+
+      expect(client.request).toHaveBeenCalledWith('/lightning/nodes', {
+        method: 'POST',
+        body: expect.stringContaining('w-1'),
       });
     });
   });
@@ -56,6 +72,55 @@ describe('LightningClient (via CoinPayClient)', () => {
       expect(client.request).toHaveBeenCalledWith('/lightning/nodes?wallet_id=wallet-123');
     });
   });
+
+  // ── Lightning Address ──
+
+  describe('registerAddress', () => {
+    it('should POST to /lightning/address', async () => {
+      await client.lightning.registerAddress({
+        wallet_id: 'w-1',
+        username: 'alice',
+      });
+
+      expect(client.request).toHaveBeenCalledWith('/lightning/address', {
+        method: 'POST',
+        body: JSON.stringify({ wallet_id: 'w-1', username: 'alice' }),
+      });
+    });
+  });
+
+  describe('getAddress', () => {
+    it('should GET /lightning/address?wallet_id=...', async () => {
+      await client.lightning.getAddress('w-1');
+      expect(client.request).toHaveBeenCalledWith('/lightning/address?wallet_id=w-1');
+    });
+  });
+
+  describe('checkAddressAvailable', () => {
+    it('should GET /lightning/address?username=...', async () => {
+      await client.lightning.checkAddressAvailable('alice');
+      expect(client.request).toHaveBeenCalledWith('/lightning/address?username=alice');
+    });
+  });
+
+  // ── Invoices ──
+
+  describe('createInvoice', () => {
+    it('should POST to /lightning/invoices', async () => {
+      await client.lightning.createInvoice({
+        wallet_id: 'w-1',
+        amount_sats: 100,
+        description: 'Coffee',
+      });
+
+      expect(client.request).toHaveBeenCalledWith('/lightning/invoices', {
+        method: 'POST',
+        body: JSON.stringify({ wallet_id: 'w-1', amount_sats: 100, description: 'Coffee' }),
+      });
+    });
+  });
+
+  // ── Offers (BOLT12) ──
 
   describe('createOffer', () => {
     it('should POST to /lightning/offers', async () => {
@@ -103,36 +168,51 @@ describe('LightningClient (via CoinPayClient)', () => {
     });
   });
 
-  describe('listPayments', () => {
-    it('should GET /lightning/payments with filters', async () => {
-      await client.lightning.listPayments({ node_id: 'n-1', status: 'settled' });
-      expect(client.request).toHaveBeenCalledWith(
-        expect.stringContaining('node_id=n-1')
-      );
-      expect(client.request).toHaveBeenCalledWith(
-        expect.stringContaining('status=settled')
-      );
-    });
-  });
+  // ── Payments ──
 
   describe('sendPayment', () => {
-    it('should POST to /lightning/payments', async () => {
+    it('should POST to /lightning/payments with lightning address', async () => {
       await client.lightning.sendPayment({
         wallet_id: 'w-1',
-        node_id: 'n-1',
-        bolt12: 'lno1abc...',
-        amount_sats: 1000,
+        destination: 'alice@coinpayportal.com',
+        amount_sats: 100,
       });
 
       expect(client.request).toHaveBeenCalledWith('/lightning/payments', {
         method: 'POST',
         body: JSON.stringify({
           wallet_id: 'w-1',
-          node_id: 'n-1',
-          bolt12: 'lno1abc...',
-          amount_sats: 1000,
+          bolt12: 'alice@coinpayportal.com',
+          amount_sats: 100,
         }),
       });
+    });
+
+    it('should POST to /lightning/payments with bolt11 invoice', async () => {
+      await client.lightning.sendPayment({
+        wallet_id: 'w-1',
+        destination: 'lnbc100n1p...',
+      });
+
+      expect(client.request).toHaveBeenCalledWith('/lightning/payments', {
+        method: 'POST',
+        body: JSON.stringify({
+          wallet_id: 'w-1',
+          bolt12: 'lnbc100n1p...',
+        }),
+      });
+    });
+  });
+
+  describe('listPayments', () => {
+    it('should GET /lightning/payments with filters', async () => {
+      await client.lightning.listPayments({ wallet_id: 'w-1', direction: 'incoming' });
+      expect(client.request).toHaveBeenCalledWith(
+        expect.stringContaining('wallet_id=w-1')
+      );
+      expect(client.request).toHaveBeenCalledWith(
+        expect.stringContaining('direction=incoming')
+      );
     });
   });
 
