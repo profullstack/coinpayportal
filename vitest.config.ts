@@ -27,7 +27,7 @@ export default defineConfig({
       // Skip payment service tests that import system-wallet (ethers/ws issue)
       'src/lib/payments/service.test.ts',
       'src/lib/payments/service.expiration.test.ts',
-      // Skip API route test that pulls system-wallet through payment flow (same ws issue)
+      // Skip API route tests that pull system-wallet through payment flow (same ws issue)
       'src/app/api/payments/route.test.ts',
       'src/app/api/cron/monitor-payments/route.test.ts',
     ],
@@ -43,6 +43,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Force ws to ESM-compatible shim during tests (ethers transitively imports ws)
+      'ws': path.resolve(__dirname, './src/test/ws-shim.ts'),
       '@noble/curves/secp256k1': path.resolve(__dirname, './node_modules/@noble/curves/secp256k1.js'),
       '@noble/curves/ed25519': path.resolve(__dirname, './node_modules/@noble/curves/ed25519.js'),
     },
