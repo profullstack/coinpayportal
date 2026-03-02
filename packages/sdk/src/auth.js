@@ -18,6 +18,9 @@
  * @returns {Promise<Object>} { success: boolean, merchant: Object, token: string }
  */
 export async function registerMerchant(client, { email, password, name }) {
+  if (!email) throw new Error('Email is required');
+  if (!password) throw new Error('Password is required');
+
   return client.requestUnauthenticated('/auth/register', {
     method: 'POST',
     body: JSON.stringify({
@@ -37,6 +40,9 @@ export async function registerMerchant(client, { email, password, name }) {
  * @returns {Promise<Object>} { success: boolean, merchant: Object, token: string }
  */
 export async function loginMerchant(client, { email, password }) {
+  if (!email) throw new Error('Email is required');
+  if (!password) throw new Error('Password is required');
+
   return client.requestUnauthenticated('/auth/login', {
     method: 'POST',
     body: JSON.stringify({
