@@ -11,6 +11,7 @@ const mockPayments = [
     payment_hash: 'abc123def456abc123def456abc123de',
     preimage: null,
     amount_msat: 100000,
+    direction: 'incoming',
     status: 'settled',
     payer_note: 'Thanks for the coffee!',
     settled_at: '2026-02-14T12:00:00Z',
@@ -24,6 +25,7 @@ const mockPayments = [
     payment_hash: 'def789abc012def789abc012def789ab',
     preimage: null,
     amount_msat: 50000,
+    direction: 'incoming',
     status: 'pending',
     payer_note: null,
     settled_at: null,
@@ -52,8 +54,8 @@ describe('LightningPayments', () => {
     render(<LightningPayments nodeId="n-1" />);
 
     await waitFor(() => {
-      expect(screen.getByText('100 sats')).toBeDefined();
-      expect(screen.getByText('50 sats')).toBeDefined();
+      expect(screen.getByText('+100 sats')).toBeDefined();
+      expect(screen.getByText('+50 sats')).toBeDefined();
     });
   });
 

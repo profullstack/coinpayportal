@@ -11,7 +11,7 @@ interface LightningPaymentsProps {
 }
 
 /**
- * Lists received Lightning payments with status and amount.
+ * Lists Lightning payments (incoming + outgoing) with status and amount.
  */
 export function LightningPayments({ nodeId, walletId, businessId, offerId }: LightningPaymentsProps) {
   const [payments, setPayments] = useState<LnPayment[]>([]);
@@ -31,7 +31,7 @@ export function LightningPayments({ nodeId, walletId, businessId, offerId }: Lig
       if (walletId) params.set('wallet_id', walletId);
       if (businessId) params.set('business_id', businessId);
       if (offerId) params.set('offer_id', offerId);
-      params.set('direction', 'incoming');
+      // Show all directions (incoming + outgoing)
 
       const res = await fetch(`/api/lightning/payments?${params}`);
       const json = await res.json();
@@ -87,8 +87,11 @@ export function LightningPayments({ nodeId, walletId, businessId, offerId }: Lig
                     payment.status === 'settled' ? 'bg-green-500' : 'bg-yellow-500'
                   }`}
                 />
-                <span className="text-sm font-medium text-white">
-                  {Math.floor(payment.amount_msat / 1000)} sats
+                <span className={`text-sm font-medium ${payment.direction === 'outgoing' ? 'text-red-400' : 'text-green-400'}`}>
+                  {payment.direction === 'outgoing' ? '−' : '+'}{Math.floor(payment.amount_msat / 1000)} sats
+                </span>
+                <span className="text-xs text-gray-500">
+                  {payment.direction === 'outgoing' ? 'Sent' : 'Received'}
                 </span>
               </div>
               {payment.payer_note && (
