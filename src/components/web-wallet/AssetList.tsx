@@ -77,7 +77,15 @@ export function AssetList({ assets, isLoading, onSelect, onDeriveAll, isDeriving
             <p className="text-sm font-medium text-white">
               {formatNativeBalance(asset.balance, asset.chain)} {getSymbol(asset.chain)}
             </p>
-            {asset.usdValue !== undefined && (
+            {asset.chain === 'LN' && asset.usdValue !== undefined && asset.usdValue > 0 && (
+              <p className="text-xs text-gray-400">
+                ≈ ${asset.usdValue.toLocaleString('en-US', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
+            )}
+            {asset.chain !== 'LN' && asset.usdValue !== undefined && (
               <p className="text-xs text-gray-400">
                 ${asset.usdValue.toLocaleString('en-US', {
                   minimumFractionDigits: 2,

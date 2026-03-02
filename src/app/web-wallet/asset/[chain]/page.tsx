@@ -213,7 +213,20 @@ function LightningAssetView() {
 // ── Lightning Dashboard ──
 
 function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: string; status: string; node_pubkey: string | null }; mnemonic: string; walletId: string }) {
+  const { wallet } = useWebWallet();
   const [activeTab, setActiveTab] = useState<'receive' | 'send' | 'payments'>('receive');
+  const [lnBalance, setLnBalance] = useState<{ sats: number; usd: number } | null>(null);
+
+  useEffect(() => {
+    if (!wallet) return;
+    wallet.getBalances({ refresh: true }).then((balances: any[]) => {
+      const ln = balances.find((b: any) => b.chain === 'LN');
+      if (ln) {
+        const sats = Math.round(parseFloat(ln.balance || '0') * 100_000_000);
+        setLnBalance({ sats, usd: ln.usdValue || 0 });
+      }
+    }).catch(() => {});
+  }, [wallet]);
   const [createLoading, setCreateLoading] = useState(false);
   const [newDesc, setNewDesc] = useState('');
   const [newAmount, setNewAmount] = useState('');
@@ -222,6 +235,31 @@ function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: stri
   const [payLoading, setPayLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [lnTransactions, setLnTransactions] = useState<TransactionItem[]>([]);
+  const [loadingTx, setLoadingTx] = useState(true);
+
+  useEffect(() => {
+    if (!wallet) return;
+    setLoadingTx(true);
+    wallet.getTransactions({ chain: 'LN', limit: 50 })
+      .then((data: any) => {
+        setLnTransactions(
+          (data.transactions || []).map((tx: any) => ({
+            id: tx.id,
+            txHash: tx.txHash || tx.tx_hash || tx.id,
+            chain: tx.chain || 'LN',
+            type: tx.direction === 'outgoing' ? 'send' as const : 'receive' as const,
+            amount: tx.amount,
+            status: (tx.status === 'confirming' ? 'pending' : tx.status) as 'pending' | 'confirmed' | 'failed',
+            fromAddress: tx.fromAddress || tx.from_address || 'lightning',
+            toAddress: tx.toAddress || tx.to_address || 'lightning',
+            createdAt: tx.createdAt || tx.created_at,
+          }))
+        );
+      })
+      .catch(() => setLnTransactions([]))
+      .finally(() => setLoadingTx(false));
+  }, [wallet, refreshKey]);
   const [lastInvoice, setLastInvoice] = useState<string | null>(null);
   const [invoiceCopied, setInvoiceCopied] = useState(false);
 
@@ -288,6 +326,17 @@ function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: stri
           <p className="mt-1 text-xs text-gray-500 font-mono truncate">{lnNode.node_pubkey}</p>
         )}
       </div>
+
+      {/* Balance */}
+      {lnBalance !== null && (
+        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+          <p className="text-xs text-gray-400 mb-1">Balance</p>
+          <p className="text-2xl font-bold text-white">{lnBalance.sats.toLocaleString('en-US')} sats</p>
+          {lnBalance.usd > 0 && (
+            <p className="text-sm text-gray-400 mt-1">≈ ${lnBalance.usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          )}
+        </div>
+      )}
 
       {/* Lightning Address */}
       <LightningAddress walletId={walletId} />
