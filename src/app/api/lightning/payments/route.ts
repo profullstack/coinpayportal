@@ -174,7 +174,7 @@ export async function GET(request: NextRequest) {
                 payment_type: 'payment',
                 payer_note: p.memo || null,
                 settled_at: p.created_at || null,
-                created_at: p.time ? new Date(p.time * 1000).toISOString() : p.created_at,
+                created_at: p.created_at || (p.time ? new Date(p.time).toISOString() : new Date().toISOString()),
               };
             });
 
