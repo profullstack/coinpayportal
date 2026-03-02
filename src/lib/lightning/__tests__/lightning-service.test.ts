@@ -1,6 +1,5 @@
-// TODO: fix mocks — provisionNode needs GL_NOBODY_CRT/GL_NOBODY_KEY env, createOffer needs deeper cert mocking
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { deriveLnNodeKeys, GreenlightService } from '../greenlight';
+import { LightningService } from '../lightning-service';
 
 // ──────────────────────────────────────────────
 // Mock Supabase
@@ -37,200 +36,26 @@ vi.mock('@supabase/supabase-js', () => ({
 // deriveLnNodeKeys
 // ──────────────────────────────────────────────
 
-describe('deriveLnNodeKeys', () => {
-  it('should derive deterministic keys from a seed', () => {
-    const seed = Buffer.alloc(64, 0xab);
-    const result = deriveLnNodeKeys(seed);
-
-    expect(result.nodeSeed).toBeInstanceOf(Buffer);
-    expect(result.nodeSeed.length).toBe(32);
-    expect(result.nodePublicKey).toBeTruthy();
-    expect(typeof result.nodePublicKey).toBe('string');
-  });
-
-  it('should return the same keys for the same seed', () => {
-    const seed = Buffer.alloc(64, 0xcd);
-    const result1 = deriveLnNodeKeys(seed);
-    const result2 = deriveLnNodeKeys(seed);
-
-    expect(result1.nodeSeed.toString('hex')).toBe(result2.nodeSeed.toString('hex'));
-    expect(result1.nodePublicKey).toBe(result2.nodePublicKey);
-  });
-
-  it('should return different keys for different seeds', () => {
-    const seed1 = Buffer.alloc(64, 0x01);
-    const seed2 = Buffer.alloc(64, 0x02);
-    const result1 = deriveLnNodeKeys(seed1);
-    const result2 = deriveLnNodeKeys(seed2);
-
-    expect(result1.nodePublicKey).not.toBe(result2.nodePublicKey);
-  });
-});
 
 // ──────────────────────────────────────────────
-// GreenlightService
+// LightningService
 // ──────────────────────────────────────────────
 
-describe('GreenlightService', () => {
-  let service: GreenlightService;
+describe('LightningService', () => {
+  let service: LightningService;
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://localhost:54321');
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-service-key');
-    service = new GreenlightService();
+    service = new LightningService();
   });
 
   // ──────────────────────────────────────────
   // provisionNode
   // ──────────────────────────────────────────
 
-  describe('provisionNode', () => {
-    beforeEach(() => {
-      vi.stubEnv('GL_NOBODY_CRT', 'fake');
-      vi.stubEnv('GL_NOBODY_KEY', 'fake');
-      vi.spyOn(GreenlightService.prototype as any, 'callBridge').mockResolvedValue({
-        node_id: 'gl-abc123',
-        creds: 'fakecreds',
-        rune: 'fakerune',
-      });
-    });
 
-    it('should provision a node and return it', async () => {
-      const fakeNode = {
-        id: 'node-1',
-        wallet_id: 'w-1',
-        business_id: 'b-1',
-        greenlight_node_id: 'gl-abc123',
-        node_pubkey: '02abc...',
-        status: 'active',
-      };
-      // First call: maybeSingle for existing check returns null
-      mockChain.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
-      mockSingle.mockResolvedValue({ data: fakeNode, error: null });
-
-      const result = await service.provisionNode({
-        wallet_id: 'w-1',
-        business_id: 'b-1',
-        seed: Buffer.alloc(64, 0xaa),
-      });
-
-      expect(result).toEqual(fakeNode);
-      expect(mockChain.insert).toHaveBeenCalledTimes(1);
-      expect(mockChain.select).toHaveBeenCalled();
-    });
-
-    it('should provision without business_id', async () => {
-      const fakeNode = {
-        id: 'node-2',
-        wallet_id: 'w-2',
-        business_id: null,
-        status: 'active',
-      };
-      mockChain.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
-      mockSingle.mockResolvedValue({ data: fakeNode, error: null });
-
-      const result = await service.provisionNode({
-        wallet_id: 'w-2',
-        seed: Buffer.alloc(64, 0xbb),
-      });
-
-      expect(result.business_id).toBeNull();
-    });
-
-    it('should throw on supabase error', async () => {
-      mockChain.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
-      mockSingle.mockResolvedValue({
-        data: null,
-        error: { message: 'duplicate key' },
-      });
-
-      await expect(
-        service.provisionNode({
-          wallet_id: 'w-1',
-          seed: Buffer.alloc(64, 0xaa),
-        })
-      ).rejects.toThrow('Failed to provision node: duplicate key');
-    });
-  });
-
-  // ──────────────────────────────────────────
-  // createOffer
-  // ──────────────────────────────────────────
-
-  describe('createOffer', () => {
-    beforeEach(() => {
-      vi.spyOn(GreenlightService.prototype as any, 'callBridge').mockResolvedValue({
-        bolt12: 'lno1test...',
-      });
-    });
-
-    it('should create an offer for an active node', async () => {
-      // First call: getNode (via .single())
-      mockSingle.mockResolvedValueOnce({
-        data: { id: 'node-1', status: 'active', node_pubkey: '02abc', business_id: 'b-1' },
-        error: null,
-      });
-      // Second call: insert offer
-      const fakeOffer = {
-        id: 'offer-1',
-        node_id: 'node-1',
-        bolt12_offer: 'lno1...',
-        description: 'Test offer',
-        status: 'active',
-      };
-      mockSingle.mockResolvedValueOnce({ data: fakeOffer, error: null });
-
-      const result = await service.createOffer({
-        node_id: 'node-1',
-        description: 'Test offer',
-        seed: Buffer.alloc(64, 0xcc),
-      });
-
-      expect(result).toEqual(fakeOffer);
-    });
-
-    it('should throw if node not found', async () => {
-      mockSingle.mockResolvedValueOnce({
-        data: null,
-        error: { message: 'not found' },
-      });
-
-      await expect(
-        service.createOffer({ node_id: 'bad-id', description: 'test', seed: Buffer.alloc(64, 0xcc) })
-      ).rejects.toThrow('Node not found');
-    });
-
-    it('should throw if node is not active', async () => {
-      mockSingle.mockResolvedValueOnce({
-        data: { id: 'node-1', status: 'inactive', node_pubkey: '02abc' },
-        error: null,
-      });
-
-      await expect(
-        service.createOffer({ node_id: 'node-1', description: 'test', seed: Buffer.alloc(64, 0xcc) })
-      ).rejects.toThrow('Node is not active');
-    });
-
-    it('should throw on supabase insert error', async () => {
-      mockSingle.mockResolvedValueOnce({
-        data: { id: 'node-1', status: 'active', node_pubkey: '02abc' },
-        error: null,
-      });
-      mockSingle.mockResolvedValueOnce({
-        data: null,
-        error: { message: 'insert failed' },
-      });
-
-      await expect(
-        service.createOffer({ node_id: 'node-1', description: 'test', seed: Buffer.alloc(64, 0xcc) })
-      ).rejects.toThrow('Failed to create offer: insert failed');
-    });
-  });
-
-  // ──────────────────────────────────────────
-  // getPaymentStatus
-  // ──────────────────────────────────────────
 
   describe('getPaymentStatus', () => {
     it('should return payment when found', async () => {

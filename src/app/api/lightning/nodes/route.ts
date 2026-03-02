@@ -1,10 +1,8 @@
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
-import { getGreenlightService } from '@/lib/lightning/greenlight';
 import { createUserWallet, waitForExtensions } from '@/lib/lightning/lnbits';
 import { mnemonicToSeed, isValidMnemonic } from '@/lib/web-wallet/keys';
-import { deriveLnNodeKeys } from '@/lib/lightning/greenlight';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -29,7 +27,7 @@ export async function GET(request: NextRequest) {
     const supabase = getSupabase();
     const { data: node, error } = await supabase
       .from('ln_nodes')
-      .select('id, wallet_id, greenlight_node_id, node_pubkey, status, created_at')
+      .select('id, wallet_id, lnbits_wallet_id, node_pubkey, status, created_at')
       .eq('wallet_id', walletId)
       .maybeSingle();
 
@@ -51,8 +49,8 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/lightning/nodes
- * Provision a Greenlight CLN node for a wallet.
- * Derives LN node identity from the wallet's BIP39 seed.
+ * Provision a Lightning wallet for a wallet.
+ * Provision a Lightning wallet via LNbits.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -79,9 +77,6 @@ export async function POST(request: NextRequest) {
       return walletSuccess({ node: existing }, 200);
     }
 
-    // Derive node pubkey from seed for display
-    const seed = Buffer.from(mnemonicToSeed(mnemonic));
-    const { nodePublicKey } = deriveLnNodeKeys(seed);
 
     // Create an LNbits wallet on the droplet for this web wallet
     const { data: walletRow } = await supabase
@@ -110,8 +105,8 @@ export async function POST(request: NextRequest) {
       .insert({
         wallet_id,
         business_id: business_id || null,
-        greenlight_node_id: lnbitsWallet.id,
-        node_pubkey: nodePublicKey,
+        lnbits_wallet_id: lnbitsWallet.id,
+        node_pubkey: null,
         status: 'active',
       })
       .select()

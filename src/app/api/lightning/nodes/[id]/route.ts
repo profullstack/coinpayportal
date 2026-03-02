@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
-import { getGreenlightService } from '@/lib/lightning/greenlight';
+import { getLightningService } from '@/lib/lightning/lightning-service';
 
 /**
  * GET /api/lightning/nodes/:id
@@ -12,7 +12,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const service = getGreenlightService();
+    const service = getLightningService();
     const node = await service.getNode(id);
 
     if (!node) {

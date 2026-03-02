@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
     // Monitor escrows
     const escrowStats = await monitorEscrows(supabase, now);
 
-    // Monitor Lightning payments (Greenlight)
+    // Monitor Lightning payments (LNbits)
     const lightningStats = await monitorLightningPayments(supabase, now);
 
     // Sync LNbits payments to ln_payments table

@@ -24,7 +24,7 @@ vi.mock('@supabase/supabase-js', () => ({
 }));
 
 // ──────────────────────────────────────────────
-// Mock Greenlight Service
+// Mock Lightning Service
 // ──────────────────────────────────────────────
 
 const mockProvisionNode = vi.fn();
@@ -36,8 +36,8 @@ const mockListPayments = vi.fn();
 const mockGetPaymentStatus = vi.fn();
 const mockRecordPayment = vi.fn();
 
-vi.mock('@/lib/lightning/greenlight', () => ({
-  getGreenlightService: () => ({
+vi.mock('@/lib/lightning/lightning-service', () => ({
+  getLightningService: () => ({
     provisionNode: mockProvisionNode,
     getNode: mockGetNode,
     createOffer: mockCreateOffer,
@@ -47,8 +47,7 @@ vi.mock('@/lib/lightning/greenlight', () => ({
     getPaymentStatus: mockGetPaymentStatus,
     recordPayment: mockRecordPayment,
   }),
-  GreenlightService: vi.fn(),
-  deriveLnNodeKeys: vi.fn().mockReturnValue({ nodePublicKey: 'fake-pubkey-123' }),
+  LightningService: vi.fn(),
 }));
 
 const mockCreateUserWallet = vi.fn();
@@ -199,61 +198,20 @@ describe('Lightning Route Handlers', () => {
   // ────────────────────────────────────
 
   describe('POST /api/lightning/offers', () => {
-    it('should return 400 if node_id missing', async () => {
+    it('should return NOT_SUPPORTED', async () => {
       const { POST } = await import('./offers/route');
       const req = makeRequest('http://localhost:3000/api/lightning/offers', {
         method: 'POST',
-        body: JSON.stringify({ description: 'test' }),
+        body: JSON.stringify({ node_id: 'n1', wallet_id: 'w1', description: 'test' }),
         headers: { 'content-type': 'application/json' },
       });
       const res = await POST(req);
       const body = await res.json();
-
       expect(res.status).toBe(400);
-      expect(body.error.code).toBe('VALIDATION_ERROR');
-    });
-
-    it('should return 400 if description missing', async () => {
-      const { POST } = await import('./offers/route');
-      const req = makeRequest('http://localhost:3000/api/lightning/offers', {
-        method: 'POST',
-        body: JSON.stringify({ node_id: 'n1' }),
-        headers: { 'content-type': 'application/json' },
-      });
-      const res = await POST(req);
-      const body = await res.json();
-
-      expect(res.status).toBe(400);
-    });
-
-    it('should create offer on valid input', async () => {
-      const { POST } = await import('./offers/route');
-      const fakeOffer = { id: 'o-1', bolt12_offer: 'lno1abc', status: 'active' };
-      mockCreateOffer.mockResolvedValue(fakeOffer);
-      mockGetNode.mockResolvedValue({ id: 'n1', wallet_id: 'w1' } as any);
-
-      const req = makeRequest('http://localhost:3000/api/lightning/offers', {
-        method: 'POST',
-        body: JSON.stringify({
-          node_id: 'n1',
-          wallet_id: 'w1',
-          description: 'Coffee',
-          amount_msat: 100000,
-          mnemonic: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
-        }),
-        headers: { 'content-type': 'application/json' },
-      });
-      const res = await POST(req);
-      const body = await res.json();
-
-      expect(res.status).toBe(201);
-      expect(body.data.offer).toEqual(fakeOffer);
+      expect(body.error.code).toBe('NOT_SUPPORTED');
     });
   });
 
-  // ────────────────────────────────────
-  // GET /api/lightning/offers/:id
-  // ────────────────────────────────────
 
   describe('GET /api/lightning/offers/:id', () => {
     it('should return offer with qr_uri', async () => {

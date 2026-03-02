@@ -527,7 +527,7 @@ async function deriveEd25519(
 /**
  * Derive Lightning Network node identity key.
  * Uses m/535'/0' (535 = "LN" in l33t, hardened).
- * The public key serves as the node identity for Greenlight.
+ * The public key serves as the node identity.
  */
 function deriveLN(seed: Uint8Array, index: number): DerivedKey {
   const hdKey = HDKey.fromMasterSeed(seed);

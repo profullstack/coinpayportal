@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeEqual } from 'crypto';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
-import { getGreenlightService } from '@/lib/lightning/greenlight';
+import { getLightningService } from '@/lib/lightning/lightning-service';
 
 function isAuthorizedWebhook(request: NextRequest): boolean {
   const secret = process.env.CRON_SECRET || process.env.INTERNAL_API_KEY;
@@ -32,7 +32,7 @@ export async function GET() {
 /**
  * POST /api/lightning/webhook
  * Internal webhook for payment settlement.
- * Called by the settlement worker or Greenlight callback.
+ * Called by the settlement worker or LNbits callback.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'node_id must be a valid UUID');
     }
 
-    const service = getGreenlightService();
+    const service = getLightningService();
     const payment = await service.recordPayment({
       offer_id,
       direction: 'incoming',

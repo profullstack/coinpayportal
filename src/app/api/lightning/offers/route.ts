@@ -1,55 +1,16 @@
 import { NextRequest } from 'next/server';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
-import { getGreenlightService } from '@/lib/lightning/greenlight';
-import { mnemonicToSeed, isValidMnemonic } from '@/lib/web-wallet/keys';
+import { getLightningService } from '@/lib/lightning/lightning-service';
+
 
 /**
  * POST /api/lightning/offers
  * Create a BOLT12 offer. Requires mnemonic for Signer.
  */
 export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { node_id, wallet_id, business_id, description, amount_msat, currency, mnemonic } = body;
-
-    if (!node_id) {
-      return WalletErrors.badRequest('VALIDATION_ERROR', 'node_id is required');
-    }
-    if (!wallet_id) {
-      return WalletErrors.badRequest('VALIDATION_ERROR', 'wallet_id is required');
-    }
-    if (!description) {
-      return WalletErrors.badRequest('VALIDATION_ERROR', 'description is required');
-    }
-    if (!mnemonic || !isValidMnemonic(mnemonic)) {
-      return WalletErrors.badRequest('VALIDATION_ERROR', 'Valid mnemonic is required for signing');
-    }
-
-    const seed = Buffer.from(mnemonicToSeed(mnemonic));
-    const service = getGreenlightService();
-
-    const node = await service.getNode(node_id);
-    if (!node) {
-      return WalletErrors.notFound('node');
-    }
-    if (node.wallet_id !== wallet_id) {
-      return WalletErrors.forbidden('Node does not belong to this wallet');
-    }
-
-    const offer = await service.createOffer({
-      node_id,
-      business_id,
-      description,
-      amount_msat,
-      currency,
-      seed,
-    });
-
-    return walletSuccess({ offer }, 201);
-  } catch (error) {
-    console.error('[Lightning] POST /offers error:', error);
-    return WalletErrors.serverError((error as Error).message);
-  }
+  // BOLT12 offers are managed via LNbits/CLN on the droplet.
+  // This endpoint is no longer used for offer creation.
+  return WalletErrors.badRequest('NOT_SUPPORTED', 'BOLT12 offer creation is managed via LNbits. Use the Lightning Address flow instead.');
 }
 
 /**
@@ -66,7 +27,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20', 10);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
 
-    const service = getGreenlightService();
+    const service = getLightningService();
 
     if (node_id && !wallet_id) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'wallet_id is required when node_id is provided');

@@ -6,7 +6,7 @@ export interface LnNode {
   id: string;
   wallet_id: string;
   business_id: string | null;
-  greenlight_node_id: string | null;
+  lnbits_wallet_id: string | null;
   node_pubkey: string | null;
   gl_creds: string | null;
   gl_rune: string | null;
@@ -61,7 +61,7 @@ export interface CreateOfferParams {
   currency?: string;
 }
 
-export interface GreenlightNodeInfo {
+export interface LightningNodeInfo {
   node_id: string;
   pubkey: string;
   alias: string;
