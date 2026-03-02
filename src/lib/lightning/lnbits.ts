@@ -82,8 +82,8 @@ async function lnbitsRequest(
 
 /** Create a new LNbits wallet for a user */
 export async function createUserWallet(username: string): Promise<LNbitsWallet> {
-  // Create wallet under the admin user
-  const wallet = await lnbitsRequest('/api/v1/wallet', {
+  // LNbits 0.12+ uses /api/v1/account to create wallets under the admin user
+  const wallet = await lnbitsRequest('/api/v1/account', {
     method: 'POST',
     body: { name: username },
   });
