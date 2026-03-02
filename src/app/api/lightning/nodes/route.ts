@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { getGreenlightService } from '@/lib/lightning/greenlight';
-import { createUserWallet } from '@/lib/lightning/lnbits';
+import { createUserWallet, waitForExtensions } from '@/lib/lightning/lnbits';
 import { mnemonicToSeed, isValidMnemonic } from '@/lib/web-wallet/keys';
 import { deriveLnNodeKeys } from '@/lib/lightning/greenlight';
 
@@ -120,6 +120,9 @@ export async function POST(request: NextRequest) {
     if (error) {
       throw new Error('Failed to create node record: ' + error.message);
     }
+
+    // Wait for lnurlp extension to be enabled by the droplet's auto-enable timer
+    await waitForExtensions(lnbitsWallet.inkey);
 
     return walletSuccess({ node }, 201);
   } catch (error) {

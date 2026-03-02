@@ -87,7 +87,31 @@ export async function createUserWallet(username: string): Promise<LNbitsWallet> 
     method: 'POST',
     body: { name: username },
   });
+
   return wallet;
+}
+
+/**
+ * Wait for extensions to be enabled for a new LNbits user.
+ * A systemd timer on the droplet auto-enables lnurlp every 10 seconds.
+ * This function polls until the extension is available.
+ */
+export async function waitForExtensions(apiKey: string, maxWaitMs = 15000): Promise<boolean> {
+  const LNBITS_URL = process.env.LNBITS_URL || process.env.NEXT_PUBLIC_LNBITS_URL || '';
+  const start = Date.now();
+
+  while (Date.now() - start < maxWaitMs) {
+    try {
+      const res = await fetch(`${LNBITS_URL}/lnurlp/api/v1/links`, {
+        headers: { 'X-Api-Key': apiKey },
+      });
+      if (res.status === 200) return true;
+    } catch { /* retry */ }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+
+  console.warn('[LNbits] Extensions not enabled after', maxWaitMs, 'ms');
+  return false;
 }
 
 /** Get wallet details */

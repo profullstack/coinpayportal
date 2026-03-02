@@ -52,8 +52,10 @@ vi.mock('@/lib/lightning/greenlight', () => ({
 }));
 
 const mockCreateUserWallet = vi.fn();
+const mockWaitForExtensions = vi.fn().mockResolvedValue(true);
 vi.mock('@/lib/lightning/lnbits', () => ({
   createUserWallet: (...args: any[]) => mockCreateUserWallet(...args),
+  waitForExtensions: (...args: any[]) => mockWaitForExtensions(...args),
 }));
 
 // ──────────────────────────────────────────────
