@@ -547,12 +547,14 @@ export async function getTransactionHistory(
       if (apiKey) {
         const lnbitsPayments = await listLnbitsPayments(apiKey, 100);
         lnbitsTxs = (lnbitsPayments || [])
-          .filter((p: any) => !p.pending)
+          .filter((p: any) => !p.pending && p.preimage)  // Only actually paid (preimage present)
           .map((p: any) => {
-            const rawAmount = Number(p.amount || 0);
-            const direction = rawAmount < 0 ? 'outgoing' : 'incoming';
+            const rawAmountMsat = Number(p.amount || 0);
+            const direction = rawAmountMsat < 0 ? 'outgoing' : 'incoming';
             const status = 'confirmed';
-            const amount = Math.abs(rawAmount).toString();
+            // LNbits amounts are in millisats — convert to sats for display
+            const amountSats = Math.abs(rawAmountMsat) / 1000;
+            const amount = amountSats.toString();
             let createdAt: string;
             if (p.created_at) {
               createdAt = new Date(p.created_at).toISOString();

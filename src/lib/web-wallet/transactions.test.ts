@@ -408,12 +408,12 @@ describe('getTransactionHistory', () => {
         {
           payment_hash: 'lnbits-hash-1',
           pending: false,
-          amount: 5000,
+          amount: 5000,  // millisats
           fee: 0,
           memo: 'test payment',
           time: 1709290000,
           bolt11: 'lnbc...',
-          preimage: 'pre1',
+          preimage: 'abc123preimage',  // present = actually paid
           extra: {},
         },
       ]),
@@ -455,7 +455,7 @@ describe('getTransactionHistory', () => {
       expect(result.data.transactions.length).toBeGreaterThanOrEqual(2);
       const lnTx = result.data.transactions.find((t: any) => t.chain === 'LN');
       expect(lnTx).toBeDefined();
-      expect(lnTx!.amount).toBe('5000');
+      expect(lnTx!.amount).toBe('5');  // 5000 msat = 5 sats
       expect(lnTx!.direction).toBe('incoming');
     }
 
