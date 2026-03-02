@@ -9,7 +9,7 @@ const LNBITS_URL = process.env.LNBITS_URL || 'https://ln.coinpayportal.com';
 const LNBITS_ADMIN_KEY = process.env.LNBITS_ADMIN_KEY || '';
 const LNBITS_INVOICE_KEY = process.env.LNBITS_INVOICE_KEY || '';
 
-interface LNbitsWallet {
+export interface LNbitsWallet {
   id: string;
   name: string;
   adminkey: string;

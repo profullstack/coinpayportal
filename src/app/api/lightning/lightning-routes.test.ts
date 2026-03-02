@@ -48,6 +48,12 @@ vi.mock('@/lib/lightning/greenlight', () => ({
     recordPayment: mockRecordPayment,
   }),
   GreenlightService: vi.fn(),
+  deriveLnNodeKeys: vi.fn().mockReturnValue({ nodePublicKey: 'fake-pubkey-123' }),
+}));
+
+const mockCreateUserWallet = vi.fn();
+vi.mock('@/lib/lightning/lnbits', () => ({
+  createUserWallet: (...args: any[]) => mockCreateUserWallet(...args),
 }));
 
 // ──────────────────────────────────────────────
@@ -112,10 +118,28 @@ describe('Lightning Route Handlers', () => {
       expect(body.success).toBe(false);
     });
 
-    it('should provision node on valid input', async () => {
+    it('should provision node via LNbits on valid input', async () => {
       const { POST } = await import('./nodes/route');
-      const fakeNode = { id: 'node-1', status: 'active', wallet_id: 'w-1' };
-      mockProvisionNode.mockResolvedValue(fakeNode);
+
+      // Mock: no existing node
+      mockChain.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+      // Mock: wallet lookup
+      mockSingle.mockResolvedValueOnce({ data: { id: 'w-1', name: 'Test Wallet' }, error: null });
+      // Mock: createUserWallet returns LNbits wallet
+      mockCreateUserWallet.mockResolvedValue({
+        id: 'lnbits-wallet-1',
+        name: 'Test Wallet',
+        adminkey: 'admin-key-123',
+        inkey: 'invoice-key-456',
+        balance: 0,
+      });
+      // Mock: update wallet with LNbits keys
+      mockChain.update = vi.fn().mockReturnValue(mockChain);
+      // Mock: insert ln_node
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'node-1', status: 'active', wallet_id: 'w-1', node_pubkey: 'fake-pubkey-123' },
+        error: null,
+      });
 
       const req = makeRequest('http://localhost:3000/api/lightning/nodes', {
         method: 'POST',
@@ -131,7 +155,8 @@ describe('Lightning Route Handlers', () => {
 
       expect(res.status).toBe(201);
       expect(body.success).toBe(true);
-      expect(body.data.node).toEqual(fakeNode);
+      expect(body.data.node.status).toBe('active');
+      expect(mockCreateUserWallet).toHaveBeenCalledWith('Test Wallet');
     });
   });
 

@@ -2,7 +2,9 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { getGreenlightService } from '@/lib/lightning/greenlight';
+import { createUserWallet } from '@/lib/lightning/lnbits';
 import { mnemonicToSeed, isValidMnemonic } from '@/lib/web-wallet/keys';
+import { deriveLnNodeKeys } from '@/lib/lightning/greenlight';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -64,24 +66,68 @@ export async function POST(request: NextRequest) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'Valid mnemonic is required');
     }
 
-    const seed = Buffer.from(mnemonicToSeed(mnemonic));
-    const service = getGreenlightService();
+    const supabase = getSupabase();
 
-    const node = await service.provisionNode({
-      wallet_id,
-      business_id,
-      seed,
-    });
+    // Check if node already exists for this wallet (idempotent)
+    const { data: existing } = await supabase
+      .from('ln_nodes')
+      .select('*')
+      .eq('wallet_id', wallet_id)
+      .maybeSingle();
+
+    if (existing) {
+      return walletSuccess({ node: existing }, 200);
+    }
+
+    // Derive node pubkey from seed for display
+    const seed = Buffer.from(mnemonicToSeed(mnemonic));
+    const { nodePublicKey } = deriveLnNodeKeys(seed);
+
+    // Create an LNbits wallet on the droplet for this web wallet
+    const { data: walletRow } = await supabase
+      .from('wallets')
+      .select('id, name')
+      .eq('id', wallet_id)
+      .single();
+
+    const walletName = (walletRow as { name?: string } | null)?.name || wallet_id;
+    const lnbitsWallet = await createUserWallet(walletName);
+
+    console.log('[Lightning] Created LNbits wallet:', lnbitsWallet.id, 'for web wallet:', wallet_id);
+
+    // Store LNbits keys on the wallet record
+    await supabase
+      .from('wallets')
+      .update({
+        ln_wallet_inkey: lnbitsWallet.inkey,
+        ln_wallet_adminkey: lnbitsWallet.adminkey,
+      })
+      .eq('id', wallet_id);
+
+    // Create ln_nodes record
+    const { data: node, error } = await supabase
+      .from('ln_nodes')
+      .insert({
+        wallet_id,
+        business_id: business_id || null,
+        greenlight_node_id: lnbitsWallet.id,
+        node_pubkey: nodePublicKey,
+        status: 'active',
+      })
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error('Failed to create node record: ' + error.message);
+    }
 
     return walletSuccess({ node }, 201);
   } catch (error) {
     const msg = (error as Error).message || 'Unknown error';
-    // Log full error server-side but sanitize client response
     console.error('[Lightning] POST /nodes error:', msg);
     const safeMsg = msg.includes('not configured') ? msg
-      : msg.includes('no node_id') ? 'Lightning node registration failed — please try again'
       : msg.includes('already exists') ? 'A Lightning node already exists for this wallet'
-      : 'Lightning node provisioning failed';
+      : 'Lightning node provisioning failed: ' + msg;
     return WalletErrors.serverError(safeMsg);
   }
 }
