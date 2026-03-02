@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { monitorPayments } from './payment-monitor';
 import { monitorEscrows } from './escrow-monitor';
-import { monitorLightningPayments } from './lightning-monitor';
+import { monitorLightningPayments, syncLnbitsPayments } from './lightning-monitor';
 import { monitorSeries } from './series-monitor';
 import { monitorEmails } from './email-monitor';
 
@@ -63,8 +63,11 @@ export async function GET(request: NextRequest) {
     // Monitor escrows
     const escrowStats = await monitorEscrows(supabase, now);
 
-    // Monitor Lightning payments
+    // Monitor Lightning payments (Greenlight)
     const lightningStats = await monitorLightningPayments(supabase, now);
+
+    // Sync LNbits payments to ln_payments table
+    const lnbitsSyncStats = await syncLnbitsPayments(supabase, now);
 
     // Process recurring escrow series
     const seriesStats = await monitorSeries(supabase, now);
@@ -78,6 +81,7 @@ export async function GET(request: NextRequest) {
       stats,
       escrow: escrowStats,
       lightning: lightningStats,
+      lnbits_sync: lnbitsSyncStats,
       series: seriesStats,
       emails: emailStats,
     };
