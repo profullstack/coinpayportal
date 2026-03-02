@@ -20,9 +20,9 @@ describe('LightningSetup', () => {
 
   it('should render description text', () => {
     render(<LightningSetup {...defaultProps} />);
-    expect(screen.getByText('Enable Lightning Network')).toBeDefined();
+    expect(screen.getByText('Enable Lightning Wallet')).toBeDefined();
     expect(
-      screen.getByText(/Receive instant Bitcoin payments via BOLT12 offers/)
+      screen.getByText(/Send and receive instant Bitcoin payments over the Lightning Network/)
     ).toBeDefined();
   });
 
@@ -33,7 +33,7 @@ describe('LightningSetup', () => {
     fireEvent.click(screen.getByText('Enable Lightning ⚡'));
 
     await waitFor(() => {
-      expect(screen.getByText('Provisioning node...')).toBeDefined();
+      expect(screen.getByText('Setting up wallet...')).toBeDefined();
     });
   });
 
@@ -52,7 +52,7 @@ describe('LightningSetup', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Lightning Enabled!')).toBeDefined();
-      expect(screen.getByText(/Your node is ready/)).toBeDefined();
+      expect(screen.getByText(/Your Lightning wallet is ready/)).toBeDefined();
     });
   });
 
