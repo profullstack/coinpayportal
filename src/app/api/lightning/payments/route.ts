@@ -1,3 +1,4 @@
+import { decryptLnKey } from '@/lib/lightning/key-encryption';
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
@@ -78,7 +79,7 @@ export async function GET(request: NextRequest) {
           .eq('id', wallet_id)
           .single();
 
-        const apiKey = (walletRow as any)?.ln_wallet_inkey;
+        const apiKey = (walletRow as any)?.ln_wallet_inkey ? decryptLnKey((walletRow as any).ln_wallet_inkey) : null;
         if (apiKey) {
           const lnbitsPayments = await listLnbitsPayments(apiKey, limit);
           const lnbitsMapped = (lnbitsPayments || [])

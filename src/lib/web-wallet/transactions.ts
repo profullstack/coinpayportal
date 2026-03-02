@@ -1,3 +1,4 @@
+import { decryptLnKey } from '@/lib/lightning/key-encryption';
 /**
  * Web Wallet Transaction History Service
  *
@@ -540,9 +541,10 @@ export async function getTransactionHistory(
         .eq('id', walletId)
         .single();
 
-      const apiKey = (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_inkey
+      const rawLnKey = (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_inkey
         || (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_adminkey
         || null;
+      const apiKey = rawLnKey ? decryptLnKey(rawLnKey) : null;
 
       if (apiKey) {
         const lnbitsPayments = await listLnbitsPayments(apiKey, 100);

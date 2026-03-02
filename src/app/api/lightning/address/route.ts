@@ -1,3 +1,4 @@
+import { encryptLnKey, decryptLnKey } from '@/lib/lightning/key-encryption';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createPayLink, createUserWallet, getPayLink } from '@/lib/lightning/lnbits';
@@ -27,7 +28,7 @@ async function ensureLightningAddressBackend(walletId: string, username: string,
   ln_wallet_adminkey?: string | null;
   ln_paylink_id?: number | null;
 }) {
-  let adminKey = wallet.ln_wallet_adminkey || null;
+  let adminKey = wallet.ln_wallet_adminkey ? decryptLnKey(wallet.ln_wallet_adminkey) : null;
 
   const upsertLnbitsWallet = async () => {
     try {
@@ -37,8 +38,8 @@ async function ensureLightningAddressBackend(walletId: string, username: string,
       await supabase
         .from('wallets')
         .update({
-          ln_wallet_adminkey: lnWallet.adminkey,
-          ln_wallet_inkey: lnWallet.inkey,
+          ln_wallet_adminkey: encryptLnKey(lnWallet.adminkey),
+          ln_wallet_inkey: encryptLnKey(lnWallet.inkey),
           ln_wallet_id: lnWallet.id,
         })
         .eq('id', walletId);
@@ -57,7 +58,7 @@ async function ensureLightningAddressBackend(walletId: string, username: string,
       await supabase
         .from('wallets')
         .update({
-          ln_wallet_adminkey: fallbackAdmin,
+          ln_wallet_adminkey: encryptLnKey(fallbackAdmin),
         })
         .eq('id', walletId);
     }

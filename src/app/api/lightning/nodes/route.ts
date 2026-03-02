@@ -1,3 +1,4 @@
+import { encryptLnKey } from '@/lib/lightning/key-encryption';
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
@@ -94,8 +95,8 @@ export async function POST(request: NextRequest) {
     await supabase
       .from('wallets')
       .update({
-        ln_wallet_inkey: lnbitsWallet.inkey,
-        ln_wallet_adminkey: lnbitsWallet.adminkey,
+        ln_wallet_inkey: encryptLnKey(lnbitsWallet.inkey),
+        ln_wallet_adminkey: encryptLnKey(lnbitsWallet.adminkey),
       })
       .eq('id', wallet_id);
 

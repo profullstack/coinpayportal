@@ -1,3 +1,4 @@
+import { decryptLnKey } from '@/lib/lightning/key-encryption';
 /**
  * Lightning Payment Monitor
  *
@@ -156,7 +157,8 @@ export async function syncLnbitsPayments(
     const { listPayments } = await import('@/lib/lightning/lnbits');
 
     for (const wallet of wallets) {
-      const apiKey = wallet.ln_wallet_inkey || wallet.ln_wallet_adminkey;
+      const rawKey = wallet.ln_wallet_inkey || wallet.ln_wallet_adminkey;
+      const apiKey = rawKey ? decryptLnKey(rawKey) : null;
       if (!apiKey) continue;
 
       // Find the ln_node for this wallet

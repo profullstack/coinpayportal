@@ -1,3 +1,4 @@
+import { decryptLnKey } from '@/lib/lightning/key-encryption';
 import { NextRequest } from 'next/server';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { createInvoice as createLnbitsInvoice } from '@/lib/lightning/lnbits';
@@ -33,7 +34,8 @@ export async function POST(request: NextRequest) {
       .eq('id', wallet_id)
       .single();
 
-    const apiKey = wallet?.ln_wallet_inkey || wallet?.ln_wallet_adminkey || null;
+    const rawKey = wallet?.ln_wallet_inkey || wallet?.ln_wallet_adminkey || null;
+    const apiKey = rawKey ? decryptLnKey(rawKey) : null;
     if (!apiKey) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'Lightning wallet not configured. Enable Lightning first.');
     }
