@@ -408,12 +408,13 @@ describe('getTransactionHistory', () => {
         {
           payment_hash: 'lnbits-hash-1',
           pending: false,
+          status: 'success',
           amount: 5000,  // millisats
           fee: 0,
           memo: 'test payment',
           time: 1709290000,
           bolt11: 'lnbc...',
-          preimage: 'abc123preimage',  // present = actually paid
+          preimage: 'abc123preimage',
           extra: {},
         },
       ]),
