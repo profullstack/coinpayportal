@@ -646,4 +646,66 @@ describe('getWalletBalances', () => {
     const result = await getWalletBalances(supabase, 'w1', { chain: 'ETH' });
     expect(result.success).toBe(true);
   });
+
+  it('should use LNbits balance only, not ln_payments from nodes', async () => {
+    // The web wallet LN balance must come from the LNbits custodial wallet,
+    // NOT from summing ln_payments (which include channel rebalances).
+    const freshTimestamp = new Date().toISOString();
+
+    // Mock LNbits API returning 50000 sats (in msats: 50000000)
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ name: 'test', balance: 50000000, id: 'lnw1' }),
+    });
+
+    const fromCalls: string[] = [];
+    const supabase = {
+      from: vi.fn((table: string) => {
+        fromCalls.push(table);
+        if (table === 'wallet_addresses') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                eq: vi.fn().mockResolvedValue({
+                  data: [{
+                    id: 'a1', wallet_id: 'w1', chain: 'BTC', address: '1BTC...',
+                    cached_balance: 0.5, cached_balance_updated_at: freshTimestamp, is_active: true,
+                  }],
+                  error: null,
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === 'wallets') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({
+                  data: { ln_wallet_inkey: 'test-api-key', ln_wallet_adminkey: null },
+                  error: null,
+                }),
+              }),
+            }),
+          };
+        }
+        // ln_nodes and ln_payments should NOT be queried
+        throw new Error("Unexpected query to table: " + table);
+      }),
+    } as any;
+
+    const result = await getWalletBalances(supabase, 'w1');
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // Should have BTC + LN
+      const lnBalance = result.data.find((b) => b.chain === 'LN');
+      expect(lnBalance).toBeDefined();
+      // 50000 sats = 0.0005 BTC
+      expect(parseFloat(lnBalance!.balance)).toBeCloseTo(0.0005, 6);
+    }
+
+    // Verify ln_nodes and ln_payments were never queried
+    expect(fromCalls).not.toContain('ln_nodes');
+    expect(fromCalls).not.toContain('ln_payments');
+  });
 });

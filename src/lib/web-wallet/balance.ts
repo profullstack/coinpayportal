@@ -586,61 +586,30 @@ export async function getWalletBalances(
   const now = Date.now();
   let lnBalanceBtc: string | null = null;
 
-  // LN balance is not on-chain address based. Derive net settled LN flow
-  // from ln_payments for wallet-owned nodes and inject as a synthetic LN asset.
+  // LN balance for the web wallet comes exclusively from the LNbits custodial
+  // wallet. Channel balances on LN nodes are a separate concern and must NOT
+  // be mixed into the web wallet (ln_payments from nodes include channel
+  // rebalances and other internal operations that don't represent web wallet funds).
   if (!options.chain || options.chain === 'LN') {
     try {
-      const { data: nodes } = await supabase
-        .from('ln_nodes')
-        .select('id')
-        .eq('wallet_id', walletId);
+      const { data: walletRow } = await supabase
+        .from('wallets')
+        .select('ln_wallet_inkey, ln_wallet_adminkey')
+        .eq('id', walletId)
+        .single();
 
-      const nodeIds = (nodes || []).map((n: { id: string }) => n.id).filter(Boolean);
-      if (nodeIds.length > 0) {
-        const { data: payments, error: lnError } = await supabase
-          .from('ln_payments')
-          .select('amount_msat, direction, status')
-          .in('node_id', nodeIds)
-          .eq('status', 'settled');
+      const apiKey = (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_inkey
+        || (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_adminkey
+        || null;
 
-        if (!lnError) {
-          const netMsat = (payments || []).reduce((sum: number, p: { amount_msat?: number; direction?: string }) => {
-            const amountMsat = Number(p.amount_msat || 0);
-            return p.direction === 'outgoing' ? sum - amountMsat : sum + amountMsat;
-          }, 0);
-
-          // Keep non-negative display balance. Convert msat -> BTC.
-          const sats = Math.max(0, netMsat / 1000);
-          lnBalanceBtc = (sats / 100_000_000).toString();
-        }
-      }
-    } catch (lnBalanceError) {
-      console.warn(`[Balance] Failed to compute LN balance for wallet ${walletId}:`, lnBalanceError);
-    }
-
-    // Fallback to LNbits wallet balance when ln_payments is missing/stale.
-    try {
-      const currentSats = lnBalanceBtc ? Math.round(parseFloat(lnBalanceBtc) * 100_000_000) : 0;
-      if (currentSats <= 0) {
-        const { data: walletRow } = await supabase
-          .from('wallets')
-          .select('ln_wallet_inkey, ln_wallet_adminkey')
-          .eq('id', walletId)
-          .single();
-
-        const apiKey = (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_inkey
-          || (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_adminkey
-          || null;
-
-        if (apiKey) {
-          const lnbitsSats = await getLnbitsBalance(apiKey);
-          if (Number.isFinite(lnbitsSats) && lnbitsSats > 0) {
-            lnBalanceBtc = (lnbitsSats / 100_000_000).toString();
-          }
+      if (apiKey) {
+        const lnbitsSats = await getLnbitsBalance(apiKey);
+        if (Number.isFinite(lnbitsSats) && lnbitsSats > 0) {
+          lnBalanceBtc = (lnbitsSats / 100_000_000).toString();
         }
       }
     } catch (lnbitsBalanceError) {
-      console.warn(`[Balance] LNbits balance fallback failed for wallet ${walletId}:`, lnbitsBalanceError);
+      console.warn(`[Balance] LNbits balance fetch failed for wallet ${walletId}:`, lnbitsBalanceError);
     }
   }
   const results: BalanceResult[] = [];
