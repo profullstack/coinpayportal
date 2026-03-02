@@ -41,6 +41,7 @@ export interface LnPayment {
   preimage: string | null;
   amount_msat: number;
   status: 'pending' | 'settled' | 'failed';
+  payment_type: 'payment' | 'rebalance' | 'internal';
   payer_note: string | null;
   settled_at: string | null;
   created_at: string;

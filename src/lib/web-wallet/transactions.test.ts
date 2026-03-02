@@ -324,9 +324,8 @@ describe('getTransactionHistory', () => {
   });
 
   it('should NOT merge LN node payments into web wallet history', async () => {
-    // LN node payments (channel rebalances, etc.) must not appear in the
-    // web wallet transaction list. Only on-chain wallet_transactions rows
-    // should be returned.
+    // LN node payments (channel rebalances, etc.) from ln_payments must not
+    // appear in the web wallet. Only LNbits custodial wallet payments are merged.
     const walletTxs = [
       {
         id: 'tx-onchain-1',
@@ -356,8 +355,17 @@ describe('getTransactionHistory', () => {
     const supabase = {
       from: vi.fn((table: string) => {
         if (table === 'wallet_transactions') return { select: vi.fn().mockReturnValue(makeWalletTxQuery()) };
-        // ln_nodes and ln_payments should NOT be queried at all
-        throw new Error(`Unexpected query to table: ${table}`);
+        if (table === 'wallets') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({ data: null, error: null }),
+              }),
+            }),
+          };
+        }
+        // ln_nodes and ln_payments should NOT be queried
+        throw new Error("Unexpected query to table: " + table);
       }),
     } as any;
 
@@ -367,9 +375,88 @@ describe('getTransactionHistory', () => {
       expect(result.data.transactions).toHaveLength(1);
       expect(result.data.transactions[0].chain).toBe('BTC');
       expect(result.data.total).toBe(1);
-      // Verify no LN transactions leaked in
-      const lnTxs = result.data.transactions.filter((t: any) => t.chain === 'LN');
-      expect(lnTxs).toHaveLength(0);
+    }
+
+    // Verify ln_nodes and ln_payments were never queried
+    const tableCalls = supabase.from.mock.calls.map((c: any) => c[0]);
+    expect(tableCalls).not.toContain('ln_nodes');
+    expect(tableCalls).not.toContain('ln_payments');
+  });
+
+  it('should merge LNbits custodial wallet payments for LN chain', async () => {
+    // The web wallet should show payments from its LNbits custodial wallet
+    // (not from LN node ln_payments which include rebalances).
+    const walletTxs = [
+      {
+        id: 'tx-onchain-1',
+        wallet_id: 'w1',
+        chain: 'BTC',
+        tx_hash: 'btc-hash',
+        direction: 'incoming',
+        status: 'confirmed',
+        amount: '0.0001',
+        from_address: 'a',
+        to_address: 'b',
+        created_at: '2026-03-01T10:00:00Z',
+      },
+    ];
+
+    // Mock LNbits listPayments returning a 5 sat payment
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ([
+        {
+          payment_hash: 'lnbits-hash-1',
+          pending: false,
+          amount: 5000,
+          fee: 0,
+          memo: 'test payment',
+          time: 1709290000,
+          bolt11: 'lnbc...',
+          preimage: 'pre1',
+          extra: {},
+        },
+      ]),
+    });
+
+    const makeWalletTxQuery = () => {
+      const q: any = {};
+      q.eq = vi.fn().mockReturnValue(q);
+      q.order = vi.fn().mockReturnValue(q);
+      q.range = vi.fn().mockReturnValue(q);
+      q.gte = vi.fn().mockReturnValue(q);
+      q.lte = vi.fn().mockReturnValue(q);
+      q.then = (resolve: any) => resolve({ data: walletTxs, count: 1, error: null });
+      return q;
+    };
+
+    const supabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'wallet_transactions') return { select: vi.fn().mockReturnValue(makeWalletTxQuery()) };
+        if (table === 'wallets') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({
+                  data: { ln_wallet_inkey: 'test-key', ln_wallet_adminkey: null },
+                  error: null,
+                }),
+              }),
+            }),
+          };
+        }
+        throw new Error("Unexpected query to table: " + table);
+      }),
+    } as any;
+
+    const result = await getTransactionHistory(supabase, 'w1');
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.transactions.length).toBeGreaterThanOrEqual(2);
+      const lnTx = result.data.transactions.find((t: any) => t.chain === 'LN');
+      expect(lnTx).toBeDefined();
+      expect(lnTx!.amount).toBe('5000');
+      expect(lnTx!.direction).toBe('incoming');
     }
 
     // Verify ln_nodes and ln_payments were never queried

@@ -6,6 +6,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { listPayments as listLnbitsPayments } from '@/lib/lightning/lnbits';
 import type { WalletChain } from './identity';
 
 /** Truncate an address for safe logging */
@@ -487,13 +488,19 @@ export async function getTransactionHistory(
   const limit = Math.min(options.limit || 50, 100);
   const offset = options.offset || 0;
 
+  const wantsLnEarly = !options.chain || options.chain === 'LN';
+
   // Build query for on-chain history table.
+  // When LN is included, fetch without range first so LN entries merge correctly.
   let query = supabase
     .from('wallet_transactions')
     .select('*', { count: 'exact' })
     .eq('wallet_id', walletId)
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('created_at', { ascending: false });
+
+  if (!wantsLnEarly) {
+    query = query.range(offset, offset + limit - 1);
+  }
 
   if (options.chain) {
     query = query.eq('chain', options.chain);
@@ -518,15 +525,94 @@ export async function getTransactionHistory(
     return { success: false, error: 'Failed to load transactions', code: 'DB_ERROR' };
   }
 
-  const transactions = ((data || []) as TransactionRecord[]);
+  const onchainTxs = ((data || []) as TransactionRecord[]);
 
-  console.log(`[Transactions] Loaded ${transactions.length} of ${count || 0} transactions for wallet ${walletId}`);
+  // Merge LNbits custodial wallet payments for LN display.
+  // These are the web wallet's own LN payments (NOT node channel payments).
+  let lnbitsTxs: TransactionRecord[] = [];
+  const wantsLn = !options.chain || options.chain === 'LN';
+
+  if (wantsLn) {
+    try {
+      const { data: walletRow } = await supabase
+        .from('wallets')
+        .select('ln_wallet_inkey, ln_wallet_adminkey')
+        .eq('id', walletId)
+        .single();
+
+      const apiKey = (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_inkey
+        || (walletRow as { ln_wallet_inkey?: string | null; ln_wallet_adminkey?: string | null } | null)?.ln_wallet_adminkey
+        || null;
+
+      if (apiKey) {
+        const lnbitsPayments = await listLnbitsPayments(apiKey, 100);
+        lnbitsTxs = (lnbitsPayments || [])
+          .filter((p: any) => !p.pending)
+          .map((p: any) => {
+            const rawAmount = Number(p.amount || 0);
+            const direction = rawAmount < 0 ? 'outgoing' : 'incoming';
+            const status = 'confirmed';
+            const amount = Math.abs(rawAmount).toString();
+            let createdAt: string;
+            if (p.created_at) {
+              createdAt = new Date(p.created_at).toISOString();
+            } else if (p.time && !isNaN(Number(p.time))) {
+              createdAt = new Date(Number(p.time) * 1000).toISOString();
+            } else if (p.time) {
+              createdAt = new Date(p.time).toISOString();
+            } else {
+              createdAt = new Date().toISOString();
+            }
+
+            return {
+              id: 'lnbits_' + p.payment_hash,
+              wallet_id: walletId,
+              address_id: null,
+              chain: 'LN',
+              tx_hash: p.payment_hash,
+              direction,
+              status,
+              amount,
+              from_address: direction === 'incoming' ? 'lightning' : 'lnbits',
+              to_address: direction === 'incoming' ? 'lnbits' : 'lightning',
+              fee_amount: null,
+              fee_currency: 'LN',
+              confirmations: 1,
+              block_number: null,
+              block_timestamp: null,
+              metadata: {},
+              created_at: createdAt,
+              updated_at: createdAt,
+            } as TransactionRecord;
+          })
+          .filter((tx) => {
+            if (options.direction && tx.direction !== options.direction) return false;
+            if (options.status && tx.status !== options.status) return false;
+            return true;
+          });
+      }
+    } catch (lnbitsTxError) {
+      console.warn('[Transactions] LNbits payment fetch failed for wallet ' + walletId + ':', lnbitsTxError);
+    }
+  }
+
+  // Merge and sort
+  const merged = [...onchainTxs, ...lnbitsTxs].sort((a, b) => {
+    const ta = new Date(a.created_at || 0).getTime();
+    const tb = new Date(b.created_at || 0).getTime();
+    return tb - ta;
+  });
+
+  const paged = wantsLn && lnbitsTxs.length > 0 ? merged.slice(offset, offset + limit) : merged;
+  const total = wantsLn && lnbitsTxs.length > 0 ? merged.length : (count || 0);
+
+  console.log('[Transactions] Loaded ' + paged.length + ' of ' + total + ' transactions for wallet ' + walletId);
 
   return {
     success: true,
     data: {
-      transactions,
-      total: count || 0,
+      transactions: paged,
+      total,
       limit,
       offset,
     },

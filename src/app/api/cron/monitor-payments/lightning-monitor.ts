@@ -313,6 +313,39 @@ export async function syncLnbitsPayments(
             createdAt = now.toISOString();
           }
 
+          // Detect rebalance payments by checking for matching opposite-direction
+          // payment with the same amount in a 5-minute window
+          const amountMsat = Math.abs(rawAmount);
+          const memo = (p.memo || p.extra?.comment || '') as string;
+          const isRebalanceMemo = /rebalanc|circular|loop|autoloop/i.test(memo);
+
+          let paymentType: 'payment' | 'rebalance' | 'internal' = 'payment';
+          if (isRebalanceMemo) {
+            paymentType = 'rebalance';
+          } else {
+            // Check if there's a matching opposite-direction payment (self-pay)
+            const oppositeDir = direction === 'incoming' ? 'outgoing' : 'incoming';
+            const { data: match } = await supabase
+              .from('ln_payments')
+              .select('id')
+              .eq('node_id', node.id)
+              .eq('direction', oppositeDir)
+              .eq('amount_msat', amountMsat)
+              .gte('created_at', new Date(new Date(createdAt).getTime() - 300_000).toISOString())
+              .lte('created_at', new Date(new Date(createdAt).getTime() + 300_000).toISOString())
+              .limit(1)
+              .maybeSingle();
+
+            if (match) {
+              paymentType = 'rebalance';
+              // Also mark the matching payment as rebalance
+              await supabase
+                .from('ln_payments')
+                .update({ payment_type: 'rebalance' })
+                .eq('id', match.id);
+            }
+          }
+
           const { error: insertErr } = await supabase
             .from('ln_payments')
             .insert({
@@ -320,9 +353,10 @@ export async function syncLnbitsPayments(
               direction,
               payment_hash: p.payment_hash,
               preimage: p.preimage || null,
-              amount_msat: Math.abs(rawAmount),
+              amount_msat: amountMsat,
               status: 'settled',
-              payer_note: p.memo || p.extra?.comment || null,
+              payment_type: paymentType,
+              payer_note: memo || null,
               settled_at: p.updated_at || createdAt,
               created_at: createdAt,
             });

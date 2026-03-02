@@ -407,6 +407,7 @@ export class GreenlightService {
     offer_id?: string;
     direction?: 'incoming' | 'outgoing';
     status?: string;
+    include_rebalances?: boolean;
     limit?: number;
     offset?: number;
   }): Promise<{ payments: LnPayment[]; total: number }> {
@@ -433,6 +434,11 @@ export class GreenlightService {
     if (filters.offer_id) query = query.eq('offer_id', filters.offer_id);
     if (filters.direction) query = query.eq('direction', filters.direction);
     if (filters.status) query = query.eq('status', filters.status);
+
+    // Exclude rebalance/internal payments by default
+    if (!filters.include_rebalances) {
+      query = query.eq('payment_type', 'payment');
+    }
 
     query = query
       .order('created_at', { ascending: false })
