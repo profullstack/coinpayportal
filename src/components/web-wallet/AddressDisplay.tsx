@@ -57,11 +57,12 @@ const CHAIN_COLORS: Record<string, string> = {
   USDC_SOL: 'bg-cyan-500/20 text-cyan-300',
   XRP: 'bg-teal-500/20 text-teal-400',
   ADA: 'bg-blue-600/20 text-blue-400',
+  LN: 'bg-yellow-500/20 text-yellow-400',
 };
 
 export function ChainBadge({ chain }: { chain: string }) {
   const color = CHAIN_COLORS[chain] || 'bg-gray-500/20 text-gray-400';
-  const label = chain.replace('_', ' ');
+  const label = chain === 'LN' ? '⚡ LN' : chain.replace('_', ' ');
 
   return (
     <span

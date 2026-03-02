@@ -118,7 +118,7 @@ function formatNativeBalance(balance: string, chain: string): string {
 function getSymbol(chain: string): string {
   const map: Record<string, string> = {
     BTC: 'BTC',
-    LN: 'sats',
+    LN: '⚡ sats',
     BCH: 'BCH',
     ETH: 'ETH',
     POL: 'POL',
