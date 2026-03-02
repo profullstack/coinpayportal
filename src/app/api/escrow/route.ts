@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createEscrow, listEscrows } from '@/lib/escrow';
 import { authenticateRequest, isMerchantAuth } from '@/lib/auth/middleware';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 
 function getSupabase() {
@@ -23,6 +24,16 @@ function getSupabase() {
 export async function POST(request: NextRequest) {
   try {
     const supabase = getSupabase();
+
+    // Rate limit by IP
+    const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    const rateCheck = await checkRateLimitAsync(clientIp, 'escrow_creation');
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Try again later.' },
+        { status: 429 }
+      );
+    }
 
     // Authentication required for escrow creation — check before parsing body
     let isPaidTier = false;
