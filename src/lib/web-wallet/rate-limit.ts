@@ -57,7 +57,7 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'merchant_register': { limit: 3, windowSeconds: 3600 },     // 3/hour per IP
   // Web wallet endpoints
   'wallet_creation': { limit: 3, windowSeconds: 3600 },
-  'escrow_creation': { limit: 3, windowSeconds: 3600 },       // 3/hour per IP       // 10/hour per IP
+  'escrow_creation': { limit: 5, windowSeconds: 3600 },       // 3/hour per IP       // 10/hour per IP
   'auth_challenge': { limit: 10, windowSeconds: 60 },         // 10/min
   'auth_verify': { limit: 10, windowSeconds: 60 },            // 10/min
   'balance_query': { limit: 60, windowSeconds: 60 },          // 60/min
