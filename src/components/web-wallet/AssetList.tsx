@@ -75,7 +75,7 @@ export function AssetList({ assets, isLoading, onSelect, onDeriveAll, isDeriving
           </div>
           <div className="text-right">
             <p className="text-sm font-medium text-white">
-              {asset.balance} {getSymbol(asset.chain)}
+              {formatNativeBalance(asset.balance, asset.chain)} {getSymbol(asset.chain)}
             </p>
             {asset.usdValue !== undefined && (
               <p className="text-xs text-gray-400">
@@ -92,10 +92,25 @@ export function AssetList({ assets, isLoading, onSelect, onDeriveAll, isDeriving
   );
 }
 
+function formatNativeBalance(balance: string, chain: string): string {
+  const raw = parseFloat(balance || '0');
+  if (!Number.isFinite(raw)) return balance;
+
+  if (chain === 'LN') {
+    return Math.round(raw * 100_000_000).toLocaleString('en-US');
+  }
+
+  if (Math.abs(raw) > 0 && Math.abs(raw) < 0.000001) {
+    return raw.toFixed(8).replace(/0+$/, '').replace(/\.$/, '') || '0';
+  }
+
+  return raw.toLocaleString('en-US', { maximumFractionDigits: 8 });
+}
+
 function getSymbol(chain: string): string {
   const map: Record<string, string> = {
     BTC: 'BTC',
-    LN: '⚡ LN',
+    LN: 'sats',
     BCH: 'BCH',
     ETH: 'ETH',
     POL: 'POL',

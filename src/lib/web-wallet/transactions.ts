@@ -590,9 +590,8 @@ export async function getTransactionHistory(
       console.warn(`[Transactions] LN merge failed for wallet ${walletId}:`, lnErr);
     }
 
-    // Fallback: read LNbits payments directly when ln_payments is empty/stale.
-    if (lnTxs.length === 0) {
-      try {
+    // Merge LNbits payments directly as safety net for stale/missing ln_payments.
+    try {
         const { data: walletRow } = await supabase
           .from('wallets')
           .select('ln_wallet_inkey, ln_wallet_adminkey')
@@ -605,7 +604,7 @@ export async function getTransactionHistory(
 
         if (apiKey) {
           const lnbitsPayments = await listLnbitsPayments(apiKey, 100);
-          lnTxs = (lnbitsPayments || [])
+          const lnbitsTxs = (lnbitsPayments || [])
             .map((p: any) => {
               const rawAmount = Number(p.amount || 0);
               const direction = rawAmount < 0 ? 'outgoing' : 'incoming';
@@ -641,6 +640,12 @@ export async function getTransactionHistory(
               if (options.status && tx.status !== options.status) return false;
               return true;
             });
+
+          const byHash = new Map<string, TransactionRecord>();
+          [...lnTxs, ...lnbitsTxs].forEach((tx) => {
+            byHash.set(tx.tx_hash, tx);
+          });
+          lnTxs = Array.from(byHash.values());
         }
       } catch (lnbitsTxError) {
         console.warn(`[Transactions] LNbits fallback failed for wallet ${walletId}:`, lnbitsTxError);
