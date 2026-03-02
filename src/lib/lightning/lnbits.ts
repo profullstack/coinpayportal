@@ -122,11 +122,10 @@ export async function getWallet(apiKey: string): Promise<{ name: string; balance
 /** Get wallet balance in sats */
 export async function getBalance(apiKey: string): Promise<number> {
   const wallet = await getWallet(apiKey);
-  const raw = Number(wallet.balance || 0);
-  if (!Number.isFinite(raw) || raw <= 0) return 0;
-  // LNbits deployments differ: some return sats, others msats.
-  // Heuristic: values divisible by 1000 are likely msats.
-  return raw >= 1000 && raw % 1000 === 0 ? raw / 1000 : raw;
+  const rawMsat = Number(wallet.balance || 0);
+  if (!Number.isFinite(rawMsat) || rawMsat <= 0) return 0;
+  // LNbits always returns millisats
+  return Math.floor(rawMsat / 1000);
 }
 
 // ── Invoices ──
