@@ -547,7 +547,7 @@ export async function getTransactionHistory(
       if (apiKey) {
         const lnbitsPayments = await listLnbitsPayments(apiKey, 100);
         lnbitsTxs = (lnbitsPayments || [])
-          .filter((p: any) => !p.pending && p.preimage)  // Only actually paid (preimage present)
+          .filter((p: any) => p.status === 'success' && !p.pending)  // Only successfully settled payments
           .map((p: any) => {
             const rawAmountMsat = Number(p.amount || 0);
             const direction = rawAmountMsat < 0 ? 'outgoing' : 'incoming';
