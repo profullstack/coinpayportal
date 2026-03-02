@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { getLightningService } from '@/lib/lightning/lightning-service';
-import { listPayments as listLnbitsPayments } from '@/lib/lightning/lnbits';
+import { listPayments as listLnbitsPayments, payInvoice } from '@/lib/lightning/lnbits';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -18,10 +18,81 @@ function getSupabase() {
  * Requires mnemonic for Signer.
  */
 export async function POST(request: NextRequest) {
-  // Outgoing payments via LNbits. Requires the wallet's admin key
-  // which will be decrypted client-side with the seed phrase.
-  // For now, this endpoint is disabled until admin key encryption is implemented.
-  return WalletErrors.badRequest('NOT_SUPPORTED', 'Outgoing Lightning payments will be available after admin key encryption is implemented.');
+  try {
+    const body = await request.json();
+    const { wallet_id, bolt12, amount_sats } = body;
+
+    if (!wallet_id) {
+      return WalletErrors.badRequest('VALIDATION_ERROR', 'wallet_id is required');
+    }
+    if (!bolt12) {
+      return WalletErrors.badRequest('VALIDATION_ERROR', 'bolt12 (invoice or lightning address) is required');
+    }
+
+    const supabase = getSupabase();
+    const { data: walletRow } = await supabase
+      .from('wallets')
+      .select('ln_wallet_adminkey')
+      .eq('id', wallet_id)
+      .single();
+
+    const adminKey = (walletRow as any)?.ln_wallet_adminkey
+      ? decryptLnKey((walletRow as any).ln_wallet_adminkey)
+      : null;
+
+    if (!adminKey) {
+      return WalletErrors.badRequest('VALIDATION_ERROR', 'Lightning wallet not configured. Enable Lightning first.');
+    }
+
+    let bolt11 = bolt12.trim();
+
+    // If it looks like a lightning address (user@domain), resolve via LNURL
+    if (bolt11.includes('@') && !bolt11.startsWith('ln')) {
+      const [user, domain] = bolt11.split('@');
+      const lnurlRes = await fetch(`https://${domain}/.well-known/lnurlp/${user}`);
+      if (!lnurlRes.ok) {
+        return WalletErrors.badRequest('VALIDATION_ERROR', `Could not resolve lightning address: ${bolt11}`);
+      }
+      const lnurlData = await lnurlRes.json();
+      if (!lnurlData.callback) {
+        return WalletErrors.badRequest('VALIDATION_ERROR', 'Invalid LNURL response from lightning address');
+      }
+
+      const sendAmountMsat = (amount_sats || 1) * 1000;
+      const minSendable = lnurlData.minSendable || 1000;
+      const maxSendable = lnurlData.maxSendable || 1000000000;
+
+      if (sendAmountMsat < minSendable || sendAmountMsat > maxSendable) {
+        return WalletErrors.badRequest(
+          'VALIDATION_ERROR',
+          `Amount must be between ${Math.ceil(minSendable / 1000)} and ${Math.floor(maxSendable / 1000)} sats`
+        );
+      }
+
+      const sep = lnurlData.callback.includes('?') ? '&' : '?';
+      const callbackRes = await fetch(`${lnurlData.callback}${sep}amount=${sendAmountMsat}`);
+      if (!callbackRes.ok) {
+        return WalletErrors.badRequest('VALIDATION_ERROR', 'Failed to get invoice from lightning address');
+      }
+      const callbackData = await callbackRes.json();
+      if (!callbackData.pr) {
+        return WalletErrors.badRequest('VALIDATION_ERROR', 'No invoice returned from lightning address');
+      }
+      bolt11 = callbackData.pr;
+    }
+
+    // Pay the bolt11 invoice via LNbits
+    const result = await payInvoice(adminKey, bolt11);
+
+    return walletSuccess({
+      payment_hash: result.payment_hash,
+      status: 'settled',
+    }, 200);
+  } catch (error) {
+    console.error('[Lightning] POST /payments error:', error);
+    const msg = (error as Error).message || 'Payment failed';
+    return WalletErrors.serverError(msg);
+  }
 }
 
 
