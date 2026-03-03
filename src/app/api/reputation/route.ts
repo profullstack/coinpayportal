@@ -6,6 +6,9 @@ export async function GET() {
     endpoints: [
       '/api/reputation/agent/:did/reputation',
       '/api/reputation/badge/:did',
+      '/api/reputation/check',
+      '/api/reputation/trust',
+      '/api/reputation/attest',
       '/api/reputation/credential/:id',
       '/api/reputation/credentials',
       '/api/reputation/did/register',

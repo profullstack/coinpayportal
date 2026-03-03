@@ -4,3 +4,7 @@ export { analyzeAgent, detectCircularPayments, detectBurst, calculateBuyerDivers
 export { sign, verifySignature, signCredential, verifyCredentialSignature, isValidDid, validateReceiptSignatures } from './crypto';
 export { computeTrustVector, economicScale, diminishingReturns, recencyDecay, isValidActionCategory, CANONICAL_CATEGORIES, BASE_WEIGHTS } from './trust-engine';
 export type { TrustVector, TrustProfile, ActionCategory } from './trust-engine';
+export { computeTrustTier, computeCompositeScore, scoreToTier } from './trust-tiers';
+export type { TrustTier, TrustTierResult } from './trust-tiers';
+export { submitAttestation, getAttestationStatus, getAttestationScore } from './mutual-attestation';
+export type { AttestationInput, MutualAttestationStatus } from './mutual-attestation';
