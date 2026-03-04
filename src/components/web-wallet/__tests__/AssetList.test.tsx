@@ -39,8 +39,8 @@ describe('AssetList', () => {
 
   it('should show chain badges', () => {
     render(<AssetList assets={mockAssets} />);
-    expect(screen.getAllByText('BTC').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('ETH').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('BTC').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('ETH').length).toBeGreaterThan(0);
   });
 
   it('should call onSelect when clicking an asset', () => {

@@ -3,10 +3,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createPayLink, createUserWallet, getPayLink } from '@/lib/lightning/lnbits';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error('Missing Supabase server environment variables');
+  }
+  return createClient(url, key);
+}
 
 const LIGHTNING_USERNAME_REGEX = /^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$/;
 function isMissingLnbitsWalletError(error: unknown): boolean {
@@ -24,7 +28,7 @@ function isLnbitsAuthError(error: unknown): boolean {
   return /api error 401|401 authorization required|unauthorized/i.test(msg);
 }
 
-async function ensureLightningAddressBackend(walletId: string, username: string, wallet: {
+async function ensureLightningAddressBackend(supabase: ReturnType<typeof getSupabase>, walletId: string, username: string, wallet: {
   ln_wallet_adminkey?: string | null;
   ln_paylink_id?: number | null;
 }) {
@@ -110,6 +114,7 @@ async function ensureLightningAddressBackend(walletId: string, username: string,
  */
 export async function POST(request: NextRequest) {
   try {
+    const supabase = getSupabase();
     const { wallet_id, username } = await request.json();
 
     if (!wallet_id || !username) {
@@ -187,7 +192,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await ensureLightningAddressBackend(wallet_id, username, {
+    await ensureLightningAddressBackend(supabase, wallet_id, username, {
       ln_wallet_adminkey: wallet.ln_wallet_adminkey ?? null,
       ln_paylink_id: wallet.ln_paylink_id ?? null,
     });
@@ -224,6 +229,7 @@ export async function POST(request: NextRequest) {
  * Get current Lightning Address for a wallet
  */
 export async function GET(request: NextRequest) {
+  const supabase = getSupabase();
   const username = request.nextUrl.searchParams.get('username');
   if (username) {
     const normalized = username.trim().toLowerCase();
@@ -285,7 +291,7 @@ export async function GET(request: NextRequest) {
   // Keep Lightning Address restorable after seed imports by self-healing
   // stale/missing LNbits wallet or paylink metadata in background.
   try {
-    await ensureLightningAddressBackend(walletId, wallet.ln_username, {
+    await ensureLightningAddressBackend(supabase, walletId, wallet.ln_username, {
       ln_wallet_adminkey: (wallet as any).ln_wallet_adminkey ?? null,
       ln_paylink_id: (wallet as any).ln_paylink_id ?? null,
     });

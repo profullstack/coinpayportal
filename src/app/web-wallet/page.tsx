@@ -118,7 +118,9 @@ function DashboardView() {
       setLoadingBalances(true);
       const [balanceData, nativeBalances] = await Promise.all([
         wallet.getTotalBalanceUSD(),
-        wallet.getBalances({ refresh: true }),
+        typeof (wallet as any).getBalances === 'function'
+          ? (wallet as any).getBalances({ refresh: true })
+          : Promise.resolve([]),
       ]);
       setTotalUsd(balanceData.totalUsd);
       const CHAIN_ORDER: Record<string, number> = {
