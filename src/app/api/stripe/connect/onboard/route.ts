@@ -46,6 +46,21 @@ export async function POST(request: NextRequest) {
 
     let stripeAccountId = existingAccount?.stripe_account_id;
 
+    // Verify existing Stripe account still exists, clean up if stale
+    if (stripeAccountId) {
+      try {
+        await getStripe().accounts.retrieve(stripeAccountId);
+      } catch (verifyError: any) {
+        if (verifyError?.code === 'account_invalid' || verifyError?.message?.includes('No such account')) {
+          console.warn(`Stale Stripe account ${stripeAccountId} for merchant ${merchantId}, removing`);
+          await supabase.from('stripe_accounts').delete().eq('merchant_id', merchantId);
+          stripeAccountId = undefined;
+        } else {
+          throw verifyError;
+        }
+      }
+    }
+
     // Create new Stripe Express account if needed
     if (!stripeAccountId) {
       const account = await getStripe().accounts.create({
