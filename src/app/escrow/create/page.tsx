@@ -120,6 +120,7 @@ export default function CreateEscrowPage() {
     depositor_address: '',
     beneficiary_address: '',
     arbiter_address: '',
+    use_platform_arbiter: false,
     depositor_email: '',
     beneficiary_email: '',
     description: '',
@@ -912,7 +913,19 @@ export default function CreateEscrowPage() {
               id="chain"
               required
               value={formData.chain}
-              onChange={(e) => setFormData({ ...formData, chain: e.target.value })}
+              onChange={async (e) => {
+                const newChain = e.target.value;
+                setFormData((prev) => ({ ...prev, chain: newChain }));
+                if (formData.use_platform_arbiter) {
+                  try {
+                    const res = await fetch(`/api/escrow/platform-arbiter?chain=${newChain}`);
+                    const data = await res.json();
+                    if (data.success) {
+                      setFormData((prev) => ({ ...prev, arbiter_address: data.pubkey || data.address }));
+                    }
+                  } catch { /* keep existing */ }
+                }
+              }}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
             >
               {(formData.escrow_model === 'multisig_2of3' ? MULTISIG_CHAINS : CHAINS).map((c) => (
@@ -1103,12 +1116,50 @@ export default function CreateEscrowPage() {
                 ? multisigSignerFieldLabel('Arbiter', formData.chain)
                 : <>Arbiter Address <span className="text-gray-400">(optional)</span></>}
             </label>
+            <div className="flex items-center gap-2 mb-2">
+              <input
+                id="use_platform_arbiter"
+                type="checkbox"
+                checked={formData.use_platform_arbiter}
+                onChange={async (e) => {
+                  const checked = e.target.checked;
+                  if (checked) {
+                    try {
+                      const res = await fetch(`/api/escrow/platform-arbiter?chain=${formData.chain}`);
+                      const data = await res.json();
+                      if (data.success) {
+                        setFormData((prev) => ({
+                          ...prev,
+                          use_platform_arbiter: true,
+                          arbiter_address: data.pubkey || data.address,
+                        }));
+                      } else {
+                        setError(data.error || 'Failed to load platform arbiter key');
+                      }
+                    } catch {
+                      setError('Failed to load platform arbiter key');
+                    }
+                  } else {
+                    setFormData((prev) => ({
+                      ...prev,
+                      use_platform_arbiter: false,
+                      arbiter_address: '',
+                    }));
+                  }
+                }}
+                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <label htmlFor="use_platform_arbiter" className="text-sm text-gray-600 dark:text-gray-400">
+                Use CoinPay as arbiter
+              </label>
+            </div>
             <input
               id="arbiter"
               type="text"
               value={formData.arbiter_address}
-              onChange={(e) => setFormData({ ...formData, arbiter_address: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm"
+              onChange={(e) => setFormData({ ...formData, arbiter_address: e.target.value, use_platform_arbiter: false })}
+              disabled={formData.use_platform_arbiter}
+              className={`w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm ${formData.use_platform_arbiter ? 'opacity-60 cursor-not-allowed' : ''}`}
               placeholder={formData.escrow_model === 'multisig_2of3'
                 ? multisigSignerPlaceholder('Arbiter', formData.chain)
                 : 'Third-party dispute resolver (optional)'}
