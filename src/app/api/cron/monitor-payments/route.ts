@@ -18,8 +18,8 @@ import { monitorLightningPayments, syncLnbitsPayments } from './lightning-monito
 import { monitorSeries } from './series-monitor';
 import { monitorEmails } from './email-monitor';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key';
 
 /**
  * Get cron secret for authentication
