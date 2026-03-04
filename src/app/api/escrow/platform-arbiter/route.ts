@@ -2,29 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getMnemonic } from '@/lib/secrets';
 import { deriveKeyForChain } from '@/lib/web-wallet/keys';
 
-// Map chains to their parent chain for mnemonic lookup (e.g. USDC_ETH → ETH)
-const CHAIN_TO_MNEMONIC_KEY: Record<string, string> = {
-  BTC: 'BTC',
-  BCH: 'BTC',
-  DOGE: 'BTC',
-  ETH: 'ETH',
-  BNB: 'ETH',
-  USDC_ETH: 'ETH',
-  USDT_ETH: 'ETH',
-  POL: 'POL',
-  USDC_POL: 'POL',
-  USDT_POL: 'POL',
-  SOL: 'SOL',
-  USDC_SOL: 'SOL',
-  XRP: 'ETH',
-  ADA: 'ETH',
-};
-
 function getSystemMnemonic(chain: string): string | undefined {
-  const key = CHAIN_TO_MNEMONIC_KEY[chain] || chain;
-  // Try chain-specific first, then fall back to COINPAY_MNEMONIC
+  // Try exact chain first (e.g. SYSTEM_MNEMONIC_USDC_ETH), then fall back to COINPAY_MNEMONIC
   return (
-    process.env[`SYSTEM_MNEMONIC_${key}`] ||
+    process.env[`SYSTEM_MNEMONIC_${chain}`] ||
     getMnemonic()
   );
 }
