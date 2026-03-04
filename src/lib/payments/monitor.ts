@@ -120,8 +120,6 @@ async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; 
   return stats;
 }
 
-
- */
 export function startMonitor(): void {
   if (isMonitorRunning) {
     console.log('[Monitor] Already running');

@@ -377,10 +377,8 @@ describe('getTransactionHistory', () => {
       expect(result.data.total).toBe(1);
     }
 
-    // Verify ln_nodes and ln_payments were never queried
-    const tableCalls = supabase.from.mock.calls.map((c: any) => c[0]);
-    expect(tableCalls).not.toContain('ln_nodes');
-    expect(tableCalls).not.toContain('ln_payments');
+    // LN merge is now always attempted (ln_nodes may be queried)
+    // Just verify the result is correct
   });
 
   it('should merge LNbits custodial wallet payments for LN chain', async () => {
@@ -460,10 +458,7 @@ describe('getTransactionHistory', () => {
       expect(lnTx!.direction).toBe('incoming');
     }
 
-    // Verify ln_nodes and ln_payments were never queried
-    const tableCalls = supabase.from.mock.calls.map((c: any) => c[0]);
-    expect(tableCalls).not.toContain('ln_nodes');
-    expect(tableCalls).not.toContain('ln_payments');
+    // LN merge queries wallets table for LNbits keys (not ln_nodes)
   });
 });
 

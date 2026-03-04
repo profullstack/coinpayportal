@@ -609,7 +609,8 @@ export async function getTransactionHistory(
               const rawAmount = Number(p.amount || 0);
               const direction = rawAmount < 0 ? 'outgoing' : 'incoming';
               const status = p.pending ? 'pending' : 'confirmed';
-              const amount = Math.abs(rawAmount).toString();
+              // LNbits returns amounts in msats — convert to sats
+              const amount = Math.round(Math.abs(rawAmount) / 1000).toString();
               const createdAt = p.time
                 ? new Date(Number(p.time) * 1000).toISOString()
                 : new Date().toISOString();
