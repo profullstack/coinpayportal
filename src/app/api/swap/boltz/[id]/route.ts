@@ -32,11 +32,28 @@ export async function GET(
 
     // Update DB status
     const dbStatus = BOLTZ_TO_DB_STATUS[status.status] || status.status;
+    const txHash = status.transaction?.id || undefined;
+    
+    // First get existing provider_data to merge
+    const { data: existing } = await supabase
+      .from('swaps')
+      .select('provider_data')
+      .eq('id', id)
+      .eq('provider', 'boltz')
+      .single();
+
+    const providerData = {
+      ...(existing?.provider_data || {}),
+      boltz_status: status.status,
+      ...(txHash ? { deposit_tx_hash: txHash } : {}),
+    };
+
     await supabase
       .from('swaps')
       .update({
         status: dbStatus,
-        deposit_tx_hash: status.transaction?.id || undefined,
+        deposit_tx_hash: txHash,
+        provider_data: providerData,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
