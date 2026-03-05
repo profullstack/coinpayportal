@@ -103,14 +103,16 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
     try {
       if (direction === 'in') {
         // BTC → Lightning: first create LN invoice via LNBits, then create Boltz swap
-        const invoiceRes = await fetch('/api/lightning/invoices', {
+        const invoiceRes = await fetch(`/api/lightning/invoices`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount: sats, memo: `Boltz swap-in ${sats} sats` }),
+          body: JSON.stringify({ wallet_id: walletId, amount_sats: sats, description: `Boltz swap-in ${sats} sats` }),
         });
         const invoiceData = await invoiceRes.json();
-        if (!invoiceData.payment_request) {
-          throw new Error('Failed to create Lightning invoice');
+        const bolt11 = invoiceData?.data?.invoice?.bolt11 || invoiceData?.payment_request;
+        if (!bolt11) {
+          const errMsg = invoiceData?.error?.message || invoiceData?.error || 'Failed to create Lightning invoice';
+          throw new Error(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg));
         }
 
         const swapRes = await fetch('/api/swap/boltz', {
@@ -118,7 +120,7 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             direction: 'in',
-            invoice: invoiceData.payment_request,
+            invoice: bolt11,
             refundAddress: btcAddress,
           }),
         });
