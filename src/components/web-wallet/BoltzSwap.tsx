@@ -167,7 +167,7 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
           <svg className="h-5 w-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
-          BTC ↔ Lightning
+          Deposit BTC to Lightning
         </h3>
         <span className="text-xs text-gray-500">via Boltz Exchange</span>
       </div>
@@ -180,7 +180,7 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
             direction === 'in' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'
           }`}
         >
-          BTC → ⚡ Lightning
+          Deposit BTC → ⚡ Lightning
         </button>
         <button
           onClick={() => { setDirection('out'); setSwapState('idle'); setSwapData(null); }}
@@ -188,7 +188,7 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
             direction === 'out' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'
           }`}
         >
-          ⚡ Lightning → BTC
+          Withdraw ⚡ → On-chain BTC
         </button>
       </div>
 
@@ -249,9 +249,9 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
                 Creating swap...
               </span>
             ) : direction === 'in' ? (
-              'Swap BTC → Lightning'
+              'Deposit BTC to Lightning'
             ) : (
-              'Swap Lightning → BTC'
+              'Withdraw to On-chain BTC'
             )}
           </button>
         </>

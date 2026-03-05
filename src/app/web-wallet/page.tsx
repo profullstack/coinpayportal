@@ -329,7 +329,7 @@ function DashboardView() {
               {/* Pending Swaps */}
               <PendingSwaps walletId={walletId} />
               
-              {/* BTC ↔ Lightning Swap */}
+              {/* Deposit BTC to Lightning Wallet */}
               <BoltzSwap
                 walletId={walletId}
                 btcAddress={addressMap["BTC"]}
