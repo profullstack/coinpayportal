@@ -47,6 +47,8 @@ export default function Header() {
     router.push('/');
   };
 
+  const PUBLIC_ROUTES = new Set(['/', '/web-wallet', '/docs']);
+
   const navigation = [
     { name: 'Home', href: '/' },
     { name: 'Wallet', href: '/web-wallet' },
@@ -68,6 +70,11 @@ export default function Header() {
 
   const currentNav = isLoggedIn ? loggedInNavigation : navigation;
 
+  const getNavHref = (href: string) => {
+    if (isLoggedIn || PUBLIC_ROUTES.has(href)) return href;
+    return `/login?redirect=${encodeURIComponent(href)}`;
+  };
+
   return (
     <header className="bg-gray-900 border-b border-gray-800 sticky top-0 z-50">
       <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8" aria-label="Top">
@@ -86,7 +93,7 @@ export default function Header() {
             {currentNav.map((item) => (
               <Link
                 key={item.name}
-                href={item.href}
+                href={getNavHref(item.href)}
                 className="text-sm font-medium text-gray-300 hover:text-white transition-colors"
               >
                 {item.name}
@@ -219,7 +226,7 @@ export default function Header() {
               {currentNav.map((item) => (
                 <Link
                   key={item.name}
-                  href={item.href}
+                  href={getNavHref(item.href)}
                   className="block px-3 py-2 text-base font-medium text-gray-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
                   onClick={() => setMobileMenuOpen(false)}
                 >

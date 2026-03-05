@@ -2,10 +2,12 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 export default function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get('redirect');
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -43,8 +45,10 @@ export default function LoginForm() {
         localStorage.setItem('auth_token', data.token);
       }
 
-      // Redirect based on admin status
-      if (data.merchant?.is_admin) {
+      // Redirect based on admin status or redirect param
+      if (redirectTo) {
+        router.push(redirectTo);
+      } else if (data.merchant?.is_admin) {
         router.push('/admin');
       } else {
         router.push('/dashboard');
