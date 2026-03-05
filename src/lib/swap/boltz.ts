@@ -1,89 +1,112 @@
 /**
- * Boltz Exchange API client for BTC ↔ Lightning swaps
- * Docs: https://docs.boltz.exchange/v/api
+ * Boltz Exchange API v2 client for BTC ↔ Lightning swaps
+ * Docs: https://docs.boltz.exchange/v/api/v2
  * No API key needed — public, non-custodial submarine swaps.
  */
 
-const BOLTZ_API_URL = 'https://api.boltz.exchange';
+import crypto from 'crypto';
 
-export interface BoltzPairInfo {
+const BOLTZ_API = 'https://api.boltz.exchange/v2';
+
+// --- Types ---
+
+export interface BoltzSubmarinePairInfo {
+  hash: string;
   rate: number;
-  limits: {
-    minimal: number;
-    maximal: number;
-  };
-  fees: {
-    percentage: number;
-    percentageSwapIn: number;
-    minerFees: {
-      baseAsset: {
-        normal: number;
-        reverse: { claim: number; lockup: number };
-      };
-      quoteAsset: {
-        normal: number;
-        reverse: { claim: number; lockup: number };
-      };
-    };
-  };
+  limits: { minimal: number; maximal: number; maximalZeroConf: number };
+  fees: { percentage: number; minerFees: number };
 }
 
 export interface BoltzSwapResponse {
   id: string;
-  bip21?: string;
-  address?: string;
-  expectedAmount?: number;
-  acceptZeroConf?: boolean;
-  timeoutBlockHeight?: number;
+  bip21: string;
+  address: string;
+  expectedAmount: number;
+  acceptZeroConf: boolean;
+  timeoutBlockHeight: number;
+  claimAddress?: string;
   redeemScript?: string;
+  swapTree?: unknown;
 }
 
 export interface BoltzReverseSwapResponse {
   id: string;
   invoice: string;
-  redeemScript: string;
   lockupAddress: string;
   timeoutBlockHeight: number;
   onchainAmount: number;
+  redeemScript?: string;
+  swapTree?: unknown;
 }
 
 export interface BoltzSwapStatus {
   status: string;
-  transaction?: {
-    id: string;
-    hex?: string;
+  transaction?: { id: string; hex?: string };
+}
+
+// --- Helpers ---
+
+/** Generate an ephemeral keypair for refund/claim paths */
+function generateKeyPair() {
+  const keyPair = crypto.generateKeyPairSync('ec', {
+    namedCurve: 'secp256k1',
+    publicKeyEncoding: { type: 'spki', format: 'der' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'der' },
+  });
+  // Extract raw 33-byte compressed public key from DER
+  const derPub = Buffer.from(keyPair.publicKey);
+  // DER SPKI for secp256k1 has a fixed header; the last 65 bytes are the uncompressed key
+  const uncompressed = derPub.subarray(derPub.length - 65);
+  const x = uncompressed.subarray(1, 33);
+  const prefix = uncompressed[64] % 2 === 0 ? 0x02 : 0x03;
+  const compressed = Buffer.concat([Buffer.from([prefix]), x]);
+  return {
+    publicKey: compressed.toString('hex'),
+    privateKey: Buffer.from(keyPair.privateKey).toString('hex'),
   };
 }
 
+// --- API ---
+
 /**
- * Get BTC/BTC pair info (on-chain ↔ Lightning limits, fees, rates)
+ * Get BTC→BTC submarine swap pair info (limits, fees)
  */
-export async function getBoltzPairInfo(): Promise<BoltzPairInfo> {
-  const res = await fetch(`${BOLTZ_API_URL}/getpairs`);
-  if (!res.ok) throw new Error(`Boltz getpairs failed: ${res.status}`);
+export async function getBoltzPairInfo(): Promise<BoltzSubmarinePairInfo> {
+  const res = await fetch(`${BOLTZ_API}/swap/submarine`);
+  if (!res.ok) throw new Error(`Boltz pairs failed: ${res.status}`);
   const data = await res.json();
-  const pair = data.pairs?.['BTC/BTC'];
-  if (!pair) throw new Error('BTC/BTC pair not found on Boltz');
+  const pair = data?.BTC?.BTC;
+  if (!pair) throw new Error('BTC/BTC submarine pair not found');
+  return pair;
+}
+
+export async function getBoltzReversePairInfo() {
+  const res = await fetch(`${BOLTZ_API}/swap/reverse`);
+  if (!res.ok) throw new Error(`Boltz reverse pairs failed: ${res.status}`);
+  const data = await res.json();
+  const pair = data?.BTC?.BTC;
+  if (!pair) throw new Error('BTC/BTC reverse pair not found');
   return pair;
 }
 
 /**
- * Create a Normal Swap: On-chain BTC → Lightning
- * User sends BTC to the returned address, Boltz pays the Lightning invoice.
- *
- * @param invoice - Lightning invoice (BOLT11) to be paid by Boltz
- * @param refundAddress - On-chain BTC address for refunds if swap fails
+ * Create submarine swap: On-chain BTC → Lightning
+ * User sends BTC to returned address, Boltz pays the invoice.
  */
-export async function createSwapIn(invoice: string, refundAddress?: string): Promise<BoltzSwapResponse> {
-  const body: Record<string, unknown> = {
-    type: 'submarine',
-    pairId: 'BTC/BTC',
-    orderSide: 'sell',
-    invoice,
-  };
-  if (refundAddress) body.refundAddress = refundAddress;
+export async function createSwapIn(
+  invoice: string,
+  refundAddress?: string,
+): Promise<BoltzSwapResponse & { refundPrivateKey?: string }> {
+  const kp = generateKeyPair();
 
-  const res = await fetch(`${BOLTZ_API_URL}/createswap`, {
+  const body: Record<string, unknown> = {
+    from: 'BTC',
+    to: 'BTC',
+    invoice,
+    refundPublicKey: kp.publicKey,
+  };
+
+  const res = await fetch(`${BOLTZ_API}/swap/submarine`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -93,31 +116,29 @@ export async function createSwapIn(invoice: string, refundAddress?: string): Pro
     const err = await res.text();
     throw new Error(`Boltz createswap failed: ${res.status} - ${err}`);
   }
-  return res.json();
+  const swap = await res.json();
+  return { ...swap, refundPrivateKey: kp.privateKey };
 }
 
 /**
- * Create a Reverse Swap: Lightning → On-chain BTC
- * User pays a Lightning invoice, Boltz sends BTC to the on-chain address.
- *
- * @param onchainAmount - Amount in sats to receive on-chain
- * @param claimAddress - On-chain BTC address to receive funds
+ * Create reverse swap: Lightning → On-chain BTC
+ * User pays LN invoice, Boltz sends BTC on-chain.
  */
 export async function createSwapOut(
-  onchainAmount: number,
+  invoiceAmount: number,
   claimAddress: string,
-  preimageHash?: string,
-): Promise<BoltzReverseSwapResponse> {
-  const body: Record<string, unknown> = {
-    type: 'reversesubmarine',
-    pairId: 'BTC/BTC',
-    orderSide: 'buy',
-    onchainAmount,
-    claimAddress,
-  };
-  if (preimageHash) body.preimageHash = preimageHash;
+): Promise<BoltzReverseSwapResponse & { claimPrivateKey?: string }> {
+  const kp = generateKeyPair();
 
-  const res = await fetch(`${BOLTZ_API_URL}/createswap`, {
+  const body: Record<string, unknown> = {
+    from: 'BTC',
+    to: 'BTC',
+    invoiceAmount,
+    claimAddress,
+    claimPublicKey: kp.publicKey,
+  };
+
+  const res = await fetch(`${BOLTZ_API}/swap/reverse`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -127,55 +148,40 @@ export async function createSwapOut(
     const err = await res.text();
     throw new Error(`Boltz reverse swap failed: ${res.status} - ${err}`);
   }
-  return res.json();
+  const swap = await res.json();
+  return { ...swap, claimPrivateKey: kp.privateKey };
 }
 
 /**
  * Check swap status
  */
 export async function getSwapStatus(swapId: string): Promise<BoltzSwapStatus> {
-  const res = await fetch(`${BOLTZ_API_URL}/swapstatus`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: swapId }),
-  });
+  const res = await fetch(`${BOLTZ_API}/swap/${swapId}`);
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Boltz swapstatus failed: ${res.status} - ${err}`);
+    throw new Error(`Boltz status failed: ${res.status} - ${err}`);
   }
   return res.json();
 }
 
 /**
- * Get fee estimation for a swap
+ * Estimate swap fees
  */
 export async function estimateSwapFee(
   direction: 'in' | 'out',
   amountSats: number,
 ): Promise<{ totalFee: number; receiveSats: number; minerFee: number; serviceFee: number }> {
-  const pair = await getBoltzPairInfo();
-
   if (direction === 'in') {
-    // On-chain → Lightning: user sends BTC, receives Lightning sats
-    const serviceFee = Math.ceil(amountSats * (pair.fees.percentageSwapIn / 100));
-    const minerFee = pair.fees.minerFees.baseAsset.normal;
-    const totalFee = serviceFee + minerFee;
-    return {
-      totalFee,
-      receiveSats: amountSats - totalFee,
-      minerFee,
-      serviceFee,
-    };
-  } else {
-    // Lightning → On-chain: user pays LN invoice, receives on-chain BTC
+    const pair = await getBoltzPairInfo();
     const serviceFee = Math.ceil(amountSats * (pair.fees.percentage / 100));
-    const minerFee = pair.fees.minerFees.baseAsset.reverse.claim + pair.fees.minerFees.baseAsset.reverse.lockup;
+    const minerFee = pair.fees.minerFees;
     const totalFee = serviceFee + minerFee;
-    return {
-      totalFee,
-      receiveSats: amountSats - totalFee,
-      minerFee,
-      serviceFee,
-    };
+    return { totalFee, receiveSats: amountSats - totalFee, minerFee, serviceFee };
+  } else {
+    const pair = await getBoltzReversePairInfo();
+    const serviceFee = Math.ceil(amountSats * (pair.fees.percentage / 100));
+    const minerFee = pair.fees.minerFees?.claim + pair.fees.minerFees?.lockup || 0;
+    const totalFee = serviceFee + minerFee;
+    return { totalFee, receiveSats: amountSats - totalFee, minerFee, serviceFee };
   }
 }
