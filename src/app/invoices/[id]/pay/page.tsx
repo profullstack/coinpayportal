@@ -37,6 +37,24 @@ export default function InvoicePayPage() {
     } catch { /* ignore */ }
   };
 
+  const checkBalance = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/invoices/${invoiceId}/check-balance`, { method: 'POST' });
+      const data = await response.json();
+      if (data.status === 'paid') {
+        // Re-fetch invoice to get updated status
+        const invoiceRes = await fetch(`/api/invoices/${invoiceId}/pay`);
+        const invoiceData = await invoiceRes.json();
+        if (invoiceData.success) {
+          setInvoice(invoiceData.invoice);
+          if (pollRef.current) clearInterval(pollRef.current);
+        }
+      }
+    } catch {
+      // Balance check failures are non-fatal
+    }
+  }, [invoiceId]);
+
   const fetchInvoice = useCallback(async () => {
     try {
       const response = await fetch(`/api/invoices/${invoiceId}/pay`);
@@ -45,6 +63,9 @@ export default function InvoicePayPage() {
         setInvoice(data.invoice);
         if (['paid', 'cancelled'].includes(data.invoice.status)) {
           if (pollRef.current) clearInterval(pollRef.current);
+        } else if (['sent', 'overdue'].includes(data.invoice.status)) {
+          // Actively check blockchain balance for pending invoices
+          checkBalance();
         }
       } else {
         setError(data.error || 'Invoice not found');
@@ -53,7 +74,7 @@ export default function InvoicePayPage() {
       setError('Failed to load invoice');
     }
     setLoading(false);
-  }, [invoiceId]);
+  }, [invoiceId, checkBalance]);
 
   useEffect(() => {
     fetchInvoice();
