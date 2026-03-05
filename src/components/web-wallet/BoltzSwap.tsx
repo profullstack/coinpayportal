@@ -129,6 +129,7 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
             direction: 'in',
             invoice: bolt11,
             refundAddress: btcAddress,
+            walletId,
           }),
         });
         const swap = await swapRes.json();
@@ -147,6 +148,7 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
             direction: 'out',
             amountSats: sats,
             claimAddress: btcAddress,
+            walletId,
           }),
         });
         const swap = await swapRes.json();
