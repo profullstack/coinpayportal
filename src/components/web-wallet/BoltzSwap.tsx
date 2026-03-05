@@ -79,11 +79,13 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
         const data = await res.json();
         if (data.success) {
           setSwapStatus(data.status);
-          if (['transaction.claimed', 'invoice.settled', 'transaction.confirmed'].includes(data.status)) {
+          // Success states
+          if (['transaction.claimed', 'invoice.settled'].includes(data.status)) {
             setSwapState('complete');
             clearInterval(interval);
           }
-          if (['swap.expired', 'transaction.failed', 'swap.refunded'].includes(data.status)) {
+          // Failure states
+          if (['swap.expired', 'transaction.failed', 'transaction.lockupFailed', 'invoice.failedToPay', 'transaction.refunded'].includes(data.status)) {
             setSwapState('error');
             setError(`Swap ${data.status}`);
             clearInterval(interval);
@@ -291,7 +293,17 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
                'Swap In Progress'}
             </p>
             <p className="text-xs text-gray-400 mt-1">
-              Status: {swapStatus || 'waiting...'}
+              {swapStatus === 'swap.created' && '⏳ Waiting for BTC deposit...'}
+              {swapStatus === 'transaction.mempool' && '📡 BTC transaction detected in mempool!'}
+              {swapStatus === 'transaction.confirmed' && '✅ BTC confirmed on-chain, paying Lightning invoice...'}
+              {swapStatus === 'invoice.paid' && '⚡ Lightning invoice paid, claiming...'}
+              {swapStatus === 'invoice.pending' && '⚡ Lightning payment pending...'}
+              {swapStatus === 'transaction.claimed' && '🎉 Swap complete!'}
+              {swapStatus === 'invoice.settled' && '🎉 Swap complete!'}
+              {swapStatus === 'transaction.server.mempool' && '📡 Server transaction in mempool...'}
+              {swapStatus === 'transaction.server.confirmed' && '✅ Server transaction confirmed...'}
+              {!swapStatus && '⏳ Waiting for BTC deposit...'}
+              {swapStatus && !['swap.created','transaction.mempool','transaction.confirmed','invoice.paid','invoice.pending','transaction.claimed','invoice.settled','transaction.server.mempool','transaction.server.confirmed'].includes(swapStatus) && `Status: ${swapStatus}`}
             </p>
           </div>
 
