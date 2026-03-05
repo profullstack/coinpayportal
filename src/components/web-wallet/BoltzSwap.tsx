@@ -313,9 +313,15 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
               <p className="text-xs text-gray-400">Send BTC to this address:</p>
               <p className="text-sm text-white font-mono break-all">{swapData.address}</p>
               {swapData.expectedAmount && (
-                <p className="text-xs text-gray-400">
-                  Expected: {(swapData.expectedAmount / 1e8).toFixed(8)} BTC ({swapData.expectedAmount.toLocaleString()} sats)
-                </p>
+                <div className="flex items-center justify-between text-xs text-gray-400">
+                  <span>Expected: {(swapData.expectedAmount / 1e8).toFixed(8)} BTC ({swapData.expectedAmount.toLocaleString()} sats)</span>
+                  <button
+                    onClick={() => copy((swapData.expectedAmount / 1e8).toFixed(8), 'amount')}
+                    className="ml-2 text-purple-300 hover:text-purple-200 transition-colors"
+                  >
+                    {copied === 'amount' ? '✓' : 'Copy'}
+                  </button>
+                </div>
               )}
               <button
                 onClick={() => copy(swapData.address, 'address')}
