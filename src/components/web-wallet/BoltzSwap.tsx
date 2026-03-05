@@ -81,6 +81,7 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
           setSwapStatus(data.status);
           // Success states
           if (['transaction.claimed', 'invoice.settled'].includes(data.status)) {
+            // Final status check already updated DB via the API call above
             setSwapState('complete');
             clearInterval(interval);
           }

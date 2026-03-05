@@ -328,10 +328,19 @@ export function PendingSwaps({ walletId }: { walletId: string }) {
         const updatedSwaps = await Promise.all(
           data.swaps.map(async (swap: Swap) => {
             try {
-              const statusRes = await fetch(`/api/swap/${swap.id}`);
+              // Use correct status endpoint based on provider
+              const statusUrl = swap.provider === 'boltz'
+                ? `/api/swap/boltz/${swap.id}`
+                : `/api/swap/${swap.id}`;
+              const statusRes = await fetch(statusUrl);
               const statusData = await statusRes.json();
-              if (statusRes.ok && statusData.swap) {
-                return { ...swap, status: statusData.swap.status };
+              if (statusRes.ok) {
+                if (swap.provider === 'boltz' && statusData.status) {
+                  // Boltz status endpoint already updates DB, just refresh local state
+                  return { ...swap, status: statusData.status, deposit_tx_hash: statusData.transaction?.id || swap.deposit_tx_hash };
+                } else if (statusData.swap) {
+                  return { ...swap, status: statusData.swap.status };
+                }
               }
             } catch {
               // Keep original status on error
