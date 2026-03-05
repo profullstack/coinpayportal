@@ -36,12 +36,17 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
   const [swapStatus, setSwapStatus] = useState('');
   const [error, setError] = useState('');
   const [copied, setCopied] = useState('');
+  const [btcPrice, setBtcPrice] = useState<number | null>(null);
 
-  // Fetch pair info on mount
+  // Fetch pair info and BTC price on mount
   useEffect(() => {
     fetch('/api/swap/boltz')
       .then((r) => r.json())
       .then((d) => { if (d.success) setPairInfo(d.pair); })
+      .catch(() => {});
+    fetch('/api/rates/btc')
+      .then((r) => r.json())
+      .then((d) => { if (d.price) setBtcPrice(d.price); })
       .catch(() => {});
   }, []);
 
@@ -171,7 +176,10 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
           </svg>
           Deposit BTC to Lightning
         </h3>
-        <span className="text-xs text-gray-500">via Boltz Exchange</span>
+        <div className="text-right">
+          <span className="text-xs text-gray-500">via Boltz Exchange</span>
+          {btcPrice && <p className="text-xs text-gray-500">1 BTC = ${btcPrice.toLocaleString()} USD</p>}
+        </div>
       </div>
 
       {/* Direction toggle */}
@@ -218,6 +226,7 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
             {amount && (
               <p className="text-xs text-gray-500 mt-1">
                 = {Math.round(parseFloat(amount || '0') * 1e8).toLocaleString()} sats
+                {btcPrice ? ` ≈ $${(parseFloat(amount || '0') * btcPrice).toFixed(2)} USD` : ''}
               </p>
             )}
           </div>
@@ -231,7 +240,7 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
               </div>
               <div className="flex justify-between text-white font-medium">
                 <span>You receive</span>
-                <span>{estimate.receiveSats.toLocaleString()} sats</span>
+                <span>{estimate.receiveSats.toLocaleString()} sats{btcPrice ? ` ≈ $${(estimate.receiveSats / 1e8 * btcPrice).toFixed(2)}` : ''}</span>
               </div>
             </div>
           )}
