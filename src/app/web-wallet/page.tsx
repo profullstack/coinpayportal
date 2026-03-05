@@ -13,6 +13,7 @@ import {
 } from '@/components/web-wallet/TransactionList';
 import { SwapForm } from '@/components/web-wallet/SwapForm';
 import { SwapHistory, PendingSwaps } from '@/components/web-wallet/SwapHistory';
+import { BoltzSwap } from '@/components/web-wallet/BoltzSwap';
 import type { WalletChain } from '@/lib/web-wallet/identity';
 
 export default function WebWalletPage() {
@@ -328,6 +329,14 @@ function DashboardView() {
               {/* Pending Swaps */}
               <PendingSwaps walletId={walletId} />
               
+              {/* BTC ↔ Lightning Swap */}
+              <BoltzSwap
+                walletId={walletId}
+                btcAddress={addressMap["BTC"]}
+                btcBalance={balanceMap["BTC"]?.balance}
+                lnBalance={balanceMap["LN"]?.balance}
+              />
+
               {/* New Swap Form */}
               <div>
                 <div className="mb-4">
