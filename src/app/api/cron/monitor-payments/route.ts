@@ -17,6 +17,7 @@ import { monitorEscrows } from './escrow-monitor';
 import { monitorLightningPayments, syncLnbitsPayments } from './lightning-monitor';
 import { monitorSeries } from './series-monitor';
 import { monitorEmails } from './email-monitor';
+import { runInvoiceMonitorCycle, runInvoiceSchedulerCycle } from '@/lib/payments/monitor-invoices';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key';
@@ -75,6 +76,12 @@ export async function GET(request: NextRequest) {
     // Send email notifications
     const emailStats = await monitorEmails(supabase, now);
 
+    // Monitor invoice payments
+    const invoiceStats = await runInvoiceMonitorCycle(supabase, now);
+
+    // Process recurring invoice schedules
+    const invoiceSchedulerStats = await runInvoiceSchedulerCycle(supabase, now);
+
     const response = {
       success: true,
       timestamp: now.toISOString(),
@@ -84,6 +91,8 @@ export async function GET(request: NextRequest) {
       lnbits_sync: lnbitsSyncStats,
       series: seriesStats,
       emails: emailStats,
+      invoices: invoiceStats,
+      invoiceScheduler: invoiceSchedulerStats,
     };
 
     console.log('Monitor complete:', response);
