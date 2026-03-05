@@ -1,6 +1,3 @@
-/**
- * GET /api/swap/boltz/[id] - Check Boltz swap status
- */
 import { NextRequest, NextResponse } from 'next/server';
 import { getSwapStatus } from '@/lib/swap/boltz';
 
