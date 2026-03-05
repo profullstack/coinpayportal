@@ -311,7 +311,15 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
           {direction === 'in' && swapData?.address && swapState === 'polling' && (
             <div className="rounded-xl bg-black/20 p-4 space-y-2">
               <p className="text-xs text-gray-400">Send BTC to this address:</p>
-              <p className="text-sm text-white font-mono break-all">{swapData.address}</p>
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm text-white font-mono break-all">{swapData.address}</p>
+                <button
+                  onClick={() => copy(swapData.address, 'address')}
+                  className="shrink-0 text-xs text-purple-300 hover:text-purple-200 transition-colors"
+                >
+                  {copied === 'address' ? '✓' : 'Copy'}
+                </button>
+              </div>
               {swapData.expectedAmount && (
                 <div className="flex items-center justify-between text-xs text-gray-400">
                   <span>Expected: {(swapData.expectedAmount / 1e8).toFixed(8)} BTC ({swapData.expectedAmount.toLocaleString()} sats)</span>
@@ -323,12 +331,7 @@ export function BoltzSwap({ walletId, btcAddress, btcBalance, lnBalance }: Props
                   </button>
                 </div>
               )}
-              <button
-                onClick={() => copy(swapData.address, 'address')}
-                className="w-full rounded-lg bg-purple-600/30 py-2 text-xs text-purple-300 hover:bg-purple-600/50 transition-colors"
-              >
-                {copied === 'address' ? '✓ Copied!' : 'Copy Address'}
-              </button>
+              
               {swapData.bip21 && (
                 <button
                   onClick={() => copy(swapData.bip21, 'bip21')}
