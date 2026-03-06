@@ -22,6 +22,19 @@ import { runInvoiceMonitorCycle, runInvoiceSchedulerCycle } from '@/lib/payments
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key';
 
+// Reuse a single Supabase client across cron invocations to avoid WebSocket/connection leaks
+let _cronSupabase: ReturnType<typeof createClient> | null = null;
+function getCronSupabase() {
+  if (!_cronSupabase) {
+    _cronSupabase = createClient(supabaseUrl, supabaseServiceKey, {
+      realtime: { params: { eventsPerSecond: 0 } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    _cronSupabase.realtime.disconnect();
+  }
+  return _cronSupabase;
+}
+
 /**
  * Get cron secret for authentication
  */
@@ -55,7 +68,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = getCronSupabase();
     const now = new Date();
 
     // Monitor payments

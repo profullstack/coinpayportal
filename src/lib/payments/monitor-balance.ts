@@ -17,6 +17,12 @@ const RPC_ENDPOINTS: Record<string, string> = {
 
 const CRYPTO_APIS_KEY = process.env.CRYPTO_APIS_KEY || '';
 
+
+// Drain response body to prevent socket/memory leaks on error responses
+async function drainResponse(res: Response): Promise<void> {
+  try { await res.text(); } catch { /* ignore */ }
+}
+
 export interface Payment {
   id: string;
   business_id: string;

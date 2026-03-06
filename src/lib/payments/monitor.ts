@@ -24,6 +24,20 @@ let isMonitorRunning = false;
 let isCycleInProgress = false;
 let monitorInterval: NodeJS.Timeout | null = null;
 
+// Single shared Supabase client — avoids creating new WebSocket connections every cycle
+let _supabase: ReturnType<typeof createClient> | null = null;
+function getSupabase() {
+  if (!_supabase) {
+    _supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      realtime: { params: { eventsPerSecond: 0 } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    // Immediately disconnect realtime to avoid idle WebSocket connections
+    _supabase.realtime.disconnect();
+  }
+  return _supabase;
+}
+
 async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; expired: number; errors: number }> {
   const stats = { checked: 0, confirmed: 0, expired: 0, errors: 0 };
 
@@ -39,7 +53,7 @@ async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; 
       return stats;
     }
     
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = getSupabase();
     const now = new Date();
     
     // ── 1. Payment gateway monitoring ──
@@ -64,7 +78,7 @@ async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; 
     } else if (pendingPayments && pendingPayments.length > 0) {
       console.log(`[Monitor] Processing ${pendingPayments.length} pending payments`);
       
-      for (const payment of pendingPayments) {
+      for (const payment of pendingPayments as any[]) {
         stats.checked++;
         try {
           const result = await processPayment(supabase, payment as Payment);
