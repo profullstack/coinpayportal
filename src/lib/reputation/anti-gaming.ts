@@ -37,17 +37,27 @@ export async function detectBurst(
   supabase: SupabaseClient,
   agentDid: string,
   windowMinutes: number = 60,
-  threshold: number = 10
+  threshold: number = 50
 ): Promise<{ burst: boolean; count: number }> {
   const windowStart = new Date(Date.now() - windowMinutes * 60 * 1000).toISOString();
   
-  const { data: recentReceipts, count } = await supabase
+  // Only count economic transactions, not social/platform activity
+  // Normal platform usage (posts, comments, votes) should never trigger burst detection
+  const PLATFORM_ACTIONS = ['post_created', 'comment_created', 'upvoted', 'content_downvoted', 'followed_user', 'endorsement_given', 'profile_completed', 'resume_uploaded', 'portfolio_added', 'verification_requested', 'gig_posted', 'application_submitted'];
+
+  const { data: recentReceipts } = await supabase
     .from('reputation_receipts')
-    .select('id', { count: 'exact' })
+    .select('id, action_type, category')
     .eq('agent_did', agentDid)
     .gte('created_at', windowStart);
 
-  const receiptCount = count || 0;
+  // Filter out social/platform actions
+  const economicReceipts = (recentReceipts || []).filter(
+    (r: { action_type: string; category: string }) =>
+      !PLATFORM_ACTIONS.includes(r.action_type) && r.category !== 'social' && r.category !== 'identity'
+  );
+
+  const receiptCount = economicReceipts.length;
   return { burst: receiptCount >= threshold, count: receiptCount };
 }
 
@@ -140,16 +150,15 @@ export async function analyzeAgent(
   // Check burst
   const burst = await detectBurst(supabase, agentDid);
   if (burst.burst) {
-    flags.push(`burst_detected: ${burst.count} receipts in last hour`);
-    weight *= 0.5;
+    flags.push(`burst_detected: ${burst.count} economic transactions in last hour`);
+    weight *= 0.7;
   }
 
   // Check buyer diversity (only for economic transactions, not social/platform actions)
-  const diversity = await calculateBuyerDiversity(supabase, agentDid);
   const economicDiversity = await calculateEconomicDiversity(supabase, agentDid);
-  if (economicDiversity.totalTasks > 5 && economicDiversity.diversityScore < 0.2) {
-    flags.push(`low_buyer_diversity: ${economicDiversity.uniqueBuyers}/${economicDiversity.totalTasks}`);
-    weight *= 0.3;
+  if (economicDiversity.totalTasks > 10 && economicDiversity.diversityScore < 0.1) {
+    flags.push(`low_buyer_diversity: ${economicDiversity.uniqueBuyers} unique buyers / ${economicDiversity.totalTasks} economic transactions`);
+    weight *= 0.5;
   }
 
   return {

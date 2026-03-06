@@ -185,7 +185,7 @@ export async function computeTrustVector(
 
   // A: Anomaly Penalty (from anti-gaming)
   const antiGaming = await analyzeAgent(supabase, agentDid);
-  const anomalyPenalty = antiGaming.flagged ? -(1 - antiGaming.adjustedWeight) * 10 : 0;
+  const anomalyPenalty = antiGaming.flagged ? Math.max(-(1 - antiGaming.adjustedWeight) * 5, -3) : 0; // Capped at -3 to prevent score destruction
 
   return {
     agent_did: agentDid,
