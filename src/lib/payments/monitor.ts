@@ -76,7 +76,7 @@ async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; 
     if (fetchError) {
       console.error('[Monitor] Failed to fetch pending payments:', fetchError);
     } else if (pendingPayments && pendingPayments.length > 0) {
-      console.log(`[Monitor] Processing ${pendingPayments.length} pending payments`);
+      // Only log when there are payments to process
       
       for (const payment of pendingPayments as any[]) {
         stats.checked++;
@@ -122,8 +122,8 @@ async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; 
     stats.confirmed += invoiceSchedStats.created;
     stats.errors += invoiceSchedStats.errors;
 
-    if (stats.checked > 0) {
-      console.log(`[Monitor] Cycle complete: checked=${stats.checked}, confirmed=${stats.confirmed}, expired=${stats.expired}, errors=${stats.errors}`);
+    if (stats.confirmed > 0 || stats.expired > 0 || stats.errors > 0) {
+      console.log(`[Monitor] Cycle: checked=${stats.checked}, confirmed=${stats.confirmed}, expired=${stats.expired}, errors=${stats.errors}`);
     }
   } catch (error) {
     console.error('[Monitor] Error in monitor cycle:', error);

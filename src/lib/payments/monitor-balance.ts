@@ -45,17 +45,15 @@ export interface BalanceResult {
  */
 async function checkBitcoinBalance(address: string): Promise<BalanceResult> {
   try {
-    console.log(`[Monitor] Checking BTC balance for ${address}`);
     const response = await fetch(`https://blockstream.info/api/address/${address}`);
     if (!response.ok) {
-      console.error(`[Monitor] Failed to fetch BTC balance for ${address}: ${response.status}`);
+      await drainResponse(response);
       return { balance: 0 };
     }
     
     const data = await response.json();
     const balanceSatoshis = (data.chain_stats?.funded_txo_sum || 0) - (data.chain_stats?.spent_txo_sum || 0);
     const balance = balanceSatoshis / 100_000_000;
-    console.log(`[Monitor] BTC balance for ${address}: ${balance} BTC`);
     
     // Get the latest transaction hash if there's a balance
     let txHash: string | undefined;
@@ -90,8 +88,6 @@ async function checkBCHBalance(address: string): Promise<BalanceResult> {
       console.error('[Monitor] CRYPTO_APIS_KEY not configured for BCH');
       return { balance: 0 };
     }
-    
-    console.log(`[Monitor] Checking BCH balance for ${address}`);
     const url = `https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet/addresses/${address}`;
     
     const response = await fetch(url, {
@@ -110,7 +106,6 @@ async function checkBCHBalance(address: string): Promise<BalanceResult> {
     
     const data = await response.json();
     const balance = parseFloat(data.data?.item?.confirmedBalance?.amount || '0');
-    console.log(`[Monitor] BCH balance for ${address}: ${balance} BCH`);
     
     // Get the latest transaction hash if there's a balance
     let txHash: string | undefined;
@@ -161,7 +156,7 @@ async function checkEVMBalance(address: string, rpcUrl: string, chain: string): 
     });
     
     if (!response.ok) {
-      console.error(`[Monitor] Failed to fetch ${chain} balance for ${address}: ${response.status}`);
+      await drainResponse(response);
       return { balance: 0 };
     }
     
@@ -197,7 +192,6 @@ async function checkEVMBalance(address: string, rpcUrl: string, chain: string): 
  */
 async function checkSolanaBalance(address: string, rpcUrl: string): Promise<BalanceResult> {
   try {
-    console.log(`[Monitor] Checking SOL balance for ${address}`);
     const response = await fetch(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -223,7 +217,6 @@ async function checkSolanaBalance(address: string, rpcUrl: string): Promise<Bala
     
     const balanceLamports = data.result?.value || 0;
     const balance = balanceLamports / 1e9;
-    console.log(`[Monitor] SOL balance for ${address}: ${balance} SOL`);
     
     // Get the latest transaction signature if there's a balance
     let txHash: string | undefined;
@@ -264,13 +257,11 @@ async function checkSolanaBalance(address: string, rpcUrl: string): Promise<Bala
  */
 async function checkDOGEBalance(address: string): Promise<BalanceResult> {
   try {
-    console.log(`[Monitor] Checking DOGE balance for ${address}`);
     // Try Blockcypher first
     const response = await fetch(`https://api.blockcypher.com/v1/doge/main/addrs/${address}/balance`);
     if (response.ok) {
       const data = await response.json();
       const balance = (data.balance || 0) / 1e8;
-      console.log(`[Monitor] DOGE balance for ${address}: ${balance} DOGE`);
       return { balance };
     }
     // Fallback to dogechain
@@ -279,7 +270,6 @@ async function checkDOGEBalance(address: string): Promise<BalanceResult> {
       const data = await fallbackResponse.json();
       if (data.success === 1) {
         const balance = parseFloat(data.balance || '0');
-        console.log(`[Monitor] DOGE balance for ${address}: ${balance} DOGE`);
         return { balance };
       }
     }
@@ -295,7 +285,6 @@ async function checkDOGEBalance(address: string): Promise<BalanceResult> {
  */
 async function checkBNBBalance(address: string): Promise<BalanceResult> {
   try {
-    console.log(`[Monitor] Checking BNB balance for ${address}`);
     const response = await fetch(RPC_ENDPOINTS.BNB, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -312,7 +301,6 @@ async function checkBNBBalance(address: string): Promise<BalanceResult> {
     const data = await response.json();
     const balanceWei = BigInt(data.result || '0x0');
     const balance = Number(balanceWei) / 1e18;
-    console.log(`[Monitor] BNB balance for ${address}: ${balance} BNB`);
     return { balance };
   } catch (error) {
     console.error(`[Monitor] Error checking BNB balance for ${address}:`, error);
@@ -325,7 +313,6 @@ async function checkBNBBalance(address: string): Promise<BalanceResult> {
  */
 async function checkXRPBalance(address: string): Promise<BalanceResult> {
   try {
-    console.log(`[Monitor] Checking XRP balance for ${address}`);
     const response = await fetch(RPC_ENDPOINTS.XRP, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -344,7 +331,6 @@ async function checkXRPBalance(address: string): Promise<BalanceResult> {
     // XRP balance is in drops (1 XRP = 1,000,000 drops)
     const drops = BigInt(data.result?.account_data?.Balance || '0');
     const balance = Number(drops) / 1e6;
-    console.log(`[Monitor] XRP balance for ${address}: ${balance} XRP`);
     return { balance };
   } catch (error) {
     console.error(`[Monitor] Error checking XRP balance for ${address}:`, error);
@@ -357,7 +343,6 @@ async function checkXRPBalance(address: string): Promise<BalanceResult> {
  */
 async function checkADABalance(address: string): Promise<BalanceResult> {
   try {
-    console.log(`[Monitor] Checking ADA balance for ${address}`);
     const blockfrostKey = process.env.BLOCKFROST_API_KEY;
     if (!blockfrostKey) {
       console.error('[Monitor] BLOCKFROST_API_KEY not configured for ADA');
@@ -378,7 +363,6 @@ async function checkADABalance(address: string): Promise<BalanceResult> {
     const lovelaceEntry = data.amount?.find((a: { unit: string }) => a.unit === 'lovelace');
     const lovelace = BigInt(lovelaceEntry?.quantity || '0');
     const balance = Number(lovelace) / 1e6;
-    console.log(`[Monitor] ADA balance for ${address}: ${balance} ADA`);
     return { balance };
   } catch (error) {
     console.error(`[Monitor] Error checking ADA balance for ${address}:`, error);
