@@ -4,6 +4,49 @@
 
 import { checkBalance, processPayment, type Payment } from './monitor-balance';
 
+// ── Retry tracking (in-memory) ──
+// Prevents infinite retry loops that leak memory and cause OOM crashes.
+// Each failed ID gets exponential backoff; after MAX_RETRIES it's skipped
+// until the process restarts (Railway restart clears the map).
+const MAX_RETRIES = 5;
+const BACKOFF_BASE_MS = 60_000; // 1 min, then 2, 4, 8, 16 min
+const retryState = new Map<string, { count: number; nextRetryAt: number; lastError: string }>();
+
+function shouldRetry(id: string): boolean {
+  const state = retryState.get(id);
+  if (!state) return true;
+  if (state.count >= MAX_RETRIES) return false;
+  return Date.now() >= state.nextRetryAt;
+}
+
+function recordFailure(id: string, error: string): void {
+  const state = retryState.get(id) || { count: 0, nextRetryAt: 0, lastError: '' };
+  state.count++;
+  state.lastError = error;
+  state.nextRetryAt = Date.now() + BACKOFF_BASE_MS * Math.pow(2, state.count - 1);
+  retryState.set(id, state);
+  if (retryState.size > 500) {
+    const oldest = retryState.keys().next().value;
+    if (oldest) retryState.delete(oldest);
+  }
+}
+
+function recordSuccess(id: string): void {
+  retryState.delete(id);
+}
+
+// Errors that require manual intervention — don't retry
+const PERMANENT_ERRORS = [
+  'insufficient funds for rent',
+  'insufficient lamports',
+  'account not found',
+];
+
+function isPermanentError(errorText: string): boolean {
+  const lower = errorText.toLowerCase();
+  return PERMANENT_ERRORS.some(e => lower.includes(e));
+}
+
 // Escrow Monitoring
 // ────────────────────────────────────────────────────────────
 
@@ -50,7 +93,6 @@ export async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowSt
       for (const escrow of pendingEscrows) {
         stats.checked++;
         try {
-          // Check if expired
           if (new Date(escrow.expires_at) < now) {
             await supabase
               .from('escrows')
@@ -68,13 +110,11 @@ export async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowSt
             continue;
           }
 
-          // Check balance on-chain using existing checkBalance function
           const balanceResult = await checkBalance(escrow.escrow_address, escrow.chain);
           const balance = balanceResult.balance;
           const tolerance = escrow.amount * 0.01;
 
           if (balance >= escrow.amount - tolerance) {
-            // Mark as funded
             await supabase
               .from('escrows')
               .update({
@@ -136,7 +176,6 @@ export async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowSt
             continue;
           }
 
-          // Mark as refunded so step 3 picks it up for settlement
           await supabase
             .from('escrows')
             .update({ status: 'refunded' })
@@ -199,6 +238,7 @@ export async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowSt
 
 /**
  * Process escrow settlement via internal API calls
+ * Now with retry tracking + exponential backoff to prevent OOM from infinite loops
  */
 async function processEscrowSettlement(escrows: Escrow[], action: 'release' | 'refund'): Promise<{ settled: number; errors: number }> {
   const stats = { settled: 0, errors: 0 };
@@ -212,6 +252,17 @@ async function processEscrowSettlement(escrows: Escrow[], action: 'release' | 'r
   }
 
   for (const escrow of escrows) {
+    const retryKey = `settle:${escrow.id}`;
+
+    if (!shouldRetry(retryKey)) {
+      const state = retryState.get(retryKey);
+      if (state && state.count === MAX_RETRIES) {
+        console.warn(`[Monitor] Escrow ${escrow.id} settlement skipped — max retries exceeded (${state.lastError}). Needs manual intervention.`);
+        state.count++; // stop re-logging
+      }
+      continue;
+    }
+
     try {
       const body = action === 'refund' ? JSON.stringify({ action: 'refund' }) : undefined;
       const settleResponse = await fetch(`${appUrl}/api/escrow/${escrow.id}/settle`, {
@@ -225,14 +276,24 @@ async function processEscrowSettlement(escrows: Escrow[], action: 'release' | 'r
 
       if (settleResponse.ok) {
         console.log(`[Monitor] Settlement triggered for escrow ${escrow.id} (${action})`);
+        recordSuccess(retryKey);
         stats.settled++;
       } else {
         const errorText = await settleResponse.text();
         console.error(`[Monitor] Settlement failed for escrow ${escrow.id}: ${settleResponse.status} - ${errorText}`);
+
+        if (isPermanentError(errorText)) {
+          console.warn(`[Monitor] Escrow ${escrow.id}: PERMANENT error — ${errorText.slice(0, 120)}. Will not retry. Top up wallet or cancel escrow.`);
+          retryState.set(retryKey, { count: MAX_RETRIES + 1, nextRetryAt: Infinity, lastError: errorText.slice(0, 200) });
+        } else {
+          recordFailure(retryKey, errorText.slice(0, 200));
+        }
         stats.errors++;
       }
-    } catch (settleError) {
-      console.error(`[Monitor] Error settling escrow ${escrow.id}:`, settleError);
+    } catch (settleError: any) {
+      const msg = settleError?.message || String(settleError);
+      console.error(`[Monitor] Error settling escrow ${escrow.id}:`, msg);
+      recordFailure(retryKey, msg.slice(0, 200));
       stats.errors++;
     }
   }
@@ -294,12 +355,22 @@ export async function runRecurringEscrowCycle(supabase: any, now: Date): Promise
     console.log(`[Monitor] Processing ${dueSeries.length} due recurring escrow series`);
 
     for (const series of dueSeries) {
+      const retryKey = `series:${series.id}`;
+
+      if (!shouldRetry(retryKey)) {
+        const state = retryState.get(retryKey);
+        if (state && state.count === MAX_RETRIES) {
+          console.warn(`[Monitor] Series ${series.id} skipped — max retries exceeded (${state.lastError})`);
+          state.count++;
+        }
+        continue;
+      }
+
       stats.processed++;
       try {
         let childCreated = false;
 
         if (series.payment_method === 'crypto') {
-          // Create crypto escrow via internal API
           const res = await fetch(`${appUrl}/api/escrow`, {
             method: 'POST',
             headers: {
@@ -320,21 +391,21 @@ export async function runRecurringEscrowCycle(supabase: any, now: Date): Promise
 
           if (res.ok) {
             const escrow = await res.json();
-            // Link series_id
             await supabase
               .from('escrows')
               .update({ series_id: series.id })
               .eq('id', escrow.id);
             childCreated = true;
+            recordSuccess(retryKey);
             console.log(`[Monitor] Created crypto escrow ${escrow.id} for series ${series.id}`);
           } else {
             const errText = await res.text();
             console.error(`[Monitor] Failed to create crypto escrow for series ${series.id}: ${errText}`);
+            recordFailure(retryKey, errText.slice(0, 200));
             stats.errors++;
             continue;
           }
         } else if (series.payment_method === 'card') {
-          // Create Stripe escrow via internal API
           const res = await fetch(`${appUrl}/api/stripe/payments/create`, {
             method: 'POST',
             headers: {
@@ -353,10 +424,12 @@ export async function runRecurringEscrowCycle(supabase: any, now: Date): Promise
 
           if (res.ok) {
             childCreated = true;
+            recordSuccess(retryKey);
             console.log(`[Monitor] Created card payment for series ${series.id}`);
           } else {
             const errText = await res.text();
             console.error(`[Monitor] Failed to create card escrow for series ${series.id}: ${errText}`);
+            recordFailure(retryKey, errText.slice(0, 200));
             stats.errors++;
             continue;
           }
@@ -383,8 +456,10 @@ export async function runRecurringEscrowCycle(supabase: any, now: Date): Promise
             console.log(`[Monitor] Series ${series.id} completed (${newPeriodsCompleted}/${series.max_periods})`);
           }
         }
-      } catch (seriesError) {
-        console.error(`[Monitor] Error processing series ${series.id}:`, seriesError);
+      } catch (seriesError: any) {
+        const msg = seriesError?.message || String(seriesError);
+        console.error(`[Monitor] Error processing series ${series.id}:`, msg);
+        recordFailure(retryKey, msg.slice(0, 200));
         stats.errors++;
       }
     }
