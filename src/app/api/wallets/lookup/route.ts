@@ -52,8 +52,6 @@ async function lookupEmailByAddress(supabase: ReturnType<typeof getSupabase>, ad
   return null;
 }
 
-export { lookupEmailByAddress };
-
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const address = searchParams.get('address')?.trim();

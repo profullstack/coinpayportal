@@ -37,6 +37,7 @@ function makeRequest(url: string, opts: any = {}) {
 describe('GET /api/stripe/webhooks', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_123';
     mockGetJwtSecret.mockReturnValue('secret');
     mockVerifyToken.mockReturnValue({ userId: 'user-1' });
   });
@@ -62,6 +63,7 @@ describe('GET /api/stripe/webhooks', () => {
 describe('POST /api/stripe/webhooks', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_123';
     mockGetJwtSecret.mockReturnValue('secret');
     mockVerifyToken.mockReturnValue({ userId: 'user-1' });
   });

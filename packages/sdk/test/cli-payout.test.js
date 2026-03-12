@@ -3,12 +3,20 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { join } from 'path';
 
 const CLI_PATH = join(import.meta.dirname, '..', 'bin', 'coinpay.js');
+let hasNodeSpawn = false;
 
-describe('CLI Payout Commands', () => {
+try {
+  execFileSync(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'pipe' });
+  hasNodeSpawn = true;
+} catch {
+  hasNodeSpawn = false;
+}
+
+describe.skipIf(!hasNodeSpawn)('CLI Payout Commands', () => {
   const env = {
     ...process.env,
     COINPAY_API_KEY: 'cp_test_key',

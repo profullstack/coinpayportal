@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
  * Broadcast a payment event to all connected clients
  * This function is called from other parts of the application when payment status changes
  */
-export function broadcastPaymentEvent(
+function broadcastPaymentEvent(
   merchantId: string,
   businessId: string | null,
   event: {

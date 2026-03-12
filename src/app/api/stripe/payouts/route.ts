@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
-import Stripe from 'stripe';
+import { getStripe } from '@/lib/server/optional-deps';
 
 /**
  * GET /api/stripe/payouts
@@ -214,7 +214,7 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
-    const stripe = new Stripe(stripeSecretKey);
+    const stripe = await getStripe(stripeSecretKey);
 
     // Look up merchant's connected Stripe account
     const { data: merchant, error: merchantError } = await supabase

@@ -14,13 +14,21 @@ import {
 import * as bip39 from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
 import { existsSync, unlinkSync, writeFileSync, readFileSync } from 'fs';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
 // Known test mnemonic (BIP39 test vector #0)
 const TEST_MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const TEST_SEED = bip39.mnemonicToSeedSync(TEST_MNEMONIC);
+let hasNodeSpawn = false;
+
+try {
+  execFileSync(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'pipe' });
+  hasNodeSpawn = true;
+} catch {
+  hasNodeSpawn = false;
+}
 
 // ============================================================
 // Mnemonic generation & validation
@@ -218,9 +226,17 @@ describe('Token chain addresses', () => {
 // CLI wallet commands (using --wallet-file with temp path)
 // ============================================================
 
-describe('CLI wallet commands', () => {
+describe.skipIf(!hasNodeSpawn)('CLI wallet commands', () => {
   const CLI = join(import.meta.dirname, '..', 'bin', 'coinpay.js');
   const tmpWallet = join(tmpdir(), `coinpay-test-${Date.now()}.gpg`);
+
+  function runNodeCli(args, options = {}) {
+    return execFileSync(process.execPath, [CLI, ...args], {
+      encoding: 'utf8',
+      timeout: 10000,
+      ...options,
+    });
+  }
 
   afterEach(() => {
     try { if (existsSync(tmpWallet)) unlinkSync(tmpWallet); } catch {}
@@ -229,10 +245,7 @@ describe('CLI wallet commands', () => {
   it('coinpay wallet info fails gracefully without wallet file', () => {
     let out;
     try {
-      out = execSync(`node ${CLI} wallet info --wallet-file ${tmpWallet} 2>&1`, {
-        encoding: 'utf8',
-        timeout: 10000,
-      });
+      out = runNodeCli(['wallet', 'info', '--wallet-file', tmpWallet]);
     } catch (e) {
       out = e.stdout || e.stderr || e.message;
     }

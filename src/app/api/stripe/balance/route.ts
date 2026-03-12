@@ -2,14 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
-import Stripe from 'stripe';
-
-let _stripe: Stripe;
-function getStripe() {
-  return (_stripe ??= new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2026-01-28.clover' as const,
-  }));
-}
+import { getStripe } from '@/lib/server/optional-deps';
 
 /**
  * GET /api/stripe/balance
@@ -86,7 +79,7 @@ export async function GET(request: NextRequest) {
     let stripeBalance;
     try {
       // Get balance from Stripe for the connected account
-      stripeBalance = await getStripe().balance.retrieve({
+      stripeBalance = await (await getStripe()).balance.retrieve({
         stripeAccount: stripeAccount.stripe_account_id,
       });
     } catch (stripeError: any) {
@@ -98,21 +91,21 @@ export async function GET(request: NextRequest) {
     }
 
     // Transform Stripe balance data
-    const available = stripeBalance.available.map(balance => ({
+    const available = stripeBalance.available.map((balance: any) => ({
       amount_cents: balance.amount,
       amount_usd: (balance.amount / 100).toFixed(2),
       currency: balance.currency,
     }));
 
-    const pending = stripeBalance.pending.map(balance => ({
+    const pending = stripeBalance.pending.map((balance: any) => ({
       amount_cents: balance.amount,
       amount_usd: (balance.amount / 100).toFixed(2),
       currency: balance.currency,
     }));
 
     // Calculate totals (assuming primary currency is USD)
-    const totalAvailable = available.find(b => b.currency === 'usd')?.amount_cents || 0;
-    const totalPending = pending.find(b => b.currency === 'usd')?.amount_cents || 0;
+    const totalAvailable = available.find((b: any) => b.currency === 'usd')?.amount_cents || 0;
+    const totalPending = pending.find((b: any) => b.currency === 'usd')?.amount_cents || 0;
 
     const transformedBalance = {
       available: {

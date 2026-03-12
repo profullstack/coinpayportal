@@ -2,14 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
-import Stripe from 'stripe';
-
-let _stripe: Stripe;
-function getStripe() {
-  return (_stripe ??= new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2026-01-28.clover' as const,
-  }));
-}
+import { getStripe } from '@/lib/server/optional-deps';
 
 /**
  * GET /api/stripe/subscriptions/plans
@@ -133,7 +126,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Stripe account not connected' }, { status: 400 });
     }
 
-    const stripe = getStripe();
+    const stripe = await getStripe();
 
     // Create Stripe Product
     const product = await stripe.products.create(
@@ -146,12 +139,12 @@ export async function POST(request: NextRequest) {
     );
 
     // Create Stripe Price
-    const priceParams: Stripe.PriceCreateParams = {
+    const priceParams: any = {
       product: product.id,
       unit_amount: amount,
       currency,
       recurring: {
-        interval: interval as Stripe.PriceCreateParams.Recurring.Interval,
+        interval,
         interval_count: intervalCount,
       },
       metadata: { business_id: businessId },

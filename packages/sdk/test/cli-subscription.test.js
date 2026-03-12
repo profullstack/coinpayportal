@@ -3,12 +3,20 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { resolve } from 'path';
 
 const CLI_PATH = resolve(import.meta.dirname, '../../../bin/coinpay');
+let hasNodeSpawn = false;
 
-describe('CLI Subscription Commands', () => {
+try {
+  execFileSync(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'pipe' });
+  hasNodeSpawn = true;
+} catch {
+  hasNodeSpawn = false;
+}
+
+describe.skipIf(!hasNodeSpawn)('CLI Subscription Commands', () => {
   describe('help output', () => {
     it('should show subscription in help', () => {
       const output = execSync(`node ${CLI_PATH} help`, { encoding: 'utf-8' });

@@ -1,15 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
-
-let _stripe: Stripe;
-function getStripe() {
-  return (_stripe ??= new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2026-01-28.clover' as any,
-  }));
-}
+import { getStripe } from '@/lib/server/optional-deps';
 
 async function getStripeAccountId(merchantId: string): Promise<string | null> {
   const supabase = createClient(
@@ -54,14 +47,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, endpoints: [] });
     }
 
-    const endpoints = await getStripe().webhookEndpoints.list(
+    const endpoints = await (await getStripe()).webhookEndpoints.list(
       { limit: 100 },
       { stripeAccount: stripeAccountId }
     );
 
     return NextResponse.json({
       success: true,
-      endpoints: endpoints.data.map(ep => ({
+      endpoints: endpoints.data.map((ep: any) => ({
         id: ep.id,
         url: ep.url,
         status: ep.status,
@@ -92,7 +85,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Stripe account not found' }, { status: 404 });
     }
 
-    const endpoint = await getStripe().webhookEndpoints.create(
+    const endpoint = await (await getStripe()).webhookEndpoints.create(
       { url, enabled_events: events },
       { stripeAccount: stripeAccountId }
     );

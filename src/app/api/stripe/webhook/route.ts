@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
-
-let _stripe: Stripe;
-function getStripe() {
-  return (_stripe ??= new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2026-01-28.clover' as const,
-  }));
-}
+import { getStripe } from '@/lib/server/optional-deps';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co',
@@ -21,10 +14,10 @@ export async function POST(request: NextRequest) {
     const body = await request.text();
     const signature = request.headers.get('stripe-signature') as string;
 
-    let event: Stripe.Event;
+    let event: any;
 
     try {
-      event = getStripe().webhooks.constructEvent(body, signature, webhookSecret);
+      event = (await getStripe()).webhooks.constructEvent(body, signature, webhookSecret);
     } catch (err: any) {
       console.error(`Webhook signature verification failed: ${err.message}`);
       return NextResponse.json({ error: 'Webhook signature verification failed' }, { status: 400 });
@@ -33,23 +26,23 @@ export async function POST(request: NextRequest) {
     // Handle the event
     switch (event.type) {
       case 'payment_intent.succeeded':
-        await handlePaymentSucceeded(event.data.object as Stripe.PaymentIntent);
+        await handlePaymentSucceeded(event.data.object);
         break;
 
       case 'charge.dispute.created':
-        await handleDisputeCreated(event.data.object as Stripe.Dispute);
+        await handleDisputeCreated(event.data.object);
         break;
 
       case 'payout.created':
-        await handlePayoutCreated(event.data.object as Stripe.Payout);
+        await handlePayoutCreated(event.data.object);
         break;
 
       case 'payout.paid':
-        await handlePayoutPaid(event.data.object as Stripe.Payout);
+        await handlePayoutPaid(event.data.object);
         break;
 
       case 'account.updated':
-        await handleAccountUpdated(event.data.object as Stripe.Account);
+        await handleAccountUpdated(event.data.object);
         break;
 
       default:
@@ -64,12 +57,13 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
+async function handlePaymentSucceeded(paymentIntent: any) {
   try {
     const merchantId = paymentIntent.metadata.merchant_id;
     const businessId = paymentIntent.metadata.business_id;
     // Get the charge details for fees
-    const charges = await getStripe().charges.list({
+    const stripe = await getStripe();
+    const charges = await stripe.charges.list({
       payment_intent: paymentIntent.id,
       limit: 1,
     });
@@ -78,7 +72,7 @@ async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
     if (!charge) return;
 
     const stripeFee = charge.balance_transaction 
-      ? (await getStripe().balanceTransactions.retrieve(charge.balance_transaction as string)).fee 
+      ? (await stripe.balanceTransactions.retrieve(charge.balance_transaction as string)).fee 
       : 0;
 
     // Update transaction record
@@ -125,9 +119,9 @@ async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
   }
 }
 
-async function handleDisputeCreated(dispute: Stripe.Dispute) {
+async function handleDisputeCreated(dispute: any) {
   try {
-    const charge = await getStripe().charges.retrieve(dispute.charge as string);
+    const charge = await (await getStripe()).charges.retrieve(dispute.charge as string);
     const paymentIntent = charge.payment_intent as string;
 
     // Get merchant info from payment intent
@@ -183,7 +177,7 @@ async function handleDisputeCreated(dispute: Stripe.Dispute) {
   }
 }
 
-async function handlePayoutCreated(payout: Stripe.Payout) {
+async function handlePayoutCreated(payout: any) {
   try {
     // Find merchant by Stripe account ID
     const { data: stripeAccount } = await supabase
@@ -211,7 +205,7 @@ async function handlePayoutCreated(payout: Stripe.Payout) {
   }
 }
 
-async function handlePayoutPaid(payout: Stripe.Payout) {
+async function handlePayoutPaid(payout: any) {
   try {
     // Update payout status
     await supabase
@@ -227,7 +221,7 @@ async function handlePayoutPaid(payout: Stripe.Payout) {
   }
 }
 
-async function handleAccountUpdated(account: Stripe.Account) {
+async function handleAccountUpdated(account: any) {
   try {
     // Update account capabilities
     await supabase

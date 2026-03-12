@@ -95,7 +95,11 @@ export default function SettingsPage() {
 
   // Load settings from API
   const loadSettings = useCallback(async () => {
-    if (!wallet) return;
+    if (!wallet || typeof wallet.getSettings !== 'function') {
+      setSettings(null);
+      setSettingsLoading(false);
+      return;
+    }
     setSettingsLoading(true);
     setSettingsError('');
     try {
@@ -124,7 +128,11 @@ export default function SettingsPage() {
 
   // Load missing chains
   const loadMissingChains = useCallback(async () => {
-    if (!wallet) return;
+    if (!wallet || typeof wallet.getMissingChains !== 'function') {
+      setMissingChains([]);
+      setMissingChainsLoading(false);
+      return;
+    }
     setMissingChainsLoading(true);
     try {
       const missing = await wallet.getMissingChains();
@@ -144,7 +152,14 @@ export default function SettingsPage() {
 
   // Derive missing chains handler
   const handleDeriveMissingChains = async () => {
-    if (!wallet) return;
+    if (
+      !wallet ||
+      typeof wallet.deriveMissingChains !== 'function' ||
+      typeof refreshChains !== 'function'
+    ) {
+      setDeriveError('This wallet does not support deriving missing chains.');
+      return;
+    }
     setDeriveError('');
     setDeriveSuccess('');
     setDerivingChains(true);
@@ -204,6 +219,10 @@ export default function SettingsPage() {
   };
 
   const handleResyncWallet = async () => {
+    if (typeof resyncWalletFromSeed !== 'function') {
+      setResyncWalletError('This wallet does not support re-sync from seed.');
+      return;
+    }
     setResyncWalletError('');
     setResyncWalletSuccess('');
     setResyncingWallet(true);

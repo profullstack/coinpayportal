@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
-
-let _stripe: Stripe;
-function getStripe() {
-  return (_stripe ??= new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2026-01-28.clover' as const,
-  }));
-}
+import { getStripe } from '@/lib/server/optional-deps';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co',
@@ -70,7 +63,7 @@ export async function POST(request: NextRequest) {
     };
 
     // Gateway Mode: destination charge, funds go directly to merchant
-    const session = await getStripe().checkout.sessions.create({
+    const session = await (await getStripe()).checkout.sessions.create({
         line_items: [
           {
             price_data: {

@@ -811,6 +811,15 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
     }
   }, [chain, fiatCurrency, debouncedFetchRate]);
 
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = undefined;
+      }
+    };
+  }, []);
+
   // Update form amount when crypto amount changes
   useEffect(() => {
     setAmount(cryptoAmount);
@@ -1663,6 +1672,7 @@ function HistoryTab({ chain }: { chain: WalletChain }) {
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const hasSyncedRef = useRef(false);
+  const syncResultTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchTransactions = useCallback(async () => {
     if (!wallet) return;
@@ -1702,13 +1712,20 @@ function HistoryTab({ chain }: { chain: WalletChain }) {
 
   const doSync = useCallback(async () => {
     if (!wallet || isSyncing) return;
+    if (typeof wallet.syncHistory !== 'function') {
+      fetchTransactions();
+      return;
+    }
     setIsSyncing(true);
     setSyncResult(null);
     try {
       const result = await wallet.syncHistory(chain);
       setSyncResult({ newTxs: result.newTransactions });
       // Clear sync result after 5 seconds
-      setTimeout(() => setSyncResult(null), 5000);
+      if (syncResultTimeoutRef.current) {
+        clearTimeout(syncResultTimeoutRef.current);
+      }
+      syncResultTimeoutRef.current = setTimeout(() => setSyncResult(null), 5000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Sync failed';
       console.error('History sync failed:', err);
@@ -1737,6 +1754,15 @@ function HistoryTab({ chain }: { chain: WalletChain }) {
       fetchTransactions();
     }
   }, [page, fetchTransactions]);
+
+  useEffect(() => {
+    return () => {
+      if (syncResultTimeoutRef.current) {
+        clearTimeout(syncResultTimeoutRef.current);
+        syncResultTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <div className="space-y-4">

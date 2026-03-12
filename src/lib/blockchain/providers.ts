@@ -14,6 +14,7 @@ import * as bitcoin from 'bitcoinjs-lib';
 import { HDKey } from '@scure/bip32';
 import * as ecc from 'tiny-secp256k1';
 import ECPairFactory from 'ecpair';
+import { getCardanoSerializationLib, getXrpl } from '@/lib/server/optional-deps';
 
 // Initialize ECPair with secp256k1
 const ECPair = ECPairFactory(ecc);
@@ -1687,7 +1688,7 @@ export class XrpProvider implements BlockchainProvider {
     amount: string,
     privateKey: string
   ): Promise<string> {
-    const { Client, Wallet } = await import('xrpl');
+    const { Client, Wallet } = await getXrpl();
     const client = new Client(this.rpcUrl.replace(/^http/, 'ws'));
     try {
       await client.connect();
@@ -1784,8 +1785,7 @@ export class AdaProvider implements BlockchainProvider {
     privateKey: string
   ): Promise<string> {
     try {
-      const CardanoWasmModule = await import('@emurgo/cardano-serialization-lib-nodejs');
-      const CardanoWasm = ('default' in CardanoWasmModule ? CardanoWasmModule.default : CardanoWasmModule) as typeof import('@emurgo/cardano-serialization-lib-nodejs');
+      const CardanoWasm = await getCardanoSerializationLib();
 
       // 1. Fetch UTXOs
       const utxoRes = await axios.get(`${this.rpcUrl}/addresses/${from}/utxos`, {

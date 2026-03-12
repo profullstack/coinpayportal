@@ -3,12 +3,20 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(__dirname, '../bin/coinpay.js');
+let hasNodeSpawn = false;
+
+try {
+  execFileSync(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'pipe' });
+  hasNodeSpawn = true;
+} catch {
+  hasNodeSpawn = false;
+}
 
 function run(args) {
   try {
@@ -22,7 +30,7 @@ function run(args) {
   }
 }
 
-describe('CLI Reputation Commands', () => {
+describe.skipIf(!hasNodeSpawn)('CLI Reputation Commands', () => {
   it('should show reputation in help output', () => {
     const output = run('--help');
     expect(output).toContain('reputation');

@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
-import { execSync, exec } from 'child_process';
+import { execFileSync, execSync, spawnSync } from 'child_process';
 import { existsSync, mkdtempSync, writeFileSync, readFileSync, unlinkSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir, homedir } from 'os';
@@ -14,6 +14,7 @@ const TEST_MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon a
 
 // Check if gpg is available
 let hasGpg = false;
+let hasNodeSpawn = false;
 try {
   execSync('gpg --version', { stdio: 'pipe' });
   hasGpg = true;
@@ -21,12 +22,21 @@ try {
   hasGpg = false;
 }
 
+try {
+  execFileSync(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'pipe' });
+  hasNodeSpawn = true;
+} catch {
+  hasNodeSpawn = false;
+}
+
 /**
  * Run CLI command and return output
  */
 function runCLI(args, options = {}) {
   const { cwd, input, env: extraEnv } = options;
-  const cmd = `node ${CLI_PATH} ${args} 2>&1`;
+  const cliArgs = Array.isArray(args)
+    ? args
+    : Array.from(args.matchAll(/"([^"]*)"|'([^']*)'|[^\s]+/g), (match) => match[1] ?? match[2] ?? match[0]);
   const opts = {
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -41,18 +51,14 @@ function runCLI(args, options = {}) {
     ...(input ? { input } : {}),
   };
 
-  try {
-    const output = execSync(cmd, opts);
-    return { output, status: 0 };
-  } catch (err) {
-    return {
-      output: (err.stdout || '') + (err.stderr || ''),
-      status: err.status || 1,
-    };
-  }
+  const result = spawnSync(process.execPath, [CLI_PATH, ...cliArgs], opts);
+  return {
+    output: `${result.stdout || ''}${result.stderr || ''}`,
+    status: result.status ?? 1,
+  };
 }
 
-describe('CLI Wallet Commands', () => {
+describe.skipIf(!hasNodeSpawn)('CLI Wallet Commands', () => {
   let tmpDir;
   let testHome;
   let configPath;

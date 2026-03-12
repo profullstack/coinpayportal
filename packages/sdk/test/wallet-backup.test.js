@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { existsSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir, homedir } from 'os';
@@ -20,11 +20,19 @@ const CLI_PATH = join(import.meta.dirname, '..', 'bin', 'coinpay.js');
 
 // Check if gpg is available
 let hasGpg = false;
+let hasNodeSpawn = false;
 try {
   execSync('gpg --version', { stdio: 'pipe' });
   hasGpg = true;
 } catch {
   hasGpg = false;
+}
+
+try {
+  execFileSync(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'pipe' });
+  hasNodeSpawn = true;
+} catch {
+  hasNodeSpawn = false;
 }
 
 /**
@@ -58,7 +66,7 @@ function runCLI(args, { cwd, expectFail, env = {} } = {}) {
   }
 }
 
-describe('CLI wallet encrypted storage', () => {
+describe.skipIf(!hasNodeSpawn)('CLI wallet encrypted storage', () => {
   let tmpDir;
   let walletFile;
   let configFile;

@@ -1,15 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
-
-let _stripe: Stripe;
-function getStripe() {
-  return (_stripe ??= new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2026-01-28.clover' as any,
-  }));
-}
+import { getStripe } from '@/lib/server/optional-deps';
 
 async function getStripeAccountId(merchantId: string): Promise<string | null> {
   const supabase = createClient(
@@ -108,7 +101,7 @@ export async function POST(request: NextRequest) {
 
     // Create a restricted key via the Stripe API (platform-level, scoped to connected account)
     // Note: Stripe's API for restricted keys on connected accounts requires the account header
-    const stripe = getStripe();
+    const stripe = await getStripe();
     // Use the Stripe API to create an API key for the connected account
     // This is a platform feature
     const key = await (stripe as any).apps.secrets.create(

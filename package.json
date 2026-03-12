@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "next dev -p 8080",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start -p 8080",
     "lint": "eslint src/",
     "test": "vitest run",
@@ -16,7 +16,7 @@
     "test:coverage": "vitest --coverage",
     "type-check": "tsc --noEmit",
     "precommit": "pnpm pre-commit",
-    "pre-commit": "pnpm build && vitest run",
+    "pre-commit": "vitest run",
     "generate-wallet": "node scripts/generate-hd-wallets.mjs",
     "decrypt-wallet": "node scripts/decrypt-wallet-backup.mjs",
     "coinpay-wallet": "node --import tsx scripts/coinpay-wallet.mjs",

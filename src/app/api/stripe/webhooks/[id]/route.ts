@@ -1,15 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
-
-let _stripe: Stripe;
-function getStripe() {
-  return (_stripe ??= new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2026-01-28.clover' as any,
-  }));
-}
+import { getStripe } from '@/lib/server/optional-deps';
 
 async function getStripeAccountId(merchantId: string): Promise<string | null> {
   const supabase = createClient(
@@ -53,7 +46,7 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Stripe account not found' }, { status: 404 });
     }
 
-    await getStripe().webhookEndpoints.del(id, { stripeAccount: stripeAccountId });
+    await (await getStripe()).webhookEndpoints.del(id, { stripeAccount: stripeAccountId });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

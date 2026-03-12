@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
-
-let _stripe: Stripe;
-function getStripe() {
-  return (_stripe ??= new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2026-01-28.clover' as const,
-  }));
-}
+import { getStripe } from '@/lib/server/optional-deps';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co',
@@ -49,7 +42,7 @@ export async function POST(request: NextRequest) {
     // Verify existing Stripe account still exists, clean up if stale
     if (stripeAccountId) {
       try {
-        await getStripe().accounts.retrieve(stripeAccountId);
+        await (await getStripe()).accounts.retrieve(stripeAccountId);
       } catch (verifyError: any) {
         if (verifyError?.code === 'account_invalid' || verifyError?.message?.includes('No such account')) {
           console.warn(`Stale Stripe account ${stripeAccountId} for merchant ${merchantId}, removing`);
@@ -63,7 +56,7 @@ export async function POST(request: NextRequest) {
 
     // Create new Stripe Express account if needed
     if (!stripeAccountId) {
-      const account = await getStripe().accounts.create({
+      const account = await (await getStripe()).accounts.create({
         type: 'express',
         country,
         email,
@@ -100,7 +93,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create onboarding link
-    const accountLink = await getStripe().accountLinks.create({
+    const accountLink = await (await getStripe()).accountLinks.create({
       account: stripeAccountId,
       refresh_url: `${process.env.NEXT_PUBLIC_APP_URL}/businesses/${businessId}`,
       return_url: `${process.env.NEXT_PUBLIC_APP_URL}/businesses/${businessId}?stripe_onboarding=complete`,

@@ -3,12 +3,20 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { existsSync, mkdtempSync, writeFileSync, readFileSync, unlinkSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir, homedir } from 'os';
 
 const CLI_PATH = join(import.meta.dirname, '..', '..', '..', 'bin', 'coinpay');
+let hasNodeSpawn = false;
+
+try {
+  execFileSync(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'pipe' });
+  hasNodeSpawn = true;
+} catch {
+  hasNodeSpawn = false;
+}
 
 /**
  * Run CLI command and return output
@@ -40,7 +48,7 @@ function runCLI(args, options = {}) {
   }
 }
 
-describe('CLI Card Commands', () => {
+describe.skipIf(!hasNodeSpawn)('CLI Card Commands', () => {
   let tmpDir;
   let testHome;
 

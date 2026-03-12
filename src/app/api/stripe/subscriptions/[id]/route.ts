@@ -2,14 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
-import Stripe from 'stripe';
-
-let _stripe: Stripe;
-function getStripe() {
-  return (_stripe ??= new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2026-01-28.clover' as const,
-  }));
-}
+import { getStripe } from '@/lib/server/optional-deps';
 
 /**
  * GET /api/stripe/subscriptions/[id]
@@ -52,7 +45,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // If there's a Stripe subscription ID, fetch latest status from Stripe
     if (subscription.stripe_subscription_id) {
       try {
-        const stripeSub = await getStripe().subscriptions.retrieve(
+        const stripeSub = await (await getStripe()).subscriptions.retrieve(
           subscription.stripe_subscription_id,
           { stripeAccount: subscription.stripe_account_id }
         );
@@ -127,7 +120,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     }
 
     if (subscription.stripe_subscription_id) {
-      const stripe = getStripe();
+      const stripe = await getStripe();
       if (immediately) {
         await stripe.subscriptions.cancel(subscription.stripe_subscription_id, {
           stripeAccount: subscription.stripe_account_id,

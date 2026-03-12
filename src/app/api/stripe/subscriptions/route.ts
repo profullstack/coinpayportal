@@ -2,14 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
-import Stripe from 'stripe';
-
-let _stripe: Stripe;
-function getStripe() {
-  return (_stripe ??= new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2026-01-28.clover' as const,
-  }));
-}
+import { getStripe } from '@/lib/server/optional-deps';
 
 /**
  * GET /api/stripe/subscriptions
@@ -107,10 +100,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Plan not found' }, { status: 404 });
     }
 
-    const stripe = getStripe();
+    const stripe = await getStripe();
 
     // Create checkout session for subscription
-    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+    const sessionParams: any = {
       mode: 'subscription',
       line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
       success_url: successUrl || `${process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com'}/subscriptions?success=true`,

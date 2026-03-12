@@ -37,6 +37,7 @@ function makeRequest(url: string, opts: any = {}) {
 describe('DELETE /api/stripe/webhooks/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_123';
     mockGetJwtSecret.mockReturnValue('secret');
     mockVerifyToken.mockReturnValue({ userId: 'user-1' });
   });
