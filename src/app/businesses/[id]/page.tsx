@@ -12,7 +12,7 @@ import { StripeConnectTab } from '@/components/business/StripeConnectTab';
 import { StripeTransactionsTab } from '@/components/business/StripeTransactionsTab';
 import { StripeDisputesTab } from '@/components/business/StripeDisputesTab';
 import { StripePayoutsTab } from '@/components/business/StripePayoutsTab';
-import { StripeEscrowsTab } from '@/components/business/StripeEscrowsTab';
+
 import { StripeWebhooksTab } from '@/components/business/StripeWebhooksTab';
 import { StripeApiKeysTab } from '@/components/business/StripeApiKeysTab';
 
@@ -29,7 +29,6 @@ const CARD_TABS: { id: TabType; label: string }[] = [
   { id: 'stripe-transactions', label: 'Transactions' },
   { id: 'stripe-disputes', label: 'Disputes' },
   { id: 'stripe-payouts', label: 'Payouts' },
-  { id: 'stripe-escrows', label: 'Escrows' },
   { id: 'stripe-webhooks', label: 'Webhooks' },
   { id: 'stripe-api-keys', label: 'API Keys' },
 ];
@@ -280,10 +279,6 @@ export default function BusinessDetailPage() {
 
             {activeTab === 'stripe-payouts' && (
               <StripePayoutsTab businessId={businessId} />
-            )}
-
-            {activeTab === 'stripe-escrows' && (
-              <StripeEscrowsTab businessId={businessId} />
             )}
 
             {activeTab === 'stripe-webhooks' && (
