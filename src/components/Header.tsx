@@ -64,6 +64,7 @@ export default function Header() {
     { name: 'Escrow', href: '/escrow' },
     { name: 'Wallet', href: '/web-wallet' },
     { name: 'API', href: '/docs' },
+    { name: 'Developer', href: '/dashboard/oauth' },
     { name: 'Reputation', href: '/reputation' },
     { name: 'x402', href: '/x402' },
   ];
@@ -137,6 +138,13 @@ export default function Header() {
                           onClick={() => setUserMenuOpen(false)}
                         >
                           Global Wallets
+                        </Link>
+                        <Link
+                          href="/settings/security"
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          onClick={() => setUserMenuOpen(false)}
+                        >
+                          Security
                         </Link>
                         <Link
                           href="/settings"
@@ -256,6 +264,13 @@ export default function Header() {
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Global Wallets
+                  </Link>
+                  <Link
+                    href="/settings/security"
+                    className="block px-3 py-2 text-base font-medium text-gray-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Security
                   </Link>
                   <Link
                     href="/settings"
