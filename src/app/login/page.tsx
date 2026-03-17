@@ -37,9 +37,9 @@ export default function LoginPage() {
       }
 
       if (data.merchant?.is_admin) {
-        router.push('/admin');
+        window.location.href = '/admin';
       } else {
-        router.push('/dashboard');
+        window.location.href = '/dashboard';
       }
     } catch {
       setError('An error occurred. Please try again.');
