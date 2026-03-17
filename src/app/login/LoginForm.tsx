@@ -3,7 +3,11 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { startAuthentication } from '@simplewebauthn/browser';
+// Dynamic import to prevent SSR/hydration crashes
+const startAuthentication = async (opts: any) => {
+  const { startAuthentication: fn } = await import('@simplewebauthn/browser');
+  return fn(opts);
+};
 
 export default function LoginForm() {
   const router = useRouter();

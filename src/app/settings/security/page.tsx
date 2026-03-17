@@ -4,7 +4,11 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
-import { startRegistration } from '@simplewebauthn/browser';
+// Dynamic import to prevent SSR/hydration crashes
+const startRegistration = async (opts: any) => {
+  const { startRegistration: fn } = await import('@simplewebauthn/browser');
+  return fn(opts);
+};
 
 interface Passkey {
   id: string;
