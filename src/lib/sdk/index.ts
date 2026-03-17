@@ -94,7 +94,7 @@ export function createCoinPayClient(
 ): InstanceType<typeof SDKCoinPayClient> {
   return new SDKCoinPayClient({
     apiKey,
-    baseUrl: baseUrl || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080',
+    baseUrl: baseUrl || process.env.NEXT_PUBLIC_API_URL || 'https://coinpayportal.com',
   });
 }
 
