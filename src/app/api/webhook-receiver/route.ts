@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     if (!webhookSecret) {
       console.error('WEBHOOK_SECRET environment variable is not set');
       return NextResponse.json(
-        { success: false, error: 'Webhook receiver not configured' },
+        { error: 'Internal server error' },
         { status: 500 }
       );
     }
