@@ -1,5 +1,17 @@
-import { Suspense } from 'react';
-import LoginForm from './LoginForm';
+import dynamic from 'next/dynamic';
+
+const LoginForm = dynamic(() => import('./LoginForm'), {
+  ssr: false,
+  loading: () => (
+    <div className="bg-slate-800 rounded-lg shadow-lg p-8 animate-pulse">
+      <div className="space-y-6">
+        <div className="h-10 bg-gray-700 rounded" />
+        <div className="h-10 bg-gray-700 rounded" />
+        <div className="h-12 bg-gray-700 rounded" />
+      </div>
+    </div>
+  ),
+});
 
 export default function LoginPage() {
   return (
@@ -14,17 +26,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <Suspense fallback={
-          <div className="bg-slate-800 rounded-lg shadow-lg p-8 animate-pulse">
-            <div className="space-y-6">
-              <div className="h-10 bg-gray-700 rounded" />
-              <div className="h-10 bg-gray-700 rounded" />
-              <div className="h-12 bg-gray-700 rounded" />
-            </div>
-          </div>
-        }>
-          <LoginForm />
-        </Suspense>
+        <LoginForm />
       </div>
     </div>
   );
