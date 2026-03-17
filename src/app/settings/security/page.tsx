@@ -4,11 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
-// Dynamic import to prevent SSR/hydration crashes
-const startRegistration = async (opts: any) => {
-  const { startRegistration: fn } = await import('@simplewebauthn/browser');
-  return fn(opts);
-};
+
 
 interface Passkey {
   id: string;
@@ -70,6 +66,7 @@ export default function SecuritySettingsPage() {
       }
 
       // 2. Start WebAuthn registration (browser prompt)
+      const { startRegistration } = await import('@simplewebauthn/browser');
       const credential = await startRegistration({ optionsJSON: optResult.data.options });
 
       // 3. Verify with server
