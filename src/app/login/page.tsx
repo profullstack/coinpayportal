@@ -1,13 +1,6 @@
-'use client';
-
 import { Suspense } from 'react';
-import dynamic from 'next/dynamic';
 import LoginForm from './LoginForm';
-
-const PasskeyButton = dynamic(() => import('./PasskeyButton'), {
-  ssr: false,
-  loading: () => null,
-});
+import PasskeyButton from './PasskeyButton';
 
 export default function LoginPage() {
   return (
@@ -32,9 +25,8 @@ export default function LoginPage() {
           </div>
         }>
           <LoginForm />
+          <PasskeyButton />
         </Suspense>
-
-        <PasskeyButton />
       </div>
     </div>
   );
