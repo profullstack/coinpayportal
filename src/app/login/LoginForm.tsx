@@ -14,7 +14,6 @@ export default function LoginForm() {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [passkeyLoading, setPasskeyLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,97 +126,6 @@ export default function LoginForm() {
           {loading ? 'Logging in...' : 'Log in'}
         </button>
       </form>
-
-      {/* Divider */}
-      <div className="mt-6 relative">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-gray-300"></div>
-        </div>
-        <div className="relative flex justify-center text-sm">
-          <span className="px-2 bg-white text-gray-500">or</span>
-        </div>
-      </div>
-
-      {/* Passkey Login */}
-      <div className="mt-6">
-        <button
-          type="button"
-          disabled={passkeyLoading}
-          onClick={async () => {
-            setError('');
-            setPasskeyLoading(true);
-            try {
-              // 1. Get auth options (optionally with email)
-              const optRes = await fetch('/api/auth/webauthn/login-options', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: formData.email || undefined }),
-              });
-              const optData = await optRes.json();
-              if (!optRes.ok || !optData.success) {
-                setError(optData.error || 'Failed to start passkey login');
-                setPasskeyLoading(false);
-                return;
-              }
-
-              // 2. Browser WebAuthn prompt
-              const { startAuthentication } = await import('@simplewebauthn/browser');
-              const credential = await startAuthentication({ optionsJSON: optData.options });
-
-              // 3. Verify with server
-              const verifyRes = await fetch('/api/auth/webauthn/login-verify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  credential,
-                  challengeKey: optData._challengeKey,
-                }),
-              });
-              const verifyData = await verifyRes.json();
-              if (!verifyRes.ok || !verifyData.success) {
-                setError(verifyData.error || 'Passkey authentication failed');
-                setPasskeyLoading(false);
-                return;
-              }
-
-              // 4. Store token and redirect
-              if (verifyData.token) {
-                localStorage.setItem('auth_token', verifyData.token);
-              }
-
-              if (redirectTo) {
-                router.push(redirectTo);
-              } else if (verifyData.merchant?.is_admin) {
-                router.push('/admin');
-              } else {
-                router.push('/dashboard');
-              }
-            } catch (err: any) {
-              if (err.name === 'NotAllowedError') {
-                setError('Passkey sign-in was cancelled.');
-              } else {
-                setError(err.message || 'Passkey authentication failed');
-              }
-              setPasskeyLoading(false);
-            }
-          }}
-          className="w-full inline-flex items-center justify-center gap-2 bg-gray-900 text-white py-3 px-4 rounded-lg font-semibold hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {passkeyLoading ? (
-            <>
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-              Authenticating...
-            </>
-          ) : (
-            <>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-              </svg>
-              Sign in with Passkey
-            </>
-          )}
-        </button>
-      </div>
 
       <div className="mt-6 text-center">
         <p className="text-sm text-gray-600">
