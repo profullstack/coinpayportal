@@ -102,7 +102,7 @@ function getBaseUrl(): string {
   if (typeof window !== 'undefined') {
     return window.location.origin;
   }
-  return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:8080';
+  return process.env.NEXT_PUBLIC_APP_URL || (process.env.NODE_ENV === 'production' ? 'https://coinpayportal.com' : 'http://localhost:3000');
 }
 
 export function WebWalletProvider({ children }: { children: ReactNode }) {

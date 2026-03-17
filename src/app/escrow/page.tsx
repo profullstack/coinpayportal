@@ -370,6 +370,7 @@ export default function EscrowDashboardPage() {
             ))}
             <p className="text-center text-sm text-gray-400 mt-4">
               Showing {escrows.length} of {total} escrows
+              {series.length > 0 && ` + ${series.length} recurring series`}
             </p>
           </div>
 
