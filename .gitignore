@@ -24,6 +24,11 @@ node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.log
+
+# strix agent runs
+strix_runs/
+strix_*.log
 
 # local env files
 .env*.local
