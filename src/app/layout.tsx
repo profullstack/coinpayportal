@@ -6,6 +6,7 @@ import { Providers } from '@/components/Providers';
 import './globals.css';
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://coinpayportal.com'),
   title: 'CoinPay - Non-Custodial Crypto Payment Gateway',
   description: 'Accept cryptocurrency payments in your e-commerce store with automatic fee handling and real-time processing',
   keywords: ['cryptocurrency', 'payment gateway', 'crypto payments', 'non-custodial', 'blockchain', 'bitcoin', 'ethereum'],
@@ -32,7 +33,7 @@ export const metadata: Metadata = {
     siteName: 'CoinPay',
     images: [
       {
-        url: '/og-image.png',
+        url: '/banner.png',
         width: 1200,
         height: 630,
         alt: 'CoinPay - Non-Custodial Crypto Payment Gateway',
@@ -43,6 +44,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'CoinPay - Non-Custodial Crypto Payment Gateway',
     description: 'Accept cryptocurrency payments with automatic fee handling and real-time processing',
+    images: ['/banner.png'],
   },
   icons: {
     icon: [
