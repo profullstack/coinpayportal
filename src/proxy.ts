@@ -113,8 +113,22 @@ export function proxy(request: NextRequest) {
     const clientIp =
       request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
       request.headers.get('x-real-ip') ||
-      '127.0.0.1';
+      null;
     const isAuthEndpoint = pathname.startsWith('/api/auth/');
+
+    // Skip rate limiting if we can't identify the client
+    if (!clientIp) {
+      const response = NextResponse.next();
+      addSecurityHeaders(response, isApiRoute, requestOrigin);
+      const noIpCorsHeaders = getCorsHeaders(requestOrigin);
+      if (noIpCorsHeaders['Access-Control-Allow-Origin']) {
+        for (const [k, v] of Object.entries(noIpCorsHeaders)) {
+          response.headers.set(k, v);
+        }
+      }
+      return response;
+    }
+
     const rl = checkRateLimit(clientIp, isAuthEndpoint);
     const corsHeaders = getCorsHeaders(requestOrigin);
 
@@ -173,23 +187,8 @@ function addSecurityHeaders(
     'camera=(), microphone=(), geolocation=(), interest-cohort=()'
   );
 
-  // Content-Security-Policy
-  // Note: 'unsafe-inline' for style-src is required by Next.js for built-in
-  // style injection (styled-jsx and CSS modules). 'unsafe-eval' removed.
-  const csp = [
-    "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' https://datafa.st",
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: https: blob:",
-    "font-src 'self' data:",
-    "connect-src 'self' https: wss:",
-    "object-src 'none'",
-    "frame-ancestors 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-  ].join('; ');
-
-  response.headers.set('Content-Security-Policy', csp);
+  // CSP is configured in next.config.mjs headers() to avoid duplication.
+  // Do not set Content-Security-Policy here.
 
   // Add CORS headers to API responses
   if (isApiRoute) {

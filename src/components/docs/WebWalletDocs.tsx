@@ -93,7 +93,7 @@ pnpm coinpay-wallet create --chains BTC,ETH,SOL`}
       <div className="mb-8 p-4 bg-slate-800/50 rounded-lg">
         <h4 className="text-white font-semibold text-sm mb-2">Environment Variables</h4>
         <div className="space-y-1 text-sm text-gray-300">
-          <p><code className="text-purple-400">COINPAY_API_URL</code> — API base URL (default: <code>https://coinpayportal.com</code>)</p>
+          <p><code className="text-purple-400">NEXT_PUBLIC_API_URL</code> — API base URL (default: <code>https://coinpayportal.com</code>). The legacy <code>COINPAY_API_URL</code> is also supported by the CLI.</p>
           <p><code className="text-purple-400">COINPAY_AUTH_TOKEN</code> — JWT token for read-only operations</p>
           <p><code className="text-purple-400">COINPAY_MNEMONIC</code> — Mnemonic phrase (required for <code>send</code> and <code>derive-missing</code>)</p>
         </div>
