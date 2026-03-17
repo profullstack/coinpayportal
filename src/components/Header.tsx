@@ -102,12 +102,7 @@ export default function Header() {
             ))}
             
             {/* Auth Buttons / User Menu */}
-            {!isHydrated ? (
-              // Show loading state during hydration to prevent flash
-              <div className="flex items-center space-x-4">
-                <div className="h-8 w-20 bg-gray-700 rounded animate-pulse"></div>
-              </div>
-            ) : isLoggedIn ? (
+            {isHydrated && isLoggedIn ? (
               <div className="flex items-center space-x-4">
                 <div className="relative">
                   <button
@@ -243,13 +238,7 @@ export default function Header() {
               ))}
               
               {/* Mobile Auth Buttons / User Menu */}
-              {!isHydrated ? (
-                <div className="pt-4 space-y-2 border-t border-gray-800 mt-4">
-                  <div className="px-3 py-2">
-                    <div className="h-8 w-full bg-gray-700 rounded animate-pulse"></div>
-                  </div>
-                </div>
-              ) : isLoggedIn ? (
+              {isHydrated && isLoggedIn ? (
                 <div className="pt-4 space-y-2 border-t border-gray-800 mt-4">
                   <Link
                     href="/dashboard"
