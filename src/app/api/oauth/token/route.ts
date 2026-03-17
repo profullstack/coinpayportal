@@ -50,8 +50,39 @@ function tokenError(error: string, description: string, status = 400) {
   );
 }
 
+/**
+ * Parse client credentials from Authorization header (Basic auth)
+ * Returns { client_id, client_secret } or null
+ */
+function parseBasicAuth(request: NextRequest): { client_id: string; client_secret: string } | null {
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader?.startsWith('Basic ')) return null;
+
+  try {
+    const decoded = Buffer.from(authHeader.substring(6), 'base64').toString('utf-8');
+    const colonIndex = decoded.indexOf(':');
+    if (colonIndex === -1) return null;
+    return {
+      client_id: decodeURIComponent(decoded.substring(0, colonIndex)),
+      client_secret: decodeURIComponent(decoded.substring(colonIndex + 1)),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
+  // Extract Basic auth credentials if present
+  const basicAuth = parseBasicAuth(request);
+
   const body = await parseBody(request);
+
+  // Basic auth overrides body params for client credentials
+  if (basicAuth) {
+    body.client_id = basicAuth.client_id;
+    body.client_secret = basicAuth.client_secret;
+  }
+
   const grantType = body.grant_type;
 
   if (grantType === 'authorization_code') {
@@ -72,17 +103,9 @@ async function handleAuthorizationCode(body: Record<string, string>) {
     return tokenError('invalid_request', 'Missing required parameters: code, redirect_uri, client_id');
   }
 
-  // Authenticate client (client_secret required for confidential clients)
-  if (client_secret) {
-    const authResult = await authenticateClient(client_id, client_secret);
-    if (!authResult.valid) {
-      return tokenError('invalid_client', authResult.error || 'Invalid client credentials', 401);
-    }
-  }
-
   const supabase = getSupabase();
 
-  // Look up the authorization code
+  // Look up the authorization code first (need it to check PKCE)
   const { data: authCode, error } = await supabase
     .from('oauth_authorization_codes')
     .select('*')
@@ -113,6 +136,20 @@ async function handleAuthorizationCode(body: Record<string, string>) {
     return tokenError('invalid_grant', 'Redirect URI mismatch');
   }
 
+  // Client authentication:
+  // - If client_secret is provided, always validate it
+  // - If no client_secret and no code_challenge (not PKCE/public client), require client_secret
+  // - PKCE flows (public clients) can skip client_secret
+  if (client_secret) {
+    const authResult = await authenticateClient(client_id, client_secret);
+    if (!authResult.valid) {
+      return tokenError('invalid_client', authResult.error || 'Invalid client credentials', 401);
+    }
+  } else if (!authCode.code_challenge) {
+    // Confidential client without PKCE must provide client_secret
+    return tokenError('invalid_client', 'client_secret is required for confidential clients', 401);
+  }
+
   // PKCE validation
   if (authCode.code_challenge) {
     if (!code_verifier) {
@@ -137,11 +174,13 @@ async function handleAuthorizationCode(body: Record<string, string>) {
   // Get user info for token claims
   const { data: merchant } = await supabase
     .from('merchants')
-    .select('id, email, name')
+    .select('id, email, name, email_verified')
     .eq('id', authCode.user_id)
     .single();
 
-  const user = merchant || { id: authCode.user_id, email: undefined, name: undefined };
+  const user = merchant
+    ? { ...merchant, email_verified: merchant.email_verified ?? false }
+    : { id: authCode.user_id, email: undefined, name: undefined, email_verified: false };
 
   const client = { client_id };
   const scopes = authCode.scopes || ['openid'];
@@ -188,7 +227,7 @@ async function handleRefreshToken(body: Record<string, string>) {
     return tokenError('invalid_request', 'Missing required parameters: refresh_token, client_id');
   }
 
-  // Authenticate client
+  // Authenticate client if secret provided
   if (client_secret) {
     const authResult = await authenticateClient(client_id, client_secret);
     if (!authResult.valid) {

@@ -6,30 +6,13 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { verifyToken } from '@/lib/auth/jwt';
+import { getAuthUser } from '@/lib/oauth/auth';
 
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
-}
-
-function getAuthUser(request: NextRequest): { id: string } | null {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-
-  const token = authHeader.substring(7);
-  try {
-    const secret = process.env.JWT_SECRET;
-    if (!secret) return null;
-    const decoded = verifyToken(token, secret);
-    if (decoded?.userId) return { id: decoded.userId };
-  } catch {
-    // invalid
-  }
-
-  return null;
 }
 
 type RouteContext = { params: Promise<{ id: string }> };

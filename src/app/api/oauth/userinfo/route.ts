@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
   const supabase = getSupabase();
   const { data: merchant } = await supabase
     .from('merchants')
-    .select('id, email, name, username, avatar_url, updated_at')
+    .select('id, email, name, username, avatar_url, updated_at, email_verified')
     .eq('id', userId)
     .single();
 
@@ -59,7 +59,24 @@ export async function GET(request: NextRequest) {
 
     if (scopes.includes('email') && merchant.email) {
       claims.email = merchant.email;
-      claims.email_verified = true;
+      // Check actual email verification status
+      claims.email_verified = merchant.email_verified ?? false;
+    }
+  }
+
+  // wallet:read scope — fetch wallet addresses
+  if (scopes.includes('wallet:read')) {
+    const { data: wallets } = await supabase
+      .from('wallets')
+      .select('address, chain, label')
+      .eq('user_id', userId);
+
+    if (wallets && wallets.length > 0) {
+      claims.wallets = wallets.map((w: any) => ({
+        address: w.address,
+        chain: w.chain,
+        label: w.label || undefined,
+      }));
     }
   }
 

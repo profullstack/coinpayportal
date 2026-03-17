@@ -5,30 +5,15 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { verifyToken } from '@/lib/auth/jwt';
+import { randomBytes } from 'crypto';
+import { hashClientSecret } from '@/lib/oauth/client';
+import { getAuthUser } from '@/lib/oauth/auth';
 
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
-}
-
-function getAuthUser(request: NextRequest): { id: string } | null {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-
-  const token = authHeader.substring(7);
-  try {
-    const secret = process.env.JWT_SECRET;
-    if (!secret) return null;
-    const decoded = verifyToken(token, secret);
-    if (decoded?.userId) return { id: decoded.userId };
-  } catch {
-    // invalid
-  }
-
-  return null;
 }
 
 export async function GET(request: NextRequest) {
@@ -85,17 +70,24 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Generate client_id and client_secret at application layer
+  const clientId = 'cp_' + randomBytes(12).toString('hex');
+  const plaintextSecret = 'cps_' + randomBytes(24).toString('hex');
+  const hashedSecret = await hashClientSecret(plaintextSecret);
+
   const supabase = getSupabase();
   const { data: client, error } = await supabase
     .from('oauth_clients')
     .insert({
+      client_id: clientId,
+      client_secret: hashedSecret,
       name,
       description: description || null,
       redirect_uris,
       scopes: scopes || ['openid', 'profile', 'email'],
       owner_id: user.id,
     })
-    .select('*')
+    .select('id, client_id, name, description, redirect_uris, scopes, is_active, created_at, updated_at')
     .single();
 
   if (error) {
@@ -105,8 +97,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Return the plaintext secret once — it cannot be retrieved again
   return NextResponse.json(
-    { success: true, client },
+    {
+      success: true,
+      client: {
+        ...client,
+        client_secret: plaintextSecret,
+      },
+      warning: 'Store the client_secret securely. It will not be shown again.',
+    },
     { status: 201 }
   );
 }

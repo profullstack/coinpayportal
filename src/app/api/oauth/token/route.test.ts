@@ -44,11 +44,11 @@ import { authenticateClient } from '@/lib/oauth/client';
 
 const TEST_SECRET = 'test-oidc-signing-secret-for-unit-tests-min-32';
 
-function makeFormRequest(body: Record<string, string>): any {
+function makeFormRequest(body: Record<string, string>, headers?: Record<string, string>): any {
   const params = new URLSearchParams(body);
   return new Request('https://coinpay.dev/api/oauth/token', {
     method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers },
     body: params.toString(),
   });
 }
@@ -96,13 +96,11 @@ describe('POST /api/oauth/token', () => {
     it('should exchange valid code for tokens', async () => {
       (authenticateClient as any).mockResolvedValue({ valid: true, client: { client_id: 'cp_test' } });
 
-      // Auth code lookup returns valid code, then merchant lookup returns user
       let callCount = 0;
       mockSingle.mockImplementation(() => {
         callCount++;
         if (callCount === 1) return Promise.resolve({ data: validCodeData, error: null });
-        // merchant lookup
-        return Promise.resolve({ data: { id: 'user-123', email: 'test@example.com', name: 'Test' }, error: null });
+        return Promise.resolve({ data: { id: 'user-123', email: 'test@example.com', name: 'Test', email_verified: true }, error: null });
       });
 
       const req = makeFormRequest({
@@ -124,20 +122,24 @@ describe('POST /api/oauth/token', () => {
       expect(body.id_token).toBeDefined();
       expect(body.scope).toBe('openid profile email');
 
-      // Verify access token is valid JWT
       const decoded = jwt.verify(body.access_token, TEST_SECRET) as any;
       expect(decoded.sub).toBe('user-123');
     });
 
     it('should reject expired code', async () => {
-      (authenticateClient as any).mockResolvedValue({ valid: true });
-
-      mockSingle.mockResolvedValue({
-        data: {
-          ...validCodeData,
-          expires_at: new Date(Date.now() - 1000).toISOString(),
-        },
-        error: null,
+      let callCount = 0;
+      mockSingle.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({
+            data: {
+              ...validCodeData,
+              expires_at: new Date(Date.now() - 1000).toISOString(),
+            },
+            error: null,
+          });
+        }
+        return Promise.resolve({ data: null, error: null });
       });
 
       const req = makeFormRequest({
@@ -156,8 +158,6 @@ describe('POST /api/oauth/token', () => {
     });
 
     it('should reject used code', async () => {
-      (authenticateClient as any).mockResolvedValue({ valid: true });
-
       mockSingle.mockResolvedValue({
         data: {
           ...validCodeData,
@@ -182,6 +182,11 @@ describe('POST /api/oauth/token', () => {
     });
 
     it('should reject wrong client_secret', async () => {
+      mockSingle.mockResolvedValue({
+        data: validCodeData,
+        error: null,
+      });
+
       (authenticateClient as any).mockResolvedValue({ valid: false, error: 'Invalid client credentials' });
 
       const req = makeFormRequest({
@@ -199,8 +204,6 @@ describe('POST /api/oauth/token', () => {
     });
 
     it('should reject wrong redirect_uri', async () => {
-      (authenticateClient as any).mockResolvedValue({ valid: true });
-
       mockSingle.mockResolvedValue({
         data: validCodeData,
         error: null,
@@ -230,8 +233,6 @@ describe('POST /api/oauth/token', () => {
         .replace(/\//g, '_')
         .replace(/=+$/, '');
 
-      (authenticateClient as any).mockResolvedValue({ valid: true });
-
       let callCount = 0;
       mockSingle.mockImplementation(() => {
         callCount++;
@@ -244,12 +245,12 @@ describe('POST /api/oauth/token', () => {
         return Promise.resolve({ data: { id: 'user-123', email: 'test@example.com' }, error: null });
       });
 
+      // PKCE flow — no client_secret needed
       const req = makeFormRequest({
         grant_type: 'authorization_code',
         code: 'pkce-code',
         redirect_uri: 'https://example.com/cb',
         client_id: 'cp_test',
-        client_secret: 'cps_secret',
         code_verifier: codeVerifier,
       });
 
@@ -267,8 +268,6 @@ describe('POST /api/oauth/token', () => {
         .replace(/\//g, '_')
         .replace(/=+$/, '');
 
-      (authenticateClient as any).mockResolvedValue({ valid: true });
-
       mockSingle.mockResolvedValue({
         data: { ...validCodeData, code_challenge: codeChallenge, code_challenge_method: 'S256' },
         error: null,
@@ -279,7 +278,6 @@ describe('POST /api/oauth/token', () => {
         code: 'pkce-code',
         redirect_uri: 'https://example.com/cb',
         client_id: 'cp_test',
-        client_secret: 'cps_secret',
         code_verifier: 'wrong-verifier',
       });
 
@@ -291,8 +289,6 @@ describe('POST /api/oauth/token', () => {
     });
 
     it('should require code_verifier when code_challenge was set', async () => {
-      (authenticateClient as any).mockResolvedValue({ valid: true });
-
       mockSingle.mockResolvedValue({
         data: { ...validCodeData, code_challenge: 'some-challenge', code_challenge_method: 'S256' },
         error: null,
@@ -303,13 +299,64 @@ describe('POST /api/oauth/token', () => {
         code: 'pkce-code',
         redirect_uri: 'https://example.com/cb',
         client_id: 'cp_test',
-        client_secret: 'cps_secret',
       });
 
       const res = await POST(req);
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.error_description).toContain('code_verifier');
+    });
+
+    it('should require client_secret for confidential clients (no PKCE)', async () => {
+      // Code has no code_challenge — confidential client flow
+      mockSingle.mockResolvedValue({
+        data: validCodeData, // code_challenge: null
+        error: null,
+      });
+
+      const req = makeFormRequest({
+        grant_type: 'authorization_code',
+        code: 'valid-code',
+        redirect_uri: 'https://example.com/cb',
+        client_id: 'cp_test',
+        // no client_secret
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(401);
+      const body = await res.json();
+      expect(body.error).toBe('invalid_client');
+      expect(body.error_description).toContain('client_secret is required');
+    });
+
+    it('should support client_secret_basic authentication', async () => {
+      (authenticateClient as any).mockResolvedValue({ valid: true, client: { client_id: 'cp_test' } });
+
+      let callCount = 0;
+      mockSingle.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) return Promise.resolve({ data: validCodeData, error: null });
+        return Promise.resolve({ data: { id: 'user-123', email: 'test@example.com', name: 'Test' }, error: null });
+      });
+
+      const basicAuth = Buffer.from('cp_test:cps_secret').toString('base64');
+      const req = makeFormRequest(
+        {
+          grant_type: 'authorization_code',
+          code: 'valid-code',
+          redirect_uri: 'https://example.com/cb',
+          // client_id and client_secret come from Basic auth header
+        },
+        { authorization: `Basic ${basicAuth}` }
+      );
+
+      const res = await POST(req);
+      const body = await res.json();
+      expect(res.status).toBe(200);
+      expect(body.access_token).toBeDefined();
+
+      // Verify authenticateClient was called with credentials from Basic auth
+      expect(authenticateClient).toHaveBeenCalledWith('cp_test', 'cps_secret');
     });
   });
 

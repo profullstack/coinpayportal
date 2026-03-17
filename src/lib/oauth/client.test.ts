@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import bcrypt from 'bcryptjs';
 
 // Mock Supabase
 const mockSingle = vi.fn();
@@ -10,7 +11,7 @@ vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({ from: mockFrom })),
 }));
 
-import { validateClient, authenticateClient } from './client';
+import { validateClient, authenticateClient, hashClientSecret } from './client';
 
 describe('OAuth Client', () => {
   beforeEach(() => {
@@ -30,7 +31,7 @@ describe('OAuth Client', () => {
         data: {
           id: '123',
           client_id: 'cp_test',
-          client_secret: 'cps_secret',
+          client_secret: 'hashed_secret',
           name: 'Test App',
           redirect_uris: ['https://example.com/callback'],
           scopes: ['openid', 'profile'],
@@ -85,23 +86,43 @@ describe('OAuth Client', () => {
   });
 
   describe('authenticateClient', () => {
-    it('should authenticate valid client credentials', async () => {
+    it('should authenticate valid client credentials with bcrypt', async () => {
+      const plainSecret = 'cps_my_secret_value';
+      const hashedSecret = await bcrypt.hash(plainSecret, 10);
+
       mockSingle.mockResolvedValue({
         data: {
           client_id: 'cp_test',
-          client_secret: 'cps_secret',
+          client_secret: hashedSecret,
           name: 'Test App',
           is_active: true,
         },
         error: null,
       });
 
-      const result = await authenticateClient('cp_test', 'cps_secret');
+      const result = await authenticateClient('cp_test', plainSecret);
       expect(result.valid).toBe(true);
       expect(result.client).toBeDefined();
     });
 
     it('should reject invalid client secret', async () => {
+      const hashedSecret = await bcrypt.hash('correct_secret', 10);
+
+      mockSingle.mockResolvedValue({
+        data: {
+          client_id: 'cp_test',
+          client_secret: hashedSecret,
+          is_active: true,
+        },
+        error: null,
+      });
+
+      const result = await authenticateClient('cp_test', 'wrong_secret');
+      expect(result.valid).toBe(false);
+      expect(result.error).toBe('Invalid client credentials');
+    });
+
+    it('should reject when client not found', async () => {
       mockSingle.mockResolvedValue({ data: null, error: { message: 'not found' } });
 
       const result = await authenticateClient('cp_test', 'wrong_secret');
@@ -110,10 +131,12 @@ describe('OAuth Client', () => {
     });
 
     it('should reject inactive client', async () => {
+      const hashedSecret = await bcrypt.hash('cps_secret', 10);
+
       mockSingle.mockResolvedValue({
         data: {
           client_id: 'cp_test',
-          client_secret: 'cps_secret',
+          client_secret: hashedSecret,
           is_active: false,
         },
         error: null,
@@ -122,6 +145,19 @@ describe('OAuth Client', () => {
       const result = await authenticateClient('cp_test', 'cps_secret');
       expect(result.valid).toBe(false);
       expect(result.error).toBe('Client is inactive');
+    });
+  });
+
+  describe('hashClientSecret', () => {
+    it('should return a bcrypt hash', async () => {
+      const hash = await hashClientSecret('my_secret');
+      expect(hash).toMatch(/^\$2[aby]\$/);
+      expect(await bcrypt.compare('my_secret', hash)).toBe(true);
+    });
+
+    it('should not match wrong password', async () => {
+      const hash = await hashClientSecret('my_secret');
+      expect(await bcrypt.compare('wrong_secret', hash)).toBe(false);
     });
   });
 });

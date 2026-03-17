@@ -2,7 +2,7 @@
 CREATE TABLE oauth_clients (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id TEXT UNIQUE NOT NULL DEFAULT 'cp_' || substr(md5(random()::text), 1, 24),
-  client_secret TEXT NOT NULL DEFAULT 'cps_' || substr(md5(random()::text || random()::text), 1, 48),
+  client_secret TEXT NOT NULL,
   name TEXT NOT NULL,
   description TEXT,
   redirect_uris TEXT[] NOT NULL DEFAULT '{}',

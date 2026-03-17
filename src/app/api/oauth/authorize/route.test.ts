@@ -178,6 +178,33 @@ describe('POST /api/oauth/authorize', () => {
     expect(res.status).toBe(401);
   });
 
+  it('should return JSON redirect URL on denial (not a redirect response)', async () => {
+    (validateClient as any).mockResolvedValue({ valid: true, client: { client_id: 'cp_test' } });
+    (verifyToken as any).mockReturnValue({ userId: 'user-123', email: 'test@example.com' });
+
+    const req = makeRequest('https://coinpay.dev/api/oauth/authorize', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer valid-token',
+      },
+      body: JSON.stringify({
+        client_id: 'cp_test',
+        redirect_uri: 'https://example.com/cb',
+        scope: 'openid',
+        state: 'mystate',
+        action: 'deny',
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.redirect).toContain('https://example.com/cb');
+    expect(body.redirect).toContain('error=access_denied');
+    expect(body.redirect).toContain('state=mystate');
+  });
+
   it('should return redirect URL on approval', async () => {
     (validateClient as any).mockResolvedValue({ valid: true, client: { client_id: 'cp_test' } });
     (verifyToken as any).mockReturnValue({ userId: 'user-123', email: 'test@example.com' });

@@ -73,9 +73,9 @@ describe('OAuth Tokens', () => {
   });
 
   describe('generateIdToken', () => {
-    it('should contain OIDC claims', () => {
+    it('should contain OIDC claims with email_verified from user data', () => {
       const token = generateIdToken(
-        { id: 'user-123', email: 'test@example.com', name: 'Test User', picture: 'https://example.com/pic.jpg' },
+        { id: 'user-123', email: 'test@example.com', name: 'Test User', picture: 'https://example.com/pic.jpg', email_verified: true },
         { client_id: 'cp_test' },
         ['openid', 'profile', 'email'],
         'test-nonce-123'
@@ -92,6 +92,18 @@ describe('OAuth Tokens', () => {
       expect(decoded.picture).toBe('https://example.com/pic.jpg');
       expect(decoded.iat).toBeDefined();
       expect(decoded.exp).toBeDefined();
+    });
+
+    it('should default email_verified to false when not provided', () => {
+      const token = generateIdToken(
+        { id: 'user-123', email: 'test@example.com' },
+        { client_id: 'cp_test' },
+        ['openid', 'email']
+      );
+
+      const decoded = jwt.verify(token, TEST_SECRET) as any;
+      expect(decoded.email).toBe('test@example.com');
+      expect(decoded.email_verified).toBe(false);
     });
 
     it('should omit nonce when not provided', () => {

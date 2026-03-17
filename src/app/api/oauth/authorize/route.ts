@@ -216,9 +216,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // User denied consent
+  // User denied consent — return JSON with redirect URL for client-side navigation
   if (action === 'deny') {
-    return oauthError(redirectUri, 'access_denied', 'User denied the request', state);
+    const denyUrl = new URL(redirectUri);
+    denyUrl.searchParams.set('error', 'access_denied');
+    denyUrl.searchParams.set('error_description', 'User denied the request');
+    if (state) denyUrl.searchParams.set('state', state);
+    return NextResponse.json({ redirect: denyUrl.toString() });
   }
 
   const scopes = validateScopes(scope || 'openid');

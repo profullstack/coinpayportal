@@ -2,6 +2,7 @@
  * OAuth2 client validation utilities
  */
 import { createClient } from '@supabase/supabase-js';
+import bcrypt from 'bcryptjs';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -57,7 +58,8 @@ export async function validateClient(
 }
 
 /**
- * Authenticate a client using client_id and client_secret (for token endpoint)
+ * Authenticate a client using client_id and client_secret (for token endpoint).
+ * Client secret is stored as a bcrypt hash; comparison uses bcrypt.compare.
  */
 export async function authenticateClient(
   clientId: string,
@@ -69,7 +71,6 @@ export async function authenticateClient(
     .from('oauth_clients')
     .select('*')
     .eq('client_id', clientId)
-    .eq('client_secret', clientSecret)
     .single();
 
   if (error || !client) {
@@ -80,5 +81,18 @@ export async function authenticateClient(
     return { valid: false, error: 'Client is inactive' };
   }
 
+  // Compare plaintext secret against stored bcrypt hash
+  const match = await bcrypt.compare(clientSecret, client.client_secret);
+  if (!match) {
+    return { valid: false, error: 'Invalid client credentials' };
+  }
+
   return { valid: true, client: client as OAuthClient };
+}
+
+/**
+ * Hash a client secret for storage
+ */
+export async function hashClientSecret(secret: string): Promise<string> {
+  return bcrypt.hash(secret, 10);
 }

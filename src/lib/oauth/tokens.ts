@@ -57,7 +57,7 @@ export function generateAccessToken(
  * Generate an OIDC ID token (JWT)
  */
 export function generateIdToken(
-  user: { id: string; email?: string; name?: string; picture?: string },
+  user: { id: string; email?: string; name?: string; picture?: string; email_verified?: boolean },
   client: { client_id: string },
   scopes: string[],
   nonce?: string | null
@@ -79,7 +79,7 @@ export function generateIdToken(
 
   if (scopes.includes('email') && user.email) {
     payload.email = user.email;
-    payload.email_verified = true;
+    payload.email_verified = user.email_verified ?? false;
   }
 
   if (scopes.includes('profile')) {
