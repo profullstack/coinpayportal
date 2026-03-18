@@ -27,11 +27,23 @@ describe('LoginPage', () => {
     prefetch: vi.fn(),
   };
 
+  // Track window.location.href assignments
+  const locationHrefSpy = vi.fn();
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useRouter).mockReturnValue(mockRouter);
     vi.mocked(useSearchParams).mockReturnValue(new URLSearchParams());
     localStorage.clear();
+    // Mock window.location.href setter since jsdom doesn't support navigation
+    Object.defineProperty(window, 'location', {
+      writable: true,
+      value: { ...window.location, href: 'http://localhost/', assign: vi.fn(), replace: vi.fn() },
+    });
+    Object.defineProperty(window.location, 'href', {
+      set: locationHrefSpy,
+      get: () => 'http://localhost/',
+    });
   });
 
   describe('Rendering', () => {
@@ -141,7 +153,7 @@ describe('LoginPage', () => {
 
       await waitFor(() => {
         expect(localStorage.getItem('auth_token')).toBe('mock-jwt-token');
-        expect(mockPush).toHaveBeenCalledWith('/dashboard');
+        expect(locationHrefSpy).toHaveBeenCalledWith('/dashboard');
       });
     });
 
@@ -173,7 +185,7 @@ describe('LoginPage', () => {
       fireEvent.click(submitButton);
 
       await waitFor(() => {
-        expect(mockPush).toHaveBeenCalledWith('/admin');
+        expect(locationHrefSpy).toHaveBeenCalledWith('/admin');
       });
     });
 
