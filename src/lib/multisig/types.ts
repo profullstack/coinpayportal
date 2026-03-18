@@ -141,10 +141,7 @@ export interface AddSignatureResult {
 export interface BroadcastResult {
   tx_hash: string;
   success: boolean;
-<<<<<<< HEAD
   broadcasted: boolean;
-=======
->>>>>>> feat/multisig-escrow
 }
 
 // ── API Response Types ──────────────────────────────────────
@@ -174,11 +171,8 @@ export interface BroadcastResultResponse {
   success: boolean;
   tx_hash?: string;
   proposal?: MultisigProposal;
-<<<<<<< HEAD
   broadcasted?: boolean;
   stage?: 'prepared' | 'broadcasted';
-=======
->>>>>>> feat/multisig-escrow
   error?: string;
 }
 

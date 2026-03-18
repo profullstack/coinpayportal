@@ -11,10 +11,7 @@ import {
   broadcastTransaction,
   broadcastTransactionSchema,
 } from '@/lib/multisig';
-<<<<<<< HEAD
 import { requireMultisigAuth } from '../../auth';
-=======
->>>>>>> feat/multisig-escrow
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -28,12 +25,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-<<<<<<< HEAD
     const auth = await requireMultisigAuth(request);
     if (!auth.ok) return auth.response;
 
-=======
->>>>>>> feat/multisig-escrow
     const { id: escrowId } = await params;
     const supabase = getSupabase();
     const body = await request.json();
@@ -60,11 +54,8 @@ export async function POST(
     return NextResponse.json({
       tx_hash: result.tx_hash,
       proposal: result.proposal,
-<<<<<<< HEAD
       broadcasted: result.broadcasted === true,
       stage: result.stage!,
-=======
->>>>>>> feat/multisig-escrow
     });
   } catch (error) {
     console.error('Failed to broadcast transaction:', error);

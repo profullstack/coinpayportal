@@ -22,11 +22,8 @@ import {
   SystemProgram,
 } from '@solana/web3.js';
 import { createHash } from 'crypto';
-<<<<<<< HEAD
 import bs58 from 'bs58';
 import nacl from 'tweetnacl';
-=======
->>>>>>> feat/multisig-escrow
 import type { ChainAdapter } from './interface';
 import type {
   MultisigChain,
@@ -135,14 +132,7 @@ export class SolanaMultisigAdapter implements ChainAdapter {
 
     // Generate a deterministic create key from all participant keys
     const createKeyHash = createHash('sha256')
-<<<<<<< HEAD
       .update(Buffer.concat(members.map((m) => m.toBuffer())))
-=======
-      .update(Buffer.concat([
-        ...members.map((m) => m.toBuffer()),
-        Buffer.from(Date.now().toString()),
-      ]))
->>>>>>> feat/multisig-escrow
       .digest();
     const createKey = new PublicKey(createKeyHash.subarray(0, 32));
 
@@ -236,7 +226,6 @@ export class SolanaMultisigAdapter implements ChainAdapter {
     signerPubkey: string,
   ): Promise<boolean> {
     try {
-<<<<<<< HEAD
       const txHash = txData.tx_hash_to_sign as string | undefined;
 
       // Check signer membership when present in payload.
@@ -272,36 +261,6 @@ export class SolanaMultisigAdapter implements ChainAdapter {
 
       const message = Buffer.from(txHash, 'hex');
       return nacl.sign.detached.verify(message, signatureBytes, publicKeyBytes);
-=======
-      // Validate that the signer is a member of the multisig
-      const members = txData.members as string[] | undefined;
-
-      // Check in chain_metadata if members aren't at top level
-      if (!members) {
-        // Signer validation will be done at the engine level
-        // against stored escrow participants
-      } else if (!members.includes(signerPubkey)) {
-        return false;
-      }
-
-      // Validate pubkey format
-      validateSolPubkey(signerPubkey);
-
-      // Validate signature format (Ed25519 signatures are 64 bytes)
-      const sigBuf = Buffer.from(signature, 'hex');
-      if (sigBuf.length !== 64) {
-        // Also accept base58-encoded signatures
-        try {
-          validateSolPubkey(signature); // base58 validation
-        } catch {
-          return false;
-        }
-      }
-
-      // In production, use tweetnacl.sign.detached.verify()
-      // with the actual message bytes
-      return true;
->>>>>>> feat/multisig-escrow
     } catch {
       return false;
     }
@@ -325,11 +284,7 @@ export class SolanaMultisigAdapter implements ChainAdapter {
     }
 
     if (signatures.length < 2) {
-<<<<<<< HEAD
       return { tx_hash: '', success: false, broadcasted: false };
-=======
-      return { tx_hash: '', success: false };
->>>>>>> feat/multisig-escrow
     }
 
     // In production:
@@ -349,10 +304,7 @@ export class SolanaMultisigAdapter implements ChainAdapter {
     return {
       tx_hash: txHash,
       success: true,
-<<<<<<< HEAD
       broadcasted: false,
-=======
->>>>>>> feat/multisig-escrow
     };
   }
 }
