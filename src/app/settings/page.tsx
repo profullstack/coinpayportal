@@ -91,55 +91,55 @@ export default function SettingsPage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading settings...</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-300">Loading settings...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Account Settings</h1>
-          <p className="mt-2 text-gray-600">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Account Settings</h1>
+          <p className="mt-2 text-gray-600 dark:text-gray-300">
             Manage your notification preferences and account settings
           </p>
         </div>
 
         {/* Error Message */}
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          <div className="mb-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg">
             {error}
           </div>
         )}
 
         {/* Success Message */}
         {success && (
-          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
+          <div className="mb-6 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300 px-4 py-3 rounded-lg">
             {success}
           </div>
         )}
 
         {/* Settings Card */}
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
           {/* Notifications Section */}
-          <div className="p-6 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">
+          <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
               Notifications
             </h2>
-            <p className="text-sm text-gray-600 mb-6">
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-6">
               Choose how you want to be notified about payment updates
             </p>
 
             {/* Master Toggle */}
             <div className="flex items-center justify-between py-4">
               <div className="flex-1">
-                <h3 className="text-base font-medium text-gray-900">
+                <h3 className="text-base font-medium text-gray-900 dark:text-white">
                   Enable Notifications
                 </h3>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   Receive notifications about payment status changes
                 </p>
               </div>
@@ -149,7 +149,7 @@ export default function SettingsPage() {
                 className={`${
                   settings.notifications_enabled
                     ? 'bg-purple-600'
-                    : 'bg-gray-200'
+                    : 'bg-gray-200 dark:bg-gray-600'
                 } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2`}
                 role="switch"
                 aria-checked={settings.notifications_enabled}
@@ -171,10 +171,10 @@ export default function SettingsPage() {
               }`}
             >
               <div className="flex-1">
-                <h3 className="text-base font-medium text-gray-900">
+                <h3 className="text-base font-medium text-gray-900 dark:text-white">
                   Email Notifications
                 </h3>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   Receive email alerts for payment events
                 </p>
               </div>
@@ -185,7 +185,7 @@ export default function SettingsPage() {
                 className={`${
                   settings.email_notifications && settings.notifications_enabled
                     ? 'bg-purple-600'
-                    : 'bg-gray-200'
+                    : 'bg-gray-200 dark:bg-gray-600'
                 } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:cursor-not-allowed`}
                 role="switch"
                 aria-checked={settings.email_notifications}
@@ -208,10 +208,10 @@ export default function SettingsPage() {
               }`}
             >
               <div className="flex-1">
-                <h3 className="text-base font-medium text-gray-900">
+                <h3 className="text-base font-medium text-gray-900 dark:text-white">
                   Web Notifications
                 </h3>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   Show browser notifications for real-time updates
                 </p>
               </div>
@@ -222,7 +222,7 @@ export default function SettingsPage() {
                 className={`${
                   settings.web_notifications && settings.notifications_enabled
                     ? 'bg-purple-600'
-                    : 'bg-gray-200'
+                    : 'bg-gray-200 dark:bg-gray-600'
                 } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:cursor-not-allowed`}
                 role="switch"
                 aria-checked={settings.web_notifications}
@@ -240,14 +240,14 @@ export default function SettingsPage() {
           </div>
 
           {/* Notification Events Info */}
-          <div className="p-6 bg-gray-50">
-            <h3 className="text-sm font-medium text-gray-900 mb-3">
+          <div className="p-6 bg-gray-50 dark:bg-gray-900">
+            <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">
               You'll be notified about:
             </h3>
-            <ul className="space-y-2 text-sm text-gray-600">
+            <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
               <li className="flex items-start">
                 <svg
-                  className="h-5 w-5 text-green-500 mr-2 flex-shrink-0"
+                  className="h-5 w-5 text-green-500 dark:text-green-400 mr-2 flex-shrink-0"
                   fill="none"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -261,7 +261,7 @@ export default function SettingsPage() {
               </li>
               <li className="flex items-start">
                 <svg
-                  className="h-5 w-5 text-green-500 mr-2 flex-shrink-0"
+                  className="h-5 w-5 text-green-500 dark:text-green-400 mr-2 flex-shrink-0"
                   fill="none"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -275,7 +275,7 @@ export default function SettingsPage() {
               </li>
               <li className="flex items-start">
                 <svg
-                  className="h-5 w-5 text-green-500 mr-2 flex-shrink-0"
+                  className="h-5 w-5 text-green-500 dark:text-green-400 mr-2 flex-shrink-0"
                   fill="none"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -289,7 +289,7 @@ export default function SettingsPage() {
               </li>
               <li className="flex items-start">
                 <svg
-                  className="h-5 w-5 text-green-500 mr-2 flex-shrink-0"
+                  className="h-5 w-5 text-green-500 dark:text-green-400 mr-2 flex-shrink-0"
                   fill="none"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -305,12 +305,12 @@ export default function SettingsPage() {
           </div>
 
           {/* Save Button */}
-          <div className="p-6 bg-white border-t border-gray-200">
+          <div className="p-6 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between">
               <button
                 type="button"
                 onClick={() => router.push('/dashboard')}
-                className="text-gray-600 hover:text-gray-900 font-medium"
+                className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 font-medium"
               >
                 Cancel
               </button>
@@ -327,13 +327,13 @@ export default function SettingsPage() {
         </div>
 
         {/* Global Wallets Card */}
-        <div className="bg-white rounded-lg shadow-md overflow-hidden mt-8">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden mt-8">
           <div className="p-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
-                <div className="p-3 bg-purple-100 rounded-full">
+                <div className="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-full">
                   <svg
-                    className="h-6 w-6 text-purple-600"
+                    className="h-6 w-6 text-purple-600 dark:text-purple-400"
                     fill="none"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -345,17 +345,17 @@ export default function SettingsPage() {
                   </svg>
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-gray-900">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                     Global Wallet Addresses
                   </h2>
-                  <p className="text-sm text-gray-600 mt-1">
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
                     Define wallet addresses once and import them into any business
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => router.push('/settings/wallets')}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50"
               >
                 Manage Wallets
                 <svg
@@ -375,7 +375,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Additional Info */}
-        <div className="mt-6 text-center text-sm text-gray-500">
+        <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
           <p>
             Email notifications are sent to your
             registered email address.
