@@ -35,7 +35,7 @@ vi.mock('../web-wallet/tx-finalize', () => ({
 // Mock fetch for balance checks
 global.fetch = vi.fn();
 
-describe.skip('Payment Monitor', () => {
+describe('Payment Monitor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
@@ -704,46 +704,31 @@ describe.skip('Payment Monitor', () => {
           status: 'released',
         };
 
+        const emptyLimit = vi.fn(() => Promise.resolve({ data: [], error: null }));
+
         mockSupabase.from = vi.fn((table: string) => {
           if (table === 'payments') {
-            return {
-              select: vi.fn(() => ({
-                eq: vi.fn(() => ({
-                  limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
-                })),
-              })),
-            };
+            return { select: vi.fn(() => ({ eq: vi.fn(() => ({ limit: emptyLimit })) })) };
           }
           if (table === 'escrows') {
             return {
               select: vi.fn(() => ({
                 eq: vi.fn((_col: string, value: string) => {
-                  if (value === 'created') {
-                    return {
-                      limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
-                    };
-                  }
-                  if (value === 'released') {
-                    return {
-                      limit: vi.fn(() => Promise.resolve({
-                        data: [releasedEscrow],
-                        error: null
-                      })),
-                    };
-                  }
-                  if (value === 'refunded') {
-                    return {
-                      is: vi.fn(() => ({
-                        limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
-                      })),
-                    };
-                  }
-                  return { limit: vi.fn(() => Promise.resolve({ data: [], error: null })) };
+                  if (value === 'created') return { limit: emptyLimit };
+                  if (value === 'funded') return { lt: vi.fn(() => ({ limit: emptyLimit })) };
+                  if (value === 'released') return {
+                    limit: vi.fn(() => Promise.resolve({ data: [releasedEscrow], error: null })),
+                  };
+                  if (value === 'refunded') return { is: vi.fn(() => ({ limit: emptyLimit })) };
+                  return { limit: emptyLimit, lt: vi.fn(() => ({ limit: emptyLimit })) };
                 }),
               })),
             };
           }
-          return {};
+          if (table === 'escrow_series') {
+            return { select: vi.fn(() => ({ eq: vi.fn(() => ({ lte: vi.fn(() => ({ limit: emptyLimit })) })) })) };
+          }
+          return { select: vi.fn(() => ({ eq: vi.fn(() => ({ limit: emptyLimit })) })) };
         });
 
         // Mock settlement API call
@@ -775,46 +760,33 @@ describe.skip('Payment Monitor', () => {
           status: 'refunded',
         };
 
+        const emptyLimit = vi.fn(() => Promise.resolve({ data: [], error: null }));
+
         mockSupabase.from = vi.fn((table: string) => {
           if (table === 'payments') {
-            return {
-              select: vi.fn(() => ({
-                eq: vi.fn(() => ({
-                  limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
-                })),
-              })),
-            };
+            return { select: vi.fn(() => ({ eq: vi.fn(() => ({ limit: emptyLimit })) })) };
           }
           if (table === 'escrows') {
             return {
               select: vi.fn(() => ({
                 eq: vi.fn((_col: string, value: string) => {
-                  if (value === 'created') {
-                    return {
-                      limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
-                    };
-                  }
-                  if (value === 'released') {
-                    return {
-                      limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
-                    };
-                  }
-                  if (value === 'refunded') {
-                    return {
-                      is: vi.fn(() => ({
-                        limit: vi.fn(() => Promise.resolve({
-                          data: [refundedEscrow],
-                          error: null
-                        })),
-                      })),
-                    };
-                  }
-                  return { limit: vi.fn(() => Promise.resolve({ data: [], error: null })) };
+                  if (value === 'created') return { limit: emptyLimit };
+                  if (value === 'funded') return { lt: vi.fn(() => ({ limit: emptyLimit })) };
+                  if (value === 'released') return { limit: emptyLimit };
+                  if (value === 'refunded') return {
+                    is: vi.fn(() => ({
+                      limit: vi.fn(() => Promise.resolve({ data: [refundedEscrow], error: null })),
+                    })),
+                  };
+                  return { limit: emptyLimit, lt: vi.fn(() => ({ limit: emptyLimit })) };
                 }),
               })),
             };
           }
-          return {};
+          if (table === 'escrow_series') {
+            return { select: vi.fn(() => ({ eq: vi.fn(() => ({ lte: vi.fn(() => ({ limit: emptyLimit })) })) })) };
+          }
+          return { select: vi.fn(() => ({ eq: vi.fn(() => ({ limit: emptyLimit })) })) };
         });
 
         // Mock refund API call
@@ -846,41 +818,31 @@ describe.skip('Payment Monitor', () => {
           status: 'released',
         };
 
+        const emptyLimit = vi.fn(() => Promise.resolve({ data: [], error: null }));
+
         mockSupabase.from = vi.fn((table: string) => {
           if (table === 'payments') {
-            return {
-              select: vi.fn(() => ({
-                eq: vi.fn(() => ({
-                  limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
-                })),
-              })),
-            };
+            return { select: vi.fn(() => ({ eq: vi.fn(() => ({ limit: emptyLimit })) })) };
           }
           if (table === 'escrows') {
             return {
               select: vi.fn(() => ({
                 eq: vi.fn((_col: string, value: string) => {
-                  if (value === 'released') {
-                    return {
-                      limit: vi.fn(() => Promise.resolve({
-                        data: [releasedEscrow],
-                        error: null
-                      })),
-                    };
-                  }
-                  if (value === 'refunded') {
-                    return {
-                      is: vi.fn(() => ({
-                        limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
-                      })),
-                    };
-                  }
-                  return { limit: vi.fn(() => Promise.resolve({ data: [], error: null })) };
+                  if (value === 'created') return { limit: emptyLimit };
+                  if (value === 'funded') return { lt: vi.fn(() => ({ limit: emptyLimit })) };
+                  if (value === 'released') return {
+                    limit: vi.fn(() => Promise.resolve({ data: [releasedEscrow], error: null })),
+                  };
+                  if (value === 'refunded') return { is: vi.fn(() => ({ limit: emptyLimit })) };
+                  return { limit: emptyLimit, lt: vi.fn(() => ({ limit: emptyLimit })) };
                 }),
               })),
             };
           }
-          return {};
+          if (table === 'escrow_series') {
+            return { select: vi.fn(() => ({ eq: vi.fn(() => ({ lte: vi.fn(() => ({ limit: emptyLimit })) })) })) };
+          }
+          return { select: vi.fn(() => ({ eq: vi.fn(() => ({ limit: emptyLimit })) })) };
         });
 
         // Mock failed settlement API call

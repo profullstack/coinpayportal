@@ -766,8 +766,8 @@ describe('DashboardPage', () => {
       });
     });
 
-    it.skip('should show reconnecting when disconnected', async () => {
-      mockUseRealtimePayments.mockReturnValueOnce({
+    it('should show reconnecting when disconnected', async () => {
+      mockUseRealtimePayments.mockReturnValue({
         isConnected: false,
         payments: [],
       });
@@ -776,6 +776,12 @@ describe('DashboardPage', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Reconnecting...')).toBeInTheDocument();
+      });
+
+      // Restore default mock
+      mockUseRealtimePayments.mockReturnValue({
+        isConnected: true,
+        payments: [],
       });
     });
   });

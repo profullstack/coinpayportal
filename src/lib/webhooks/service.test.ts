@@ -383,9 +383,23 @@ describe('Webhook Service', () => {
       expect(mockChain.eq).toHaveBeenCalledWith('business_id', 'biz-123');
     });
 
-    it.skip('should filter logs by payment_id', async () => {
-      // Skipping due to complex mock chain behavior
-      // Functionality is tested in integration
+    it('should filter logs by payment_id', async () => {
+      const mockLogs = [{ id: 'log-1', payment_id: 'pay-456' }];
+      const mockChain = (mockSupabase as any)._chain;
+
+      // Chain: select→eq(business_id)→order→eq(payment_id)→await
+      // eq is called twice; first returns chain, second must resolve
+      mockChain.eq
+        .mockReturnValueOnce(mockChain)          // eq('business_id', ...)
+        .mockResolvedValueOnce({ data: mockLogs, error: null }); // eq('payment_id', ...)
+
+      const result = await getWebhookLogs(mockSupabase, 'biz-123', { payment_id: 'pay-456' });
+
+      expect(result.success).toBe(true);
+      expect(result.logs).toEqual(mockLogs);
+
+      // Restore default
+      mockChain.eq.mockReturnValue(mockChain);
     });
 
     it('should limit number of logs returned', async () => {

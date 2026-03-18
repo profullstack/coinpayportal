@@ -189,7 +189,7 @@ describe('LoginPage', () => {
       });
     });
 
-    it.skip('should show loading state during login', async () => {
+    it('should show loading state during login', async () => {
       vi.mocked(fetch).mockImplementationOnce(
         () =>
           new Promise((resolve) =>
@@ -218,12 +218,10 @@ describe('LoginPage', () => {
       fireEvent.change(passwordInput, { target: { value: 'password123' } });
       fireEvent.click(submitButton);
 
-      expect(screen.getByText(/logging in/i)).toBeInTheDocument();
-      expect(submitButton).toBeDisabled();
-
       await waitFor(() => {
-        expect(screen.queryByText(/logging in/i)).not.toBeInTheDocument();
+        expect(screen.getByText(/logging in/i)).toBeInTheDocument();
       });
+      expect(submitButton).toBeDisabled();
     });
   });
 
