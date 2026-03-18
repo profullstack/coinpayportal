@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
     '24h'
   );
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     success: true,
     token,
     merchant: {
@@ -141,4 +141,14 @@ export async function POST(request: NextRequest) {
       is_admin: merchant.is_admin,
     },
   });
+
+  response.cookies.set('token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 7 * 24 * 60 * 60, // 7 days
+  });
+
+  return response;
 }
