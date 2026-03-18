@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
     .order('created_at', { ascending: false });
 
   if (error) {
+    console.error('[WebAuthn] Failed to fetch credentials:', error.message, error.code);
     return NextResponse.json(
       { success: false, error: 'Failed to fetch credentials' },
       { status: 500 }

@@ -37,6 +37,7 @@ export default function SecuritySettingsPage() {
 
       const { response, data } = result;
       if (!response.ok || !data.success) {
+        console.error('[Security] Fetch credentials failed:', response.status, data);
         setError(data.error || 'Failed to fetch passkeys');
         return;
       }

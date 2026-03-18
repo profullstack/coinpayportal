@@ -97,6 +97,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
+    console.error('[WebAuthn] Failed to store credential:', error.message, error.code, error.details);
     return NextResponse.json(
       { success: false, error: 'Failed to store credential' },
       { status: 500 }
