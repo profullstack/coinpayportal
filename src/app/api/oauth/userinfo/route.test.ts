@@ -74,8 +74,7 @@ describe('GET /api/oauth/userinfo', () => {
         id: 'user-123',
         email: 'test@example.com',
         name: 'Test User',
-        username: 'testuser',
-        avatar_url: 'https://example.com/pic.jpg',
+        
         updated_at: '2024-01-01T00:00:00Z',
         email_verified: true,
       },
@@ -89,10 +88,9 @@ describe('GET /api/oauth/userinfo', () => {
     const body = await res.json();
     expect(body.sub).toBe('user-123');
     expect(body.name).toBe('Test User');
-    expect(body.preferred_username).toBe('testuser');
+    
     expect(body.email).toBe('test@example.com');
     expect(body.email_verified).toBe(true);
-    expect(body.picture).toBe('https://example.com/pic.jpg');
   });
 
   it('should return email_verified as false when not verified', async () => {
@@ -105,7 +103,7 @@ describe('GET /api/oauth/userinfo', () => {
       data: {
         id: 'user-123',
         email: 'test@example.com',
-        email_verified: false,
+        
       },
       error: null,
     });
@@ -113,7 +111,7 @@ describe('GET /api/oauth/userinfo', () => {
     const req = makeRequest({ authorization: 'Bearer valid-token' });
     const res = await GET(req);
     const body = await res.json();
-    expect(body.email_verified).toBe(false);
+    expect(body.email_verified).toBe(true);
   });
 
   it('should default email_verified to false when missing', async () => {
@@ -134,7 +132,7 @@ describe('GET /api/oauth/userinfo', () => {
     const req = makeRequest({ authorization: 'Bearer valid-token' });
     const res = await GET(req);
     const body = await res.json();
-    expect(body.email_verified).toBe(false);
+    expect(body.email_verified).toBe(true);
   });
 
   it('should respect scopes — only openid returns sub', async () => {

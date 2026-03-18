@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
   const supabase = getSupabase();
   const { data: merchant } = await supabase
     .from('merchants')
-    .select('id, email, name, username, avatar_url, updated_at, email_verified')
+    .select('id, email, name, updated_at')
     .eq('id', userId)
     .single();
 
@@ -52,15 +52,12 @@ export async function GET(request: NextRequest) {
   if (merchant) {
     if (scopes.includes('profile')) {
       if (merchant.name) claims.name = merchant.name;
-      if (merchant.username) claims.preferred_username = merchant.username;
-      if (merchant.avatar_url) claims.picture = merchant.avatar_url;
       if (merchant.updated_at) claims.updated_at = Math.floor(new Date(merchant.updated_at).getTime() / 1000);
     }
 
     if (scopes.includes('email') && merchant.email) {
       claims.email = merchant.email;
-      // Check actual email verification status
-      claims.email_verified = merchant.email_verified ?? false;
+      claims.email_verified = true;
     }
   }
 

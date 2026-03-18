@@ -144,7 +144,7 @@ export async function GET(request: NextRequest) {
       const code = generateAuthorizationCode();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
-      await supabase.from('oauth_authorization_codes').insert({
+      const codeRecord: Record<string, any> = {
         code,
         client_id: clientId,
         user_id: user.id,
@@ -152,9 +152,11 @@ export async function GET(request: NextRequest) {
         scopes,
         code_challenge: codeChallenge || null,
         code_challenge_method: codeChallengeMethod || null,
-        nonce: nonce || null,
         expires_at: expiresAt,
-      });
+      };
+      if (nonce) codeRecord.nonce = nonce;
+
+      await supabase.from('oauth_authorization_codes').insert(codeRecord);
 
       const callbackUrl = new URL(redirectUri);
       callbackUrl.searchParams.set('code', code);
@@ -251,7 +253,7 @@ export async function POST(request: NextRequest) {
   const code = generateAuthorizationCode();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
-  await supabase.from('oauth_authorization_codes').insert({
+  const consentCodeRecord: Record<string, any> = {
     code,
     client_id: clientId,
     user_id: user.id,
@@ -259,9 +261,11 @@ export async function POST(request: NextRequest) {
     scopes,
     code_challenge: codeChallenge || null,
     code_challenge_method: codeChallengeMethod || null,
-    nonce: nonce || null,
     expires_at: expiresAt,
-  });
+  };
+  if (nonce) consentCodeRecord.nonce = nonce;
+
+  await supabase.from('oauth_authorization_codes').insert(consentCodeRecord);
 
   const callbackUrl = new URL(redirectUri);
   callbackUrl.searchParams.set('code', code);

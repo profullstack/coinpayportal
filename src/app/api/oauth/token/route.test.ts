@@ -90,7 +90,7 @@ describe('POST /api/oauth/token', () => {
       code_challenge_method: null,
       nonce: 'test-nonce',
       expires_at: new Date(Date.now() + 600000).toISOString(),
-      used_at: null,
+      used: false,
     };
 
     it('should exchange valid code for tokens', async () => {
@@ -161,7 +161,7 @@ describe('POST /api/oauth/token', () => {
       mockSingle.mockResolvedValue({
         data: {
           ...validCodeData,
-          used_at: new Date().toISOString(),
+          used: true,
         },
         error: null,
       });
@@ -376,7 +376,7 @@ describe('POST /api/oauth/token', () => {
               user_id: 'user-123',
               scopes: ['openid', 'profile'],
               expires_at: new Date(Date.now() + 86400000).toISOString(),
-              revoked_at: null,
+              revoked: false,
             },
             error: null,
           });

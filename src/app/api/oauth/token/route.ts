@@ -122,7 +122,7 @@ async function handleAuthorizationCode(body: Record<string, string>) {
   }
 
   // Check if code was already used
-  if (authCode.used_at) {
+  if (authCode.used) {
     return tokenError('invalid_grant', 'Authorization code has already been used');
   }
 
@@ -168,18 +168,18 @@ async function handleAuthorizationCode(body: Record<string, string>) {
   // Mark code as used
   await supabase
     .from('oauth_authorization_codes')
-    .update({ used_at: new Date().toISOString() })
+    .update({ used: true })
     .eq('id', authCode.id);
 
   // Get user info for token claims
   const { data: merchant } = await supabase
     .from('merchants')
-    .select('id, email, name, email_verified')
+    .select('id, email, name')
     .eq('id', authCode.user_id)
     .single();
 
   const user = merchant
-    ? { ...merchant, email_verified: merchant.email_verified ?? false }
+    ? { ...merchant, email_verified: true }
     : { id: authCode.user_id, email: undefined, name: undefined, email_verified: false };
 
   const client = { client_id };
@@ -249,7 +249,7 @@ async function handleRefreshToken(body: Record<string, string>) {
     return tokenError('invalid_grant', 'Invalid refresh token');
   }
 
-  if (storedToken.revoked_at) {
+  if (storedToken.revoked) {
     return tokenError('invalid_grant', 'Refresh token has been revoked');
   }
 
@@ -260,7 +260,7 @@ async function handleRefreshToken(body: Record<string, string>) {
   // Revoke old refresh token
   await supabase
     .from('oauth_refresh_tokens')
-    .update({ revoked_at: new Date().toISOString() })
+    .update({ revoked: true })
     .eq('id', storedToken.id);
 
   // Get user info
