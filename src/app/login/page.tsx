@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get('redirect') || searchParams.get('redirectTo');
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -36,7 +38,9 @@ export default function LoginPage() {
         window.dispatchEvent(new Event('auth-change'));
       }
 
-      if (data.merchant?.is_admin) {
+      if (redirectTo) {
+        window.location.href = redirectTo;
+      } else if (data.merchant?.is_admin) {
         window.location.href = '/admin';
       } else {
         window.location.href = '/dashboard';
@@ -84,7 +88,11 @@ export default function LoginPage() {
         window.dispatchEvent(new Event('auth-change'));
       }
 
-      router.push('/dashboard');
+      if (redirectTo) {
+        window.location.href = redirectTo;
+      } else {
+        router.push('/dashboard');
+      }
     } catch (err: any) {
       if (err.name === 'NotAllowedError') {
         setError('Passkey sign-in was cancelled.');
@@ -202,5 +210,17 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-[calc(100vh-200px)] flex items-center justify-center">
+        <div className="text-gray-400">Loading...</div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }
