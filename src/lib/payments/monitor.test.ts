@@ -14,12 +14,24 @@ const mockSupabase = {
   eq: vi.fn(() => mockSupabase),
   in: vi.fn(() => mockSupabase),
   lt: vi.fn(() => mockSupabase),
+  lte: vi.fn(() => mockSupabase),
+  gt: vi.fn(() => mockSupabase),
+  gte: vi.fn(() => mockSupabase),
+  neq: vi.fn(() => mockSupabase),
+  limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
+  order: vi.fn(() => mockSupabase),
   update: vi.fn(() => mockSupabase),
-  single: vi.fn(),
+  single: vi.fn(() => Promise.resolve({ data: null, error: null })),
+  insert: vi.fn(() => mockSupabase),
+  match: vi.fn(() => mockSupabase),
 };
 
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(() => mockSupabase),
+  createClient: vi.fn(() => ({
+    ...mockSupabase,
+    from: (...args: any[]) => mockSupabase.from(...args),
+    realtime: { disconnect: vi.fn() },
+  })),
 }));
 
 // Mock secure forwarding
@@ -35,10 +47,27 @@ vi.mock('../web-wallet/tx-finalize', () => ({
 // Mock fetch for balance checks
 global.fetch = vi.fn();
 
+// Helper: create a default chainable mock that resolves to empty data
+function createDefaultChain(): any {
+  const chain: any = {};
+  const methods = ['select', 'eq', 'in', 'lt', 'lte', 'gt', 'gte', 'neq', 'order', 'update', 'insert', 'match', 'upsert', 'delete'];
+  methods.forEach(m => { chain[m] = vi.fn(() => chain); });
+  chain.limit = vi.fn(() => Promise.resolve({ data: [], error: null }));
+  chain.single = vi.fn(() => Promise.resolve({ data: null, error: null }));
+  return chain;
+}
+
 describe('Payment Monitor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    // Reset mockSupabase methods to defaults so each test starts clean
+    const defaults = createDefaultChain();
+    Object.keys(defaults).forEach(key => {
+      (mockSupabase as any)[key] = defaults[key];
+    });
+    // Default from() returns mockSupabase for backward compat
+    mockSupabase.from = vi.fn(() => mockSupabase);
   });
 
   afterEach(() => {
@@ -47,8 +76,9 @@ describe('Payment Monitor', () => {
 
   describe('Balance Checking (via runOnce)', () => {
     it('should check BTC balance using Blockstream API', async () => {
-      // Mock pending payments with BTC
-      mockSupabase.select = vi.fn(() => ({
+      // Mock pending payments with BTC — use table-aware from()
+      const paymentsChain = createDefaultChain();
+      paymentsChain.select = vi.fn(() => ({
         eq: vi.fn(() => ({
           limit: vi.fn(() => Promise.resolve({
             data: [{
@@ -65,6 +95,9 @@ describe('Payment Monitor', () => {
           })),
         })),
       }));
+      mockSupabase.from = vi.fn((table: string) =>
+        table === 'payments' ? paymentsChain : createDefaultChain()
+      );
 
       const mockResponse = {
         ok: true,
@@ -85,7 +118,8 @@ describe('Payment Monitor', () => {
 
     it('should check ETH balance using JSON-RPC', async () => {
       // Mock pending payments with ETH
-      mockSupabase.select = vi.fn(() => ({
+      const paymentsChain = createDefaultChain();
+      paymentsChain.select = vi.fn(() => ({
         eq: vi.fn(() => ({
           limit: vi.fn(() => Promise.resolve({
             data: [{
@@ -102,6 +136,9 @@ describe('Payment Monitor', () => {
           })),
         })),
       }));
+      mockSupabase.from = vi.fn((table: string) =>
+        table === 'payments' ? paymentsChain : createDefaultChain()
+      );
 
       const mockResponse = {
         ok: true,
@@ -119,7 +156,8 @@ describe('Payment Monitor', () => {
 
     it('should check SOL balance using Solana RPC', async () => {
       // Mock pending payments with SOL
-      mockSupabase.select = vi.fn(() => ({
+      const paymentsChain = createDefaultChain();
+      paymentsChain.select = vi.fn(() => ({
         eq: vi.fn(() => ({
           limit: vi.fn(() => Promise.resolve({
             data: [{
@@ -136,6 +174,9 @@ describe('Payment Monitor', () => {
           })),
         })),
       }));
+      mockSupabase.from = vi.fn((table: string) =>
+        table === 'payments' ? paymentsChain : createDefaultChain()
+      );
 
       const mockResponse = {
         ok: true,
@@ -153,7 +194,8 @@ describe('Payment Monitor', () => {
 
     it('should handle network errors gracefully', async () => {
       // Mock pending payments
-      mockSupabase.select = vi.fn(() => ({
+      const paymentsChain = createDefaultChain();
+      paymentsChain.select = vi.fn(() => ({
         eq: vi.fn(() => ({
           limit: vi.fn(() => Promise.resolve({
             data: [{
@@ -170,6 +212,9 @@ describe('Payment Monitor', () => {
           })),
         })),
       }));
+      mockSupabase.from = vi.fn((table: string) =>
+        table === 'payments' ? paymentsChain : createDefaultChain()
+      );
 
       vi.mocked(global.fetch).mockRejectedValue(new Error('Network error'));
 
@@ -220,12 +265,17 @@ describe('Payment Monitor', () => {
         },
       ];
 
-      mockSupabase.select = vi.fn(() => ({
+      const paymentsChain = createDefaultChain();
+      paymentsChain.select = vi.fn(() => ({
         eq: vi.fn(() => ({
           lt: vi.fn(() => Promise.resolve({ data: mockPayments, error: null })),
+          limit: vi.fn(() => Promise.resolve({ data: mockPayments, error: null })),
         })),
         in: vi.fn(() => Promise.resolve({ data: mockAddresses, error: null })),
       }));
+      mockSupabase.from = vi.fn((table: string) =>
+        table === 'payments' ? paymentsChain : createDefaultChain()
+      );
 
       // Mock balance check to return 0 (no payment received)
       vi.mocked(global.fetch).mockResolvedValue({
@@ -254,16 +304,20 @@ describe('Payment Monitor', () => {
         expires_at: new Date(Date.now() - 1000).toISOString(), // Already expired
       };
 
-      mockSupabase.select = vi.fn(() => ({
+      const paymentsChain = createDefaultChain();
+      paymentsChain.select = vi.fn(() => ({
         eq: vi.fn(() => ({
           lt: vi.fn(() => Promise.resolve({ data: [expiredPayment], error: null })),
+          limit: vi.fn(() => Promise.resolve({ data: [expiredPayment], error: null })),
         })),
         in: vi.fn(() => Promise.resolve({ data: [], error: null })),
       }));
-
-      mockSupabase.update = vi.fn(() => ({
+      paymentsChain.update = vi.fn(() => ({
         eq: vi.fn(() => Promise.resolve({ data: null, error: null })),
       }));
+      mockSupabase.from = vi.fn((table: string) =>
+        table === 'payments' ? paymentsChain : createDefaultChain()
+      );
 
       const { runOnce } = await import('./monitor');
       await runOnce();
@@ -291,12 +345,20 @@ describe('Payment Monitor', () => {
         cryptocurrency: 'BTC',
       };
 
-      mockSupabase.select = vi.fn(() => ({
+      const paymentsChain = createDefaultChain();
+      paymentsChain.select = vi.fn(() => ({
         eq: vi.fn(() => ({
           lt: vi.fn(() => Promise.resolve({ data: [mockPayment], error: null })),
+          limit: vi.fn(() => Promise.resolve({ data: [mockPayment], error: null })),
         })),
         in: vi.fn(() => Promise.resolve({ data: [mockAddress], error: null })),
       }));
+      paymentsChain.update = vi.fn(() => ({
+        eq: vi.fn(() => Promise.resolve({ data: null, error: null })),
+      }));
+      mockSupabase.from = vi.fn((table: string) =>
+        table === 'payments' ? paymentsChain : createDefaultChain()
+      );
 
       // Mock balance check to return exact expected amount
       vi.mocked(global.fetch).mockResolvedValue({
@@ -306,10 +368,6 @@ describe('Payment Monitor', () => {
           mempool_stats: { funded_txo_sum: 0, spent_txo_sum: 0 },
         }),
       } as any);
-
-      mockSupabase.update = vi.fn(() => ({
-        eq: vi.fn(() => Promise.resolve({ data: null, error: null })),
-      }));
 
       const { runOnce } = await import('./monitor');
       const result = await runOnce();
