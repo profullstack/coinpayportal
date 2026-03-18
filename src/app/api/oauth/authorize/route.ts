@@ -26,6 +26,14 @@ function oauthError(redirectUri: string, error: string, description: string, sta
 }
 
 /**
+ * Get the public-facing origin for redirects.
+ * Behind a reverse proxy, request.url may be localhost:PORT — use APP_URL instead.
+ */
+function getPublicOrigin(requestUrl: URL): string {
+  return process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || requestUrl.origin;
+}
+
+/**
  * Extract authenticated user from request cookies/headers
  */
 async function getAuthenticatedUser(request: NextRequest): Promise<{ id: string; email?: string } | null> {
@@ -112,8 +120,9 @@ export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request);
   if (!user) {
     // Redirect to login with return URL
+    const publicOrigin = getPublicOrigin(url);
     const returnUrl = url.pathname + url.search;
-    const loginUrl = new URL('/login', url.origin);
+    const loginUrl = new URL('/login', publicOrigin);
     loginUrl.searchParams.set('redirect', returnUrl);
     return NextResponse.redirect(loginUrl.toString(), 302);
   }
@@ -155,7 +164,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Redirect to consent page
-  const consentUrl = new URL('/oauth/consent', url.origin);
+  const consentUrl = new URL('/oauth/consent', getPublicOrigin(url));
   consentUrl.searchParams.set('client_id', clientId);
   consentUrl.searchParams.set('redirect_uri', redirectUri);
   consentUrl.searchParams.set('scope', scopes.join(' '));
