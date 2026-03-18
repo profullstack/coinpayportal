@@ -1,21 +1,16 @@
 /**
- * POST /api/escrow/multisig/:id/sign
+ * POST /api/escrow/multisig/:id/propose
  *
- * Add a signature to a multisig proposal.
- * Each participant can sign once. When threshold (2) is reached,
- * the proposal is marked as approved and ready for broadcast.
+ * Propose a transaction (release or refund) for a multisig escrow.
+ * Returns transaction data that signers need to sign.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import {
-  signProposal,
-  signProposalSchema,
+  proposeTransaction,
+  proposeTransactionSchema,
 } from '@/lib/multisig';
-<<<<<<< HEAD
-import { requireMultisigAuth } from '../../auth';
-=======
->>>>>>> feat/multisig-escrow
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -29,18 +24,12 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-<<<<<<< HEAD
-    const auth = await requireMultisigAuth(request);
-    if (!auth.ok) return auth.response;
-
-=======
->>>>>>> feat/multisig-escrow
     const { id: escrowId } = await params;
     const supabase = getSupabase();
     const body = await request.json();
 
     // Validate input
-    const parsed = signProposalSchema.safeParse(body);
+    const parsed = proposeTransactionSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { error: parsed.error.errors[0].message },
@@ -48,12 +37,12 @@ export async function POST(
       );
     }
 
-    const result = await signProposal(
+    const result = await proposeTransaction(
       supabase,
       escrowId,
-      parsed.data.proposal_id,
+      parsed.data.proposal_type,
+      parsed.data.to_address,
       parsed.data.signer_pubkey,
-      parsed.data.signature,
     );
 
     if (!result.success) {
@@ -61,12 +50,11 @@ export async function POST(
     }
 
     return NextResponse.json({
-      signature: result.signature,
-      signatures_collected: result.signatures_collected,
-      threshold_met: result.threshold_met,
-    });
+      proposal: result.proposal,
+      tx_data: result.tx_data,
+    }, { status: 201 });
   } catch (error) {
-    console.error('Failed to sign proposal:', error);
+    console.error('Failed to propose transaction:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 },

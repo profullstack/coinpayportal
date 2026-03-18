@@ -28,7 +28,11 @@ ALTER TABLE escrows DROP CONSTRAINT IF EXISTS escrows_status_check;
 ALTER TABLE escrows ADD CONSTRAINT escrows_status_check CHECK (status IN (
   'created', 'pending', 'funded', 'released', 'settled',
   'disputed', 'refunded', 'expired'
+<<<<<<< HEAD
 )) NOT VALID;
+=======
+));
+>>>>>>> feat/multisig-escrow
 
 -- Update escrow_events event_type CHECK to include multisig events
 ALTER TABLE escrow_events DROP CONSTRAINT IF EXISTS escrow_events_event_type_check;
@@ -37,7 +41,11 @@ ALTER TABLE escrow_events ADD CONSTRAINT escrow_events_event_type_check CHECK (e
   'disputed', 'dispute_resolved', 'refunded', 'expired',
   'metadata_updated',
   'multisig_created', 'proposal_created', 'signature_added', 'tx_broadcast'
+<<<<<<< HEAD
 )) NOT VALID;
+=======
+));
+>>>>>>> feat/multisig-escrow
 
 -- Update chain CHECK to include additional EVM chains
 ALTER TABLE escrows DROP CONSTRAINT IF EXISTS escrows_chain_check;
@@ -48,6 +56,7 @@ ALTER TABLE escrows ADD CONSTRAINT escrows_chain_check CHECK (chain IN (
   'USDC_ETH', 'USDC_POL', 'USDC_SOL',
   'BASE', 'ARB', 'OP', 'AVAX',
   'LTC'
+<<<<<<< HEAD
 )) NOT VALID;
 
 CREATE INDEX IF NOT EXISTS idx_escrows_escrow_model ON escrows(escrow_model);
@@ -63,6 +72,12 @@ ALTER TABLE escrows ADD CONSTRAINT escrows_multisig_fields_check CHECK (
   (escrow_model = 'custodial')
 );
 
+=======
+));
+
+CREATE INDEX IF NOT EXISTS idx_escrows_escrow_model ON escrows(escrow_model);
+
+>>>>>>> feat/multisig-escrow
 -- ============================================================
 -- 2. multisig_proposals — tracks proposed transactions
 -- ============================================================
@@ -84,9 +99,12 @@ CREATE TABLE IF NOT EXISTS multisig_proposals (
 
 CREATE INDEX IF NOT EXISTS idx_multisig_proposals_escrow ON multisig_proposals(escrow_id);
 CREATE INDEX IF NOT EXISTS idx_multisig_proposals_status ON multisig_proposals(status);
+<<<<<<< HEAD
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_multisig_proposals_escrow_pending
   ON multisig_proposals(escrow_id)
   WHERE status = 'pending';
+=======
+>>>>>>> feat/multisig-escrow
 
 -- ============================================================
 -- 3. multisig_signatures — tracks collected signatures
@@ -131,9 +149,12 @@ COMMENT ON COLUMN escrows.dispute_status IS 'Dispute sub-status for arbiter reso
 COMMENT ON TABLE multisig_proposals IS 'Proposed transactions for multisig escrows';
 COMMENT ON TABLE multisig_signatures IS 'Signatures collected for multisig proposals';
 
+<<<<<<< HEAD
 -- Validate NOT VALID constraints so existing rows are checked post-migration.
 ALTER TABLE escrows VALIDATE CONSTRAINT escrows_status_check;
 ALTER TABLE escrow_events VALIDATE CONSTRAINT escrow_events_event_type_check;
 ALTER TABLE escrows VALIDATE CONSTRAINT escrows_chain_check;
 
+=======
+>>>>>>> feat/multisig-escrow
 COMMIT;

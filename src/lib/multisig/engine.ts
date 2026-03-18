@@ -234,6 +234,7 @@ export async function proposeTransaction(
     return { success: false, error: `Cannot propose transaction in status: ${escrow.status}` };
   }
 
+<<<<<<< HEAD
   // Arbiter may only propose while disputed
   if (role === 'arbiter' && escrow.status !== 'disputed') {
     return { success: false, error: 'Arbiter can only propose during disputes' };
@@ -247,6 +248,8 @@ export async function proposeTransaction(
     return { success: false, error: 'Refund proposals must pay the depositor address' };
   }
 
+=======
+>>>>>>> feat/multisig-escrow
   // Authorization rules
   if (proposalType === 'release' && role === 'beneficiary') {
     // Beneficiary cannot self-release — needs depositor or arbiter
@@ -290,10 +293,14 @@ export async function proposeTransaction(
         proposal_type: proposalType,
         to_address: toAddress,
         amount: escrow.amount,
+<<<<<<< HEAD
         chain_tx_data: {
           ...txResult.tx_data,
           tx_hash_to_sign: txResult.tx_hash_to_sign,
         },
+=======
+        chain_tx_data: txResult.tx_data,
+>>>>>>> feat/multisig-escrow
         status: 'pending',
         created_by: signerPubkey,
       })
@@ -510,6 +517,7 @@ export async function broadcastTransaction(
       return { success: false, error: 'Broadcast failed' };
     }
 
+<<<<<<< HEAD
     if (result.broadcasted !== true) {
       // Prepared/simulated success path: do not mutate proposal/escrow state yet.
       return {
@@ -521,6 +529,8 @@ export async function broadcastTransaction(
       };
     }
 
+=======
+>>>>>>> feat/multisig-escrow
     // Update proposal
     await supabase
       .from('multisig_proposals')
@@ -556,8 +566,11 @@ export async function broadcastTransaction(
     return {
       success: true,
       tx_hash: result.tx_hash,
+<<<<<<< HEAD
       broadcasted: true,
       stage: 'broadcasted',
+=======
+>>>>>>> feat/multisig-escrow
       proposal: {
         ...proposal,
         status: 'executed',

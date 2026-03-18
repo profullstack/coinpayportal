@@ -12,7 +12,10 @@ import {
   disputeMultisigEscrow,
   disputeSchema,
 } from '@/lib/multisig';
+<<<<<<< HEAD
 import { requireMultisigAuth } from '../../auth';
+=======
+>>>>>>> feat/multisig-escrow
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -26,9 +29,12 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+<<<<<<< HEAD
     const auth = await requireMultisigAuth(request);
     if (!auth.ok) return auth.response;
 
+=======
+>>>>>>> feat/multisig-escrow
     const { id: escrowId } = await params;
     const supabase = getSupabase();
     const body = await request.json();

@@ -5,8 +5,11 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
+<<<<<<< HEAD
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
+=======
+>>>>>>> feat/multisig-escrow
 import { SolanaMultisigAdapter } from './solana-multisig';
 
 // Valid Solana base58 public keys (system program and well-known program addresses)
@@ -105,6 +108,7 @@ describe('SolanaMultisigAdapter', () => {
   });
 
   describe('verifySignature', () => {
+<<<<<<< HEAD
     it('should verify a valid Ed25519 signature against tx_hash_to_sign', async () => {
       const keypair = nacl.sign.keyPair();
       const signerPubkey = bs58.encode(Buffer.from(keypair.publicKey));
@@ -149,6 +153,26 @@ describe('SolanaMultisigAdapter', () => {
         { members: [SOL_PK_2], tx_hash_to_sign: msgHash.toString('hex') },
         Buffer.from(signature).toString('hex'),
         signerPubkey,
+=======
+    it('should accept valid Ed25519 signature format (64 bytes)', async () => {
+      const sig64bytes = 'aa'.repeat(64); // 64 bytes as hex
+      const valid = await adapter.verifySignature(
+        'SOL',
+        { members: [SOL_PK_1] },
+        sig64bytes,
+        SOL_PK_1,
+      );
+      expect(valid).toBe(true);
+    });
+
+    it('should reject signer not in members list', async () => {
+      const sig64bytes = 'aa'.repeat(64);
+      const valid = await adapter.verifySignature(
+        'SOL',
+        { members: [SOL_PK_2] },
+        sig64bytes,
+        SOL_PK_1, // not in members
+>>>>>>> feat/multisig-escrow
       );
       expect(valid).toBe(false);
     });

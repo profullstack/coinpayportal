@@ -19,7 +19,10 @@
  */
 
 import * as bitcoin from 'bitcoinjs-lib';
+<<<<<<< HEAD
 import * as secp256k1 from 'tiny-secp256k1';
+=======
+>>>>>>> feat/multisig-escrow
 import type { ChainAdapter } from './interface';
 import type {
   MultisigChain,
@@ -242,14 +245,26 @@ export class BtcMultisigAdapter implements ChainAdapter {
   ): Promise<boolean> {
     try {
       const pubkeyBuf = parsePubkey(signerPubkey);
+<<<<<<< HEAD
       const txHash = txData.tx_hash_to_sign as string | undefined;
 
       // Check that the pubkey is one of the expected participants when provided.
+=======
+      const sigBuf = Buffer.from(signature, 'hex');
+
+      // Verify the hash matches the pubkey and signature
+      // In production, this would verify the actual PSBT input signature
+      const witnessScript = txData.witness_script as string;
+      if (!witnessScript) return false;
+
+      // Check that the pubkey is one of the multisig participants
+>>>>>>> feat/multisig-escrow
       const pubkeys = txData.pubkeys as string[] | undefined;
       if (pubkeys && !pubkeys.includes(signerPubkey)) {
         return false;
       }
 
+<<<<<<< HEAD
       // tx_hash_to_sign is required for cryptographic verification.
       // Fail closed when missing/malformed.
       if (!txHash || txHash.length !== 64) {
@@ -274,6 +289,10 @@ export class BtcMultisigAdapter implements ChainAdapter {
         if (sigBuf.length !== 64) return false;
         return secp256k1.verify(msgHash, pubkeyBuf, sigBuf);
       }
+=======
+      // Basic signature format validation (DER-encoded or Schnorr)
+      return sigBuf.length >= 64 && pubkeyBuf.length >= 33;
+>>>>>>> feat/multisig-escrow
     } catch {
       return false;
     }
@@ -293,7 +312,11 @@ export class BtcMultisigAdapter implements ChainAdapter {
     }
 
     if (signatures.length < 2) {
+<<<<<<< HEAD
       return { tx_hash: '', success: false, broadcasted: false };
+=======
+      return { tx_hash: '', success: false };
+>>>>>>> feat/multisig-escrow
     }
 
     // In production:
@@ -311,7 +334,10 @@ export class BtcMultisigAdapter implements ChainAdapter {
     return {
       tx_hash: txid,
       success: true,
+<<<<<<< HEAD
       broadcasted: false,
+=======
+>>>>>>> feat/multisig-escrow
     };
   }
 }
