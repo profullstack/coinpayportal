@@ -154,49 +154,49 @@ export default function GlobalWalletsPage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading wallets...</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-300">Loading wallets...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-            <Link href="/settings" className="hover:text-purple-600">
+          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-2">
+            <Link href="/settings" className="hover:text-purple-600 dark:hover:text-purple-400">
               Settings
             </Link>
             <span>/</span>
-            <span className="text-gray-900">Global Wallets</span>
+            <span className="text-gray-900 dark:text-white">Global Wallets</span>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">Global Wallet Addresses</h1>
-          <p className="mt-2 text-gray-600">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Global Wallet Addresses</h1>
+          <p className="mt-2 text-gray-600 dark:text-gray-300">
             Define wallet addresses once and import them into any of your businesses.
           </p>
         </div>
 
         {/* Error Message */}
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          <div className="mb-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg">
             {error}
           </div>
         )}
 
         {/* Success Message */}
         {success && (
-          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
+          <div className="mb-6 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300 px-4 py-3 rounded-lg">
             {success}
           </div>
         )}
 
         {/* Main Card */}
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
           {/* Card Header */}
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-gray-900">Your Wallets</h2>
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Your Wallets</h2>
             {availableCryptos.length > 0 && (
               <button
                 onClick={() => setShowAddWallet(true)}
@@ -220,17 +220,17 @@ export default function GlobalWalletsPage() {
 
           {/* Add Wallet Form */}
           {showAddWallet && (
-            <form onSubmit={handleSubmit} className="p-6 bg-gray-50 border-b border-gray-200 space-y-4">
+            <form onSubmit={handleSubmit} className="p-6 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Cryptocurrency *
                   </label>
                   <select
                     required
                     value={formData.cryptocurrency}
                     onChange={(e) => setFormData({ ...formData, cryptocurrency: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   >
                     <option value="">Select cryptocurrency</option>
                     {availableCryptos.map((crypto) => (
@@ -242,14 +242,14 @@ export default function GlobalWalletsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Label (optional)
                   </label>
                   <input
                     type="text"
                     value={formData.label}
                     onChange={(e) => setFormData({ ...formData, label: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     placeholder="e.g., Main ETH Wallet"
                     maxLength={100}
                   />
@@ -257,7 +257,7 @@ export default function GlobalWalletsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Wallet Address *
                 </label>
                 <input
@@ -265,7 +265,7 @@ export default function GlobalWalletsPage() {
                   required
                   value={formData.wallet_address}
                   onChange={(e) => setFormData({ ...formData, wallet_address: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono text-sm text-gray-900"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   placeholder="Enter wallet address"
                 />
               </div>
@@ -285,7 +285,7 @@ export default function GlobalWalletsPage() {
                     setFormData({ cryptocurrency: '', wallet_address: '', label: '' });
                     setError('');
                   }}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
                 >
                   Cancel
                 </button>
@@ -298,7 +298,7 @@ export default function GlobalWalletsPage() {
             {wallets.length === 0 ? (
               <div className="text-center py-12">
                 <svg
-                  className="mx-auto h-12 w-12 text-gray-400"
+                  className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
                   fill="none"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -308,8 +308,8 @@ export default function GlobalWalletsPage() {
                 >
                   <path d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
                 </svg>
-                <h3 className="mt-2 text-sm font-medium text-gray-900">No global wallets</h3>
-                <p className="mt-1 text-sm text-gray-500">
+                <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No global wallets</h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                   Add wallet addresses here and import them into your businesses.
                 </p>
                 {!showAddWallet && (
@@ -337,31 +337,31 @@ export default function GlobalWalletsPage() {
                 {wallets.map((wallet) => (
                   <div
                     key={wallet.id}
-                    className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
+                    className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900 rounded-lg"
                   >
                     <div className="flex-1">
                       <div className="flex items-center space-x-2 mb-1">
-                        <span className="font-semibold text-gray-900">{wallet.cryptocurrency}</span>
+                        <span className="font-semibold text-gray-900 dark:text-white">{wallet.cryptocurrency}</span>
                         {wallet.label && (
-                          <span className="px-2 py-1 text-xs font-medium text-purple-700 bg-purple-100 rounded">
+                          <span className="px-2 py-1 text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/30 rounded">
                             {wallet.label}
                           </span>
                         )}
                         {wallet.is_active && (
-                          <span className="px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded">
+                          <span className="px-2 py-1 text-xs font-medium text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900/30 rounded">
                             Active
                           </span>
                         )}
                       </div>
                       <div className="flex items-center space-x-2">
-                        <p className="text-sm text-gray-600 font-mono break-all">
+                        <p className="text-sm text-gray-600 dark:text-gray-300 font-mono break-all">
                           {wallet.wallet_address}
                         </p>
                         <button
                           onClick={() =>
                             copyToClipboard(wallet.wallet_address, `${wallet.cryptocurrency} wallet address`)
                           }
-                          className="text-purple-600 hover:text-purple-500 flex-shrink-0"
+                          className="text-purple-600 dark:text-purple-400 hover:text-purple-500 dark:hover:text-purple-300 flex-shrink-0"
                           title="Copy to clipboard"
                         >
                           <svg
@@ -380,7 +380,7 @@ export default function GlobalWalletsPage() {
                     </div>
                     <button
                       onClick={() => handleDelete(wallet.cryptocurrency)}
-                      className="ml-4 text-sm font-medium text-red-600 hover:text-red-500"
+                      className="ml-4 text-sm font-medium text-red-600 dark:text-red-400 hover:text-red-500 dark:hover:text-red-300"
                     >
                       Remove
                     </button>
@@ -391,10 +391,10 @@ export default function GlobalWalletsPage() {
           </div>
 
           {/* Info Section */}
-          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+          <div className="px-6 py-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700">
             <div className="flex items-start space-x-3">
               <svg
-                className="h-5 w-5 text-blue-500 mt-0.5 flex-shrink-0"
+                className="h-5 w-5 text-blue-500 dark:text-blue-400 mt-0.5 flex-shrink-0"
                 fill="none"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -404,8 +404,8 @@ export default function GlobalWalletsPage() {
               >
                 <path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
               </svg>
-              <div className="text-sm text-gray-600">
-                <p className="font-medium text-gray-900 mb-1">How to use global wallets</p>
+              <div className="text-sm text-gray-600 dark:text-gray-300">
+                <p className="font-medium text-gray-900 dark:text-white mb-1">How to use global wallets</p>
                 <p>
                   Once you add wallet addresses here, go to any of your businesses and click
                   "Import Global Wallets" to quickly add them without re-entering the addresses.
@@ -419,7 +419,7 @@ export default function GlobalWalletsPage() {
         <div className="mt-6">
           <Link
             href="/settings"
-            className="text-purple-600 hover:text-purple-500 text-sm font-medium"
+            className="text-purple-600 dark:text-purple-400 hover:text-purple-500 dark:hover:text-purple-300 text-sm font-medium"
           >
             &larr; Back to Settings
           </Link>
