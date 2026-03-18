@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
-
+import { startRegistration } from '@simplewebauthn/browser';
 
 interface Passkey {
   id: string;
@@ -67,7 +67,7 @@ export default function SecuritySettingsPage() {
       }
 
       // 2. Start WebAuthn registration (browser prompt)
-      const { startRegistration } = await import('@simplewebauthn/browser');
+      // startRegistration imported at top level
       const credential = await startRegistration({ optionsJSON: optResult.data.options });
 
       // 3. Verify with server
