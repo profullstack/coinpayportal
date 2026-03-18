@@ -77,7 +77,7 @@ export default function Header() {
   };
 
   return (
-    <header className="bg-gray-900 border-b border-gray-800 sticky top-0 z-50">
+    <header className="bg-gray-900 border-b border-gray-800 sticky top-0 z-50" style={{ WebkitTransform: 'translateZ(0)' }}>
       <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8" aria-label="Top">
         <div className="flex w-full items-center justify-between py-3">
           {/* Logo */}
