@@ -283,7 +283,8 @@ describe('BusinessDetailPage', () => {
         expect(screen.getByRole('button', { name: /Transactions/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /Disputes/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /Payouts/i })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /Escrows/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Webhooks/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /API Keys/i })).toBeInTheDocument();
       });
     });
 
