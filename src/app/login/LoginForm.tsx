@@ -47,8 +47,10 @@ export default function LoginForm() {
         localStorage.setItem('auth_token', data.token);
       }
 
-      // Redirect based on admin status
-      if (data.merchant?.is_admin) {
+      // Redirect: honour OAuth / external redirect if present
+      if (redirectTo) {
+        router.push(redirectTo);
+      } else if (data.merchant?.is_admin) {
         router.push('/admin');
       } else {
         router.push('/dashboard');
