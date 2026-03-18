@@ -51,10 +51,7 @@ vi.mock('./adapters/evm-safe', () => ({
     broadcastTransaction: vi.fn().mockResolvedValue({
       tx_hash: '0xBroadcastTxHash456',
       success: true,
-<<<<<<< HEAD
       broadcasted: true,
-=======
->>>>>>> feat/multisig-escrow
     }),
   },
 }));
@@ -79,10 +76,7 @@ vi.mock('./adapters/btc-multisig', () => ({
     broadcastTransaction: vi.fn().mockResolvedValue({
       tx_hash: 'btc_broadcast_hash_456',
       success: true,
-<<<<<<< HEAD
       broadcasted: true,
-=======
->>>>>>> feat/multisig-escrow
     }),
   },
 }));
@@ -107,10 +101,7 @@ vi.mock('./adapters/solana-multisig', () => ({
     broadcastTransaction: vi.fn().mockResolvedValue({
       tx_hash: 'sol_broadcast_hash_456',
       success: true,
-<<<<<<< HEAD
       broadcasted: true,
-=======
->>>>>>> feat/multisig-escrow
     }),
   },
 }));
@@ -423,7 +414,6 @@ describe('MultisigEscrowEngine', () => {
     });
   });
 
-<<<<<<< HEAD
   describe('broadcastTransaction', () => {
     it('should return prepared stage without mutating state when adapter has not broadcasted', async () => {
       const escrowId = 'escrow-prepared-1';
@@ -604,8 +594,6 @@ describe('MultisigEscrowEngine', () => {
     });
   });
 
-=======
->>>>>>> feat/multisig-escrow
   describe('disputeMultisigEscrow', () => {
     it('should reject dispute from arbiter', async () => {
       // Create a funded escrow

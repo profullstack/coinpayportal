@@ -7,11 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   createMultisigEscrowSchema,
-<<<<<<< HEAD
   prepareTransactionSchema,
-=======
-  proposeTransactionSchema,
->>>>>>> feat/multisig-escrow
   signProposalSchema,
   broadcastTransactionSchema,
   disputeSchema,
@@ -131,15 +127,9 @@ describe('createMultisigEscrowSchema', () => {
   });
 });
 
-<<<<<<< HEAD
 describe('prepareTransactionSchema', () => {
   it('should accept valid release proposal', () => {
     const result = prepareTransactionSchema.safeParse({
-=======
-describe('proposeTransactionSchema', () => {
-  it('should accept valid release proposal', () => {
-    const result = proposeTransactionSchema.safeParse({
->>>>>>> feat/multisig-escrow
       proposal_type: 'release',
       to_address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
       signer_pubkey: '0x1234567890123456789012345678901234567890',
@@ -148,11 +138,7 @@ describe('proposeTransactionSchema', () => {
   });
 
   it('should accept valid refund proposal', () => {
-<<<<<<< HEAD
     const result = prepareTransactionSchema.safeParse({
-=======
-    const result = proposeTransactionSchema.safeParse({
->>>>>>> feat/multisig-escrow
       proposal_type: 'refund',
       to_address: '0x1234567890123456789012345678901234567890',
       signer_pubkey: '0x1234567890123456789012345678901234567890',
@@ -161,11 +147,7 @@ describe('proposeTransactionSchema', () => {
   });
 
   it('should reject invalid proposal type', () => {
-<<<<<<< HEAD
     const result = prepareTransactionSchema.safeParse({
-=======
-    const result = proposeTransactionSchema.safeParse({
->>>>>>> feat/multisig-escrow
       proposal_type: 'cancel',
       to_address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
       signer_pubkey: '0x1234567890123456789012345678901234567890',
@@ -174,11 +156,7 @@ describe('proposeTransactionSchema', () => {
   });
 
   it('should require signer_pubkey', () => {
-<<<<<<< HEAD
     const result = prepareTransactionSchema.safeParse({
-=======
-    const result = proposeTransactionSchema.safeParse({
->>>>>>> feat/multisig-escrow
       proposal_type: 'release',
       to_address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
     });
