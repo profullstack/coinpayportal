@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import {
   proposeTransaction,
-  proposeTransactionSchema,
+  prepareTransactionSchema,
 } from '@/lib/multisig';
 
 function getSupabase() {
@@ -29,7 +29,7 @@ export async function POST(
     const body = await request.json();
 
     // Validate input
-    const parsed = proposeTransactionSchema.safeParse(body);
+    const parsed = prepareTransactionSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { error: parsed.error.errors[0].message },

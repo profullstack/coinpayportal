@@ -7,6 +7,8 @@ import { startAuthentication } from '@simplewebauthn/browser';
 
 export default function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get('redirect') || searchParams.get('redirectTo');
   const [formData, setFormData] = useState({
     email: '',
     password: '',
