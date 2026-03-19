@@ -131,7 +131,7 @@ export function StripeApiKeysTab({ businessId }: StripeApiKeysTabProps) {
     return (
       <div className="text-center py-12">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto"></div>
-        <p className="mt-2 text-sm text-gray-500">Loading Stripe API keys...</p>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500">Loading Stripe API keys...</p>
       </div>
     );
   }
@@ -139,7 +139,7 @@ export function StripeApiKeysTab({ businessId }: StripeApiKeysTabProps) {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold text-gray-900">Stripe API Keys</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Stripe API Keys</h2>
         <button
           onClick={() => { setShowForm(!showForm); setNewKeySecret(null); }}
           className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-500"
@@ -149,15 +149,15 @@ export function StripeApiKeysTab({ businessId }: StripeApiKeysTabProps) {
       </div>
 
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>
+        <div className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">{error}</div>
       )}
       {success && (
-        <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>
+        <div className="mb-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 px-4 py-3 rounded-lg text-sm">{success}</div>
       )}
 
       {accountId && (
-        <div className="mb-6 bg-gray-50 rounded-lg p-4">
-          <p className="text-sm text-gray-700">
+        <div className="mb-6 bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+          <p className="text-sm text-gray-700 dark:text-gray-200">
             <span className="font-medium">Connect Account ID:</span>{' '}
             <span className="font-mono text-xs">{accountId}</span>
             <button onClick={() => copyToClipboard(accountId)} className="ml-2 text-purple-600 hover:text-purple-500 text-xs">Copy</button>
@@ -166,38 +166,38 @@ export function StripeApiKeysTab({ businessId }: StripeApiKeysTabProps) {
       )}
 
       {newKeySecret && (
-        <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <div className="mb-6 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
           <p className="text-sm font-medium text-yellow-800 mb-2">⚠️ Copy this secret key now — it won&apos;t be shown again:</p>
           <div className="flex items-center space-x-2">
-            <code className="flex-1 px-3 py-2 bg-white border border-yellow-300 rounded font-mono text-xs text-gray-900 break-all">{newKeySecret}</code>
+            <code className="flex-1 px-3 py-2 bg-white dark:bg-gray-800 border border-yellow-300 rounded font-mono text-xs text-gray-900 dark:text-white break-all">{newKeySecret}</code>
             <button onClick={() => copyToClipboard(newKeySecret)} className="text-purple-600 hover:text-purple-500 text-sm">Copy</button>
           </div>
         </div>
       )}
 
       {showForm && (
-        <form onSubmit={handleCreate} className="mb-6 bg-gray-50 rounded-lg p-4 space-y-4">
+        <form onSubmit={handleCreate} className="mb-6 bg-gray-50 dark:bg-gray-900 rounded-lg p-4 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Key Name</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Key Name</label>
             <input
               type="text"
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 dark:text-white dark:bg-gray-700"
               placeholder="e.g. Backend Server Key"
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Permissions (read access)</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Permissions (read access)</label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {COMMON_PERMISSIONS.map(p => (
-                <label key={p.key} className="flex items-center space-x-2 text-sm text-gray-700">
+                <label key={p.key} className="flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-200">
                   <input
                     type="checkbox"
                     checked={formPermissions.includes(p.key)}
                     onChange={() => togglePermission(p.key)}
-                    className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                    className="rounded border-gray-300 dark:border-gray-600 text-purple-600 focus:ring-purple-500"
                   />
                   <span>{p.label}</span>
                 </label>
@@ -215,15 +215,15 @@ export function StripeApiKeysTab({ businessId }: StripeApiKeysTabProps) {
       )}
 
       {keys.length === 0 ? (
-        <p className="text-sm text-gray-500 py-4">No restricted API keys.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 py-4">No restricted API keys.</p>
       ) : (
         <div className="space-y-3">
           {keys.map((k) => (
-            <div key={k.id} className="bg-gray-50 rounded-lg p-4 flex items-center justify-between">
+            <div key={k.id} className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-900">{k.name || 'Unnamed key'}</p>
-                <p className="text-xs text-gray-500 font-mono">{k.id}</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-sm font-medium text-gray-900 dark:text-white">{k.name || 'Unnamed key'}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 font-mono">{k.id}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">
                   Created {new Date(k.created * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
                   {k.livemode ? ' · Live' : ' · Test'}
                 </p>

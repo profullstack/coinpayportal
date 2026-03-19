@@ -236,7 +236,7 @@ export function StripeTab({ businessId }: StripeTabProps) {
     return (
       <div className="text-center py-12">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto"></div>
-        <p className="mt-2 text-sm text-gray-500">Loading Stripe data...</p>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500">Loading Stripe data...</p>
       </div>
     );
   }
@@ -244,36 +244,36 @@ export function StripeTab({ businessId }: StripeTabProps) {
   return (
     <div className="space-y-8">
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">{error}</div>
       )}
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 px-4 py-3 rounded-lg text-sm">{success}</div>
       )}
 
       {/* Connect Status */}
       <section>
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Connect Status</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Connect Status</h3>
         {connectStatus?.connected ? (
-          <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-            <p className="text-sm text-gray-700">
+          <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 space-y-2">
+            <p className="text-sm text-gray-700 dark:text-gray-200">
               <span className="font-medium">Account ID:</span>{' '}
               <span className="font-mono text-xs">{connectStatus.account_id}</span>
             </p>
             <div className="flex flex-wrap gap-3">
-              <span className={`px-3 py-1 text-xs font-medium rounded-full ${connectStatus.charges_enabled ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              <span className={`px-3 py-1 text-xs font-medium rounded-full ${connectStatus.charges_enabled ? 'bg-green-100 text-green-700 dark:text-green-400' : 'bg-red-100 text-red-700 dark:text-red-400'}`}>
                 Charges {connectStatus.charges_enabled ? 'Enabled' : 'Disabled'}
               </span>
-              <span className={`px-3 py-1 text-xs font-medium rounded-full ${connectStatus.payouts_enabled ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              <span className={`px-3 py-1 text-xs font-medium rounded-full ${connectStatus.payouts_enabled ? 'bg-green-100 text-green-700 dark:text-green-400' : 'bg-red-100 text-red-700 dark:text-red-400'}`}>
                 Payouts {connectStatus.payouts_enabled ? 'Enabled' : 'Disabled'}
               </span>
-              <span className={`px-3 py-1 text-xs font-medium rounded-full ${connectStatus.details_submitted ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+              <span className={`px-3 py-1 text-xs font-medium rounded-full ${connectStatus.details_submitted ? 'bg-green-100 text-green-700 dark:text-green-400' : 'bg-yellow-100 text-yellow-700 dark:text-yellow-400'}`}>
                 Details {connectStatus.details_submitted ? 'Submitted' : 'Pending'}
               </span>
             </div>
           </div>
         ) : (
-          <div className="text-center py-8 bg-gray-50 rounded-lg">
-            <p className="text-sm text-gray-600 mb-4">This business is not connected to Stripe yet.</p>
+          <div className="text-center py-8 bg-gray-50 dark:bg-gray-900 rounded-lg">
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">This business is not connected to Stripe yet.</p>
             <button
               onClick={handleOnboard}
               disabled={onboarding}
@@ -289,42 +289,42 @@ export function StripeTab({ businessId }: StripeTabProps) {
         <>
           {/* Balance */}
           <section>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Balance</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Balance</h3>
             {balance ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-500 mb-1">Available</p>
+                <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 mb-1">Available</p>
                   {balance.available.length > 0 ? balance.available.map((b, i) => (
                     <p key={i} className="text-xl font-bold text-green-600">{formatAmount(b.amount, b.currency)}</p>
-                  )) : <p className="text-xl font-bold text-gray-400">$0.00</p>}
+                  )) : <p className="text-xl font-bold text-gray-400 dark:text-gray-500">$0.00</p>}
                 </div>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-500 mb-1">Pending</p>
+                <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 mb-1">Pending</p>
                   {balance.pending.length > 0 ? balance.pending.map((b, i) => (
                     <p key={i} className="text-xl font-bold text-yellow-600">{formatAmount(b.amount, b.currency)}</p>
-                  )) : <p className="text-xl font-bold text-gray-400">$0.00</p>}
+                  )) : <p className="text-xl font-bold text-gray-400 dark:text-gray-500">$0.00</p>}
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-gray-500">No balance data available.</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500">No balance data available.</p>
             )}
           </section>
 
           {/* Card Transactions */}
           <section>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Card Transactions</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Card Transactions</h3>
             {transactions.length === 0 ? (
-              <p className="text-sm text-gray-500 py-4">No transactions yet.</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 py-4">No transactions yet.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Amount</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Status</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Customer</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Date</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Charge ID</th>
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Amount</th>
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Status</th>
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Customer</th>
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Date</th>
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Charge ID</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -332,9 +332,9 @@ export function StripeTab({ businessId }: StripeTabProps) {
                       <tr key={tx.id} className="border-b border-gray-100">
                         <td className="py-2 px-3 font-medium">{formatAmount(tx.amount, tx.currency)}</td>
                         <td className="py-2 px-3">{statusBadge(tx.status)}</td>
-                        <td className="py-2 px-3 text-gray-600">{tx.customer_email || '—'}</td>
-                        <td className="py-2 px-3 text-gray-600">{formatDate(tx.created_at)}</td>
-                        <td className="py-2 px-3 font-mono text-xs text-gray-500">{tx.stripe_charge_id}</td>
+                        <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{tx.customer_email || '—'}</td>
+                        <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{formatDate(tx.created_at)}</td>
+                        <td className="py-2 px-3 font-mono text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">{tx.stripe_charge_id}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -345,27 +345,27 @@ export function StripeTab({ businessId }: StripeTabProps) {
 
           {/* Disputes */}
           <section>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Disputes</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Disputes</h3>
             {disputes.length === 0 ? (
-              <p className="text-sm text-gray-500 py-4">No disputes.</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 py-4">No disputes.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Amount</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Reason</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Status</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Due By</th>
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Amount</th>
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Reason</th>
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Status</th>
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Due By</th>
                     </tr>
                   </thead>
                   <tbody>
                     {disputes.map((d) => (
                       <tr key={d.id} className="border-b border-gray-100">
                         <td className="py-2 px-3 font-medium">{formatAmount(d.amount_cents, d.currency)}</td>
-                        <td className="py-2 px-3 text-gray-600">{d.reason?.replace(/_/g, ' ') || '—'}</td>
+                        <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{d.reason?.replace(/_/g, ' ') || '—'}</td>
                         <td className="py-2 px-3">{statusBadge(d.status)}</td>
-                        <td className="py-2 px-3 text-gray-600">{formatDate(d.evidence_due_by)}</td>
+                        <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{formatDate(d.evidence_due_by)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -376,17 +376,17 @@ export function StripeTab({ businessId }: StripeTabProps) {
 
           {/* Payouts */}
           <section>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Payouts</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Payouts</h3>
             {payouts.length === 0 ? (
-              <p className="text-sm text-gray-500 py-4">No payouts yet.</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 py-4">No payouts yet.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Amount</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Status</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Arrival Date</th>
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Amount</th>
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Status</th>
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Arrival Date</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -394,7 +394,7 @@ export function StripeTab({ businessId }: StripeTabProps) {
                       <tr key={p.id} className="border-b border-gray-100">
                         <td className="py-2 px-3 font-medium">{formatAmount(p.amount, p.currency)}</td>
                         <td className="py-2 px-3">{statusBadge(p.status)}</td>
-                        <td className="py-2 px-3 text-gray-600">{formatDate(p.arrival_date)}</td>
+                        <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{formatDate(p.arrival_date)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -405,17 +405,17 @@ export function StripeTab({ businessId }: StripeTabProps) {
 
           {/* Escrows */}
           <section>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Escrows</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Escrows</h3>
             {escrows.length === 0 ? (
-              <p className="text-sm text-gray-500 py-4">No escrows.</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 py-4">No escrows.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Amount</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Status</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-700">Actions</th>
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Amount</th>
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Status</th>
+                      <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Actions</th>
                     </tr>
                   </thead>
                   <tbody>

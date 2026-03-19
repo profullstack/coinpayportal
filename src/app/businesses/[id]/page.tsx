@@ -117,7 +117,7 @@ export default function BusinessDetailPage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading business...</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-300">Loading business...</p>
         </div>
       </div>
     );
@@ -127,7 +127,7 @@ export default function BusinessDetailPage() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-600">Business not found</p>
+          <p className="text-gray-600 dark:text-gray-300">Business not found</p>
           <button
             onClick={() => router.push('/businesses')}
             className="mt-4 text-purple-600 hover:text-purple-500"
@@ -142,12 +142,12 @@ export default function BusinessDetailPage() {
   const currentTabs = paymentMode === 'crypto' ? CRYPTO_TABS : CARD_TABS;
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <button
             onClick={() => router.push('/businesses')}
-            className="text-sm text-gray-600 hover:text-gray-900 mb-4 flex items-center"
+            className="text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white dark:text-white mb-4 flex items-center"
           >
             <svg
               className="h-4 w-4 mr-1"
@@ -162,26 +162,26 @@ export default function BusinessDetailPage() {
             </svg>
             Back to Businesses
           </button>
-          <h1 className="text-3xl font-bold text-gray-900">{business.name}</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{business.name}</h1>
           {business.description && (
-            <p className="mt-2 text-gray-600">{business.description}</p>
+            <p className="mt-2 text-gray-600 dark:text-gray-300">{business.description}</p>
           )}
         </div>
 
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          <div className="mb-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg">
             {error}
           </div>
         )}
         {success && (
-          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
+          <div className="mb-6 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 px-4 py-3 rounded-lg">
             {success}
           </div>
         )}
 
         {/* Payment Mode Switcher */}
         <div className="mb-6 flex justify-center">
-          <div className="inline-flex rounded-lg bg-gray-200 p-1" role="tablist" aria-label="Payment mode">
+          <div className="inline-flex rounded-lg bg-gray-200 dark:bg-gray-700 p-1" role="tablist" aria-label="Payment mode">
             <button
               role="tab"
               aria-selected={paymentMode === 'crypto'}
@@ -209,8 +209,8 @@ export default function BusinessDetailPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="border-b border-gray-200">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+          <div className="border-b border-gray-200 dark:border-gray-700">
             <nav className="flex -mb-px overflow-x-auto">
               {currentTabs.map((tab) => {
                 const label = typeof tab.label === 'function' ? tab.label(wallets) : tab.label;

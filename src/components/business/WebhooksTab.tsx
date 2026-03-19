@@ -205,25 +205,25 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
 
   return (
     <div>
-      <h2 className="text-xl font-semibold text-gray-900 mb-6">Webhook Configuration</h2>
+      <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">Webhook Configuration</h2>
 
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
           {error}
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Webhook URL</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Webhook URL</label>
           <input
             type="url"
             value={formData.webhook_url}
             onChange={(e) => setFormData({ webhook_url: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 dark:text-white dark:bg-gray-700"
             placeholder="https://example.com/webhook"
           />
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">
             URL where payment notifications will be sent
           </p>
         </div>
@@ -237,16 +237,16 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
         </button>
       </form>
 
-      <div className="mt-8 pt-8 border-t border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Webhook Secret</h3>
+      <div className="mt-8 pt-8 border-t border-gray-200 dark:border-gray-700">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Webhook Secret</h3>
         {business.webhook_secret ? (
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
                 Current Secret
               </label>
               <div className="flex items-center space-x-2">
-                <code className="flex-1 px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg font-mono text-sm text-gray-900 break-all">
+                <code className="flex-1 px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg font-mono text-sm text-gray-900 dark:text-white dark:bg-gray-700 break-all">
                   {business.webhook_secret}
                 </code>
                 <button
@@ -267,7 +267,7 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
                   </svg>
                 </button>
               </div>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">
                 Use this secret to verify webhook signatures
               </p>
             </div>
@@ -281,7 +281,7 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
           </div>
         ) : (
           <div>
-            <p className="text-sm text-gray-600 mb-4">No webhook secret generated yet.</p>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">No webhook secret generated yet.</p>
             <button
               onClick={handleRegenerateSecret}
               disabled={regenerating}
@@ -294,9 +294,9 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
       </div>
 
       {/* Test Webhook Section */}
-      <div className="mt-8 pt-8 border-t border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Test Webhook</h3>
-        <p className="text-sm text-gray-600 mb-4">
+      <div className="mt-8 pt-8 border-t border-gray-200 dark:border-gray-700">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Test Webhook</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
           Send a test webhook to verify your endpoint is working correctly.
         </p>
 
@@ -361,7 +361,7 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
                   const markdown = formatTestResultAsMarkdown(testResult);
                   onCopy(markdown, 'Webhook test result (Markdown)');
                 }}
-                className="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 flex items-center space-x-2"
+                className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg hover:bg-gray-200 dark:bg-gray-700 flex items-center space-x-2"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -427,14 +427,14 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
                   </p>
                 </div>
               </div>
-              <p className="mt-2 text-sm text-gray-600">
+              <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
                 Response time: {testResult.response_time_ms}ms
               </p>
             </div>
 
             {/* Request Details */}
-            <div className="bg-gray-50 rounded-lg p-4">
-              <h5 className="font-medium text-gray-900 mb-3 flex items-center space-x-2">
+            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+              <h5 className="font-medium text-gray-900 dark:text-white mb-3 flex items-center space-x-2">
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
                     strokeLinecap="round"
@@ -447,16 +447,16 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
               </h5>
               <div className="space-y-2">
                 <div>
-                  <span className="text-xs font-medium text-gray-500 uppercase">URL</span>
-                  <p className="text-sm text-gray-900 font-mono break-all">{testResult.request.url}</p>
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500 uppercase">URL</span>
+                  <p className="text-sm text-gray-900 dark:text-white font-mono break-all">{testResult.request.url}</p>
                 </div>
                 <div>
-                  <span className="text-xs font-medium text-gray-500 uppercase">Method</span>
-                  <p className="text-sm text-gray-900">{testResult.request.method}</p>
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500 uppercase">Method</span>
+                  <p className="text-sm text-gray-900 dark:text-white">{testResult.request.method}</p>
                 </div>
                 <div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-gray-500 uppercase">Headers</span>
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500 uppercase">Headers</span>
                     <button
                       onClick={() => onCopy(JSON.stringify(testResult.request.headers, null, 2), 'Request headers')}
                       className="text-purple-600 hover:text-purple-500 p-1"
@@ -467,16 +467,16 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
                       </svg>
                     </button>
                   </div>
-                  <pre className="text-xs text-gray-900 bg-white p-2 rounded border overflow-x-auto">
+                  <pre className="text-xs text-gray-900 dark:text-white bg-white dark:bg-gray-800 p-2 rounded border overflow-x-auto">
                     {JSON.stringify(testResult.request.headers, null, 2)}
                   </pre>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Signature format: <code className="bg-gray-100 px-1 rounded">t=timestamp,v1=hmac_sha256_hex</code>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">
+                    Signature format: <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">t=timestamp,v1=hmac_sha256_hex</code>
                   </p>
                 </div>
                 <div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-gray-500 uppercase">Body</span>
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500 uppercase">Body</span>
                     <button
                       onClick={() => onCopy(JSON.stringify(testResult.request.body, null, 2), 'Request body')}
                       className="text-purple-600 hover:text-purple-500 p-1"
@@ -487,7 +487,7 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
                       </svg>
                     </button>
                   </div>
-                  <pre className="text-xs text-gray-900 bg-white p-2 rounded border overflow-x-auto max-h-48">
+                  <pre className="text-xs text-gray-900 dark:text-white bg-white dark:bg-gray-800 p-2 rounded border overflow-x-auto max-h-48">
                     {JSON.stringify(testResult.request.body, null, 2)}
                   </pre>
                 </div>
@@ -495,8 +495,8 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
             </div>
 
             {/* Response Details */}
-            <div className="bg-gray-50 rounded-lg p-4">
-              <h5 className="font-medium text-gray-900 mb-3 flex items-center space-x-2">
+            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+              <h5 className="font-medium text-gray-900 dark:text-white mb-3 flex items-center space-x-2">
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
                     strokeLinecap="round"
@@ -509,8 +509,8 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
               </h5>
               <div className="space-y-2">
                 <div>
-                  <span className="text-xs font-medium text-gray-500 uppercase">Status</span>
-                  <p className="text-sm text-gray-900">
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500 uppercase">Status</span>
+                  <p className="text-sm text-gray-900 dark:text-white">
                     {testResult.status_code !== null
                       ? `${testResult.status_code} ${testResult.status_text}`
                       : 'No response (connection failed)'}
@@ -519,7 +519,7 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
                 {testResult.response_headers && Object.keys(testResult.response_headers).length > 0 && (
                   <div>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-gray-500 uppercase">Headers</span>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500 uppercase">Headers</span>
                       <button
                         onClick={() => onCopy(JSON.stringify(testResult.response_headers, null, 2), 'Response headers')}
                         className="text-purple-600 hover:text-purple-500 p-1"
@@ -530,14 +530,14 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
                         </svg>
                       </button>
                     </div>
-                    <pre className="text-xs text-gray-900 bg-white p-2 rounded border overflow-x-auto max-h-32">
+                    <pre className="text-xs text-gray-900 dark:text-white bg-white dark:bg-gray-800 p-2 rounded border overflow-x-auto max-h-32">
                       {JSON.stringify(testResult.response_headers, null, 2)}
                     </pre>
                   </div>
                 )}
                 <div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-gray-500 uppercase">Body</span>
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500 uppercase">Body</span>
                     {testResult.response_body && (
                       <button
                         onClick={() => {
@@ -557,7 +557,7 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
                     )}
                   </div>
                   {testResult.response_body ? (
-                    <pre className="text-xs text-gray-900 bg-white p-2 rounded border overflow-x-auto max-h-48">
+                    <pre className="text-xs text-gray-900 dark:text-white bg-white dark:bg-gray-800 p-2 rounded border overflow-x-auto max-h-48">
                       {(() => {
                         try {
                           return JSON.stringify(JSON.parse(testResult.response_body), null, 2);
@@ -567,13 +567,13 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
                       })()}
                     </pre>
                   ) : (
-                    <p className="text-sm text-gray-500 italic">No response body</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 italic">No response body</p>
                   )}
                 </div>
                 {testResult.error && (
                   <div>
                     <span className="text-xs font-medium text-red-500 uppercase">Error</span>
-                    <p className="text-sm text-red-700">{testResult.error}</p>
+                    <p className="text-sm text-red-700 dark:text-red-400">{testResult.error}</p>
                   </div>
                 )}
               </div>

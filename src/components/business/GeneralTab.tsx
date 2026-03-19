@@ -54,7 +54,7 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold text-gray-900">Business Information</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Business Information</h2>
         {!editing && (
           <button
             onClick={() => setEditing(true)}
@@ -66,7 +66,7 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
       </div>
 
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
           {error}
         </div>
       )}
@@ -74,11 +74,11 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
       {editing ? (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
               Merchant ID
             </label>
             <div className="flex items-center space-x-2">
-              <code className="flex-1 px-3 py-2 bg-gray-100 rounded-lg text-sm font-mono text-gray-900 break-all">
+              <code className="flex-1 px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm font-mono text-gray-900 dark:text-white break-all">
                 {business.id}
               </code>
               <button
@@ -92,7 +92,7 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
               Business Name *
             </label>
             <input
@@ -100,18 +100,18 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
               required
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 dark:text-white dark:bg-gray-700"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
               Description
             </label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 dark:text-white dark:bg-gray-700"
               rows={3}
             />
           </div>
@@ -134,7 +134,7 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
                 });
                 setError('');
               }}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white dark:text-white"
             >
               Cancel
             </button>
@@ -143,11 +143,11 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
       ) : (
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
               Merchant ID
             </label>
             <div className="flex items-center space-x-2">
-              <code className="flex-1 px-3 py-2 bg-gray-100 rounded-lg text-sm font-mono text-gray-900 break-all">
+              <code className="flex-1 px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm font-mono text-gray-900 dark:text-white break-all">
                 {business.id}
               </code>
               <button
@@ -160,32 +160,32 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
               Business Name
             </label>
-            <p className="text-gray-900">{business.name}</p>
+            <p className="text-gray-900 dark:text-white">{business.name}</p>
           </div>
 
           {business.description && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                 Description
               </label>
-              <p className="text-gray-900">{business.description}</p>
+              <p className="text-gray-900 dark:text-white">{business.description}</p>
             </div>
           )}
 
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <p className="text-sm text-blue-700">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 rounded-lg p-4">
+            <p className="text-sm text-blue-700 dark:text-blue-400">
               💡 Wallet addresses are now managed in the <strong>Wallets</strong> tab. You can configure multiple cryptocurrency wallets for receiving payments.
             </p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
               Created
             </label>
-            <p className="text-gray-900">
+            <p className="text-gray-900 dark:text-white">
               {new Date(business.created_at).toLocaleString()}
             </p>
           </div>
