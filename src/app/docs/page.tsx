@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { AuthenticationDocs } from '@/components/docs/AuthenticationDocs';
+import { OAuthDocs } from '@/components/docs/OAuthDocs';
+import { WebAuthnDocs } from '@/components/docs/WebAuthnDocs';
 import { SubscriptionsDocs } from '@/components/docs/SubscriptionsDocs';
 import { WebWalletDocs } from '@/components/docs/WebWalletDocs';
 import { ReputationDocs } from '@/components/docs/ReputationDocs';
@@ -132,6 +134,48 @@ export default function DocsPage() {
           </div>
         </div>
 
+        {/* OAuth Banner */}
+        <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-500/30">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white mb-2">🔑 OAuth 2.0 / OpenID Connect</h2>
+              <p className="text-gray-300 text-sm">
+                Full OIDC provider — let third-party apps authenticate users, access wallets, and DIDs with standard authorization code flow + PKCE
+              </p>
+            </div>
+            <a
+              href="#oauth"
+              className="px-6 py-3 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              View Docs
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </a>
+          </div>
+        </div>
+
+        {/* WebAuthn Banner */}
+        <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-green-500/20 to-teal-500/20 border border-green-500/30">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white mb-2">🛡️ WebAuthn / Passkeys</h2>
+              <p className="text-gray-300 text-sm">
+                Passwordless authentication with biometrics, hardware keys, and synced passkeys — phishing-resistant and fast
+              </p>
+            </div>
+            <a
+              href="#webauthn"
+              className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              View Docs
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </a>
+          </div>
+        </div>
+
         {/* Reputation Banner */}
         <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 border border-violet-500/30">
           <div className="flex items-center justify-between">
@@ -166,6 +210,8 @@ export default function DocsPage() {
               { name: 'Reputation & DID', href: '#reputation' },
               { name: 'Exchange Rates', href: '#rates' },
               { name: 'Authentication', href: '#authentication' },
+              { name: 'OAuth 2.0 / OIDC', href: '#oauth' },
+              { name: 'WebAuthn / Passkeys', href: '#webauthn' },
               { name: 'Subscriptions & Entitlements', href: '#subscriptions' },
               { name: 'Businesses', href: '#businesses' },
               { name: 'Supported Coins', href: '#supported-coins' },
@@ -1099,6 +1145,16 @@ console.log(\`BTC: £\${multiData.rates.BTC}\`);`}
         {/* Authentication */}
         <div id="authentication">
           <AuthenticationDocs />
+        </div>
+
+        {/* OAuth 2.0 / OIDC */}
+        <div id="oauth">
+          <OAuthDocs />
+        </div>
+
+        {/* WebAuthn / Passkeys */}
+        <div id="webauthn">
+          <WebAuthnDocs />
         </div>
 
         {/* Subscriptions & Entitlements */}
