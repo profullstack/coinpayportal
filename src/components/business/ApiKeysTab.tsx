@@ -52,10 +52,10 @@ export function ApiKeysTab({ business, onUpdate, onCopy }: ApiKeysTabProps) {
 
   return (
     <div>
-      <h2 className="text-xl font-semibold text-gray-900 mb-6">API Keys</h2>
+      <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">API Keys</h2>
 
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
           {error}
         </div>
       )}
@@ -63,11 +63,11 @@ export function ApiKeysTab({ business, onUpdate, onCopy }: ApiKeysTabProps) {
       {business.api_key ? (
         <div className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
               Current API Key
             </label>
             <div className="flex items-center space-x-2">
-              <code className="flex-1 px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg font-mono text-sm text-gray-900 break-all">
+              <code className="flex-1 px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg font-mono text-sm text-gray-900 dark:text-white dark:bg-gray-700 break-all">
                 {business.api_key}
               </code>
               <button
@@ -88,12 +88,12 @@ export function ApiKeysTab({ business, onUpdate, onCopy }: ApiKeysTabProps) {
                 </svg>
               </button>
             </div>
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">
               Use this key to authenticate API requests
             </p>
           </div>
 
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 rounded-lg p-4">
             <h4 className="text-sm font-medium text-blue-900 mb-2">Usage Example</h4>
             <pre className="text-xs text-blue-800 font-mono overflow-x-auto">
 {`curl -X POST https://your-domain.com/api/payments/create \\
@@ -115,9 +115,9 @@ export function ApiKeysTab({ business, onUpdate, onCopy }: ApiKeysTabProps) {
             {regenerating ? 'Regenerating...' : 'Regenerate API Key'}
           </button>
 
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">Security Best Practices</h3>
-            <ul className="space-y-2 text-sm text-gray-600">
+          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Security Best Practices</h3>
+            <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
               <li className="flex items-start">
                 <svg
                   className="h-5 w-5 text-green-500 mr-2 flex-shrink-0"
@@ -179,7 +179,7 @@ export function ApiKeysTab({ business, onUpdate, onCopy }: ApiKeysTabProps) {
         </div>
       ) : (
         <div>
-          <p className="text-sm text-gray-600 mb-4">No API key generated yet.</p>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">No API key generated yet.</p>
           <button
             onClick={handleRegenerateApiKey}
             disabled={regenerating}

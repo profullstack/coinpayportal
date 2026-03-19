@@ -117,7 +117,7 @@ export function StripeConnectTab({ businessId }: StripeConnectTabProps) {
     return (
       <div className="text-center py-12">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto"></div>
-        <p className="mt-2 text-sm text-gray-400">Loading Stripe Connect...</p>
+        <p className="mt-2 text-sm text-gray-400 dark:text-gray-500">Loading Stripe Connect...</p>
       </div>
     );
   }
@@ -141,18 +141,18 @@ export function StripeConnectTab({ businessId }: StripeConnectTabProps) {
           <div className="bg-gray-800 rounded-lg p-4 space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <p className="text-sm text-gray-300">
-                <span className="font-medium text-gray-400">Account ID:</span>{' '}
+                <span className="font-medium text-gray-400 dark:text-gray-500">Account ID:</span>{' '}
                 <span className="font-mono text-xs text-gray-200">{connectStatus.account_id}</span>
               </p>
               {connectStatus.email && (
                 <p className="text-sm text-gray-300">
-                  <span className="font-medium text-gray-400">Email:</span>{' '}
+                  <span className="font-medium text-gray-400 dark:text-gray-500">Email:</span>{' '}
                   <span className="text-gray-200">{connectStatus.email}</span>
                 </p>
               )}
               {connectStatus.country && (
                 <p className="text-sm text-gray-300">
-                  <span className="font-medium text-gray-400">Country:</span>{' '}
+                  <span className="font-medium text-gray-400 dark:text-gray-500">Country:</span>{' '}
                   <span className="text-gray-200">{connectStatus.country}</span>
                 </p>
               )}
@@ -198,8 +198,8 @@ export function StripeConnectTab({ businessId }: StripeConnectTabProps) {
         ) : (
           <div className="text-center py-8 bg-gray-800 rounded-lg">
             <div className="text-4xl mb-3">💳</div>
-            <p className="text-sm text-gray-400 mb-1">This business is not connected to Stripe yet.</p>
-            <p className="text-xs text-gray-500 mb-4">Connect your Stripe account to accept credit card payments.</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 mb-1">This business is not connected to Stripe yet.</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 mb-4">Connect your Stripe account to accept credit card payments.</p>
             <button
               onClick={handleOnboard}
               disabled={onboarding}
@@ -216,16 +216,16 @@ export function StripeConnectTab({ businessId }: StripeConnectTabProps) {
           <h3 className="text-lg font-semibold text-gray-100 mb-4">Balance</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="bg-gray-800 rounded-lg p-4">
-              <p className="text-sm text-gray-400 mb-1">Available</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500 mb-1">Available</p>
               {balance.available.length > 0 ? balance.available.map((b, i) => (
                 <p key={i} className="text-xl font-bold text-green-400">{formatAmount(b.amount, b.currency)}</p>
-              )) : <p className="text-xl font-bold text-gray-500">$0.00</p>}
+              )) : <p className="text-xl font-bold text-gray-500 dark:text-gray-400 dark:text-gray-500">$0.00</p>}
             </div>
             <div className="bg-gray-800 rounded-lg p-4">
-              <p className="text-sm text-gray-400 mb-1">Pending</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500 mb-1">Pending</p>
               {balance.pending.length > 0 ? balance.pending.map((b, i) => (
                 <p key={i} className="text-xl font-bold text-yellow-400">{formatAmount(b.amount, b.currency)}</p>
-              )) : <p className="text-xl font-bold text-gray-500">$0.00</p>}
+              )) : <p className="text-xl font-bold text-gray-500 dark:text-gray-400 dark:text-gray-500">$0.00</p>}
             </div>
           </div>
         </section>

@@ -196,14 +196,14 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold text-gray-900">Multi-Crypto Wallets</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Multi-Crypto Wallets</h2>
         <div className="flex items-center space-x-3">
           <button
             onClick={handleOpenImportModal}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+            className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 dark:bg-gray-900"
           >
             <svg
-              className="h-5 w-5 mr-2 text-gray-500"
+              className="h-5 w-5 mr-2 text-gray-500 dark:text-gray-400 dark:text-gray-500"
               fill="none"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -236,13 +236,13 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
       </div>
 
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
           {error}
         </div>
       )}
 
       {success && (
-        <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">
+        <div className="mb-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 px-4 py-3 rounded-lg text-sm">
           {success}
         </div>
       )}
@@ -250,10 +250,10 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
       {/* Import Modal */}
       {showImportModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Import Global Wallets</h3>
-              <p className="text-sm text-gray-500 mt-1">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Import Global Wallets</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 mt-1">
                 Select wallets to import from your global wallet addresses
               </p>
             </div>
@@ -262,12 +262,12 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
               {loadingGlobal ? (
                 <div className="text-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto"></div>
-                  <p className="mt-2 text-sm text-gray-500">Loading wallets...</p>
+                  <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500">Loading wallets...</p>
                 </div>
               ) : globalWallets.length === 0 ? (
                 <div className="text-center py-8">
                   <svg
-                    className="mx-auto h-12 w-12 text-gray-400"
+                    className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
                     fill="none"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -277,8 +277,8 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
                   >
                     <path d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
                   </svg>
-                  <p className="mt-2 text-sm text-gray-900 font-medium">No global wallets</p>
-                  <p className="text-sm text-gray-500">
+                  <p className="mt-2 text-sm text-gray-900 dark:text-white font-medium">No global wallets</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500">
                     Add wallets in Settings → Global Wallets first
                   </p>
                 </div>
@@ -295,8 +295,8 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
                   >
                     <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                   </svg>
-                  <p className="mt-2 text-sm text-gray-900 font-medium">All wallets imported</p>
-                  <p className="text-sm text-gray-500">
+                  <p className="mt-2 text-sm text-gray-900 dark:text-white font-medium">All wallets imported</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500">
                     This business already has all your global wallets
                   </p>
                 </div>
@@ -311,7 +311,7 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
                         key={wallet.id}
                         className={`flex items-start p-3 rounded-lg border cursor-pointer transition-colors ${
                           isExisting
-                            ? 'bg-gray-50 border-gray-200 cursor-not-allowed'
+                            ? 'bg-gray-50 dark:bg-gray-900 border-gray-200 cursor-not-allowed'
                             : isSelected
                             ? 'bg-purple-50 border-purple-300'
                             : 'bg-white border-gray-200 hover:border-purple-200'
@@ -322,23 +322,23 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
                           checked={isSelected}
                           disabled={isExisting}
                           onChange={() => toggleCryptoSelection(wallet.cryptocurrency)}
-                          className="mt-1 h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded disabled:opacity-50"
+                          className="mt-1 h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 dark:border-gray-600 rounded disabled:opacity-50"
                         />
                         <div className="ml-3 flex-1">
                           <div className="flex items-center space-x-2">
-                            <span className="font-medium text-gray-900">{wallet.cryptocurrency}</span>
+                            <span className="font-medium text-gray-900 dark:text-white">{wallet.cryptocurrency}</span>
                             {wallet.label && (
                               <span className="text-xs text-purple-600 bg-purple-100 px-2 py-0.5 rounded">
                                 {wallet.label}
                               </span>
                             )}
                             {isExisting && (
-                              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                              <span className="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded">
                                 Already added
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-gray-500 font-mono mt-1 break-all">
+                          <p className="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 font-mono mt-1 break-all">
                             {wallet.wallet_address}
                           </p>
                         </div>
@@ -349,14 +349,14 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
               )}
             </div>
 
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end space-x-3">
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
               <button
                 onClick={() => {
                   setShowImportModal(false);
                   setSelectedCryptos([]);
                   setError('');
                 }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white dark:text-white"
               >
                 Cancel
               </button>
@@ -373,16 +373,16 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
       )}
 
       {showAddWallet && (
-        <form onSubmit={handleSubmit} className="mb-6 p-4 bg-gray-50 rounded-lg space-y-4">
+        <form onSubmit={handleSubmit} className="mb-6 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
               Cryptocurrency *
             </label>
             <select
               required
               value={formData.cryptocurrency}
               onChange={(e) => setFormData({ ...formData, cryptocurrency: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 dark:text-white dark:bg-gray-700"
             >
               <option value="">Select cryptocurrency</option>
               {SUPPORTED_CRYPTOS.map((crypto) => (
@@ -394,7 +394,7 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
               Wallet Address *
             </label>
             <input
@@ -402,7 +402,7 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
               required
               value={formData.wallet_address}
               onChange={(e) => setFormData({ ...formData, wallet_address: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono text-sm text-gray-900"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono text-sm text-gray-900 dark:text-white dark:bg-gray-700"
               placeholder="Enter wallet address"
             />
           </div>
@@ -422,7 +422,7 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
                 setFormData({ cryptocurrency: '', wallet_address: '' });
                 setError('');
               }}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white dark:text-white"
             >
               Cancel
             </button>
@@ -433,7 +433,7 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
       {wallets.length === 0 ? (
         <div className="text-center py-12">
           <svg
-            className="mx-auto h-12 w-12 text-gray-400"
+            className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
             fill="none"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -443,8 +443,8 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
           >
             <path d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
           </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No wallets configured</h3>
-          <p className="mt-1 text-sm text-gray-500">
+          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No wallets configured</h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500">
             Add cryptocurrency wallets to accept payments in multiple currencies.
           </p>
         </div>
@@ -453,19 +453,19 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
           {wallets.map((wallet) => (
             <div
               key={wallet.id}
-              className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
+              className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900 rounded-lg"
             >
               <div className="flex-1">
                 <div className="flex items-center space-x-2 mb-1">
-                  <span className="font-semibold text-gray-900">{wallet.cryptocurrency}</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">{wallet.cryptocurrency}</span>
                   {wallet.is_active && (
-                    <span className="px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded">
+                    <span className="px-2 py-1 text-xs font-medium text-green-700 dark:text-green-400 bg-green-100 rounded">
                       Active
                     </span>
                   )}
                 </div>
                 <div className="flex items-center space-x-2">
-                  <p className="text-sm text-gray-600 font-mono break-all">
+                  <p className="text-sm text-gray-600 dark:text-gray-300 font-mono break-all">
                     {wallet.wallet_address}
                   </p>
                   <button

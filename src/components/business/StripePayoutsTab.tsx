@@ -44,24 +44,24 @@ export function StripePayoutsTab({ businessId }: StripePayoutsTabProps) {
     return (
       <div className="text-center py-12">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto"></div>
-        <p className="mt-2 text-sm text-gray-500">Loading payouts...</p>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500">Loading payouts...</p>
       </div>
     );
   }
 
   return (
     <div>
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">Payouts</h3>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Payouts</h3>
       {payouts.length === 0 ? (
-        <p className="text-sm text-gray-500 py-4">No payouts yet.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 py-4">No payouts yet.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-2 px-3 font-medium text-gray-700">Amount</th>
-                <th className="text-left py-2 px-3 font-medium text-gray-700">Status</th>
-                <th className="text-left py-2 px-3 font-medium text-gray-700">Arrival Date</th>
+              <tr className="border-b border-gray-200 dark:border-gray-700">
+                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Amount</th>
+                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Status</th>
+                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Arrival Date</th>
               </tr>
             </thead>
             <tbody>
@@ -69,11 +69,11 @@ export function StripePayoutsTab({ businessId }: StripePayoutsTabProps) {
                 <tr key={p.id} className="border-b border-gray-100">
                   <td className="py-2 px-3 font-medium">{formatAmount(p.amount, p.currency)}</td>
                   <td className="py-2 px-3">
-                    <span className={`px-2 py-1 text-xs font-medium rounded ${statusColors[p.status] || 'bg-gray-100 text-gray-700'}`}>
+                    <span className={`px-2 py-1 text-xs font-medium rounded ${statusColors[p.status] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200'}`}>
                       {p.status.replace(/_/g, ' ')}
                     </span>
                   </td>
-                  <td className="py-2 px-3 text-gray-600">{formatDate(p.arrival_date)}</td>
+                  <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{formatDate(p.arrival_date)}</td>
                 </tr>
               ))}
             </tbody>
