@@ -5,6 +5,13 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.11] - 2026-03-19
+
+### Added
+- OAuth client management methods: `listOAuthClients()`, `createOAuthClient()`, `getOAuthClient()`, `deleteOAuthClient()`
+- CLI `coinpay oauth` commands: `list`, `create`, `get`, `delete`
+- OAuth section in SDK documentation
+
 ## [0.2.0] - 2025-01-15
 
 ### Added

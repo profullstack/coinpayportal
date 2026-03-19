@@ -826,6 +826,91 @@ export class CoinPayClient {
       method: 'DELETE',
     });
   }
+
+  // ── OAuth Client Methods ─────────────────────────────────
+
+  /**
+   * List OAuth clients
+   *
+   * Returns all OAuth clients registered under your account.
+   *
+   * @returns {Promise<Object>} List of OAuth clients
+   *
+   * @example
+   * const result = await client.listOAuthClients();
+   * for (const app of result.clients) {
+   *   console.log(app.client_id, app.name);
+   * }
+   */
+  async listOAuthClients() {
+    return this.request('/oauth/clients');
+  }
+
+  /**
+   * Create a new OAuth client
+   *
+   * Registers a new OAuth application. Returns the client_id and client_secret.
+   * Store the client_secret securely — it is only shown once.
+   *
+   * @param {Object} params - OAuth client parameters
+   * @param {string} params.name - Application name
+   * @param {string[]} params.redirectUris - Authorized redirect URIs
+   * @param {string[]} [params.scopes] - Requested scopes (e.g., ['openid', 'profile'])
+   * @param {string} [params.description] - Application description
+   * @returns {Promise<Object>} Created OAuth client with client_id and client_secret
+   *
+   * @example
+   * const app = await client.createOAuthClient({
+   *   name: 'My App',
+   *   redirectUris: ['https://myapp.com/callback'],
+   *   scopes: ['openid', 'profile'],
+   *   description: 'My awesome application',
+   * });
+   * console.log('Client ID:', app.client_id);
+   * console.log('Client Secret:', app.client_secret);
+   */
+  async createOAuthClient({ name, redirectUris, scopes, description }) {
+    return this.request('/oauth/clients', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        redirect_uris: redirectUris,
+        scopes,
+        description,
+      }),
+    });
+  }
+
+  /**
+   * Get an OAuth client by ID
+   *
+   * @param {string} id - OAuth client ID
+   * @returns {Promise<Object>} OAuth client details
+   *
+   * @example
+   * const app = await client.getOAuthClient('oac_abc123');
+   * console.log(app.name, app.redirect_uris);
+   */
+  async getOAuthClient(id) {
+    return this.request(`/oauth/clients/${id}`);
+  }
+
+  /**
+   * Delete an OAuth client
+   *
+   * Permanently removes an OAuth client and revokes all associated tokens.
+   *
+   * @param {string} id - OAuth client ID
+   * @returns {Promise<Object>} Deletion confirmation
+   *
+   * @example
+   * await client.deleteOAuthClient('oac_abc123');
+   */
+  async deleteOAuthClient(id) {
+    return this.request(`/oauth/clients/${id}`, {
+      method: 'DELETE',
+    });
+  }
 }
 
 export default CoinPayClient;

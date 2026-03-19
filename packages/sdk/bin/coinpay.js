@@ -244,6 +244,12 @@ ${colors.cyan}Commands:${colors.reset}
     events <id>           Get escrow audit log
     auth <id>             Authenticate with escrow token
 
+  ${colors.bright}oauth${colors.reset}
+    list                  List OAuth clients
+    create                Create a new OAuth client
+    get <id>              Get OAuth client details
+    delete <id>           Delete an OAuth client
+
   ${colors.bright}reputation${colors.reset}
     submit                Submit a task receipt
     query <agent-did>     Query agent reputation
@@ -2765,6 +2771,10 @@ async function handleLightning(subcommand, args, flags) {
       case 'x402':
         await handleX402(subcommand, args, flags);
         break;
+
+      case 'oauth':
+        await handleOAuth(subcommand, args, flags);
+        break;
         
       default:
         print.error(`Unknown command: ${command}`);
@@ -2777,6 +2787,112 @@ async function handleLightning(subcommand, args, flags) {
       console.error(error);
     }
     process.exit(1);
+  }
+}
+
+/**
+ * OAuth commands
+ */
+async function handleOAuth(subcommand, args, flags) {
+  const client = createClient();
+
+  switch (subcommand) {
+    case 'list': {
+      const result = await client.listOAuthClients();
+      const clients = result.clients || [];
+
+      if (clients.length === 0) {
+        print.info('No OAuth clients found.');
+      } else {
+        console.log(`\n${colors.bright}OAuth Clients${colors.reset} (${clients.length})\n`);
+        for (const c of clients) {
+          console.log(`  ${colors.bright}${c.name}${colors.reset}`);
+          console.log(`    Client ID: ${c.client_id}`);
+          if (c.description) console.log(`    Description: ${c.description}`);
+          if (c.redirect_uris) console.log(`    Redirect URIs: ${c.redirect_uris.join(', ')}`);
+          if (c.scopes) console.log(`    Scopes: ${Array.isArray(c.scopes) ? c.scopes.join(', ') : c.scopes}`);
+          console.log();
+        }
+      }
+
+      if (flags.json) print.json(result);
+      break;
+    }
+
+    case 'create': {
+      const name = flags.name;
+      const redirectUri = flags['redirect-uri'];
+      const scope = flags.scope;
+      const description = flags.description;
+
+      if (!name || !redirectUri) {
+        print.error('Required: --name, --redirect-uri');
+        print.info('Example: coinpay oauth create --name "My App" --redirect-uri https://myapp.com/callback --scope openid,profile');
+        return;
+      }
+
+      const redirectUris = redirectUri.split(',').map(u => u.trim());
+      const scopes = scope ? scope.split(',').map(s => s.trim()) : undefined;
+
+      const result = await client.createOAuthClient({
+        name,
+        redirectUris,
+        scopes,
+        description,
+      });
+
+      print.success('OAuth client created');
+      if (result.client_id) {
+        console.log(`\n  ${colors.bright}Client ID:${colors.reset}     ${result.client_id}`);
+      }
+      if (result.client_secret) {
+        console.log(`  ${colors.bright}Client Secret:${colors.reset} ${colors.yellow}${result.client_secret}${colors.reset}`);
+        console.log();
+        print.warn('Save the client secret — it is only shown once!');
+      }
+
+      if (flags.json) print.json(result);
+      break;
+    }
+
+    case 'get': {
+      const id = args[0];
+      if (!id) {
+        print.error('OAuth client ID required');
+        print.info('Usage: coinpay oauth get <client-id>');
+        return;
+      }
+
+      const result = await client.getOAuthClient(id);
+
+      print.success(`OAuth Client: ${result.name || id}`);
+      if (result.client_id) print.info(`  Client ID: ${result.client_id}`);
+      if (result.description) print.info(`  Description: ${result.description}`);
+      if (result.redirect_uris) print.info(`  Redirect URIs: ${result.redirect_uris.join(', ')}`);
+      if (result.scopes) print.info(`  Scopes: ${Array.isArray(result.scopes) ? result.scopes.join(', ') : result.scopes}`);
+      if (result.created_at) print.info(`  Created: ${result.created_at}`);
+
+      if (flags.json) print.json(result);
+      break;
+    }
+
+    case 'delete': {
+      const id = args[0];
+      if (!id) {
+        print.error('OAuth client ID required');
+        print.info('Usage: coinpay oauth delete <client-id>');
+        return;
+      }
+
+      await client.deleteOAuthClient(id);
+      print.success(`OAuth client ${id} deleted`);
+      break;
+    }
+
+    default:
+      print.error(`Unknown oauth command: ${subcommand}`);
+      print.info('Available: list, create, get, delete');
+      process.exit(1);
   }
 }
 

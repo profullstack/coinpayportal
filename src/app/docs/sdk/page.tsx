@@ -66,6 +66,7 @@ export default function SDKDocsPage() {
               { name: 'CLI Commands', href: '#cli' },
               { name: 'Account & Auth', href: '#auth' },
               { name: 'Reputation & DID', href: '#reputation' },
+              { name: 'OAuth Clients', href: '#oauth' },
               { name: 'Lightning Network', href: '#lightning' },
               { name: 'Error Handling', href: '#errors' },
             ].map((item) => (
@@ -1195,6 +1196,70 @@ coinpay webhook test biz_123 --event payment.completed`}
           </DocSection>
         </div>
 
+
+        {/* OAuth Clients */}
+        <div id="oauth">
+          <DocSection title="OAuth Client Management">
+            <p className="text-gray-300 mb-6">
+              Register and manage OAuth applications for third-party integrations. Create OAuth clients
+              to allow external apps to authenticate users via your CoinPay merchant account.
+            </p>
+
+            <h3 className="text-xl font-semibold text-white mb-4">SDK Methods</h3>
+
+            <CodeBlock title="List OAuth Clients" language="javascript">
+{`const result = await coinpay.listOAuthClients();
+for (const app of result.clients) {
+  console.log(app.client_id, app.name);
+}`}
+            </CodeBlock>
+
+            <CodeBlock title="Create an OAuth Client" language="javascript">
+{`const app = await coinpay.createOAuthClient({
+  name: 'My App',
+  redirectUris: ['https://myapp.com/callback'],
+  scopes: ['openid', 'profile'],
+  description: 'My awesome application',
+});
+
+console.log('Client ID:', app.client_id);
+console.log('Client Secret:', app.client_secret);
+// ⚠️ Store the client_secret securely — it is only shown once!`}
+            </CodeBlock>
+
+            <CodeBlock title="Get OAuth Client Details" language="javascript">
+{`const app = await coinpay.getOAuthClient('oac_abc123');
+console.log(app.name, app.redirect_uris);`}
+            </CodeBlock>
+
+            <CodeBlock title="Delete an OAuth Client" language="javascript">
+{`await coinpay.deleteOAuthClient('oac_abc123');`}
+            </CodeBlock>
+
+            <h3 className="text-xl font-semibold text-white mb-4 mt-8">CLI Commands</h3>
+
+            <CodeBlock title="OAuth CLI" language="bash">
+{`# List all OAuth clients
+coinpay oauth list
+
+# Create a new OAuth client
+coinpay oauth create --name "My App" --redirect-uri https://myapp.com/callback --scope openid,profile
+
+# Get client details
+coinpay oauth get <client-id>
+
+# Delete a client
+coinpay oauth delete <client-id>`}
+            </CodeBlock>
+
+            <div className="mt-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+              <p className="text-amber-300 text-sm">
+                <strong>⚠️ Important:</strong> The <code>client_secret</code> is only returned when
+                the client is first created. Store it securely — you cannot retrieve it later.
+              </p>
+            </div>
+          </DocSection>
+        </div>
 
         {/* Lightning Network */}
         <div id="lightning">
