@@ -16,7 +16,7 @@ function getSupabase() {
 }
 
 export async function GET(request: NextRequest) {
-  const user = getAuthUser(request);
+  const user = await getAuthUser(request);
   if (!user) {
     return NextResponse.json(
       { success: false, error: 'Authentication required' },
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const user = getAuthUser(request);
+  const user = await getAuthUser(request);
   if (!user) {
     return NextResponse.json(
       { success: false, error: 'Authentication required' },
@@ -81,7 +81,7 @@ export async function DELETE(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const user = getAuthUser(request);
+  const user = await getAuthUser(request);
   if (!user) {
     return NextResponse.json(
       { success: false, error: 'Authentication required' },

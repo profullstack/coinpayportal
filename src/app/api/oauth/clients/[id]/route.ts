@@ -18,7 +18,7 @@ function getSupabase() {
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(request: NextRequest, context: RouteContext) {
-  const user = getAuthUser(request);
+  const user = await getAuthUser(request);
   if (!user) {
     return NextResponse.json(
       { success: false, error: 'Authentication required' },
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
-  const user = getAuthUser(request);
+  const user = await getAuthUser(request);
   if (!user) {
     return NextResponse.json(
       { success: false, error: 'Authentication required' },
@@ -96,7 +96,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 }
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
-  const user = getAuthUser(request);
+  const user = await getAuthUser(request);
   if (!user) {
     return NextResponse.json(
       { success: false, error: 'Authentication required' },
