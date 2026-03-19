@@ -70,9 +70,8 @@ jobs:
           key: ${{ env.LNBITS_DROPLET_SSH_KEY }}
           script_stop: true
           script: |
-            set -x
             cd ~/coinpayportal || exit 1
-            git fetch origin master 2>&1
+            git fetch origin master 2>&1 || true
             git reset --hard origin/master 2>&1
             sudo bash scripts/deploy-lnbits.sh 2>&1
 
