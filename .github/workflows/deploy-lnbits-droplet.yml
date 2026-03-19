@@ -69,19 +69,12 @@ jobs:
           username: ${{ env.LNBITS_DROPLET_USER }}
           key: ${{ env.LNBITS_DROPLET_SSH_KEY }}
           script_stop: true
-          debug: true
           script: |
-            set -euo pipefail
-            if [ ! -d ~/coinpayportal ]; then
-              git clone https://github.com/profullstack/coinpayportal.git ~/coinpayportal
-              cd ~/coinpayportal
-              sudo bash scripts/setup-droplet.sh
-            else
-              cd ~/coinpayportal
-              git fetch origin master
-              git reset --hard origin/master
-              sudo bash scripts/deploy-lnbits.sh
-            fi
+            set -x
+            cd ~/coinpayportal || exit 1
+            git fetch origin master 2>&1
+            git reset --hard origin/master 2>&1
+            sudo bash scripts/deploy-lnbits.sh 2>&1
 
       - name: Verify LNURLp endpoint
         shell: bash
