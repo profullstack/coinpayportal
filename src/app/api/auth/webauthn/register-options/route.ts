@@ -17,7 +17,7 @@ function getSupabase() {
 }
 
 export async function GET(request: NextRequest) {
-  const user = getAuthUser(request);
+  const user = await getAuthUser(request);
   if (!user) {
     return NextResponse.json(
       { success: false, error: 'Authentication required' },
