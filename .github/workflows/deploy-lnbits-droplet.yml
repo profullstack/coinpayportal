@@ -11,7 +11,11 @@ jobs:
     env:
       # Supports either secret or variable named ENV_FILE (dotenv format)
       ENV_FILE: ${{ secrets.ENV_FILE || vars.ENV_FILE }}
+      # Direct secrets fallback (these may not be in ENV_FILE)
       DIRECT_SSH_KEY: ${{ secrets.LNBITS_DROPLET_SSH_KEY || secrets.LNBITS_DROP_SSH_KEY || vars.LNBITS_DROPLET_SSH_KEY || vars.LNBITS_DROP_SSH_KEY }}
+      DIRECT_HOST: ${{ secrets.LNBITS_DROPLET_HOST || vars.LNBITS_DROPLET_HOST }}
+      DIRECT_USER: ${{ secrets.LNBITS_DROPLET_USER || vars.LNBITS_DROPLET_USER }}
+      DIRECT_ADMIN_KEY: ${{ secrets.LNBITS_ADMIN_KEY || vars.LNBITS_ADMIN_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,8 +25,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${ENV_FILE:-}" ]; then
-            echo "ENV_FILE is empty. Add secret/variable ENV_FILE with dotenv contents."
-            exit 1
+            echo "⚠ ENV_FILE is empty — relying on direct secrets only"
+            exit 0
           fi
 
           # Export KEY=VALUE lines into job env (ignore comments/blank lines)
@@ -39,11 +43,24 @@ jobs:
             } >> "$GITHUB_ENV"
           done <<< "$ENV_FILE"
 
-      - name: Validate required vars
+      - name: Resolve required vars
         shell: bash
         run: |
           set -euo pipefail
-          # Backward-compat aliases
+
+          # Resolve LNBITS_DROPLET_HOST — prefer ENV_FILE, fall back to direct secret
+          if [ -z "${LNBITS_DROPLET_HOST:-}" ] && [ -n "${DIRECT_HOST:-}" ]; then
+            echo "LNBITS_DROPLET_HOST=${DIRECT_HOST}" >> "$GITHUB_ENV"
+            export LNBITS_DROPLET_HOST="${DIRECT_HOST}"
+          fi
+
+          # Resolve LNBITS_DROPLET_USER — prefer ENV_FILE, fall back to direct secret
+          if [ -z "${LNBITS_DROPLET_USER:-}" ] && [ -n "${DIRECT_USER:-}" ]; then
+            echo "LNBITS_DROPLET_USER=${DIRECT_USER}" >> "$GITHUB_ENV"
+            export LNBITS_DROPLET_USER="${DIRECT_USER}"
+          fi
+
+          # Resolve SSH key — check ENV_FILE keys, then direct secret
           if [ -z "${LNBITS_DROPLET_SSH_KEY:-}" ] && [ -n "${LNBITS_DROP_SSH_KEY:-}" ]; then
             echo "LNBITS_DROPLET_SSH_KEY=${LNBITS_DROP_SSH_KEY}" >> "$GITHUB_ENV"
             export LNBITS_DROPLET_SSH_KEY="${LNBITS_DROP_SSH_KEY}"
@@ -55,14 +72,23 @@ jobs:
             export LNBITS_DROPLET_SSH_KEY="${DIRECT_SSH_KEY}"
           fi
 
+          # Resolve LNBITS_ADMIN_KEY
+          if [ -z "${LNBITS_ADMIN_KEY:-}" ] && [ -n "${DIRECT_ADMIN_KEY:-}" ]; then
+            echo "LNBITS_ADMIN_KEY=${DIRECT_ADMIN_KEY}" >> "$GITHUB_ENV"
+            export LNBITS_ADMIN_KEY="${DIRECT_ADMIN_KEY}"
+          fi
+
+          # Validate all required vars are set
           for k in LNBITS_DROPLET_HOST LNBITS_DROPLET_USER LNBITS_DROPLET_SSH_KEY LNBITS_ADMIN_KEY; do
             if [ -z "${!k:-}" ]; then
-              echo "Missing required ENV_FILE key: $k"
+              echo "❌ Missing required var: $k"
+              echo "   Set it as a GitHub secret/variable, or include it in ENV_FILE"
               exit 1
             fi
           done
+          echo "✅ All required vars resolved"
 
-      - name: Run setup-droplet.sh on LNbits host
+      - name: Deploy to LNbits host
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.LNBITS_DROPLET_HOST }}
