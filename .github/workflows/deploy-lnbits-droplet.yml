@@ -69,6 +69,7 @@ jobs:
           username: ${{ env.LNBITS_DROPLET_USER }}
           key: ${{ env.LNBITS_DROPLET_SSH_KEY }}
           script_stop: true
+          debug: true
           script: |
             set -euo pipefail
             if [ ! -d ~/coinpayportal ]; then
