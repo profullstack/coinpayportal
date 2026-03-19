@@ -73,11 +73,14 @@ jobs:
             set -euo pipefail
             if [ ! -d ~/coinpayportal ]; then
               git clone https://github.com/profullstack/coinpayportal.git ~/coinpayportal
+              cd ~/coinpayportal
+              sudo bash scripts/setup-droplet.sh
+            else
+              cd ~/coinpayportal
+              git fetch origin master
+              git reset --hard origin/master
+              sudo bash scripts/deploy-lnbits.sh
             fi
-            cd ~/coinpayportal
-            git fetch origin master
-            git reset --hard origin/master
-            sudo bash scripts/setup-droplet.sh
 
       - name: Verify LNURLp endpoint
         shell: bash
