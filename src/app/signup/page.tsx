@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
@@ -12,6 +12,8 @@ export default function SignupPage() {
     confirmPassword: '',
     name: '',
   });
+  const formLoadedAt = useRef(Date.now());
+  const [honeypot, setHoneypot] = useState('');
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -71,6 +73,8 @@ export default function SignupPage() {
           email: formData.email,
           password: formData.password,
           name: formData.name,
+          website: honeypot,
+          _ts: formLoadedAt.current,
         }),
       });
 
@@ -114,6 +118,20 @@ export default function SignupPage() {
                 {error}
               </div>
             )}
+
+            {/* Honeypot — hidden from humans, bots fill it */}
+            <div aria-hidden="true" className="absolute opacity-0 h-0 w-0 overflow-hidden" style={{ position: 'absolute', left: '-9999px' }}>
+              <label htmlFor="website">Website</label>
+              <input
+                id="website"
+                name="website"
+                type="text"
+                tabIndex={-1}
+                autoComplete="off"
+                value={honeypot}
+                onChange={(e) => setHoneypot(e.target.value)}
+              />
+            </div>
 
             <div>
               <label
