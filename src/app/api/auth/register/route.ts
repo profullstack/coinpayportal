@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { register } from '@/lib/auth/service';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { getClientIp } from '@/lib/web-wallet/client-ip';
+import { checkSpamSignup } from '@/lib/auth/spam-detection';
 import { z } from 'zod';
 
 /**
@@ -60,6 +61,36 @@ export async function POST(request: NextRequest) {
           error: validation.error.errors[0].message,
         },
         { status: 400 }
+      );
+    }
+
+    // Spam detection — block bots without CAPTCHAs
+    const spamCheck = checkSpamSignup({
+      name: validation.data.name,
+      email: validation.data.email,
+      honeypot: body.website, // hidden honeypot field
+      registrationStartMs: body._ts ? Number(body._ts) : undefined,
+    });
+
+    if (spamCheck.blocked) {
+      console.warn(
+        `[spam-block] Blocked registration: ${validation.data.email} ` +
+        `(score=${spamCheck.score}, reasons=${spamCheck.reasons.join(",")})`
+      );
+      // Return generic error — don't reveal spam detection
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Registration failed. Please try again later.',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (spamCheck.score > 0) {
+      console.info(
+        `[spam-warn] Suspicious registration: ${validation.data.email} ` +
+        `(score=${spamCheck.score}, reasons=${spamCheck.reasons.join(",")})`
       );
     }
 
