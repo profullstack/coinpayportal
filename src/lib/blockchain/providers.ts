@@ -125,12 +125,12 @@ export class BitcoinProvider implements BlockchainProvider {
    * Fetch UTXOs for an address using Tatum API
    */
   protected async getUTXOs(address: string): Promise<UTXO[]> {
-    try {
-      const apiKey = process.env.TATUM_API_KEY;
-      if (!apiKey) {
-        throw new Error('TATUM_API_KEY not configured');
-      }
+    const apiKey = process.env.TATUM_API_KEY;
+    if (!apiKey) {
+      throw new Error('TATUM_API_KEY not configured');
+    }
 
+    try {
       const response = await axios.get(
         `https://api.tatum.io/v3/bitcoin/utxo/${address}`,
         {
@@ -155,12 +155,12 @@ export class BitcoinProvider implements BlockchainProvider {
    * Broadcast a signed transaction using Tatum API
    */
   protected async broadcastTransaction(txHex: string): Promise<string> {
-    try {
-      const apiKey = process.env.TATUM_API_KEY;
-      if (!apiKey) {
-        throw new Error('TATUM_API_KEY not configured');
-      }
+    const apiKey = process.env.TATUM_API_KEY;
+    if (!apiKey) {
+      throw new Error('TATUM_API_KEY not configured');
+    }
 
+    try {
       const response = await axios.post(
         'https://api.tatum.io/v3/bitcoin/broadcast',
         { txData: txHex },

@@ -222,6 +222,11 @@ describe('LoginPage', () => {
         expect(screen.getByText(/logging in/i)).toBeInTheDocument();
       });
       expect(submitButton).toBeDisabled();
+
+      // Wait for the delayed fetch to resolve so it doesn't leak into the next test
+      await waitFor(() => {
+        expect(localStorage.getItem('auth_token')).toBe('mock-token');
+      });
     });
   });
 

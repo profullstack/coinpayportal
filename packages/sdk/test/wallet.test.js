@@ -245,9 +245,13 @@ describe.skipIf(!hasNodeSpawn)('CLI wallet commands', () => {
   it('coinpay wallet info fails gracefully without wallet file', () => {
     let out;
     try {
-      out = runNodeCli(['wallet', 'info', '--wallet-file', tmpWallet]);
+      // Merge stderr into stdout so we capture error messages from print.error
+      out = execSync(`node "${CLI}" wallet info --wallet-file "${tmpWallet}" 2>&1`, {
+        encoding: 'utf8',
+        timeout: 10000,
+      });
     } catch (e) {
-      out = e.stdout || e.stderr || e.message;
+      out = (e.stdout || '') + (e.stderr || '') + (e.message || '');
     }
     // Should mention missing wallet, prompt for password, or show wallet info
     expect(out.toLowerCase()).toMatch(/not found|no wallet|password|unlock|error|wallet id|file exists/i);
