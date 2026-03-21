@@ -75,9 +75,56 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ── Normalize external integrations (e.g. ugig.net) ──
+    // Accept `currency` as alias for `chain` (case-insensitive)
+    const normalizedBody = { ...body };
+    if (!normalizedBody.chain && normalizedBody.currency) {
+      const currencyMap: Record<string, string> = {
+        btc: 'BTC', eth: 'ETH', sol: 'SOL', pol: 'POL',
+        usdc_pol: 'USDC_POL', usdc_sol: 'USDC_SOL', usdc_eth: 'USDC_ETH',
+        usdt: 'USDT', bch: 'BCH', doge: 'DOGE', xrp: 'XRP',
+        ada: 'ADA', bnb: 'BNB', usdc: 'USDC',
+      };
+      normalizedBody.chain = currencyMap[normalizedBody.currency.toLowerCase()] || normalizedBody.currency.toUpperCase();
+      delete normalizedBody.currency;
+    }
+
+    // Accept `amount_usd` and convert to crypto amount via exchange rate
+    if (!normalizedBody.amount && normalizedBody.amount_usd) {
+      const { getExchangeRate } = await import('@/lib/rates/tatum');
+      const chain = normalizedBody.chain;
+      // Map chain to base currency for rate lookup
+      const rateChain = chain?.replace(/^USDC_.*$/, 'USDC').replace(/^USDT$/, 'USDT');
+      if (rateChain === 'USDC' || rateChain === 'USDT') {
+        // Stablecoins: 1:1 with USD
+        normalizedBody.amount = normalizedBody.amount_usd;
+      } else {
+        const rate = await getExchangeRate(rateChain, 'USD');
+        if (rate && rate > 0) {
+          normalizedBody.amount = normalizedBody.amount_usd / rate;
+        } else {
+          return NextResponse.json(
+            { error: `Could not get exchange rate for ${chain}` },
+            { status: 400 }
+          );
+        }
+      }
+      delete normalizedBody.amount_usd;
+    }
+
+    // When no wallet addresses provided but emails are, use placeholder addresses
+    // The escrow service will generate a deposit address; beneficiary is paid out via email flow
+    if (!normalizedBody.depositor_address && normalizedBody.depositor_email) {
+      // Generate a placeholder — the actual deposit address is created by the escrow service
+      normalizedBody.depositor_address = `pending:${normalizedBody.depositor_email}`;
+    }
+    if (!normalizedBody.beneficiary_address && normalizedBody.beneficiary_email) {
+      normalizedBody.beneficiary_address = `pending:${normalizedBody.beneficiary_email}`;
+    }
+
     const result = await createEscrow(supabase, {
-      ...body,
-      business_id: businessId || body.business_id,
+      ...normalizedBody,
+      business_id: businessId || normalizedBody.business_id,
     }, isPaidTier);
 
     if (!result.success) {
