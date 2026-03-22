@@ -1690,6 +1690,89 @@ const profile = await getTrustProfile(client, 'did:key:z6Mk...');
           </p>
         </DocSection>
 
+        {/* Invoices */}
+        <DocSection title="Invoices">
+          <p className="text-gray-300 mb-4">
+            Create, send, and manage invoices. Supports both crypto and card payments when the merchant has Stripe Connect configured.
+          </p>
+
+          <h3 className="text-xl font-semibold text-white mb-4">Create Invoice</h3>
+          <CodeBlock title="Create a new invoice" language="javascript">
+{`const invoice = await client.invoices.create({
+  business_id: 'your-business-id',
+  amount: 500.00,
+  currency: 'USD',
+  crypto_currency: 'SOL',          // optional
+  client_id: 'client-uuid',        // optional
+  due_date: '2026-04-15',          // optional
+  notes: 'Web development work',   // optional
+});
+
+console.log('Invoice:', invoice.invoiceNumber); // INV-001
+console.log('Status:', invoice.status);         // draft`}
+          </CodeBlock>
+
+          <h3 className="text-xl font-semibold text-white mb-4 mt-8">Send Invoice</h3>
+          <CodeBlock title="Send invoice to client (generates payment link)" language="javascript">
+{`const result = await client.invoices.send(invoice.id);
+
+// Payment link for the client:
+console.log('Pay URL:', result.payUrl);
+// If merchant has Stripe Connect, card payment is also available
+console.log('Stripe URL:', result.stripeCheckoutUrl);`}
+          </CodeBlock>
+
+          <h3 className="text-xl font-semibold text-white mb-4 mt-8">List & Filter Invoices</h3>
+          <CodeBlock title="List invoices with filters" language="javascript">
+{`// All invoices
+const all = await client.invoices.list();
+
+// Filter by status and business
+const sent = await client.invoices.list({
+  status: 'sent',
+  business_id: 'your-business-id',
+});
+
+// Filter by date range
+const recent = await client.invoices.list({
+  date_from: '2026-03-01',
+  date_to: '2026-03-31',
+});`}
+          </CodeBlock>
+
+          <h3 className="text-xl font-semibold text-white mb-4 mt-8">Update & Delete</h3>
+          <CodeBlock title="Update or delete draft invoices" language="javascript">
+{`// Update a draft invoice
+await client.invoices.update(invoice.id, {
+  amount: 750.00,
+  notes: 'Updated scope',
+  due_date: '2026-05-01',
+});
+
+// Delete a draft invoice
+await client.invoices.delete(invoice.id);`}
+          </CodeBlock>
+
+          <h3 className="text-xl font-semibold text-white mb-4 mt-8">Get Payment Data (Public)</h3>
+          <CodeBlock title="Get payment data for an invoice (no auth required)" language="javascript">
+{`// This endpoint is public — used by the pay page
+const payData = await client.invoices.getPaymentData(invoiceId);
+
+console.log('Amount:', payData.amount);
+console.log('Crypto address:', payData.paymentAddress);
+console.log('Card checkout:', payData.stripeCheckoutUrl);`}
+          </CodeBlock>
+
+          <h3 className="text-xl font-semibold text-white mb-4 mt-8">Invoice Statuses</h3>
+          <p className="text-gray-300 mb-2">
+            <code>draft</code> → <code>sent</code> → <code>paid</code> | <code>overdue</code> | <code>cancelled</code>
+          </p>
+          <p className="text-gray-400 text-sm">
+            Invoices can be paid via crypto (monitored automatically) or card (via Stripe Checkout).
+            Platform fee: 0.5% (Professional) or 1% (Starter) — applied to both payment methods.
+          </p>
+        </DocSection>
+
         {/* Footer Navigation */}
         <div className="mt-12 pt-8 border-t border-white/10">
           <div className="flex justify-between items-center">

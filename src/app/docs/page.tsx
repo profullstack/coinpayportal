@@ -113,6 +113,27 @@ export default function DocsPage() {
           </div>
         </div>
 
+        {/* Invoicing Banner */}
+        <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white mb-2">📄 Invoicing</h2>
+              <p className="text-gray-300 text-sm">
+                Create and send invoices with crypto + card payment options. Automatic payment monitoring, email notifications, and recurring schedules.
+              </p>
+            </div>
+            <Link
+              href="/docs/sdk#invoices"
+              className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              View Docs
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+          </div>
+        </div>
+
         {/* x402 Banner */}
         <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-yellow-500/20 to-red-500/20 border border-yellow-500/30">
           <div className="flex items-center justify-between">
