@@ -28,6 +28,9 @@ interface Payment {
     total_amount_usd?: number;
     description?: string;
     redirect_url?: string;
+    stripe_checkout_url?: string;
+    stripe_session_id?: string;
+    payment_method?: string;
   };
 }
 
@@ -35,6 +38,8 @@ interface Business {
   id: string;
   name: string;
 }
+
+type PaymentTab = 'crypto' | 'card';
 
 // Get blockchain explorer URL for a transaction
 const getExplorerUrl = (blockchain: string, txHash: string): string => {
@@ -94,10 +99,14 @@ export default function PublicPaymentPage() {
   const [paymentStatus, setPaymentStatus] = useState<string>('pending');
   const [qrLoaded, setQrLoaded] = useState(false);
   const [qrError, setQrError] = useState(false);
+  const [activeTab, setActiveTab] = useState<PaymentTab>('crypto');
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const balanceCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastBalanceCheckRef = useRef<number>(0);
+
+  const hasCardOption = !!(payment?.metadata?.stripe_checkout_url);
+  const hasCryptoOption = !!(payment?.payment_address);
 
   const copyToClipboard = async (text: string, field: string) => {
     try {
@@ -234,6 +243,13 @@ export default function PublicPaymentPage() {
         setPayment(data.payment);
         setPaymentStatus(data.payment.status);
         
+        // Auto-select tab based on available payment methods
+        const hasStripe = !!data.payment.metadata?.stripe_checkout_url;
+        const hasCrypto = !!data.payment.payment_address;
+        if (!hasCrypto && hasStripe) {
+          setActiveTab('card');
+        }
+        
         // Calculate initial time remaining
         if (data.payment.created_at) {
           const remaining = calculateTimeRemaining(data.payment);
@@ -282,13 +298,15 @@ export default function PublicPaymentPage() {
         pollPaymentStatus();
       }, POLL_INTERVAL_MS);
 
-      // Start blockchain balance checking
-      checkBlockchainBalance();
-      lastBalanceCheckRef.current = Date.now();
-      
-      balanceCheckIntervalRef.current = setInterval(() => {
+      // Start blockchain balance checking (only if crypto is an option)
+      if (hasCryptoOption) {
         checkBlockchainBalance();
-      }, BALANCE_CHECK_INTERVAL_MS);
+        lastBalanceCheckRef.current = Date.now();
+        
+        balanceCheckIntervalRef.current = setInterval(() => {
+          checkBlockchainBalance();
+        }, BALANCE_CHECK_INTERVAL_MS);
+      }
 
       // Start countdown timer
       timerIntervalRef.current = setInterval(() => {
@@ -318,7 +336,7 @@ export default function PublicPaymentPage() {
         }
       };
     }
-  }, [payment?.id, payment?.created_at, paymentStatus, pollPaymentStatus, calculateTimeRemaining, checkBlockchainBalance]);
+  }, [payment?.id, payment?.created_at, paymentStatus, pollPaymentStatus, calculateTimeRemaining, checkBlockchainBalance, hasCryptoOption]);
 
   // Auto-redirect when payment is complete and redirect_url is configured
   // Include 'forwarding' status since customer has already paid - they don't need to wait for internal forwarding
@@ -406,6 +424,9 @@ export default function PublicPaymentPage() {
 
   // Timer urgency
   const isTimerUrgent = timeRemaining > 0 && timeRemaining < 300; // < 5 minutes
+
+  // Whether to show tabs
+  const showTabs = hasCryptoOption && hasCardOption && isPaymentPending;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 py-8 px-4">
@@ -495,8 +516,46 @@ export default function PublicPaymentPage() {
             )}
           </div>
 
-          {/* Payment Progress Steps */}
-          {!isPaymentFailed && (
+          {/* Payment Method Tabs */}
+          {showTabs && (
+            <div className="flex border-b border-gray-700" data-testid="payment-tabs">
+              <button
+                onClick={() => setActiveTab('crypto')}
+                className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
+                  activeTab === 'crypto'
+                    ? 'text-purple-400 border-b-2 border-purple-400 bg-purple-500/10'
+                    : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700/50'
+                }`}
+                data-testid="tab-crypto"
+              >
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Pay with Crypto
+                </span>
+              </button>
+              <button
+                onClick={() => setActiveTab('card')}
+                className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
+                  activeTab === 'card'
+                    ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-500/10'
+                    : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700/50'
+                }`}
+                data-testid="tab-card"
+              >
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                  </svg>
+                  Pay with Card
+                </span>
+              </button>
+            </div>
+          )}
+
+          {/* Payment Progress Steps (crypto only) */}
+          {!isPaymentFailed && activeTab === 'crypto' && hasCryptoOption && (
             <div className="px-6 pt-5 pb-0" data-testid="payment-steps">
               <div className="flex items-center justify-between">
                 {[
@@ -543,150 +602,208 @@ export default function PublicPaymentPage() {
           )}
 
           <div className="p-6 space-y-6">
-            {/* Amount Display */}
-            <div className="text-center">
-              <div className="flex items-center justify-center gap-3 mb-2">
-                <div className={`w-10 h-10 rounded-full ${getCurrencyColor(payment.blockchain)} flex items-center justify-center`}>
-                  <span className="text-white font-bold text-sm">
-                    {payment.blockchain.slice(0, 1)}
-                  </span>
-                </div>
-                <div>
+            {/* === CARD TAB === */}
+            {activeTab === 'card' && hasCardOption && isPaymentPending && (
+              <div className="space-y-6" data-testid="card-payment-section">
+                {/* Amount Display */}
+                <div className="text-center">
                   <p className="text-3xl font-bold text-white">
-                    {payment.crypto_amount ? parseFloat(payment.crypto_amount).toFixed(8) : 'N/A'}
+                    ${payment.amount ? parseFloat(payment.amount).toFixed(2) : 'N/A'}
                   </p>
-                  <p className="text-sm text-gray-400">
-                    {getCurrencyName(payment.blockchain)}
-                  </p>
+                  <p className="text-sm text-gray-400 mt-1">USD</p>
                 </div>
-              </div>
 
-              {/* Fee Breakdown */}
-              {payment.metadata?.network_fee_usd ? (
-                <div className="bg-gray-900/50 rounded-lg p-3 mt-2 text-sm">
-                  <div className="flex justify-between text-gray-400">
-                    <span>Product price:</span>
-                    <span>${parseFloat(payment.amount).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-gray-400">
-                    <span>Network fee:</span>
-                    <span>${payment.metadata.network_fee_usd.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-white font-medium border-t border-gray-700 pt-2 mt-2">
-                    <span>Total:</span>
-                    <span>${payment.metadata.total_amount_usd?.toFixed(2) || (parseFloat(payment.amount) + payment.metadata.network_fee_usd).toFixed(2)}</span>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-gray-400">
-                  ≈ ${payment.amount ? parseFloat(payment.amount).toFixed(2) : 'N/A'} USD
-                </p>
-              )}
-
-              {payment.crypto_amount && (
-                <button
-                  onClick={() => copyToClipboard(parseFloat(payment.crypto_amount).toFixed(8), 'amount')}
-                  className={`mt-3 w-full py-3 px-4 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all ${
-                    copiedField === 'amount'
-                      ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                      : 'bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30'
-                  }`}
-                  data-testid="copy-amount-btn"
+                {/* Pay with Card Button */}
+                <a
+                  href={payment.metadata!.stripe_checkout_url!}
+                  className="block w-full py-4 px-6 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl text-center transition-colors text-lg"
+                  data-testid="pay-with-card-btn"
                 >
-                  {copiedField === 'amount' ? (
-                    <>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      Amount Copied!
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                      Copy Amount
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
+                  <span className="flex items-center justify-center gap-3">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                    </svg>
+                    Pay with Card
+                  </span>
+                </a>
 
-            {/* QR Code */}
-            {payment.payment_address && !isPaymentFailed && (
-              <div className="flex justify-center">
-                <div className="bg-white p-4 rounded-xl">
-                  {!qrError ? (
-                    <>
-                      {!qrLoaded && (
-                        <div className="w-48 h-48 flex items-center justify-center">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-                        </div>
-                      )}
-                      <img
-                        key={`qr-${payment.id}`}
-                        src={`/api/payments/${payment.id}/qr`}
-                        alt="Payment QR Code"
-                        className={`w-48 h-48 ${qrLoaded ? '' : 'hidden'}`}
-                        onLoad={() => setQrLoaded(true)}
-                        onError={() => {
-                          setQrError(true);
-                          setQrLoaded(false);
-                        }}
-                      />
-                    </>
-                  ) : (
-                    <div className="w-48 h-48 flex items-center justify-center text-gray-500 text-sm">
-                      <div className="text-center">
-                        <svg className="w-12 h-12 mx-auto text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        <p>QR unavailable</p>
-                      </div>
-                    </div>
-                  )}
+                <div className="text-center">
+                  <p className="text-xs text-gray-500">
+                    Secure payment powered by Stripe
+                  </p>
                 </div>
+
+                {/* Description */}
+                {payment.description && (
+                  <div className="bg-gray-900/50 rounded-xl p-4">
+                    <label className="block text-sm font-medium text-gray-400 mb-1">
+                      Description
+                    </label>
+                    <p className="text-white">{payment.description}</p>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Payment Address */}
-            {payment.payment_address && !isPaymentFailed && (
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-2">
-                  Send to this address:
-                </label>
-                <div className="bg-gray-900/50 rounded-xl p-4">
-                  <p className="font-mono text-sm text-white break-all mb-3">
-                    {payment.payment_address}
-                  </p>
-                  <button
-                    onClick={() => copyToClipboard(payment.payment_address, 'address')}
-                    className={`w-full py-3 px-4 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all ${
-                      copiedField === 'address'
-                        ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                        : 'bg-purple-600 text-white hover:bg-purple-500'
-                    }`}
-                    title="Copy address"
-                    data-testid="copy-address-btn"
-                  >
-                    {copiedField === 'address' ? (
-                      <>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        Address Copied!
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                        Copy Address
-                      </>
-                    )}
-                  </button>
+            {/* === CRYPTO TAB === */}
+            {activeTab === 'crypto' && hasCryptoOption && (
+              <>
+                {/* Amount Display */}
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-3 mb-2">
+                    <div className={`w-10 h-10 rounded-full ${getCurrencyColor(payment.blockchain)} flex items-center justify-center`}>
+                      <span className="text-white font-bold text-sm">
+                        {payment.blockchain.slice(0, 1)}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-3xl font-bold text-white">
+                        {payment.crypto_amount ? parseFloat(payment.crypto_amount).toFixed(8) : 'N/A'}
+                      </p>
+                      <p className="text-sm text-gray-400">
+                        {getCurrencyName(payment.blockchain)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Fee Breakdown */}
+                  {payment.metadata?.network_fee_usd ? (
+                    <div className="bg-gray-900/50 rounded-lg p-3 mt-2 text-sm">
+                      <div className="flex justify-between text-gray-400">
+                        <span>Product price:</span>
+                        <span>${parseFloat(payment.amount).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-gray-400">
+                        <span>Network fee:</span>
+                        <span>${payment.metadata.network_fee_usd.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-white font-medium border-t border-gray-700 pt-2 mt-2">
+                        <span>Total:</span>
+                        <span>${payment.metadata.total_amount_usd?.toFixed(2) || (parseFloat(payment.amount) + payment.metadata.network_fee_usd).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-gray-400">
+                      ≈ ${payment.amount ? parseFloat(payment.amount).toFixed(2) : 'N/A'} USD
+                    </p>
+                  )}
+
+                  {payment.crypto_amount && (
+                    <button
+                      onClick={() => copyToClipboard(parseFloat(payment.crypto_amount).toFixed(8), 'amount')}
+                      className={`mt-3 w-full py-3 px-4 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all ${
+                        copiedField === 'amount'
+                          ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                          : 'bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30'
+                      }`}
+                      data-testid="copy-amount-btn"
+                    >
+                      {copiedField === 'amount' ? (
+                        <>
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Amount Copied!
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                          Copy Amount
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
-              </div>
+
+                {/* QR Code */}
+                {payment.payment_address && !isPaymentFailed && (
+                  <div className="flex justify-center">
+                    <div className="bg-white p-4 rounded-xl">
+                      {!qrError ? (
+                        <>
+                          {!qrLoaded && (
+                            <div className="w-48 h-48 flex items-center justify-center">
+                              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                            </div>
+                          )}
+                          <img
+                            key={`qr-${payment.id}`}
+                            src={`/api/payments/${payment.id}/qr`}
+                            alt="Payment QR Code"
+                            className={`w-48 h-48 ${qrLoaded ? '' : 'hidden'}`}
+                            onLoad={() => setQrLoaded(true)}
+                            onError={() => {
+                              setQrError(true);
+                              setQrLoaded(false);
+                            }}
+                          />
+                        </>
+                      ) : (
+                        <div className="w-48 h-48 flex items-center justify-center text-gray-500 text-sm">
+                          <div className="text-center">
+                            <svg className="w-12 h-12 mx-auto text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <p>QR unavailable</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Payment Address */}
+                {payment.payment_address && !isPaymentFailed && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-2">
+                      Send to this address:
+                    </label>
+                    <div className="bg-gray-900/50 rounded-xl p-4">
+                      <p className="font-mono text-sm text-white break-all mb-3">
+                        {payment.payment_address}
+                      </p>
+                      <button
+                        onClick={() => copyToClipboard(payment.payment_address, 'address')}
+                        className={`w-full py-3 px-4 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all ${
+                          copiedField === 'address'
+                            ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                            : 'bg-purple-600 text-white hover:bg-purple-500'
+                        }`}
+                        title="Copy address"
+                        data-testid="copy-address-btn"
+                      >
+                        {copiedField === 'address' ? (
+                          <>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Address Copied!
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            Copy Address
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Description */}
+                {payment.description && (
+                  <div className="bg-gray-900/50 rounded-xl p-4">
+                    <label className="block text-sm font-medium text-gray-400 mb-1">
+                      Description
+                    </label>
+                    <p className="text-white">{payment.description}</p>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Transaction Links (for completed payments) */}
@@ -743,16 +860,6 @@ export default function PublicPaymentPage() {
                 <p className="text-xs text-gray-500 mt-2">
                   You will be redirected automatically in a few seconds...
                 </p>
-              </div>
-            )}
-
-            {/* Description */}
-            {payment.description && (
-              <div className="bg-gray-900/50 rounded-xl p-4">
-                <label className="block text-sm font-medium text-gray-400 mb-1">
-                  Description
-                </label>
-                <p className="text-white">{payment.description}</p>
               </div>
             )}
 

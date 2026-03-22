@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/server/optional-deps';
+import { sendPaymentWebhook } from '@/lib/webhooks/service';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co',
@@ -29,6 +30,10 @@ export async function POST(request: NextRequest) {
         await handlePaymentSucceeded(event.data.object);
         break;
 
+      case 'checkout.session.completed':
+        await handleCheckoutSessionCompleted(event.data.object);
+        break;
+
       case 'charge.dispute.created':
         await handleDisputeCreated(event.data.object);
         break;
@@ -54,6 +59,99 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Webhook error:', error);
     return NextResponse.json({ error: 'Webhook handling failed' }, { status: 500 });
+  }
+}
+
+/**
+ * Handle checkout.session.completed — update payment record and fire merchant webhook
+ */
+async function handleCheckoutSessionCompleted(session: any) {
+  try {
+    const coinpayPaymentId = session.metadata?.coinpay_payment_id;
+    const businessId = session.metadata?.business_id;
+
+    if (!coinpayPaymentId) {
+      // Not a CoinPay unified payment, skip
+      return;
+    }
+
+    console.log(`[Stripe Webhook] checkout.session.completed for payment ${coinpayPaymentId}`);
+
+    // Fetch the payment to get full details for webhook
+    const { data: fullPayment } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('id', coinpayPaymentId)
+      .single();
+
+    if (!fullPayment) {
+      console.error(`[Stripe Webhook] Payment not found: ${coinpayPaymentId}`);
+      return;
+    }
+
+    // Update metadata to mark as card-confirmed, preserving existing metadata
+    const updatedMetadata = {
+      ...fullPayment.metadata,
+      stripe_payment_intent_id: session.payment_intent,
+      card_confirmed_at: new Date().toISOString(),
+    };
+
+    await supabase
+      .from('payments')
+      .update({
+        status: 'confirmed',
+        confirmed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        metadata: updatedMetadata,
+      })
+      .eq('id', coinpayPaymentId);
+
+    // Fire merchant webhook with card_confirmed event
+    if (businessId) {
+      await sendPaymentWebhook(
+        supabase,
+        businessId,
+        coinpayPaymentId,
+        'payment.confirmed',
+        {
+          status: 'confirmed',
+          amount_usd: fullPayment.amount,
+          amount_crypto: null,
+          currency: 'usd',
+          payment_address: null,
+          tx_hash: session.payment_intent,
+          confirmations: 1,
+          metadata: {
+            ...fullPayment.metadata,
+            payment_rail: 'card',
+            stripe_session_id: session.id,
+            stripe_payment_intent_id: session.payment_intent,
+          },
+        }
+      );
+    }
+
+    // Also create stripe_transaction record
+    const platformFee = parseInt(session.metadata?.platform_fee_amount || '0');
+    try {
+      await supabase
+        .from('stripe_transactions')
+        .insert({
+          merchant_id: session.metadata?.merchant_id,
+          amount: session.amount_total,
+          currency: session.currency || 'usd',
+          platform_fee_amount: platformFee,
+          status: 'completed',
+          rail: 'card',
+          stripe_payment_intent_id: session.payment_intent,
+          updated_at: new Date().toISOString(),
+        });
+    } catch (err) {
+      console.log('[Stripe Webhook] Transaction insert error (may already exist):', err);
+    }
+
+  } catch (error) {
+    console.error('Error handling checkout session completed:', error);
   }
 }
 

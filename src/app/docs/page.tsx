@@ -216,6 +216,7 @@ export default function DocsPage() {
               { name: 'Businesses', href: '#businesses' },
               { name: 'Supported Coins', href: '#supported-coins' },
               { name: 'Payments', href: '#payments' },
+              { name: 'Unified Payments (Crypto + Card)', href: '#unified-payments' },
               { name: 'Business Collection', href: '#business-collection' },
               { name: 'Dashboard', href: '#dashboard' },
               { name: 'Settings', href: '#settings' },
@@ -1402,6 +1403,115 @@ console.log(data.payment.status);`}
      alt="Payment QR Code" />`}
               </CodeBlock>
             </ApiEndpoint>
+          </DocSection>
+        </div>
+
+        {/* Unified Card + Crypto Payments */}
+        <div id="unified-payments">
+          <DocSection title="Unified Payments (Crypto + Card)">
+            <p className="text-gray-300 mb-6">
+              Accept both <strong className="text-purple-400">cryptocurrency</strong> and <strong className="text-blue-400">credit card</strong> payments through a single API endpoint. Customers see a tabbed checkout page where they can choose their preferred payment method.
+            </p>
+
+            <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+              <p className="text-blue-300 text-sm">
+                <strong>Prerequisites:</strong> Card payments require <a href="#stripe-connect" className="text-blue-400 underline">Stripe Connect</a> onboarding. Complete onboarding at <code className="text-blue-200">/api/stripe/connect/onboard</code> first.
+              </p>
+            </div>
+
+            <h4 className="text-lg font-semibold text-white mb-3">Payment Methods</h4>
+            <div className="grid md:grid-cols-3 gap-4 mb-6">
+              <div className="p-3 rounded-lg bg-slate-800/50">
+                <h5 className="font-semibold text-purple-400 mb-2"><code>crypto</code> (default)</h5>
+                <p className="text-sm text-gray-300">Generates a wallet address + QR code. Existing behavior, fully backwards compatible.</p>
+              </div>
+              <div className="p-3 rounded-lg bg-slate-800/50">
+                <h5 className="font-semibold text-blue-400 mb-2"><code>card</code></h5>
+                <p className="text-sm text-gray-300">Creates a Stripe Checkout session via your connected account. No crypto wallet needed.</p>
+              </div>
+              <div className="p-3 rounded-lg bg-slate-800/50">
+                <h5 className="font-semibold text-green-400 mb-2"><code>both</code></h5>
+                <p className="text-sm text-gray-300">Crypto payment + Stripe Checkout URL. Customer chooses on the checkout page.</p>
+              </div>
+            </div>
+
+            <ApiEndpoint method="POST" path="/api/payments/create" description="Create a unified payment with optional card support.">
+              <CodeBlock title="Request Body (both crypto and card)">
+{`{
+  "business_id": "business-123",
+  "amount_usd": 100.00,
+  "currency": "usdc_pol",
+  "payment_method": "both",
+  "description": "Order #12345",
+  "redirect_url": "https://yoursite.com/success"
+}`}
+              </CodeBlock>
+
+              <CodeBlock title="Request Body (card only)">
+{`{
+  "business_id": "business-123",
+  "amount_usd": 50.00,
+  "payment_method": "card",
+  "description": "Premium subscription"
+}`}
+              </CodeBlock>
+
+              <CodeBlock title="Response (payment_method: both)">
+{`{
+  "success": true,
+  "payment": {
+    "id": "payment-456",
+    "business_id": "business-123",
+    "amount_usd": "100.00",
+    "amount_crypto": "100.50",
+    "currency": "usdc_pol",
+    "payment_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+    "stripe_checkout_url": "https://checkout.stripe.com/pay/cs_live_...",
+    "stripe_session_id": "cs_live_...",
+    "status": "pending",
+    "created_at": "2024-01-01T12:00:00Z"
+  }
+}`}
+              </CodeBlock>
+
+              <CodeBlock title="cURL Example" language="curl">
+{`curl -X POST https://coinpayportal.com/api/payments/create \\
+  -H "Authorization: Bearer YOUR_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "business_id": "business-123",
+    "amount_usd": 100.00,
+    "currency": "usdc_pol",
+    "payment_method": "both",
+    "description": "Order #12345"
+  }'`}
+              </CodeBlock>
+            </ApiEndpoint>
+
+            <div className="mt-6 p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+              <h4 className="font-semibold text-purple-400 mb-2">Platform Commission</h4>
+              <p className="text-purple-300 text-sm mb-2">
+                Card payments use <code className="text-purple-200">application_fee_amount</code> via Stripe Connect:
+              </p>
+              <ul className="text-purple-300 text-sm space-y-1 list-disc list-inside">
+                <li><strong>Pro tier:</strong> 0.5% platform fee</li>
+                <li><strong>Free tier:</strong> 1.0% platform fee</li>
+              </ul>
+            </div>
+
+            <div className="mt-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+              <h4 className="font-semibold text-green-400 mb-2">Checkout Page</h4>
+              <p className="text-green-300 text-sm">
+                Send customers to <code className="text-green-200">/pay/&#123;payment_id&#125;</code>. When <code className="text-green-200">payment_method</code> is <code className="text-green-200">&quot;both&quot;</code>, they&apos;ll see tabs for &quot;Pay with Crypto&quot; and &quot;Pay with Card&quot;. Card tab redirects to Stripe Checkout.
+              </p>
+            </div>
+
+            <div className="mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+              <h4 className="font-semibold text-amber-400 mb-2">Webhooks</h4>
+              <p className="text-amber-300 text-sm">
+                Card payments fire the same <code className="text-amber-200">payment.confirmed</code> webhook as crypto payments. The <code className="text-amber-200">metadata.payment_rail</code> field will be <code className="text-amber-200">&quot;card&quot;</code> to distinguish them from crypto confirmations.
+              </p>
+            </div>
           </DocSection>
         </div>
 
