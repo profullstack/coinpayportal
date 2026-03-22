@@ -4,7 +4,7 @@ import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
 import { getStripe } from '@/lib/server/optional-deps';
 
-async function getStripeAccountId(merchantId: string): Promise<string | null> {
+async function getStripeAccountId(businessId: string): Promise<string | null> {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co',
     process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key'
@@ -12,7 +12,7 @@ async function getStripeAccountId(merchantId: string): Promise<string | null> {
   const { data } = await supabase
     .from('stripe_accounts')
     .select('stripe_account_id')
-    .eq('merchant_id', merchantId)
+    .eq('business_id', businessId)
     .single();
   return data?.stripe_account_id || null;
 }

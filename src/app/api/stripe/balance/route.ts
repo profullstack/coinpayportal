@@ -41,6 +41,15 @@ export async function GET(request: NextRequest) {
     }
 
     const merchantId = decoded.userId;
+    const { searchParams } = new URL(request.url);
+    const businessId = searchParams.get('business_id');
+
+    if (!businessId) {
+      return NextResponse.json(
+        { success: false, error: 'business_id query parameter is required' },
+        { status: 400 }
+      );
+    }
 
     // Create Supabase client
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -55,11 +64,11 @@ export async function GET(request: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get merchant's Stripe account
+    // Get business's Stripe account
     const { data: stripeAccount, error: accountError } = await supabase
       .from('stripe_accounts')
       .select('stripe_account_id, charges_enabled, payouts_enabled')
-      .eq('merchant_id', merchantId)
+      .eq('business_id', businessId)
       .single();
 
     if (accountError || !stripeAccount) {
