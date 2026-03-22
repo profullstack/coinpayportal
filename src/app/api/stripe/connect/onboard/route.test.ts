@@ -58,7 +58,7 @@ describe('POST /api/stripe/connect/onboard', () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     process.env.NEXT_PUBLIC_APP_URL = 'https://coinpayportal.com';
 
-    // Reset default mock behavior — handle both businesses and stripe_accounts tables
+    // Reset default mock behavior — handle businesses and stripe_accounts tables
     mockSupabase.from.mockImplementation((table: string) => {
       if (table === 'businesses') {
         return {
@@ -69,7 +69,7 @@ describe('POST /api/stripe/connect/onboard', () => {
           }),
         };
       }
-      // stripe_accounts
+      // stripe_accounts — now looked up by business_id
       return {
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({

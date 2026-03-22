@@ -37,11 +37,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Business not found' }, { status: 404 });
     }
 
-    // Get Stripe account
+    // Get Stripe account for this business
     const { data: stripeAccount } = await supabase
       .from('stripe_accounts')
       .select('stripe_account_id, charges_enabled')
-      .eq('merchant_id', business.merchant_id)
+      .eq('business_id', businessId)
       .single();
 
     if (!stripeAccount?.stripe_account_id || !stripeAccount.charges_enabled) {

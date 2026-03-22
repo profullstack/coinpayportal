@@ -112,7 +112,7 @@ export async function POST(
       const { data: stripeAccount } = await supabase
         .from('stripe_accounts')
         .select('stripe_account_id, charges_enabled')
-        .eq('merchant_id', invoice.businesses?.merchant_id)
+        .eq('business_id', invoice.business_id)
         .single();
 
       if (stripeAccount?.stripe_account_id && stripeAccount.charges_enabled) {

@@ -284,10 +284,10 @@ async function handleDisputeCreated(dispute: any) {
 
 async function handlePayoutCreated(payout: any) {
   try {
-    // Find merchant by Stripe account ID
+    // Find business by Stripe account ID
     const { data: stripeAccount } = await supabase
       .from('stripe_accounts')
-      .select('merchant_id')
+      .select('merchant_id, business_id')
       .eq('stripe_account_id', payout.destination as string)
       .single();
 

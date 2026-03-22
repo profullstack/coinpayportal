@@ -63,11 +63,11 @@ async function createStripeCheckoutSession(
   successUrl?: string,
   cancelUrl?: string,
 ): Promise<{ stripe_checkout_url: string; stripe_session_id: string }> {
-  // Look up stripe connected account
+  // Look up stripe connected account by business
   const { data: stripeAccount } = await supabase
     .from('stripe_accounts')
     .select('stripe_account_id, charges_enabled')
-    .eq('merchant_id', merchantId)
+    .eq('business_id', businessId)
     .single() as { data: { stripe_account_id: string; charges_enabled: boolean } | null };
 
   if (!stripeAccount?.stripe_account_id || !stripeAccount.charges_enabled) {
