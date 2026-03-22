@@ -83,7 +83,7 @@ export default function Header() {
           {/* Logo */}
           <Link href="/" className="block">
             <img
-              src="/logo.white.svg"
+              src="/logo.svg"
               alt="CoinPay"
               className="h-14 w-auto"
             />
