@@ -78,7 +78,8 @@ export type WebhookEvent =
   | 'escrow.disputed'
   | 'escrow.resolved'
   | 'escrow.refunded'
-  | 'escrow.expired';
+  | 'escrow.expired'
+  | 'invoice.paid';
 
 /**
  * Webhook payload structure

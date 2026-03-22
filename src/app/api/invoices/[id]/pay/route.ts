@@ -24,6 +24,7 @@ export async function GET(
         crypto_currency,
         crypto_amount,
         payment_address,
+        stripe_checkout_url,
         due_date,
         notes,
         created_at,

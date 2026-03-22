@@ -63,15 +63,22 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Handle checkout.session.completed — update payment record and fire merchant webhook
+ * Handle checkout.session.completed — update payment or invoice record and fire merchant webhook
  */
 async function handleCheckoutSessionCompleted(session: any) {
   try {
     const coinpayPaymentId = session.metadata?.coinpay_payment_id;
+    const coinpayInvoiceId = session.metadata?.coinpay_invoice_id;
     const businessId = session.metadata?.business_id;
 
+    // Handle invoice payments
+    if (coinpayInvoiceId) {
+      await handleInvoiceCheckoutCompleted(session, coinpayInvoiceId, businessId);
+      return;
+    }
+
     if (!coinpayPaymentId) {
-      // Not a CoinPay unified payment, skip
+      // Not a CoinPay unified payment or invoice, skip
       return;
     }
 
@@ -334,5 +341,83 @@ async function handleAccountUpdated(account: any) {
 
   } catch (error) {
     console.error('Error handling account updated:', error);
+  }
+}
+
+/**
+ * Handle checkout.session.completed for invoice payments
+ */
+async function handleInvoiceCheckoutCompleted(session: any, invoiceId: string, businessId: string) {
+  try {
+    console.log(`[Stripe Webhook] checkout.session.completed for invoice ${invoiceId}`);
+
+    // Fetch the invoice
+    const { data: invoice } = await supabase
+      .from('invoices')
+      .select('*, businesses (id, name, merchant_id)')
+      .eq('id', invoiceId)
+      .single();
+
+    if (!invoice) {
+      console.error(`[Stripe Webhook] Invoice not found: ${invoiceId}`);
+      return;
+    }
+
+    // Mark invoice as paid
+    await supabase
+      .from('invoices')
+      .update({
+        status: 'paid',
+        paid_at: new Date().toISOString(),
+        tx_hash: session.payment_intent,
+        metadata: {
+          ...invoice.metadata,
+          payment_rail: 'card',
+          stripe_payment_intent_id: session.payment_intent,
+          card_confirmed_at: new Date().toISOString(),
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', invoiceId);
+
+    // Fire merchant webhook
+    if (businessId) {
+      await sendPaymentWebhook(
+        supabase,
+        businessId,
+        invoiceId,
+        'invoice.paid',
+        {
+          status: 'paid',
+          amount_usd: invoice.amount,
+          currency: invoice.currency || 'usd',
+          invoice_number: invoice.invoice_number,
+          payment_rail: 'card',
+          stripe_session_id: session.id,
+          stripe_payment_intent_id: session.payment_intent,
+        }
+      );
+    }
+
+    // Create stripe_transaction record
+    const platformFee = parseInt(session.metadata?.platform_fee_amount || '0');
+    try {
+      await supabase
+        .from('stripe_transactions')
+        .insert({
+          merchant_id: session.metadata?.merchant_id,
+          amount: session.amount_total,
+          currency: session.currency || 'usd',
+          platform_fee_amount: platformFee,
+          status: 'completed',
+          rail: 'card',
+          stripe_payment_intent_id: session.payment_intent,
+          updated_at: new Date().toISOString(),
+        });
+    } catch (err) {
+      console.log('[Stripe Webhook] Invoice transaction insert error:', err);
+    }
+  } catch (error) {
+    console.error('Error handling invoice checkout session completed:', error);
   }
 }

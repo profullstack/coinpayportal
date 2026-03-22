@@ -209,6 +209,75 @@ describe('Stripe Webhook - checkout.session.completed', () => {
     expect(mockSendPaymentWebhook).not.toHaveBeenCalled();
   });
 
+  it('should handle checkout.session.completed for invoice payments', async () => {
+    const invoiceData = {
+      id: 'inv_123',
+      invoice_number: 'INV-001',
+      amount: '100.00',
+      currency: 'USD',
+      status: 'sent',
+      metadata: {},
+      businesses: { id: 'biz_123', name: 'Acme', merchant_id: 'merch_123' },
+    };
+
+    setupMockChain({
+      invoices: {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({ data: invoiceData, error: null }),
+          }),
+        }),
+        update: vi.fn().mockReturnValue({
+          eq: vi.fn().mockResolvedValue({ data: [{}] }),
+        }),
+      },
+    });
+
+    const session = {
+      id: 'cs_inv_123',
+      payment_intent: 'pi_inv_456',
+      amount_total: 10000,
+      currency: 'usd',
+      metadata: {
+        coinpay_invoice_id: 'inv_123',
+        business_id: 'biz_123',
+        merchant_id: 'merch_123',
+        platform_fee_amount: '100',
+      },
+    };
+
+    mockStripe.webhooks.constructEvent.mockReturnValue({
+      type: 'checkout.session.completed',
+      data: { object: session },
+    });
+
+    const request = new NextRequest('http://localhost:3000/api/stripe/webhook', {
+      method: 'POST',
+      body: JSON.stringify(session),
+      headers: { 'stripe-signature': 'valid_sig' },
+    });
+
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.received).toBe(true);
+
+    // Verify merchant webhook was fired with invoice.paid event
+    expect(mockSendPaymentWebhook).toHaveBeenCalledTimes(1);
+    expect(mockSendPaymentWebhook).toHaveBeenCalledWith(
+      expect.anything(),
+      'biz_123',
+      'inv_123',
+      'invoice.paid',
+      expect.objectContaining({
+        status: 'paid',
+        payment_rail: 'card',
+        invoice_number: 'INV-001',
+      })
+    );
+  });
+
   it('should still handle payment_intent.succeeded events', async () => {
     const paymentIntent = {
       id: 'pi_test789',

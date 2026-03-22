@@ -7,6 +7,7 @@ import { generatePaymentAddress, type SystemBlockchain } from '@/lib/wallets/sys
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { sendEmail } from '@/lib/email';
 import { invoiceSentTemplate } from '@/lib/email/invoice-templates';
+import { getStripe } from '@/lib/server/optional-deps';
 
 /**
  * POST /api/invoices/[id]/send
@@ -103,6 +104,65 @@ export async function POST(
     // Calculate fee amount
     const feeAmount = parseFloat(invoice.amount) * parseFloat(invoice.fee_rate);
 
+    // Try to create Stripe Checkout Session if business has stripe connected account
+    let stripeCheckoutUrl: string | null = null;
+    let stripeSessionId: string | null = null;
+
+    try {
+      const { data: stripeAccount } = await supabase
+        .from('stripe_accounts')
+        .select('stripe_account_id, charges_enabled')
+        .eq('merchant_id', invoice.businesses?.merchant_id)
+        .single();
+
+      if (stripeAccount?.stripe_account_id && stripeAccount.charges_enabled) {
+        const amountCents = Math.round(parseFloat(invoice.amount) * 100);
+        const platformFeeRate = isPaidTier ? 0.005 : 0.01;
+        const platformFeeAmount = Math.round(amountCents * platformFeeRate);
+
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com';
+        const stripe = await getStripe();
+        const session = await stripe.checkout.sessions.create({
+          line_items: [
+            {
+              price_data: {
+                currency: 'usd',
+                product_data: { name: `Invoice ${invoice.invoice_number}` },
+                unit_amount: amountCents,
+              },
+              quantity: 1,
+            },
+          ],
+          mode: 'payment',
+          payment_intent_data: {
+            application_fee_amount: platformFeeAmount,
+            transfer_data: {
+              destination: stripeAccount.stripe_account_id,
+            },
+            metadata: {
+              coinpay_invoice_id: invoice.id,
+              business_id: invoice.business_id,
+              merchant_id: invoice.businesses?.merchant_id,
+            },
+          },
+          success_url: `${appUrl}/invoices/${invoice.id}/pay?status=success`,
+          cancel_url: `${appUrl}/invoices/${invoice.id}/pay`,
+          metadata: {
+            coinpay_invoice_id: invoice.id,
+            business_id: invoice.business_id,
+            merchant_id: invoice.businesses?.merchant_id,
+            platform_fee_amount: platformFeeAmount.toString(),
+          },
+        });
+
+        stripeCheckoutUrl = session.url!;
+        stripeSessionId = session.id;
+      }
+    } catch (stripeError) {
+      // Stripe session creation is optional - don't fail the entire send
+      console.error('Failed to create Stripe checkout session for invoice:', stripeError);
+    }
+
     // Update invoice
     const { data: updatedInvoice, error: updateError } = await supabase
       .from('invoices')
@@ -111,6 +171,8 @@ export async function POST(
         crypto_amount: cryptoAmount.toFixed(8),
         payment_address: addressResult.address,
         fee_amount: feeAmount,
+        ...(stripeCheckoutUrl && { stripe_checkout_url: stripeCheckoutUrl }),
+        ...(stripeSessionId && { stripe_session_id: stripeSessionId }),
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
