@@ -199,8 +199,8 @@ export async function createPayment(
 
     // Generate a unique payment address using the system wallet
     // This is the address customers will pay to
-    const baseBlockchain = input.blockchain.startsWith('USDC_')
-      ? input.blockchain.replace('USDC_', '') as SystemBlockchain
+    const baseBlockchain = (input.blockchain.startsWith('USDC_') || input.blockchain.startsWith('USDT_'))
+      ? input.blockchain.replace(/^USD[CT]_/, '') as SystemBlockchain
       : input.blockchain as SystemBlockchain;
 
     // Only generate system wallet address for supported blockchains

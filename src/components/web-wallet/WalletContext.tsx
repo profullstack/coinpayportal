@@ -94,7 +94,12 @@ type WalletContextType = WalletState & WalletActions;
 
 const WalletContext = createContext<WalletContextType | null>(null);
 
-const DEFAULT_CHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL'];
+const DEFAULT_CHAINS = [
+  'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+  'DOGE', 'XRP', 'ADA', 'BNB', 'LN',
+  'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+  'USDT_ETH', 'USDT_POL', 'USDT_SOL',
+];
 const AUTO_LOCK_MS = 15 * 60 * 1000; // 15 minutes
 const BALANCE_POLL_MS = 30_000; // 30 seconds
 
