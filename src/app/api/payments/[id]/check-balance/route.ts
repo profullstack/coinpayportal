@@ -380,12 +380,15 @@ async function checkBalance(address: string, blockchain: string): Promise<number
     case 'ETH':
     case 'USDC_ETH':
     case 'USDT':
+    case 'USDT_ETH':
     case 'USDC':
       return checkEVMBalance(address, RPC_ENDPOINTS.ETH);
     case 'POL':
+    case 'USDT_POL':
     case 'USDC_POL':
       return checkEVMBalance(address, RPC_ENDPOINTS.POL);
     case 'SOL':
+    case 'USDT_SOL':
     case 'USDC_SOL':
       return checkSolanaBalance(address, RPC_ENDPOINTS.SOL);
     case 'BNB':

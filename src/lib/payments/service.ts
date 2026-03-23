@@ -14,7 +14,8 @@ export { STATIC_NETWORK_FEES_USD, getEstimatedNetworkFee, getStaticNetworkFee };
 export type Blockchain =
   | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
   | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
-  | 'USDT' | 'USDC'
+  | 'USDT' | 'USDT_ETH' | 'USDT_POL' | 'USDT_SOL'
+  | 'USDC'
   | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
 
 /**
@@ -29,7 +30,8 @@ export const PAYMENT_EXPIRATION_MINUTES = 15;
 const blockchainSchema = z.enum([
   'BTC', 'BCH', 'ETH', 'POL', 'SOL',
   'DOGE', 'XRP', 'ADA', 'BNB',
-  'USDT', 'USDC',
+  'USDT', 'USDT_ETH', 'USDT_POL', 'USDT_SOL',
+  'USDC',
   'USDC_ETH', 'USDC_POL', 'USDC_SOL'
 ]);
 const amountSchema = z.number().positive('Amount must be greater than zero');

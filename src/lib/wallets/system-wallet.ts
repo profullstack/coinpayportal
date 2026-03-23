@@ -31,7 +31,11 @@ import { getFeePercentage, FEE_PERCENTAGE_FREE, FEE_PERCENTAGE_PAID } from '../p
 /**
  * Supported blockchains
  */
-export type SystemBlockchain = 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL' | 'DOGE' | 'XRP' | 'ADA' | 'BNB' | 'USDT' | 'USDC' | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
+export type SystemBlockchain =
+  | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
+  | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
+  | 'USDT' | 'USDT_ETH' | 'USDT_POL' | 'USDT_SOL'
+  | 'USDC' | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
 
 /**
  * Commission rates by tier
@@ -111,6 +115,15 @@ function getSystemMnemonic(cryptocurrency: SystemBlockchain): string {
   if (!mnemonic && cryptocurrency === 'USDC_SOL') {
     mnemonic = process.env['SYSTEM_MNEMONIC_SOL'];
   }
+  if (!mnemonic && cryptocurrency === 'USDT_ETH') {
+    mnemonic = process.env['SYSTEM_MNEMONIC_ETH'];
+  }
+  if (!mnemonic && cryptocurrency === 'USDT_POL') {
+    mnemonic = process.env['SYSTEM_MNEMONIC_POL'] || process.env['SYSTEM_MNEMONIC_ETH'];
+  }
+  if (!mnemonic && cryptocurrency === 'USDT_SOL') {
+    mnemonic = process.env['SYSTEM_MNEMONIC_SOL'];
+  }
 
   // POL, BNB, USDT, USDC (generic) use the same derivation as ETH, so fall back to ETH mnemonic
   if (!mnemonic && (cryptocurrency === 'POL' || cryptocurrency === 'BNB' || cryptocurrency === 'USDT' || cryptocurrency === 'USDC')) {
@@ -148,6 +161,15 @@ export function getCommissionWallet(cryptocurrency: SystemBlockchain): string {
     wallet = process.env['PLATFORM_FEE_WALLET_POL'] || process.env['PLATFORM_FEE_WALLET_ETH'];
   }
   if (!wallet && cryptocurrency === 'USDC_SOL') {
+    wallet = process.env['PLATFORM_FEE_WALLET_SOL'];
+  }
+  if (!wallet && cryptocurrency === 'USDT_ETH') {
+    wallet = process.env['PLATFORM_FEE_WALLET_ETH'];
+  }
+  if (!wallet && cryptocurrency === 'USDT_POL') {
+    wallet = process.env['PLATFORM_FEE_WALLET_POL'] || process.env['PLATFORM_FEE_WALLET_ETH'];
+  }
+  if (!wallet && cryptocurrency === 'USDT_SOL') {
     wallet = process.env['PLATFORM_FEE_WALLET_SOL'];
   }
 
@@ -634,6 +656,8 @@ export async function deriveSystemPaymentAddress(
     case 'POL':
     case 'BNB':
     case 'USDT':
+    case 'USDT_ETH':
+    case 'USDT_POL':
     case 'USDC':
     case 'USDC_ETH':
     case 'USDC_POL':
@@ -641,6 +665,7 @@ export async function deriveSystemPaymentAddress(
       derivationPath = `m/44'/60'/0'/0/${index}`;
       break;
     case 'SOL':
+    case 'USDT_SOL':
     case 'USDC_SOL':
       wallet = await deriveSolanaWallet(mnemonic, index);
       derivationPath = `m/44'/501'/${index}'/0'`;

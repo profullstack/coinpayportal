@@ -26,6 +26,9 @@ function mapCurrencyToBlockchain(currency: string): Blockchain | null {
     'bnb': 'BNB',
     // Stablecoins (use parent chain)
     'usdt': 'USDT',      // ERC-20 on Ethereum
+    'usdt_eth': 'USDT_ETH',
+    'usdt_pol': 'USDT_POL',
+    'usdt_sol': 'USDT_SOL',
     'usdc': 'USDC',      // ERC-20 on Ethereum
     'usdc_eth': 'USDC_ETH',
     'usdc_pol': 'USDC_POL',
@@ -38,8 +41,8 @@ function mapCurrencyToBlockchain(currency: string): Blockchain | null {
  * Map blockchain to cryptocurrency code for wallet lookup
  */
 function blockchainToCrypto(blockchain: Blockchain): string {
-  if (blockchain.startsWith('USDC_')) {
-    return 'USDC';
+  if (blockchain.startsWith('USDC_') || blockchain.startsWith('USDT_')) {
+    return blockchain;
   }
   if (blockchain === 'USDT') {
     return 'USDT';

@@ -25,7 +25,8 @@ const ECPair = ECPairFactory(ecc);
 export type BlockchainType =
   | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
   | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
-  | 'USDT' | 'USDC'
+  | 'USDT' | 'USDT_ETH' | 'USDT_POL' | 'USDT_SOL'
+  | 'USDC'
   | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
 
 /**
@@ -1909,13 +1910,16 @@ export function getProvider(
       return new BitcoinCashProvider(rpcUrl);
     case 'ETH':
     case 'USDT':
+    case 'USDT_ETH':
     case 'USDC':
     case 'USDC_ETH':
       return new EthereumProvider(rpcUrl);
     case 'POL':
+    case 'USDT_POL':
     case 'USDC_POL':
       return new PolygonProvider(rpcUrl);
     case 'SOL':
+    case 'USDT_SOL':
     case 'USDC_SOL':
       return new SolanaProvider(rpcUrl);
     case 'BNB':
@@ -1946,6 +1950,9 @@ export function getRpcUrl(chain: BlockchainType): string {
     ADA: process.env.ADA_RPC_URL || 'https://cardano-mainnet.blockfrost.io/api/v0',
     BNB: process.env.BNB_RPC_URL || 'https://bsc-dataseed.binance.org',
     USDT: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
+    USDT_ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
+    USDT_POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    USDT_SOL: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
     USDC: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
     USDC_ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
     USDC_POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',

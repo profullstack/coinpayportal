@@ -6,7 +6,8 @@ import QRCode from 'qrcode';
 export type Blockchain =
   | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
   | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
-  | 'USDT' | 'USDC'
+  | 'USDT' | 'USDT_ETH' | 'USDT_POL' | 'USDT_SOL'
+  | 'USDC'
   | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
 
 /**
@@ -86,6 +87,8 @@ export async function generateQRCode(
 const CHAIN_IDS: Record<string, number> = {
   ETH: 1,
   POL: 137,
+  USDT_ETH: 1,
+  USDT_POL: 137,
   USDC_ETH: 1,
   USDC_POL: 137,
 };
@@ -94,6 +97,12 @@ const CHAIN_IDS: Record<string, number> = {
  * Token contract addresses for ERC-20/SPL tokens
  */
 const TOKEN_CONTRACTS: Record<string, string> = {
+  // USDT on Ethereum mainnet
+  USDT_ETH: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+  // USDT on Polygon mainnet
+  USDT_POL: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
+  // USDT on Solana (SPL token mint address)
+  USDT_SOL: 'Es9vMFrzaCERmJfrF4H2FYDUTR4o4M2xq9knkXJmNQp7',
   // USDC on Ethereum mainnet
   USDC_ETH: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
   // USDC on Polygon mainnet (native USDC)
@@ -114,9 +123,12 @@ const TOKEN_DECIMALS: Record<string, number> = {
   DOGE: 8,
   XRP: 6,
   ADA: 6,
-  BNB: 18,
-  USDT: 6,
-  USDC: 6,
+    BNB: 18,
+    USDT: 6,
+    USDT_ETH: 6,
+    USDT_POL: 6,
+    USDT_SOL: 6,
+    USDC: 6,
   USDC_ETH: 6,
   USDC_POL: 6,
   USDC_SOL: 6,
@@ -137,6 +149,9 @@ function getPaymentScheme(blockchain: Blockchain): string {
     ADA: 'web+cardano', // CIP-13 Cardano URI scheme
     BNB: 'ethereum', // BNB Chain is EVM compatible
     USDT: 'ethereum', // USDT is ERC-20
+    USDT_ETH: 'ethereum',
+    USDT_POL: 'ethereum',
+    USDT_SOL: 'solana',
     USDC: 'ethereum', // USDC is ERC-20
     USDC_ETH: 'ethereum',
     USDC_POL: 'ethereum', // EIP-681: all EVM chains use ethereum: scheme with chain ID
@@ -150,14 +165,14 @@ function getPaymentScheme(blockchain: Blockchain): string {
  * Check if blockchain is an EVM chain
  */
 function isEVMChain(blockchain: Blockchain): boolean {
-  return ['ETH', 'POL', 'BNB', 'USDT', 'USDC', 'USDC_ETH', 'USDC_POL'].includes(blockchain);
+  return ['ETH', 'POL', 'BNB', 'USDT', 'USDT_ETH', 'USDT_POL', 'USDC', 'USDC_ETH', 'USDC_POL'].includes(blockchain);
 }
 
 /**
  * Check if blockchain is a token (not native coin)
  */
 function isToken(blockchain: Blockchain): boolean {
-  return ['USDC_ETH', 'USDC_POL', 'USDC_SOL'].includes(blockchain);
+  return ['USDT_ETH', 'USDT_POL', 'USDT_SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL'].includes(blockchain);
 }
 
 /**
@@ -195,7 +210,7 @@ function buildPaymentURI(params: PaymentQRParams): string {
   }
 
   // Handle Solana chains - Solana Pay format
-  if (blockchain === 'SOL' || blockchain === 'USDC_SOL') {
+  if (blockchain === 'SOL' || blockchain === 'USDT_SOL' || blockchain === 'USDC_SOL') {
     return buildSolanaPayURI(params);
   }
 
