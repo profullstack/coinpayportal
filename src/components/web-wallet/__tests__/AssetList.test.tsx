@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { AssetList, type AssetItem } from '../AssetList';
 
 const mockAssets: AssetItem[] = [
@@ -47,8 +47,25 @@ describe('AssetList', () => {
     const onSelect = vi.fn();
     render(<AssetList assets={mockAssets} onSelect={onSelect} />);
 
-    fireEvent.click(screen.getByText('0.5 BTC').closest('button')!);
+    fireEvent.click(screen.getByRole('button', { name: /copy btc address/i }).closest('div[role="button"]')!);
     expect(onSelect).toHaveBeenCalledWith(mockAssets[0]);
+  });
+
+  it('should copy an address without selecting the asset', async () => {
+    const onSelect = vi.fn();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    render(<AssetList assets={mockAssets} onSelect={onSelect} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /copy btc address/i }));
+
+    expect(writeText).toHaveBeenCalledWith(mockAssets[0].address);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(screen.getByText('Copied')).toBeInTheDocument();
+    });
   });
 
   it('should show loading skeleton', () => {

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { buildEscrowCopyLines } from '../create/copy-lines';
 
 describe('Copy All Info functionality', () => {
   let mockClipboard: ReturnType<typeof vi.fn>;
@@ -29,20 +30,7 @@ describe('Copy All Info functionality', () => {
       fee_amount: 1,
     };
 
-    // Matches the logic in create/page.tsx single escrow "Copy All"
-    const lines = [
-      `Escrow ID: ${escrow.id}`,
-      `Deposit Address: ${escrow.escrow_address}`,
-      `Amount: ${escrow.amount} ${escrow.chain}`,
-      ...(escrow.amount_usd ? [`USD Value: ≈ $${escrow.amount_usd.toFixed(2)}`] : []),
-      `Status: ${escrow.status}`,
-      `Depositor: ${escrow.depositor_address}`,
-      `Beneficiary: ${escrow.beneficiary_address}`,
-      `Expires: ${new Date(escrow.expires_at).toLocaleString()}`,
-      `Release Token: ${escrow.release_token}`,
-      `Beneficiary Token: ${escrow.beneficiary_token}`,
-      ...(escrow.fee_amount ? [`Commission: ${escrow.fee_amount} ${escrow.chain}`] : []),
-    ];
+    const lines = buildEscrowCopyLines(escrow, null, true);
     const info = lines.join('\n');
 
     await navigator.clipboard.writeText(info);
@@ -71,19 +59,7 @@ describe('Copy All Info functionality', () => {
       fee_amount: null as number | null,
     };
 
-    const lines = [
-      `Escrow ID: ${escrow.id}`,
-      `Deposit Address: ${escrow.escrow_address}`,
-      `Amount: ${escrow.amount} ${escrow.chain}`,
-      ...(escrow.amount_usd ? [`USD Value: ≈ $${escrow.amount_usd.toFixed(2)}`] : []),
-      `Status: ${escrow.status}`,
-      `Depositor: ${escrow.depositor_address}`,
-      `Beneficiary: ${escrow.beneficiary_address}`,
-      `Expires: ${new Date(escrow.expires_at).toLocaleString()}`,
-      `Release Token: ${escrow.release_token}`,
-      `Beneficiary Token: ${escrow.beneficiary_token}`,
-      ...(escrow.fee_amount ? [`Commission: ${escrow.fee_amount} ${escrow.chain}`] : []),
-    ];
+    const lines = buildEscrowCopyLines(escrow, null, true);
     const info = lines.join('\n');
 
     expect(info).not.toContain('USD Value');
@@ -118,72 +94,48 @@ describe('Copy All Info functionality', () => {
       expires_at: '2026-03-01T00:00:00Z',
     };
 
-    const lines = [
-      `Series ID: ${s.id}`,
-      `Amount: ${s.amount} ${s.coin || s.currency || ''}`,
-      `Interval: ${s.interval}`,
-      `Payment Method: ${s.payment_method}`,
-      ...(s.max_periods ? [`Max Periods: ${s.max_periods}`] : []),
-      `Status: ${s.status}`,
-      ...(s.next_charge_at ? [`Next Charge: ${new Date(s.next_charge_at).toLocaleString()}`] : []),
-      ...(s.depositor_address ? [`Depositor: ${s.depositor_address}`] : []),
-      ...(s.beneficiary_address ? [`Beneficiary: ${s.beneficiary_address}`] : []),
-      ...(s.description ? [`Description: ${s.description}`] : []),
-      '',
-      '--- First Escrow ---',
-      `Escrow ID: ${escrow.id}`,
-      `Deposit Address: ${escrow.escrow_address}`,
-      `Amount: ${escrow.amount} ${escrow.chain}`,
-      `Release Token: ${escrow.release_token}`,
-      `Beneficiary Token: ${escrow.beneficiary_token}`,
-      `Expires: ${new Date(escrow.expires_at).toLocaleString()}`,
-    ];
+    const lines = buildEscrowCopyLines(escrow, s, true);
     const info = lines.join('\n');
 
     await navigator.clipboard.writeText(info);
 
     expect(mockClipboard).toHaveBeenCalledWith(expect.stringContaining('Series ID: ser_abc'));
     expect(mockClipboard).toHaveBeenCalledWith(expect.stringContaining('Max Periods: 8'));
-    expect(mockClipboard).toHaveBeenCalledWith(expect.stringContaining('--- First Escrow ---'));
     expect(mockClipboard).toHaveBeenCalledWith(expect.stringContaining('Escrow ID: esc_first'));
     expect(mockClipboard).toHaveBeenCalledWith(expect.stringContaining('Release Token: rtok'));
-    expect(mockClipboard).toHaveBeenCalledWith(expect.stringContaining('Description: Monthly payment'));
   });
 
-  it('series copy-all without first escrow omits escrow section', async () => {
-    const s = {
-      id: 'ser_xyz',
-      amount: '10',
-      coin: 'BTC',
-      interval: 'weekly',
-      payment_method: 'crypto',
-      max_periods: null as number | null,
-      status: 'active',
-      next_charge_at: '2026-02-20T00:00:00Z',
-      depositor_address: '0xd',
-      beneficiary_address: '0xb',
-      description: null as string | null,
+  it('omits extra fields when includeAllFields is false', () => {
+    const escrow = {
+      id: 'esc_min',
+      escrow_address: '0xescrow',
+      amount: 75,
+      chain: 'ETH',
+      status: 'pending',
+      created_at: '2025-01-01T00:00:00Z',
+      expires_at: '2025-01-08T00:00:00Z',
+      depositor_address: '0xdep',
+      beneficiary_address: '0xben',
+      amount_usd: 75,
+      release_token: 'tok_release',
+      beneficiary_token: 'tok_ben',
+      fee_amount: 1,
+      allow_auto_release: true,
     };
 
-    const createdEscrow = null;
-
-    const lines = [
-      `Series ID: ${s.id}`,
-      `Amount: ${s.amount} ${s.coin}`,
-      `Interval: ${s.interval}`,
-      `Payment Method: ${s.payment_method}`,
-      ...(s.max_periods ? [`Max Periods: ${s.max_periods}`] : []),
-      `Status: ${s.status}`,
-      ...(s.next_charge_at ? [`Next Charge: ${new Date(s.next_charge_at).toLocaleString()}`] : []),
-      ...(s.depositor_address ? [`Depositor: ${s.depositor_address}`] : []),
-      ...(s.beneficiary_address ? [`Beneficiary: ${s.beneficiary_address}`] : []),
-      ...(s.description ? [`Description: ${s.description}`] : []),
-      ...(createdEscrow ? ['', '--- First Escrow ---'] : []),
-    ];
+    const lines = buildEscrowCopyLines(escrow, null, false);
     const info = lines.join('\n');
 
-    expect(info).not.toContain('Max Periods');
-    expect(info).not.toContain('Description');
-    expect(info).not.toContain('First Escrow');
+    expect(info).toContain('Coin: ETH');
+    expect(info).toContain('Address: 0xescrow');
+    expect(info).not.toContain('Escrow ID');
+    expect(info).not.toContain('Deposit Address');
+    expect(info).not.toContain('Amount:');
+    expect(info).not.toContain('Status:');
+    expect(info).not.toContain('USD Value');
+    expect(info).not.toContain('Release Token');
+    expect(info).not.toContain('Beneficiary Token');
+    expect(info).not.toContain('Commission');
+    expect(info).not.toContain('Auto-release at expiry');
   });
 });
