@@ -15,6 +15,7 @@ import { SwapForm } from '@/components/web-wallet/SwapForm';
 import { SwapHistory, PendingSwaps } from '@/components/web-wallet/SwapHistory';
 import { BoltzSwap } from '@/components/web-wallet/BoltzSwap';
 import type { WalletChain } from '@/lib/web-wallet/identity';
+import { formatWalletAddressCopyText } from '@/lib/wallets/copy';
 
 export default function WebWalletPage() {
   const router = useRouter();
@@ -109,6 +110,7 @@ function DashboardView() {
   const [loadingBalances, setLoadingBalances] = useState(true);
   const [loadingTx, setLoadingTx] = useState(true);
   const [isDeriving, setIsDeriving] = useState(false);
+  const [copiedAllAddresses, setCopiedAllAddresses] = useState(false);
   const [displayCurrency, setDisplayCurrency] = useState<'USD' | 'EUR' | 'GBP' | 'CAD' | 'AUD' | 'JPY' | 'CHF' | 'CNY' | 'INR' | 'BRL'>('USD');
 
   const fetchData = useCallback(async () => {
@@ -238,11 +240,46 @@ function DashboardView() {
     balanceMap[asset.chain] = { balance: asset.balance, usdValue: asset.usdValue };
   });
 
+  const copyableAssets = assets.filter((asset) => asset.address && asset.chain !== 'LN');
+
+  const handleCopyAllAddresses = useCallback(async () => {
+    if (copyableAssets.length === 0) return;
+
+    const text = formatWalletAddressCopyText(
+      copyableAssets.map((asset) => ({
+        cryptocurrency: asset.chain,
+        wallet_address: asset.address,
+      })),
+      false
+    );
+
+    await navigator.clipboard.writeText(text);
+    setCopiedAllAddresses(true);
+    window.setTimeout(() => setCopiedAllAddresses(false), 2000);
+  }, [copyableAssets]);
+
   return (
     <>
       <WalletHeader />
       <div className="mx-auto max-w-5xl px-4 py-6 space-y-6">
         <BalanceCard totalUsd={totalUsd} isLoading={loadingBalances} />
+
+        {copyableAssets.length > 0 && (
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                void handleCopyAllAddresses();
+              }}
+              className="inline-flex items-center gap-2 rounded-xl bg-white/5 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/10 transition-colors"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              {copiedAllAddresses ? 'Copied All Addresses' : 'Copy All Addresses'}
+            </button>
+          </div>
+        )}
 
         {/* Tab Navigation */}
         <div className="flex gap-2 border-b border-white/10 pb-2">
