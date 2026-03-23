@@ -243,6 +243,96 @@ describe('BusinessDetailPage', () => {
     });
   });
 
+  describe('Bulk Wallet Paste', () => {
+    beforeEach(async () => {
+      vi.mocked(fetch).mockImplementation((url: string | URL | Request, options?: RequestInit) => {
+        const urlString = url.toString();
+
+        if (urlString === '/api/businesses/business-123/wallets/BTC' && options?.method === 'PATCH') {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              success: true,
+              wallet: {
+                ...mockWallets[0],
+                wallet_address: '165y3LYwtbPythyYDKU1DzReT7E74tZGMh',
+              },
+            }),
+          } as Response);
+        }
+
+        if (urlString === '/api/businesses/business-123/wallets' && options?.method === 'POST') {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              success: true,
+              wallet: {
+                id: 'wallet-3',
+                business_id: 'business-123',
+                cryptocurrency: 'USDT_SOL',
+                wallet_address: 'FX8QhU1TPUHGs2X8PibbHikd4YvdQMPfVuFd6mqk9qJw',
+                is_active: true,
+                created_at: '2024-01-01T00:00:00Z',
+              },
+            }),
+          } as Response);
+        }
+
+        if (urlString.includes('/wallets')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, wallets: mockWallets }),
+          } as Response);
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, business: mockBusiness }),
+        } as Response);
+      });
+    });
+
+    it('should import pasted wallets and update existing symbols', async () => {
+      render(<BusinessDetailPage />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Test Business' })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /Wallets \(2\)/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Paste Wallet Addresses')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByLabelText('Paste wallet addresses'), {
+        target: {
+          value: [
+            'BTC: 165y3LYwtbPythyYDKU1DzReT7E74tZGMh',
+            'USDT_SOL: FX8QhU1TPUHGs2X8PibbHikd4YvdQMPfVuFd6mqk9qJw',
+          ].join('\n'),
+        },
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Import Pasted Wallets' }));
+
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith(
+          '/api/businesses/business-123/wallets/BTC',
+          expect.objectContaining({
+            method: 'PATCH',
+          })
+        );
+        expect(fetch).toHaveBeenCalledWith(
+          '/api/businesses/business-123/wallets',
+          expect.objectContaining({
+            method: 'POST',
+          })
+        );
+      });
+    });
+  });
+
   describe('Payment Mode Switcher', () => {
     beforeEach(async () => {
       vi.mocked(fetch).mockImplementation((url: string | URL | Request) => {
