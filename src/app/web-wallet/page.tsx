@@ -128,7 +128,9 @@ function DashboardView() {
       setTotalUsd(balanceData.totalUsd);
       const CHAIN_ORDER: Record<string, number> = {
         BTC: 0, LN: 1, ETH: 2, SOL: 3, POL: 4, BCH: 5,
-        USDC_ETH: 5, USDC_SOL: 6, USDC_POL: 7,
+        DOGE: 6, XRP: 7, ADA: 8, BNB: 9,
+        USDT_ETH: 10, USDT_POL: 11, USDT_SOL: 12,
+        USDC_ETH: 13, USDC_POL: 14, USDC_SOL: 15,
       };
 
       const nativeByChain = new Map<string, string>();
@@ -212,7 +214,7 @@ function DashboardView() {
       const walletChains = chains.length > 0 ? chains : [
         'BTC', 'BCH', 'ETH', 'POL', 'SOL',
         'DOGE', 'XRP', 'ADA', 'BNB',
-        'USDT', 'USDC',
+        'USDT_ETH', 'USDT_POL', 'USDT_SOL',
         'USDC_ETH', 'USDC_POL', 'USDC_SOL',
         'LN',
       ];
