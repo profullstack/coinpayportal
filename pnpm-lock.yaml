@@ -240,7 +240,7 @@ importers:
         version: 3.6.2
       vitest:
         specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.7.5)(@vitest/ui@1.6.1)(jsdom@23.2.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))(terser@5.46.1)
+        version: 2.1.9(@types/node@22.7.5)(@vitest/ui@1.6.1(vitest@1.6.1))(jsdom@23.2.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))(terser@5.46.1)
 
 packages:
 
@@ -16263,7 +16263,7 @@ snapshots:
       - supports-color
       - terser
 
-  vitest@2.1.9(@types/node@22.7.5)(@vitest/ui@1.6.1)(jsdom@23.2.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))(terser@5.46.1):
+  vitest@2.1.9(@types/node@22.7.5)(@vitest/ui@1.6.1(vitest@1.6.1))(jsdom@23.2.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))(terser@5.46.1):
     dependencies:
       '@vitest/expect': 2.1.9
       '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@22.7.5)(terser@5.46.1))

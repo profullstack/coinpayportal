@@ -198,6 +198,30 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Multi-Crypto Wallets</h2>
         <div className="flex items-center space-x-3">
+          {wallets.length > 0 && (
+            <button
+              onClick={() => {
+                const text = wallets
+                  .map((w) => `${w.cryptocurrency}: ${w.wallet_address}`)
+                  .join('\n');
+                onCopy(text, 'All wallet addresses');
+              }}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              <svg
+                className="h-5 w-5 mr-2 text-gray-500 dark:text-gray-400"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+              </svg>
+              Copy All Addresses
+            </button>
+          )}
           <button
             onClick={handleOpenImportModal}
             className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 dark:bg-gray-900"
