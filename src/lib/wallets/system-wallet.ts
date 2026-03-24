@@ -727,27 +727,58 @@ export async function generatePaymentAddress(
   }
 
   try {
-    // Get the next available index for this cryptocurrency
-    const { data: indexData, error: indexError } = await supabase
-      .from('system_wallet_indexes')
-      .select('next_index')
-      .eq('cryptocurrency', cryptocurrency)
-      .single();
-
+    // Get the next available index with compare-and-swap to prevent race conditions.
+    // Two concurrent payments for the same crypto could read the same index,
+    // derive the same address, and hit the unique_address constraint.
     let nextIndex = 0;
-    if (indexError || !indexData) {
-      // Initialize the index if it doesn't exist
-      await supabase.from('system_wallet_indexes').insert({
-        cryptocurrency,
-        next_index: 1,
-      });
-    } else {
+    let indexAcquired = false;
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const { data: indexData, error: indexError } = await supabase
+        .from('system_wallet_indexes')
+        .select('next_index')
+        .eq('cryptocurrency', cryptocurrency)
+        .single();
+
+      if (indexError || !indexData) {
+        // Initialize the index if it doesn't exist
+        const { error: insertErr } = await supabase
+          .from('system_wallet_indexes')
+          .insert({ cryptocurrency, next_index: 1 });
+        if (!insertErr) {
+          nextIndex = 0;
+          indexAcquired = true;
+          break;
+        }
+        // Insert conflict means another process created it — retry read
+        continue;
+      }
+
       nextIndex = indexData.next_index;
-      // Increment the index atomically
-      await supabase
+
+      // Compare-and-swap: only increment if the value hasn't changed since we read it
+      const { data: swapped, error: casError } = await supabase
         .from('system_wallet_indexes')
         .update({ next_index: nextIndex + 1 })
-        .eq('cryptocurrency', cryptocurrency);
+        .eq('cryptocurrency', cryptocurrency)
+        .eq('next_index', nextIndex)
+        .select('next_index')
+        .single();
+
+      if (!casError && swapped) {
+        indexAcquired = true;
+        break;
+      }
+
+      // Another process incremented the index — back off and retry
+      await new Promise(r => setTimeout(r, 20 * (attempt + 1)));
+    }
+
+    if (!indexAcquired) {
+      return {
+        success: false,
+        error: 'Failed to acquire wallet index after retries — high contention',
+      };
     }
 
     // Derive the payment address
@@ -771,8 +802,8 @@ export async function generatePaymentAddress(
     const commissionAmount = amountCrypto * commissionRate;
     const merchantAmount = amountCrypto - commissionAmount;
 
-    // Store the payment address record
-    const paymentInfo: PaymentAddressInfo = {
+    // Base payment info (address/index/key may change on retry)
+    const paymentInfo_base = {
       payment_id: paymentId,
       address: derivedAddress.address,
       cryptocurrency,
@@ -785,40 +816,81 @@ export async function generatePaymentAddress(
       merchant_amount: merchantAmount,
     };
 
-    const { error: insertError } = await supabase
-      .from('payment_addresses')
-      .insert({
-        payment_id: paymentId,
-        business_id: businessId,
-        cryptocurrency,
-        address: derivedAddress.address,
-        derivation_index: nextIndex,
-        derivation_path: derivedAddress.derivationPath,
-        encrypted_private_key: encryptedPrivateKey,
-        merchant_wallet: merchantWallet,
-        commission_wallet: commissionWallet,
-        amount_expected: amountCrypto,
-        commission_amount: commissionAmount,
-        merchant_amount: merchantAmount,
-        is_used: false,
-      });
+    // Insert payment address with retry on duplicate (stale index from previous failed attempts)
+    let finalAddress = derivedAddress.address;
+    let finalIndex = nextIndex;
+    let finalPrivateKey = encryptedPrivateKey;
+    let inserted = false;
 
-    if (insertError) {
+    for (let retryAttempt = 0; retryAttempt < 5; retryAttempt++) {
+      const { error: insertError } = await supabase
+        .from('payment_addresses')
+        .insert({
+          payment_id: paymentId,
+          business_id: businessId,
+          cryptocurrency,
+          address: finalAddress,
+          derivation_index: finalIndex,
+          derivation_path: derivedAddress.derivationPath,
+          encrypted_private_key: finalPrivateKey,
+          merchant_wallet: merchantWallet,
+          commission_wallet: commissionWallet,
+          amount_expected: amountCrypto,
+          commission_amount: commissionAmount,
+          merchant_amount: merchantAmount,
+          is_used: false,
+        });
+
+      if (!insertError) {
+        inserted = true;
+        break;
+      }
+
+      // If duplicate address, bump index and re-derive
+      if (insertError.message?.includes('unique') || insertError.code === '23505') {
+        finalIndex += 1;
+        // Bump the global index too
+        await supabase
+          .from('system_wallet_indexes')
+          .update({ next_index: finalIndex + 1 })
+          .eq('cryptocurrency', cryptocurrency);
+
+        const reDerived = await deriveSystemPaymentAddress(cryptocurrency, finalIndex);
+        finalAddress = reDerived.address;
+        finalPrivateKey = await encrypt(reDerived.privateKey, encryptionKey);
+        continue;
+      }
+
+      // Non-duplicate error — bail
       return {
         success: false,
         error: `Failed to store payment address: ${insertError.message}`,
       };
     }
 
+    if (!inserted) {
+      return {
+        success: false,
+        error: 'Failed to store payment address after retries — all derived addresses already exist',
+      };
+    }
+
+    const paymentInfo: PaymentAddressInfo = {
+      ...paymentInfo_base,
+      address: finalAddress,
+      derivation_index: finalIndex,
+      encrypted_private_key: finalPrivateKey,
+    };
+
     // Update the payment record with the generated address
     await supabase
       .from('payments')
-      .update({ payment_address: derivedAddress.address })
+      .update({ payment_address: finalAddress })
       .eq('id', paymentId);
 
     return {
       success: true,
-      address: derivedAddress.address,
+      address: finalAddress,
       paymentInfo,
     };
   } catch (error) {
