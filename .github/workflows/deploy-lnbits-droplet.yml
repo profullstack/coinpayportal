@@ -30,7 +30,8 @@ jobs:
             [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
             key="${line%%=*}"
             value="${line#*=}"
-            key="$(echo "$key" | xargs)"
+            key="${key#"${key%%[![:space:]]*}"}"
+            key="${key%"${key##*[![:space:]]}"}"
             [[ -z "$key" ]] && continue
             {
               echo "$key<<__EOF__"
