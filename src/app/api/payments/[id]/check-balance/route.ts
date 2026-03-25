@@ -5,8 +5,8 @@ import { forwardPaymentSecurely } from '@/lib/wallets/secure-forwarding';
 
 import * as bitcoin from 'bitcoinjs-lib';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 /**
  * CashAddr charset for decoding
