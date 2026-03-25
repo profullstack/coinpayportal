@@ -47,10 +47,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, endpoints: [] });
     }
 
-    const endpoints = await (await getStripe()).webhookEndpoints.list(
-      { limit: 100 },
-      { stripeAccount: stripeAccountId }
-    );
+    // List Connect webhooks from the platform account
+    // (connected accounts can't manage their own webhooks)
+    const allEndpoints = await (await getStripe()).webhookEndpoints.list({ limit: 100 });
+    // Filter to only show endpoints relevant to this account
+    const endpoints = {
+      data: allEndpoints.data.filter((ep: any) =>
+        ep.enabled_events?.includes('*') ||
+        ep.url?.includes(stripeAccountId) ||
+        ep.metadata?.business_id === stripeAccountId
+      ),
+    };
+    // If no filtered results, show all Connect endpoints
+    if (endpoints.data.length === 0) {
+      endpoints.data = allEndpoints.data;
+    }
 
     return NextResponse.json({
       success: true,
@@ -85,10 +96,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Stripe account not found' }, { status: 404 });
     }
 
-    const endpoint = await (await getStripe()).webhookEndpoints.create(
-      { url, enabled_events: events },
-      { stripeAccount: stripeAccountId }
-    );
+    // Create webhook on the platform account with connect=true
+    // so it receives events from connected accounts
+    const endpoint = await (await getStripe()).webhookEndpoints.create({
+      url,
+      enabled_events: events,
+      connect: true,
+    });
 
     return NextResponse.json({
       success: true,
