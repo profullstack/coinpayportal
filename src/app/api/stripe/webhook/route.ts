@@ -8,7 +8,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key'
 );
 
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+// Support multiple webhook secrets (platform direct + Connect events)
+function getWebhookSecrets(): string[] {
+  return [
+    process.env.STRIPE_WEBHOOK_SECRET,
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET,
+  ].filter(Boolean) as string[];
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,11 +22,23 @@ export async function POST(request: NextRequest) {
     const signature = request.headers.get('stripe-signature') as string;
 
     let event: any;
+    const stripe = await getStripe();
 
-    try {
-      event = (await getStripe()).webhooks.constructEvent(body, signature, webhookSecret);
-    } catch (err: any) {
-      console.error(`Webhook signature verification failed: ${err.message}`);
+    // Try each webhook secret until one verifies
+    const secrets = getWebhookSecrets();
+    let verified = false;
+    for (const secret of secrets) {
+      try {
+        event = stripe.webhooks.constructEvent(body, signature, secret);
+        verified = true;
+        break;
+      } catch {
+        // Try next secret
+      }
+    }
+
+    if (!verified) {
+      console.error('Webhook signature verification failed with all secrets');
       return NextResponse.json({ error: 'Webhook signature verification failed' }, { status: 400 });
     }
 
