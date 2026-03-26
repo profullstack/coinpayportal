@@ -17,7 +17,10 @@ interface ForwardedPayment {
   currency: string;
   status: string;
   payment_address: string;
+  merchant_wallet: string;
   tx_hash: string | null;
+  forward_tx_hash: string | null;
+  forwarded_at: string | null;
   created_at: string;
   fee_amount: string | null;
   merchant_amount: string | null;
@@ -97,14 +100,14 @@ export function CryptoPayoutsTab({ businessId }: CryptoPayoutsTabProps) {
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700">
-                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Amount (USD)</th>
+                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Amount</th>
                 <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Crypto</th>
-                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Currency</th>
+                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Chain</th>
                 <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Fee</th>
-                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Net</th>
-                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Status</th>
-                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Date</th>
-                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">TX Hash</th>
+                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Net to Merchant</th>
+                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Merchant Wallet</th>
+                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Forwarded</th>
+                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Forward TX</th>
               </tr>
             </thead>
             <tbody>
@@ -114,19 +117,17 @@ export function CryptoPayoutsTab({ businessId }: CryptoPayoutsTabProps) {
                   <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{p.amount_crypto}</td>
                   <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{p.currency}</td>
                   <td className="py-2 px-3 text-gray-500 dark:text-gray-400">
-                    {p.fee_amount ? `$${p.fee_amount}` : '—'}
+                    {p.fee_amount ? `${p.fee_amount} ${p.currency}` : '—'}
                   </td>
                   <td className="py-2 px-3 font-medium text-green-600 dark:text-green-400">
-                    {p.merchant_amount ? `$${p.merchant_amount}` : '—'}
+                    {p.merchant_amount ? `${p.merchant_amount} ${p.currency}` : '—'}
                   </td>
-                  <td className="py-2 px-3">
-                    <span className={`px-2 py-1 text-xs font-medium rounded ${statusColors[p.status] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200'}`}>
-                      {p.status.replace(/_/g, ' ')}
-                    </span>
+                  <td className="py-2 px-3 font-mono text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]" title={p.merchant_wallet}>
+                    {p.merchant_wallet ? `${p.merchant_wallet.slice(0, 6)}...${p.merchant_wallet.slice(-4)}` : '—'}
                   </td>
-                  <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{formatDate(p.created_at)}</td>
-                  <td className="py-2 px-3 font-mono text-xs text-gray-500 dark:text-gray-400 truncate max-w-[150px]" title={p.tx_hash || ''}>
-                    {p.tx_hash || '—'}
+                  <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{p.forwarded_at ? formatDate(p.forwarded_at) : formatDate(p.created_at)}</td>
+                  <td className="py-2 px-3 font-mono text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]" title={p.forward_tx_hash || p.tx_hash || ''}>
+                    {(p.forward_tx_hash || p.tx_hash) ? `${(p.forward_tx_hash || p.tx_hash || '').slice(0, 8)}...` : '—'}
                   </td>
                 </tr>
               ))}
