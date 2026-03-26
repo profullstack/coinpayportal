@@ -31,7 +31,10 @@ export type TabType =
   | 'stripe-payouts'
   | 'stripe-escrows'
   | 'stripe-webhooks'
-  | 'stripe-api-keys';
+  | 'stripe-api-keys'
+  | 'crypto-transactions'
+  | 'crypto-escrows'
+  | 'crypto-payouts';
 
 export const SUPPORTED_CRYPTOS = [
   { value: 'BTC', label: 'Bitcoin (BTC)' },
