@@ -41,12 +41,22 @@ export async function DELETE(
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get('business_id');
 
+    // Verify the user owns this business / has a Stripe account
     const stripeAccountId = await getStripeAccountId(businessId || decoded.userId);
     if (!stripeAccountId) {
       return NextResponse.json({ success: false, error: 'Stripe account not found' }, { status: 404 });
     }
 
-    await (await getStripe()).webhookEndpoints.del(id, { stripeAccount: stripeAccountId });
+    // Verify the webhook belongs to this business before deleting
+    const stripe = await getStripe();
+    const endpoint = await stripe.webhookEndpoints.retrieve(id);
+    if (endpoint.metadata?.business_id && endpoint.metadata.business_id !== stripeAccountId) {
+      return NextResponse.json({ success: false, error: 'Webhook does not belong to this business' }, { status: 403 });
+    }
+
+    // Webhooks are created on the platform account (with connect: true),
+    // so delete from the platform account — not the connected account
+    await stripe.webhookEndpoints.del(id);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

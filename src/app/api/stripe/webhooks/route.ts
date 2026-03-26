@@ -102,6 +102,9 @@ export async function POST(request: NextRequest) {
       url,
       enabled_events: events,
       connect: true,
+      metadata: {
+        business_id: stripeAccountId,
+      },
     });
 
     return NextResponse.json({
