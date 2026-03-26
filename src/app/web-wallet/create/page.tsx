@@ -23,6 +23,7 @@ export default function CreateWalletPage() {
   const [step, setStep] = useState<Step>('password');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [walletLabel, setWalletLabel] = useState('');
   const [chains, setChains] = useState<string[]>(DEFAULT_CHAINS);
   const [mnemonic, setMnemonic] = useState('');
   const [verifyWord, setVerifyWord] = useState('');
@@ -40,7 +41,7 @@ export default function CreateWalletPage() {
   const handleCreateWallet = async () => {
     clearError();
     try {
-      const result = await createWallet(password, { chains });
+      const result = await createWallet(password, { chains, label: walletLabel || undefined });
       setMnemonic(result.mnemonic);
 
       // Auto-download GPG-encrypted seed phrase backup (client-side only)
@@ -133,6 +134,20 @@ export default function CreateWalletPage() {
           {confirmPassword.length > 0 && !passwordsMatch && (
             <p className="text-xs text-red-400">Passwords do not match</p>
           )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">
+              Wallet Label <span className="text-gray-500">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={walletLabel}
+              onChange={(e) => setWalletLabel(e.target.value)}
+              placeholder="e.g. Main Wallet, Trading, Savings..."
+              maxLength={32}
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-gray-500 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+            />
+          </div>
 
           <ChainMultiSelect
             value={chains}

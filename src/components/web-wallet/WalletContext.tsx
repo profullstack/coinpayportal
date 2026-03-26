@@ -4,12 +4,14 @@
  * Web Wallet Context Provider
  *
  * Manages wallet state including:
- * - Encrypted seed storage in localStorage
+ * - Multi-wallet registry in localStorage
+ * - Encrypted seed storage per wallet
  * - SDK instance with auth
  * - Auto-lock on inactivity
  * - Lock/unlock state
  * - Real-time balance polling
  * - Lock on tab close (visibility change)
+ * - Wallet switching
  */
 
 import {
@@ -26,12 +28,21 @@ import type { WalletChain } from '@/lib/web-wallet/identity';
 import {
   encryptWithPassword,
   decryptWithPassword,
-  saveWalletToStorage,
-  loadWalletFromStorage,
-  removeWalletFromStorage,
-  hasStoredWallet,
-  type StoredWallet,
 } from '@/lib/web-wallet/client-crypto';
+import {
+  type WalletEntry,
+  getActiveWalletId,
+  setActiveWalletId,
+  getActiveWallet,
+  addWalletToRegistry,
+  removeWalletFromRegistry,
+  updateWalletInRegistry,
+  getAllWallets,
+  hasAnyWallet,
+  getWalletCount,
+  onWalletRegistryChange,
+} from '@/lib/web-wallet/wallet-registry';
+import { ensureMigrated } from '@/lib/web-wallet/migration';
 
 interface BalanceInfo {
   totalUsd: number;
@@ -39,7 +50,7 @@ interface BalanceInfo {
 }
 
 interface WalletState {
-  /** Whether a wallet exists in localStorage */
+  /** Whether any wallet exists in localStorage */
   hasWallet: boolean;
   /** Whether the wallet is currently unlocked */
   isUnlocked: boolean;
@@ -55,19 +66,23 @@ interface WalletState {
   error: string | null;
   /** Cached balance info for real-time updates */
   balanceInfo: BalanceInfo | null;
+  /** Active wallet ID from registry */
+  activeWalletId: string | null;
+  /** All wallets in registry */
+  wallets: WalletEntry[];
 }
 
 interface WalletActions {
   /** Create a new wallet with password */
   createWallet: (
     password: string,
-    options?: { words?: 12 | 24; chains?: string[] }
+    options?: { words?: 12 | 24; chains?: string[]; label?: string }
   ) => Promise<{ mnemonic: string; walletId: string }>;
   /** Import wallet from mnemonic with password */
   importWallet: (
     mnemonic: string,
     password: string,
-    options?: { chains?: string[] }
+    options?: { chains?: string[]; label?: string }
   ) => Promise<{ walletId: string }>;
   /** Unlock the wallet with password */
   unlock: (password: string) => Promise<boolean>;
@@ -88,6 +103,10 @@ interface WalletActions {
   refreshChains: () => Promise<void>;
   /** Re-sync wallet record from currently unlocked seed phrase */
   resyncWalletFromSeed: () => Promise<{ walletId: string }>;
+  /** Switch to a different wallet */
+  switchWallet: (id: string) => void;
+  /** Update a wallet's label */
+  updateWalletLabel: (id: string, label: string) => void;
 }
 
 type WalletContextType = WalletState & WalletActions;
@@ -110,6 +129,20 @@ function getBaseUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL || (process.env.NODE_ENV === 'production' ? 'https://coinpayportal.com' : 'http://localhost:3000');
 }
 
+/** Reload wallets + active ID from registry into state */
+function loadRegistryState() {
+  const wallets = getAllWallets();
+  const activeId = getActiveWalletId();
+  const active = activeId ? wallets.find((w) => w.id === activeId) : null;
+  return {
+    wallets,
+    activeWalletId: active?.id ?? (wallets[0]?.id ?? null),
+    hasWallet: wallets.length > 0,
+    walletId: active?.id ?? (wallets[0]?.id ?? null),
+    chains: active?.chains ?? (wallets[0]?.chains ?? []),
+  };
+}
+
 export function WebWalletProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<WalletState>({
     hasWallet: false,
@@ -120,23 +153,45 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
     isLoading: true,
     error: null,
     balanceInfo: null,
+    activeWalletId: null,
+    wallets: [],
   });
 
   const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activityRef = useRef<number>(Date.now());
   const balancePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Check for stored wallet on mount
+  // Run migration + load registry on mount
   useEffect(() => {
-    const stored = hasStoredWallet();
-    const data = stored ? loadWalletFromStorage() : null;
+    ensureMigrated();
+    const reg = loadRegistryState();
+
+    // If migration set an active wallet, also fix it
+    if (reg.activeWalletId && !getActiveWalletId()) {
+      setActiveWalletId(reg.activeWalletId);
+    }
+
     setState((s) => ({
       ...s,
-      hasWallet: stored,
-      walletId: data?.walletId ?? null,
-      chains: data?.chains ?? [],
+      ...reg,
       isLoading: false,
     }));
+  }, []);
+
+  // Cross-tab sync
+  useEffect(() => {
+    const unsub = onWalletRegistryChange(() => {
+      const reg = loadRegistryState();
+      setState((s) => ({
+        ...s,
+        ...reg,
+        // If the active wallet changed and we're unlocked for a different one, lock
+        ...(s.isUnlocked && s.walletId !== reg.activeWalletId
+          ? { isUnlocked: false, wallet: null, balanceInfo: null }
+          : {}),
+      }));
+    });
+    return unsub;
   }, []);
 
   // Auto-lock timer
@@ -222,7 +277,6 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
       }));
     } catch (err) {
       console.error('Balance poll failed:', err);
-      // Old balance stays displayed
     }
   }, [state.wallet]);
 
@@ -235,10 +289,7 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Initial fetch
     refreshBalance();
-
-    // Start polling
     balancePollRef.current = setInterval(refreshBalance, BALANCE_POLL_MS);
 
     return () => {
@@ -252,7 +303,7 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
   const createWallet = useCallback(
     async (
       password: string,
-      options?: { words?: 12 | 24; chains?: string[] }
+      options?: { words?: 12 | 24; chains?: string[]; label?: string }
     ) => {
       setState((s) => ({ ...s, isLoading: true, error: null }));
       try {
@@ -266,17 +317,24 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
         const mnemonic = wallet.getMnemonic()!;
         const encrypted = await encryptWithPassword(mnemonic, password);
 
-        const stored: StoredWallet = {
-          walletId: wallet.walletId,
+        const label =
+          options?.label?.trim() || `Wallet ${getWalletCount() + 1}`;
+
+        const entry: WalletEntry = {
+          id: wallet.walletId,
+          label,
           encrypted,
           createdAt: new Date().toISOString(),
           chains,
         };
-        saveWalletToStorage(stored);
+        addWalletToRegistry(entry);
+        setActiveWalletId(wallet.walletId);
+
+        const reg = loadRegistryState();
 
         setState((s) => ({
           ...s,
-          hasWallet: true,
+          ...reg,
           isUnlocked: true,
           wallet,
           walletId: wallet.walletId,
@@ -301,7 +359,7 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
     async (
       mnemonic: string,
       password: string,
-      options?: { chains?: string[] }
+      options?: { chains?: string[]; label?: string }
     ) => {
       setState((s) => ({ ...s, isLoading: true, error: null }));
       try {
@@ -312,17 +370,24 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
         });
 
         const encrypted = await encryptWithPassword(mnemonic, password);
-        const stored: StoredWallet = {
-          walletId: wallet.walletId,
+        const label =
+          options?.label?.trim() || `Wallet ${getWalletCount() + 1}`;
+
+        const entry: WalletEntry = {
+          id: wallet.walletId,
+          label,
           encrypted,
           createdAt: new Date().toISOString(),
           chains,
         };
-        saveWalletToStorage(stored);
+        addWalletToRegistry(entry);
+        setActiveWalletId(wallet.walletId);
+
+        const reg = loadRegistryState();
 
         setState((s) => ({
           ...s,
-          hasWallet: true,
+          ...reg,
           isUnlocked: true,
           wallet,
           walletId: wallet.walletId,
@@ -346,8 +411,8 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
   const unlock = useCallback(async (password: string) => {
     setState((s) => ({ ...s, isLoading: true, error: null }));
     try {
-      const stored = loadWalletFromStorage();
-      if (!stored) {
+      const entry = getActiveWallet();
+      if (!entry) {
         setState((s) => ({
           ...s,
           isLoading: false,
@@ -356,7 +421,7 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
         return false;
       }
 
-      const mnemonic = await decryptWithPassword(stored.encrypted, password);
+      const mnemonic = await decryptWithPassword(entry.encrypted, password);
       if (!mnemonic) {
         setState((s) => ({
           ...s,
@@ -368,15 +433,15 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
 
       const wallet = await Wallet.fromSeed(mnemonic, {
         baseUrl: getBaseUrl(),
-        chains: stored.chains as WalletChain[],
+        chains: entry.chains as WalletChain[],
       });
 
       setState((s) => ({
         ...s,
         isUnlocked: true,
         wallet,
-        walletId: stored.walletId,
-        chains: stored.chains,
+        walletId: entry.id,
+        chains: entry.chains,
         isLoading: false,
         error: null,
       }));
@@ -407,19 +472,33 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
         chains,
       });
 
-      const stored = loadWalletFromStorage();
-      if (stored) {
-        const updated: StoredWallet = {
-          ...stored,
-          walletId: wallet.walletId,
+      // Update the registry entry
+      const activeId = state.activeWalletId;
+      if (activeId) {
+        updateWalletInRegistry(activeId, {
           chains,
-        };
-        saveWalletToStorage(updated);
+        });
+        // If walletId changed, we need to handle that
+        if (wallet.walletId !== activeId) {
+          // Remove old entry, add new one
+          const entry = getActiveWallet();
+          if (entry) {
+            removeWalletFromRegistry(activeId);
+            addWalletToRegistry({
+              ...entry,
+              id: wallet.walletId,
+              chains,
+            });
+            setActiveWalletId(wallet.walletId);
+          }
+        }
       }
+
+      const reg = loadRegistryState();
 
       setState((s) => ({
         ...s,
-        hasWallet: true,
+        ...reg,
         isUnlocked: true,
         wallet,
         walletId: wallet.walletId,
@@ -433,7 +512,7 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
       setState((s) => ({ ...s, isLoading: false, error: message }));
       throw err;
     }
-  }, [state.wallet, state.chains]);
+  }, [state.wallet, state.chains, state.activeWalletId]);
 
   const lock = useCallback(() => {
     state.wallet?.destroy();
@@ -448,18 +527,23 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
 
   const deleteWallet = useCallback(() => {
     state.wallet?.destroy();
-    removeWalletFromStorage();
+
+    const activeId = state.activeWalletId;
+    if (activeId) {
+      removeWalletFromRegistry(activeId);
+    }
+
+    const reg = loadRegistryState();
+
     setState({
-      hasWallet: false,
+      ...reg,
       isUnlocked: false,
       wallet: null,
-      walletId: null,
-      chains: [],
       isLoading: false,
       error: null,
       balanceInfo: null,
     });
-  }, [state.wallet]);
+  }, [state.wallet, state.activeWalletId]);
 
   const clearError = useCallback(() => {
     setState((s) => ({ ...s, error: null }));
@@ -467,23 +551,19 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
 
   const changePassword = useCallback(
     async (currentPassword: string, newPassword: string): Promise<boolean> => {
-      const stored = loadWalletFromStorage();
-      if (!stored) return false;
+      const entry = getActiveWallet();
+      if (!entry) return false;
 
       // Verify current password
       const mnemonic = await decryptWithPassword(
-        stored.encrypted,
+        entry.encrypted,
         currentPassword
       );
       if (!mnemonic) return false;
 
       // Re-encrypt with new password
       const newEncrypted = await encryptWithPassword(mnemonic, newPassword);
-      const updated: StoredWallet = {
-        ...stored,
-        encrypted: newEncrypted,
-      };
-      saveWalletToStorage(updated);
+      updateWalletInRegistry(entry.id, { encrypted: newEncrypted });
       return true;
     },
     []
@@ -494,29 +574,56 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
     if (!w) return;
 
     try {
-      // Get current addresses from wallet to determine chains
       const addresses = await w.getAddresses();
       const currentChains = [...new Set(addresses.map((a) => a.chain))];
 
-      // Update stored wallet with new chains
-      const stored = loadWalletFromStorage();
-      if (stored) {
-        const updated: StoredWallet = {
-          ...stored,
-          chains: currentChains,
-        };
-        saveWalletToStorage(updated);
+      // Update registry
+      const activeId = state.activeWalletId;
+      if (activeId) {
+        updateWalletInRegistry(activeId, { chains: currentChains });
       }
 
-      // Update state
       setState((s) => ({
         ...s,
         chains: currentChains,
+        wallets: getAllWallets(),
       }));
     } catch (err) {
       console.error('Failed to refresh chains:', err);
     }
-  }, [state.wallet]);
+  }, [state.wallet, state.activeWalletId]);
+
+  const switchWallet = useCallback(
+    (id: string) => {
+      // Lock current wallet
+      state.wallet?.destroy();
+
+      setActiveWalletId(id);
+      const reg = loadRegistryState();
+      const target = reg.wallets.find((w) => w.id === id);
+
+      setState((s) => ({
+        ...s,
+        ...reg,
+        isUnlocked: false,
+        wallet: null,
+        walletId: id,
+        chains: target?.chains ?? [],
+        error: null,
+        balanceInfo: null,
+      }));
+    },
+    [state.wallet]
+  );
+
+  const updateWalletLabel = useCallback((id: string, label: string) => {
+    if (!label.trim()) return;
+    updateWalletInRegistry(id, { label: label.trim() });
+    setState((s) => ({
+      ...s,
+      wallets: getAllWallets(),
+    }));
+  }, []);
 
   return (
     <WalletContext.Provider
@@ -532,6 +639,8 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
         refreshBalance,
         refreshChains,
         resyncWalletFromSeed,
+        switchWallet,
+        updateWalletLabel,
       }}
     >
       {children}
