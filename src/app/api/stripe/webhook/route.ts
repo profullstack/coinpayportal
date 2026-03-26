@@ -96,7 +96,32 @@ async function handleCheckoutSessionCompleted(session: any) {
     }
 
     if (!coinpayPaymentId) {
-      // Not a CoinPay unified payment or invoice, skip
+      // No CoinPay payment ID — but if there's a business_id, fire merchant webhook
+      // This handles external integrations (e.g. ugig.net funding) that create
+      // checkout sessions via /api/stripe/payments/create without a CoinPay payment record
+      if (businessId) {
+        console.log(`[Stripe Webhook] checkout.session.completed for external payment (business=${businessId})`);
+        await sendPaymentWebhook(
+          supabase,
+          businessId,
+          session.id,
+          'payment.confirmed',
+          {
+            status: 'confirmed',
+            amount_usd: session.amount_total ? session.amount_total / 100 : 0,
+            currency: 'usd',
+            payment_address: null,
+            tx_hash: session.payment_intent,
+            confirmations: 1,
+            metadata: {
+              ...session.metadata,
+              payment_rail: 'card',
+              stripe_session_id: session.id,
+              stripe_payment_intent_id: session.payment_intent,
+            },
+          }
+        );
+      }
       return;
     }
 
