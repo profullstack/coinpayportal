@@ -82,7 +82,7 @@ export function StripeTransactionsTab({ businessId }: StripeTransactionsTabProps
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Card Transactions</h3>
+        <div><h3 className="text-lg font-semibold text-gray-900 dark:text-white">Card Transactions</h3><p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Credit and debit card payments processed through Stripe Connect. Shows amount, fees, and net to merchant.</p></div>
         {transactions.length > 0 && (
           <button
             onClick={exportCsv}

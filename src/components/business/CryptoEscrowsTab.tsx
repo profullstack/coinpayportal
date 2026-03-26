@@ -82,7 +82,7 @@ export function CryptoEscrowsTab({ businessId }: CryptoEscrowsTabProps) {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Crypto Escrows</h3>
+        <div><h3 className="text-lg font-semibold text-gray-900 dark:text-white">Crypto Escrows</h3><p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Funds held in escrow until both parties are satisfied. Supports auto-release, disputes, and refunds.</p></div>
         {escrows.length > 0 && (
           <button
             onClick={exportCsv}

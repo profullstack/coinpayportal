@@ -83,7 +83,7 @@ export function CryptoPayoutsTab({ businessId }: CryptoPayoutsTabProps) {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Payouts / Forwarding</h3>
+        <div><h3 className="text-lg font-semibold text-gray-900 dark:text-white">Payouts / Forwarding</h3><p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Confirmed payments forwarded from intermediary wallets to your merchant wallet, minus the platform fee.</p></div>
         {payouts.length > 0 && (
           <button
             onClick={exportCsv}

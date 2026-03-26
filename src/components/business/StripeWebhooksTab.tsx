@@ -158,7 +158,7 @@ export function StripeWebhooksTab({ businessId }: StripeWebhooksTabProps) {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Stripe Webhook Endpoints</h2>
+        <div><h2 className="text-xl font-semibold text-gray-900 dark:text-white">Stripe Webhook Endpoints</h2><p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Receive real-time notifications when card payments are completed, refunded, or disputed.</p></div>
         <button
           onClick={() => setShowForm(!showForm)}
           className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-500"
