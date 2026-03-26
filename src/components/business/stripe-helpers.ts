@@ -21,4 +21,11 @@ export const statusColors: Record<string, string> = {
   disabled: 'bg-red-100 text-red-700',
   refunded: 'bg-gray-100 text-gray-700',
   canceled: 'bg-gray-100 text-gray-700',
+  forwarded: 'bg-blue-100 text-blue-700',
+  expired: 'bg-gray-100 text-gray-700',
+  confirmed: 'bg-green-100 text-green-700',
+  underpaid: 'bg-yellow-100 text-yellow-700',
+  overpaid: 'bg-yellow-100 text-yellow-700',
+  deposited: 'bg-blue-100 text-blue-700',
+  disputed: 'bg-red-100 text-red-700',
 };
