@@ -26,14 +26,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get business and its tier info
-    const { data: business } = await supabase
+    // Get business info
+    const { data: business, error: bizError } = await supabase
       .from('businesses')
-      .select('tier, merchant_id')
+      .select('merchant_id')
       .eq('id', businessId)
       .single();
 
-    if (!business) {
+    if (bizError || !business) {
+      console.error('Business lookup failed:', bizError);
       return NextResponse.json({ error: 'Business not found' }, { status: 404 });
     }
 
@@ -51,8 +52,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Calculate platform fee based on tier
-    const platformFeeRate = business.tier === 'pro' ? 0.005 : 0.01;
+    // Calculate platform fee (0.5% default)
+    const platformFeeRate = 0.005;
     const platformFeeAmount = Math.round(amount * platformFeeRate);
 
     const sessionMetadata = {
