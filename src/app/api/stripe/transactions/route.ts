@@ -142,6 +142,29 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Get connected account emails for businesses
+    const bizIds = [...new Set((transactions || []).map(t => t.business_id).filter(Boolean))];
+    const accountMap: Record<string, string> = {};
+    const merchantEmailMap: Record<string, string> = {};
+    if (bizIds.length > 0) {
+      const { data: accounts } = await supabase
+        .from('stripe_accounts')
+        .select('business_id, email')
+        .in('business_id', bizIds);
+      for (const a of accounts || []) {
+        if (a.email) accountMap[a.business_id] = a.email;
+      }
+      // Also get merchant email
+      const { data: merchant } = await supabase
+        .from('merchants')
+        .select('id, email')
+        .eq('id', merchantId)
+        .single();
+      if (merchant?.email) {
+        for (const bid of bizIds) merchantEmailMap[bid] = merchant.email;
+      }
+    }
+
     // Transform transactions to match expected format
     const transformedTransactions = (transactions || []).map(transaction => {
       // Handle businesses - can be object or array depending on Supabase response
@@ -172,9 +195,8 @@ export async function GET(request: NextRequest) {
         stripe_balance_txn_id: transaction.stripe_balance_txn_id || null,
         created_at: transaction.created_at,
         updated_at: transaction.updated_at,
-        // For UI compatibility, add card-specific fields
-        last4: null, // Will be populated when we have actual card data
-        brand: null, // Will be populated when we have actual card data
+        merchant_email: merchantEmailMap[transaction.business_id] || null,
+        connected_account_email: accountMap[transaction.business_id] || null,
       };
     });
 
