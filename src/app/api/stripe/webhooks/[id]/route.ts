@@ -47,16 +47,37 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Stripe account not found' }, { status: 404 });
     }
 
-    // Verify the webhook belongs to this business before deleting
     const stripe = await getStripe();
-    const endpoint = await stripe.webhookEndpoints.retrieve(id);
+
+    // Try to retrieve from platform first, then from connected account
+    let endpoint: any;
+    let resolvedScope: 'platform' | 'account' = 'platform';
+    try {
+      endpoint = await stripe.webhookEndpoints.retrieve(id);
+    } catch {
+      // Not found on platform — try the connected account
+      try {
+        endpoint = await stripe.webhookEndpoints.retrieve(id, { stripeAccount: stripeAccountId });
+        resolvedScope = 'account';
+      } catch {
+        return NextResponse.json({ success: false, error: 'Webhook endpoint not found' }, { status: 404 });
+      }
+    }
+
+    // Use stored scope from metadata if available, otherwise use where we found it
+    const scope = endpoint.metadata?.scope || resolvedScope;
+
+    // Verify the webhook belongs to this business before deleting
     if (endpoint.metadata?.business_id && endpoint.metadata.business_id !== stripeAccountId) {
       return NextResponse.json({ success: false, error: 'Webhook does not belong to this business' }, { status: 403 });
     }
 
-    // Webhooks are created on the platform account (with connect: true),
-    // so delete from the platform account — not the connected account
-    await stripe.webhookEndpoints.del(id);
+    // Delete from the correct location based on scope
+    if (scope === 'account') {
+      await stripe.webhookEndpoints.del(id, { stripeAccount: stripeAccountId });
+    } else {
+      await stripe.webhookEndpoints.del(id);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

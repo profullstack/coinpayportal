@@ -41,32 +41,78 @@ describe('DELETE /api/stripe/webhooks/[id]', () => {
     process.env.STRIPE_SECRET_KEY = 'sk_test_123';
     mockGetJwtSecret.mockReturnValue('secret');
     mockVerifyToken.mockReturnValue({ userId: 'user-1' });
-    // Default: webhook belongs to this business
-    mockWebhookRetrieve.mockResolvedValue({ id: 'we_123', metadata: { business_id: 'acct_test' } });
   });
 
-  it('deletes a webhook endpoint from the platform account', async () => {
+  it('deletes a platform-scoped webhook from the platform account', async () => {
+    mockWebhookRetrieve.mockResolvedValue({
+      id: 'we_123',
+      metadata: { business_id: 'acct_test', scope: 'platform' },
+    });
     mockWebhookDel.mockResolvedValue({});
     const req = makeRequest('http://localhost/api/stripe/webhooks/we_123?business_id=biz-1');
     const res = await DELETE(req, { params: Promise.resolve({ id: 'we_123' }) });
     const json = await res.json();
     expect(json.success).toBe(true);
-    // Should delete from platform account (no stripeAccount param)
+    // Platform scope → no stripeAccount param
     expect(mockWebhookDel).toHaveBeenCalledWith('we_123');
   });
 
-  it('deletes webhook without metadata (legacy webhooks)', async () => {
+  it('deletes an account-scoped webhook from the connected account', async () => {
+    mockWebhookRetrieve.mockResolvedValue({
+      id: 'we_456',
+      metadata: { business_id: 'acct_test', scope: 'account' },
+    });
+    mockWebhookDel.mockResolvedValue({});
+    const req = makeRequest('http://localhost/api/stripe/webhooks/we_456?business_id=biz-1');
+    const res = await DELETE(req, { params: Promise.resolve({ id: 'we_456' }) });
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    // Account scope → pass stripeAccount
+    expect(mockWebhookDel).toHaveBeenCalledWith('we_456', { stripeAccount: 'acct_test' });
+  });
+
+  it('falls back to connected account retrieve when not found on platform', async () => {
+    // First retrieve (platform) fails, second (account) succeeds
+    mockWebhookRetrieve
+      .mockRejectedValueOnce(new Error('No such webhook'))
+      .mockResolvedValueOnce({
+        id: 'we_789',
+        metadata: { business_id: 'acct_test' },
+      });
+    mockWebhookDel.mockResolvedValue({});
+    const req = makeRequest('http://localhost/api/stripe/webhooks/we_789?business_id=biz-1');
+    const res = await DELETE(req, { params: Promise.resolve({ id: 'we_789' }) });
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    // Found on account → delete from account
+    expect(mockWebhookDel).toHaveBeenCalledWith('we_789', { stripeAccount: 'acct_test' });
+  });
+
+  it('returns 404 when webhook not found on either platform or account', async () => {
+    mockWebhookRetrieve
+      .mockRejectedValueOnce(new Error('No such webhook'))
+      .mockRejectedValueOnce(new Error('No such webhook'));
+    const req = makeRequest('http://localhost/api/stripe/webhooks/we_gone?business_id=biz-1');
+    const res = await DELETE(req, { params: Promise.resolve({ id: 'we_gone' }) });
+    expect(res.status).toBe(404);
+  });
+
+  it('deletes legacy webhook without scope metadata (defaults to platform)', async () => {
     mockWebhookRetrieve.mockResolvedValue({ id: 'we_old', metadata: {} });
     mockWebhookDel.mockResolvedValue({});
     const req = makeRequest('http://localhost/api/stripe/webhooks/we_old?business_id=biz-1');
     const res = await DELETE(req, { params: Promise.resolve({ id: 'we_old' }) });
     const json = await res.json();
     expect(json.success).toBe(true);
+    // No scope in metadata + found on platform → platform delete
     expect(mockWebhookDel).toHaveBeenCalledWith('we_old');
   });
 
   it('returns 403 when webhook belongs to different business', async () => {
-    mockWebhookRetrieve.mockResolvedValue({ id: 'we_123', metadata: { business_id: 'acct_other' } });
+    mockWebhookRetrieve.mockResolvedValue({
+      id: 'we_123',
+      metadata: { business_id: 'acct_other', scope: 'platform' },
+    });
     const req = makeRequest('http://localhost/api/stripe/webhooks/we_123?business_id=biz-1');
     const res = await DELETE(req, { params: Promise.resolve({ id: 'we_123' }) });
     expect(res.status).toBe(403);
@@ -81,6 +127,10 @@ describe('DELETE /api/stripe/webhooks/[id]', () => {
   });
 
   it('returns 500 on stripe error', async () => {
+    mockWebhookRetrieve.mockResolvedValue({
+      id: 'we_123',
+      metadata: { business_id: 'acct_test', scope: 'platform' },
+    });
     mockWebhookDel.mockRejectedValue(new Error('Stripe error'));
     const req = makeRequest('http://localhost/api/stripe/webhooks/we_123?business_id=biz-1');
     const res = await DELETE(req, { params: Promise.resolve({ id: 'we_123' }) });
