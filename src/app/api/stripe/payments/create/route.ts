@@ -96,6 +96,7 @@ export async function POST(request: NextRequest) {
         amount,
         currency,
         platform_fee_amount: platformFeeAmount,
+        net_to_merchant: amount - platformFeeAmount,
         status: 'pending',
         rail: 'card',
       });
