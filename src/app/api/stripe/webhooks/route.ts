@@ -144,6 +144,7 @@ export async function POST(request: NextRequest) {
         status: endpoint.status,
         enabled_events: endpoint.enabled_events,
         created: endpoint.created,
+        secret: endpoint.secret, // Only returned on creation — store it now!
         scope,
       },
     });
