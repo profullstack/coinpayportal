@@ -3,6 +3,20 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
 import { getStripe } from '@/lib/server/optional-deps';
+import { encrypt, decrypt } from '@/lib/crypto/encryption';
+
+function getEncryptionKey(): string {
+  const key = process.env.ENCRYPTION_KEY;
+  if (!key) throw new Error('ENCRYPTION_KEY not set');
+  return key;
+}
+
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 async function getStripeAccountId(businessId: string): Promise<string | null> {
   const supabase = createClient(
@@ -77,6 +91,25 @@ export async function GET(request: NextRequest) {
     // If no filtered results, fall back to showing all platform endpoints
     const results = allEndpoints.length > 0 ? allEndpoints : platformEndpoints.data.map((ep: any) => ({ ...ep, _scope: 'platform' }));
 
+    // Fetch stored secrets for these endpoints
+    const endpointIds = results.map((ep: any) => ep.id);
+    let secretMap: Record<string, string> = {};
+    try {
+      const supabase = getSupabase();
+      const { data: secrets } = await supabase
+        .from('stripe_webhook_secrets')
+        .select('endpoint_id, encrypted_secret')
+        .in('endpoint_id', endpointIds);
+      if (secrets) {
+        const encKey = getEncryptionKey();
+        for (const s of secrets) {
+          try {
+            secretMap[s.endpoint_id] = decrypt(s.encrypted_secret, encKey);
+          } catch { /* skip if decrypt fails */ }
+        }
+      }
+    } catch { /* secrets table may not exist yet */ }
+
     return NextResponse.json({
       success: true,
       endpoints: results.map((ep: any) => ({
@@ -86,6 +119,7 @@ export async function GET(request: NextRequest) {
         enabled_events: ep.enabled_events,
         created: ep.created,
         scope: ep._scope,
+        has_secret: !!secretMap[ep.id],
       })),
     });
   } catch (error: any) {
@@ -136,6 +170,21 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Store the signing secret encrypted in our DB (Stripe only returns it on creation)
+    if (endpoint.secret) {
+      try {
+        const supabase = getSupabase();
+        const encryptedSecret = encrypt(endpoint.secret, getEncryptionKey());
+        await supabase.from('stripe_webhook_secrets').insert({
+          endpoint_id: endpoint.id,
+          business_id: stripeAccountId,
+          encrypted_secret: encryptedSecret,
+        });
+      } catch (err) {
+        console.error('Failed to store webhook secret:', err);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       endpoint: {
@@ -144,7 +193,7 @@ export async function POST(request: NextRequest) {
         status: endpoint.status,
         enabled_events: endpoint.enabled_events,
         created: endpoint.created,
-        secret: endpoint.secret, // Only returned on creation — store it now!
+        secret: endpoint.secret, // Also returned to client on creation
         scope,
       },
     });

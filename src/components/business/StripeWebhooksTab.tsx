@@ -16,6 +16,7 @@ interface WebhookEndpoint {
   enabled_events: string[];
   created: number;
   scope?: string;
+  has_secret?: boolean;
 }
 
 interface CreatedSecret {
@@ -53,6 +54,7 @@ export function StripeWebhooksTab({ businessId }: StripeWebhooksTabProps) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [createdSecret, setCreatedSecret] = useState<CreatedSecret | null>(null);
+  const [revealedSecrets, setRevealedSecrets] = useState<Record<string, string>>({});
 
   const fetchEndpoints = useCallback(async () => {
     try {
@@ -263,14 +265,43 @@ export function StripeWebhooksTab({ businessId }: StripeWebhooksTabProps) {
                     )}
                   </div>
                 </div>
-                <button
-                  onClick={() => handleDelete(ep.id)}
-                  disabled={deleting === ep.id}
-                  className="ml-4 px-3 py-1 text-xs font-medium bg-red-600 text-white rounded hover:bg-red-500 disabled:opacity-50"
-                >
-                  {deleting === ep.id ? 'Deleting...' : 'Delete'}
-                </button>
+                <div className="ml-4 flex flex-col gap-2">
+                  {ep.has_secret && (
+                    <button
+                      onClick={async () => {
+                        if (revealedSecrets[ep.id]) {
+                          navigator.clipboard.writeText(revealedSecrets[ep.id]);
+                          return;
+                        }
+                        try {
+                          const result = await authFetch(`/api/stripe/webhooks/${ep.id}?business_id=${businessId}`, {}, router);
+                          if (!result) return;
+                          const { data } = result;
+                          if (data.success && data.secret) {
+                            setRevealedSecrets(prev => ({ ...prev, [ep.id]: data.secret }));
+                            navigator.clipboard.writeText(data.secret);
+                          }
+                        } catch {}
+                      }}
+                      className="px-3 py-1 text-xs font-medium bg-purple-600 text-white rounded hover:bg-purple-500"
+                    >
+                      {revealedSecrets[ep.id] ? '✓ Copied' : 'Show Secret'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDelete(ep.id)}
+                    disabled={deleting === ep.id}
+                    className="px-3 py-1 text-xs font-medium bg-red-600 text-white rounded hover:bg-red-500 disabled:opacity-50"
+                  >
+                    {deleting === ep.id ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
               </div>
+              {revealedSecrets[ep.id] && (
+                <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                  <code className="text-xs font-mono text-gray-700 dark:text-gray-300 break-all">{revealedSecrets[ep.id]}</code>
+                </div>
+              )}
             </div>
           ))}
         </div>

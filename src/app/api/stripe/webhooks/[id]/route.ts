@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
 import { getStripe } from '@/lib/server/optional-deps';
+import { decrypt } from '@/lib/crypto/encryption';
 
 async function getStripeAccountId(businessId: string): Promise<string | null> {
   const supabase = createClient(
@@ -79,9 +80,76 @@ export async function DELETE(
       await stripe.webhookEndpoints.del(id);
     }
 
+    // Clean up stored secret
+    try {
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+      await supabase.from('stripe_webhook_secrets').delete().eq('endpoint_id', id);
+    } catch { /* ignore if table doesn't exist yet */ }
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('Delete webhook endpoint error:', error);
+    return NextResponse.json({ success: false, error: error.message || 'Internal server error' }, { status: 500 });
+  }
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json({ success: false, error: 'Missing authorization header' }, { status: 401 });
+    }
+    const jwtSecret = getJwtSecret();
+    if (!jwtSecret) {
+      return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
+    }
+    let decoded;
+    try {
+      decoded = verifyToken(authHeader.substring(7), jwtSecret);
+    } catch {
+      return NextResponse.json({ success: false, error: 'Invalid or expired token' }, { status: 401 });
+    }
+
+    const { id } = await params;
+    const { searchParams } = new URL(request.url);
+    const businessId = searchParams.get('business_id');
+
+    const stripeAccountId = await getStripeAccountId(businessId || decoded.userId);
+    if (!stripeAccountId) {
+      return NextResponse.json({ success: false, error: 'Stripe account not found' }, { status: 404 });
+    }
+
+    // Look up stored secret
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    const { data: secretRow } = await supabase
+      .from('stripe_webhook_secrets')
+      .select('encrypted_secret')
+      .eq('endpoint_id', id)
+      .eq('business_id', stripeAccountId)
+      .single();
+
+    if (!secretRow) {
+      return NextResponse.json({ success: false, error: 'No stored secret for this endpoint' }, { status: 404 });
+    }
+
+    const encryptionKey = process.env.ENCRYPTION_KEY;
+    if (!encryptionKey) {
+      return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
+    }
+
+    const secret = decrypt(secretRow.encrypted_secret, encryptionKey);
+    return NextResponse.json({ success: true, secret });
+  } catch (error: any) {
+    console.error('Get webhook secret error:', error);
     return NextResponse.json({ success: false, error: error.message || 'Internal server error' }, { status: 500 });
   }
 }
