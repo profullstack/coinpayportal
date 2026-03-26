@@ -101,6 +101,27 @@ async function handleCheckoutSessionCompleted(session: any) {
       // checkout sessions via /api/stripe/payments/create without a CoinPay payment record
       if (businessId) {
         console.log(`[Stripe Webhook] checkout.session.completed for external payment (business=${businessId})`);
+
+        // Update stripe_transactions record to completed
+        const platformFee = parseInt(session.metadata?.platform_fee_amount || '0');
+        await supabase
+          .from('stripe_transactions')
+          .update({
+            status: 'completed',
+            business_id: businessId,
+            stripe_payment_intent_id: session.payment_intent,
+            stripe_charge_id: session.payment_intent, // best we have
+            platform_fee_amount: platformFee,
+            net_to_merchant: (session.amount_total || 0) - platformFee,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('merchant_id', session.metadata?.merchant_id)
+          .eq('amount', session.amount_total)
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        // Fire merchant webhook
         await sendPaymentWebhook(
           supabase,
           businessId,

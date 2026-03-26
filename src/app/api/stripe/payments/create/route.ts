@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
       .from('stripe_transactions')
       .insert({
         merchant_id: business.merchant_id,
+        business_id: businessId,
         amount,
         currency,
         platform_fee_amount: platformFeeAmount,
