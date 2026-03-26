@@ -118,10 +118,11 @@ export function CryptoTransactionsTab({ businessId }: CryptoTransactionsTabProps
                   <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{p.amount_crypto}</td>
                   <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{p.currency}</td>
                   <td className="py-2 px-3 text-gray-500 dark:text-gray-400">
-                    {p.fee_amount ? `$${p.fee_amount}` : '—'}
+                    <div>{p.fee_amount ? `${p.fee_amount} ${p.currency}` : '—'}</div>
                   </td>
                   <td className="py-2 px-3 font-medium text-green-600 dark:text-green-400">
-                    {p.merchant_amount ? `$${p.merchant_amount}` : '—'}
+                    <div>{p.merchant_amount ? `${p.merchant_amount} ${p.currency}` : '—'}</div>
+                    {p.merchant_amount && p.amount_usd ? <div className="text-xs font-normal text-gray-400">≈ ${(Number(p.amount_usd) - (Number(p.amount_usd) * 0.01)).toFixed(2)}</div> : null}
                   </td>
                   <td className="py-2 px-3">
                     <span className={`px-2 py-1 text-xs font-medium rounded ${statusColors[p.status] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200'}`}>
