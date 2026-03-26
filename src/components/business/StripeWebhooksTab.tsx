@@ -15,6 +15,12 @@ interface WebhookEndpoint {
   status: string;
   enabled_events: string[];
   created: number;
+  scope?: string;
+}
+
+interface CreatedSecret {
+  endpointId: string;
+  secret: string;
 }
 
 const COMMON_EVENTS = [
@@ -45,6 +51,8 @@ export function StripeWebhooksTab({ businessId }: StripeWebhooksTabProps) {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [createdSecret, setCreatedSecret] = useState<CreatedSecret | null>(null);
+  const [secretCopied, setSecretCopied] = useState(false);
 
   const fetchEndpoints = useCallback(async () => {
     try {
@@ -81,8 +89,10 @@ export function StripeWebhooksTab({ businessId }: StripeWebhooksTabProps) {
       if (!result) { setSaving(false); return; }
       const { response, data } = result;
       if (response.ok && data.success) {
+        if (data.endpoint?.secret) {
+          setCreatedSecret({ endpointId: data.endpoint.id, secret: data.endpoint.secret });
+        }
         setSuccess('Webhook endpoint created');
-        setTimeout(() => setSuccess(''), 3000);
         setShowForm(false);
         setFormUrl('');
         setFormEvents([]);
@@ -151,6 +161,40 @@ export function StripeWebhooksTab({ businessId }: StripeWebhooksTabProps) {
       )}
       {success && (
         <div className="mb-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 px-4 py-3 rounded-lg text-sm">{success}</div>
+      )}
+
+      {createdSecret && (
+        <div className="mb-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg p-4">
+          <div className="flex items-start justify-between">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300">⚠️ Webhook Signing Secret</p>
+              <p className="text-xs text-yellow-700 dark:text-yellow-400 mt-1">
+                Copy this secret now — it won&apos;t be shown again. Use it to verify webhook signatures.
+              </p>
+              <code className="mt-2 block text-sm font-mono bg-yellow-100 dark:bg-yellow-900/40 text-yellow-900 dark:text-yellow-200 px-3 py-2 rounded break-all select-all">
+                {createdSecret.secret}
+              </code>
+            </div>
+            <div className="ml-4 flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(createdSecret.secret);
+                  setSecretCopied(true);
+                  setTimeout(() => setSecretCopied(false), 2000);
+                }}
+                className="px-3 py-1 text-xs font-medium bg-yellow-600 text-white rounded hover:bg-yellow-500"
+              >
+                {secretCopied ? '✓ Copied' : 'Copy'}
+              </button>
+              <button
+                onClick={() => { setCreatedSecret(null); setSuccess(''); }}
+                className="px-3 py-1 text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showForm && (
