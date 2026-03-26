@@ -20,7 +20,8 @@ interface WebhookEndpoint {
 
 interface CreatedSecret {
   endpointId: string;
-  secret: string;
+  truncated: string;
+  copied: boolean;
 }
 
 const COMMON_EVENTS = [
@@ -52,7 +53,6 @@ export function StripeWebhooksTab({ businessId }: StripeWebhooksTabProps) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [createdSecret, setCreatedSecret] = useState<CreatedSecret | null>(null);
-  const [secretCopied, setSecretCopied] = useState(false);
 
   const fetchEndpoints = useCallback(async () => {
     try {
@@ -90,7 +90,16 @@ export function StripeWebhooksTab({ businessId }: StripeWebhooksTabProps) {
       const { response, data } = result;
       if (response.ok && data.success) {
         if (data.endpoint?.secret) {
-          setCreatedSecret({ endpointId: data.endpoint.id, secret: data.endpoint.secret });
+          const secret = data.endpoint.secret;
+          const truncated = secret.slice(0, 12) + '...' + secret.slice(-4);
+          // Copy to clipboard immediately — don't store the full key
+          try {
+            await navigator.clipboard.writeText(secret);
+            setCreatedSecret({ endpointId: data.endpoint.id, truncated, copied: true });
+          } catch {
+            // Clipboard failed — user will need to get it from Stripe dashboard
+            setCreatedSecret({ endpointId: data.endpoint.id, truncated, copied: false });
+          }
         }
         setSuccess('Webhook endpoint created');
         setShowForm(false);
@@ -167,32 +176,24 @@ export function StripeWebhooksTab({ businessId }: StripeWebhooksTabProps) {
         <div className="mb-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg p-4">
           <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300">⚠️ Webhook Signing Secret</p>
-              <p className="text-xs text-yellow-700 dark:text-yellow-400 mt-1">
-                Copy this secret now — it won&apos;t be shown again. Use it to verify webhook signatures.
+              <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300">
+                {createdSecret.copied ? '✓ Signing secret copied to clipboard' : '⚠️ Webhook Signing Secret'}
               </p>
-              <code className="mt-2 block text-sm font-mono bg-yellow-100 dark:bg-yellow-900/40 text-yellow-900 dark:text-yellow-200 px-3 py-2 rounded break-all select-all">
-                {createdSecret.secret}
+              <p className="text-xs text-yellow-700 dark:text-yellow-400 mt-1">
+                {createdSecret.copied
+                  ? 'Paste it somewhere safe — this is the only time it\'s available.'
+                  : 'Clipboard access was blocked. Retrieve the secret from your Stripe dashboard.'}
+              </p>
+              <code className="mt-2 inline-block text-sm font-mono bg-yellow-100 dark:bg-yellow-900/40 text-yellow-900 dark:text-yellow-200 px-3 py-1.5 rounded">
+                {createdSecret.truncated}
               </code>
             </div>
-            <div className="ml-4 flex flex-col gap-2">
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(createdSecret.secret);
-                  setSecretCopied(true);
-                  setTimeout(() => setSecretCopied(false), 2000);
-                }}
-                className="px-3 py-1 text-xs font-medium bg-yellow-600 text-white rounded hover:bg-yellow-500"
-              >
-                {secretCopied ? '✓ Copied' : 'Copy'}
-              </button>
-              <button
-                onClick={() => { setCreatedSecret(null); setSuccess(''); }}
-                className="px-3 py-1 text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
-              >
-                Dismiss
-              </button>
-            </div>
+            <button
+              onClick={() => { setCreatedSecret(null); setSuccess(''); }}
+              className="ml-4 px-3 py-1 text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+            >
+              Dismiss
+            </button>
           </div>
         </div>
       )}
