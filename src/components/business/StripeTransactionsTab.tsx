@@ -11,11 +11,15 @@ interface StripeTransactionsTabProps {
 
 interface Transaction {
   id: string;
-  stripe_charge_id: string;
-  amount: number;
+  stripe_charge_id: string | null;
+  stripe_payment_intent_id: string | null;
+  amount_cents: number;
+  amount_usd: string;
   currency: string;
   status: string;
-  customer_email: string | null;
+  platform_fee_amount: number;
+  net_to_merchant: number;
+  business_name: string;
   created_at: string;
 }
 
@@ -51,35 +55,70 @@ export function StripeTransactionsTab({ businessId }: StripeTransactionsTabProps
     );
   }
 
+  const exportCsv = () => {
+    const headers = ['Date', 'Amount', 'Platform Fee', 'Net', 'Status', 'Payment Intent', 'Charge ID'];
+    const rows = transactions.map(tx => [
+      tx.created_at ? new Date(tx.created_at).toISOString() : '',
+      `$${tx.amount_usd}`,
+      formatAmount(tx.platform_fee_amount, tx.currency),
+      formatAmount(tx.net_to_merchant, tx.currency),
+      tx.status,
+      tx.stripe_payment_intent_id || '',
+      tx.stripe_charge_id || '',
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Card Transactions</h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Card Transactions</h3>
+        {transactions.length > 0 && (
+          <button
+            onClick={exportCsv}
+            className="px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700"
+          >
+            Export CSV
+          </button>
+        )}
+      </div>
       {transactions.length === 0 ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 py-4">No transactions yet.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-4">No transactions yet.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700">
                 <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Amount</th>
+                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Fee</th>
+                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Net</th>
                 <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Status</th>
-                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Customer</th>
                 <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Date</th>
-                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Charge ID</th>
+                <th className="text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-200">Payment ID</th>
               </tr>
             </thead>
             <tbody>
               {transactions.map((tx) => (
-                <tr key={tx.id} className="border-b border-gray-100">
-                  <td className="py-2 px-3 font-medium">{formatAmount(tx.amount, tx.currency)}</td>
+                <tr key={tx.id} className="border-b border-gray-100 dark:border-gray-800">
+                  <td className="py-2 px-3 font-medium">${tx.amount_usd}</td>
+                  <td className="py-2 px-3 text-gray-500 dark:text-gray-400">{formatAmount(tx.platform_fee_amount, tx.currency)}</td>
+                  <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{formatAmount(tx.net_to_merchant, tx.currency)}</td>
                   <td className="py-2 px-3">
                     <span className={`px-2 py-1 text-xs font-medium rounded ${statusColors[tx.status] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200'}`}>
                       {tx.status.replace(/_/g, ' ')}
                     </span>
                   </td>
-                  <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{tx.customer_email || '—'}</td>
                   <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{formatDate(tx.created_at)}</td>
-                  <td className="py-2 px-3 font-mono text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">{tx.stripe_charge_id}</td>
+                  <td className="py-2 px-3 font-mono text-xs text-gray-500 dark:text-gray-400 truncate max-w-[150px]" title={tx.stripe_payment_intent_id || tx.stripe_charge_id || ''}>
+                    {tx.stripe_payment_intent_id || tx.stripe_charge_id || '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>
