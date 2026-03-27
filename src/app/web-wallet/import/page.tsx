@@ -50,7 +50,7 @@ export default function ImportWalletPage() {
 
       // Auto-download GPG-encrypted seed phrase backup (client-side only)
       try {
-        await downloadEncryptedSeedPhrase(mnemonic.trim(), password, result.walletId);
+        await downloadEncryptedSeedPhrase(mnemonic.trim(), password, result.walletId, walletLabel || undefined);
       } catch (dlErr) {
         console.warn('Seed phrase backup download failed:', dlErr);
         // Non-fatal — user still has their phrase

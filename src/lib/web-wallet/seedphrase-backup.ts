@@ -16,21 +16,28 @@
  * @param mnemonic - The plaintext seed phrase
  * @param password - The user's wallet password (used as GPG passphrase)
  * @param walletId - The wallet ID (used in filename)
+ * @param walletLabel - Optional wallet label for multi-wallet identification
  */
 export async function downloadEncryptedSeedPhrase(
   mnemonic: string,
   password: string,
-  walletId: string
+  walletId: string,
+  walletLabel?: string
 ): Promise<void> {
   // Lazy-load openpgp to avoid crashing in jsdom/SSR environments
   const openpgp = await import('openpgp');
 
-  const filename = `wallet_coinpayportal_${walletId}_seedphrase.txt`;
+  // Sanitize label for filename (alphanumeric, hyphens, underscores only)
+  const safeLabel = walletLabel
+    ? '_' + walletLabel.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32)
+    : '';
+  const filename = `wallet_coinpayportal_${walletId}${safeLabel}_seedphrase.txt`;
 
   // Create the plaintext content
   const content = [
     '# CoinPayPortal Wallet Seed Phrase Backup',
     `# Wallet ID: ${walletId}`,
+    ...(walletLabel ? [`# Wallet Label: ${walletLabel}`] : []),
     `# Created: ${new Date().toISOString()}`,
     '#',
     '# KEEP THIS FILE SAFE. Anyone with this phrase can access your funds.',
