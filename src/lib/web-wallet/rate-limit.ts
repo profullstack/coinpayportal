@@ -56,10 +56,10 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'merchant_login_email': { limit: 10, windowSeconds: 3600 }, // 10/hour per email
   'merchant_register': { limit: 3, windowSeconds: 3600 },     // 3/hour per IP
   // Web wallet endpoints
-  'wallet_creation': { limit: 3, windowSeconds: 3600 },
-  'escrow_creation': { limit: 5, windowSeconds: 3600 },       // 3/hour per IP       // 10/hour per IP
-  'auth_challenge': { limit: 10, windowSeconds: 60 },         // 10/min
-  'auth_verify': { limit: 10, windowSeconds: 60 },            // 10/min
+  'wallet_creation': { limit: 10, windowSeconds: 3600 },       // 10/hour per IP
+  'escrow_creation': { limit: 5, windowSeconds: 3600 },       // 5/hour per IP
+  'auth_challenge': { limit: 30, windowSeconds: 60 },         // 30/min (wallet switches trigger auth)
+  'auth_verify': { limit: 30, windowSeconds: 60 },            // 30/min (wallet switches trigger auth)
   'balance_query': { limit: 60, windowSeconds: 60 },          // 60/min
   'tx_history': { limit: 30, windowSeconds: 60 },             // 30/min
   'prepare_tx': { limit: 20, windowSeconds: 60 },             // 20/min
