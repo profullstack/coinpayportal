@@ -19,8 +19,8 @@ import { monitorSeries } from './series-monitor';
 import { monitorEmails } from './email-monitor';
 import { runInvoiceMonitorCycle, runInvoiceSchedulerCycle } from '@/lib/payments/monitor-invoices';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 // Reuse a single Supabase client across cron invocations to avoid WebSocket/connection leaks
 let _cronSupabase: ReturnType<typeof createClient> | null = null;

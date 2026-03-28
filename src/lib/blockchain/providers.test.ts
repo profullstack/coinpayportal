@@ -311,9 +311,10 @@ describe('Blockchain Providers', () => {
         // Access private static constant
         const rentExemptMinimum = (SolanaProvider as any).RENT_EXEMPT_MINIMUM;
         
-        // For one-time payment addresses, we don't need to keep rent-exempt minimum
-        // The account will become rent-paying and eventually be garbage collected
-        expect(rentExemptMinimum).toBe(0);
+        // Modern Solana rejects accounts below rent-exempt minimum unless drained to 0
+        // We set this to the actual rent-exempt minimum so the forwarding logic
+        // knows to drain the account completely rather than leaving dust
+        expect(rentExemptMinimum).toBe(890_880);
       });
 
       it('should have SOLANA_TX_FEE_LAMPORTS constant for transaction fee', () => {

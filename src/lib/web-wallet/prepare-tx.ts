@@ -112,18 +112,29 @@ const TX_EXPIRATION_MS = 5 * 60 * 1000;
 const CHAIN_IDS: Record<string, number> = {
   ETH: 1,
   POL: 137,
+  USDT_ETH: 1,
+  USDT_POL: 137,
   USDC_ETH: 1,
   USDC_POL: 137,
 };
 
-/** USDC contract addresses */
-const USDC_CONTRACTS: Record<string, string> = {
+/** ERC-20 contract addresses */
+const TOKEN_CONTRACTS: Record<string, string> = {
+  USDT_ETH: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+  USDT_POL: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
   USDC_ETH: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
   USDC_POL: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
 };
+const USDC_CONTRACTS = {
+  USDC_ETH: TOKEN_CONTRACTS.USDC_ETH,
+  USDC_POL: TOKEN_CONTRACTS.USDC_POL,
+};
 
-/** USDC on Solana */
-const USDC_SOL_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+/** SPL token mints on Solana */
+const TOKEN_MINTS: Record<'USDT_SOL' | 'USDC_SOL', string> = {
+  USDT_SOL: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  USDC_SOL: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+};
 
 /** ERC-20 transfer function signature */
 const ERC20_TRANSFER_SELECTOR = '0xa9059cbb';
@@ -159,7 +170,7 @@ async function prepareEVMTransaction(
   fee: FeeEstimate,
   rpcUrl: string
 ): Promise<EVMUnsignedTx> {
-  const isToken = chain.startsWith('USDC_');
+  const isToken = chain.startsWith('USDC_') || chain.startsWith('USDT_');
   const chainId = CHAIN_IDS[chain] || 1;
 
   // Get nonce
@@ -187,8 +198,8 @@ async function prepareEVMTransaction(
 
   if (isToken) {
     // ERC-20 transfer(address, uint256)
-    const contractAddress = USDC_CONTRACTS[chain];
-    // USDC has 6 decimals
+    const contractAddress = TOKEN_CONTRACTS[chain];
+    // USDT/USDC use 6 decimals
     const tokenAmount = BigInt(Math.round(parseFloat(amount) * 1e6));
     const paddedTo = to.toLowerCase().replace('0x', '').padStart(64, '0');
     const paddedAmount = tokenAmount.toString(16).padStart(64, '0');
@@ -341,14 +352,14 @@ async function prepareSOLTransaction(
     throw new Error('Failed to get recent blockhash');
   }
 
-  if (chain === 'USDC_SOL') {
+  if (chain === 'USDC_SOL' || chain === 'USDT_SOL') {
     // SPL token transfer — client needs to build the full instruction
     // Server provides the blockhash and token mint info
     return {
       type: 'sol',
       recentBlockhash,
       feePayer: from,
-      tokenMint: USDC_SOL_MINT,
+      tokenMint: TOKEN_MINTS[chain],
       instructions: [], // Client builds SPL transfer instruction
     };
   }
@@ -439,12 +450,14 @@ export async function prepareTransaction(
   try {
     switch (chain) {
       case 'ETH':
+      case 'USDT_ETH':
       case 'USDC_ETH':
         unsignedTx = await prepareEVMTransaction(
           input.from_address, input.to_address, input.amount, chain, fee, rpc.ETH
         );
         break;
       case 'POL':
+      case 'USDT_POL':
       case 'USDC_POL':
         unsignedTx = await prepareEVMTransaction(
           input.from_address, input.to_address, input.amount, chain, fee, rpc.POL
@@ -457,6 +470,7 @@ export async function prepareTransaction(
         );
         break;
       case 'SOL':
+      case 'USDT_SOL':
       case 'USDC_SOL':
         unsignedTx = await prepareSOLTransaction(
           input.from_address, input.to_address, input.amount, chain, rpc.SOL

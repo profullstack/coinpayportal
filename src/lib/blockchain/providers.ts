@@ -25,7 +25,8 @@ const ECPair = ECPairFactory(ecc);
 export type BlockchainType =
   | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
   | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
-  | 'USDT' | 'USDC'
+  | 'USDT' | 'USDT_ETH' | 'USDT_POL' | 'USDT_SOL'
+  | 'USDC'
   | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
 
 /**
@@ -607,10 +608,10 @@ export class SolanaProvider implements BlockchainProvider {
   rpcUrl: string;
   private connection: Connection;
 
-  // For one-time payment addresses, we don't need to keep rent-exempt minimum
-  // The account will become rent-paying and eventually be garbage collected
-  // We only need to keep enough for the transaction fee
-  private static readonly RENT_EXEMPT_MINIMUM = 0; // Don't keep rent for one-time addresses
+  // Solana rent-exempt minimum for a system account (0 data bytes) is ~890,880 lamports
+  // Modern Solana rejects transactions that leave an account below rent-exempt minimum
+  // unless the account is drained to exactly 0 lamports
+  private static readonly RENT_EXEMPT_MINIMUM = 890_880;
 
   constructor(rpcUrl: string) {
     this.rpcUrl = rpcUrl;
@@ -720,20 +721,27 @@ export class SolanaProvider implements BlockchainProvider {
       const currentBalance = await this.connection.getBalance(keypair.publicKey);
       const txFee = SolanaProvider.SOLANA_TX_FEE_LAMPORTS;
       
-      // For one-time payment addresses, we only need to keep enough for the transaction fee
-      // The account will become rent-paying and eventually be garbage collected
-      const minimumToKeep = txFee;
-      const maxSendable = currentBalance - minimumToKeep;
+      // Modern Solana rejects transactions leaving account below rent-exempt minimum
+      // (~890,880 lamports) unless drained to exactly 0.
+      // For one-time payment addresses, drain to 0 by sending everything minus fee.
+      const maxSendable = currentBalance - txFee;
       
       console.log(`[SOL] Current balance: ${currentBalance} lamports, requested: ${lamports} lamports, tx fee: ${txFee} lamports, max sendable: ${maxSendable} lamports`);
 
       // If we're trying to send more than max sendable, adjust
       if (lamports > maxSendable) {
         if (maxSendable <= 0) {
-          throw new Error(`Insufficient balance. Have ${currentBalance} lamports, need at least ${minimumToKeep + 1} lamports (${txFee} fee + 1)`);
+          throw new Error(`Insufficient balance. Have ${currentBalance} lamports, need at least ${txFee + 1} lamports`);
         }
-        console.log(`[SOL] Adjusting amount from ${lamports} to ${maxSendable} lamports (keeping ${minimumToKeep} for fee)`);
+        console.log(`[SOL] Adjusting amount from ${lamports} to ${maxSendable} lamports (draining account)`);
         lamports = maxSendable;
+      } else {
+        // Check if remaining balance would be below rent-exempt — if so, drain everything
+        const remaining = currentBalance - lamports - txFee;
+        if (remaining > 0 && remaining < SolanaProvider.RENT_EXEMPT_MINIMUM) {
+          console.log(`[SOL] Remaining ${remaining} lamports below rent-exempt minimum, draining to 0`);
+          lamports = maxSendable;
+        }
       }
 
       // Create the transfer instruction
@@ -809,7 +817,7 @@ export class SolanaProvider implements BlockchainProvider {
 
       // Calculate total requested
       let totalLamports = 0;
-      const transfers: Array<{ address: string; lamports: number }> = [];
+      let transfers: Array<{ address: string; lamports: number }> = [];
       
       for (const recipient of recipients) {
         const lamports = Math.floor(parseFloat(recipient.amount) * LAMPORTS_PER_SOL);
@@ -817,21 +825,34 @@ export class SolanaProvider implements BlockchainProvider {
         transfers.push({ address: recipient.address, lamports });
       }
 
-      console.log(`[SOL] Split transaction: balance=${currentBalance}, total=${totalLamports}, fee=${txFee}`);
-
-      // For one-time payment addresses, we only need to keep enough for the transaction fee
-      // The account will become rent-paying and eventually be garbage collected
-      const minimumToKeep = txFee;
-      const maxSendable = currentBalance - minimumToKeep;
-      
-      if (maxSendable <= 0) {
-        throw new Error(`Insufficient balance for split transaction. Have ${currentBalance} lamports, need at least ${minimumToKeep + 1} lamports (${txFee} fee + 1)`);
+      // Filter out transfers below rent-exempt minimum — they'd fail on new accounts.
+      // Redistribute those lamports to the first (merchant) transfer.
+      const tooSmall = transfers.filter(t => t.lamports > 0 && t.lamports < SolanaProvider.RENT_EXEMPT_MINIMUM);
+      if (tooSmall.length > 0 && transfers.length > 1) {
+        const redistributed = tooSmall.reduce((sum, t) => sum + t.lamports, 0);
+        transfers = transfers.filter(t => t.lamports >= SolanaProvider.RENT_EXEMPT_MINIMUM || t === transfers[0]);
+        if (transfers.length > 0) {
+          transfers[0].lamports += redistributed;
+        }
+        console.log(`[SOL] Skipped ${tooSmall.length} transfer(s) below rent-exempt minimum, redistributed ${redistributed} lamports to merchant`);
+        totalLamports = transfers.reduce((sum, t) => sum + t.lamports, 0);
       }
 
-      // If total exceeds max sendable, proportionally reduce amounts
+      console.log(`[SOL] Split transaction: balance=${currentBalance}, total=${totalLamports}, fee=${txFee}`);
+
+      // Modern Solana rejects transactions that leave an account below rent-exempt minimum
+      // (~890,880 lamports) unless it's drained to exactly 0.
+      // For one-time payment addresses, we drain to 0 by sending everything minus the tx fee.
+      const maxSendable = currentBalance - txFee;
+      
+      if (maxSendable <= 0) {
+        throw new Error(`Insufficient balance for split transaction. Have ${currentBalance} lamports, need at least ${txFee + 1} lamports`);
+      }
+
+      // Always proportionally fit into maxSendable to drain the account to 0 after fee
       if (totalLamports > maxSendable) {
         const ratio = maxSendable / totalLamports;
-        console.log(`[SOL] Adjusting split amounts by ratio ${ratio} (keeping ${minimumToKeep} lamports for fee)`);
+        console.log(`[SOL] Adjusting split amounts by ratio ${ratio} (draining account, keeping ${txFee} lamports for fee)`);
         
         let adjustedTotal = 0;
         for (const transfer of transfers) {
@@ -846,6 +867,14 @@ export class SolanaProvider implements BlockchainProvider {
         }
         
         console.log(`[SOL] Adjusted transfers: ${transfers.map(t => t.lamports).join(', ')} lamports`);
+      } else {
+        // Even if amounts fit, distribute the excess to avoid leaving dust below rent-exempt
+        const excess = maxSendable - totalLamports;
+        if (excess > 0 && excess < SolanaProvider.RENT_EXEMPT_MINIMUM && transfers.length > 0) {
+          // Excess is too small to keep (below rent-exempt), add it to merchant transfer
+          transfers[0].lamports += excess;
+          console.log(`[SOL] Added ${excess} excess lamports to first transfer to drain account`);
+        }
       }
 
       // Create transaction with multiple transfer instructions
@@ -1909,13 +1938,16 @@ export function getProvider(
       return new BitcoinCashProvider(rpcUrl);
     case 'ETH':
     case 'USDT':
+    case 'USDT_ETH':
     case 'USDC':
     case 'USDC_ETH':
       return new EthereumProvider(rpcUrl);
     case 'POL':
+    case 'USDT_POL':
     case 'USDC_POL':
       return new PolygonProvider(rpcUrl);
     case 'SOL':
+    case 'USDT_SOL':
     case 'USDC_SOL':
       return new SolanaProvider(rpcUrl);
     case 'BNB':
@@ -1946,6 +1978,9 @@ export function getRpcUrl(chain: BlockchainType): string {
     ADA: process.env.ADA_RPC_URL || 'https://cardano-mainnet.blockfrost.io/api/v0',
     BNB: process.env.BNB_RPC_URL || 'https://bsc-dataseed.binance.org',
     USDT: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
+    USDT_ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
+    USDT_POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    USDT_SOL: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
     USDC: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
     USDC_ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
     USDC_POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',

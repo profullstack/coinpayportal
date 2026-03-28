@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/server/optional-deps';
 
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key'
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 export async function GET(
@@ -14,20 +14,12 @@ export async function GET(
   try {
     const { accountId } = await params;
 
-    // accountId here is actually the businessId — look up merchant_id first
-    const { data: business } = await supabase
-      .from('businesses')
-      .select('merchant_id')
-      .eq('id', accountId)
-      .single();
-
-    const merchantId = business?.merchant_id || accountId;
-
+    // accountId here is actually the businessId — look up Stripe account by business_id
     // Get Stripe account from database
     const { data: accountRecord } = await supabase
       .from('stripe_accounts')
       .select('stripe_account_id')
-      .eq('merchant_id', merchantId)
+      .eq('business_id', accountId)
       .single();
 
     if (!accountRecord?.stripe_account_id) {

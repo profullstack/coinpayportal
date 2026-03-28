@@ -115,11 +115,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Business not found' }, { status: 404 });
     }
 
-    // Get Stripe connected account
+    // Get Stripe connected account for this business
     const { data: stripeAccount } = await supabase
       .from('stripe_accounts')
       .select('stripe_account_id')
-      .eq('merchant_id', merchantId)
+      .eq('business_id', businessId)
       .single();
 
     if (!stripeAccount?.stripe_account_id) {

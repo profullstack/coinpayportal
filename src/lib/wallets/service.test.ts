@@ -495,7 +495,25 @@ describe('Wallet Service', () => {
 
   describe('SUPPORTED_CRYPTOCURRENCIES', () => {
     it('should export supported cryptocurrencies', () => {
-      expect(SUPPORTED_CRYPTOCURRENCIES).toEqual(['BTC', 'BCH', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'POL']);
+      expect(SUPPORTED_CRYPTOCURRENCIES).toEqual([
+        'BTC',
+        'BCH',
+        'ETH',
+        'USDT',
+        'USDT_ETH',
+        'USDT_POL',
+        'USDT_SOL',
+        'USDC',
+        'USDC_ETH',
+        'USDC_POL',
+        'USDC_SOL',
+        'BNB',
+        'SOL',
+        'XRP',
+        'ADA',
+        'DOGE',
+        'POL',
+      ]);
     });
 
     it('should include BCH (Bitcoin Cash)', () => {
@@ -506,7 +524,13 @@ describe('Wallet Service', () => {
       expect(SUPPORTED_CRYPTOCURRENCIES).toContain('BTC');
       expect(SUPPORTED_CRYPTOCURRENCIES).toContain('ETH');
       expect(SUPPORTED_CRYPTOCURRENCIES).toContain('USDT');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('USDT_ETH');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('USDT_POL');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('USDT_SOL');
       expect(SUPPORTED_CRYPTOCURRENCIES).toContain('USDC');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('USDC_ETH');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('USDC_POL');
+      expect(SUPPORTED_CRYPTOCURRENCIES).toContain('USDC_SOL');
       expect(SUPPORTED_CRYPTOCURRENCIES).toContain('BNB');
       expect(SUPPORTED_CRYPTOCURRENCIES).toContain('SOL');
       expect(SUPPORTED_CRYPTOCURRENCIES).toContain('XRP');

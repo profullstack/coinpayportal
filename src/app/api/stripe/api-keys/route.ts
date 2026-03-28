@@ -4,15 +4,15 @@ import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
 import { getStripe } from '@/lib/server/optional-deps';
 
-async function getStripeAccountId(merchantId: string): Promise<string | null> {
+async function getStripeAccountId(businessId: string): Promise<string | null> {
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co',
-    process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key'
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
   const { data } = await supabase
     .from('stripe_accounts')
     .select('stripe_account_id')
-    .eq('merchant_id', merchantId)
+    .eq('business_id', businessId)
     .single();
   return data?.stripe_account_id || null;
 }
@@ -47,27 +47,49 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, keys: [], account_id: null });
     }
 
-    // Note: Stripe API doesn't have a direct "list restricted keys" for connected accounts
-    // via the platform. We store created keys in our DB for reference.
+    // Check our DB for stored keys
     const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co',
-      process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key'
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    const { data: keys } = await supabase
+    const { data: dbKeys } = await supabase
       .from('stripe_restricted_keys')
       .select('id, name, stripe_key_id, created_at, livemode')
       .eq('stripe_account_id', stripeAccountId)
       .order('created_at', { ascending: false });
 
+    // Also try to list keys from Stripe API for the connected account
+    let stripeKeys: any[] = [];
+    try {
+      const stripe = await getStripe();
+      const result = await stripe.apiKeys.list(
+        { limit: 100 },
+        { stripeAccount: stripeAccountId }
+      );
+      stripeKeys = result.data || [];
+    } catch {
+      // API may not be available for all account types — fall back to DB only
+    }
+
+    // Merge: prefer Stripe API data, supplement with DB records
+    const allKeys = stripeKeys.length > 0
+      ? stripeKeys.map((k: any) => ({
+          id: k.id,
+          name: k.name || 'Restricted key',
+          created: k.created,
+          livemode: k.livemode ?? true,
+        }))
+      : (dbKeys || []).map(k => ({
+          id: k.stripe_key_id || k.id,
+          name: k.name,
+          created: Math.floor(new Date(k.created_at).getTime() / 1000),
+          livemode: k.livemode ?? true,
+        }));
+
     return NextResponse.json({
       success: true,
       account_id: stripeAccountId,
-      keys: (keys || []).map(k => ({
-        id: k.stripe_key_id || k.id,
-        name: k.name,
-        created: Math.floor(new Date(k.created_at).getTime() / 1000),
-        livemode: k.livemode ?? true,
-      })),
+      keys: allKeys,
     });
   } catch (error: any) {
     console.error('List API keys error:', error);
@@ -116,8 +138,8 @@ export async function POST(request: NextRequest) {
     // Fallback: store a reference in our DB since Stripe restricted key API
     // may not be available for all account types
     const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co',
-      process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key'
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
     const keyId = key?.id || `rk_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;

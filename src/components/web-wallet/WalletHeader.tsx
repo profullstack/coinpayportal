@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { useWebWallet } from './WalletContext';
+import { WalletSelector } from './WalletSelector';
 
 export function WalletHeader() {
-  const { isUnlocked, walletId, lock } = useWebWallet();
+  const { isUnlocked, lock } = useWebWallet();
 
   return (
     <div className="border-b border-white/10 bg-slate-900/80 backdrop-blur-sm">
@@ -24,9 +25,7 @@ export function WalletHeader() {
             </nav>
 
             <div className="flex items-center gap-3">
-              <span className="hidden md:block text-xs text-gray-400 font-mono">
-                {walletId?.slice(0, 8)}...
-              </span>
+              <WalletSelector />
               <button
                 onClick={lock}
                 className="rounded-lg bg-white/5 px-3 py-1.5 text-sm text-gray-400 hover:bg-white/10 hover:text-white transition-colors"

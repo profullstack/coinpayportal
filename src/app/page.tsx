@@ -77,7 +77,7 @@ export default function Home() {
           <div className="flex flex-wrap justify-center gap-8 text-center">
             {[
               { label: 'Transaction Fee', value: '0.5–1%', subtext: 'Pro 0.5% · Starter 1%' },
-              { label: 'Supported Chains', value: '10+' },
+              { label: 'Supported Chains', value: '15+' },
               { label: 'Avg. Processing', value: '<1 min' },
               { label: 'Uptime', value: '99.9%' },
             ].map((stat, index) => (
@@ -193,7 +193,7 @@ export default function Home() {
                   </svg>
                 ),
                 title: 'Multi-Chain Wallet',
-                description: 'Non-custodial web wallet with BTC, ETH, SOL, POL, BCH, and USDC. CLI, REST API, and web UI included.',
+                description: 'Non-custodial web wallet with BTC, BCH, ETH, POL, SOL, DOGE, XRP, ADA, BNB, plus USDT and USDC on Ethereum, Polygon, and Solana.',
               },
               {
                 icon: (
@@ -228,17 +228,23 @@ export default function Home() {
               Supported Blockchains
             </h2>
             <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-              Accept payments on all major networks
+              Accept payments across majors, alt-L1s, and stablecoin rails
             </p>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-8 gap-6">
             {[
               { name: 'Bitcoin', symbol: 'BTC', icon: '₿', color: 'from-orange-500 to-yellow-500' },
+              { name: 'Bitcoin Cash', symbol: 'BCH', icon: '₿', color: 'from-green-500 to-emerald-500' },
               { name: 'Ethereum', symbol: 'ETH', icon: '⟠', color: 'from-blue-500 to-purple-500' },
               { name: 'Solana', symbol: 'SOL', icon: '◎', color: 'from-purple-500 to-green-500' },
               { name: 'Polygon', symbol: 'POL', icon: '⬡', color: 'from-purple-500 to-blue-500' },
-              { name: 'Bitcoin Cash', symbol: 'BCH', icon: '₿', color: 'from-green-500 to-emerald-500' },
+              { name: 'BNB Chain', symbol: 'BNB', icon: '◇', color: 'from-yellow-400 to-amber-500' },
+              { name: 'Dogecoin', symbol: 'DOGE', icon: 'Ð', color: 'from-yellow-500 to-lime-500' },
+              { name: 'Ripple', symbol: 'XRP', icon: '✕', color: 'from-sky-500 to-cyan-500' },
+              { name: 'Cardano', symbol: 'ADA', icon: '◌', color: 'from-indigo-500 to-blue-500' },
+              { name: 'Tether', symbol: 'USDT', icon: '₮', color: 'from-emerald-500 to-green-500' },
+              { name: 'USD Coin', symbol: 'USDC', icon: '$', color: 'from-blue-500 to-cyan-500' },
             ].map((chain, index) => (
               <div
                 key={index}
@@ -885,7 +891,7 @@ pnpm coinpay-wallet history d10b1358`}
                 {[
                   {
                     title: '8 Assets, 5 Blockchains',
-                    desc: 'BTC, ETH, SOL, POL, BCH, and USDC on Ethereum, Polygon, and Solana.',
+                    desc: 'BTC, BCH, ETH, POL, SOL, DOGE, XRP, ADA, BNB, plus USDT and USDC on Ethereum, Polygon, and Solana.',
                   },
                   {
                     title: 'Signature Authentication',

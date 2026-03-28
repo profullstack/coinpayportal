@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { ChainBadge } from './AddressDisplay';
 
 export interface AssetItem {
@@ -18,6 +19,20 @@ interface AssetListProps {
 }
 
 export function AssetList({ assets, isLoading, onSelect, onDeriveAll, isDeriving }: AssetListProps) {
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+
+  const handleCopyAddress = async (
+    event: React.MouseEvent<HTMLButtonElement>,
+    address: string
+  ) => {
+    event.stopPropagation();
+    await navigator.clipboard.writeText(address);
+    setCopiedAddress(address);
+    window.setTimeout(() => {
+      setCopiedAddress((current) => (current === address ? null : current));
+    }, 2000);
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -61,10 +76,18 @@ export function AssetList({ assets, isLoading, onSelect, onDeriveAll, isDeriving
   return (
     <div className="space-y-2">
       {assets.map((asset, i) => (
-        <button
+        <div
           key={`${asset.chain}-${asset.address}-${i}`}
           onClick={() => onSelect?.(asset)}
-          className="flex w-full items-center gap-3 rounded-xl border border-white/5 bg-white/5 p-4 text-left hover:bg-white/10 transition-colors"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              onSelect?.(asset);
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          className="flex w-full items-center gap-3 rounded-xl border border-white/5 bg-white/5 p-4 text-left hover:bg-white/10 transition-colors cursor-pointer"
         >
           <ChainBadge chain={asset.chain} />
           <div className="min-w-0 flex-1">
@@ -73,6 +96,18 @@ export function AssetList({ assets, isLoading, onSelect, onDeriveAll, isDeriving
               {asset.address.slice(0, 10)}...{asset.address.slice(-6)}
             </p>
           </div>
+          {asset.chain !== 'LN' && (
+            <button
+              type="button"
+              onClick={(event) => {
+                void handleCopyAddress(event, asset.address);
+              }}
+              className="shrink-0 rounded-lg bg-white/5 px-2.5 py-1.5 text-xs text-gray-300 hover:bg-white/10 hover:text-white transition-colors"
+              aria-label={`Copy ${asset.chain} address`}
+            >
+              {copiedAddress === asset.address ? 'Copied' : 'Copy'}
+            </button>
+          )}
           <div className="text-right">
             <p className="text-sm font-medium text-white">
               {formatNativeBalance(asset.balance, asset.chain)} {getSymbol(asset.chain)}
@@ -94,7 +129,7 @@ export function AssetList({ assets, isLoading, onSelect, onDeriveAll, isDeriving
               </p>
             )}
           </div>
-        </button>
+        </div>
       ))}
     </div>
   );

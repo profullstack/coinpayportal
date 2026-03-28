@@ -4,11 +4,13 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useWebWallet } from '@/components/web-wallet/WalletContext';
+import { WalletSelector } from '@/components/web-wallet/WalletSelector';
 import { PasswordInput } from '@/components/web-wallet/PasswordInput';
 
 export default function UnlockWalletPage() {
   const router = useRouter();
-  const { unlock, deleteWallet, isLoading, error, walletId } = useWebWallet();
+  const { unlock, deleteWallet, isLoading, error, walletId, wallets, activeWalletId } = useWebWallet();
+  const activeWallet = wallets.find((w) => w.id === activeWalletId);
   const [password, setPassword] = useState('');
   const [showDelete, setShowDelete] = useState(false);
 
@@ -45,10 +47,20 @@ export default function UnlockWalletPage() {
             </svg>
           </div>
           <h1 className="text-2xl font-bold text-white">Unlock Wallet</h1>
+          {activeWallet && (
+            <p className="mt-1 text-sm text-gray-300">
+              {activeWallet.label}
+            </p>
+          )}
           {walletId && (
             <p className="mt-1 text-xs text-gray-400 font-mono">
               {walletId.slice(0, 8)}...{walletId.slice(-4)}
             </p>
+          )}
+          {wallets.length > 1 && (
+            <div className="mt-3 flex justify-center">
+              <WalletSelector />
+            </div>
           )}
         </div>
 

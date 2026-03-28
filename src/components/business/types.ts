@@ -31,7 +31,10 @@ export type TabType =
   | 'stripe-payouts'
   | 'stripe-escrows'
   | 'stripe-webhooks'
-  | 'stripe-api-keys';
+  | 'stripe-api-keys'
+  | 'crypto-transactions'
+  | 'crypto-escrows'
+  | 'crypto-payouts';
 
 export const SUPPORTED_CRYPTOS = [
   { value: 'BTC', label: 'Bitcoin (BTC)' },
@@ -44,6 +47,9 @@ export const SUPPORTED_CRYPTOS = [
   { value: 'ADA', label: 'Cardano (ADA)' },
   { value: 'BNB', label: 'BNB Chain (BNB)' },
   { value: 'USDT', label: 'Tether (USDT)' },
+  { value: 'USDT_ETH', label: 'USDT (Ethereum)' },
+  { value: 'USDT_POL', label: 'USDT (Polygon) — Low Fees' },
+  { value: 'USDT_SOL', label: 'USDT (Solana) — Low Fees' },
   { value: 'USDC', label: 'USD Coin (USDC)' },
   { value: 'USDC_ETH', label: 'USDC (Ethereum)' },
   { value: 'USDC_POL', label: 'USDC (Polygon) — Low Fees' },
