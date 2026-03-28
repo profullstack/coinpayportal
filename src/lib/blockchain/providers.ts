@@ -817,12 +817,25 @@ export class SolanaProvider implements BlockchainProvider {
 
       // Calculate total requested
       let totalLamports = 0;
-      const transfers: Array<{ address: string; lamports: number }> = [];
+      let transfers: Array<{ address: string; lamports: number }> = [];
       
       for (const recipient of recipients) {
         const lamports = Math.floor(parseFloat(recipient.amount) * LAMPORTS_PER_SOL);
         totalLamports += lamports;
         transfers.push({ address: recipient.address, lamports });
+      }
+
+      // Filter out transfers below rent-exempt minimum — they'd fail on new accounts.
+      // Redistribute those lamports to the first (merchant) transfer.
+      const tooSmall = transfers.filter(t => t.lamports > 0 && t.lamports < SolanaProvider.RENT_EXEMPT_MINIMUM);
+      if (tooSmall.length > 0 && transfers.length > 1) {
+        const redistributed = tooSmall.reduce((sum, t) => sum + t.lamports, 0);
+        transfers = transfers.filter(t => t.lamports >= SolanaProvider.RENT_EXEMPT_MINIMUM || t === transfers[0]);
+        if (transfers.length > 0) {
+          transfers[0].lamports += redistributed;
+        }
+        console.log(`[SOL] Skipped ${tooSmall.length} transfer(s) below rent-exempt minimum, redistributed ${redistributed} lamports to merchant`);
+        totalLamports = transfers.reduce((sum, t) => sum + t.lamports, 0);
       }
 
       console.log(`[SOL] Split transaction: balance=${currentBalance}, total=${totalLamports}, fee=${txFee}`);
