@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { getSwapStatus } from '@/lib/swap/boltz';
 
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key'
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 const BOLTZ_TO_DB_STATUS: Record<string, string> = {

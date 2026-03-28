@@ -381,13 +381,16 @@ export async function checkBalance(address: string, blockchain: string): Promise
       return checkBCHBalance(address);
     case 'ETH':
     case 'USDT':
+    case 'USDT_ETH':
     case 'USDC':
     case 'USDC_ETH':
       return checkEVMBalance(address, RPC_ENDPOINTS.ETH, 'ETH');
     case 'POL':
+    case 'USDT_POL':
     case 'USDC_POL':
       return checkEVMBalance(address, RPC_ENDPOINTS.POL, 'POL');
     case 'SOL':
+    case 'USDT_SOL':
     case 'USDC_SOL':
       return checkSolanaBalance(address, RPC_ENDPOINTS.SOL);
     case 'BNB':
@@ -489,4 +492,3 @@ export async function processPayment(supabase: any, payment: Payment): Promise<{
   
   return { confirmed: false, expired: false };
 }
-

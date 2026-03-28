@@ -18,8 +18,9 @@ export default function HelpPage() {
             <div>
               <h3 className="font-semibold mb-2 text-white">What cryptocurrencies are supported?</h3>
               <p className="text-gray-300">
-                We support Bitcoin (BTC), Ethereum (ETH), Solana (SOL), Polygon (POL),
-                Bitcoin Cash (BCH), and USDC on multiple chains.
+                We support Bitcoin (BTC), Bitcoin Cash (BCH), Ethereum (ETH), Polygon (POL),
+                Solana (SOL), Dogecoin (DOGE), XRP, Cardano (ADA), BNB, plus USDT and USDC
+                on Ethereum, Polygon, and Solana.
               </p>
             </div>
             

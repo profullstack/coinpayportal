@@ -81,7 +81,7 @@ if [ -d "${LNBITS_DIR}/.git" ]; then
   BEFORE=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
   
   git fetch origin
-  git reset --hard origin/main 2>/dev/null || git reset --hard origin/master 2>/dev/null || {
+  git reset --hard origin/main 2>/dev/null || git reset --hard origin/master 2>/dev/null || git reset --hard origin/dev 2>/dev/null || {
     echo "  ⚠ git reset failed — trying pull instead"
     git pull --ff-only
   }

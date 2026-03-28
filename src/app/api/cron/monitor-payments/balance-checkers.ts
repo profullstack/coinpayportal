@@ -128,11 +128,16 @@ export const RPC_ENDPOINTS: Record<string, string> = {
 
 const EVM_TOKENS = {
   USDT_ETH: { contractAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6 },
+  USDT_POL: { contractAddress: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', decimals: 6 },
   USDC_ETH: { contractAddress: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', decimals: 6 },
   USDC_POL: { contractAddress: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', decimals: 6 },
 } as const;
 
 const ERC20_BALANCE_OF_SELECTOR = '0x70a08231';
+const SOLANA_TOKENS = {
+  USDT_SOL: { mintAddress: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', decimals: 6 },
+  USDC_SOL: { mintAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
+} as const;
 
 // API keys
 const CRYPTO_APIS_KEY = process.env.CRYPTO_APIS_KEY || '';
@@ -389,6 +394,66 @@ export async function checkSolanaBalance(address: string, rpcUrl: string): Promi
 }
 
 /**
+ * Check SPL token balance for a Solana address by mint.
+ */
+export async function checkSolanaTokenBalance(
+  address: string,
+  rpcUrl: string,
+  mintAddress: string,
+  decimals: number = 6
+): Promise<number> {
+  try {
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'getTokenAccountsByOwner',
+        params: [
+          address,
+          { mint: mintAddress },
+          { encoding: 'jsonParsed' },
+        ],
+        id: 1,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Failed to fetch Solana token balance for ${address}: ${response.status} - ${errorText}`);
+      return 0;
+    }
+
+    const data = await response.json();
+    if (data.error) {
+      console.error(`RPC error for Solana token balance ${address}:`, data.error);
+      return 0;
+    }
+
+    const accounts = data.result?.value || [];
+    let totalBalance = 0;
+
+    for (const account of accounts) {
+      const tokenAmount = account?.account?.data?.parsed?.info?.tokenAmount;
+      if (typeof tokenAmount?.uiAmount === 'number') {
+        totalBalance += tokenAmount.uiAmount;
+        continue;
+      }
+
+      const rawAmount = tokenAmount?.amount;
+      if (typeof rawAmount === 'string') {
+        totalBalance += Number(rawAmount) / 10 ** decimals;
+      }
+    }
+
+    return totalBalance;
+  } catch (error) {
+    console.error(`Error checking Solana token balance for ${address}:`, error);
+    return 0;
+  }
+}
+
+/**
  * Check balance for an XRP address using XRPL JSON-RPC
  */
 export async function checkXRPBalance(address: string, rpcUrl: string): Promise<number> {
@@ -473,17 +538,23 @@ export async function checkBalance(address: string, blockchain: string): Promise
     case 'ETH':
       return checkEVMBalance(address, RPC_ENDPOINTS.ETH);
     case 'USDT':
+    case 'USDT_ETH':
       return checkEVMTokenBalance(address, RPC_ENDPOINTS.ETH, EVM_TOKENS.USDT_ETH.contractAddress, EVM_TOKENS.USDT_ETH.decimals);
     case 'USDC':
     case 'USDC_ETH':
       return checkEVMTokenBalance(address, RPC_ENDPOINTS.ETH, EVM_TOKENS.USDC_ETH.contractAddress, EVM_TOKENS.USDC_ETH.decimals);
     case 'POL':
       return checkEVMBalance(address, RPC_ENDPOINTS.POL);
+    case 'USDT_POL':
+      return checkEVMTokenBalance(address, RPC_ENDPOINTS.POL, EVM_TOKENS.USDT_POL.contractAddress, EVM_TOKENS.USDT_POL.decimals);
     case 'USDC_POL':
       return checkEVMTokenBalance(address, RPC_ENDPOINTS.POL, EVM_TOKENS.USDC_POL.contractAddress, EVM_TOKENS.USDC_POL.decimals);
     case 'SOL':
-    case 'USDC_SOL':
       return checkSolanaBalance(address, RPC_ENDPOINTS.SOL);
+    case 'USDT_SOL':
+      return checkSolanaTokenBalance(address, RPC_ENDPOINTS.SOL, SOLANA_TOKENS.USDT_SOL.mintAddress, SOLANA_TOKENS.USDT_SOL.decimals);
+    case 'USDC_SOL':
+      return checkSolanaTokenBalance(address, RPC_ENDPOINTS.SOL, SOLANA_TOKENS.USDC_SOL.mintAddress, SOLANA_TOKENS.USDC_SOL.decimals);
     case 'BNB':
       return checkEVMBalance(address, RPC_ENDPOINTS.BNB);
     case 'DOGE':

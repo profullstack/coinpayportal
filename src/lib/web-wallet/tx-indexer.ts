@@ -1792,7 +1792,7 @@ export async function syncAddressHistory(
         from_address: tx.fromAddress,
         to_address: tx.toAddress,
         fee_amount: tx.fee ? parseFloat(tx.fee) : null,
-        fee_currency: chain.includes('USDC') ? 'USDC' : chain.replace('USDC_', ''),
+        fee_currency: chain.includes('USDC') ? 'USDC' : chain.includes('USDT') ? 'USDT' : chain.replace(/^USD[CT]_/, ''),
         confirmations: tx.confirmations,
         block_number: tx.blockNumber || null,
         block_timestamp: tx.timestamp,

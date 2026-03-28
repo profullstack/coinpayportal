@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
+type PaymentTab = 'crypto' | 'card';
+
 interface InvoicePayData {
   id: string;
   invoice_number: string;
@@ -13,6 +15,7 @@ interface InvoicePayData {
   crypto_currency: string;
   crypto_amount: string;
   payment_address: string;
+  stripe_checkout_url: string | null;
   due_date: string | null;
   notes: string | null;
   created_at: string;
@@ -27,7 +30,11 @@ export default function InvoicePayPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<PaymentTab>('crypto');
   const pollRef = useRef<NodeJS.Timeout | null>(null);
+
+  const hasCardOption = !!(invoice?.stripe_checkout_url);
+  const hasCryptoOption = !!(invoice?.payment_address);
 
   const copyToClipboard = async (text: string, field: string) => {
     try {
@@ -61,6 +68,10 @@ export default function InvoicePayPage() {
       const data = await response.json();
       if (data.success) {
         setInvoice(data.invoice);
+        // Auto-select tab based on available payment methods
+        if (!data.invoice.payment_address && data.invoice.stripe_checkout_url) {
+          setActiveTab('card');
+        }
         if (['paid', 'cancelled'].includes(data.invoice.status)) {
           if (pollRef.current) clearInterval(pollRef.current);
         } else if (['sent', 'overdue'].includes(data.invoice.status)) {
@@ -106,6 +117,8 @@ export default function InvoicePayPage() {
 
   const isPaid = invoice.status === 'paid';
   const isOverdue = invoice.status === 'overdue';
+  const isPending = ['sent', 'overdue'].includes(invoice.status);
+  const showTabs = hasCryptoOption && hasCardOption && isPending;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 py-8 px-4">
@@ -152,19 +165,57 @@ export default function InvoicePayPage() {
             </div>
           </div>
 
+          {/* Payment Method Tabs */}
+          {showTabs && (
+            <div className="flex border-b border-gray-700" data-testid="payment-tabs">
+              <button
+                onClick={() => setActiveTab('crypto')}
+                className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
+                  activeTab === 'crypto'
+                    ? 'text-purple-400 border-b-2 border-purple-400 bg-purple-500/10'
+                    : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700/50'
+                }`}
+                data-testid="tab-crypto"
+              >
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Pay with Crypto
+                </span>
+              </button>
+              <button
+                onClick={() => setActiveTab('card')}
+                className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
+                  activeTab === 'card'
+                    ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-500/10'
+                    : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700/50'
+                }`}
+                data-testid="tab-card"
+              >
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                  </svg>
+                  Pay with Card
+                </span>
+              </button>
+            </div>
+          )}
+
           <div className="p-6 space-y-6">
             {/* Amount */}
             <div className="text-center">
               <p className="text-4xl font-bold text-white">
                 {new Intl.NumberFormat('en-US', { style: 'currency', currency: invoice.currency }).format(parseFloat(invoice.amount))}
               </p>
-              {invoice.crypto_amount && (
+              {activeTab === 'crypto' && invoice.crypto_amount && (
                 <p className="text-lg text-purple-400 mt-1">
                   {parseFloat(invoice.crypto_amount).toFixed(8)} {invoice.crypto_currency}
                 </p>
               )}
 
-              {invoice.crypto_amount && !isPaid && (
+              {activeTab === 'crypto' && invoice.crypto_amount && !isPaid && (
                 <button
                   onClick={() => copyToClipboard(parseFloat(invoice.crypto_amount).toFixed(8), 'amount')}
                   className={`mt-3 w-full py-3 px-4 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all ${
@@ -188,24 +239,53 @@ export default function InvoicePayPage() {
               </div>
             )}
 
-            {/* Payment Address */}
-            {invoice.payment_address && !isPaid && (
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-2">Send to this address:</label>
-                <div className="bg-gray-900/50 rounded-xl p-4">
-                  <p className="font-mono text-sm text-white break-all mb-3">{invoice.payment_address}</p>
-                  <button
-                    onClick={() => copyToClipboard(invoice.payment_address, 'address')}
-                    className={`w-full py-3 px-4 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all ${
-                      copiedField === 'address'
-                        ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                        : 'bg-purple-600 text-white hover:bg-purple-500'
-                    }`}
-                  >
-                    {copiedField === 'address' ? '✓ Address Copied!' : '📋 Copy Address'}
-                  </button>
+            {/* === CARD TAB === */}
+            {activeTab === 'card' && hasCardOption && isPending && (
+              <div className="space-y-6" data-testid="card-payment-section">
+                <a
+                  href={invoice.stripe_checkout_url!}
+                  className="block w-full py-4 px-6 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl text-center transition-colors text-lg"
+                  data-testid="pay-with-card-btn"
+                >
+                  <span className="flex items-center justify-center gap-3">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                    </svg>
+                    Pay with Card
+                  </span>
+                </a>
+
+                <div className="text-center">
+                  <p className="text-xs text-gray-500">
+                    Secure payment powered by Stripe
+                  </p>
                 </div>
               </div>
+            )}
+
+            {/* === CRYPTO TAB === */}
+            {activeTab === 'crypto' && (
+              <>
+                {/* Payment Address */}
+                {invoice.payment_address && !isPaid && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-2">Send to this address:</label>
+                    <div className="bg-gray-900/50 rounded-xl p-4">
+                      <p className="font-mono text-sm text-white break-all mb-3">{invoice.payment_address}</p>
+                      <button
+                        onClick={() => copyToClipboard(invoice.payment_address, 'address')}
+                        className={`w-full py-3 px-4 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all ${
+                          copiedField === 'address'
+                            ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                            : 'bg-purple-600 text-white hover:bg-purple-500'
+                        }`}
+                      >
+                        {copiedField === 'address' ? '✓ Address Copied!' : '📋 Copy Address'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Notes */}

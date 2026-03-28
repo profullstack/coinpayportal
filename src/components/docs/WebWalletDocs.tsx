@@ -133,15 +133,15 @@ Nonce: random string (e.g. crypto.randomUUID().slice(0,8))
       <h3 className="text-xl font-semibold text-white mb-4">Quick Start for AI Agents</h3>
       <div className="mb-8 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
         <p className="text-blue-300 text-sm mb-3">
-          The fastest way to integrate is with the <strong className="text-white">SDK</strong>. One call creates a wallet with addresses for all 8 chains — ready to send and receive immediately.
+          The fastest way to integrate is with the <strong className="text-white">SDK</strong>. One call creates a wallet with addresses for all supported chains — ready to send and receive immediately.
         </p>
         <CodeBlock title="Node.js SDK — Create Wallet (All Chains)" language="javascript">
 {`import { Wallet } from '@coinpayportal/wallet-sdk';
 
-// Creates wallet + derives addresses for BTC, BCH, ETH, POL, SOL, USDC×3
+// Creates wallet + derives addresses for the full supported set
 const wallet = await Wallet.create({
   baseUrl: 'https://coinpayportal.com',
-  chains: ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL'],
+  chains: ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'DOGE', 'XRP', 'ADA', 'BNB', 'USDC_ETH', 'USDC_POL', 'USDC_SOL', 'USDT_ETH', 'USDT_POL', 'USDT_SOL'],
 });
 
 // All addresses are ready immediately
@@ -184,7 +184,7 @@ const wallet = await Wallet.fromSeed(process.env.WALLET_MNEMONIC, {
 // Check which chains are missing
 const missing = await wallet.getMissingChains();
 console.log('Missing chains:', missing);
-// ['BCH', 'POL', 'SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL']
+// ['BCH', 'POL', 'SOL', 'DOGE', 'XRP', 'ADA', 'BNB', 'USDC_ETH', 'USDC_POL', 'USDC_SOL', 'USDT_ETH', 'USDT_POL', 'USDT_SOL']
 
 // Derive all missing chains at once
 const newAddresses = await wallet.deriveMissingChains();
@@ -199,7 +199,7 @@ export COINPAY_MNEMONIC="your twelve word seed phrase here"
 pnpm coinpay-wallet derive-missing <wallet-id>
 
 # Output:
-# Missing chains: BCH, POL, SOL, USDC_ETH, USDC_POL, USDC_SOL
+# Missing chains: BCH, POL, SOL, DOGE, XRP, ADA, BNB, USDC_ETH, USDC_POL, USDC_SOL, USDT_ETH, USDT_POL, USDT_SOL
 # Deriving addresses...
 # New addresses derived:
 #   Chain      Address                    Index
@@ -214,7 +214,7 @@ pnpm coinpay-wallet derive-missing <wallet-id>
       <ApiEndpoint method="POST" path="/api/web-wallet/create" description="Register a new wallet. Client generates seed phrase and HD keys locally, then sends only public keys. Include initial_addresses for all chains to have addresses ready immediately — no separate derive calls needed.">
         <div className="mb-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
           <p className="text-green-300 text-sm">
-            <strong>💡 Auto-derive all chains:</strong> Include <code className="text-green-200">initial_addresses</code> for all 8 supported chains in the create request. 
+            <strong>💡 Auto-derive all chains:</strong> Include <code className="text-green-200">initial_addresses</code> for all supported chains in the create request. 
             The SDK does this automatically. Addresses are ready to use immediately — no separate derive calls needed.
           </p>
         </div>

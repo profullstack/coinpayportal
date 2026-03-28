@@ -6,7 +6,8 @@ import { getEstimatedNetworkFee, getEstimatedNetworkFees } from '@/lib/rates/fee
  */
 const SUPPORTED_BLOCKCHAINS = [
   'BTC', 'BCH', 'ETH', 'POL', 'SOL', 'DOGE', 'XRP', 'ADA', 'BNB',
-  'USDT', 'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL'
+  'USDT', 'USDT_ETH', 'USDT_POL', 'USDT_SOL',
+  'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL'
 ];
 
 /**

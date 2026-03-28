@@ -15,13 +15,20 @@ vi.mock('../WalletContext', () => ({
   useWebWallet: () => mockWalletState,
 }));
 
+const mockUpdateWalletLabel = vi.fn();
+const mockSwitchWallet = vi.fn();
+
 let mockWalletState: any;
 
 beforeEach(() => {
   mockWalletState = {
     isUnlocked: false,
     walletId: null,
+    wallets: [],
+    activeWalletId: null,
     lock: mockLock,
+    switchWallet: mockSwitchWallet,
+    updateWalletLabel: mockUpdateWalletLabel,
   };
 });
 
@@ -48,6 +55,10 @@ describe('WalletHeader', () => {
   it('should show nav links when unlocked', () => {
     mockWalletState = {
       isUnlocked: true,
+      wallets: [{ id: 'wid-12345678-abcdef', label: 'My Wallet', encrypted: {}, createdAt: '2026-01-01', chains: [] }],
+      activeWalletId: 'wid-12345678-abcdef',
+      switchWallet: mockSwitchWallet,
+      updateWalletLabel: mockUpdateWalletLabel,
       walletId: 'wid-12345678-abcd',
       lock: mockLock,
     };
@@ -62,20 +73,28 @@ describe('WalletHeader', () => {
     expect(settingsLinks.length).toBeGreaterThan(0);
   });
 
-  it('should show wallet ID snippet when unlocked', () => {
+  it('should show wallet label in selector when unlocked', () => {
     mockWalletState = {
       isUnlocked: true,
+      wallets: [{ id: 'wid-12345678-abcdef', label: 'My Wallet', encrypted: {}, createdAt: '2026-01-01', chains: [] }],
+      activeWalletId: 'wid-12345678-abcdef',
+      switchWallet: mockSwitchWallet,
+      updateWalletLabel: mockUpdateWalletLabel,
       walletId: 'wid-12345678-abcdef',
       lock: mockLock,
     };
 
     render(<WalletHeader />);
-    expect(screen.getByText('wid-1234...')).toBeInTheDocument();
+    expect(screen.getByText('My Wallet')).toBeInTheDocument();
   });
 
   it('should show lock button when unlocked', () => {
     mockWalletState = {
       isUnlocked: true,
+      wallets: [{ id: 'wid-12345678-abcdef', label: 'My Wallet', encrypted: {}, createdAt: '2026-01-01', chains: [] }],
+      activeWalletId: 'wid-12345678-abcdef',
+      switchWallet: mockSwitchWallet,
+      updateWalletLabel: mockUpdateWalletLabel,
       walletId: 'wid-123',
       lock: mockLock,
     };
@@ -88,6 +107,10 @@ describe('WalletHeader', () => {
   it('should call lock when clicking lock button', () => {
     mockWalletState = {
       isUnlocked: true,
+      wallets: [{ id: 'wid-12345678-abcdef', label: 'My Wallet', encrypted: {}, createdAt: '2026-01-01', chains: [] }],
+      activeWalletId: 'wid-12345678-abcdef',
+      switchWallet: mockSwitchWallet,
+      updateWalletLabel: mockUpdateWalletLabel,
       walletId: 'wid-123',
       lock: mockLock,
     };
@@ -100,6 +123,10 @@ describe('WalletHeader', () => {
   it('should have mobile nav when unlocked', () => {
     mockWalletState = {
       isUnlocked: true,
+      wallets: [{ id: 'wid-12345678-abcdef', label: 'My Wallet', encrypted: {}, createdAt: '2026-01-01', chains: [] }],
+      activeWalletId: 'wid-12345678-abcdef',
+      switchWallet: mockSwitchWallet,
+      updateWalletLabel: mockUpdateWalletLabel,
       walletId: 'wid-123',
       lock: mockLock,
     };

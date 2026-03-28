@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { authFetch } from '@/lib/auth/client';
 import { Business } from './types';
 
 interface WebhookTestResult {
@@ -95,6 +97,8 @@ function formatTestResultAsMarkdown(result: WebhookTestResult): string {
 }
 
 export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
+  const router = useRouter();
+  const [revealedSecret, setRevealedSecret] = useState('');
   const [formData, setFormData] = useState({
     webhook_url: business.webhook_url || '',
   });
@@ -245,14 +249,43 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
                 Current Secret
               </label>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                Webhook secret is encrypted at rest. Click &quot;Copy&quot; to decrypt and copy to clipboard, or &quot;Reveal&quot; to show it.
+              </p>
               <div className="flex items-center space-x-2">
                 <code className="flex-1 px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg font-mono text-sm text-gray-900 dark:text-white dark:bg-gray-700 break-all">
-                  {business.webhook_secret}
+                  {revealedSecret || 'whsec_••••••••••••••••'}
                 </code>
                 <button
-                  onClick={() => onCopy(business.webhook_secret!, 'Webhook secret')}
+                  onClick={async () => {
+                    try {
+                      const res = await authFetch(`/api/businesses/${business.id}/webhook-secret`, {}, router);
+                      if (!res) return;
+                      const { data } = res;
+                      if (data.success && data.secret) {
+                        setRevealedSecret(data.secret);
+                      }
+                    } catch {}
+                  }}
+                  className="text-gray-600 hover:text-gray-500 dark:text-gray-400 text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded"
+                  title="Reveal secret"
+                >
+                  {revealedSecret ? 'Revealed' : 'Reveal'}
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await authFetch(`/api/businesses/${business.id}/webhook-secret`, {}, router);
+                      if (!res) return;
+                      const { data } = res;
+                      if (data.success && data.secret) {
+                        navigator.clipboard.writeText(data.secret);
+                        onCopy(data.secret, 'Webhook secret');
+                      }
+                    } catch {}
+                  }}
                   className="text-purple-600 hover:text-purple-500"
-                  title="Copy to clipboard"
+                  title="Copy decrypted secret to clipboard"
                 >
                   <svg
                     className="h-5 w-5"

@@ -158,10 +158,10 @@ async function estimateBCHFees(): Promise<FeeEstimateResult> {
 // ──────────────────────────────────────────────
 
 async function estimateEVMFees(
-  chain: 'ETH' | 'POL' | 'USDC_ETH' | 'USDC_POL',
+  chain: 'ETH' | 'POL' | 'USDT_ETH' | 'USDT_POL' | 'USDC_ETH' | 'USDC_POL',
   rpcUrl: string
 ): Promise<FeeEstimateResult> {
-  const isToken = chain.startsWith('USDC_');
+  const isToken = chain.startsWith('USDC_') || chain.startsWith('USDT_');
   const gasLimit = isToken ? GAS_LIMITS.ERC20_TRANSFER : GAS_LIMITS.ETH_TRANSFER;
   const nativeCurrency = chain.includes('ETH') ? 'ETH' : 'POL';
   const baseChain = chain.includes('ETH') ? 'ETH' : 'POL';
@@ -240,7 +240,7 @@ function makeEVMFee(
 const SOL_BASE_FEE_LAMPORTS = 5000;
 
 async function estimateSOLFees(
-  chain: 'SOL' | 'USDC_SOL',
+  chain: 'SOL' | 'USDC_SOL' | 'USDT_SOL',
   rpcUrl: string
 ): Promise<FeeEstimateResult> {
   // SOL fees are deterministic (5000 lamports per signature)
@@ -272,27 +272,27 @@ async function estimateSOLFees(
     console.error('SOL priority fee fetch failed, using default:', err);
   }
 
-  // For USDC_SOL, account for token program invocation (more compute units)
+  // SPL token transfers share the same native SOL fee model.
   const signatures = chain === 'USDC_SOL' ? 1 : 1;
   const baseFee = SOL_BASE_FEE_LAMPORTS * signatures;
 
   return {
     low: {
-      chain: chain === 'USDC_SOL' ? 'SOL' : chain,
+      chain: chain === 'USDC_SOL' || chain === 'USDT_SOL' ? 'SOL' : chain,
       fee: (baseFee / 1e9).toString(),
       feeCurrency: 'SOL',
       priority: 'low',
       estimatedSeconds: 30,
     },
     medium: {
-      chain: chain === 'USDC_SOL' ? 'SOL' : chain,
+      chain: chain === 'USDC_SOL' || chain === 'USDT_SOL' ? 'SOL' : chain,
       fee: ((baseFee + priorityFee) / 1e9).toString(),
       feeCurrency: 'SOL',
       priority: 'medium',
       estimatedSeconds: 10,
     },
     high: {
-      chain: chain === 'USDC_SOL' ? 'SOL' : chain,
+      chain: chain === 'USDC_SOL' || chain === 'USDT_SOL' ? 'SOL' : chain,
       fee: ((baseFee + priorityFee * 3) / 1e9).toString(),
       feeCurrency: 'SOL',
       priority: 'high',
@@ -330,14 +330,17 @@ export async function estimateFees(chain: WalletChain): Promise<FeeEstimateResul
       result = await estimateBCHFees();
       break;
     case 'ETH':
+    case 'USDT_ETH':
     case 'USDC_ETH':
       result = await estimateEVMFees(chain, rpc.ETH);
       break;
     case 'POL':
+    case 'USDT_POL':
     case 'USDC_POL':
       result = await estimateEVMFees(chain, rpc.POL);
       break;
     case 'SOL':
+    case 'USDT_SOL':
     case 'USDC_SOL':
       result = await estimateSOLFees(chain, rpc.SOL);
       break;

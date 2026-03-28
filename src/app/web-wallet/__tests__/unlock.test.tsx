@@ -32,6 +32,10 @@ beforeEach(() => {
     isLoading: false,
     error: null,
     walletId: 'wid-12345678-abcd',
+    wallets: [{ id: 'wid-12345678-abcd', label: 'My Wallet', encrypted: {}, createdAt: '2026-01-01', chains: [] }],
+    activeWalletId: 'wid-12345678-abcd',
+    switchWallet: vi.fn(),
+    updateWalletLabel: vi.fn(),
   };
 });
 

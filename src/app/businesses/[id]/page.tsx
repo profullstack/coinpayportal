@@ -15,12 +15,18 @@ import { StripePayoutsTab } from '@/components/business/StripePayoutsTab';
 
 import { StripeWebhooksTab } from '@/components/business/StripeWebhooksTab';
 import { StripeApiKeysTab } from '@/components/business/StripeApiKeysTab';
+import { CryptoTransactionsTab } from '@/components/business/CryptoTransactionsTab';
+import { CryptoEscrowsTab } from '@/components/business/CryptoEscrowsTab';
+import { CryptoPayoutsTab } from '@/components/business/CryptoPayoutsTab';
 
 const CRYPTO_TABS: { id: TabType; label: string | ((w: Wallet[]) => string) }[] = [
   { id: 'general', label: 'General' },
   { id: 'wallets', label: (w) => `Wallets (${w.length})` },
   { id: 'webhooks', label: 'Webhooks' },
   { id: 'api-keys', label: 'API Keys' },
+  { id: 'crypto-transactions', label: 'Transactions' },
+  { id: 'crypto-escrows', label: 'Escrows' },
+  { id: 'crypto-payouts', label: 'Payouts' },
 ];
 
 const CARD_TABS: { id: TabType; label: string }[] = [
@@ -287,6 +293,18 @@ export default function BusinessDetailPage() {
 
             {activeTab === 'stripe-api-keys' && (
               <StripeApiKeysTab businessId={businessId} />
+            )}
+
+            {activeTab === 'crypto-transactions' && (
+              <CryptoTransactionsTab businessId={businessId} />
+            )}
+
+            {activeTab === 'crypto-escrows' && (
+              <CryptoEscrowsTab businessId={businessId} />
+            )}
+
+            {activeTab === 'crypto-payouts' && (
+              <CryptoPayoutsTab businessId={businessId} />
             )}
           </div>
         </div>

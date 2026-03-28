@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
 import { SUPPORTED_FIAT_CURRENCIES, type FiatCurrency } from '@/lib/web-wallet/settings';
+import { buildEscrowCopyLines } from './copy-lines';
 
 const CHAINS = [
   { value: 'BTC', label: 'Bitcoin (BTC)' },
@@ -17,6 +18,9 @@ const CHAINS = [
   { value: 'ADA', label: 'Cardano (ADA)' },
   { value: 'BNB', label: 'BNB Chain (BNB)' },
   { value: 'USDT', label: 'Tether (USDT)' },
+  { value: 'USDT_ETH', label: 'USDT (Ethereum)' },
+  { value: 'USDT_POL', label: 'USDT (Polygon) — Low Fees' },
+  { value: 'USDT_SOL', label: 'USDT (Solana) — Low Fees' },
   { value: 'USDC', label: 'USD Coin (USDC)' },
   { value: 'USDC_ETH', label: 'USDC (Ethereum)' },
   { value: 'USDC_POL', label: 'USDC (Polygon) — Low Fees' },
@@ -110,6 +114,7 @@ export default function CreateEscrowPage() {
   const [error, setError] = useState('');
   const [createdEscrow, setCreatedEscrow] = useState<CreatedEscrow | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [includeAllFields, setIncludeAllFields] = useState(true);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loadingAuth, setLoadingAuth] = useState(true);
@@ -542,39 +547,27 @@ export default function CreateEscrowPage() {
             )}
 
             {/* Copy All */}
-            <button
-              type="button"
-              className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-              onClick={() => {
-                const lines = [
-                  ...(createdSeries ? [
-                    `Series ID: ${String(createdSeries.id)}`,
-                    `Interval: ${String(createdSeries.interval)}`,
-                    ...(createdSeries.max_periods ? [`Max Periods: ${String(createdSeries.max_periods)}`] : []),
-                    ...(createdSeries.next_charge_at ? [`Next Payment: ${new Date(String(createdSeries.next_charge_at)).toLocaleString()}`] : []),
-                    '',
-                  ] : []),
-                  `Escrow ID: ${createdEscrow.id}`,
-                  `Deposit Address: ${createdEscrow.escrow_address}`,
-                  `Amount: ${createdEscrow.amount} ${createdEscrow.chain}`,
-                  ...(createdEscrow.amount_usd ? [`USD Value: ≈ $${createdEscrow.amount_usd.toFixed(2)}`] : []),
-                  `Status: ${createdEscrow.status}`,
-                  `Depositor: ${createdIsMultisig ? multisigEscrow!.depositor_pubkey : custodialEscrow!.depositor_address}`,
-                  `Beneficiary: ${createdIsMultisig ? multisigEscrow!.beneficiary_pubkey : custodialEscrow!.beneficiary_address}`,
-                  ...(createdIsMultisig ? [`Arbiter: ${multisigEscrow!.arbiter_pubkey}`] : []),
-                  `Expires: ${new Date(createdEscrow.expires_at).toLocaleString()}`,
-                  ...(!createdIsMultisig ? [
-                    `Auto-release at expiry: ${custodialEscrow!.allow_auto_release ? 'Enabled' : 'Disabled'}`,
-                    `Release Token: ${custodialEscrow!.release_token}`,
-                    `Beneficiary Token: ${custodialEscrow!.beneficiary_token}`,
-                  ] : []),
-                  ...(createdEscrow.fee_amount ? [`Commission: ${createdEscrow.fee_amount} ${createdEscrow.chain}`] : []),
-                ];
-                copyToClipboard(lines.join('\n'), 'escrow_all');
-              }}
-            >
-              {copiedField === 'escrow_all' ? '✓ Copied!' : '📋 Copy All Info'}
-            </button>
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={includeAllFields}
+                  onChange={(e) => setIncludeAllFields(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                Include all fields
+              </label>
+              <button
+                type="button"
+                className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                onClick={() => {
+                  const lines = buildEscrowCopyLines(createdEscrow, createdSeries, includeAllFields);
+                  copyToClipboard(lines.join('\n'), 'escrow_all');
+                }}
+              >
+                {copiedField === 'escrow_all' ? '✓ Copied!' : '📋 Copy All Info'}
+              </button>
+            </div>
 
             {/* Escrow ID — prominent, first thing shown */}
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">

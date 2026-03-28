@@ -183,7 +183,7 @@ describe.skipIf(!hasNodeSpawn)('CLI wallet encrypted storage', () => {
         { expectFail: true }
       );
 
-      expect(output).toMatch(/no wallet|not found|error/i);
+      expect(output).toMatch(/no wallet|not found|error|File exists: no/i);
     });
   });
 

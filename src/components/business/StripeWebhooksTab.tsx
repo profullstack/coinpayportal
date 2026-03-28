@@ -15,6 +15,14 @@ interface WebhookEndpoint {
   status: string;
   enabled_events: string[];
   created: number;
+  scope?: string;
+  has_secret?: boolean;
+}
+
+interface CreatedSecret {
+  endpointId: string;
+  truncated: string;
+  copied: boolean;
 }
 
 const COMMON_EVENTS = [
@@ -45,6 +53,8 @@ export function StripeWebhooksTab({ businessId }: StripeWebhooksTabProps) {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [createdSecret, setCreatedSecret] = useState<CreatedSecret | null>(null);
+  const [revealedSecrets, setRevealedSecrets] = useState<Record<string, string>>({});
 
   const fetchEndpoints = useCallback(async () => {
     try {
@@ -81,8 +91,19 @@ export function StripeWebhooksTab({ businessId }: StripeWebhooksTabProps) {
       if (!result) { setSaving(false); return; }
       const { response, data } = result;
       if (response.ok && data.success) {
+        if (data.endpoint?.secret) {
+          const secret = data.endpoint.secret;
+          const truncated = secret.slice(0, 12) + '...' + secret.slice(-4);
+          // Copy to clipboard immediately — don't store the full key
+          try {
+            await navigator.clipboard.writeText(secret);
+            setCreatedSecret({ endpointId: data.endpoint.id, truncated, copied: true });
+          } catch {
+            // Clipboard failed — user will need to get it from Stripe dashboard
+            setCreatedSecret({ endpointId: data.endpoint.id, truncated, copied: false });
+          }
+        }
         setSuccess('Webhook endpoint created');
-        setTimeout(() => setSuccess(''), 3000);
         setShowForm(false);
         setFormUrl('');
         setFormEvents([]);
@@ -137,7 +158,7 @@ export function StripeWebhooksTab({ businessId }: StripeWebhooksTabProps) {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Stripe Webhook Endpoints</h2>
+        <div><h2 className="text-xl font-semibold text-gray-900 dark:text-white">Stripe Webhook Endpoints</h2><p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Receive real-time notifications when card payments are completed, refunded, or disputed.</p></div>
         <button
           onClick={() => setShowForm(!showForm)}
           className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-500"
@@ -151,6 +172,32 @@ export function StripeWebhooksTab({ businessId }: StripeWebhooksTabProps) {
       )}
       {success && (
         <div className="mb-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 px-4 py-3 rounded-lg text-sm">{success}</div>
+      )}
+
+      {createdSecret && (
+        <div className="mb-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg p-4">
+          <div className="flex items-start justify-between">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300">
+                {createdSecret.copied ? '✓ Signing secret copied to clipboard' : '⚠️ Webhook Signing Secret'}
+              </p>
+              <p className="text-xs text-yellow-700 dark:text-yellow-400 mt-1">
+                {createdSecret.copied
+                  ? 'Paste it somewhere safe — this is the only time it\'s available.'
+                  : 'Clipboard access was blocked. Retrieve the secret from your Stripe dashboard.'}
+              </p>
+              <code className="mt-2 inline-block text-sm font-mono bg-yellow-100 dark:bg-yellow-900/40 text-yellow-900 dark:text-yellow-200 px-3 py-1.5 rounded">
+                {createdSecret.truncated}
+              </code>
+            </div>
+            <button
+              onClick={() => { setCreatedSecret(null); setSuccess(''); }}
+              className="ml-4 px-3 py-1 text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
       )}
 
       {showForm && (
@@ -218,14 +265,43 @@ export function StripeWebhooksTab({ businessId }: StripeWebhooksTabProps) {
                     )}
                   </div>
                 </div>
-                <button
-                  onClick={() => handleDelete(ep.id)}
-                  disabled={deleting === ep.id}
-                  className="ml-4 px-3 py-1 text-xs font-medium bg-red-600 text-white rounded hover:bg-red-500 disabled:opacity-50"
-                >
-                  {deleting === ep.id ? 'Deleting...' : 'Delete'}
-                </button>
+                <div className="ml-4 flex flex-col gap-2">
+                  {ep.has_secret && (
+                    <button
+                      onClick={async () => {
+                        if (revealedSecrets[ep.id]) {
+                          navigator.clipboard.writeText(revealedSecrets[ep.id]);
+                          return;
+                        }
+                        try {
+                          const result = await authFetch(`/api/stripe/webhooks/${ep.id}?business_id=${businessId}`, {}, router);
+                          if (!result) return;
+                          const { data } = result;
+                          if (data.success && data.secret) {
+                            setRevealedSecrets(prev => ({ ...prev, [ep.id]: data.secret }));
+                            navigator.clipboard.writeText(data.secret);
+                          }
+                        } catch {}
+                      }}
+                      className="px-3 py-1 text-xs font-medium bg-purple-600 text-white rounded hover:bg-purple-500"
+                    >
+                      {revealedSecrets[ep.id] ? '✓ Copied' : 'Show Secret'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDelete(ep.id)}
+                    disabled={deleting === ep.id}
+                    className="px-3 py-1 text-xs font-medium bg-red-600 text-white rounded hover:bg-red-500 disabled:opacity-50"
+                  >
+                    {deleting === ep.id ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
               </div>
+              {revealedSecrets[ep.id] && (
+                <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                  <code className="text-xs font-mono text-gray-700 dark:text-gray-300 break-all">{revealedSecrets[ep.id]}</code>
+                </div>
+              )}
             </div>
           ))}
         </div>

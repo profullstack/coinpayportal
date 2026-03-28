@@ -7,7 +7,12 @@ import { isBusinessPaidTier } from '../entitlements/service';
 /**
  * Supported blockchains for forwarding
  */
-const SUPPORTED_BLOCKCHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'SOL'] as const;
+const SUPPORTED_BLOCKCHAINS = [
+  'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+  'DOGE', 'XRP', 'ADA', 'BNB',
+  'USDT', 'USDT_ETH', 'USDT_POL', 'USDT_SOL',
+  'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+] as const;
 
 /**
  * Forwarding input interface
@@ -121,6 +126,9 @@ function getPlatformWalletAddress(blockchain: BlockchainType): string {
     ADA: 'PLATFORM_FEE_WALLET_ADA',
     BNB: 'PLATFORM_FEE_WALLET_BNB',
     USDT: 'PLATFORM_FEE_WALLET_USDT',
+    USDT_ETH: 'PLATFORM_FEE_WALLET_USDT_ETH',
+    USDT_POL: 'PLATFORM_FEE_WALLET_USDT_POL',
+    USDT_SOL: 'PLATFORM_FEE_WALLET_USDT_SOL',
     USDC: 'PLATFORM_FEE_WALLET_USDC',
     USDC_ETH: 'PLATFORM_FEE_WALLET_USDC_ETH',
     USDC_POL: 'PLATFORM_FEE_WALLET_USDC_POL',

@@ -293,7 +293,8 @@ export default function CreateInvoicePage() {
               <option value="">Select crypto (set before sending)</option>
               {wallets.length > 0
                 ? wallets.map(w => <option key={w.id} value={w.cryptocurrency}>{w.cryptocurrency}</option>)
-                : ['BTC', 'ETH', 'SOL', 'USDC', 'USDT'].map(c => <option key={c} value={c}>{c}</option>)
+                : ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'DOGE', 'XRP', 'ADA', 'BNB', 'USDT', 'USDT_ETH', 'USDT_POL', 'USDT_SOL', 'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL']
+                    .map(c => <option key={c} value={c}>{c}</option>)
               }
             </select>
             {wallets.length === 0 && form.business_id && (

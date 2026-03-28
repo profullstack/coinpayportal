@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/server/optional-deps';
 
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key'
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 export async function POST(request: NextRequest) {
@@ -30,11 +30,11 @@ export async function POST(request: NextRequest) {
 
     const merchantId = business.merchant_id;
 
-    // Check if merchant already has a Stripe account
+    // Check if business already has a Stripe account
     const { data: existingAccount } = await supabase
       .from('stripe_accounts')
       .select('stripe_account_id')
-      .eq('merchant_id', merchantId)
+      .eq('business_id', businessId)
       .single();
 
     let stripeAccountId = existingAccount?.stripe_account_id;
@@ -45,8 +45,8 @@ export async function POST(request: NextRequest) {
         await (await getStripe()).accounts.retrieve(stripeAccountId);
       } catch (verifyError: any) {
         if (verifyError?.code === 'account_invalid' || verifyError?.message?.includes('No such account')) {
-          console.warn(`Stale Stripe account ${stripeAccountId} for merchant ${merchantId}, removing`);
-          await supabase.from('stripe_accounts').delete().eq('merchant_id', merchantId);
+          console.warn(`Stale Stripe account ${stripeAccountId} for business ${businessId}, removing`);
+          await supabase.from('stripe_accounts').delete().eq('business_id', businessId);
           stripeAccountId = undefined;
         } else {
           throw verifyError;
@@ -74,6 +74,7 @@ export async function POST(request: NextRequest) {
         .from('stripe_accounts')
         .insert({
           merchant_id: merchantId,
+          business_id: businessId,
           stripe_account_id: stripeAccountId,
           account_type: 'express',
           charges_enabled: account.charges_enabled,

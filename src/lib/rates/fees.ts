@@ -217,6 +217,8 @@ export async function getEstimatedNetworkFee(blockchain: string): Promise<number
   // Normalize blockchain name (handle USDC variants)
   const baseChain = blockchain.startsWith('USDC_')
     ? blockchain.replace('USDC_', '')
+    : blockchain.startsWith('USDT_')
+    ? blockchain.replace('USDT_', '')
     : blockchain;
 
   // Check cache first

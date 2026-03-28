@@ -4,7 +4,25 @@ import { z } from 'zod';
 /**
  * Supported cryptocurrencies
  */
-export const SUPPORTED_CRYPTOCURRENCIES = ['BTC', 'BCH', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'POL'] as const;
+export const SUPPORTED_CRYPTOCURRENCIES = [
+  'BTC',
+  'BCH',
+  'ETH',
+  'USDT',
+  'USDT_ETH',
+  'USDT_POL',
+  'USDT_SOL',
+  'USDC',
+  'USDC_ETH',
+  'USDC_POL',
+  'USDC_SOL',
+  'BNB',
+  'SOL',
+  'XRP',
+  'ADA',
+  'DOGE',
+  'POL',
+] as const;
 export type Cryptocurrency = (typeof SUPPORTED_CRYPTOCURRENCIES)[number];
 
 /**

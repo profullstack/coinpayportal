@@ -5,8 +5,8 @@ import { forwardPaymentSecurely } from '@/lib/wallets/secure-forwarding';
 
 import * as bitcoin from 'bitcoinjs-lib';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 /**
  * CashAddr charset for decoding
@@ -380,12 +380,15 @@ async function checkBalance(address: string, blockchain: string): Promise<number
     case 'ETH':
     case 'USDC_ETH':
     case 'USDT':
+    case 'USDT_ETH':
     case 'USDC':
       return checkEVMBalance(address, RPC_ENDPOINTS.ETH);
     case 'POL':
+    case 'USDT_POL':
     case 'USDC_POL':
       return checkEVMBalance(address, RPC_ENDPOINTS.POL);
     case 'SOL':
+    case 'USDT_SOL':
     case 'USDC_SOL':
       return checkSolanaBalance(address, RPC_ENDPOINTS.SOL);
     case 'BNB':

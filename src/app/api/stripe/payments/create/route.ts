@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/server/optional-deps';
 
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key'
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 export async function POST(request: NextRequest) {
@@ -26,22 +26,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get business and its tier info
-    const { data: business } = await supabase
+    // Get business info
+    const { data: business, error: bizError } = await supabase
       .from('businesses')
-      .select('tier, merchant_id')
+      .select('merchant_id')
       .eq('id', businessId)
       .single();
 
-    if (!business) {
+    if (bizError || !business) {
+      console.error('Business lookup failed:', bizError);
       return NextResponse.json({ error: 'Business not found' }, { status: 404 });
     }
 
-    // Get Stripe account
+    // Get Stripe account for this business
     const { data: stripeAccount } = await supabase
       .from('stripe_accounts')
       .select('stripe_account_id, charges_enabled')
-      .eq('merchant_id', business.merchant_id)
+      .eq('business_id', businessId)
       .single();
 
     if (!stripeAccount?.stripe_account_id || !stripeAccount.charges_enabled) {
@@ -51,8 +52,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Calculate platform fee based on tier
-    const platformFeeRate = business.tier === 'pro' ? 0.005 : 0.01;
+    // Calculate platform fee (0.5% default)
+    const platformFeeRate = 0.005;
     const platformFeeAmount = Math.round(amount * platformFeeRate);
 
     const sessionMetadata = {
@@ -91,9 +92,11 @@ export async function POST(request: NextRequest) {
       .from('stripe_transactions')
       .insert({
         merchant_id: business.merchant_id,
+        business_id: businessId,
         amount,
         currency,
         platform_fee_amount: platformFeeAmount,
+        net_to_merchant: amount - platformFeeAmount,
         status: 'pending',
         rail: 'card',
       });

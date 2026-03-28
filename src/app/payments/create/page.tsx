@@ -323,11 +323,14 @@ export default function CreatePaymentPage() {
     { value: 'ada', label: 'Cardano (ADA)', walletType: 'ADA', fallbackFee: 0.20 },
     { value: 'bnb', label: 'BNB Chain (BNB)', walletType: 'BNB', fallbackFee: 0.10 },
     { value: 'usdt', label: 'Tether (USDT)', walletType: 'USDT', fallbackFee: 3.00 },
+    { value: 'usdt_eth', label: 'USDT (Ethereum)', walletType: 'USDT_ETH', fallbackFee: 3.00 },
+    { value: 'usdt_pol', label: 'USDT (Polygon) — Low Fees', walletType: 'USDT_POL', fallbackFee: 0.01 },
+    { value: 'usdt_sol', label: 'USDT (Solana) — Low Fees', walletType: 'USDT_SOL', fallbackFee: 0.001 },
     { value: 'usdc', label: 'USD Coin (USDC)', walletType: 'USDC', fallbackFee: 3.00 },
     // Chain-specific USDC options - Polygon is cheapest!
-    { value: 'usdc_eth', label: 'USDC (Ethereum)', walletType: 'USDC', fallbackFee: 3.00 },
-    { value: 'usdc_pol', label: 'USDC (Polygon) — Low Fees', walletType: 'USDC', fallbackFee: 0.01 },
-    { value: 'usdc_sol', label: 'USDC (Solana) — Low Fees', walletType: 'USDC', fallbackFee: 0.001 },
+    { value: 'usdc_eth', label: 'USDC (Ethereum)', walletType: 'USDC_ETH', fallbackFee: 3.00 },
+    { value: 'usdc_pol', label: 'USDC (Polygon) — Low Fees', walletType: 'USDC_POL', fallbackFee: 0.01 },
+    { value: 'usdc_sol', label: 'USDC (Solana) — Low Fees', walletType: 'USDC_SOL', fallbackFee: 0.001 },
   ];
 
   // Build currencies with real-time fees

@@ -66,6 +66,18 @@ import {
   authenticateEscrow,
 } from './escrow.js';
 
+// Invoice exports
+import {
+  createInvoice,
+  getInvoice,
+  listInvoices,
+  updateInvoice,
+  deleteInvoice,
+  sendInvoice,
+  getInvoicePaymentData,
+  InvoiceStatus,
+} from './invoices.js';
+
 // Wallet exports
 import {
   WalletClient,
@@ -181,6 +193,16 @@ export {
   getEscrowEvents,
   waitForEscrow,
   authenticateEscrow,
+  
+  // Invoice functions
+  createInvoice,
+  getInvoice,
+  listInvoices,
+  updateInvoice,
+  deleteInvoice,
+  sendInvoice,
+  getInvoicePaymentData,
+  InvoiceStatus,
   
   // Wallet
   WalletClient,
