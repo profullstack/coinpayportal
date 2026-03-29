@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
         mode: 'payment',
         payment_intent_data: {
           application_fee_amount: platformFeeAmount,
+          on_behalf_of: stripeAccount.stripe_account_id,
           transfer_data: {
             destination: stripeAccount.stripe_account_id,
           },
