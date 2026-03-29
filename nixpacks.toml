@@ -1,11 +1,11 @@
-[setup]
-pkgs = ['nodejs_20']
-
 [phases.install]
-cmds = ['npm install -g pnpm', 'pnpm install']
+cmds = [
+  "npm install -g pnpm",
+  "pnpm install"
+]
 
 [phases.build]
-cmds = ['pnpm build']
+cmds = ["pnpm build"]
 
 [start]
-cmd = 'pnpm start'
+cmd = "pnpm start"
