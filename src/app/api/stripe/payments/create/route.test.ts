@@ -86,7 +86,7 @@ describe('POST /api/stripe/payments/create', () => {
     expect(response.status).toBe(200);
     expect(data.checkout_url).toBe('https://checkout.stripe.com/pay/cs_test_123');
     expect(data.checkout_session_id).toBe('cs_test_123');
-    expect(data.platform_fee_amount).toBe(100); // 1% of 10000
+    expect(data.platform_fee_amount).toBe(50); // 0.5% of 10000
   });
 
   it('should return 400 for missing required fields', async () => {

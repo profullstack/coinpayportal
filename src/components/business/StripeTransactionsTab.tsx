@@ -62,9 +62,9 @@ export function StripeTransactionsTab({ businessId }: StripeTransactionsTabProps
     const headers = ['Date', 'Amount', 'Platform Fee', 'Net', 'Status', 'Payment Intent', 'Charge ID'];
     const rows = transactions.map(tx => [
       tx.created_at ? new Date(tx.created_at).toISOString() : '',
-      `$${tx.amount_usd}`,
-      formatAmount(tx.platform_fee_amount, tx.currency),
-      formatAmount(tx.net_to_merchant, tx.currency),
+      `$${tx.amount_usd || '0.00'}`,
+      formatAmount(tx.platform_fee_amount || 0, tx.currency),
+      formatAmount(tx.net_to_merchant || 0, tx.currency),
       tx.status,
       tx.stripe_payment_intent_id || '',
       tx.stripe_charge_id || '',
@@ -112,18 +112,21 @@ export function StripeTransactionsTab({ businessId }: StripeTransactionsTabProps
             <tbody>
               {transactions.map((tx) => (
                 <tr key={tx.id} className="border-b border-gray-100 dark:border-gray-800">
-                  <td className="py-2 px-3 font-medium">${tx.amount_usd}</td>
+                  <td className="py-2 px-3 font-medium">${tx.amount_usd || '0.00'}</td>
                   <td className="py-2 px-3 text-gray-500 dark:text-gray-400" title="CoinPayPortal application fee">
-                    {formatAmount(tx.platform_fee_amount, tx.currency)}
+                    {formatAmount(tx.platform_fee_amount || 0, tx.currency)}
                   </td>
                   <td className="py-2 px-3 text-gray-500 dark:text-gray-400" title="Stripe processing fee">
                     {tx.stripe_fee_amount ? formatAmount(tx.stripe_fee_amount, tx.currency) : '—'}
                   </td>
                   <td className="py-2 px-3 font-medium text-green-600 dark:text-green-400">
-                    {tx.net_to_merchant ? formatAmount(tx.net_to_merchant, tx.currency) : '—'}
+                    {tx.net_to_merchant != null ? formatAmount(tx.net_to_merchant, tx.currency) : '—'}
                   </td>
                   <td className="py-2 px-3 text-xs text-gray-600 dark:text-gray-300">
-                    <div>{tx.business_name || '—'}</div>
+                    <div>{tx.business_name || tx.merchant_email || '—'}</div>
+                    {tx.merchant_email && tx.business_name && tx.merchant_email !== tx.business_name && (
+                      <div className="text-gray-400 dark:text-gray-500">{tx.merchant_email}</div>
+                    )}
                     {tx.connected_account_email && (
                       <div className="text-gray-400 dark:text-gray-500">{tx.connected_account_email}</div>
                     )}

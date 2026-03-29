@@ -29,9 +29,10 @@ describe('rate-limit', () => {
       const r2 = checkRateLimit('10.0.0.1', 'auth_challenge');
       const r3 = checkRateLimit('10.0.0.1', 'auth_challenge');
 
-      expect(r1.remaining).toBe(9);
-      expect(r2.remaining).toBe(8);
-      expect(r3.remaining).toBe(7);
+      const limit = RATE_LIMITS['auth_challenge'].limit;
+      expect(r1.remaining).toBe(limit - 1);
+      expect(r2.remaining).toBe(limit - 2);
+      expect(r3.remaining).toBe(limit - 3);
     });
 
     it('should block after limit is reached', () => {
@@ -162,19 +163,19 @@ describe('rate-limit', () => {
   describe('RATE_LIMITS config', () => {
     it('should have wallet_creation limits', () => {
       expect(RATE_LIMITS['wallet_creation']).toBeDefined();
-      expect(RATE_LIMITS['wallet_creation'].limit).toBe(3);
+      expect(RATE_LIMITS['wallet_creation'].limit).toBe(10);
       expect(RATE_LIMITS['wallet_creation'].windowSeconds).toBe(3600);
     });
 
     it('should have auth_challenge limits', () => {
       expect(RATE_LIMITS['auth_challenge']).toBeDefined();
-      expect(RATE_LIMITS['auth_challenge'].limit).toBe(10);
+      expect(RATE_LIMITS['auth_challenge'].limit).toBe(30);
       expect(RATE_LIMITS['auth_challenge'].windowSeconds).toBe(60);
     });
 
     it('should have auth_verify limits', () => {
       expect(RATE_LIMITS['auth_verify']).toBeDefined();
-      expect(RATE_LIMITS['auth_verify'].limit).toBe(10);
+      expect(RATE_LIMITS['auth_verify'].limit).toBe(30);
       expect(RATE_LIMITS['auth_verify'].windowSeconds).toBe(60);
     });
 

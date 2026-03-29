@@ -33,7 +33,10 @@ describe('CryptoPayoutsTab', () => {
           currency: 'ETH',
           status: 'forwarded',
           payment_address: '0xaddr',
-          tx_hash: '0xforwardtx',
+          merchant_wallet: '0xmerchantwallet1234',
+          tx_hash: null,
+          forward_tx_hash: '0xforwardtx',
+          forwarded_at: '2025-01-01T00:00:00Z',
           created_at: '2025-01-01T00:00:00Z',
           fee_amount: '3.00',
           merchant_amount: '297.00',
@@ -43,8 +46,9 @@ describe('CryptoPayoutsTab', () => {
     render(<CryptoPayoutsTab businessId="biz-1" />);
     await waitFor(() => {
       expect(screen.getByText('$300.00')).toBeTruthy();
-      expect(screen.getByText('forwarded')).toBeTruthy();
-      expect(screen.getByText('0xforwardtx')).toBeTruthy();
+      expect(screen.getByText('3.00 ETH')).toBeTruthy();
+      expect(screen.getByText('297.00 ETH')).toBeTruthy();
+      expect(screen.getByText('0xforwar...')).toBeTruthy();
     });
   });
 
@@ -73,7 +77,8 @@ describe('CryptoPayoutsTab', () => {
         success: true,
         payments: [{
           id: 'pay-1', business_id: 'biz-1', amount_crypto: '1', amount_usd: '100', currency: 'BTC',
-          status: 'forwarded', payment_address: 'addr', tx_hash: '0x123',
+          status: 'forwarded', payment_address: 'addr', merchant_wallet: 'merchant-wallet', tx_hash: '0x123',
+          forward_tx_hash: null, forwarded_at: null,
           created_at: '2025-01-01T00:00:00Z', fee_amount: null, merchant_amount: null,
         }],
       },
