@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
         mode: 'payment',
         payment_intent_data: {
           application_fee_amount: platformFeeAmount,
+          statement_descriptor_suffix: (business.name || '').slice(0, 22).replace(/[^a-zA-Z0-9 .\-]/g, ''),
           transfer_data: {
             destination: stripeAccount.stripe_account_id,
           },
