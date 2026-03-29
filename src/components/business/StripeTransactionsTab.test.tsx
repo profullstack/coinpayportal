@@ -23,7 +23,25 @@ describe('StripeTransactionsTab', () => {
   it('renders transactions', async () => {
     mockAuthFetch.mockResolvedValue({
       response: { ok: true },
-      data: { success: true, transactions: [{ id: 'tx-1', stripe_charge_id: 'ch_abc', amount: 5000, currency: 'usd', status: 'succeeded', customer_email: 'a@b.com', created_at: '2025-01-01T00:00:00Z' }] },
+      data: {
+        success: true,
+        transactions: [{
+          id: 'tx-1',
+          stripe_charge_id: 'ch_abc',
+          stripe_payment_intent_id: null,
+          amount_cents: 5000,
+          amount_usd: '50.00',
+          currency: 'usd',
+          status: 'succeeded',
+          platform_fee_amount: 50,
+          stripe_fee_amount: 145,
+          net_to_merchant: 4805,
+          business_name: 'Test Business',
+          merchant_email: 'a@b.com',
+          connected_account_email: null,
+          created_at: '2025-01-01T00:00:00Z',
+        }],
+      },
     });
     render(<StripeTransactionsTab businessId="biz-1" />);
     await waitFor(() => {
