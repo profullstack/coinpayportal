@@ -23,8 +23,10 @@ CREATE TABLE IF NOT EXISTS escrow_series (
 -- Add series_id to escrows
 ALTER TABLE escrows ADD COLUMN IF NOT EXISTS series_id uuid REFERENCES escrow_series(id);
 
--- Add series_id to stripe_escrows
-ALTER TABLE stripe_escrows ADD COLUMN IF NOT EXISTS series_id uuid REFERENCES escrow_series(id);
+-- Add series_id to stripe_escrows(breaking initial setup with no stripe)
+--ALTER TABLE stripe_escrows ADD COLUMN IF NOT EXISTS series_id uuid REFERENCES escrow_series(id);
+
+
 
 -- RLS
 ALTER TABLE escrow_series ENABLE ROW LEVEL SECURITY;
