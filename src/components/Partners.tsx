@@ -37,7 +37,7 @@ export function Partners() {
           </h2>
         </div>
 
-        <div className="flex flex-wrap justify-center items-center gap-8 sm:gap-12 lg:gap-16">
+        <div className="flex flex-wrap justify-center items-center gap-10 sm:gap-14 lg:gap-20">
           {partners.map((partner) => (
             <a
               key={partner.url}
@@ -45,11 +45,23 @@ export function Partners() {
               target="_blank"
               rel="noopener noreferrer"
               title={partner.description || partner.name}
-              className="group flex items-center justify-center px-6 py-4 rounded-xl transition-all duration-300 hover:bg-white/5"
+              className="group flex items-center justify-center px-4 py-3 rounded-xl transition-all duration-300 hover:bg-white/5"
             >
-              <span className="text-2xl sm:text-3xl font-bold text-white/40 group-hover:text-white/90 transition-all duration-300 tracking-tight">
-                {partner.name}
-              </span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`${partner.url}/logo.svg`}
+                alt={partner.name}
+                className="h-8 sm:h-10 w-auto opacity-40 group-hover:opacity-90 transition-all duration-300 brightness-0 invert"
+                onError={(e) => {
+                  // Fallback to text if logo fails to load
+                  const el = e.target as HTMLImageElement;
+                  el.style.display = 'none';
+                  const span = document.createElement('span');
+                  span.className = 'text-2xl sm:text-3xl font-bold text-white/40 group-hover:text-white/90 tracking-tight';
+                  span.textContent = partner.name;
+                  el.parentElement?.appendChild(span);
+                }}
+              />
             </a>
           ))}
         </div>
