@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { PaymentDemo } from '@/components/demo/PaymentDemo';
+import { Partners } from '@/components/Partners';
 
 export default function Home() {
   return (
@@ -723,6 +724,9 @@ coinpay escrow release <id> --token esc_abc...`}
           </div>
         </div>
       </section>
+
+      {/* Partners Section */}
+      <Partners />
 
       {/* API Preview Section */}
       <section className="relative py-24 bg-slate-900/50">
