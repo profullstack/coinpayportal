@@ -6,6 +6,7 @@ interface Partner {
   name: string;
   url: string;
   description: string | null;
+  logo_url: string | null;
 }
 
 export function Partners() {
@@ -49,9 +50,9 @@ export function Partners() {
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={`${partner.url}/logo.svg`}
+                src={partner.logo_url || `${partner.url}/logo.svg`}
                 alt={partner.name}
-                className="h-8 sm:h-10 w-auto opacity-40 group-hover:opacity-90 transition-all duration-300 brightness-0 invert"
+                className="h-8 sm:h-10 w-auto opacity-50 group-hover:opacity-100 transition-all duration-300 grayscale group-hover:grayscale-0"
                 onError={(e) => {
                   // Fallback to text if logo fails to load
                   const el = e.target as HTMLImageElement;
