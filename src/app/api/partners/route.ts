@@ -9,7 +9,7 @@ export async function GET() {
 
     const { data: businesses, error } = await supabase
       .from('businesses')
-      .select('id, name, description, webhook_url')
+      .select('id, name, description, webhook_url, logo_url')
       .eq('active', true)
       .not('webhook_url', 'is', null)
       .order('created_at', { ascending: true });
@@ -37,6 +37,7 @@ export async function GET() {
           name: b.name.trim(),
           url: baseUrl,
           description: b.description || null,
+          logo_url: b.logo_url || null,
         };
       });
 
