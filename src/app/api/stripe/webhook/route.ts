@@ -3,10 +3,12 @@ import { createClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/server/optional-deps';
 import { sendPaymentWebhook } from '@/lib/webhooks/service';
 
-const supabase = createClient(
+function getSupabase() {
+  return createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+  );
+}
 
 // Support multiple webhook secrets (platform direct + Connect events)
 function getWebhookSecrets(): string[] {
@@ -17,6 +19,7 @@ function getWebhookSecrets(): string[] {
 }
 
 export async function POST(request: NextRequest) {
+  const supabase = getSupabase();
   try {
     const body = await request.text();
     const signature = request.headers.get('stripe-signature') as string;

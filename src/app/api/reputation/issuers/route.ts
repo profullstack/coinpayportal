@@ -10,10 +10,12 @@ import { randomBytes } from 'crypto';
 import { authenticateRequest, isMerchantAuth } from '@/lib/auth/middleware';
 import { z } from 'zod';
 
-const supabase = createClient(
+function getSupabase() {
+  return createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'public-anon-key'
-);
+  );
+}
 
 const registerSchema = z.object({
   name: z.string().min(1).max(100).regex(/^[a-zA-Z0-9._-]+$/, 'Name must be alphanumeric with dots, hyphens, underscores'),
@@ -27,6 +29,7 @@ function generateApiKey(name: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  const supabase = getSupabase();
   try {
     const authResult = await authenticateRequest(supabase, request.headers.get('authorization'));
     if (!authResult.success || !authResult.context) {
@@ -83,6 +86,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const supabase = getSupabase();
   try {
     const authResult = await authenticateRequest(supabase, request.headers.get('authorization'));
     if (!authResult.success || !authResult.context) {

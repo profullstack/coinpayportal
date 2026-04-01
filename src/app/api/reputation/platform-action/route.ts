@@ -13,10 +13,12 @@ import { isValidDid, sign } from '@/lib/reputation/crypto';
 import { isValidActionCategory } from '@/lib/reputation/trust-engine';
 import { z } from 'zod';
 
-const supabase = createClient(
+function getSupabase() {
+  return createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'public-anon-key'
-);
+  );
+}
 
 const platformActionSchema = z.object({
   agent_did: z.string().refine(isValidDid, 'Invalid agent DID'),
@@ -45,6 +47,7 @@ async function authenticatePlatform(request: NextRequest): Promise<{ did: string
 }
 
 export async function POST(request: NextRequest) {
+  const supabase = getSupabase();
   try {
     // Auth
     const platform = await authenticatePlatform(request);

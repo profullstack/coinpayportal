@@ -7,12 +7,15 @@ import {
   estimateSwapFee,
 } from '@/lib/swap/boltz';
 
-const supabase = createClient(
+function getSupabase() {
+  return createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+  );
+}
 
 export async function GET() {
+  const supabase = getSupabase();
   try {
     const pair = await getBoltzPairInfo();
     return NextResponse.json({ success: true, pair });
@@ -25,6 +28,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const supabase = getSupabase();
   try {
     const body = await request.json();
     const { direction, invoice, refundAddress, amountSats, claimAddress, walletId } = body;

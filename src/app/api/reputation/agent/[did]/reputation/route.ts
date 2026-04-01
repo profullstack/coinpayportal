@@ -6,15 +6,18 @@ import { computeTrustTier } from '@/lib/reputation/trust-tiers';
 import { getAttestationScore } from '@/lib/reputation/mutual-attestation';
 import { isValidDid } from '@/lib/reputation/crypto';
 
-const supabase = createClient(
+function getSupabase() {
+  return createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'public-anon-key'
-);
+  );
+}
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ did: string }> }
 ) {
+  const supabase = getSupabase();
   try {
     const { did } = await params;
     const agentDid = decodeURIComponent(did);

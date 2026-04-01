@@ -9,12 +9,15 @@ import { isValidDid } from '@/lib/reputation/crypto';
 import { computeTrustVector } from '@/lib/reputation/trust-engine';
 import { computeTrustTier } from '@/lib/reputation/trust-tiers';
 
-const supabase = createClient(
+function getSupabase() {
+  return createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+  );
+}
 
 export async function GET(request: NextRequest) {
+  const supabase = getSupabase();
   try {
     const did = request.nextUrl.searchParams.get('did');
 
