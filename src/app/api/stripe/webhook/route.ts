@@ -87,6 +87,7 @@ export async function POST(request: NextRequest) {
  * Handle checkout.session.completed — update payment or invoice record and fire merchant webhook
  */
 async function handleCheckoutSessionCompleted(session: any) {
+  const supabase = getSupabase();
   try {
     const coinpayPaymentId = session.metadata?.coinpay_payment_id;
     const coinpayInvoiceId = session.metadata?.coinpay_invoice_id;
@@ -230,6 +231,7 @@ async function handleCheckoutSessionCompleted(session: any) {
 }
 
 async function handlePaymentSucceeded(paymentIntent: any) {
+  const supabase = getSupabase();
   try {
     const merchantId = paymentIntent.metadata.merchant_id;
     const businessId = paymentIntent.metadata.business_id;
@@ -292,6 +294,7 @@ async function handlePaymentSucceeded(paymentIntent: any) {
 }
 
 async function handleDisputeCreated(dispute: any) {
+  const supabase = getSupabase();
   try {
     const charge = await (await getStripe()).charges.retrieve(dispute.charge as string);
     const paymentIntent = charge.payment_intent as string;
@@ -350,6 +353,7 @@ async function handleDisputeCreated(dispute: any) {
 }
 
 async function handlePayoutCreated(payout: any) {
+  const supabase = getSupabase();
   try {
     // Find business by Stripe account ID
     const { data: stripeAccount } = await supabase
@@ -378,6 +382,7 @@ async function handlePayoutCreated(payout: any) {
 }
 
 async function handlePayoutPaid(payout: any) {
+  const supabase = getSupabase();
   try {
     // Update payout status
     await supabase
@@ -394,6 +399,7 @@ async function handlePayoutPaid(payout: any) {
 }
 
 async function handleAccountUpdated(account: any) {
+  const supabase = getSupabase();
   try {
     // Update account capabilities
     await supabase
@@ -415,6 +421,7 @@ async function handleAccountUpdated(account: any) {
  * Handle checkout.session.completed for invoice payments
  */
 async function handleInvoiceCheckoutCompleted(session: any, invoiceId: string, businessId: string) {
+  const supabase = getSupabase();
   try {
     console.log(`[Stripe Webhook] checkout.session.completed for invoice ${invoiceId}`);
 
