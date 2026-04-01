@@ -20,7 +20,7 @@ COPY . .
 RUN pnpm build
 
 # 7b. Remove dev dependencies before copying to production image
-RUN pnpm prune --prod
+RUN CI=true pnpm prune --prod
 
 # 8. Start a fresh, lightweight production image
 FROM node:20-alpine AS runner
