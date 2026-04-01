@@ -32,7 +32,7 @@ END$$;
 CREATE TABLE IF NOT EXISTS stripe_accounts (
     id text PRIMARY KEY,
     merchant_id uuid REFERENCES merchants(id),
-    business_id uuid REFERENCES businesses(id),
+    business_id uuid UNIQUE REFERENCES businesses(id),
     created_at timestamptz DEFAULT now()
 );
 
@@ -58,14 +58,20 @@ CREATE TABLE IF NOT EXISTS stripe_payouts (
     created_at timestamptz DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS stripe_webhook_secrets (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    endpoint_id text UNIQUE,
+    business_id uuid UNIQUE REFERENCES businesses(id) ON DELETE CASCADE,
+    secret text NOT NULL,
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
+);
+
 -- ------------------------------------------------------------------------------
 -- 3. Restore Missing Columns & Relationships
 -- ------------------------------------------------------------------------------
 ALTER TABLE stripe_transactions 
 ADD COLUMN IF NOT EXISTS business_id uuid REFERENCES businesses(id);
-
--- Note: We intentionally DO NOT recreate stripe_escrows here because the 
--- developer explicitly dropped that table in a later migration (20260216020000).
 
 -- ------------------------------------------------------------------------------
 -- 4. Enable Row-Level Security (RLS)
@@ -74,6 +80,7 @@ ALTER TABLE stripe_accounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stripe_disputes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stripe_payouts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stripe_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stripe_webhook_secrets ENABLE ROW LEVEL SECURITY;
 
 -- ------------------------------------------------------------------------------
 -- 5. Restore Missing Security Policies
@@ -81,7 +88,10 @@ ALTER TABLE stripe_transactions ENABLE ROW LEVEL SECURITY;
 DO $$BEGIN
     CREATE POLICY "Merchants can view their own Stripe accounts"
     ON stripe_accounts FOR SELECT TO authenticated
-    USING (merchant_id = auth.uid());
+    USING (
+        merchant_id = auth.uid() 
+        OR business_id IN (SELECT id FROM businesses WHERE merchant_id = auth.uid())
+    );
 EXCEPTION WHEN duplicate_object THEN null; END$$;
 
 DO $$BEGIN
@@ -101,3 +111,15 @@ DO $$BEGIN
     ON stripe_transactions FOR SELECT TO authenticated
     USING (business_id IN (SELECT id FROM businesses WHERE merchant_id = auth.uid()));
 EXCEPTION WHEN duplicate_object THEN null; END$$;
+
+DO $$BEGIN
+    CREATE POLICY "Merchants can manage their webhook secrets"
+    ON stripe_webhook_secrets FOR ALL TO authenticated
+    USING (business_id IN (SELECT id FROM businesses WHERE merchant_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN null; END$$;
+
+-- ------------------------------------------------------------------------------
+-- 6. Indexes for stripe_webhook_secrets
+-- ------------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_stripe_webhook_secrets_endpoint ON stripe_webhook_secrets (endpoint_id);
+CREATE INDEX IF NOT EXISTS idx_stripe_webhook_secrets_business ON stripe_webhook_secrets (business_id);

@@ -19,6 +19,9 @@ COPY . .
 # 7. Build the Next.js application
 RUN pnpm build
 
+# 7b. Remove dev dependencies before copying to production image
+RUN pnpm prune --prod
+
 # 8. Start a fresh, lightweight production image
 FROM node:20-alpine AS runner
 RUN corepack enable pnpm

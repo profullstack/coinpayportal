@@ -59,10 +59,10 @@ app.get('/api/premium', x402({ amountUsd: 5.00 }), (req, res) => {
 });
 
 // Client: pay automatically
-const response = await x402fetch('[https://api.example.com/premium](https://api.example.com/premium)', {
+const response = await x402fetch('https://api.example.com/premium', {
   paymentMethods: { base: { signer: wallet } },
 });
-````
+```
 
 ### 💳 Stripe Card Payments *(coming soon)*
 
@@ -99,7 +99,7 @@ const response = await x402fetch('[https://api.example.com/premium](https://api.
 ### Installation
 
 ```bash
-git clone [https://github.com/profullstack/coinpayportal.git](https://github.com/profullstack/coinpayportal.git)
+git clone https://github.com/profullstack/coinpayportal.git
 cd coinpayportal
 pnpm install
 cp .env.example .env.local
@@ -118,9 +118,9 @@ ENCRYPTION_KEY=your_32_byte_encryption_key
 
 # RPC Providers
 BITCOIN_RPC_URL=https://your-bitcoin-rpc
-ETHEREUM_RPC_URL=[https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY](https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY)
-POLYGON_RPC_URL=[https://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY](https://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY)
-SOLANA_RPC_URL=[https://api.mainnet-beta.solana.com](https://api.mainnet-beta.solana.com)
+ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
+POLYGON_RPC_URL=https://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY
+SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
 
 # Platform Fee Wallets
 PLATFORM_FEE_WALLET_BTC=your_btc_address
@@ -152,7 +152,7 @@ pnpm dev
 
 ### 🐳 Deploying with Docker & Coolify
 
-We include a production-ready `Dockerfile` optimized for `pnpm` natively via Node's Corepack. This provides a highly stable, zero-config deployment path for self-hosting on platforms like [Coolify](https://www.google.com/search?q=https://coolify.io), circumventing potential build timeouts or compatibility issues that can occur when using Nixpacks with newer package managers.
+We include a production-ready `Dockerfile` optimized for `pnpm` natively via Node's Corepack. This provides a highly stable, zero-config deployment path for self-hosting on platforms like [Coolify](https://coolify.io), circumventing potential build timeouts or compatibility issues that can occur when using Nixpacks with newer package managers.
 
 **To deploy on Coolify:**
 
@@ -222,12 +222,12 @@ coinpay reputation profile did:web:coinpayportal.com:merchant:123
 
   - [API Reference](https://coinpayportal.com/docs) — Full REST API documentation
   - [SDK & CLI](https://coinpayportal.com/docs/sdk) — Node.js SDK and CLI reference
-  - [x402 Integration](https://www.google.com/search?q=./docs/X402_INTEGRATION.md) — x402 payment protocol guide
-  - [Architecture](https://www.google.com/search?q=./docs/ARCHITECTURE.md) — System design overview
-  - [Database Schema](https://www.google.com/search?q=./docs/DATABASE.md) — Supabase schema reference
-  - [Security](https://www.google.com/search?q=./docs/SECURITY.md) — Security best practices
-  - [CPTL PRD](https://www.google.com/search?q=./docs/CPTL-PRD-v2.md) — Reputation protocol design document
-  - [Platform Integration](https://www.google.com/search?q=./docs/PLATFORM_INTEGRATION.md) — Integrate CPTL reputation
+  - [x402 Integration](./docs/X402_INTEGRATION.md) — x402 payment protocol guide
+  - [Architecture](./docs/ARCHITECTURE.md) — System design overview
+  - [Database Schema](./docs/DATABASE.md) — Supabase schema reference
+  - [Security](./docs/SECURITY.md) — Security best practices
+  - [CPTL PRD](./docs/CPTL-PRD-v2.md) — Reputation protocol design document
+  - [Platform Integration](./docs/PLATFORM_INTEGRATION.md) — Integrate CPTL reputation
 
 ## 🏗️ Architecture
 
@@ -313,11 +313,11 @@ pnpm build             # Production build
 
 ## 🤝 Contributing
 
-Contributions welcome\! See [CONTRIBUTING.md](https://www.google.com/search?q=./CONTRIBUTING.md).[this link is broken]
+Contributions welcome\! See [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ## 📄 License
 
-MIT — see [LICENSE](https://www.google.com/search?q=./LICENSE).[this link is broken]
+MIT — see [LICENSE](./LICENSE)
 
 ## 🆘 Support
 
