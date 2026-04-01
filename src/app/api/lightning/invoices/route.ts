@@ -4,10 +4,12 @@ import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { createInvoice as createLnbitsInvoice } from '@/lib/lightning/lnbits';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 /**
  * POST /api/lightning/invoices
@@ -28,6 +30,7 @@ export async function POST(request: NextRequest) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'description is required');
     }
 
+    const supabase = getSupabase();
     const { data: wallet } = await supabase
       .from('wallets')
       .select('ln_wallet_inkey, ln_wallet_adminkey')
