@@ -36,6 +36,7 @@ async function authenticatePlatform(request: NextRequest): Promise<{ did: string
   if (!authHeader?.startsWith('Bearer ')) return null;
   const apiKey = authHeader.slice(7);
 
+  const supabase = getSupabase();
   const { data } = await supabase
     .from('reputation_issuers')
     .select('did, name')
