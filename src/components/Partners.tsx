@@ -52,7 +52,7 @@ export function Partners() {
               <img
                 src={partner.logo_url || `${partner.url}/logo.svg`}
                 alt={partner.name}
-                className="h-8 sm:h-10 w-auto opacity-60 group-hover:opacity-100 transition-all duration-300 invert grayscale group-hover:grayscale-0"
+                className="h-8 sm:h-10 w-auto opacity-50 group-hover:opacity-90 transition-all duration-300 brightness-0 invert"
                 onError={(e) => {
                   // Fallback to text if logo fails to load
                   const el = e.target as HTMLImageElement;
