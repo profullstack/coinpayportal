@@ -23,5 +23,5 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 -- RLS enabled, no policies yet (service role access only)
 ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
 
--- Add business_id to stripe_transactions (for card analytics filtering)
-ALTER TABLE stripe_transactions ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id);
+-- Add business_id to stripe_transactions (for card analytics filtering) Breaking initial configuration 3-29-2026
+--ALTER TABLE stripe_transactions ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id)

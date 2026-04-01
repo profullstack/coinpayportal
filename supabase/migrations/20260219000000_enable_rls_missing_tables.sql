@@ -10,13 +10,14 @@ ALTER TABLE reputation_issuers ENABLE ROW LEVEL SECURITY;
 
 -- DID tables
 ALTER TABLE merchant_dids ENABLE ROW LEVEL SECURITY;
-ALTER TABLE did_reputation_events ENABLE ROW LEVEL SECURITY;
+-- breaking initial onboarding
+-- ALTER TABLE did_reputation_events ENABLE ROW LEVEL SECURITY;
 
 -- Stripe tables
-ALTER TABLE stripe_accounts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stripe_disputes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stripe_payouts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stripe_transactions ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE stripe_accounts ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE stripe_disputes ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE stripe_payouts ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE stripe_transactions ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================
 -- Policies: all data access goes through API routes with
@@ -74,32 +75,32 @@ CREATE POLICY "Merchants can create their own DIDs"
   TO authenticated
   WITH CHECK (merchant_id = auth.uid());
 
--- did_reputation_events: public read (events are verifiable)
-CREATE POLICY "Anyone can view DID reputation events"
-  ON did_reputation_events FOR SELECT
-  TO authenticated, anon
-  USING (true);
+-- did_reputation_events: public read (events are verifiable)(Breaking initial onboarding)
+-- CREATE POLICY "Anyone can view DID reputation events"
+--  ON did_reputation_events FOR SELECT
+--  TO authenticated, anon
+--  USING (true);
 
--- stripe_accounts: merchants see their own
-CREATE POLICY "Merchants can view their own Stripe accounts"
-  ON stripe_accounts FOR SELECT
-  TO authenticated
-  USING (merchant_id = auth.uid());
+-- stripe_accounts: merchants see their own(breaking initial onboarding)
+-- CREATE POLICY "Merchants can view their own Stripe accounts"
+--  ON stripe_accounts FOR SELECT
+--  TO authenticated
+--  USING (merchant_id = auth.uid());
 
--- stripe_disputes: merchants see their own
-CREATE POLICY "Merchants can view their own disputes"
-  ON stripe_disputes FOR SELECT
-  TO authenticated
-  USING (merchant_id = auth.uid());
+-- stripe_disputes: merchants see their own(breaking initial onboarding)
+-- CREATE POLICY "Merchants can view their own disputes"
+--  ON stripe_disputes FOR SELECT
+--  TO authenticated
+--  USING (merchant_id = auth.uid());
 
 -- stripe_payouts: merchants see their own
-CREATE POLICY "Merchants can view their own payouts"
-  ON stripe_payouts FOR SELECT
-  TO authenticated
-  USING (merchant_id = auth.uid());
+-- CREATE POLICY "Merchants can view their own payouts"
+-- ON stripe_payouts FOR SELECT
+-- TO authenticated
+-- USING (merchant_id = auth.uid());
 
 -- stripe_transactions: merchants see their own (via business_id)
-CREATE POLICY "Merchants can view their own transactions"
-  ON stripe_transactions FOR SELECT
-  TO authenticated
-  USING (business_id IN (SELECT id FROM businesses WHERE merchant_id = auth.uid()));
+-- CREATE POLICY "Merchants can view their own transactions"
+--  ON stripe_transactions FOR SELECT
+--  TO authenticated
+-- USING (business_id IN (SELECT id FROM businesses WHERE merchant_id = auth.uid()));

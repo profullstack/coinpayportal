@@ -55,42 +55,46 @@ CoinPay is a non-custodial payment gateway that lets merchants accept crypto, Li
 ```javascript
 // Merchant: paywall a route
 app.get('/api/premium', x402({ amountUsd: 5.00 }), (req, res) => {
-  res.json({ data: 'premium content' });
+  res.json({ data: 'premium content' });
 });
 
 // Client: pay automatically
 const response = await x402fetch('https://api.example.com/premium', {
-  paymentMethods: { base: { signer: wallet } },
+  paymentMethods: { base: { signer: wallet } },
 });
 ```
 
 ### 💳 Stripe Card Payments *(coming soon)*
-- **Stripe Connect**: Merchant onboarding with Connect Express
-- **Card + crypto**: Accept both card and crypto on the same checkout
-- **Escrow mode**: Card-funded escrows with Stripe as payment method
-- **Payouts**: Automated merchant payouts via Stripe
+
+  - **Stripe Connect**: Merchant onboarding with Connect Express
+  - **Card + crypto**: Accept both card and crypto on the same checkout
+  - **Escrow mode**: Card-funded escrows with Stripe as payment method
+  - **Payouts**: Automated merchant payouts via Stripe
 
 ### 🆔 DID Reputation Protocol (CPTL)
-- **Decentralized identifiers**: `did:web:coinpayportal.com:merchant:<id>`
-- **7-dimension trust vectors**: Economic, Productivity, Behavioral, Delivery, Reliability, Accountability, Compliance
-- **ActionReceipt schema**: Cryptographically signed receipts from escrow settlements
-- **Cross-platform portability**: Reputation travels with your DID across platforms (e.g. [ugig.net](https://ugig.net))
-- **Embeddable badges**: SVG trust badges for external sites
-- **Anti-gaming**: Diminishing returns + 90-day recency decay
-- **Platform Action API**: External platforms submit reputation signals
+
+  - **Decentralized identifiers**: `did:web:coinpayportal.com:merchant:<id>`
+  - **7-dimension trust vectors**: Economic, Productivity, Behavioral, Delivery, Reliability, Accountability, Compliance
+  - **ActionReceipt schema**: Cryptographically signed receipts from escrow settlements
+  - **Cross-platform portability**: Reputation travels with your DID across platforms (e.g. [ugig.net](https://ugig.net))
+  - **Embeddable badges**: SVG trust badges for external sites
+  - **Anti-gaming**: Diminishing returns + 90-day recency decay
+  - **Platform Action API**: External platforms submit reputation signals
 
 ### 📦 SDK & CLI
-- **NPM package**: `@profullstack/coinpay`
-- **Full CLI**: `coinpay payment create`, `coinpay escrow create`, `coinpay wallet create`, `coinpay x402 test`
-- **ESM module**: Import directly into Node.js applications
-- **AI agent skill**: Feed `/skill.md` to any AI agent for autonomous operation
+
+  - **NPM package**: `@profullstack/coinpay`
+  - **Full CLI**: `coinpay payment create`, `coinpay escrow create`, `coinpay wallet create`, `coinpay x402 test`
+  - **ESM module**: Import directly into Node.js applications
+  - **AI agent skill**: Feed `/skill.md` to any AI agent for autonomous operation
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 18+ and pnpm
-- Supabase account
-- RPC provider accounts (Alchemy, Infura, or public nodes)
+
+  - Node.js 18+ and pnpm
+  - Supabase account
+  - RPC provider accounts (Alchemy, Infura, or public nodes)
 
 ### Installation
 
@@ -146,6 +150,18 @@ Run the dev server:
 pnpm dev
 ```
 
+### 🐳 Deploying with Docker & Coolify
+
+We include a production-ready `Dockerfile` optimized for `pnpm` natively via Node's Corepack. This provides a highly stable, zero-config deployment path for self-hosting on platforms like [Coolify](https://coolify.io), circumventing potential build timeouts or compatibility issues that can occur when using Nixpacks with newer package managers.
+
+**To deploy on Coolify:**
+
+1.  Connect your repository to Coolify.
+2.  Under the **Configuration -\> General** tab, change the **Build Pack** from Nixpacks to **Docker**.
+3.  Set the **Ports Exposes** field to match your Next.js output (e.g., `8080` or `3000` depending on your `.env`).
+4.  Under **Environment Variables**, add `COREPACK_ENABLE_DOWNLOAD_PROMPT=0` to prevent Corepack from hanging while asking for keyboard input during the build phase.
+5.  Click **Deploy**.
+
 ### Using the SDK
 
 ```bash
@@ -159,19 +175,19 @@ const client = new CoinPay({ apiKey: 'cp_live_xxxxx' });
 
 // Create a payment
 const payment = await client.payments.create({
-  businessId: 'biz_123',
-  amount: 100,
-  currency: 'USD',
-  blockchain: 'eth',
+  businessId: 'biz_123',
+  amount: 100,
+  currency: 'USD',
+  blockchain: 'eth',
 });
 
 // Create an escrow
 const escrow = await client.escrow.create({
-  chain: 'sol',
-  amount: 500,
-  depositorAddress: 'So1...',
-  beneficiaryAddress: 'So2...',
-  expiresIn: '7d',
+  chain: 'sol',
+  amount: 500,
+  depositorAddress: 'So1...',
+  beneficiaryAddress: 'So2...',
+  expiresIn: '7d',
 });
 
 // Create a web wallet
@@ -204,112 +220,113 @@ coinpay reputation profile did:web:coinpayportal.com:merchant:123
 
 ## 📖 Documentation
 
-- [API Reference](https://coinpayportal.com/docs) — Full REST API documentation
-- [SDK & CLI](https://coinpayportal.com/docs/sdk) — Node.js SDK and CLI reference
-- [x402 Integration](./docs/X402_INTEGRATION.md) — x402 payment protocol guide
-- [Architecture](./docs/ARCHITECTURE.md) — System design overview
-- [Database Schema](./docs/DATABASE.md) — Supabase schema reference
-- [Security](./docs/SECURITY.md) — Security best practices
-- [CPTL PRD](./docs/CPTL-PRD-v2.md) — Reputation protocol design document
-- [Platform Integration](./docs/PLATFORM_INTEGRATION.md) — Integrate CPTL reputation
+  - [API Reference](https://coinpayportal.com/docs) — Full REST API documentation
+  - [SDK & CLI](https://coinpayportal.com/docs/sdk) — Node.js SDK and CLI reference
+  - [x402 Integration](./docs/X402_INTEGRATION.md) — x402 payment protocol guide
+  - [Architecture](./docs/ARCHITECTURE.md) — System design overview
+  - [Database Schema](./docs/DATABASE.md) — Supabase schema reference
+  - [Security](./docs/SECURITY.md) — Security best practices
+  - [CPTL PRD](./docs/CPTL-PRD-v2.md) — Reputation protocol design document
+  - [Platform Integration](./docs/PLATFORM_INTEGRATION.md) — Integrate CPTL reputation
 
 ## 🏗️ Architecture
 
-- **Frontend**: Next.js 16 + TypeScript + TailwindCSS
-- **Backend**: Next.js API Routes (serverless)
-- **Database**: Supabase (PostgreSQL) with Row-Level Security
-- **Blockchain**: Self-hosted wallet generation, multi-RPC failover
-- **Lightning**: Greenlight (CLN) managed nodes
-- **Testing**: Vitest — 2,800+ tests
-- **CI**: GitHub Actions with automated build + test
+  - **Frontend**: Next.js 16 + TypeScript + TailwindCSS
+  - **Backend**: Next.js API Routes (serverless)
+  - **Database**: Supabase (PostgreSQL) with Row-Level Security
+  - **Blockchain**: Self-hosted wallet generation, multi-RPC failover
+  - **Lightning**: Greenlight (CLN) managed nodes
+  - **Testing**: Vitest — 2,800+ tests
+  - **CI**: GitHub Actions with automated build + test
 
 ## 📦 Project Structure
 
 ```
 coinpayportal/
-├── docs/                     # Documentation
+├── docs/                     # Documentation
 ├── src/
-│   ├── app/
-│   │   ├── api/
-│   │   │   ├── auth/        # Authentication
-│   │   │   ├── payments/    # Payment endpoints
-│   │   │   ├── escrow/      # Escrow endpoints
-│   │   │   ├── lightning/   # Lightning endpoints
-│   │   │   ├── reputation/  # DID & trust endpoints
-│   │   │   ├── x402/       # x402 facilitator (verify/settle)
-│   │   │   └── ...
-│   │   ├── dashboard/       # Merchant dashboard
-│   │   ├── web-wallet/      # Non-custodial wallet UI
-│   │   ├── escrow/          # Escrow management UI
-│   │   ├── x402/           # x402 dashboard
-│   │   └── reputation/     # DID & trust profile
-│   ├── components/
-│   ├── lib/
-│   │   ├── blockchain/      # Multi-chain providers
-│   │   ├── lightning/       # Greenlight + LNbits
-│   │   ├── payments/        # Payment processing
-│   │   ├── web-wallet/      # Wallet SDK (keys, signing, fees)
-│   │   ├── reputation/      # Trust engine
-│   │   └── crypto/          # Encryption
-│   └── types/
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── auth/        # Authentication
+│   │   │   ├── payments/    # Payment endpoints
+│   │   │   ├── escrow/      # Escrow endpoints
+│   │   │   ├── lightning/   # Lightning endpoints
+│   │   │   ├── reputation/  # DID & trust endpoints
+│   │   │   ├── x402/       # x402 facilitator (verify/settle)
+│   │   │   └── ...
+│   │   ├── dashboard/       # Merchant dashboard
+│   │   ├── web-wallet/      # Non-custodial wallet UI
+│   │   ├── escrow/          # Escrow management UI
+│   │   ├── x402/           # x402 dashboard
+│   │   └── reputation/     # DID & trust profile
+│   ├── components/
+│   ├── lib/
+│   │   ├── blockchain/      # Multi-chain providers
+│   │   ├── lightning/       # Greenlight + LNbits
+│   │   ├── payments/        # Payment processing
+│   │   ├── web-wallet/      # Wallet SDK (keys, signing, fees)
+│   │   ├── reputation/      # Trust engine
+│   │   └── crypto/          # Encryption
+│   └── types/
 ├── packages/
-│   └── sdk/                  # @profullstack/coinpay (SDK + CLI)
+│   └── sdk/                  # @profullstack/coinpay (SDK + CLI)
 └── supabase/
-    └── migrations/           # Database migrations
+    └── migrations/           # Database migrations
 ```
 
 ## 🧪 Testing
 
 ```bash
-pnpm test              # Run all 2,800+ tests
-pnpm test:watch        # Watch mode
-pnpm test:coverage     # Coverage report
-pnpm build             # Production build
+pnpm test              # Run all 2,800+ tests
+pnpm test:watch        # Watch mode
+pnpm test:coverage     # Coverage report
+pnpm build             # Production build
 ```
 
 ## 🔐 Security
 
-- Private keys encrypted at rest (AES-256)
-- Client-side key generation for web wallet (keys never leave browser)
-- Row-Level Security on all Supabase tables
-- API key + JWT authentication
-- Rate limiting on all endpoints
-- Webhook signature verification
-- Replay protection on x402 payments (nonce-based)
+  - Private keys encrypted at rest (AES-256)
+  - Client-side key generation for web wallet (keys never leave browser)
+  - Row-Level Security on all Supabase tables
+  - API key + JWT authentication
+  - Rate limiting on all endpoints
+  - Webhook signature verification
+  - Replay protection on x402 payments (nonce-based)
 
 ## 🛣️ Roadmap
 
-- [x] Multi-chain payments (BTC, BCH, ETH, POL, SOL, USDC)
-- [x] Non-custodial web wallet
-- [x] On-chain escrow with auto-refund + recurring
-- [x] Lightning Network (BOLT12 via Greenlight)
-- [x] x402 payment protocol (multi-chain facilitator)
-- [x] DID reputation protocol (CPTL)
-- [x] SDK & CLI
-- [x] Subscription plans & entitlements
-- [ ] Stripe card payments *(in progress)*
-- [ ] x402 Solana signature verification
-- [ ] CPTL Phase 3 — Anti-collusion engine
-- [ ] CPTL Phase 4 — ZK proofs, cross-chain anchoring
-- [ ] Mobile SDK
-- [ ] WooCommerce / Shopify plugins
-- [ ] Fiat off-ramp
+  - [x] Multi-chain payments (BTC, BCH, ETH, POL, SOL, USDC)
+  - [x] Non-custodial web wallet
+  - [x] On-chain escrow with auto-refund + recurring
+  - [x] Lightning Network (BOLT12 via Greenlight)
+  - [x] x402 payment protocol (multi-chain facilitator)
+  - [x] DID reputation protocol (CPTL)
+  - [x] SDK & CLI
+  - [x] Subscription plans & entitlements
+  - [ ] Stripe card payments *(in progress)*
+  - [ ] x402 Solana signature verification
+  - [ ] CPTL Phase 3 — Anti-collusion engine
+  - [ ] CPTL Phase 4 — ZK proofs, cross-chain anchoring
+  - [ ] Mobile SDK
+  - [ ] WooCommerce / Shopify plugins
+  - [ ] Fiat off-ramp
 
 ## 🤝 Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md).
+Contributions welcome\! See [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ## 📄 License
 
-MIT — see [LICENSE](./LICENSE).
+MIT — see [LICENSE](./LICENSE)
 
 ## 🆘 Support
 
-- **Docs**: [coinpayportal.com/docs](https://coinpayportal.com/docs)
-- **Discord**: [discord.gg/U7dEXfBA3s](https://discord.gg/U7dEXfBA3s)
-- **Email**: support@coinpayportal.com
-- **Issues**: [GitHub Issues](https://github.com/profullstack/coinpayportal/issues)
+  - **Docs**: [coinpayportal.com/docs](https://coinpayportal.com/docs)
+  - **Discord**: [discord.gg/U7dEXfBA3s](https://discord.gg/U7dEXfBA3s)
+  - **Email**: support@coinpayportal.com
+  - **Issues**: [GitHub Issues](https://github.com/profullstack/coinpayportal/issues)
 
----
+-----
 
 Built with ❤️ by [Profullstack Inc](https://profullstack.com)
+
