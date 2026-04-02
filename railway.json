@@ -1,0 +1,15 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "RAILPACK",
+    "dockerfilePath": null,
+    "buildCommand": "pnpm install --no-frozen-lockfile && pnpm run build"
+  },
+  "deploy": {
+    "startCommand": "sh scripts/start.sh",
+    "healthcheckPath": "/",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
