@@ -1,5 +1,6 @@
 [build]
-builder = "railpack"
+builder = "RAILPACK"
+dockerfilePath = ""
 buildCommand = "pnpm install --no-frozen-lockfile && pnpm run build"
 
 [deploy]
