@@ -47,7 +47,7 @@
     "@supabase/supabase-js": "^2.39.0",
     "@types/bs58": "^5.0.0",
     "@types/papaparse": "^5.5.2",
-    "axios": "^1.13.2",
+    "axios": "^1.14.0",
     "bcryptjs": "^3.0.3",
     "bitcoinjs-lib": "^6.1.5",
     "bs58": "^6.0.0",
@@ -102,5 +102,20 @@
   "engines": {
     "node": ">=20.9.0",
     "pnpm": ">=10.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "axios": ">=1.14.0",
+      "lodash-es": ">=4.18.0",
+      "brace-expansion": ">=2.0.3",
+      "picomatch": ">=4.0.4",
+      "flatted": ">=3.4.2",
+      "h3": ">=1.15.11",
+      "socket.io-parser": ">=4.2.6",
+      "minimatch": ">=9.0.9",
+      "rollup": ">=4.60.1",
+      "bn.js": ">=5.2.3",
+      "ajv": "6.14.0"
+    }
   }
 }
