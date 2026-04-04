@@ -106,6 +106,15 @@ function DashboardView() {
   const [activeTab, setActiveTab] = useState<TabType>('assets');
   const [totalUsd, setTotalUsd] = useState(0);
   const [assets, setAssets] = useState<AssetItem[]>([]);
+
+  // Show balance in tab title
+  useEffect(() => {
+    const original = document.title;
+    document.title = totalUsd > 0
+      ? `$${totalUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — Wallet`
+      : 'Wallet — CoinPay';
+    return () => { document.title = original; };
+  }, [totalUsd]);
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [loadingBalances, setLoadingBalances] = useState(true);
   const [loadingTx, setLoadingTx] = useState(true);
