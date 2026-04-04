@@ -1607,6 +1607,94 @@ coinpay payment list --business-id your-business-id --limit 10
 
 ## Support
 
+---
+
+## Affiliate / Referral Payouts
+
+Send crypto payouts to affiliates, referral partners, or any external wallet.
+
+> **Prerequisite:** The business must have a wallet with an `encrypted_private_key` stored
+> for the chosen cryptocurrency. This is set up via the wallet import/configuration flow.
+
+### Create a Payout
+
+```
+POST /api/businesses/{id}/payouts
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "recipient_email": "affiliate@example.com",
+  "recipient_wallet": "0x1234...abcd",
+  "cryptocurrency": "USDT",
+  "amount_usd": 100,
+  "metadata": { "campaign": "spring2026" }
+}
+```
+
+**Response (201):**
+```json
+{
+  "success": true,
+  "payout": {
+    "id": "uuid",
+    "business_id": "uuid",
+    "recipient_email": "affiliate@example.com",
+    "recipient_wallet": "0x1234...abcd",
+    "cryptocurrency": "USDT",
+    "amount_usd": 100.00,
+    "amount_crypto": 100.05000000,
+    "tx_hash": "0xabc...",
+    "status": "completed",
+    "created_at": "2026-04-04T15:00:00Z",
+    "completed_at": "2026-04-04T15:00:05Z"
+  }
+}
+```
+
+**Error cases:**
+- `400` — Validation error (missing fields, invalid wallet address)
+- `422` — Payout created but transaction failed (payout record included in response)
+- `404` — Business not found or access denied
+
+### List Payouts
+
+```
+GET /api/businesses/{id}/payouts?status=completed&email=user@example.com&limit=50&offset=0
+Authorization: Bearer <jwt>
+```
+
+**Query Parameters:**
+| Parameter | Type   | Description                              |
+|-----------|--------|------------------------------------------|
+| status    | string | Filter by status (pending, processing, completed, failed) |
+| email     | string | Filter by recipient email                |
+| limit     | number | Max results (default 50)                 |
+| offset    | number | Pagination offset (default 0)            |
+
+### Get Payout Details
+
+```
+GET /api/businesses/{id}/payouts/{payoutId}
+Authorization: Bearer <jwt>
+```
+
+### Retry a Failed Payout
+
+```
+PATCH /api/businesses/{id}/payouts/{payoutId}
+Authorization: Bearer <jwt>
+```
+
+Only payouts with `status: "failed"` can be retried. The system creates a new transaction attempt with fresh exchange rates.
+
+### Supported Cryptocurrencies
+
+All cryptocurrencies supported by CoinPayPortal can be used for payouts:
+BTC, BCH, ETH, SOL, POL, BNB, DOGE, XRP, ADA, USDT, USDT_ETH, USDT_POL, USDT_SOL, USDC, USDC_ETH, USDC_POL, USDC_SOL
+
+---
+
 For API support, contact:
 - Email: api-support@coinpayportal.com
 - Documentation: https://docs.coinpayportal.com
