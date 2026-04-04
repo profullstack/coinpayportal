@@ -27,6 +27,9 @@
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",
+    "@dayflow/core": "^3.3.6",
+    "@dayflow/plugin-drag": "^1.2.6",
+    "@dayflow/react": "^3.3.6",
     "@emurgo/cardano-serialization-lib-nodejs": "^15.0.3",
     "@grpc/grpc-js": "^1.14.3",
     "@grpc/proto-loader": "^0.8.0",
