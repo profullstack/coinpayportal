@@ -1695,6 +1695,187 @@ BTC, BCH, ETH, SOL, POL, BNB, DOGE, XRP, ADA, USDT, USDT_ETH, USDT_POL, USDT_SOL
 
 ---
 
+## Usage-Based Billing
+
+Prepaid credit system for metered/usage-based billing. Merchants define rate tables, users prepay credits, and each API call deducts credits based on the rate.
+
+### Set Up Rate Table
+
+Define what each action costs:
+
+```
+POST /api/businesses/{id}/usage/rates
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "action_type": "ai.inference",
+  "cost_usd": 0.003,
+  "unit": "request",
+  "description": "AI model inference"
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "rate": {
+    "id": "uuid",
+    "business_id": "uuid",
+    "action_type": "ai.inference",
+    "cost_usd": 0.003,
+    "unit": "request",
+    "description": "AI model inference"
+  }
+}
+```
+
+### List Rate Table
+
+```
+GET /api/businesses/{id}/usage/rates
+Authorization: Bearer <jwt>
+```
+
+Response:
+```json
+{
+  "success": true,
+  "rates": [
+    {
+      "action_type": "ai.inference",
+      "cost_usd": 0.003,
+      "unit": "request",
+      "description": "AI model inference"
+    }
+  ]
+}
+```
+
+### Delete a Rate
+
+```
+DELETE /api/businesses/{id}/usage/rates
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{ "action_type": "ai.inference" }
+```
+
+### Add Credits (Top-Up)
+
+```
+POST /api/businesses/{id}/usage/credits
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "user_email": "user@example.com",
+  "amount_usd": 25.00,
+  "payment_id": "pay_abc123",
+  "payment_method": "crypto",
+  "tx_hash": "0xabc..."
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "credits": {
+    "balance_usd": 25.00,
+    "lifetime_purchased_usd": 25.00,
+    "lifetime_used_usd": 0
+  }
+}
+```
+
+### Get Credit Balance
+
+```
+GET /api/businesses/{id}/usage/credits?email=user@example.com
+Authorization: Bearer <jwt>
+```
+
+Response:
+```json
+{
+  "success": true,
+  "credits": {
+    "balance_usd": 24.997,
+    "lifetime_purchased_usd": 25.00,
+    "lifetime_used_usd": 0.003
+  }
+}
+```
+
+### Deduct Credits
+
+Deduct credits for a metered action. Returns 402 Payment Required if insufficient balance.
+
+```
+POST /api/businesses/{id}/usage/deduct
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "user_email": "user@example.com",
+  "action_type": "ai.inference",
+  "quantity": 1,
+  "metadata": { "model": "gpt-4", "tokens": 1500 }
+}
+```
+
+Success response:
+```json
+{
+  "success": true,
+  "remaining_balance": 24.997,
+  "cost": 0.003,
+  "action_type": "ai.inference"
+}
+```
+
+Insufficient credits (402):
+```json
+{
+  "success": false,
+  "error": "Insufficient credits",
+  "remaining_balance": 0.001,
+  "cost": 0.003,
+  "action_type": "ai.inference"
+}
+```
+
+### Usage History
+
+```
+GET /api/businesses/{id}/usage/history?email=user@example.com&action_type=ai.inference&from=2026-01-01&to=2026-12-31&limit=50&offset=0
+Authorization: Bearer <jwt>
+```
+
+Response:
+```json
+{
+  "success": true,
+  "history": [
+    {
+      "action_type": "ai.inference",
+      "quantity": 1,
+      "cost_usd": 0.003,
+      "metadata": { "model": "gpt-4" },
+      "created_at": "2026-04-04T15:30:00Z"
+    }
+  ],
+  "total": 142,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+---
+
 For API support, contact:
 - Email: api-support@coinpayportal.com
 - Documentation: https://docs.coinpayportal.com
