@@ -69,6 +69,18 @@ export default function DashboardPage() {
   const [cardTransactions, setCardTransactions] = useState<CardTransaction[]>([]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [planInfo, setPlanInfo] = useState<PlanInfo | null>(null);
+
+  // Show total volume in tab title
+  useEffect(() => {
+    const original = document.title;
+    if (combinedStats?.total_volume_usd) {
+      const vol = parseFloat(combinedStats.total_volume_usd);
+      document.title = vol > 0
+        ? `$${vol.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} volume — Dashboard`
+        : 'Dashboard — CoinPay';
+    }
+    return () => { document.title = original; };
+  }, [combinedStats?.total_volume_usd]);
   const [selectedBusinessId, setSelectedBusinessId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [loading, setLoading] = useState(true);
