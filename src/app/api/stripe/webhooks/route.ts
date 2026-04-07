@@ -68,21 +68,25 @@ export async function GET(request: NextRequest) {
     // List platform-level webhooks and filter STRICTLY by the requesting
     // business UUID stored in metadata. Webhooks belonging to other businesses
     // (even other businesses owned by the same merchant) must NOT be listed.
-    const platformEndpoints = await stripe.webhookEndpoints.list({ limit: 100 });
-    const filteredPlatform = platformEndpoints.data.filter(
-      (ep: any) => ep.metadata?.business_id === businessId
-    );
+    // Endpoints must match BOTH the requesting business UUID AND the
+    // stripe account currently linked to that business — defense in depth
+    // so a stale/reassigned business UUID can't surface webhooks belonging
+    // to a different connected account.
+    const matches = (ep: any) =>
+      ep.metadata?.business_id === businessId &&
+      ep.metadata?.stripe_account_id === stripeAccountId;
 
-    // List webhooks on the connected account itself, filtered by business_id metadata
+    const platformEndpoints = await stripe.webhookEndpoints.list({ limit: 100 });
+    const filteredPlatform = platformEndpoints.data.filter(matches);
+
+    // List webhooks on the connected account itself, filtered the same way
     let accountEndpoints: any[] = [];
     try {
       const acctList = await stripe.webhookEndpoints.list(
         { limit: 100 },
         { stripeAccount: stripeAccountId }
       );
-      accountEndpoints = acctList.data.filter(
-        (ep: any) => ep.metadata?.business_id === businessId
-      );
+      accountEndpoints = acctList.data.filter(matches);
     } catch {
       // Connected account may not support webhook listing — that's ok
     }
