@@ -27,6 +27,12 @@ import { createHmac } from 'crypto';
 import { encrypt, decrypt } from '../crypto/encryption';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getFeePercentage, FEE_PERCENTAGE_FREE, FEE_PERCENTAGE_PAID } from '../payments/fees';
+import {
+  getDerivationFamily as getDerivationFamilyImpl,
+  getMaxFamilyIndex as getMaxFamilyIndexImpl,
+  acquireFamilyIndex,
+  bumpFamilyIndex,
+} from './derivation-family';
 
 /**
  * Supported blockchains
@@ -59,6 +65,28 @@ export const COMMISSION_RATE = COMMISSION_RATE_PAID;
 export function getCommissionRate(isPaidTier: boolean): number {
   return getFeePercentage(isPaidTier);
 }
+
+/**
+ * Derivation family — a key that groups cryptocurrencies which share the
+ * same HD seed AND derivation path, and therefore the same address space.
+ *
+ * Critical for index allocation: every EVM chain (ETH, POL, BNB, USDT_*,
+ * USDC_*) derives from `m/44'/60'/0'/0/i` against the ETH mnemonic, so `i`
+ * produces the SAME 0x… address regardless of which chain the merchant
+ * picked. If `system_wallet_indexes` were keyed per-cryptocurrency, the
+ * USDC_POL counter could sit at 0 while the ETH counter is at 50, and
+ * the next USDC_POL payment would try to insert an address that already
+ * exists from a prior ETH payment → unique_address violation → the
+ * "all derived addresses already exist" failure observed in production.
+ *
+ * Same applies to the SOL family (SOL/USDT_SOL/USDC_SOL share
+ * m/44'/501'/i'/0'). BTC/BCH/DOGE/XRP/ADA each have their own coin type
+ * so they don't collide with anything else.
+ *
+ * Implementation lives in ./derivation-family so the unit tests can run
+ * without dragging the heavy ethers/bitcoinjs import graph.
+ */
+export const getDerivationFamily = getDerivationFamilyImpl as (c: SystemBlockchain) => string;
 
 /**
  * System wallet configuration
@@ -695,6 +723,10 @@ export async function deriveSystemPaymentAddress(
   };
 }
 
+// Re-export the implementation from ./derivation-family for any old call
+// sites that imported `getMaxFamilyIndex` from this file.
+const getMaxFamilyIndex = getMaxFamilyIndexImpl;
+
 /**
  * Generate a unique payment address for a new payment
  * This is the main function called when creating a payment
@@ -727,57 +759,17 @@ export async function generatePaymentAddress(
   }
 
   try {
-    // Get the next available index with compare-and-swap to prevent race conditions.
-    // Two concurrent payments for the same crypto could read the same index,
-    // derive the same address, and hit the unique_address constraint.
-    let nextIndex = 0;
-    let indexAcquired = false;
-
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const { data: indexData, error: indexError } = await supabase
-        .from('system_wallet_indexes')
-        .select('next_index')
-        .eq('cryptocurrency', cryptocurrency)
-        .single();
-
-      if (indexError || !indexData) {
-        // Initialize the index if it doesn't exist
-        const { error: insertErr } = await supabase
-          .from('system_wallet_indexes')
-          .insert({ cryptocurrency, next_index: 1 });
-        if (!insertErr) {
-          nextIndex = 0;
-          indexAcquired = true;
-          break;
-        }
-        // Insert conflict means another process created it — retry read
-        continue;
-      }
-
-      nextIndex = indexData.next_index;
-
-      // Compare-and-swap: only increment if the value hasn't changed since we read it
-      const { data: swapped, error: casError } = await supabase
-        .from('system_wallet_indexes')
-        .update({ next_index: nextIndex + 1 })
-        .eq('cryptocurrency', cryptocurrency)
-        .eq('next_index', nextIndex)
-        .select('next_index')
-        .single();
-
-      if (!casError && swapped) {
-        indexAcquired = true;
-        break;
-      }
-
-      // Another process incremented the index — back off and retry
-      await new Promise(r => setTimeout(r, 20 * (attempt + 1)));
-    }
-
-    if (!indexAcquired) {
+    // Acquire next family-scoped derivation index. The counter is keyed
+    // by derivation *family* (see ./derivation-family) because chains in
+    // the same family share an address space and would otherwise collide
+    // on the unique_address constraint.
+    let nextIndex: number;
+    try {
+      nextIndex = await acquireFamilyIndex(supabase, cryptocurrency);
+    } catch (err) {
       return {
         success: false,
-        error: 'Failed to acquire wallet index after retries — high contention',
+        error: err instanceof Error ? err.message : 'Failed to acquire wallet index',
       };
     }
 
@@ -846,14 +838,15 @@ export async function generatePaymentAddress(
         break;
       }
 
-      // If duplicate address, bump index and re-derive
+      // If duplicate address, jump the family counter past every existing
+      // address in this family and re-derive. This handles the case where
+      // the family counter is behind reality (e.g. it was just initialized
+      // or another process raced ahead) and prevents the loop from
+      // re-trying indexes that are already taken.
       if (insertError.message?.includes('unique') || insertError.code === '23505') {
-        finalIndex += 1;
-        // Bump the global index too
-        await supabase
-          .from('system_wallet_indexes')
-          .update({ next_index: finalIndex + 1 })
-          .eq('cryptocurrency', cryptocurrency);
+        const maxIdx = await getMaxFamilyIndex(supabase, cryptocurrency);
+        finalIndex = Math.max(finalIndex + 1, maxIdx + 1);
+        await bumpFamilyIndex(supabase, cryptocurrency, finalIndex);
 
         const reDerived = await deriveSystemPaymentAddress(cryptocurrency, finalIndex);
         finalAddress = reDerived.address;
