@@ -1,9 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { authFetch } from '@/lib/auth/client';
 import { Business } from './types';
+
+interface WebhookDelivery {
+  id: string;
+  event: string;
+  webhook_url: string | null;
+  url: string | null;
+  status_code: number | null;
+  response_status: number | null;
+  success: boolean | null;
+  error_message: string | null;
+  attempt_number: number | null;
+  response_time_ms: number | null;
+  created_at: string;
+  payment_id: string | null;
+}
 
 interface WebhookTestResult {
   delivered: boolean;
@@ -107,6 +122,31 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<WebhookTestResult | null>(null);
   const [error, setError] = useState('');
+  const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
+  const [deliveriesLoading, setDeliveriesLoading] = useState(false);
+
+  const fetchDeliveries = useCallback(async () => {
+    setDeliveriesLoading(true);
+    try {
+      const res = await authFetch(
+        `/api/webhooks?business_id=${business.id}&limit=20`,
+        {},
+        router
+      );
+      if (!res) return;
+      if (res.data?.success && Array.isArray(res.data.logs)) {
+        setDeliveries(res.data.logs);
+      }
+    } catch {
+      // soft-fail; the panel just stays empty
+    } finally {
+      setDeliveriesLoading(false);
+    }
+  }, [business.id, router]);
+
+  useEffect(() => {
+    fetchDeliveries();
+  }, [fetchDeliveries]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -611,6 +651,81 @@ export function WebhooksTab({ business, onUpdate, onCopy }: WebhooksTabProps) {
                 )}
               </div>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Recent Deliveries */}
+      <div className="mt-8 pt-8 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Deliveries</h3>
+          <button
+            onClick={fetchDeliveries}
+            disabled={deliveriesLoading}
+            className="text-sm text-purple-600 hover:text-purple-500 disabled:opacity-50"
+          >
+            {deliveriesLoading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+          Last 20 outbound webhook attempts to <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">{business.webhook_url || '(no URL configured)'}</code>.
+          Both crypto and credit-card events route through this single endpoint.
+        </p>
+
+        {deliveries.length === 0 ? (
+          <div className="text-sm text-gray-500 dark:text-gray-400 italic px-4 py-6 bg-gray-50 dark:bg-gray-900 rounded-lg text-center">
+            {deliveriesLoading ? 'Loading…' : 'No deliveries yet. Send a Test Webhook above or wait for the next live event.'}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                  <th className="pb-2 pr-4">Time</th>
+                  <th className="pb-2 pr-4">Event</th>
+                  <th className="pb-2 pr-4">Status</th>
+                  <th className="pb-2 pr-4">Latency</th>
+                  <th className="pb-2 pr-4">Attempt</th>
+                  <th className="pb-2">Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deliveries.map((d) => {
+                  const status = d.status_code ?? d.response_status;
+                  const ok = d.success === true || (status !== null && status >= 200 && status < 300);
+                  return (
+                    <tr key={d.id} className="border-b border-gray-100 dark:border-gray-800">
+                      <td className="py-2 pr-4 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                        {new Date(d.created_at).toLocaleString()}
+                      </td>
+                      <td className="py-2 pr-4 text-xs font-mono text-gray-900 dark:text-white">{d.event}</td>
+                      <td className="py-2 pr-4">
+                        <span
+                          className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                            ok
+                              ? 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300'
+                              : status === null
+                                ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                : 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300'
+                          }`}
+                        >
+                          {status ?? 'no response'}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4 text-xs text-gray-600 dark:text-gray-400">
+                        {d.response_time_ms != null ? `${d.response_time_ms}ms` : '—'}
+                      </td>
+                      <td className="py-2 pr-4 text-xs text-gray-600 dark:text-gray-400">
+                        {d.attempt_number ?? 1}
+                      </td>
+                      <td className="py-2 text-xs text-red-600 dark:text-red-400 max-w-xs truncate" title={d.error_message || ''}>
+                        {d.error_message || ''}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

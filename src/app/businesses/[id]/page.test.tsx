@@ -175,15 +175,17 @@ describe('BusinessDetailPage', () => {
       });
     });
 
-    it('should switch to Webhooks tab when clicked', async () => {
+    it('should switch to Webhooks mode when clicked', async () => {
       render(<BusinessDetailPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'Test Business' })).toBeInTheDocument();
       });
 
-      const webhooksTab = screen.getByRole('button', { name: /Webhooks/i });
-      fireEvent.click(webhooksTab);
+      // Webhooks is now a top-level mode (Crypto / Credit Card / Webhooks),
+      // not a per-rail tab. The mode-switcher button uses role="tab".
+      const webhooksMode = screen.getByRole('tab', { name: /Webhooks/i });
+      fireEvent.click(webhooksMode);
 
       await waitFor(() => {
         expect(screen.getByText('Webhook Configuration')).toBeInTheDocument();
@@ -378,9 +380,11 @@ describe('BusinessDetailPage', () => {
         expect(screen.getByRole('button', { name: /Transactions/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /Disputes/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /Payouts/i })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /Webhooks/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /API Keys/i })).toBeInTheDocument();
       });
+      // Webhooks is intentionally NOT in the Card tab list — it's a
+      // top-level mode now.
+      expect(screen.queryByRole('button', { name: /^Webhooks$/i })).toBeNull();
     });
 
     it('should reset to General tab when switching modes', async () => {

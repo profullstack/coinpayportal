@@ -13,17 +13,19 @@ import { StripeTransactionsTab } from '@/components/business/StripeTransactionsT
 import { StripeDisputesTab } from '@/components/business/StripeDisputesTab';
 import { StripePayoutsTab } from '@/components/business/StripePayoutsTab';
 
-import { StripeWebhooksTab } from '@/components/business/StripeWebhooksTab';
 import { StripeApiKeysTab } from '@/components/business/StripeApiKeysTab';
 import { CryptoTransactionsTab } from '@/components/business/CryptoTransactionsTab';
 import { CryptoEscrowsTab } from '@/components/business/CryptoEscrowsTab';
 import { CryptoPayoutsTab } from '@/components/business/CryptoPayoutsTab';
 import { CalendarTab } from '@/components/business/CalendarTab';
 
+// Webhook configuration is intentionally NOT a per-rail tab. There is one
+// businesses.webhook_url + businesses.webhook_secret per business — both
+// crypto and card events route through the same outbound webhook. The
+// "Webhooks" mode below is the single source of truth.
 const CRYPTO_TABS: { id: TabType; label: string | ((w: Wallet[]) => string) }[] = [
   { id: 'general', label: 'General' },
   { id: 'wallets', label: (w) => `Wallets (${w.length})` },
-  { id: 'webhooks', label: 'Webhooks' },
   { id: 'api-keys', label: 'API Keys' },
   { id: 'crypto-transactions', label: 'Transactions' },
   { id: 'crypto-escrows', label: 'Escrows' },
@@ -37,9 +39,12 @@ const CARD_TABS: { id: TabType; label: string }[] = [
   { id: 'stripe-transactions', label: 'Transactions' },
   { id: 'stripe-disputes', label: 'Disputes' },
   { id: 'stripe-payouts', label: 'Payouts' },
-  { id: 'stripe-webhooks', label: 'Webhooks' },
   { id: 'stripe-api-keys', label: 'API Keys' },
   { id: 'calendar', label: 'Calendar' },
+];
+
+const WEBHOOK_TABS: { id: TabType; label: string }[] = [
+  { id: 'webhooks', label: 'Webhooks' },
 ];
 
 export default function BusinessDetailPage() {
@@ -62,10 +67,11 @@ export default function BusinessDetailPage() {
     }
   }, [businessId]);
 
-  // Reset to general tab when switching modes
+  // Reset to the first tab of the new mode when switching modes.
+  // The Webhooks mode has only one tab so we land on it directly.
   const handleModeChange = (mode: PaymentMode) => {
     setPaymentMode(mode);
-    setActiveTab('general');
+    setActiveTab(mode === 'webhooks' ? 'webhooks' : 'general');
   };
 
   const fetchBusiness = async () => {
@@ -148,7 +154,10 @@ export default function BusinessDetailPage() {
     );
   }
 
-  const currentTabs = paymentMode === 'crypto' ? CRYPTO_TABS : CARD_TABS;
+  const currentTabs =
+    paymentMode === 'crypto' ? CRYPTO_TABS
+    : paymentMode === 'card' ? CARD_TABS
+    : WEBHOOK_TABS;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
@@ -214,6 +223,18 @@ export default function BusinessDetailPage() {
               }`}
             >
               💳 Credit Card
+            </button>
+            <button
+              role="tab"
+              aria-selected={paymentMode === 'webhooks'}
+              onClick={() => handleModeChange('webhooks')}
+              className={`px-6 py-2.5 text-sm font-semibold rounded-md transition-all ${
+                paymentMode === 'webhooks'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              🔔 Webhooks
             </button>
           </div>
         </div>
@@ -288,10 +309,6 @@ export default function BusinessDetailPage() {
 
             {activeTab === 'stripe-payouts' && (
               <StripePayoutsTab businessId={businessId} />
-            )}
-
-            {activeTab === 'stripe-webhooks' && (
-              <StripeWebhooksTab businessId={businessId} />
             )}
 
             {activeTab === 'stripe-api-keys' && (

@@ -17,7 +17,7 @@ export interface Wallet {
   created_at: string;
 }
 
-export type PaymentMode = 'crypto' | 'card';
+export type PaymentMode = 'crypto' | 'card' | 'webhooks';
 
 export type TabType =
   | 'general'
