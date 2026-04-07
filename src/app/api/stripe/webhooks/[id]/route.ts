@@ -42,8 +42,12 @@ export async function DELETE(
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get('business_id');
 
+    if (!businessId) {
+      return NextResponse.json({ success: false, error: 'business_id is required' }, { status: 400 });
+    }
+
     // Verify the user owns this business / has a Stripe account
-    const stripeAccountId = await getStripeAccountId(businessId || decoded.userId);
+    const stripeAccountId = await getStripeAccountId(businessId);
     if (!stripeAccountId) {
       return NextResponse.json({ success: false, error: 'Stripe account not found' }, { status: 404 });
     }
@@ -68,8 +72,10 @@ export async function DELETE(
     // Use stored scope from metadata if available, otherwise use where we found it
     const scope = endpoint.metadata?.scope || resolvedScope;
 
-    // Verify the webhook belongs to this business before deleting
-    if (endpoint.metadata?.business_id && endpoint.metadata.business_id !== stripeAccountId) {
+    // Verify the webhook belongs to this *business* (UUID) before deleting.
+    // A merchant may own multiple businesses sharing the same Stripe account,
+    // so the stripe account ID alone is NOT sufficient to authorize deletion.
+    if (!endpoint.metadata?.business_id || endpoint.metadata.business_id !== businessId) {
       return NextResponse.json({ success: false, error: 'Webhook does not belong to this business' }, { status: 403 });
     }
 
@@ -120,12 +126,16 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get('business_id');
 
-    const stripeAccountId = await getStripeAccountId(businessId || decoded.userId);
+    if (!businessId) {
+      return NextResponse.json({ success: false, error: 'business_id is required' }, { status: 400 });
+    }
+
+    const stripeAccountId = await getStripeAccountId(businessId);
     if (!stripeAccountId) {
       return NextResponse.json({ success: false, error: 'Stripe account not found' }, { status: 404 });
     }
 
-    // Look up stored secret
+    // Look up stored secret scoped by business UUID
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -134,7 +144,7 @@ export async function GET(
       .from('stripe_webhook_secrets')
       .select('encrypted_secret')
       .eq('endpoint_id', id)
-      .eq('business_id', stripeAccountId)
+      .eq('business_id', businessId)
       .single();
 
     if (!secretRow) {

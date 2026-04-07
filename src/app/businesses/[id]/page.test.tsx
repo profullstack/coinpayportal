@@ -13,6 +13,11 @@ vi.mock('next/navigation', () => ({
   useParams: vi.fn(),
 }));
 
+// Mock CalendarTab — @dayflow/react ships ESM that vitest's CJS loader can't load
+vi.mock('@/components/business/CalendarTab', () => ({
+  CalendarTab: () => null,
+}));
+
 // Mock fetch
 global.fetch = vi.fn();
 
