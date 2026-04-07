@@ -75,7 +75,11 @@ export async function DELETE(
     // Verify the webhook belongs to this *business* (UUID) before deleting.
     // A merchant may own multiple businesses sharing the same Stripe account,
     // so the stripe account ID alone is NOT sufficient to authorize deletion.
-    if (!endpoint.metadata?.business_id || endpoint.metadata.business_id !== businessId) {
+    if (
+      !endpoint.metadata?.business_id ||
+      endpoint.metadata.business_id !== businessId ||
+      endpoint.metadata?.stripe_account_id !== stripeAccountId
+    ) {
       return NextResponse.json({ success: false, error: 'Webhook does not belong to this business' }, { status: 403 });
     }
 

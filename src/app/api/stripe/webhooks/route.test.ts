@@ -69,14 +69,14 @@ describe('GET /api/stripe/webhooks', () => {
         data: [{
           id: 'we_plat', url: 'https://example.com/platform', status: 'enabled',
           enabled_events: ['charge.succeeded'], created: 1700000000,
-          metadata: { business_id: 'biz-1', scope: 'platform' },
+          metadata: { business_id: 'biz-1', stripe_account_id: 'acct_test', scope: 'platform' },
         }],
       })
       .mockResolvedValueOnce({
         data: [{
           id: 'we_acct', url: 'https://example.com/account', status: 'enabled',
           enabled_events: ['payment_intent.succeeded'], created: 1700000001,
-          metadata: { business_id: 'biz-1', scope: 'account' },
+          metadata: { business_id: 'biz-1', stripe_account_id: 'acct_test', scope: 'account' },
         }],
       });
 
@@ -95,7 +95,7 @@ describe('GET /api/stripe/webhooks', () => {
           {
             id: 'we_mine', url: 'https://example.com/mine', status: 'enabled',
             enabled_events: ['charge.succeeded'], created: 1700000000,
-            metadata: { business_id: 'biz-1', scope: 'platform' },
+            metadata: { business_id: 'biz-1', stripe_account_id: 'acct_test', scope: 'platform' },
           },
           {
             id: 'we_other', url: 'https://example.com/other', status: 'enabled',
