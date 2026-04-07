@@ -476,7 +476,7 @@ describe('Webhook Service', () => {
 
       expect(result.success).toBe(true);
       expect(mockSupabase.from).toHaveBeenCalledWith('businesses');
-      expect(mockChain.select).toHaveBeenCalledWith('webhook_url, webhook_secret');
+      expect(mockChain.select).toHaveBeenCalledWith('webhook_url, webhook_secret, merchant_id');
     });
 
     it('should return success when no webhook_url configured', async () => {

@@ -468,11 +468,15 @@ export async function sendPaymentWebhook(
   paymentData: any
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // Get business webhook configuration
-    // Note: webhook_secret is used directly (not decrypted) to match test webhook behavior
+    // Get business webhook configuration. We need merchant_id because
+    // webhook_secret is encrypted at rest with a per-merchant *derived* key
+    // (deriveKey(ENCRYPTION_KEY, merchant_id)) by lib/business/service.ts.
+    // The previous implementation signed with the encrypted ciphertext blob
+    // directly, which would never match what merchants verify against —
+    // every outbound webhook returned 401 from the receiver.
     const { data: business, error: businessError } = await supabase
       .from('businesses')
-      .select('webhook_url, webhook_secret')
+      .select('webhook_url, webhook_secret, merchant_id')
       .eq('id', businessId)
       .single();
 
@@ -490,6 +494,21 @@ export async function sendPaymentWebhook(
     if (!business.webhook_secret) {
       console.log(`[Webhook] No webhook_secret configured for business ${businessId}`);
       return { success: true };
+    }
+
+    // Decrypt the webhook secret. If decryption fails (e.g. legacy plaintext
+    // value, or pre-derived-key encryption), fall back to using the value
+    // as-is so we don't strand legacy rows.
+    let plaintextSecret: string = business.webhook_secret;
+    try {
+      const { decrypt, deriveKey } = await import('@/lib/crypto/encryption');
+      const encryptionKey = process.env.ENCRYPTION_KEY;
+      if (encryptionKey && business.merchant_id && business.webhook_secret.includes(':')) {
+        const derivedKey = deriveKey(encryptionKey, business.merchant_id);
+        plaintextSecret = decrypt(business.webhook_secret, derivedKey);
+      }
+    } catch (err) {
+      console.warn(`[Webhook] Failed to decrypt webhook_secret for business ${businessId}, falling back to raw value:`, err);
     }
 
     const timestamp = Math.floor(Date.now() / 1000);
@@ -525,9 +544,10 @@ export async function sendPaymentWebhook(
 
     const payloadString = JSON.stringify(payload);
 
-    // Generate signature using the same method as test webhook (SDK format)
-    // IMPORTANT: Use webhook_secret directly (not decrypted) to match test webhook
-    const signature = signWebhookPayload(payload, business.webhook_secret, timestamp);
+    // Sign with the DECRYPTED secret. The merchant's verifier (e.g. d0rz's
+    // /api/webhooks/coinpay/* route) holds the plaintext secret in its env,
+    // not the AES ciphertext from our DB.
+    const signature = signWebhookPayload(payload, plaintextSecret, timestamp);
 
     console.log(`[Webhook] Sending ${event} webhook for payment ${paymentId} to ${business.webhook_url}`);
 
