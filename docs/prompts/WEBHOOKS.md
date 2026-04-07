@@ -6,6 +6,16 @@ You are implementing a webhook receiver for CoinPay events. This is required for
 
 Receive signed webhook deliveries from CoinPay, verify them, and update local state idempotently.
 
+## Environment variables
+
+```
+COINPAY_WEBHOOK_SECRET=whsec_...
+```
+
+Where to find it:
+- `https://coinpayportal.com/businesses/<your-business-id>` → **Webhooks** tab (or `?mode=webhooks`) → create an endpoint pointing at your `https://example-business.com/api/coinpay/webhook` URL → copy the **Signing Secret**.
+- Each endpoint has its own secret. If you rotate it in the portal, update `.env` and redeploy.
+
 ## Events
 
 - `payment.confirmed` — buyer paid; safe to fulfill the order

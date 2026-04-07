@@ -6,6 +6,19 @@ You are adding CoinPay's escrow service to an app so two parties can transact wi
 
 Buyer funds an escrow. Funds sit at a CoinPay-controlled address. When the buyer (or an arbiter) releases, funds settle to the seller. If the deal falls through, funds can be refunded.
 
+## Environment variables
+
+```
+COINPAY_API_KEY=sk_live_...
+COINPAY_WEBHOOK_SECRET=whsec_...
+COINPAY_API_URL=https://coinpayportal.com
+```
+
+Where to find them:
+- `COINPAY_API_KEY` — `https://coinpayportal.com/businesses/<your-business-id>` → **API Keys** tab → **Create API Key**. Shown once.
+- `COINPAY_WEBHOOK_SECRET` — same business page → **Webhooks** tab (or `?mode=webhooks`) → create an endpoint → **Signing Secret**.
+- `COINPAY_API_URL` — `https://coinpayportal.com` in production.
+
 ## Steps
 
 1. **Create the escrow** server-side after both parties agree on terms:

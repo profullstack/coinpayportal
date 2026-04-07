@@ -6,6 +6,14 @@ You are adding live crypto-to-fiat conversion to an app using CoinPay's rates en
 
 Quote a crypto amount in the user's local fiat currency (and vice versa) using a trustworthy, cached source.
 
+## Environment variables
+
+```
+COINPAY_API_URL=https://coinpayportal.com
+```
+
+The rates endpoint is **public** — no API key required. Only the base URL needs to be configured, and you can hardcode it if you prefer. There is no portal location to copy from.
+
 ## Single rate
 
 ```js

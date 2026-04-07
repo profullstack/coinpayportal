@@ -6,6 +6,19 @@ You are integrating CoinPay's Business Collection feature, which gives a merchan
 
 Generate a payment address per customer/order under a merchant's collection. Funds are auto-forwarded to the merchant's payout wallet, and reporting is unified across coins.
 
+## Environment variables
+
+```
+COINPAY_API_KEY=sk_live_...
+COINPAY_WEBHOOK_SECRET=whsec_...
+COINPAY_API_URL=https://coinpayportal.com
+```
+
+Where to find them:
+- `COINPAY_API_KEY` — `https://coinpayportal.com/businesses/<your-business-id>` → **API Keys** tab → **Create API Key**. Shown once.
+- `COINPAY_WEBHOOK_SECRET` — same business page → **Webhooks** tab (or `?mode=webhooks`) → create an endpoint → **Signing Secret**.
+- The merchant payout wallet must be configured first at `https://coinpayportal.com/settings/wallets` (or per-business under the **Wallets** tab). No private keys touch your code.
+
 ## Steps
 
 1. **Create a collection payment** server-side:

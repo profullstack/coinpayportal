@@ -6,6 +6,21 @@ You are integrating CoinPay's Payments API into an application so it can accept 
 
 Let a customer pay an order in crypto (BTC, ETH, SOL, USDC on multiple chains, etc.). On confirmation, the merchant's app should mark the order paid and fulfill it.
 
+## Environment variables
+
+Add to `.env` (server-side only — never expose to the browser):
+
+```
+COINPAY_API_KEY=sk_live_...
+COINPAY_WEBHOOK_SECRET=whsec_...
+COINPAY_API_URL=https://coinpayportal.com
+```
+
+Where to find them:
+- `COINPAY_API_KEY` — `https://coinpayportal.com/businesses/<your-business-id>` → **API Keys** tab → **Create API Key**. Copy it once; it is not shown again.
+- `COINPAY_WEBHOOK_SECRET` — same business page → **Webhooks** tab (or `?mode=webhooks`) → create an endpoint → copy the **Signing Secret**.
+- `COINPAY_API_URL` — always `https://coinpayportal.com` for production.
+
 ## Steps
 
 1. **Get an API key.** Sign in at `https://example-business.com` (replace with the CoinPay portal you are using), open Settings → API Keys, and create one. Store it server-side only — never ship it to the browser.
