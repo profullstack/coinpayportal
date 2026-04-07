@@ -1,5 +1,19 @@
 /**
  * Webhook utilities for CoinPay SDK
+ *
+ * Contract:
+ *   - Each business has ONE webhook URL + ONE webhook secret. Both crypto
+ *     and card payment events route to the same endpoint, signed with the
+ *     same secret. Distinguish rails via data.metadata.payment_rail
+ *     ("crypto" or "card").
+ *   - Header: X-CoinPay-Signature: t=<unix_seconds>,v1=<hex_hmac>
+ *   - HMAC body: `${timestamp}.${rawBody}`
+ *   - Algorithm: HMAC-SHA256
+ *   - Tolerance: 300 seconds
+ *
+ * The server-side signer (src/lib/webhooks/service.ts) and the d0rz
+ * verifier (lib/coinpay-client.ts) are kept in lockstep with this file
+ * by src/lib/webhooks/contract.test.ts in the main repo. Don't drift.
  */
 
 import { createHmac, timingSafeEqual } from 'crypto';

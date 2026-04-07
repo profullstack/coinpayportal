@@ -1706,6 +1706,22 @@ console.log(data.payment.status);`}
               Configure webhook URLs in your business settings to receive real-time payment notifications.
             </p>
 
+            <div className="rounded-lg border border-purple-500/40 bg-purple-500/10 p-4 mb-6">
+              <h4 className="font-semibold text-purple-200 mb-2">One endpoint per business — both rails</h4>
+              <p className="text-gray-300 text-sm">
+                Each business has exactly one <code className="text-purple-300">webhook_url</code> + one <code className="text-purple-300">webhook_secret</code>.
+                Both crypto-rail events (e.g. <code className="text-purple-300">payment.confirmed</code> after on-chain settlement) and
+                card-rail events (Stripe Checkout completions, refunds) are POSTed to the SAME URL with the SAME signature header.
+                Configure it under <strong>Business → Webhooks</strong>. Distinguish rails via <code className="text-purple-300">data.metadata.payment_rail</code>
+                (<code className="text-purple-300">&quot;crypto&quot;</code> or <code className="text-purple-300">&quot;card&quot;</code>).
+              </p>
+              <p className="text-gray-400 text-xs mt-2">
+                Stripe never POSTs to your URL directly. Stripe → CoinPay → your endpoint. CoinPay verifies the Stripe signature, processes the event,
+                then re-signs in CoinPay format (<code className="text-purple-300">X-CoinPay-Signature: t=…,v1=…</code>) before forwarding.
+                This means you only need to verify ONE signature scheme, ours.
+              </p>
+            </div>
+
             <h3 className="text-xl font-semibold text-white mb-4">Webhook Events</h3>
             <div className="space-y-4 mb-8">
               {[
