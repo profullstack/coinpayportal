@@ -225,6 +225,7 @@ export default function DocsPage() {
             {[
               { name: 'x402 Protocol', href: '#x402' },
               { name: 'SDK Documentation', href: '/docs/sdk', external: true },
+              { name: 'Integration Prompts (for AI assistants)', href: '/docs/prompts', external: true },
               { name: 'Web Wallet API', href: '#web-wallet' },
               { name: 'Escrow API', href: '#escrow' },
               { name: 'Recurring Escrow', href: '#recurring-escrow' },
