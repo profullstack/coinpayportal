@@ -65,21 +65,17 @@ export async function GET(request: NextRequest) {
 
     const stripe = await getStripe();
 
-    // List platform-level webhooks and filter STRICTLY by the requesting
-    // business UUID stored in metadata. Webhooks belonging to other businesses
-    // (even other businesses owned by the same merchant) must NOT be listed.
-    // Endpoints must match BOTH the requesting business UUID AND the
-    // stripe account currently linked to that business — defense in depth
-    // so a stale/reassigned business UUID can't surface webhooks belonging
-    // to a different connected account.
+    // Merchants only ever see webhooks that live on their own connected
+    // account. Platform-level webhooks belong to CoinPay infrastructure
+    // (the single coinpayportal.com/api/stripe/webhook endpoint) and are
+    // never exposed in the merchant UI — they aren't theirs to view, edit,
+    // or delete. The strict business_id + stripe_account_id match is
+    // defense in depth so a stale UUID can't surface another tenant's
+    // webhook.
     const matches = (ep: any) =>
       ep.metadata?.business_id === businessId &&
       ep.metadata?.stripe_account_id === stripeAccountId;
 
-    const platformEndpoints = await stripe.webhookEndpoints.list({ limit: 100 });
-    const filteredPlatform = platformEndpoints.data.filter(matches);
-
-    // List webhooks on the connected account itself, filtered the same way
     let accountEndpoints: any[] = [];
     try {
       const acctList = await stripe.webhookEndpoints.list(
@@ -91,10 +87,7 @@ export async function GET(request: NextRequest) {
       // Connected account may not support webhook listing — that's ok
     }
 
-    const results = [
-      ...filteredPlatform.map((ep: any) => ({ ...ep, _scope: ep.metadata?.scope || 'platform' })),
-      ...accountEndpoints.map((ep: any) => ({ ...ep, _scope: 'account' })),
-    ];
+    const results = accountEndpoints.map((ep: any) => ({ ...ep, _scope: 'account' }));
 
     // Fetch stored secrets for these endpoints
     const endpointIds = results.map((ep: any) => ep.id);
@@ -148,9 +141,63 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'URL and events are required' }, { status: 400 });
     }
 
-    // scope: "platform" = webhook on platform account listening for connect events
-    //        "account"  = webhook on the connected account itself
-    const scope = requestedScope === 'account' ? 'account' : 'platform';
+    // Merchants are ONLY allowed to create webhooks on their OWN connected
+    // account (scope='account'). Platform-scoped webhooks listen for events
+    // across every business on the platform — they belong to CoinPay infra,
+    // not merchants. A misconfigured merchant URL here would silently hijack
+    // checkout.session.completed / payment_intent.* for every payment on the
+    // platform and route them away from CoinPay's own ingestion endpoint at
+    // /api/stripe/webhook (which is exactly the d0rz incident).
+    //
+    // We also forbid platform-only event types on the merchant's connected
+    // account: the merchant has no legitimate reason to subscribe to events
+    // that destination-charge / Connect flows route through the platform.
+    if (requestedScope === 'platform') {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Platform-scoped webhooks cannot be created by merchants. ' +
+            'CoinPay manages the single platform-level Stripe webhook ' +
+            '(coinpayportal.com/api/stripe/webhook). Use scope="account" ' +
+            'to register a webhook on your own connected account.',
+        },
+        { status: 403 }
+      );
+    }
+    const scope = 'account' as const;
+
+    const PLATFORM_RESERVED_EVENTS = new Set<string>([
+      'checkout.session.completed',
+      'checkout.session.async_payment_succeeded',
+      'checkout.session.async_payment_failed',
+      'payment_intent.succeeded',
+      'payment_intent.payment_failed',
+      'payment_intent.processing',
+      'payment_intent.canceled',
+      'charge.succeeded',
+      'charge.failed',
+      'charge.refunded',
+      'charge.dispute.created',
+      'payout.created',
+      'payout.paid',
+      'payout.failed',
+      'account.updated',
+    ]);
+    const offending = (events as string[]).filter((e) => PLATFORM_RESERVED_EVENTS.has(e));
+    if (offending.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            `These events are handled by CoinPay's platform webhook and cannot ` +
+            `be subscribed to from a merchant endpoint: ${offending.join(', ')}. ` +
+            `CoinPay forwards the corresponding payment.* events to your ` +
+            `business webhook_url after processing.`,
+        },
+        { status: 400 }
+      );
+    }
 
     const stripeAccountId = await getStripeAccountId(business_id);
     if (!stripeAccountId) {
@@ -163,23 +210,11 @@ export async function POST(request: NextRequest) {
     // may own multiple businesses sharing the same Stripe account.
     const metadata = { business_id, stripe_account_id: stripeAccountId, scope };
 
-    let endpoint;
-    if (scope === 'account') {
-      // Create webhook directly on the connected account
-      endpoint = await stripe.webhookEndpoints.create(
-        { url, enabled_events: events, metadata },
-        { stripeAccount: stripeAccountId }
-      );
-    } else {
-      // Create webhook on the platform account with connect=true
-      // so it receives events from connected accounts
-      endpoint = await stripe.webhookEndpoints.create({
-        url,
-        enabled_events: events,
-        connect: true,
-        metadata,
-      });
-    }
+    // Always create on the connected account itself.
+    const endpoint = await stripe.webhookEndpoints.create(
+      { url, enabled_events: events, metadata },
+      { stripeAccount: stripeAccountId }
+    );
 
     // Store the signing secret encrypted in our DB (Stripe only returns it on creation)
     if (endpoint.secret) {

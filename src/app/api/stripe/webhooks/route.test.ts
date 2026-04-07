@@ -42,107 +42,65 @@ describe('GET /api/stripe/webhooks', () => {
     mockVerifyToken.mockReturnValue({ userId: 'user-1' });
   });
 
-  it('returns platform endpoints with scope', async () => {
-    mockStripe.webhookEndpoints.list
-      // Platform list
-      .mockResolvedValueOnce({
-        data: [{
-          id: 'we_1', url: 'https://example.com', status: 'enabled',
-          enabled_events: ['charge.succeeded'], created: 1700000000,
-          metadata: { business_id: 'biz-1', stripe_account_id: 'acct_test', scope: 'platform' },
-        }],
-      })
-      // Account list
-      .mockResolvedValueOnce({ data: [] });
+  it('returns only account-scoped webhooks for the requesting business', async () => {
+    mockStripe.webhookEndpoints.list.mockResolvedValueOnce({
+      data: [
+        {
+          id: 'we_acct', url: 'https://example.com/account', status: 'enabled',
+          enabled_events: ['invoice.paid'], created: 1700000001,
+          metadata: { business_id: 'biz-1', stripe_account_id: 'acct_test', scope: 'account' },
+        },
+      ],
+    });
 
     const res = await GET(makeRequest('http://localhost/api/stripe/webhooks?business_id=biz-1'));
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(json.endpoints).toHaveLength(1);
-    expect(json.endpoints[0].url).toBe('https://example.com');
-    expect(json.endpoints[0].scope).toBe('platform');
+    expect(json.endpoints[0].id).toBe('we_acct');
+    expect(json.endpoints[0].scope).toBe('account');
   });
 
-  it('returns endpoints from both platform and connected account scoped to business', async () => {
-    mockStripe.webhookEndpoints.list
-      .mockResolvedValueOnce({
-        data: [{
-          id: 'we_plat', url: 'https://example.com/platform', status: 'enabled',
-          enabled_events: ['charge.succeeded'], created: 1700000000,
-          metadata: { business_id: 'biz-1', stripe_account_id: 'acct_test', scope: 'platform' },
-        }],
-      })
-      .mockResolvedValueOnce({
-        data: [{
-          id: 'we_acct', url: 'https://example.com/account', status: 'enabled',
-          enabled_events: ['payment_intent.succeeded'], created: 1700000001,
-          metadata: { business_id: 'biz-1', stripe_account_id: 'acct_test', scope: 'account' },
-        }],
-      });
+  it('does NOT expose platform-level webhooks (CoinPay infra) to merchants', async () => {
+    // Even if a platform endpoint somehow has matching metadata (legacy data),
+    // the merchant GET must NOT surface it. Merchants only see their own
+    // connected-account webhooks.
+    mockStripe.webhookEndpoints.list.mockResolvedValueOnce({ data: [] });
 
     const res = await GET(makeRequest('http://localhost/api/stripe/webhooks?business_id=biz-1'));
     const json = await res.json();
     expect(json.success).toBe(true);
-    expect(json.endpoints).toHaveLength(2);
-    expect(json.endpoints[0].scope).toBe('platform');
-    expect(json.endpoints[1].scope).toBe('account');
+    expect(json.endpoints).toHaveLength(0);
+    // Should query the connected-account scope only — i.e. exactly one
+    // list call, with stripeAccount option set.
+    expect(mockStripe.webhookEndpoints.list).toHaveBeenCalledTimes(1);
+    expect(mockStripe.webhookEndpoints.list).toHaveBeenCalledWith(
+      { limit: 100 },
+      { stripeAccount: 'acct_test' }
+    );
   });
 
-  it('does NOT return webhooks belonging to other businesses (even on same stripe account)', async () => {
-    mockStripe.webhookEndpoints.list
-      .mockResolvedValueOnce({
-        data: [
-          {
-            id: 'we_mine', url: 'https://example.com/mine', status: 'enabled',
-            enabled_events: ['charge.succeeded'], created: 1700000000,
-            metadata: { business_id: 'biz-1', stripe_account_id: 'acct_test', scope: 'platform' },
-          },
-          {
-            id: 'we_other', url: 'https://example.com/other', status: 'enabled',
-            enabled_events: ['charge.succeeded'], created: 1700000001,
-            metadata: { business_id: 'biz-2', scope: 'platform' },
-          },
-          {
-            id: 'we_legacy_no_meta', url: 'https://example.com/legacy', status: 'enabled',
-            enabled_events: ['*'], created: 1700000002,
-            metadata: {},
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        data: [
-          {
-            id: 'we_acct_other', url: 'https://example.com/acct-other', status: 'enabled',
-            enabled_events: ['payment_intent.succeeded'], created: 1700000003,
-            metadata: { business_id: 'biz-2', scope: 'account' },
-          },
-        ],
-      });
+  it('does NOT return webhooks belonging to other businesses on same stripe account', async () => {
+    mockStripe.webhookEndpoints.list.mockResolvedValueOnce({
+      data: [
+        {
+          id: 'we_mine', url: 'https://example.com/mine', status: 'enabled',
+          enabled_events: ['invoice.paid'], created: 1700000000,
+          metadata: { business_id: 'biz-1', stripe_account_id: 'acct_test', scope: 'account' },
+        },
+        {
+          id: 'we_acct_other', url: 'https://example.com/acct-other', status: 'enabled',
+          enabled_events: ['invoice.paid'], created: 1700000003,
+          metadata: { business_id: 'biz-2', stripe_account_id: 'acct_test', scope: 'account' },
+        },
+      ],
+    });
 
     const res = await GET(makeRequest('http://localhost/api/stripe/webhooks?business_id=biz-1'));
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(json.endpoints).toHaveLength(1);
     expect(json.endpoints[0].id).toBe('we_mine');
-  });
-
-  it('does NOT fall back to listing all platform endpoints when none match', async () => {
-    mockStripe.webhookEndpoints.list
-      .mockResolvedValueOnce({
-        data: [
-          {
-            id: 'we_other', url: 'https://example.com/other', status: 'enabled',
-            enabled_events: ['*'], created: 1700000000,
-            metadata: { business_id: 'biz-99', scope: 'platform' },
-          },
-        ],
-      })
-      .mockResolvedValueOnce({ data: [] });
-
-    const res = await GET(makeRequest('http://localhost/api/stripe/webhooks?business_id=biz-1'));
-    const json = await res.json();
-    expect(json.success).toBe(true);
-    expect(json.endpoints).toHaveLength(0);
   });
 
   it('returns 400 when business_id missing', async () => {
@@ -165,50 +123,76 @@ describe('POST /api/stripe/webhooks', () => {
     mockVerifyToken.mockReturnValue({ userId: 'user-1' });
   });
 
-  it('creates platform-scoped endpoint by default', async () => {
-    mockStripe.webhookEndpoints.create.mockResolvedValue({
-      id: 'we_new', url: 'https://example.com/hook', status: 'enabled',
-      enabled_events: ['charge.succeeded'], created: 1700000000,
-    });
+  it('REJECTS platform-scoped creation — only CoinPay infra owns the platform webhook (regression: d0rz incident)', async () => {
     const req = makeRequest('http://localhost/api/stripe/webhooks', {
       method: 'POST',
-      body: JSON.stringify({ business_id: 'biz-1', url: 'https://example.com/hook', events: ['charge.succeeded'] }),
+      body: JSON.stringify({
+        business_id: 'biz-1',
+        url: 'https://d0rz.com/api/webhooks/coinpay/stripe',
+        events: ['checkout.session.completed'],
+        scope: 'platform',
+      }),
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(403);
+    expect(mockStripe.webhookEndpoints.create).not.toHaveBeenCalled();
+  });
+
+  it('REJECTS implicit platform scope when no scope provided', async () => {
+    const req = makeRequest('http://localhost/api/stripe/webhooks', {
+      method: 'POST',
+      body: JSON.stringify({
+        business_id: 'biz-1',
+        url: 'https://example.com/hook',
+        events: ['charge.succeeded'],
+      }),
+    });
+    const res = await POST(req);
+    // No explicit scope used to default to "platform" — that path is now
+    // forbidden too. We allow account scope only when explicitly requested.
+    // (We accept either 403 from the platform check or 400 from the
+    // platform-reserved-event check, depending on event list.)
+    expect([400, 403]).toContain(res.status);
+    expect(mockStripe.webhookEndpoints.create).not.toHaveBeenCalled();
+  });
+
+  it('REJECTS subscribing to platform-reserved events even on account scope', async () => {
+    const req = makeRequest('http://localhost/api/stripe/webhooks', {
+      method: 'POST',
+      body: JSON.stringify({
+        business_id: 'biz-1',
+        url: 'https://example.com/hook',
+        events: ['checkout.session.completed', 'payment_intent.succeeded'],
+        scope: 'account',
+      }),
     });
     const res = await POST(req);
     const json = await res.json();
-    expect(json.success).toBe(true);
-    expect(json.endpoint.id).toBe('we_new');
-    expect(json.endpoint.scope).toBe('platform');
-    // Should be called with connect: true for platform scope
-    expect(mockStripe.webhookEndpoints.create).toHaveBeenCalledWith({
-      url: 'https://example.com/hook',
-      enabled_events: ['charge.succeeded'],
-      connect: true,
-      metadata: { business_id: 'biz-1', stripe_account_id: 'acct_test', scope: 'platform' },
-    });
+    expect(res.status).toBe(400);
+    expect(json.error).toMatch(/handled by CoinPay/i);
+    expect(mockStripe.webhookEndpoints.create).not.toHaveBeenCalled();
   });
 
-  it('creates account-scoped endpoint when scope=account', async () => {
+  it('creates account-scoped endpoint with allowed events', async () => {
     mockStripe.webhookEndpoints.create.mockResolvedValue({
       id: 'we_acct', url: 'https://example.com/hook', status: 'enabled',
-      enabled_events: ['payment_intent.succeeded'], created: 1700000000,
+      enabled_events: ['invoice.paid'], created: 1700000000,
     });
     const req = makeRequest('http://localhost/api/stripe/webhooks', {
       method: 'POST',
       body: JSON.stringify({
         business_id: 'biz-1', url: 'https://example.com/hook',
-        events: ['payment_intent.succeeded'], scope: 'account',
+        events: ['invoice.paid'], scope: 'account',
       }),
     });
     const res = await POST(req);
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(json.endpoint.scope).toBe('account');
-    // Should be called with stripeAccount for account scope
     expect(mockStripe.webhookEndpoints.create).toHaveBeenCalledWith(
       {
         url: 'https://example.com/hook',
-        enabled_events: ['payment_intent.succeeded'],
+        enabled_events: ['invoice.paid'],
         metadata: { business_id: 'biz-1', stripe_account_id: 'acct_test', scope: 'account' },
       },
       { stripeAccount: 'acct_test' }
