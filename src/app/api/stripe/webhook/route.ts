@@ -55,6 +55,10 @@ export async function POST(request: NextRequest) {
         await handleCheckoutSessionCompleted(event.data.object);
         break;
 
+      case 'payment_intent.payment_failed':
+        await handlePaymentIntentFailed(event.data.object);
+        break;
+
       case 'charge.dispute.created':
         await handleDisputeCreated(event.data.object);
         break;
@@ -206,23 +210,30 @@ async function handleCheckoutSessionCompleted(session: any) {
       );
     }
 
-    // Also create stripe_transaction record
+    // Also create stripe_transaction record. business_id is REQUIRED — the
+    // merchant dashboard filters by it, so a missing business_id silently
+    // hides the row from /businesses/<id> "Credit card transactions".
     const platformFee = parseInt(session.metadata?.platform_fee_amount || '0');
     try {
-      await supabase
+      const { error: txErr } = await supabase
         .from('stripe_transactions')
-        .insert({
+        .upsert({
           merchant_id: session.metadata?.merchant_id,
+          business_id: businessId,
           amount: session.amount_total,
           currency: session.currency || 'usd',
           platform_fee_amount: platformFee,
+          net_to_merchant: (session.amount_total || 0) - platformFee,
           status: 'completed',
           rail: 'card',
           stripe_payment_intent_id: session.payment_intent,
           updated_at: new Date().toISOString(),
-        });
+        }, { onConflict: 'stripe_payment_intent_id' });
+      if (txErr) {
+        console.error('[Stripe Webhook] Transaction upsert error:', txErr);
+      }
     } catch (err) {
-      console.log('[Stripe Webhook] Transaction insert error (may already exist):', err);
+      console.error('[Stripe Webhook] Transaction insert error:', err);
     }
 
   } catch (error) {
@@ -230,11 +241,74 @@ async function handleCheckoutSessionCompleted(session: any) {
   }
 }
 
+/**
+ * Handle payment_intent.payment_failed — mark CoinPay payment as failed
+ * and forward payment.failed webhook to the merchant.
+ */
+async function handlePaymentIntentFailed(paymentIntent: any) {
+  const supabase = getSupabase();
+  try {
+    const coinpayPaymentId = paymentIntent.metadata?.coinpay_payment_id;
+    const businessId = paymentIntent.metadata?.business_id;
+
+    if (!coinpayPaymentId || !businessId) {
+      console.log('[Stripe Webhook] payment_intent.payment_failed without coinpay metadata, skipping');
+      return;
+    }
+
+    console.log(`[Stripe Webhook] payment_intent.payment_failed for payment ${coinpayPaymentId}`);
+
+    const { data: fullPayment } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('id', coinpayPaymentId)
+      .single();
+
+    await supabase
+      .from('payments')
+      .update({
+        status: 'failed',
+        updated_at: new Date().toISOString(),
+        metadata: {
+          ...(fullPayment?.metadata || {}),
+          stripe_payment_intent_id: paymentIntent.id,
+          card_failure_message: paymentIntent.last_payment_error?.message || null,
+          card_failed_at: new Date().toISOString(),
+        },
+      })
+      .eq('id', coinpayPaymentId);
+
+    await sendPaymentWebhook(
+      supabase,
+      businessId,
+      coinpayPaymentId,
+      'payment.failed' as any,
+      {
+        status: 'failed',
+        amount_usd: fullPayment?.amount,
+        currency: 'usd',
+        payment_address: null,
+        tx_hash: paymentIntent.id,
+        confirmations: 0,
+        metadata: {
+          ...(fullPayment?.metadata || {}),
+          payment_rail: 'card',
+          stripe_payment_intent_id: paymentIntent.id,
+          failure_message: paymentIntent.last_payment_error?.message || null,
+        },
+      }
+    );
+  } catch (error) {
+    console.error('Error handling payment_intent.payment_failed:', error);
+  }
+}
+
 async function handlePaymentSucceeded(paymentIntent: any) {
   const supabase = getSupabase();
   try {
-    const merchantId = paymentIntent.metadata.merchant_id;
-    const businessId = paymentIntent.metadata.business_id;
+    const merchantId = paymentIntent.metadata?.merchant_id;
+    const businessId = paymentIntent.metadata?.business_id;
+    const platformFee = parseInt(paymentIntent.metadata?.platform_fee_amount || '0');
     // Get the charge details for fees
     const stripe = await getStripe();
     const charges = await stripe.charges.list({
@@ -245,22 +319,31 @@ async function handlePaymentSucceeded(paymentIntent: any) {
     const charge = charges.data[0];
     if (!charge) return;
 
-    const stripeFee = charge.balance_transaction 
-      ? (await stripe.balanceTransactions.retrieve(charge.balance_transaction as string)).fee 
+    const stripeFee = charge.balance_transaction
+      ? (await stripe.balanceTransactions.retrieve(charge.balance_transaction as string)).fee
       : 0;
 
-    // Update transaction record
+    // Upsert transaction record. We must include business_id (the dashboard
+    // filters on it) and use stripe_payment_intent_id as the conflict target
+    // so checkout.session.completed and payment_intent.succeeded converge on
+    // the same row regardless of arrival order.
     await supabase
       .from('stripe_transactions')
-      .update({
+      .upsert({
+        merchant_id: merchantId,
+        business_id: businessId,
+        amount: paymentIntent.amount,
+        currency: paymentIntent.currency || 'usd',
+        platform_fee_amount: platformFee,
+        stripe_payment_intent_id: paymentIntent.id,
         stripe_charge_id: charge.id,
         stripe_balance_txn_id: charge.balance_transaction as string,
         stripe_fee_amount: stripeFee,
-        net_to_merchant: paymentIntent.amount - stripeFee - parseInt(paymentIntent.metadata.platform_fee_amount || '0'),
+        net_to_merchant: paymentIntent.amount - stripeFee - platformFee,
         status: 'completed',
+        rail: 'card',
         updated_at: new Date().toISOString(),
-      })
-      .eq('stripe_payment_intent_id', paymentIntent.id);
+      }, { onConflict: 'stripe_payment_intent_id' });
 
     // Create DID reputation event
     if (merchantId) {

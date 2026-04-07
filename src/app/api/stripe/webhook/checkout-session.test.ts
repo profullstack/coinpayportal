@@ -278,6 +278,177 @@ describe('Stripe Webhook - checkout.session.completed', () => {
     );
   });
 
+  it('upserts stripe_transactions row WITH business_id (regression: dashboard was empty)', async () => {
+    const session = {
+      id: 'cs_dashboard_1',
+      payment_intent: 'pi_dashboard_1',
+      amount_total: 10000,
+      currency: 'usd',
+      metadata: {
+        coinpay_payment_id: 'pay_dash',
+        business_id: 'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+        merchant_id: 'merch_d0rz',
+        platform_fee_amount: '100',
+      },
+    };
+
+    mockStripe.webhooks.constructEvent.mockReturnValue({
+      type: 'checkout.session.completed',
+      data: { object: session },
+    });
+
+    const request = new NextRequest('http://localhost:3000/api/stripe/webhook', {
+      method: 'POST',
+      body: JSON.stringify(session),
+      headers: { 'stripe-signature': 'valid_sig' },
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    // The dashboard query at /api/stripe/transactions filters by business_id,
+    // so business_id MUST be set on the upserted row. This was the bug.
+    const txTable = mockSupabase.from.mock.results
+      .map((r: any) => r.value)
+      .find((v: any) => v && v.upsert);
+    expect(txTable.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        business_id: 'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+        merchant_id: 'merch_d0rz',
+        amount: 10000,
+        status: 'completed',
+        rail: 'card',
+        stripe_payment_intent_id: 'pi_dashboard_1',
+        platform_fee_amount: 100,
+        net_to_merchant: 9900,
+      }),
+      { onConflict: 'stripe_payment_intent_id' }
+    );
+  });
+
+  it('forwards a payment.confirmed webhook to the merchant on checkout.session.completed', async () => {
+    const session = {
+      id: 'cs_fwd_1',
+      payment_intent: 'pi_fwd_1',
+      amount_total: 10000,
+      currency: 'usd',
+      metadata: {
+        coinpay_payment_id: 'pay_dash',
+        business_id: 'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+        merchant_id: 'merch_d0rz',
+        platform_fee_amount: '100',
+      },
+    };
+    mockStripe.webhooks.constructEvent.mockReturnValue({
+      type: 'checkout.session.completed',
+      data: { object: session },
+    });
+
+    await POST(new NextRequest('http://localhost:3000/api/stripe/webhook', {
+      method: 'POST',
+      body: JSON.stringify(session),
+      headers: { 'stripe-signature': 'valid_sig' },
+    }));
+
+    expect(mockSendPaymentWebhook).toHaveBeenCalledWith(
+      expect.anything(),
+      'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+      'pay_dash',
+      'payment.confirmed',
+      expect.objectContaining({
+        status: 'confirmed',
+        tx_hash: 'pi_fwd_1',
+        metadata: expect.objectContaining({
+          payment_rail: 'card',
+          stripe_payment_intent_id: 'pi_fwd_1',
+        }),
+      })
+    );
+  });
+
+  it('forwards payment.failed webhook on payment_intent.payment_failed', async () => {
+    const paymentIntent = {
+      id: 'pi_failed_1',
+      amount: 1000,
+      currency: 'usd',
+      last_payment_error: { message: 'Your card was declined.' },
+      metadata: {
+        coinpay_payment_id: 'pay_failed',
+        business_id: 'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+        merchant_id: 'merch_d0rz',
+      },
+    };
+    mockStripe.webhooks.constructEvent.mockReturnValue({
+      type: 'payment_intent.payment_failed',
+      data: { object: paymentIntent },
+    });
+
+    await POST(new NextRequest('http://localhost:3000/api/stripe/webhook', {
+      method: 'POST',
+      body: JSON.stringify(paymentIntent),
+      headers: { 'stripe-signature': 'valid_sig' },
+    }));
+
+    expect(mockSendPaymentWebhook).toHaveBeenCalledWith(
+      expect.anything(),
+      'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+      'pay_failed',
+      'payment.failed',
+      expect.objectContaining({
+        status: 'failed',
+        tx_hash: 'pi_failed_1',
+        metadata: expect.objectContaining({
+          payment_rail: 'card',
+          failure_message: 'Your card was declined.',
+        }),
+      })
+    );
+  });
+
+  it('payment_intent.succeeded upserts WITH business_id', async () => {
+    const paymentIntent = {
+      id: 'pi_pi_succ_1',
+      amount: 5000,
+      currency: 'usd',
+      metadata: {
+        merchant_id: 'merch_d0rz',
+        business_id: 'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+        platform_fee_amount: '50',
+      },
+    };
+    mockStripe.webhooks.constructEvent.mockReturnValue({
+      type: 'payment_intent.succeeded',
+      data: { object: paymentIntent },
+    });
+    mockStripe.charges.list.mockResolvedValue({
+      data: [{ id: 'ch_x', balance_transaction: 'txn_x' }],
+    });
+    mockStripe.balanceTransactions.retrieve.mockResolvedValue({ fee: 175 });
+
+    await POST(new NextRequest('http://localhost:3000/api/stripe/webhook', {
+      method: 'POST',
+      body: JSON.stringify(paymentIntent),
+      headers: { 'stripe-signature': 'valid_sig' },
+    }));
+
+    const txTable = mockSupabase.from.mock.results
+      .map((r: any) => r.value)
+      .find((v: any) => v && v.upsert);
+    expect(txTable.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        business_id: 'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+        merchant_id: 'merch_d0rz',
+        stripe_payment_intent_id: 'pi_pi_succ_1',
+        stripe_charge_id: 'ch_x',
+        stripe_fee_amount: 175,
+        platform_fee_amount: 50,
+        net_to_merchant: 5000 - 175 - 50,
+        status: 'completed',
+      }),
+      { onConflict: 'stripe_payment_intent_id' }
+    );
+  });
+
   it('should still handle payment_intent.succeeded events', async () => {
     const paymentIntent = {
       id: 'pi_test789',
