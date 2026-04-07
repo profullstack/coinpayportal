@@ -33,7 +33,7 @@ export const metadata: Metadata = {
     siteName: 'CoinPay',
     images: [
       {
-        url: '/banner.png',
+        url: '/logo.svg',
         width: 1200,
         height: 630,
         alt: 'CoinPay - Non-Custodial Crypto Payment Gateway',
@@ -44,7 +44,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'CoinPay - Non-Custodial Crypto Payment Gateway',
     description: 'Accept cryptocurrency payments with automatic fee handling and real-time processing',
-    images: ['/banner.png'],
+    images: ['/logo.svg'],
   },
   icons: {
     icon: [

@@ -49,7 +49,7 @@ describe('GET /api/stripe/webhooks', () => {
         data: [{
           id: 'we_1', url: 'https://example.com', status: 'enabled',
           enabled_events: ['charge.succeeded'], created: 1700000000,
-          metadata: { business_id: 'acct_test', scope: 'platform' },
+          metadata: { business_id: 'biz-1', stripe_account_id: 'acct_test', scope: 'platform' },
         }],
       })
       // Account list
@@ -63,20 +63,20 @@ describe('GET /api/stripe/webhooks', () => {
     expect(json.endpoints[0].scope).toBe('platform');
   });
 
-  it('returns endpoints from both platform and connected account', async () => {
+  it('returns endpoints from both platform and connected account scoped to business', async () => {
     mockStripe.webhookEndpoints.list
       .mockResolvedValueOnce({
         data: [{
           id: 'we_plat', url: 'https://example.com/platform', status: 'enabled',
           enabled_events: ['charge.succeeded'], created: 1700000000,
-          metadata: { business_id: 'acct_test', scope: 'platform' },
+          metadata: { business_id: 'biz-1', scope: 'platform' },
         }],
       })
       .mockResolvedValueOnce({
         data: [{
           id: 'we_acct', url: 'https://example.com/account', status: 'enabled',
           enabled_events: ['payment_intent.succeeded'], created: 1700000001,
-          metadata: { scope: 'account' },
+          metadata: { business_id: 'biz-1', scope: 'account' },
         }],
       });
 
@@ -86,6 +86,68 @@ describe('GET /api/stripe/webhooks', () => {
     expect(json.endpoints).toHaveLength(2);
     expect(json.endpoints[0].scope).toBe('platform');
     expect(json.endpoints[1].scope).toBe('account');
+  });
+
+  it('does NOT return webhooks belonging to other businesses (even on same stripe account)', async () => {
+    mockStripe.webhookEndpoints.list
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'we_mine', url: 'https://example.com/mine', status: 'enabled',
+            enabled_events: ['charge.succeeded'], created: 1700000000,
+            metadata: { business_id: 'biz-1', scope: 'platform' },
+          },
+          {
+            id: 'we_other', url: 'https://example.com/other', status: 'enabled',
+            enabled_events: ['charge.succeeded'], created: 1700000001,
+            metadata: { business_id: 'biz-2', scope: 'platform' },
+          },
+          {
+            id: 'we_legacy_no_meta', url: 'https://example.com/legacy', status: 'enabled',
+            enabled_events: ['*'], created: 1700000002,
+            metadata: {},
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'we_acct_other', url: 'https://example.com/acct-other', status: 'enabled',
+            enabled_events: ['payment_intent.succeeded'], created: 1700000003,
+            metadata: { business_id: 'biz-2', scope: 'account' },
+          },
+        ],
+      });
+
+    const res = await GET(makeRequest('http://localhost/api/stripe/webhooks?business_id=biz-1'));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(json.endpoints).toHaveLength(1);
+    expect(json.endpoints[0].id).toBe('we_mine');
+  });
+
+  it('does NOT fall back to listing all platform endpoints when none match', async () => {
+    mockStripe.webhookEndpoints.list
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'we_other', url: 'https://example.com/other', status: 'enabled',
+            enabled_events: ['*'], created: 1700000000,
+            metadata: { business_id: 'biz-99', scope: 'platform' },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ data: [] });
+
+    const res = await GET(makeRequest('http://localhost/api/stripe/webhooks?business_id=biz-1'));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(json.endpoints).toHaveLength(0);
+  });
+
+  it('returns 400 when business_id missing', async () => {
+    const res = await GET(makeRequest('http://localhost/api/stripe/webhooks'));
+    expect(res.status).toBe(400);
   });
 
   it('returns 401 without auth', async () => {
@@ -122,7 +184,7 @@ describe('POST /api/stripe/webhooks', () => {
       url: 'https://example.com/hook',
       enabled_events: ['charge.succeeded'],
       connect: true,
-      metadata: { business_id: 'acct_test', scope: 'platform' },
+      metadata: { business_id: 'biz-1', stripe_account_id: 'acct_test', scope: 'platform' },
     });
   });
 
@@ -147,7 +209,7 @@ describe('POST /api/stripe/webhooks', () => {
       {
         url: 'https://example.com/hook',
         enabled_events: ['payment_intent.succeeded'],
-        metadata: { business_id: 'acct_test', scope: 'account' },
+        metadata: { business_id: 'biz-1', stripe_account_id: 'acct_test', scope: 'account' },
       },
       { stripeAccount: 'acct_test' }
     );

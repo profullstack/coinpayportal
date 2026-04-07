@@ -55,41 +55,42 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get('business_id');
-    // Use businessId as the merchant context (consistent with connect/status pattern)
-    const stripeAccountId = await getStripeAccountId(businessId || authResult);
+    if (!businessId) {
+      return NextResponse.json({ success: false, error: 'business_id is required' }, { status: 400 });
+    }
+    const stripeAccountId = await getStripeAccountId(businessId);
     if (!stripeAccountId) {
       return NextResponse.json({ success: true, endpoints: [] });
     }
 
     const stripe = await getStripe();
 
-    // List platform-level webhooks relevant to this account
+    // List platform-level webhooks and filter STRICTLY by the requesting
+    // business UUID stored in metadata. Webhooks belonging to other businesses
+    // (even other businesses owned by the same merchant) must NOT be listed.
     const platformEndpoints = await stripe.webhookEndpoints.list({ limit: 100 });
-    const filteredPlatform = platformEndpoints.data.filter((ep: any) =>
-      ep.metadata?.business_id === stripeAccountId ||
-      ep.enabled_events?.includes('*') ||
-      ep.url?.includes(stripeAccountId)
+    const filteredPlatform = platformEndpoints.data.filter(
+      (ep: any) => ep.metadata?.business_id === businessId
     );
 
-    // List webhooks on the connected account itself
+    // List webhooks on the connected account itself, filtered by business_id metadata
     let accountEndpoints: any[] = [];
     try {
       const acctList = await stripe.webhookEndpoints.list(
         { limit: 100 },
         { stripeAccount: stripeAccountId }
       );
-      accountEndpoints = acctList.data;
+      accountEndpoints = acctList.data.filter(
+        (ep: any) => ep.metadata?.business_id === businessId
+      );
     } catch {
       // Connected account may not support webhook listing — that's ok
     }
 
-    const allEndpoints = [
+    const results = [
       ...filteredPlatform.map((ep: any) => ({ ...ep, _scope: ep.metadata?.scope || 'platform' })),
       ...accountEndpoints.map((ep: any) => ({ ...ep, _scope: 'account' })),
     ];
-
-    // If no filtered results, fall back to showing all platform endpoints
-    const results = allEndpoints.length > 0 ? allEndpoints : platformEndpoints.data.map((ep: any) => ({ ...ep, _scope: 'platform' }));
 
     // Fetch stored secrets for these endpoints
     const endpointIds = results.map((ep: any) => ep.id);
@@ -136,6 +137,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { business_id, url, events, scope: requestedScope } = body;
 
+    if (!business_id) {
+      return NextResponse.json({ success: false, error: 'business_id is required' }, { status: 400 });
+    }
     if (!url || !events?.length) {
       return NextResponse.json({ success: false, error: 'URL and events are required' }, { status: 400 });
     }
@@ -144,13 +148,16 @@ export async function POST(request: NextRequest) {
     //        "account"  = webhook on the connected account itself
     const scope = requestedScope === 'account' ? 'account' : 'platform';
 
-    const stripeAccountId = await getStripeAccountId(business_id || authResult);
+    const stripeAccountId = await getStripeAccountId(business_id);
     if (!stripeAccountId) {
       return NextResponse.json({ success: false, error: 'Stripe account not found' }, { status: 404 });
     }
 
     const stripe = await getStripe();
-    const metadata = { business_id: stripeAccountId, scope };
+    // Tie the webhook to the *business UUID* (not the stripe account) so that
+    // listings/deletes can correctly scope per-business — a single merchant
+    // may own multiple businesses sharing the same Stripe account.
+    const metadata = { business_id, stripe_account_id: stripeAccountId, scope };
 
     let endpoint;
     if (scope === 'account') {
@@ -177,7 +184,7 @@ export async function POST(request: NextRequest) {
         const encryptedSecret = encrypt(endpoint.secret, getEncryptionKey());
         await supabase.from('stripe_webhook_secrets').insert({
           endpoint_id: endpoint.id,
-          business_id: stripeAccountId,
+          business_id,
           encrypted_secret: encryptedSecret,
         });
       } catch (err) {
