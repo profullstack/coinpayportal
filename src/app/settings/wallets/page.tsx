@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
 import { formatWalletAddressCopyText } from '@/lib/wallets/copy';
+import { parseWalletPasteText } from '@/lib/wallets/paste';
 
 interface MerchantWallet {
   id: string;
@@ -50,6 +51,8 @@ export default function GlobalWalletsPage() {
     label: '',
   });
   const [saving, setSaving] = useState(false);
+  const [pastedWalletText, setPastedWalletText] = useState('');
+  const [bulkImporting, setBulkImporting] = useState(false);
 
   useEffect(() => {
     fetchWallets();
@@ -136,6 +139,94 @@ export default function GlobalWalletsPage() {
       fetchWallets();
     } catch (err) {
       setError('Failed to delete wallet');
+    }
+  };
+
+  const handlePasteImport = async () => {
+    setError('');
+    setSuccess('');
+
+    const parsed = parseWalletPasteText(pastedWalletText);
+    if (parsed.wallets.length === 0) {
+      const reason = parsed.invalidLines.length > 0
+        ? `Invalid lines: ${parsed.invalidLines.join(', ')}`
+        : parsed.unsupportedCryptocurrencies.length > 0
+        ? `Unsupported symbols: ${parsed.unsupportedCryptocurrencies.join(', ')}`
+        : 'Paste at least one wallet line in the format BTC: address';
+      setError(reason);
+      return;
+    }
+
+    setBulkImporting(true);
+
+    try {
+      const currentCryptos = new Set(wallets.map((w) => w.cryptocurrency));
+      let added = 0;
+      let updated = 0;
+      const failed: string[] = [];
+
+      for (const wallet of parsed.wallets) {
+        const isExisting = currentCryptos.has(wallet.cryptocurrency);
+        const endpoint = isExisting
+          ? `/api/wallets/${encodeURIComponent(wallet.cryptocurrency)}`
+          : '/api/wallets';
+        const result = await authFetch(endpoint, {
+          method: isExisting ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(wallet),
+        }, router);
+        if (!result) return;
+
+        const { response, data } = result;
+        if (!response.ok || !data.success) {
+          failed.push(wallet.cryptocurrency);
+          continue;
+        }
+
+        if (isExisting) {
+          updated += 1;
+        } else {
+          added += 1;
+          currentCryptos.add(wallet.cryptocurrency);
+        }
+      }
+
+      const notices: string[] = [];
+      if (parsed.unsupportedCryptocurrencies.length > 0) {
+        notices.push(`ignored unsupported symbols: ${parsed.unsupportedCryptocurrencies.join(', ')}`);
+      }
+      if (parsed.invalidLines.length > 0) {
+        notices.push(`ignored invalid lines: ${parsed.invalidLines.join(', ')}`);
+      }
+      if (parsed.duplicateCryptocurrencies.length > 0) {
+        notices.push(`used the last value for duplicates: ${parsed.duplicateCryptocurrencies.join(', ')}`);
+      }
+      if (failed.length > 0) {
+        notices.push(`failed to save: ${failed.join(', ')}`);
+      }
+
+      if (added > 0 || updated > 0) {
+        const summary = [
+          added > 0 ? `added ${added}` : null,
+          updated > 0 ? `updated ${updated}` : null,
+        ].filter(Boolean).join(', ');
+        setSuccess(`Wallet import complete: ${summary}.`);
+        fetchWallets();
+      }
+
+      if (notices.length > 0) {
+        setError(notices.join(' | '));
+      } else if (added > 0 || updated > 0) {
+        setPastedWalletText('');
+      }
+
+      if (added === 0 && updated === 0 && failed.length === 0) {
+        setError('Nothing changed from the pasted wallet list.');
+      }
+    } catch (err) {
+      setError('Failed to import pasted wallets');
+    } finally {
+      setBulkImporting(false);
     }
   };
 
@@ -255,6 +346,50 @@ export default function GlobalWalletsPage() {
                 Add Wallet
               </button>
             )}
+            </div>
+          </div>
+
+          {/* Paste / Mass Import */}
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Paste Wallet Addresses</h3>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                Paste lines like <span className="font-mono">BTC: bc1...</span>. Existing wallet symbols will be updated, and new ones will be added.
+              </p>
+            </div>
+            <label htmlFor="global-wallet-paste-input" className="sr-only">
+              Paste wallet addresses
+            </label>
+            <textarea
+              id="global-wallet-paste-input"
+              value={pastedWalletText}
+              onChange={(e) => setPastedWalletText(e.target.value)}
+              rows={8}
+              className="mt-4 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-3 font-mono text-sm text-gray-900 dark:text-white focus:border-transparent focus:ring-2 focus:ring-purple-500"
+              placeholder={'BTC: bc1...\nETH: 0x...\nSOL: ...'}
+            />
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  void handlePasteImport();
+                }}
+                disabled={bulkImporting || !pastedWalletText.trim()}
+                className="inline-flex items-center rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {bulkImporting ? 'Importing...' : 'Import Pasted Wallets'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPastedWalletText('');
+                  setError('');
+                }}
+                disabled={bulkImporting || !pastedWalletText}
+                className="text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Clear
+              </button>
             </div>
           </div>
 
