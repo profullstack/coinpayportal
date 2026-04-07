@@ -6,6 +6,20 @@ You are adding "Sign in with CoinPay" to an app using OAuth 2.0 + OpenID Connect
 
 Let users authenticate via CoinPay and receive an ID token + access token. Use the ID token to create a local session.
 
+## Environment variables
+
+```
+COINPAY_OAUTH_CLIENT_ID=cpc_...
+COINPAY_OAUTH_CLIENT_SECRET=cps_...
+COINPAY_OAUTH_REDIRECT_URI=https://example-business.com/api/auth/callback/coinpay
+COINPAY_OAUTH_ISSUER=https://coinpayportal.com
+```
+
+Where to find them:
+- `COINPAY_OAUTH_CLIENT_ID` / `COINPAY_OAUTH_CLIENT_SECRET` — `https://coinpayportal.com/dashboard/oauth` → **New Client**. The client secret is shown once on creation; copy it immediately.
+- `COINPAY_OAUTH_REDIRECT_URI` — must match exactly what you registered on the client. Add it both in the portal and in `.env`.
+- `COINPAY_OAUTH_ISSUER` — `https://coinpayportal.com` in production. JWKS is at `${COINPAY_OAUTH_ISSUER}/.well-known/jwks.json`.
+
 ## Steps
 
 1. **Register an OAuth client** in the CoinPay portal at `https://example-business.com/oauth/clients` (use your actual portal URL). Set:

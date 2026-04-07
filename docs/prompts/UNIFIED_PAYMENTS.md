@@ -6,6 +6,19 @@ You are integrating CoinPay's unified payments endpoint, which lets a customer c
 
 One API call creates a payment that the customer can fulfill with either crypto (any supported coin/chain) or a card. You receive a single webhook on completion regardless of method.
 
+## Environment variables
+
+```
+COINPAY_API_KEY=sk_live_...
+COINPAY_WEBHOOK_SECRET=whsec_...
+COINPAY_API_URL=https://coinpayportal.com
+```
+
+Where to find them:
+- `COINPAY_API_KEY` — `https://coinpayportal.com/businesses/<your-business-id>` → **API Keys** tab → **Create API Key**. Shown once.
+- `COINPAY_WEBHOOK_SECRET` — same business page → **Webhooks** tab (or `?mode=webhooks`) → create an endpoint → **Signing Secret**.
+- Card payments require Stripe to be enabled on the business. Connect it from `https://coinpayportal.com/businesses/<your-business-id>` → **Stripe** tab; no extra env vars on your side — CoinPay routes the card flow.
+
 ## Steps
 
 1. **Create the payment** server-side:

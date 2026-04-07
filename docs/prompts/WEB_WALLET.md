@@ -6,6 +6,20 @@ You are integrating CoinPay's non-custodial web wallet so users can hold, send, 
 
 Give a user a wallet that lives in the browser (keys derived locally, never sent to a server) and can sign transactions for payments or x402 calls.
 
+## Environment variables
+
+The web wallet is non-custodial and runs entirely in the browser, so it does **not** need an API key. Only set these if you also call the CoinPay REST API server-side from the same project:
+
+```
+NEXT_PUBLIC_COINPAY_API_URL=https://coinpayportal.com
+# Optional, server-side only — never expose:
+COINPAY_API_KEY=sk_live_...
+```
+
+Where to find them:
+- `NEXT_PUBLIC_COINPAY_API_URL` — `https://coinpayportal.com` in production.
+- `COINPAY_API_KEY` (optional) — `https://coinpayportal.com/businesses/<your-business-id>` → **API Keys** tab.
+
 ## Steps
 
 1. **Install:**

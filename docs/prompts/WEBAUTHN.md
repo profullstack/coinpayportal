@@ -6,6 +6,20 @@ You are adding passkey-based authentication to an app using CoinPay's WebAuthn e
 
 Users register a passkey (Touch ID, Face ID, Windows Hello, hardware key) and use it to sign in — no passwords.
 
+## Environment variables
+
+```
+COINPAY_API_KEY=sk_live_...
+COINPAY_API_URL=https://coinpayportal.com
+WEBAUTHN_RP_ID=example-business.com
+WEBAUTHN_RP_ORIGIN=https://example-business.com
+```
+
+Where to find them:
+- `COINPAY_API_KEY` — `https://coinpayportal.com/businesses/<your-business-id>` → **API Keys** tab → **Create API Key**. Shown once.
+- `WEBAUTHN_RP_ID` — your bare domain (no scheme, no port). Passkeys are bound to it forever, so pick the production domain.
+- `WEBAUTHN_RP_ORIGIN` — full origin including scheme. Must be HTTPS in production.
+
 ## Registration
 
 1. **Begin** — server fetches a challenge:

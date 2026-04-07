@@ -6,6 +6,19 @@ You are adding recurring crypto billing to an app using CoinPay's recurring escr
 
 A customer authorizes a recurring charge (e.g. $20/month). On each interval, a new escrow is funded and settled to the merchant. The customer can cancel at any time.
 
+## Environment variables
+
+```
+COINPAY_API_KEY=sk_live_...
+COINPAY_WEBHOOK_SECRET=whsec_...
+COINPAY_API_URL=https://coinpayportal.com
+```
+
+Where to find them:
+- `COINPAY_API_KEY` — `https://coinpayportal.com/businesses/<your-business-id>` → **API Keys** tab → **Create API Key**. Shown once.
+- `COINPAY_WEBHOOK_SECRET` — same business page → **Webhooks** tab (or `?mode=webhooks`) → create an endpoint → **Signing Secret**.
+- `COINPAY_API_URL` — `https://coinpayportal.com` in production.
+
 ## Steps
 
 1. **Create a recurring series** server-side when the customer subscribes:
