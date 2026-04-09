@@ -29,6 +29,25 @@ export default function DocsPage() {
           </p>
         </div>
 
+        {/* AI Integration Prompts Callout */}
+        <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-emerald-500/20 to-purple-500/20 border border-emerald-400/40">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h2 className="text-xl font-bold text-white mb-2">🤖 Find our integration prompts here!</h2>
+              <p className="text-gray-300 text-sm">
+                Copy-paste prompts for Claude, Cursor, or any AI coding assistant — one per feature.
+                Each prompt is a complete spec including <code className="text-emerald-300">.env</code> variables and where to find them.
+              </p>
+            </div>
+            <Link
+              href="/docs/prompts"
+              className="inline-flex items-center px-5 py-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-semibold whitespace-nowrap"
+            >
+              Browse Prompts →
+            </Link>
+          </div>
+        </div>
+
         {/* SDK Documentation Link */}
         <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-purple-500/20 to-blue-500/20 border border-purple-500/30">
           <div className="flex items-center justify-between">
