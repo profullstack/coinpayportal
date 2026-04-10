@@ -83,6 +83,18 @@ Master mnemonics are stored in environment variables:
 - `SYSTEM_MNEMONIC_POL` - Polygon HD wallet seed
 - `SYSTEM_MNEMONIC_SOL` - Solana HD wallet seed
 
+### 4. Mnemonic Generation
+
+Use the included zero-dependency helper script to generate a valid BIP39 phrase locally:
+
+```bash
+node scripts/gen-mnemonic.mjs
+```
+
+Run this **once per `SYSTEM_MNEMONIC_*` variable** — do NOT reuse the same phrase across chains. The script uses only Node.js built-in `crypto` (no npm packages required) and fetches the official BIP39 English wordlist from the `bitcoinjs/bip39` repository.
+
+> **Security**: Never use an online mnemonic generator for production wallets. Always generate locally and store in a secrets manager (e.g., Doppler, HashiCorp Vault, AWS Secrets Manager).
+
 ### 4. Memory Handling
 
 After transaction signing, sensitive data is cleared:
@@ -117,11 +129,13 @@ function clearSensitiveData(data: { privateKey?: string }): void {
 # Generate with: openssl rand -hex 32
 ENCRYPTION_KEY=your-64-character-hex-key
 
-# System HD wallet mnemonics (24 words each)
-SYSTEM_MNEMONIC_BTC="word1 word2 ... word24"
-SYSTEM_MNEMONIC_ETH="word1 word2 ... word24"
-SYSTEM_MNEMONIC_POL="word1 word2 ... word24"
-SYSTEM_MNEMONIC_SOL="word1 word2 ... word24"
+# System HD wallet mnemonics — generate each one with:
+#   node scripts/gen-mnemonic.mjs
+# Use a separate, unique phrase per chain. NEVER reuse.
+SYSTEM_MNEMONIC_BTC="word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"
+SYSTEM_MNEMONIC_ETH="word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"
+SYSTEM_MNEMONIC_POL="word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"
+SYSTEM_MNEMONIC_SOL="word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"
 
 # Commission wallets (public addresses)
 COMMISSION_WALLET_BTC=bc1q...
