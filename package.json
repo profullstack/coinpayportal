@@ -50,7 +50,7 @@
     "@supabase/supabase-js": "^2.39.0",
     "@types/bs58": "^5.0.0",
     "@types/papaparse": "^5.5.2",
-    "axios": "^1.14.0",
+    "axios": "^1.15.0",
     "bcryptjs": "^3.0.3",
     "bitcoinjs-lib": "^6.1.5",
     "bs58": "^6.0.0",
