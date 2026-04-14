@@ -47,6 +47,11 @@ export default defineConfig({
       'ws': path.resolve(__dirname, './src/test/ws-shim.ts'),
       '@noble/curves/secp256k1': path.resolve(__dirname, './node_modules/@noble/curves/secp256k1.js'),
       '@noble/curves/ed25519': path.resolve(__dirname, './node_modules/@noble/curves/ed25519.js'),
+      // @dayflow/react ships a CJS dist/index.js under "type": "module" which
+      // throws "require is not defined in ES module scope" when vitest loads
+      // it. The package also ships dist/index.esm.js — alias to that ESM
+      // build so the CalendarTab import chain resolves cleanly.
+      '@dayflow/react': path.resolve(__dirname, './node_modules/@dayflow/react/dist/index.esm.js'),
     },
     conditions: ['node', 'import', 'module', 'browser', 'default'],
   },

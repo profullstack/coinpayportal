@@ -17,6 +17,9 @@
  *   coinpay wallet derive-missing
  *   coinpay wallet balance [chain]
  *   coinpay wallet send --chain ETH --to 0x... --amount 0.1
+ *   coinpay wallet sign-digest --chain ETH --digest 0x<32-byte-hex>
+ *   coinpay wallet sign-message --chain ETH --message "login-challenge"
+ *   coinpay wallet sign-solana --message 0x<tx-message-bytes-hex>
  *   coinpay wallet history
  *   coinpay wallet backup --password <pass>
  *   coinpay wallet delete
@@ -156,6 +159,9 @@ async function handleWallet(subCommand, args) {
     'derive-missing': walletDeriveMissing, balance: walletBalance,
     send: walletSend, history: walletHistory, backup: walletBackup,
     delete: walletDelete,
+    'sign-digest': walletSignDigest,
+    'sign-message': walletSignMessage,
+    'sign-solana': walletSignSolana,
   };
 
   if (subCommand === 'help' || subCommand === '--help' || subCommand === '-h' || !subCommand) {
@@ -331,6 +337,50 @@ async function walletHistory(opts) {
   });
   console.log('\nTransaction history:');
   console.log(JSON.stringify(result, null, 2));
+}
+
+// ── Arbitrary signing commands ─────────────────────────────────
+// Lets external tools (e.g. b1dz.com's DEX engine) use a CoinPay
+// wallet as a signer for flows CoinPay itself doesn't implement —
+// Uniswap swaps, Jupiter routes, EIP-712 typed data, etc. The
+// caller builds the unsigned tx with its own library and hands us
+// just the digest or message bytes.
+
+async function walletSignDigest(opts) {
+  if (!opts.chain || !opts.digest) {
+    console.error('Error: --chain and --digest are required');
+    console.log('Usage: coinpay wallet sign-digest --chain ETH --digest 0x<32-byte-hex>');
+    process.exit(1);
+  }
+  const { client } = await getWalletClient(opts);
+  const signature = client.signDigest({ chain: opts.chain, digest: opts.digest });
+  // Raw stdout so callers can pipe / capture without parsing JSON.
+  process.stdout.write(signature + '\n');
+}
+
+async function walletSignMessage(opts) {
+  if (!opts.chain || opts.message == null) {
+    console.error('Error: --chain and --message are required');
+    console.log('Usage: coinpay wallet sign-message --chain ETH --message "login-challenge"');
+    process.exit(1);
+  }
+  const { client } = await getWalletClient(opts);
+  const signature = client.signMessage({ chain: opts.chain, message: String(opts.message) });
+  process.stdout.write(signature + '\n');
+}
+
+async function walletSignSolana(opts) {
+  if (!opts.message) {
+    console.error('Error: --message is required (hex-encoded Solana transaction message bytes)');
+    console.log('Usage: coinpay wallet sign-solana --message 0x<hex-bytes> [--index 0]');
+    process.exit(1);
+  }
+  const { client } = await getWalletClient(opts);
+  const signature = client.signSolanaMessage({
+    message: opts.message,
+    index: opts.index ? parseInt(opts.index, 10) : 0,
+  });
+  process.stdout.write(signature + '\n');
 }
 
 async function walletBackup(opts) {
@@ -754,6 +804,19 @@ WALLET COMMANDS
                   --password <pass>   Encryption password (required)
 
   delete          Delete local wallet file
+
+  sign-digest     Sign a 32-byte digest (for EVM contract calls)
+                  --chain <chain>     secp256k1 chain (ETH, POL, BNB, ...)
+                  --digest 0x...      32-byte keccak/sha256 hex
+                  Returns 65-byte r||s||v signature on stdout.
+
+  sign-message    Sign an EIP-191 personal_sign message
+                  --chain <chain>     EVM chain
+                  --message "..."     UTF-8 message to sign
+
+  sign-solana     Sign raw Solana transaction message bytes (ed25519)
+                  --message 0x...     Hex-encoded tx message bytes
+                  --index <n>         Derivation index (default: 0)
 
 GLOBAL OPTIONS
   --password <pass>       Password (or COINPAY_WALLET_PASSWORD env var)
