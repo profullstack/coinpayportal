@@ -1,4 +1,7 @@
-# CoinPayPortal Web Wallet - Launch Checklist
+> **Active Sprint Checklist — Web Wallet Launch**
+> This is the detailed task list for the web wallet feature launch (Phases 1–6).
+> For overall project status, completed features, and deployment info see **[`PROJECT_STATUS.md`](PROJECT_STATUS.md)**.
+> For security remediation items see **[`SECURITY_AUDIT.md`](SECURITY_AUDIT.md)** → Section 10.
 
 > **Goal**: Launch a fully functional anonymous multi-chain wallet that works for both human users (browser) and bots (API/SDK).
 

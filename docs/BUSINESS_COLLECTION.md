@@ -25,6 +25,12 @@ PLATFORM_FEE_WALLET_BTC=your-bitcoin-address
 PLATFORM_FEE_WALLET_ETH=your-ethereum-address
 PLATFORM_FEE_WALLET_POL=your-polygon-address
 PLATFORM_FEE_WALLET_SOL=your-solana-address
+
+# System Wallets
+SYSTEM_MNEMONIC_BTC=your_bip39_mnemonic_phrase
+SYSTEM_MNEMONIC_ETH=your_bip39_mnemonic_phrase
+SYSTEM_MNEMONIC_POL=your_bip39_mnemonic_phrase
+SYSTEM_MNEMONIC_SOL=your_bip39_mnemonic_phrase
 ```
 
 **Important**: These are the same wallet addresses used for platform fees in regular merchant payments. For business collection, 100% of funds go to these wallets instead of the tiered fee split (0.5%-1% depending on subscription tier).
