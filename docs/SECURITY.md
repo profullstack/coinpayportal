@@ -35,16 +35,25 @@ Security is paramount in CoinPay as we handle cryptocurrency transactions and pr
 ### Private Key Management
 
 #### Key Generation
+
+System HD wallet mnemonics can be generated offline using the included helper script:
+
+```bash
+# Run from the repo root — no npm packages required
+node scripts/gen-mnemonic.mjs
+```
+
+Run this **once per `SYSTEM_MNEMONIC_*` variable** and store the result in your secrets manager. Never reuse the same phrase across chains. The script uses Node.js built-in `crypto` for entropy and the official BIP39 wordlist — no external dependencies.
+
+In application code, keys are derived from environment-stored mnemonics at runtime:
+
 ```typescript
-// HD Wallet generation using BIP39/BIP44
-import * as bip39 from 'bip39';
+// HD Wallet derivation using BIP39/BIP44
 import { HDKey } from '@scure/bip32';
+import { mnemonicToSeed } from '@scure/bip39';
 
-// Generate mnemonic (store securely, never in database)
-const mnemonic = bip39.generateMnemonic(256); // 24 words
-
-// Derive keys for each blockchain
-const seed = await bip39.mnemonicToSeed(mnemonic);
+// Derive keys for each blockchain from env-stored mnemonic
+const seed = await mnemonicToSeed(process.env.SYSTEM_MNEMONIC_ETH!);
 const hdkey = HDKey.fromMasterSeed(seed);
 
 // Bitcoin: m/44'/0'/0'/0/index
@@ -503,6 +512,14 @@ PLATFORM_FEE_WALLET_BTC=your-btc-address
 PLATFORM_FEE_WALLET_ETH=your-eth-address
 PLATFORM_FEE_WALLET_POL=your-pol-address
 PLATFORM_FEE_WALLET_SOL=your-sol-address
+
+# System Wallets (Required)
+# Generate each phrase with: node scripts/gen-mnemonic.mjs
+# Use a unique phrase per chain — NEVER reuse.
+SYSTEM_MNEMONIC_BTC="your twelve word bip39 mnemonic phrase goes here"
+SYSTEM_MNEMONIC_ETH="your twelve word bip39 mnemonic phrase goes here"
+SYSTEM_MNEMONIC_POL="your twelve word bip39 mnemonic phrase goes here"
+SYSTEM_MNEMONIC_SOL="your twelve word bip39 mnemonic phrase goes here"
 
 # Tatum API
 TATUM_API_KEY=your-tatum-api-key
