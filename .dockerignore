@@ -1,0 +1,10 @@
+Dockerfile
+Dockerfile.coolify
+docker/Dockerfile
+docker/.dockerignore
+.dockerignore
+node_modules
+npm-debug.log
+README.md
+.next
+.git
