@@ -37,8 +37,9 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 
 # 11. Expose the port Next.js uses
-EXPOSE 3000
-ENV PORT=3000
+EXPOSE 8080
+ENV PORT=8080
+ENV HOSTNAME="0.0.0.0"
 
 # 12. Start the application
 CMD ["pnpm", "start"]
