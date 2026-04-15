@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
 import { getFeePercentage } from '@/lib/payments/fees';
@@ -12,7 +12,7 @@ import { isApiKey, getBusinessByApiKey } from '@/lib/auth/apikey';
  * or { merchantId, businessId: null } for JWT auth (caller must resolve businessId).
  */
 async function resolveMerchant(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   authHeader: string | null
 ): Promise<
   | { merchantId: string; apiKeyBusinessId: string | null }
