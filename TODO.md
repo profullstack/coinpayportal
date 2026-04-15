@@ -7,6 +7,84 @@
 
 ---
 
+## Known Bugs
+
+### Duplicate deposit addresses per chain (e.g. two SOL addresses on /web-wallet)
+
+**Root cause**: base migration `20260131000000_create_web_wallet_tables.sql:65` only enforces `UNIQUE (wallet_id, chain, derivation_index)`, so two rows for the same chain at different derivation indices slip through. `deriveAddress()` in `src/lib/web-wallet/service.ts:413` only checks for a duplicate address *string*, not a duplicate `(wallet_id, chain)`. Follow-up migration `20260202120000_fix_wallet_address_unique_index.sql` fixed an unrelated USDC issue, not this one.
+
+#### Fix steps
+
+- [ ] **Step 1 — Clean up existing duplicates first** (must run before adding the unique index, or the migration will fail). Run against prod:
+
+  ```sql
+  -- Preview first
+  SELECT wallet_id, chain, COUNT(*) AS n
+  FROM wallet_addresses
+  WHERE is_active = true
+  GROUP BY wallet_id, chain
+  HAVING COUNT(*) > 1;
+
+  -- Deactivate all but the earliest created_at per (wallet_id, chain)
+  WITH ranked AS (
+    SELECT id,
+           ROW_NUMBER() OVER (
+             PARTITION BY wallet_id, chain
+             ORDER BY created_at ASC, id ASC
+           ) AS rn
+    FROM wallet_addresses
+    WHERE is_active = true
+  )
+  UPDATE wallet_addresses wa
+  SET is_active = false
+  FROM ranked
+  WHERE wa.id = ranked.id AND ranked.rn > 1;
+  ```
+
+- [ ] **Step 2 — Add a new migration** at `supabase/migrations/<timestamp>_fix_duplicate_active_addresses_per_chain.sql`:
+
+  ```sql
+  -- Prevent more than one active address per (wallet_id, chain).
+  -- Assumes cleanup has already deactivated duplicates.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_addresses_active_chain
+    ON wallet_addresses (wallet_id, chain)
+    WHERE is_active = true;
+  ```
+
+- [ ] **Step 3 — Patch `deriveAddress()`** in `src/lib/web-wallet/service.ts` (around line 413): before inserting, query for an existing active row on `(wallet_id, chain)`. If found, return it instead of inserting. Keep the existing duplicate-address-string check as a secondary guard.
+
+  ```ts
+  // Replace the "Check for duplicate address" block (around line 413)
+  const { data: existingChain } = await supabase
+    .from('wallet_addresses')
+    .select('id, chain, address, derivation_index, derivation_path, created_at')
+    .eq('wallet_id', walletId)
+    .eq('chain', chain)
+    .eq('is_active', true)
+    .maybeSingle();
+
+  if (existingChain) {
+    // Idempotent: return the existing address instead of creating a second one
+    return {
+      success: true,
+      data: {
+        address_id: existingChain.id,
+        chain: existingChain.chain,
+        address: existingChain.address,
+        derivation_index: existingChain.derivation_index,
+        derivation_path: existingChain.derivation_path,
+        created_at: existingChain.created_at,
+      },
+    };
+  }
+  ```
+
+- [ ] **Step 4 — Run migration on prod**: `supabase db push`.
+- [ ] **Step 5 — Verify**: confirm `/web-wallet` now shows one SOL address; re-run the `HAVING COUNT(*) > 1` preview query — should return 0 rows.
+- [ ] **Step 6 — Optional: audit `createWallet` / `importWallet`** (`src/lib/web-wallet/service.ts:163-182`, `:298-312`) — the new unique index will now reject duplicates at the DB level, but consider de-duplicating the `initial_addresses` / `addresses` arrays by chain before iterating so a single bad payload doesn't produce a noisy error log.
+
+---
+
 ## Phase 1: Foundation (Read-Only Wallet)
 
 ### Database & Infrastructure
