@@ -55,6 +55,7 @@ certs/
 # LLM files
 .agent/
 .codex/
+.claude
 .claude/
 # drewrox2009 local tracking
 .drewrox2009/
