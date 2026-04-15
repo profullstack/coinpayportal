@@ -419,6 +419,160 @@ function signMessage(message, privateKey) {
   return bytesToHex(signature.toCompactRawBytes());
 }
 
+// ================================================================
+// Arbitrary tx / message signing
+// ----------------------------------------------------------------
+// These primitives let callers (like b1dz.com's DEX engine) sign
+// EVM contract calls and Solana transactions that CoinPay's built-in
+// `send` flow doesn't cover (e.g., Uniswap swaps, Jupiter routes).
+//
+// The API intentionally stops at the cryptographic primitive:
+//   - EVM:    caller builds the unsigned tx with their own library
+//             (viem / ethers / ethers-v5), hashes it per EIP-1559 or
+//             EIP-155, hands us the 32-byte digest, gets back a
+//             recoverable signature
+//   - Solana: caller builds the unsigned Transaction / VersionedMessage,
+//             hands us the raw message bytes, gets back an ed25519
+//             signature they can attach to the tx
+//
+// This keeps the crypto surface minimal and correct. We don't try to
+// re-implement RLP, EIP-712, or Solana's transaction encoder inside
+// CoinPay — those live in the caller's toolchain.
+// ================================================================
+
+/** Chains that sign via secp256k1 (32-byte digest → recoverable sig). */
+function isSecp256k1Chain(chain) {
+  return SECP256K1_CHAINS.includes(chain);
+}
+
+/** Chains that sign via ed25519 (arbitrary message bytes → 64-byte sig). */
+function isEd25519Chain(chain) {
+  return chain === 'SOL' || chain === 'USDC_SOL' || chain === 'USDT_SOL';
+}
+
+function normalizeHexInput(hex, label = 'hex') {
+  if (typeof hex !== 'string') throw new Error(`${label} must be a string`);
+  const stripped = hex.startsWith('0x') ? hex.slice(2) : hex;
+  if (stripped.length === 0) throw new Error(`${label} is empty`);
+  if (stripped.length % 2 !== 0) throw new Error(`${label} has odd length`);
+  if (!/^[0-9a-fA-F]+$/.test(stripped)) throw new Error(`${label} contains non-hex chars`);
+  return hexToBytes(stripped);
+}
+
+/**
+ * Sign a 32-byte digest with a secp256k1 chain's derived key.
+ * Returns a 65-byte recoverable signature formatted as `r(32) || s(32) || v(1)`
+ * where v is the low recovery id (0 or 1). This is the layout every
+ * EVM client (viem, ethers v6) expects for post-typed-transaction
+ * (EIP-1559 / EIP-2930) signatures.
+ *
+ * For legacy / EIP-155 transactions the caller is responsible for
+ * converting v to `chainId * 2 + 35 + recId` after receiving the sig.
+ * For EIP-191 (personal_sign) the caller adds 27.
+ *
+ * @param {Uint8Array} seed - Master seed
+ * @param {string} chain - BIP44 chain code (ETH, POL, BNB, ...)
+ * @param {Uint8Array} digest - Exactly 32 bytes
+ * @returns {string} `0x`-prefixed 65-byte hex signature
+ */
+export function signDigestSecp256k1(seed, chain, digest) {
+  if (!isSecp256k1Chain(chain)) {
+    throw new Error(`chain ${chain} does not use secp256k1`);
+  }
+  if (!(digest instanceof Uint8Array) || digest.length !== 32) {
+    throw new Error('digest must be a 32-byte Uint8Array');
+  }
+  const { privateKey } = deriveKeyPair(seed, chain, 0);
+
+  // noble-curves has two incompatible signing APIs across major versions:
+  //   v1.x: sign(hash, key) → Signature object with .r, .s, .recovery
+  //   v2.x: sign(hash, key, { format: 'recovered' }) → 65-byte Uint8Array
+  //         [recovery, r(32), s(32)]
+  // Detect at runtime so this works with whichever version is pinned.
+  // Requesting 'recovered' on v1 is harmless — v1 ignores the option
+  // and still returns a Signature object.
+  const raw = secp256k1.sign(digest, privateKey, { format: 'recovered' });
+  let r, s, recovery;
+  if (raw instanceof Uint8Array && raw.length === 65) {
+    recovery = raw[0] & 0x01;
+    r = raw.subarray(1, 33);
+    s = raw.subarray(33, 65);
+  } else if (raw && typeof raw === 'object' && 'r' in raw && 's' in raw) {
+    if (typeof raw.recovery !== 'number') {
+      throw new Error('signature missing recovery id');
+    }
+    recovery = raw.recovery & 0x01;
+    r = bigIntToBytes32(raw.r);
+    s = bigIntToBytes32(raw.s);
+  } else {
+    throw new Error(`unexpected signature shape (type=${raw?.constructor?.name})`);
+  }
+
+  const evmSig = new Uint8Array(65);
+  evmSig.set(r, 0);
+  evmSig.set(s, 32);
+  evmSig[64] = recovery;
+  return '0x' + bytesToHex(evmSig);
+}
+
+/** Big-endian 32-byte encoding of a bigint. */
+function bigIntToBytes32(n) {
+  const out = new Uint8Array(32);
+  let x = BigInt(n);
+  for (let i = 31; i >= 0; i--) {
+    out[i] = Number(x & 0xffn);
+    x >>= 8n;
+  }
+  return out;
+}
+
+/**
+ * Sign an EIP-191 "personal_sign" message. Wraps the message with the
+ * `\x19Ethereum Signed Message:\n<length>` prefix, keccak256-hashes,
+ * then signs the digest. Returns a 65-byte sig with v bumped to 27/28
+ * per EIP-191 convention (compatible with Solidity's ecrecover).
+ *
+ * @param {Uint8Array} seed
+ * @param {string} chain
+ * @param {string|Uint8Array} message - UTF-8 string or raw bytes
+ * @returns {string}
+ */
+export function signEip191Message(seed, chain, message) {
+  if (!isSecp256k1Chain(chain)) {
+    throw new Error(`chain ${chain} does not use secp256k1`);
+  }
+  const bytes = typeof message === 'string'
+    ? new TextEncoder().encode(message)
+    : message;
+  const prefix = new TextEncoder().encode(`\x19Ethereum Signed Message:\n${bytes.length}`);
+  const payload = new Uint8Array(prefix.length + bytes.length);
+  payload.set(prefix, 0);
+  payload.set(bytes, prefix.length);
+  const digest = keccak_256(payload);
+  const sig = hexToBytes(signDigestSecp256k1(seed, chain, digest).slice(2));
+  sig[64] = sig[64] + 27; // EIP-191 uses 27/28 for v
+  return '0x' + bytesToHex(sig);
+}
+
+/**
+ * Sign arbitrary Solana transaction message bytes with the derived
+ * ed25519 key. Returns a 64-byte signature that the caller attaches
+ * to the `VersionedTransaction.signatures` array.
+ *
+ * @param {Uint8Array} seed
+ * @param {Uint8Array} messageBytes - The serialized Solana tx message
+ * @param {number} [index=0] - Derivation index
+ * @returns {string} 64-byte hex signature
+ */
+export function signSolanaMessage(seed, messageBytes, index = 0) {
+  if (!(messageBytes instanceof Uint8Array)) {
+    throw new Error('messageBytes must be a Uint8Array');
+  }
+  const { privateKey } = deriveSOLAddress(seed, index);
+  const signature = ed25519.sign(messageBytes, privateKey);
+  return '0x' + bytesToHex(signature);
+}
+
 /**
  * Derive address placeholder - actual address derivation happens on client
  * This returns the public key that the server can use to verify ownership
@@ -864,6 +1018,77 @@ export class WalletClient {
     return broadcastResult;
   }
   
+  // ==========================================================
+  // Arbitrary-transaction signing (PR: arbitrary-tx-signing)
+  //
+  // These methods expose raw cryptographic signing so callers can
+  // use CoinPay as a wallet provider for flows CoinPay itself
+  // doesn't implement (Uniswap swaps, Jupiter routes, EIP-712
+  // typed data, etc.). The caller builds the unsigned tx with
+  // their own library (viem / ethers / @solana/web3.js), passes
+  // the digest or message bytes to CoinPay, and receives the
+  // signature back. CoinPay never learns the tx semantics — it
+  // just produces cryptographic output.
+  //
+  // SECURITY: these methods are intentionally unprivileged from
+  // CoinPay's perspective. If you expose them to untrusted
+  // callers you're handing over signing authority for the wallet.
+  // The CLI `wallet sign-digest` / `sign-message` commands
+  // require the GPG-encrypted wallet to be unlocked, same as
+  // `wallet send`.
+  // ==========================================================
+
+  /**
+   * Sign a 32-byte digest with the wallet's secp256k1 key for the
+   * given EVM chain. Returns a 65-byte recoverable signature laid
+   * out as `r(32) || s(32) || v(1)`, where v is the raw recovery
+   * bit (0 or 1). Suitable for EIP-1559 / EIP-2930 typed txs.
+   *
+   * For legacy EIP-155 signatures the caller converts v to
+   * `chainId * 2 + 35 + v`. For EIP-191 personal_sign, use
+   * `signMessage()` below instead.
+   *
+   * @param {{chain: string, digest: string|Uint8Array}} params
+   * @returns {string} 0x-prefixed 65-byte signature hex
+   */
+  signDigest({ chain, digest }) {
+    if (!this.#seed) throw new Error('Wallet not initialized');
+    const digestBytes = typeof digest === 'string'
+      ? normalizeHexInput(digest, 'digest')
+      : digest;
+    return signDigestSecp256k1(this.#seed, chain, digestBytes);
+  }
+
+  /**
+   * Sign an EIP-191 "personal_sign" message with the wallet's
+   * secp256k1 key. Handles the `\x19Ethereum Signed Message:\n`
+   * prefix internally.
+   *
+   * @param {{chain: string, message: string|Uint8Array}} params
+   * @returns {string} 0x-prefixed 65-byte signature hex
+   */
+  signMessage({ chain, message }) {
+    if (!this.#seed) throw new Error('Wallet not initialized');
+    return signEip191Message(this.#seed, chain, message);
+  }
+
+  /**
+   * Sign raw Solana transaction message bytes with the derived
+   * ed25519 key. Returns a 64-byte signature the caller attaches
+   * to their `VersionedTransaction.signatures` array.
+   *
+   * @param {{message: string|Uint8Array, index?: number}} params
+   *   `message` is either hex-encoded bytes or a raw Uint8Array.
+   * @returns {string} 0x-prefixed 64-byte signature hex
+   */
+  signSolanaMessage({ message, index = 0 }) {
+    if (!this.#seed) throw new Error('Wallet not initialized');
+    const bytes = typeof message === 'string'
+      ? normalizeHexInput(message, 'message')
+      : message;
+    return signSolanaMessage(this.#seed, bytes, index);
+  }
+
   /**
    * Get transaction history
    * @param {Object} [options] - Query options
