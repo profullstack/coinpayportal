@@ -4,26 +4,58 @@ import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
 import { getFeePercentage } from '@/lib/payments/fees';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
+import { isApiKey, getBusinessByApiKey } from '@/lib/auth/apikey';
+
+/**
+ * Resolve the authenticated merchant ID from either an API key or a JWT Bearer token.
+ * Returns { merchantId, businessId } for API key auth (businessId is pre-resolved),
+ * or { merchantId, businessId: null } for JWT auth (caller must resolve businessId).
+ */
+async function resolveMerchant(
+  supabase: ReturnType<typeof createClient>,
+  authHeader: string | null
+): Promise<
+  | { merchantId: string; apiKeyBusinessId: string | null }
+  | { error: string; status: number }
+> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { error: 'Missing authorization header', status: 401 };
+  }
+
+  const token = authHeader.substring(7);
+
+  if (isApiKey(token)) {
+    const result = await getBusinessByApiKey(supabase, token);
+    if (!result.success || !result.business) {
+      return { error: result.error ?? 'Invalid API key', status: 401 };
+    }
+    return { merchantId: result.business.merchant_id, apiKeyBusinessId: result.business.id };
+  }
+
+  // JWT path
+  const jwtSecret = getJwtSecret();
+  if (!jwtSecret) {
+    return { error: 'Server configuration error', status: 500 };
+  }
+  const decoded = verifyToken(token, jwtSecret);
+  return { merchantId: decoded.userId, apiKeyBusinessId: null };
+}
 
 /**
  * GET /api/invoices
- * List all invoices for authenticated merchant
+ * List all invoices for authenticated merchant.
+ * Accepts either a JWT Bearer token or a cp_live_ API key.
  */
 export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ success: false, error: 'Missing authorization header' }, { status: 401 });
-    }
-
-    const token = authHeader.substring(7);
-    const jwtSecret = getJwtSecret();
-    if (!jwtSecret) {
-      return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
-    }
-
-    const decoded = verifyToken(token, jwtSecret);
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const authResult = await resolveMerchant(supabase, request.headers.get('authorization'));
+
+    if ('error' in authResult) {
+      return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status });
+    }
+
+    const { merchantId } = authResult;
 
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get('business_id');
@@ -39,7 +71,7 @@ export async function GET(request: NextRequest) {
         clients (id, name, email, company_name),
         businesses (id, name)
       `)
-      .eq('user_id', decoded.userId)
+      .eq('user_id', merchantId)
       .order('created_at', { ascending: false });
 
     if (businessId) query = query.eq('business_id', businessId);
@@ -68,23 +100,21 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/invoices
- * Create a new invoice
+ * Create a new invoice.
+ * Accepts either a JWT Bearer token or a cp_live_ API key.
+ * When authenticated via API key the business is already resolved from the key;
+ * the caller may still pass business_id but it must match the key's business.
  */
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ success: false, error: 'Missing authorization header' }, { status: 401 });
-    }
-
-    const token = authHeader.substring(7);
-    const jwtSecret = getJwtSecret();
-    if (!jwtSecret) {
-      return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
-    }
-
-    const decoded = verifyToken(token, jwtSecret);
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const authResult = await resolveMerchant(supabase, request.headers.get('authorization'));
+
+    if ('error' in authResult) {
+      return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status });
+    }
+
+    const { merchantId, apiKeyBusinessId } = authResult;
 
     const body = await request.json();
     const {
@@ -93,16 +123,29 @@ export async function POST(request: NextRequest) {
       schedule, // optional: { recurrence, custom_interval_days, end_date, max_occurrences }
     } = body;
 
-    if (!business_id || !amount || amount <= 0) {
-      return NextResponse.json({ success: false, error: 'business_id and positive amount are required' }, { status: 400 });
+    // For API key auth, derive business_id from the key when not supplied in body.
+    // If supplied, it must match the key's business to prevent cross-business abuse.
+    const resolvedBusinessId: string | undefined = (() => {
+      if (apiKeyBusinessId) {
+        if (business_id && business_id !== apiKeyBusinessId) return undefined; // mismatch
+        return apiKeyBusinessId;
+      }
+      return business_id;
+    })();
+
+    if (!resolvedBusinessId || !amount || amount <= 0) {
+      return NextResponse.json(
+        { success: false, error: 'business_id and positive amount are required' },
+        { status: 400 }
+      );
     }
 
-    // Verify business belongs to user
+    // Verify business belongs to the authenticated merchant
     const { data: business } = await supabase
       .from('businesses')
       .select('id')
-      .eq('id', business_id)
-      .eq('merchant_id', decoded.userId)
+      .eq('id', resolvedBusinessId)
+      .eq('merchant_id', merchantId)
       .single();
 
     if (!business) {
@@ -113,7 +156,7 @@ export async function POST(request: NextRequest) {
     const { data: maxInvoice } = await supabase
       .from('invoices')
       .select('invoice_number')
-      .eq('business_id', business_id)
+      .eq('business_id', resolvedBusinessId)
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
@@ -126,14 +169,14 @@ export async function POST(request: NextRequest) {
     const invoiceNumber = `INV-${String(nextNum).padStart(3, '0')}`;
 
     // Determine fee rate
-    const isPaidTier = await isBusinessPaidTier(supabase, business_id);
+    const isPaidTier = await isBusinessPaidTier(supabase, resolvedBusinessId);
     const feeRate = getFeePercentage(isPaidTier);
 
     const { data: invoice, error } = await supabase
       .from('invoices')
       .insert({
-        user_id: decoded.userId,
-        business_id,
+        user_id: merchantId,
+        business_id: resolvedBusinessId,
         client_id: client_id || null,
         invoice_number: invoiceNumber,
         status: 'draft',
