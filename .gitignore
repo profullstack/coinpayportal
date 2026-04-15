@@ -51,3 +51,10 @@ packages/sdk/node_modules/
 .venv/
 gl-venv/
 certs/
+
+# LLM files
+.agent/
+.codex/
+.claude/
+# drewrox2009 local tracking
+.drewrox2009/
