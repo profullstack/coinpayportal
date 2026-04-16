@@ -982,6 +982,63 @@ describe('Wallet', () => {
 
       expect(results).toEqual([]);
     });
+
+    it('fetches the supported-chains list from the server when no target list is given (USDC_BASE-style regression guard)', async () => {
+      // Create wallet with ETH only
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          wallet_id: 'w1',
+          created_at: '2024-01-01T00:00:00Z',
+          addresses: [
+            { chain: 'ETH', address: '0xabc', derivation_index: 0 },
+          ],
+        })
+      );
+
+      const wallet = await Wallet.create({
+        ...SDK_CONFIG,
+        chains: ['ETH'],
+      });
+
+      // Server advertises a brand-new chain not present in any hardcoded
+      // SDK list — USDC_BASE stands in for any future addition.
+      mockFetch.mockResolvedValueOnce(
+        okResponse({ chains: ['ETH', 'USDC_BASE'] })
+      );
+
+      // getAddresses returns only ETH → USDC_BASE is missing.
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          addresses: [
+            { address_id: 'a1', chain: 'ETH', address: '0xabc', derivation_index: 0, is_active: true },
+          ],
+        })
+      );
+
+      // Derive endpoint for USDC_BASE succeeds.
+      mockFetch.mockResolvedValueOnce(
+        okResponse({
+          address_id: 'a2',
+          chain: 'USDC_BASE',
+          address: '0xabc',
+          derivation_index: 0,
+          derivation_path: "m/44'/60'/0'/0/0",
+          created_at: '2024-01-01T00:00:00Z',
+        }, 201)
+      );
+
+      const results = await wallet.deriveMissingChains();
+
+      expect(results).toHaveLength(1);
+      expect(results[0].chain).toBe('USDC_BASE');
+
+      // Confirm the SDK actually asked the server for the authoritative
+      // chain list rather than using a hardcoded one.
+      const supportedChainsCall = mockFetch.mock.calls.find(
+        (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('/api/web-wallet/supported-chains')
+      );
+      expect(supportedChainsCall).toBeDefined();
+    });
   });
 
   describe('Swap', () => {

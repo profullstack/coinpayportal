@@ -59,6 +59,7 @@ function getRpcEndpoints(): Record<string, string> {
     ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
     POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
     SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+    BASE: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
   };
 }
 
@@ -286,6 +287,9 @@ export async function broadcastTransaction(
       case 'POL':
       case 'USDC_POL':
         txHash = await withRetry(() => broadcastEVM(input.signed_tx, rpc.POL));
+        break;
+      case 'USDC_BASE':
+        txHash = await withRetry(() => broadcastEVM(input.signed_tx, rpc.BASE));
         break;
       case 'SOL':
       case 'USDC_SOL':
