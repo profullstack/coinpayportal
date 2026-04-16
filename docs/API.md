@@ -483,6 +483,7 @@ Generate a new payment request. This is the primary endpoint merchants use to ac
 | `SOL` | Solana | Native SOL payments |
 | `USDC_ETH` | USDC (Ethereum) | USDC stablecoin on Ethereum |
 | `USDC_POL` | USDC (Polygon) | USDC stablecoin on Polygon |
+| `USDC_BASE` | USDC (Base) | Native USDC stablecoin on Base |
 | `USDC_SOL` | USDC (Solana) | USDC stablecoin on Solana |
 
 **Response:**

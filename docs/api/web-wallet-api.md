@@ -58,6 +58,7 @@ When rate limited, responses include:
 | `SOL` | Solana mainnet | Base58 |
 | `USDC_ETH` | USDC on Ethereum | 0x... |
 | `USDC_POL` | USDC on Polygon | 0x... |
+| `USDC_BASE` | USDC on Base | 0x... |
 | `USDC_SOL` | USDC on Solana | Base58 |
 
 ---
