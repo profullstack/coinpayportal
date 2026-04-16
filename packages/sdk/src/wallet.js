@@ -33,6 +33,7 @@ export const WalletChain = {
   USDC_ETH: 'USDC_ETH',
   USDC_POL: 'USDC_POL',
   USDC_SOL: 'USDC_SOL',
+  USDC_BASE: 'USDC_BASE',
   USDT_ETH: 'USDT_ETH',
   USDT_POL: 'USDT_POL',
   USDT_SOL: 'USDT_SOL',
@@ -56,6 +57,7 @@ const COIN_TYPES = {
   USDC_ETH: 60,
   USDC_POL: 60,
   USDC_SOL: 501,
+  USDC_BASE: 60, // Base is EVM, uses ETH path — same address as USDC_ETH
   USDT_ETH: 60,
   USDT_POL: 60,
   USDT_SOL: 501,
@@ -64,7 +66,7 @@ const COIN_TYPES = {
 /**
  * Chains that use secp256k1 curve (vs ed25519 for Solana)
  */
-const SECP256K1_CHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'BNB', 'USDC_ETH', 'USDC_POL', 'USDT_ETH', 'USDT_POL'];
+const SECP256K1_CHAINS = ['BTC', 'BCH', 'ETH', 'POL', 'BNB', 'USDC_ETH', 'USDC_POL', 'USDC_BASE', 'USDT_ETH', 'USDT_POL'];
 
 // ============================================================
 // Address derivation helpers
@@ -305,6 +307,7 @@ export function deriveAddress(seed, chain, index = 0) {
     case 'BNB':
     case 'USDC_ETH':
     case 'USDC_POL':
+    case 'USDC_BASE':
     case 'USDT_ETH':
     case 'USDT_POL':
       return deriveETHAddress(publicKey);

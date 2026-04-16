@@ -48,6 +48,7 @@ function getRpcEndpoints(): Record<string, string> {
     POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
     SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
     BNB: process.env.BNB_RPC_URL || 'https://bsc-dataseed.binance.org',
+    BASE: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
     DOGE: process.env.DOGE_RPC_URL || 'https://dogechain.info/api/v1',
     XRP: process.env.XRP_RPC_URL || 'https://s1.ripple.com:51234',
     ADA: process.env.ADA_RPC_URL || 'https://cardano-mainnet.blockfrost.io/api/v0',
@@ -60,6 +61,8 @@ const USDC_CONTRACTS: Record<string, string> = {
   USDC_POL: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
   // USDC on BNB Smart Chain
   USDC_BNB: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
+  // Native USDC on Base (Circle-issued, not bridged USDbC)
+  USDC_BASE: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
 };
 
 // USDT contract addresses (ERC-20 compatible)
@@ -448,6 +451,8 @@ export async function fetchBalance(address: string, chain: WalletChain): Promise
       return fetchERC20Balance(address, USDC_CONTRACTS.USDC_POL, rpc.POL, USDC_DECIMALS);
     case 'USDC_SOL':
       return fetchSPLTokenBalance(address, USDC_SOL_MINT, rpc.SOL, USDC_DECIMALS);
+    case 'USDC_BASE':
+      return fetchERC20Balance(address, USDC_CONTRACTS.USDC_BASE, rpc.BASE, USDC_DECIMALS);
 
     // USDT variants
     case 'USDT_ETH':

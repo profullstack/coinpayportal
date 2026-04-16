@@ -155,6 +155,7 @@ describe('getDerivationFamily', () => {
     expect(getDerivationFamily('USDT_POL')).toBe('EVM');
     expect(getDerivationFamily('USDC_ETH')).toBe('EVM');
     expect(getDerivationFamily('USDC_POL')).toBe('EVM');
+    expect(getDerivationFamily('USDC_BASE')).toBe('EVM');
   });
 
   it('groups every Solana token into the SOL family', () => {
@@ -173,7 +174,7 @@ describe('getDerivationFamily', () => {
 
   it('getFamilyMembers returns every member of a family', () => {
     expect(getFamilyMembers('EVM').sort()).toEqual(
-      ['BNB', 'ETH', 'POL', 'USDC', 'USDC_ETH', 'USDC_POL', 'USDT', 'USDT_ETH', 'USDT_POL'].sort()
+      ['BNB', 'ETH', 'POL', 'USDC', 'USDC_BASE', 'USDC_ETH', 'USDC_POL', 'USDT', 'USDT_ETH', 'USDT_POL'].sort()
     );
     expect(getFamilyMembers('SOL').sort()).toEqual(['SOL', 'USDC_SOL', 'USDT_SOL'].sort());
     expect(getFamilyMembers('BTC')).toEqual(['BTC']);

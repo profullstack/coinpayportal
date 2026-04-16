@@ -41,7 +41,7 @@ export type SystemBlockchain =
   | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
   | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
   | 'USDT' | 'USDT_ETH' | 'USDT_POL' | 'USDT_SOL'
-  | 'USDC' | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
+  | 'USDC' | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL' | 'USDC_BASE';
 
 /**
  * Commission rates by tier
@@ -143,6 +143,9 @@ function getSystemMnemonic(cryptocurrency: SystemBlockchain): string {
   if (!mnemonic && cryptocurrency === 'USDC_SOL') {
     mnemonic = process.env['SYSTEM_MNEMONIC_SOL'];
   }
+  if (!mnemonic && cryptocurrency === 'USDC_BASE') {
+    mnemonic = process.env['SYSTEM_MNEMONIC_BASE'] || process.env['SYSTEM_MNEMONIC_ETH'];
+  }
   if (!mnemonic && cryptocurrency === 'USDT_ETH') {
     mnemonic = process.env['SYSTEM_MNEMONIC_ETH'];
   }
@@ -190,6 +193,9 @@ export function getCommissionWallet(cryptocurrency: SystemBlockchain): string {
   }
   if (!wallet && cryptocurrency === 'USDC_SOL') {
     wallet = process.env['PLATFORM_FEE_WALLET_SOL'];
+  }
+  if (!wallet && cryptocurrency === 'USDC_BASE') {
+    wallet = process.env['PLATFORM_FEE_WALLET_BASE'] || process.env['PLATFORM_FEE_WALLET_ETH'];
   }
   if (!wallet && cryptocurrency === 'USDT_ETH') {
     wallet = process.env['PLATFORM_FEE_WALLET_ETH'];
@@ -689,6 +695,7 @@ export async function deriveSystemPaymentAddress(
     case 'USDC':
     case 'USDC_ETH':
     case 'USDC_POL':
+    case 'USDC_BASE':
       wallet = deriveEthereumWallet(mnemonic, index);
       derivationPath = `m/44'/60'/0'/0/${index}`;
       break;
