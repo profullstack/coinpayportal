@@ -182,6 +182,7 @@ export function buildDerivationPath(chain: WalletChain, index: number): string {
     case 'BNB':
     case 'USDC_ETH':
     case 'USDC_POL':
+    case 'USDC_BASE':
     case 'USDT_ETH':
     case 'USDT_POL':
       return `m/44'/60'/0'/0/${index}`;

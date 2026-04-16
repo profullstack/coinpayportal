@@ -51,6 +51,7 @@ function getRpcEndpoints(): Record<string, string> {
       process.env.SOLANA_RPC_URL ||
       'https://api.mainnet-beta.solana.com',
     BNB: process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org',
+    BASE: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
   };
 }
 
@@ -58,6 +59,7 @@ function getRpcEndpoints(): Record<string, string> {
 const USDC_CONTRACTS: Record<string, string> = {
   USDC_ETH: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
   USDC_POL: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+  USDC_BASE: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
 };
 
 // USDT contract addresses
@@ -569,7 +571,7 @@ async function fetchEVMNativeHistory(
 async function fetchEVMUSDCHistory(
   address: string,
   rpcUrl: string,
-  chain: 'USDC_ETH' | 'USDC_POL'
+  chain: 'USDC_ETH' | 'USDC_POL' | 'USDC_BASE'
 ): Promise<IndexedTransaction[]> {
   const contractAddress = USDC_CONTRACTS[chain];
   if (!contractAddress) return [];
@@ -1716,6 +1718,8 @@ export async function fetchOnChainHistory(
       return fetchEVMUSDCHistory(address, rpc.ETH, 'USDC_ETH');
     case 'USDC_POL':
       return fetchEVMUSDCHistory(address, rpc.POL, 'USDC_POL');
+    case 'USDC_BASE':
+      return fetchEVMUSDCHistory(address, rpc.BASE, 'USDC_BASE');
     case 'USDC_SOL':
       return fetchUSDCSOLHistory(address, rpc.SOL);
     case 'USDT_ETH':

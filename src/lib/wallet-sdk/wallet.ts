@@ -83,7 +83,7 @@ export class Wallet {
     const chains: WalletChain[] = options.chains || [
       'BTC', 'BCH', 'ETH', 'POL', 'SOL',
       'DOGE', 'XRP', 'ADA', 'BNB',
-      'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+      'USDC_ETH', 'USDC_POL', 'USDC_SOL', 'USDC_BASE',
       'USDT_ETH', 'USDT_POL', 'USDT_SOL',
     ];
     const mnemonic = generateMnemonic(options.words || 12);
@@ -143,7 +143,7 @@ export class Wallet {
     const chains: WalletChain[] = options.chains || [
       'BTC', 'BCH', 'ETH', 'POL', 'SOL',
       'DOGE', 'XRP', 'ADA', 'BNB',
-      'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+      'USDC_ETH', 'USDC_POL', 'USDC_SOL', 'USDC_BASE',
       'USDT_ETH', 'USDT_POL', 'USDT_SOL',
     ];
     const bundle = await deriveWalletBundle(mnemonic, chains);
@@ -336,20 +336,10 @@ export class Wallet {
       );
     }
 
-    // Default chains that should exist
-    const defaultChains: WalletChain[] = targetChains || [
-      'BTC', 'BCH', 'ETH', 'POL', 'SOL',
-      'DOGE', 'XRP', 'ADA', 'BNB',
-      'USDC_ETH', 'USDC_POL', 'USDC_SOL',
-      'USDT_ETH', 'USDT_POL', 'USDT_SOL',
-    ];
-
-    // Get current addresses
-    const currentAddresses = await this.getAddresses();
-    const existingChains = new Set(currentAddresses.map((a) => a.chain));
-
-    // Find missing chains
-    const missingChains = defaultChains.filter((c) => !existingChains.has(c));
+    // Delegate to getMissingChains so the dynamic /supported-chains
+    // fetch is the single source of truth — otherwise newly added
+    // platform chains won't appear here until this file is edited.
+    const missingChains = await this.getMissingChains(targetChains);
 
     if (missingChains.length === 0) {
       return [];
