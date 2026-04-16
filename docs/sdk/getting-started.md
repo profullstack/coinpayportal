@@ -146,6 +146,7 @@ Blockchain.POL       // Polygon
 Blockchain.SOL       // Solana
 Blockchain.USDC_ETH  // USDC on Ethereum
 Blockchain.USDC_POL  // USDC on Polygon
+Blockchain.USDC_BASE // USDC on Base
 Blockchain.USDC_SOL  // USDC on Solana
 ```
 
