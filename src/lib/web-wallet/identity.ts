@@ -11,14 +11,14 @@ import { secp256k1 } from '@noble/curves/secp256k1';
 export type WalletChain =
   | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
   | 'DOGE' | 'XRP' | 'ADA' | 'BNB' | 'LN'
-  | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL'
+  | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL' | 'USDC_BASE'
   | 'USDT_ETH' | 'USDT_POL' | 'USDT_SOL';
 
 /** All valid chain values */
 export const VALID_CHAINS: WalletChain[] = [
   'BTC', 'BCH', 'ETH', 'POL', 'SOL',
   'DOGE', 'XRP', 'ADA', 'BNB', 'LN',
-  'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+  'USDC_ETH', 'USDC_POL', 'USDC_SOL', 'USDC_BASE',
   'USDT_ETH', 'USDT_POL', 'USDT_SOL',
 ];
 
@@ -37,6 +37,7 @@ export const DERIVATION_PATHS: Record<string, string> = {
   USDC_ETH: "m/44'/60'/0'/0",
   USDC_POL: "m/44'/60'/0'/0",
   USDC_SOL: "m/44'/501'",
+  USDC_BASE: "m/44'/60'/0'/0",
   USDT_ETH: "m/44'/60'/0'/0",
   USDT_POL: "m/44'/60'/0'/0",
   USDT_SOL: "m/44'/501'",
@@ -103,6 +104,7 @@ export function validateAddress(address: string, chain: WalletChain): boolean {
     case 'BNB':
     case 'USDC_ETH':
     case 'USDC_POL':
+    case 'USDC_BASE':
     case 'USDT_ETH':
     case 'USDT_POL':
       // EVM address: 0x followed by 40 hex chars

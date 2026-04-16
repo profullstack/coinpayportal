@@ -75,6 +75,7 @@ export const DERIVABLE_CHAINS = [
   'USDC_ETH',
   'USDC_POL',
   'USDC_SOL',
+  'USDC_BASE',
   // USDT tokens (same address as parent chain)
   'USDT_ETH',
   'USDT_POL',
@@ -100,6 +101,7 @@ export const DERIVABLE_CHAIN_INFO: Record<DerivableChain, { name: string; symbol
   USDC_ETH: { name: 'USDC (Ethereum)', symbol: 'USDC' },
   USDC_POL: { name: 'USDC (Polygon)', symbol: 'USDC' },
   USDC_SOL: { name: 'USDC (Solana)', symbol: 'USDC' },
+  USDC_BASE: { name: 'USDC (Base)', symbol: 'USDC' },
   USDT_ETH: { name: 'USDT (Ethereum)', symbol: 'USDT' },
   USDT_POL: { name: 'USDT (Polygon)', symbol: 'USDT' },
   USDT_SOL: { name: 'USDT (Solana)', symbol: 'USDT' },
@@ -112,6 +114,7 @@ export const TOKEN_PARENT_CHAIN: Partial<Record<DerivableChain, DerivableChain>>
   USDC_ETH: 'ETH',
   USDC_POL: 'POL',
   USDC_SOL: 'SOL',
+  USDC_BASE: 'ETH', // Base is EVM, derives from the same ETH key
   USDT_ETH: 'ETH',
   USDT_POL: 'POL',
   USDT_SOL: 'SOL',

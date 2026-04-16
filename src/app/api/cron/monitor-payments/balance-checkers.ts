@@ -124,6 +124,7 @@ export const RPC_ENDPOINTS: Record<string, string> = {
   DOGE: process.env.DOGE_RPC_URL || 'https://rest.cryptoapis.io/blockchain-data/dogecoin/mainnet',
   XRP: process.env.XRP_RPC_URL || 'https://xrplcluster.com',
   ADA: process.env.ADA_RPC_URL || 'https://cardano-mainnet.blockfrost.io/api/v0',
+  BASE: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
 };
 
 const EVM_TOKENS = {
@@ -131,6 +132,7 @@ const EVM_TOKENS = {
   USDT_POL: { contractAddress: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', decimals: 6 },
   USDC_ETH: { contractAddress: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', decimals: 6 },
   USDC_POL: { contractAddress: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', decimals: 6 },
+  USDC_BASE: { contractAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6 },
 } as const;
 
 const ERC20_BALANCE_OF_SELECTOR = '0x70a08231';
@@ -549,6 +551,8 @@ export async function checkBalance(address: string, blockchain: string): Promise
       return checkEVMTokenBalance(address, RPC_ENDPOINTS.POL, EVM_TOKENS.USDT_POL.contractAddress, EVM_TOKENS.USDT_POL.decimals);
     case 'USDC_POL':
       return checkEVMTokenBalance(address, RPC_ENDPOINTS.POL, EVM_TOKENS.USDC_POL.contractAddress, EVM_TOKENS.USDC_POL.decimals);
+    case 'USDC_BASE':
+      return checkEVMTokenBalance(address, RPC_ENDPOINTS.BASE, EVM_TOKENS.USDC_BASE.contractAddress, EVM_TOKENS.USDC_BASE.decimals);
     case 'SOL':
       return checkSolanaBalance(address, RPC_ENDPOINTS.SOL);
     case 'USDT_SOL':

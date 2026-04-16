@@ -55,6 +55,7 @@ describe('DERIVABLE_CHAINS constant', () => {
     expect(DERIVABLE_CHAINS).toContain('USDC_ETH');
     expect(DERIVABLE_CHAINS).toContain('USDC_POL');
     expect(DERIVABLE_CHAINS).toContain('USDC_SOL');
+    expect(DERIVABLE_CHAINS).toContain('USDC_BASE');
     expect(DERIVABLE_CHAINS).toContain('USDT_ETH');
     expect(DERIVABLE_CHAINS).toContain('USDT_POL');
     expect(DERIVABLE_CHAINS).toContain('USDT_SOL');
@@ -266,13 +267,22 @@ describe('USDC Tokens', () => {
     expect(usdcKey.chain).toBe('USDC_SOL');
   });
 
+  it('USDC_BASE derives same address as ETH', async () => {
+    const ethKey = await deriveKeyForChain(TEST_MNEMONIC, 'ETH', 0);
+    const usdcKey = await deriveKeyForChain(TEST_MNEMONIC, 'USDC_BASE', 0);
+    expect(usdcKey.address).toBe(ethKey.address);
+    expect(usdcKey.chain).toBe('USDC_BASE');
+  });
+
   it('validates USDC addresses', async () => {
     const usdcEth = await deriveKeyForChain(TEST_MNEMONIC, 'USDC_ETH', 0);
     const usdcPol = await deriveKeyForChain(TEST_MNEMONIC, 'USDC_POL', 0);
     const usdcSol = await deriveKeyForChain(TEST_MNEMONIC, 'USDC_SOL', 0);
+    const usdcBase = await deriveKeyForChain(TEST_MNEMONIC, 'USDC_BASE', 0);
     expect(validateAddress(usdcEth.address, 'USDC_ETH')).toBe(true);
     expect(validateAddress(usdcPol.address, 'USDC_POL')).toBe(true);
     expect(validateAddress(usdcSol.address, 'USDC_SOL')).toBe(true);
+    expect(validateAddress(usdcBase.address, 'USDC_BASE')).toBe(true);
   });
 });
 

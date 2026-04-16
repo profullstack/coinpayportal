@@ -32,12 +32,12 @@ export type SystemBlockchain =
   | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
   | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
   | 'USDT' | 'USDT_ETH' | 'USDT_POL' | 'USDT_SOL'
-  | 'USDC' | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
+  | 'USDC' | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL' | 'USDC_BASE';
 
 const ALL_CRYPTOS: SystemBlockchain[] = [
   'BTC', 'BCH', 'ETH', 'POL', 'SOL', 'DOGE', 'XRP', 'ADA', 'BNB',
   'USDT', 'USDT_ETH', 'USDT_POL', 'USDT_SOL',
-  'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+  'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL', 'USDC_BASE',
 ];
 
 export function getDerivationFamily(cryptocurrency: SystemBlockchain): string {
@@ -51,6 +51,7 @@ export function getDerivationFamily(cryptocurrency: SystemBlockchain): string {
     case 'USDT_POL':
     case 'USDC_ETH':
     case 'USDC_POL':
+    case 'USDC_BASE':
       return 'EVM';
     case 'SOL':
     case 'USDT_SOL':
