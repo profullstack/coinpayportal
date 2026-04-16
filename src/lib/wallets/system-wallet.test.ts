@@ -171,12 +171,39 @@ describe('System Wallet', () => {
 
       it('should derive USDC address using ETH mnemonic', async () => {
         delete process.env.SYSTEM_MNEMONIC_USDC;
-        
+
         const ethResult = await deriveSystemPaymentAddress('ETH', 0);
         const usdcResult = await deriveSystemPaymentAddress('USDC', 0);
-        
+
         expect(usdcResult.address).toBe(ethResult.address);
         expect(usdcResult.cryptocurrency).toBe('USDC');
+      });
+
+      it('should derive USDC_BASE address using ETH mnemonic when no Base-specific mnemonic set', async () => {
+        delete process.env.SYSTEM_MNEMONIC_BASE;
+        delete process.env.SYSTEM_MNEMONIC_USDC_BASE;
+
+        const ethResult = await deriveSystemPaymentAddress('ETH', 0);
+        const baseResult = await deriveSystemPaymentAddress('USDC_BASE', 0);
+
+        // Base is EVM, BIP44 coin type 60 — same key + Keccak-256 → same 0x address
+        expect(baseResult.address).toBe(ethResult.address);
+        expect(baseResult.cryptocurrency).toBe('USDC_BASE');
+        expect(baseResult.derivationPath).toBe("m/44'/60'/0'/0/0");
+      });
+
+      it('should prefer SYSTEM_MNEMONIC_BASE over SYSTEM_MNEMONIC_ETH for USDC_BASE', async () => {
+        const baseMnemonic = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
+        process.env.SYSTEM_MNEMONIC_BASE = baseMnemonic;
+
+        const ethResult = await deriveSystemPaymentAddress('ETH', 0);
+        const baseResult = await deriveSystemPaymentAddress('USDC_BASE', 0);
+
+        // Different mnemonic → different address
+        expect(baseResult.address).not.toBe(ethResult.address);
+        expect(baseResult.cryptocurrency).toBe('USDC_BASE');
+
+        delete process.env.SYSTEM_MNEMONIC_BASE;
       });
 
       it('should use specific mnemonic if provided for EVM token', async () => {
