@@ -446,6 +446,30 @@ export function WebWalletProvider({ children }: { children: ReactNode }) {
         error: null,
       }));
 
+      // Fire-and-forget: backfill any chains the platform added since
+      // this wallet was last unlocked (e.g. USDC_BASE). Never blocks
+      // the unlock UI; errors are logged and swallowed so a bad network
+      // or a single chain failure doesn't make the wallet look broken.
+      void (async () => {
+        try {
+          const derived = await wallet.deriveMissingChains();
+          if (derived.length === 0) return;
+          console.log(
+            `[WalletContext] auto-derived ${derived.length} missing chain(s): ${derived.map((d) => d.chain).join(', ')}`
+          );
+          const addresses = await wallet.getAddresses();
+          const currentChains = [...new Set(addresses.map((a) => a.chain))];
+          updateWalletInRegistry(entry.id, { chains: currentChains });
+          setState((s) =>
+            s.walletId === entry.id
+              ? { ...s, chains: currentChains, wallets: getAllWallets() }
+              : s
+          );
+        } catch (err) {
+          console.warn('[WalletContext] auto-derive missing chains failed:', err);
+        }
+      })();
+
       return true;
     } catch (err: unknown) {
       setState((s) => ({
