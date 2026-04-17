@@ -5,18 +5,51 @@ How CoinPay's WooCommerce and WHMCS plugins get from `master` to merchants.
 ## TL;DR
 
 ```bash
-# 1. Bump version in the three places that carry it
-#    - plugins/woocommerce/coinpay-woocommerce/coinpay-woocommerce.php (header + COINPAY_WC_VERSION)
-#    - plugins/woocommerce/coinpay-woocommerce/readme.txt (Stable tag)
-#    - plugins/whmcs/modules/gateways/coinpay.php (plugin_version metadata)
+# 1. Bump everything (root + SDK + plugins + shared PHP client) to the same
+#    version, sync vendored copies, publish SDK to npm, commit, and push.
+pnpm version:patch                  # or :minor, :major
 
-# 2. Tag and push
-git tag plugins-v0.1.1
-git push origin plugins-v0.1.1
+# 2. Tag and push the plugin release tag (the bump itself doesn't create tags).
+NEW=$(node -p "require('./package.json').version")
+git tag -a "plugins-v${NEW}" -m "CoinPay plugins v${NEW}"
+git push origin "plugins-v${NEW}"
 
-# 3. GitHub Actions does the rest (GitHub Release + WP.org deploy).
+# 3. GitHub Actions does the rest (GitHub Release + optional WP.org deploy).
 # 4. Manually upload the attached zips to WooCommerce.com and WHMCS Marketplace.
 ```
+
+## Version-bump script
+
+[`scripts/version-bump.js`](../scripts/version-bump.js) is the single source of truth for versioning. It rewrites every place a version appears across the monorepo, then runs the sync + publish + commit + push pipeline:
+
+| File | Pattern |
+|------|---------|
+| `package.json` | top-level `"version"` |
+| `packages/sdk/package.json` | JS SDK `"version"` |
+| `packages/coinpay-php/src/Client.php` | `USER_AGENT` constant |
+| `plugins/woocommerce/coinpay-woocommerce/coinpay-woocommerce.php` | plugin-header `Version:` + `COINPAY_WC_VERSION` constant |
+| `plugins/woocommerce/coinpay-woocommerce/readme.txt` | `Stable tag:` |
+| `plugins/whmcs/modules/gateways/coinpay.php` | `'plugin_version'` metadata |
+| `scripts/build-plugin-zips.sh` | `COINPAY_PLUGIN_VERSION` default |
+
+Then it runs `scripts/sync-plugin-sdk.sh` to propagate the shared PHP client into each plugin's vendored `lib/CoinPay/` directory.
+
+The script reads the target version from the root `package.json` (source of truth) and **sets** every other file to that same version — it doesn't require the files to be pre-aligned. A `[from X — was drifted]` note is printed for any file that was out of sync, so misalignment gets called out but automatically corrected.
+
+Flags:
+
+- `--dry-run` — prints what would change and exits before any file write, sync, publish, commit, or push. Safe to run anytime.
+
+Side effects when not in dry-run:
+
+1. Rewrites the 7 target files.
+2. Runs `sync-plugin-sdk.sh`.
+3. Publishes `@profullstack/coinpay` to npm.
+4. Commits with `--no-verify` (the pre-commit hook runs the full Next.js build, too slow for a version bump).
+5. Pushes the commit to `origin`.
+6. `sudo npm install -g @profullstack/coinpay@<new>` to update the global CLI (non-fatal if it fails).
+
+It does **not** create or push git tags — tags are deliberately manual because `plugins-v*` triggers the release workflow.
 
 ## What's fully automated
 
