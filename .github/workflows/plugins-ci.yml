@@ -1,0 +1,81 @@
+name: Plugins CI
+
+on:
+  pull_request:
+    paths:
+      - 'packages/coinpay-php/**'
+      - 'plugins/**'
+      - 'scripts/sync-plugin-sdk.sh'
+      - 'scripts/build-plugin-zips.sh'
+      - '.github/workflows/plugins-ci.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'packages/coinpay-php/**'
+      - 'plugins/**'
+      - 'scripts/sync-plugin-sdk.sh'
+      - 'scripts/build-plugin-zips.sh'
+      - '.github/workflows/plugins-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  lint-and-test:
+    name: Lint + Test (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: curl, hash, json
+          coverage: none
+          tools: none
+
+      - name: Sync vendored SDK (sanity check)
+        run: ./scripts/sync-plugin-sdk.sh
+
+      - name: Verify vendored copies match source
+        run: |
+          diff -r packages/coinpay-php/src plugins/woocommerce/coinpay-woocommerce/lib/CoinPay
+          diff -r packages/coinpay-php/src plugins/whmcs/modules/gateways/coinpay/lib/CoinPay
+
+      - name: PHP syntax check — shared client
+        run: find packages/coinpay-php/src -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: PHP syntax check — WooCommerce plugin
+        run: find plugins/woocommerce -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: PHP syntax check — WHMCS plugin
+        run: find plugins/whmcs -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Run webhook contract tests
+        run: php packages/coinpay-php/tests/WebhookTest.php
+
+  build-zips:
+    name: Build installable zips
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: curl, hash, json
+          coverage: none
+          tools: none
+
+      - name: Build zips
+        run: ./scripts/build-plugin-zips.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-zips
+          path: dist/coinpay-*.zip
+          retention-days: 14
