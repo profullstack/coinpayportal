@@ -23,7 +23,9 @@
     "postinstall": "git config core.hooksPath hooks 2>/dev/null || true",
     "version:patch": "node scripts/version-bump.js patch",
     "version:minor": "node scripts/version-bump.js minor",
-    "version:major": "node scripts/version-bump.js major"
+    "version:major": "node scripts/version-bump.js major",
+    "plugins:sync-sdk": "./scripts/sync-plugin-sdk.sh",
+    "plugins:build-zips": "./scripts/build-plugin-zips.sh"
   },
   "dependencies": {
     "@coinbase/wallet-sdk": "^4.3.7",
