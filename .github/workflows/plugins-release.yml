@@ -56,6 +56,9 @@ jobs:
       - name: Run webhook contract tests
         run: php packages/coinpay-php/tests/WebhookTest.php
 
+      - name: Run client integration tests
+        run: php packages/coinpay-php/tests/ClientTest.php
+
       - name: Build zips
         env:
           COINPAY_PLUGIN_VERSION: ${{ steps.meta.outputs.version }}
