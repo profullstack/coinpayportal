@@ -75,6 +75,25 @@ add_action('plugins_loaded', function () {
 }, 11);
 
 /**
+ * Register with the WooCommerce Blocks payment-method registry.
+ * Safe to call even when Blocks isn't installed — we guard on the interface.
+ */
+add_action('woocommerce_blocks_loaded', function () {
+    if (!class_exists(\Automattic\WooCommerce\Blocks\Payments\Integrations\AbstractPaymentMethodType::class)) {
+        return;
+    }
+
+    require_once COINPAY_WC_DIR . 'includes/class-wc-gateway-coinpay-blocks.php';
+
+    add_action(
+        'woocommerce_blocks_payment_method_type_registration',
+        function ($payment_method_registry) {
+            $payment_method_registry->register(new WC_Gateway_CoinPay_Blocks_Support());
+        }
+    );
+});
+
+/**
  * AJAX: admin-only "Test connection" handler.
  */
 add_action('wp_ajax_coinpay_test_connection', function () {
