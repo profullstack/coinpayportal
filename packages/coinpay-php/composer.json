@@ -1,0 +1,25 @@
+{
+    "name": "profullstack/coinpay-php",
+    "description": "PHP client for the CoinPay merchant API. Shared by CoinPay WooCommerce and WHMCS plugins.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["coinpay", "payments", "crypto", "woocommerce", "whmcs"],
+    "homepage": "https://coinpayportal.com",
+    "authors": [
+        {
+            "name": "Profullstack, Inc.",
+            "homepage": "https://profullstack.com"
+        }
+    ],
+    "require": {
+        "php": ">=7.4",
+        "ext-json": "*",
+        "ext-hash": "*",
+        "ext-curl": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "CoinPay\\": "src/"
+        }
+    }
+}

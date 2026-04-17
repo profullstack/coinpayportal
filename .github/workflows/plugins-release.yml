@@ -1,0 +1,148 @@
+name: Plugins Release
+
+# Tag with `plugins-v0.1.0` (etc.) to cut a release. A GitHub Release is created
+# with both installable zips attached. Marketplaces that expose a deploy API
+# (WordPress.org) are pushed automatically; marketplaces without one
+# (WooCommerce.com, WHMCS Marketplace) require a one-click manual upload of the
+# release asset — the workflow summary links straight to it.
+#
+# Required / optional secrets:
+#   WP_ORG_SVN_USERNAME   — (optional) WordPress.org SVN username. If set, the
+#                           WooCommerce plugin is deployed to WordPress.org via
+#                           SVN. Without it, the WP.org step is skipped.
+#   WP_ORG_SVN_PASSWORD   — (optional) matching SVN password.
+#   WOOCOM_NOTIFY_WEBHOOK — (optional) Slack/Discord/email webhook URL that
+#                           receives a reminder to upload to WooCommerce.com
+#                           and WHMCS Marketplace.
+
+on:
+  push:
+    tags:
+      - 'plugins-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 0.1.0) — used only for manual runs'
+        required: true
+        default: '0.1.0'
+
+jobs:
+  build:
+    name: Build + verify
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: curl, hash, json
+          coverage: none
+          tools: none
+
+      - name: Derive version
+        id: meta
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#plugins-v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Building plugins version ${VERSION}"
+
+      - name: Run webhook contract tests
+        run: php packages/coinpay-php/tests/WebhookTest.php
+
+      - name: Build zips
+        env:
+          COINPAY_PLUGIN_VERSION: ${{ steps.meta.outputs.version }}
+        run: ./scripts/build-plugin-zips.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-zips
+          path: dist/coinpay-*.zip
+          retention-days: 90
+
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: plugin-zips
+          path: dist
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('plugins-v{0}', needs.build.outputs.version) }}
+          name: CoinPay Plugins ${{ needs.build.outputs.version }}
+          body: |
+            CoinPay for WooCommerce and CoinPay for WHMCS — version ${{ needs.build.outputs.version }}.
+
+            ## Downloads
+            - `coinpay-woocommerce-${{ needs.build.outputs.version }}.zip` — install via WordPress → Plugins → Add New → Upload Plugin.
+            - `coinpay-whmcs-${{ needs.build.outputs.version }}.zip` — unzip into your WHMCS install root.
+
+            ## Distribution status
+            - [x] GitHub Release assets (you are here)
+            - [ ] WordPress.org plugin directory (SVN deploy — runs automatically when `WP_ORG_SVN_USERNAME` is configured)
+            - [ ] WooCommerce.com Marketplace — **manual upload required** (no public API). Vendor dashboard: https://woocommerce.com/my-dashboard/
+            - [ ] WHMCS Marketplace — **manual upload required** (no public API). Vendor dashboard: https://marketplace.whmcs.com/
+          files: dist/coinpay-*.zip
+          generate_release_notes: true
+
+  wordpress-org-deploy:
+    name: Deploy to WordPress.org
+    runs-on: ubuntu-latest
+    needs: build
+    # Only attempt WP.org deploy when the SVN credentials are configured.
+    # Repo variable `WP_ORG_DEPLOY_ENABLED=true` gates this even if secrets exist.
+    if: vars.WP_ORG_DEPLOY_ENABLED == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare plugin dir
+        run: |
+          mkdir -p _deploy
+          cp -r plugins/woocommerce/coinpay-woocommerce/* _deploy/
+          ls -la _deploy
+
+      - name: Deploy to WordPress.org SVN
+        uses: 10up/action-wordpress-plugin-deploy@stable
+        env:
+          SVN_USERNAME: ${{ secrets.WP_ORG_SVN_USERNAME }}
+          SVN_PASSWORD: ${{ secrets.WP_ORG_SVN_PASSWORD }}
+          SLUG: coinpay-woocommerce
+          VERSION: ${{ needs.build.outputs.version }}
+          BUILD_DIR: ./_deploy
+          # ASSETS_DIR: ./plugins/woocommerce/.wordpress-org  # add if/when we ship banners/icons
+
+  notify-marketplaces:
+    name: Notify maintainer of manual uploads
+    runs-on: ubuntu-latest
+    needs: [build, github-release]
+    if: vars.NOTIFY_MARKETPLACES == 'true'
+    steps:
+      - name: Post marketplace reminder
+        env:
+          NOTIFY_URL: ${{ secrets.MARKETPLACE_NOTIFY_WEBHOOK }}
+          VERSION: ${{ needs.build.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "${NOTIFY_URL:-}" ]; then
+            echo "MARKETPLACE_NOTIFY_WEBHOOK not set — skipping."
+            exit 0
+          fi
+          curl -fsS -X POST -H 'Content-Type: application/json' \
+            -d "{\"text\": \"CoinPay plugins v${VERSION} built. Manual upload needed:\\n• WooCommerce.com: https://woocommerce.com/my-dashboard/\\n• WHMCS Marketplace: https://marketplace.whmcs.com/\\nArtifacts: ${RUN_URL}\"}" \
+            "${NOTIFY_URL}"
