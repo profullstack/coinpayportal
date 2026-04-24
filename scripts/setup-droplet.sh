@@ -363,6 +363,11 @@ Wants=lightningd.service
 
 [Service]
 WorkingDirectory=${LNBITS_DIR}
+# Block startup until clnrest is actually listening. \`After=lightningd.service\`
+# only waits for the unit to be activated, not for the clnrest plugin to bind
+# its port — without this wait, a simultaneous restart can race lnbits ahead of
+# clnrest and make lnbits fall back to the VoidWallet placeholder backend.
+ExecStartPre=/bin/bash -c 'for i in \$(seq 1 90); do ss -Hltn sport = :3010 | grep -q LISTEN && exit 0; sleep 1; done; echo "clnrest :3010 never came up" >&2; exit 1'
 ExecStart=${LNBITS_DIR}/.venv/bin/lnbits --port ${LNBITS_PORT} --host 127.0.0.1
 Restart=on-failure
 RestartSec=5
@@ -482,6 +487,58 @@ if [ -f "${NGINX_CONF}" ] && ! grep -q "location /lnurlp/" "${NGINX_CONF}"; then
   nginx -t && systemctl reload nginx
 fi
 
+
+# ─────────────────────────────────────────────
+# 8b. Nginx hardening (boot-race resilience)
+# ─────────────────────────────────────────────
+# On simultaneous service restarts (e.g. unattended-upgrades), nginx has been
+# observed to start one second before systemd-resolved finishes coming up and
+# then permanently fail to parse any config with a hostname upstream. Force an
+# ordering dep so nginx waits for the resolver.
+echo "▶ [8b/9] Nginx hardening..."
+
+mkdir -p /etc/systemd/system/nginx.service.d
+cat > /etc/systemd/system/nginx.service.d/override.conf <<'EOF'
+[Unit]
+After=systemd-resolved.service
+Wants=systemd-resolved.service
+EOF
+systemctl daemon-reload
+
+# Esplora (mempool.space) reverse proxy used by LNbits extensions. Uses the
+# runtime \`resolver\` pattern so DNS for mempool.space is looked up per-request
+# rather than at config-parse time — otherwise a failed lookup at nginx startup
+# takes the whole server down.
+# Guarded on SSL cert existing since this listener terminates TLS.
+ESPLORA_CONF="/etc/nginx/sites-available/esplora-proxy"
+if [ -d "/etc/letsencrypt/live/${LNBITS_DOMAIN}" ] && [ ! -f "${ESPLORA_CONF}" ]; then
+  cat > "${ESPLORA_CONF}" <<EOF
+server {
+    listen 127.0.0.1:8443 ssl;
+    server_name blockstream.info mempool.emzy.de;
+
+    ssl_certificate /etc/letsencrypt/live/${LNBITS_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${LNBITS_DOMAIN}/privkey.pem;
+
+    resolver 127.0.0.53 valid=60s ipv6=off;
+
+    location /api/ {
+        set \$mempool_upstream "mempool.space";
+        proxy_pass https://\$mempool_upstream\$request_uri;
+        proxy_ssl_server_name on;
+        proxy_set_header Host mempool.space;
+        proxy_set_header Accept-Encoding "";
+    }
+}
+EOF
+  ln -sf "${ESPLORA_CONF}" /etc/nginx/sites-enabled/esplora-proxy
+  nginx -t && systemctl reload nginx
+  echo "  Esplora proxy configured (hardened with runtime DNS)"
+elif [ -f "${ESPLORA_CONF}" ]; then
+  echo "  Esplora proxy already present"
+else
+  echo "  Esplora proxy skipped — no SSL cert at /etc/letsencrypt/live/${LNBITS_DOMAIN} yet"
+fi
 
 # Firewall
 if command -v ufw &>/dev/null; then
