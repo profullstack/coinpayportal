@@ -1,0 +1,11 @@
+{
+  "id": "CoinPayPortal",
+  "type": "payment-gateway",
+  "name": "CoinPayPortal Crypto Payments",
+  "description": "Accept crypto payments through CoinPayPortal.",
+  "version": "1.0.0",
+  "author": "CoinPayPortal",
+  "author_url": "https://coinpayportal.com",
+  "minimum_boxbilling_version": "0.6.0",
+  "license": "MIT"
+}
