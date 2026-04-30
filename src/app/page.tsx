@@ -803,6 +803,132 @@ coinpay escrow release <id> --token esc_abc...`}
         </div>
       </section>
 
+      {/* Platform Integrations Section */}
+      <section className="relative py-24 bg-slate-900/50" id="integrations">
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <span className="px-3 py-1 text-xs font-bold uppercase tracking-wider bg-purple-500/20 text-purple-300 rounded-full border border-purple-500/30">
+              Platform Plugins
+            </span>
+            <h2 className="text-4xl sm:text-5xl font-bold text-white mt-4 mb-4">
+              Plug in to your platform
+            </h2>
+            <p className="text-xl text-gray-400 max-w-2xl mx-auto">
+              Ready-made payment gateway plugins for the most popular hosting and e-commerce platforms. Install in minutes, no custom code required.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-8">
+            {/* WHMCS */}
+            <div className="group relative p-8 rounded-2xl bg-white/5 border border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5 transition-all duration-300">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-orange-500/20 border border-orange-500/30 flex items-center justify-center flex-shrink-0">
+                  <span className="text-orange-400 font-black text-sm tracking-tight">WHMCS</span>
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white">WHMCS</h3>
+                  <p className="text-sm text-gray-400">Hosting &amp; billing platform</p>
+                </div>
+              </div>
+              <p className="text-gray-400 text-sm mb-6 leading-relaxed">
+                Accept crypto payments for hosting invoices, domain renewals, and service orders. Automatic invoice reconciliation via signed webhooks.
+              </p>
+              <ul className="space-y-2 mb-8">
+                {['Automatic invoice marking', 'Sandbox/test mode', 'Webhook signature verification', 'WHMCS 8.x compatible'].map((f) => (
+                  <li key={f} className="flex items-center gap-2 text-sm text-gray-300">
+                    <svg className="w-4 h-4 text-orange-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <a
+                href="https://github.com/profullstack/coinpayportal/tree/master/plugins/whmcs"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm font-medium text-orange-400 hover:text-orange-300 transition-colors"
+              >
+                View Plugin →
+              </a>
+            </div>
+
+            {/* WooCommerce */}
+            <div className="group relative p-8 rounded-2xl bg-white/5 border border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5 transition-all duration-300">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-7 h-7 text-purple-400" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M3.007 0h17.986C22.657 0 24 1.343 24 3.007v17.986A3.007 3.007 0 0 1 20.993 24H3.007A3.007 3.007 0 0 1 0 20.993V3.007A3.007 3.007 0 0 1 3.007 0z"/>
+                    <path fill="white" d="M2.5 6.3c.3-.4.7-.6 1.3-.7 1.1-.1 1.7.4 1.8 1.4 0 0 .5 3.4.6 4.2.1.7.5 2.4 1.5 2.8.2.1.5.1.7 0 .4-.2.7-.6 1-1.1.3-.4.6-.9 1-1.4.3.8.7 1.5 1.2 1.9.4.3.8.4 1.2.3.5-.1.9-.5 1.1-1.1l1.2-4c.3-1 .7-1.7 1.1-2.1.5-.4 1-.4 1.5-.1.4.3.6.8.5 1.4l-.3 1.5c-.1.4 0 .6.3.7.3.1.6-.1.7-.4l.3-1.5c.2-1.1-.2-2-1.1-2.5-.9-.5-1.9-.3-2.8.6-.5.5-.9 1.3-1.2 2.3l-.8 2.7c-.5-.7-.9-1.6-1.2-2.8-.1-.4-.4-.6-.7-.6-.3 0-.6.2-.7.5-.7 1.2-1.2 2.1-1.6 2.7-.1-.7-.4-2.6-.6-5.7C8 4.6 6.9 3.8 5.6 3.9c-.6.1-1.2.3-1.5.8-.3.4-.4 1-.3 1.6l1.2 6.8c-.7-.3-1.2-.6-1.6-.8-.5-.3-1-.4-1.5-.3-.5.1-.9.4-1.1.9-.2.5-.1 1.1.1 1.6.3.8.9 1.4 1.7 1.8 1.1.5 2.3.7 3.5.5.4-.1.6-.3.7-.7l-1.3-7.8c-.1-.3 0-.5.1-.7z"/>
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white">WooCommerce</h3>
+                  <p className="text-sm text-gray-400">WordPress e-commerce</p>
+                </div>
+              </div>
+              <p className="text-gray-400 text-sm mb-6 leading-relaxed">
+                Add crypto checkout to any WooCommerce store. Supports classic checkout, Blocks checkout, and automatic order status updates.
+              </p>
+              <ul className="space-y-2 mb-8">
+                {['WooCommerce Blocks support', 'Auto order completion', 'Sandbox/test mode', 'WP.org ready'].map((f) => (
+                  <li key={f} className="flex items-center gap-2 text-sm text-gray-300">
+                    <svg className="w-4 h-4 text-purple-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <a
+                href="https://github.com/profullstack/coinpayportal/tree/master/plugins/woocommerce"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm font-medium text-purple-400 hover:text-purple-300 transition-colors"
+              >
+                View Plugin →
+              </a>
+            </div>
+
+            {/* FOSSBilling */}
+            <div className="group relative p-8 rounded-2xl bg-white/5 border border-white/10 hover:border-cyan-500/40 hover:bg-cyan-500/5 transition-all duration-300">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center flex-shrink-0">
+                  <span className="text-cyan-400 font-black text-xs tracking-tight">FOSS</span>
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white">FOSSBilling</h3>
+                  <p className="text-sm text-gray-400">Open-source billing</p>
+                </div>
+              </div>
+              <p className="text-gray-400 text-sm mb-6 leading-relaxed">
+                Open-source WHMCS alternative for hosting providers. Crypto payments for invoices with automatic reconciliation and webhook verification.
+              </p>
+              <ul className="space-y-2 mb-8">
+                {['FOSSBilling 0.6+ compatible', 'PHP 8.1+', 'Duplicate webhook protection', 'Debug logging'].map((f) => (
+                  <li key={f} className="flex items-center gap-2 text-sm text-gray-300">
+                    <svg className="w-4 h-4 text-cyan-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <a
+                href="https://github.com/profullstack/coinpayportal/tree/master/plugins/fossbilling"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm font-medium text-cyan-400 hover:text-cyan-300 transition-colors"
+              >
+                View Plugin →
+              </a>
+            </div>
+          </div>
+        </div>
+        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+      </section>
+
       {/* Web Wallet & CLI Section */}
       <section className="relative py-24" id="wallet">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
