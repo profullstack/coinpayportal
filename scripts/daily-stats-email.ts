@@ -71,10 +71,37 @@ async function sumColumn(table: string, col: string, filter?: Record<string, unk
   }, 0);
 }
 
+async function countNotNull(table: string, col: string) {
+  const { count: c } = await supabase
+    .from(table)
+    .select("*", { count: "exact", head: true })
+    .not(col, "is", null);
+  return c ?? 0;
+}
+
+async function countSinceNotNull(table: string, tsCol: string, filterCol: string, hours: number) {
+  const since = new Date(Date.now() - hours * 3600_000).toISOString();
+  const { count: c } = await supabase
+    .from(table)
+    .select("*", { count: "exact", head: true })
+    .gte(tsCol, since)
+    .not(filterCol, "is", null);
+  return c ?? 0;
+}
+
 async function recentMerchants(limit: number) {
   const { data } = await supabase
     .from("merchants")
     .select("name, email, created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  return data || [];
+}
+
+async function recentBusinesses(limit: number) {
+  const { data } = await supabase
+    .from("businesses")
+    .select("name, created_at")
     .order("created_at", { ascending: false })
     .limit(limit);
   return data || [];
@@ -139,6 +166,29 @@ async function buildReport(): Promise<{ subject: string; html: string; text: str
 
   // Businesses
   const totalBusinesses = await count("businesses");
+  const newBusinesses24h = await countSince("businesses", "created_at", 24);
+  const newBusinesses7d = await countSinceDays("businesses", "created_at", 7);
+  const newBusinesses30d = await countSinceDays("businesses", "created_at", 30);
+  const recentBiz = await recentBusinesses(5);
+
+  // Integrations
+  const bizWithApiKey = await countNotNull("businesses", "api_key");
+  const newApiKeys24h = await countSinceNotNull("businesses", "api_key_created_at", "api_key", 24);
+  const stripeAccounts = await count("stripe_accounts");
+  const newStripeAccounts24h = await countSince("stripe_accounts", "created_at", 24);
+  const oauthClients = await count("oauth_clients");
+  const newOauthClients24h = await countSince("oauth_clients", "created_at", 24);
+  const bizWithWebhook = await countNotNull("businesses", "webhook_url");
+
+  // Subscriptions
+  const totalSubscriptions = await count("subscriptions");
+  const activeSubscriptions = await count("subscriptions", { status: "active" });
+  const newSubscriptions24h = await countSince("subscriptions", "created_at", 24);
+
+  // Invoices
+  const totalInvoices = await count("invoices");
+  const paidInvoices = await count("invoices", { status: "paid" });
+  const newInvoices24h = await countSince("invoices", "created_at", 24);
 
   // Reputation
   const totalReceipts = await count("reputation_receipts");
@@ -180,7 +230,31 @@ ESCROWS
   Funded: ${fundedEscrows}
   New (24h): ${newEscrows24h}
 
-BUSINESSES: ${totalBusinesses}
+BUSINESSES
+  Total: ${totalBusinesses}
+  New (24h): ${newBusinesses24h}
+  New (7d): ${newBusinesses7d}
+  New (30d): ${newBusinesses30d}
+${recentBiz.length > 0 ? recentBiz.map((b) => `  • ${b.name || "(no name)"} (${b.created_at?.slice(0, 10)})`).join("\n") : "  (none recently)"}
+
+INTEGRATIONS
+  Businesses with API key: ${bizWithApiKey}
+  New API keys (24h): ${newApiKeys24h}
+  Stripe accounts connected: ${stripeAccounts}
+  New Stripe (24h): ${newStripeAccounts24h}
+  OAuth apps registered: ${oauthClients}
+  New OAuth apps (24h): ${newOauthClients24h}
+  Businesses with webhook: ${bizWithWebhook}
+
+SUBSCRIPTIONS
+  Total: ${totalSubscriptions}
+  Active: ${activeSubscriptions}
+  New (24h): ${newSubscriptions24h}
+
+INVOICES
+  Total: ${totalInvoices}
+  Paid: ${paidInvoices}
+  New (24h): ${newInvoices24h}
 
 REPUTATION
   Receipts: ${totalReceipts}
@@ -245,6 +319,50 @@ SPAM DETECTION
       <tr><td style="padding: 4px 0;">New (24h)</td><td style="text-align: right;">${newEscrows24h}</td></tr>
     </table>
 
+    <h2 style="font-size: 16px; color: #7c3aed; margin: 0 0 12px;">🏢 Businesses</h2>
+    <table style="width: 100%; font-size: 14px; margin-bottom: 12px;">
+      <tr><td style="padding: 4px 0;">Total</td><td style="text-align: right; font-weight: bold;">${totalBusinesses}</td></tr>
+      <tr><td style="padding: 4px 0;">New (24h)</td><td style="text-align: right; font-weight: bold; color: ${newBusinesses24h > 0 ? "#16a34a" : "#666"};">${newBusinesses24h}</td></tr>
+      <tr><td style="padding: 4px 0;">New (7d)</td><td style="text-align: right;">${newBusinesses7d}</td></tr>
+      <tr><td style="padding: 4px 0;">New (30d)</td><td style="text-align: right;">${newBusinesses30d}</td></tr>
+    </table>
+    ${recentBiz.length > 0 ? `
+    <ul style="font-size: 13px; padding-left: 20px; margin: 0 0 20px;">
+      ${recentBiz.map((b) => `<li style="margin-bottom: 4px;"><strong>${b.name || "(no name)"}</strong> <span style="color: #999;">(${b.created_at?.slice(0, 10)})</span></li>`).join("")}
+    </ul>
+    ` : `<div style="margin-bottom: 20px;"></div>`}
+
+    <h2 style="font-size: 16px; color: #7c3aed; margin: 0 0 12px;">🔌 Integrations</h2>
+    <table style="width: 100%; font-size: 14px; margin-bottom: 20px;">
+      <tr><td style="padding: 4px 0;">Businesses with API key</td><td style="text-align: right; font-weight: bold;">${bizWithApiKey}</td></tr>
+      <tr><td style="padding: 4px 0;">New API keys (24h)</td><td style="text-align: right; color: ${newApiKeys24h > 0 ? "#16a34a" : "#666"};">${newApiKeys24h}</td></tr>
+      <tr><td style="padding: 4px 0;">Stripe accounts connected</td><td style="text-align: right;">${stripeAccounts}</td></tr>
+      <tr><td style="padding: 4px 0;">New Stripe accounts (24h)</td><td style="text-align: right; color: ${newStripeAccounts24h > 0 ? "#16a34a" : "#666"};">${newStripeAccounts24h}</td></tr>
+      <tr><td style="padding: 4px 0;">OAuth apps registered</td><td style="text-align: right;">${oauthClients}</td></tr>
+      <tr><td style="padding: 4px 0;">New OAuth apps (24h)</td><td style="text-align: right; color: ${newOauthClients24h > 0 ? "#16a34a" : "#666"};">${newOauthClients24h}</td></tr>
+      <tr><td style="padding: 4px 0;">Businesses with webhook</td><td style="text-align: right;">${bizWithWebhook}</td></tr>
+    </table>
+
+    <h2 style="font-size: 16px; color: #7c3aed; margin: 0 0 12px;">🔄 Subscriptions</h2>
+    <table style="width: 100%; font-size: 14px; margin-bottom: 20px;">
+      <tr><td style="padding: 4px 0;">Total</td><td style="text-align: right; font-weight: bold;">${totalSubscriptions}</td></tr>
+      <tr><td style="padding: 4px 0;">Active</td><td style="text-align: right; color: ${activeSubscriptions > 0 ? "#16a34a" : "#666"};">${activeSubscriptions}</td></tr>
+      <tr><td style="padding: 4px 0;">New (24h)</td><td style="text-align: right; color: ${newSubscriptions24h > 0 ? "#16a34a" : "#666"};">${newSubscriptions24h}</td></tr>
+    </table>
+
+    <h2 style="font-size: 16px; color: #7c3aed; margin: 0 0 12px;">🧾 Invoices</h2>
+    <table style="width: 100%; font-size: 14px; margin-bottom: 20px;">
+      <tr><td style="padding: 4px 0;">Total</td><td style="text-align: right; font-weight: bold;">${totalInvoices}</td></tr>
+      <tr><td style="padding: 4px 0;">Paid</td><td style="text-align: right;">${paidInvoices}</td></tr>
+      <tr><td style="padding: 4px 0;">New (24h)</td><td style="text-align: right; color: ${newInvoices24h > 0 ? "#16a34a" : "#666"};">${newInvoices24h}</td></tr>
+    </table>
+
+    <h2 style="font-size: 16px; color: #7c3aed; margin: 0 0 12px;">⭐ Reputation</h2>
+    <table style="width: 100%; font-size: 14px; margin-bottom: 20px;">
+      <tr><td style="padding: 4px 0;">Total receipts</td><td style="text-align: right;">${totalReceipts}</td></tr>
+      <tr><td style="padding: 4px 0;">New (24h)</td><td style="text-align: right; color: ${newReceipts24h > 0 ? "#16a34a" : "#666"};">${newReceipts24h}</td></tr>
+    </table>
+
     <h2 style="font-size: 16px; color: #7c3aed; margin: 0 0 12px;">🛡️ Spam Detection</h2>
     <table style="width: 100%; font-size: 14px; margin-bottom: 20px;">
       <tr><td style="padding: 4px 0;">Current merchants</td><td style="text-align: right;">${spam.total}</td></tr>
@@ -252,9 +370,6 @@ SPAM DETECTION
       <tr><td style="padding: 4px 0;">Would be blocked today</td><td style="text-align: right; color: ${spam.wouldBlock > 0 ? "#dc2626" : "#666"};">${spam.wouldBlock}</td></tr>
     </table>
 
-    <div style="font-size: 12px; color: #999; border-top: 1px solid #eee; padding-top: 12px; margin-top: 12px;">
-      Businesses: ${totalBusinesses} · Reputation receipts: ${totalReceipts} (${newReceipts24h} new)
-    </div>
   </div>
 
   <p style="text-align: center; font-size: 12px; color: #999; margin-top: 16px;">
