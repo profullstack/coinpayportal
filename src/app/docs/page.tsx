@@ -132,6 +132,28 @@ export default function DocsPage() {
           </div>
         </div>
 
+        {/* Platform Plugins Banner */}
+        <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-cyan-500/20 to-purple-500/20 border border-cyan-500/30">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h2 className="text-xl font-bold text-white mb-2">🔌 Platform Plugins</h2>
+              <p className="text-gray-300 text-sm">
+                Ready-made payment gateway plugins for{' '}
+                <a href="https://github.com/profullstack/coinpayportal/tree/master/plugins/whmcs" target="_blank" rel="noopener noreferrer" className="text-orange-400 hover:text-orange-300 font-medium">WHMCS</a>,{' '}
+                <a href="https://github.com/profullstack/coinpayportal/tree/master/plugins/woocommerce" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 font-medium">WooCommerce</a>, and{' '}
+                <a href="https://github.com/profullstack/coinpayportal/tree/master/plugins/fossbilling" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300 font-medium">FOSSBilling</a>.
+                Install in minutes — no custom code required.
+              </p>
+            </div>
+            <Link
+              href="/#integrations"
+              className="px-6 py-3 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2 whitespace-nowrap"
+            >
+              View Plugins →
+            </Link>
+          </div>
+        </div>
+
         {/* Invoicing Banner */}
         <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30">
           <div className="flex items-center justify-between">
