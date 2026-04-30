@@ -507,6 +507,7 @@ describe('Wallet Service', () => {
         'USDC_ETH',
         'USDC_POL',
         'USDC_SOL',
+        'USDC_BASE',
         'BNB',
         'SOL',
         'XRP',
