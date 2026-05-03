@@ -615,7 +615,9 @@ run_update() {
 # entry
 # ---------------------------------------------------------------------------
 CMD="${1:-install}"
-shift 2>/dev/null || true
+# `shift` with zero positional params exits non-zero even with `|| true`
+# under `set -eu` in some shells (dash), so guard it.
+if [ $# -gt 0 ]; then shift; fi
 
 case "$CMD" in
     install)              run_install ;;

@@ -15,11 +15,15 @@ export default function Home() {
         </div>
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-24 sm:pt-24 sm:pb-32">
-          {/* AI Agent Discovery */}
-          <div className="mb-6 mx-auto max-w-xl">
-            <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
-              <span>🤖 AI Agent?</span>
-              <code className="bg-slate-800/80 px-2 py-1 rounded font-mono text-emerald-400">curl -s https://coinpayportal.com/skill.md</code>
+          {/* AI Agent Discovery + CLI install */}
+          <div className="mb-6 mx-auto max-w-2xl space-y-2">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2 text-xs text-gray-500">
+              <span className="whitespace-nowrap">🤖 AI Agent?</span>
+              <code className="bg-slate-800/80 px-2 py-1 rounded font-mono text-emerald-400 break-all">curl -s https://coinpayportal.com/skill.md</code>
+            </div>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2 text-xs text-gray-500">
+              <span className="whitespace-nowrap">⌨️ Install CLI?</span>
+              <code className="bg-slate-800/80 px-2 py-1 rounded font-mono text-emerald-400 break-all">curl -fsSL https://coinpayportal.com/install.sh | sh</code>
             </div>
           </div>
 
