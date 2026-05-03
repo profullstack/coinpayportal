@@ -32,6 +32,16 @@ const nextConfig = {
   // Security headers
   async headers() {
     return [
+      // Serve /install.sh as text/plain so `curl | sh` works cleanly
+      // and browsers display the script inline (users can audit before
+      // piping). Security headers from the catch-all below still apply.
+      {
+        source: '/install.sh',
+        headers: [
+          { key: 'Content-Type', value: 'text/plain; charset=utf-8' },
+          { key: 'Cache-Control', value: 'public, max-age=300' },
+        ],
+      },
       {
         source: '/(.*)',
         headers: [

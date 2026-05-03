@@ -949,28 +949,49 @@ coinpay escrow release <id> --token esc_abc...`}
             <div className="space-y-6">
               <h3 className="text-2xl font-bold text-white mb-4">Install</h3>
 
-              {/* SDK install */}
+              {/* One-liner install (recommended) */}
+              <div className="rounded-2xl bg-slate-800/80 backdrop-blur-sm border border-emerald-500/40 overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-3 bg-slate-800/80 border-b border-white/10">
+                  <div className="w-3 h-3 rounded-full bg-red-500" />
+                  <div className="w-3 h-3 rounded-full bg-yellow-500" />
+                  <div className="w-3 h-3 rounded-full bg-green-500" />
+                  <span className="ml-2 text-sm text-gray-400">Recommended — one-liner</span>
+                  <span className="ml-auto px-2 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-emerald-500/20 text-emerald-300 rounded border border-emerald-500/40">Default</span>
+                </div>
+                <pre className="p-4 text-sm overflow-x-auto">
+                  <code className="text-emerald-300">
+{`# Install (uses mise for Node, no sudo, auto-upgrades every 5 min)
+curl -fsSL https://coinpayportal.com/install.sh | sh
+
+# Lifecycle
+coinpay update      # upgrade to latest
+coinpay remove      # uninstall
+coinpay --help      # show commands`}
+                  </code>
+                </pre>
+              </div>
+
+              {/* npm install (alternative) */}
               <div className="rounded-2xl bg-slate-800/80 backdrop-blur-sm border border-white/10 overflow-hidden">
                 <div className="flex items-center gap-2 px-4 py-3 bg-slate-800/80 border-b border-white/10">
                   <div className="w-3 h-3 rounded-full bg-red-500" />
                   <div className="w-3 h-3 rounded-full bg-yellow-500" />
                   <div className="w-3 h-3 rounded-full bg-green-500" />
-                  <span className="ml-2 text-sm text-gray-400">SDK &amp; Payment Gateway CLI</span>
+                  <span className="ml-2 text-sm text-gray-400">npm (alternative)</span>
                 </div>
                 <pre className="p-4 text-sm overflow-x-auto">
                   <code className="text-gray-300">
-{`# Install the SDK + coinpay CLI globally
+{`# If you already have Node 18+ on your box
 npm install -g @profullstack/coinpay
 
 # Or add to your project
 npm install @profullstack/coinpay
 
 # Configure
-coinpay config set apiKey YOUR_API_KEY
-coinpay config set apiUrl https://coinpayportal.com
+coinpay config set-key YOUR_API_KEY
 
 # Create a payment
-coinpay create --amount 100 --currency USD --crypto ETH`}
+coinpay payment create --amount 100 --currency USD --crypto ETH`}
                   </code>
                 </pre>
               </div>
