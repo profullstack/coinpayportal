@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/server/optional-deps';
+import { normalizeCountryCode } from '@/lib/stripe/connect-countries';
 
 function getSupabase() {
   return createClient(
@@ -14,16 +15,17 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const businessId = body.businessId || body.business_id;
-    const { email, country = 'US' } = body;
+    const { email } = body;
+    const requestedCountry = body.country;
 
     if (!businessId) {
       return NextResponse.json({ error: 'businessId is required' }, { status: 400 });
     }
 
-    // Look up the merchant_id from the business
+    // Look up the merchant_id and any previously-stored country from the business
     const { data: business } = await supabase
       .from('businesses')
-      .select('merchant_id')
+      .select('merchant_id, country')
       .eq('id', businessId)
       .single();
 
@@ -32,6 +34,16 @@ export async function POST(request: NextRequest) {
     }
 
     const merchantId = business.merchant_id;
+
+    // Country is required and must be a Stripe Connect supported country.
+    // Stripe locks the country at account creation, so we resolve it once here.
+    const country = normalizeCountryCode(requestedCountry) || normalizeCountryCode(business.country);
+    if (!country) {
+      return NextResponse.json(
+        { error: 'A supported country is required to onboard with Stripe Connect' },
+        { status: 400 }
+      );
+    }
 
     // Check if business already has a Stripe account
     const { data: existingAccount } = await supabase
@@ -93,6 +105,11 @@ export async function POST(request: NextRequest) {
           { error: 'Stripe account created but failed to save. Contact support.', stripe_account_id: stripeAccountId },
           { status: 500 }
         );
+      }
+
+      // Persist the country on the business so re-onboard / UI flows can read it without a Stripe roundtrip.
+      if (business.country !== country) {
+        await supabase.from('businesses').update({ country }).eq('id', businessId);
       }
     }
 

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { authFetch } from '@/lib/auth/client';
 import { formatAmount } from './stripe-helpers';
+import { CountrySelect } from './CountrySelect';
 
 interface StripeConnectTabProps {
   businessId: string;
@@ -36,6 +37,7 @@ export function StripeConnectTab({ businessId }: StripeConnectTabProps) {
   const [onboarding, setOnboarding] = useState(false);
   const [error, setError] = useState('');
   const [justConnected, setJustConnected] = useState(false);
+  const [country, setCountry] = useState('');
 
   const fetchConnectStatus = useCallback(async () => {
     try {
@@ -92,13 +94,20 @@ export function StripeConnectTab({ businessId }: StripeConnectTabProps) {
   }, [fetchConnectStatus, fetchBalance]);
 
   const handleOnboard = async () => {
+    // For first-time onboarding the user must pick a country. Returning to
+    // complete requirements on an existing account doesn't need one — Stripe
+    // already has the country locked in.
+    if (!connectStatus?.connected && !country) {
+      setError('Please select a country before connecting with Stripe.');
+      return;
+    }
     setOnboarding(true);
     setError('');
     try {
       const result = await authFetch('/api/stripe/connect/onboard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ business_id: businessId }),
+        body: JSON.stringify({ business_id: businessId, country: country || undefined }),
       }, router);
       if (!result) { setOnboarding(false); return; }
       const { response, data } = result;
@@ -196,17 +205,27 @@ export function StripeConnectTab({ businessId }: StripeConnectTabProps) {
             )}
           </div>
         ) : (
-          <div className="text-center py-8 bg-gray-800 rounded-lg">
-            <div className="text-4xl mb-3">💳</div>
-            <p className="text-sm text-gray-400 dark:text-gray-500 mb-1">This business is not connected to Stripe yet.</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 mb-4">Connect your Stripe account to accept credit card payments.</p>
-            <button
-              onClick={handleOnboard}
-              disabled={onboarding}
-              className="px-6 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-500 disabled:opacity-50"
-            >
-              {onboarding ? 'Connecting...' : 'Connect with Stripe'}
-            </button>
+          <div className="py-8 px-6 bg-gray-800 rounded-lg">
+            <div className="text-center">
+              <div className="text-4xl mb-3">💳</div>
+              <p className="text-sm text-gray-400 dark:text-gray-500 mb-1">This business is not connected to Stripe yet.</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 mb-4">Connect your Stripe account to accept credit card payments.</p>
+            </div>
+            <div className="max-w-sm mx-auto mb-4">
+              <label htmlFor="stripe-country" className="block text-xs font-medium text-gray-300 mb-1 text-left">
+                Country (cannot be changed after onboarding)
+              </label>
+              <CountrySelect id="stripe-country" value={country} onChange={setCountry} disabled={onboarding} />
+            </div>
+            <div className="text-center">
+              <button
+                onClick={handleOnboard}
+                disabled={onboarding || !country}
+                className="px-6 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-500 disabled:opacity-50"
+              >
+                {onboarding ? 'Connecting...' : 'Connect with Stripe'}
+              </button>
+            </div>
           </div>
         )}
       </section>
