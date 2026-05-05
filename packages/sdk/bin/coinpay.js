@@ -229,7 +229,7 @@ ${colors.cyan}Commands:${colors.reset}
     create                Create a card payment via Stripe
     get <id>              Get card payment status
     list                  List card payments
-    connect onboard <id>  Create Stripe onboarding link
+    connect onboard <id>  Create Stripe onboarding link (--country required first time)
     connect status <id>   Check Stripe account status
     escrow release <id>   Release card escrow funds
     escrow refund <id>    Refund card escrow
@@ -325,6 +325,9 @@ ${colors.cyan}Examples:${colors.reset}
   # Swap BTC to ETH
   coinpay swap quote --from BTC --to ETH --amount 0.1
   coinpay swap create --from BTC --to ETH --amount 0.1 --settle 0x...
+
+  # Connect Stripe to a business (country is locked at Stripe account creation)
+  coinpay card connect onboard <business-id> --country CA --email merchant@example.com
 
 ${colors.cyan}Environment Variables:${colors.reset}
   COINPAY_API_KEY         API key (overrides config)
@@ -2435,7 +2438,8 @@ async function handleCard(subcommand, args, flags) {
         case 'onboard': {
           if (!merchantId) {
             print.error('Merchant ID required');
-            print.info('Usage: coinpay card connect onboard <merchantId>');
+            print.info('Usage: coinpay card connect onboard <merchantId> --country <ISO-2> [--email <email>]');
+            print.info('Country is required on first onboarding (e.g. US, CA, GB, AU, DE) and is locked once the Stripe account is created.');
             return;
           }
 

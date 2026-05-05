@@ -62,6 +62,7 @@ Stripe processes payments. CoinPayPortal manages trust and logic.
 - **Default Charge Model:** Destination Charges
 - **Escrow Charge Model:** Separate Charges & Transfers
 - **Commission Mechanism:** `application_fee_amount`
+- **Supported Countries:** All Stripe Connect supported countries (~53). Merchants pick their country during onboarding via the country picker on the **Stripe** tab. The choice is persisted on `businesses.country` and locked on the Stripe side at account creation — Stripe does not allow the country to be changed afterward, so re-onboarding into a different country requires deleting the (incomplete) account and starting over. The allowlist lives in `src/lib/stripe/connect-countries.ts` and the API at `POST /api/stripe/connect/onboard` rejects unsupported codes.
 
 ### 4.2 High-Level Payment Flows
 

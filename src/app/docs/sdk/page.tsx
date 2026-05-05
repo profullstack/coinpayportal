@@ -369,8 +369,11 @@ fs.writeFileSync('payment-qr.png', Buffer.from(imageData));`}
             <div className="bg-blue-900/50 border border-blue-400/30 rounded-lg p-4 mb-6">
               <h4 className="text-blue-300 font-medium mb-2">🔗 Merchant Onboarding Required</h4>
               <p className="text-blue-200 text-sm">
-                Before accepting card payments, merchants must complete Stripe Connect onboarding. 
+                Before accepting card payments, merchants must complete Stripe Connect onboarding.
                 Use <code>createStripeOnboardingLink()</code> to generate the onboarding URL.
+                The merchant&apos;s <strong>country</strong> must be supplied on first onboarding and
+                is locked at Stripe account creation — all Stripe Connect supported countries
+                (US, CA, GB, AU, DE, FR, JP, SG, and ~45 more) work.
               </p>
             </div>
 
@@ -417,10 +420,12 @@ if (support.cards) {
 
             <h3 className="text-xl font-semibold text-white mb-4">Merchant Stripe Onboarding</h3>
             <CodeBlock title="Create Stripe Connect onboarding link" language="javascript">
-{`// Generate onboarding link for merchant
+{`// Generate onboarding link for merchant.
+// 'country' is an ISO-3166-1 alpha-2 code (US, CA, GB, AU, DE, FR, JP, SG, ...).
+// Required on first onboarding; cannot be changed once Stripe creates the account.
 const onboarding = await client.createStripeOnboardingLink('business-id', {
   email: 'merchant@example.com',
-  country: 'US'
+  country: 'CA'
 });
 
 console.log('Onboarding URL:', onboarding.onboarding_url);
