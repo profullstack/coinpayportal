@@ -685,22 +685,29 @@ export class CoinPayClient {
 
   /**
    * Create Stripe Connect onboarding link
-   * 
+   *
    * Generates a Stripe Express onboarding link for a merchant.
    * The merchant must complete this onboarding before they can accept card payments.
-   * 
+   *
+   * Country is required on the first onboarding call and is locked at Stripe
+   * account creation — it cannot be changed afterward. Subsequent calls (e.g.
+   * to finish remaining requirements) may omit it; the server reuses the
+   * country stored on the business. All Stripe Connect supported countries are
+   * accepted (US, CA, GB, AU, DE, FR, JP, SG, ...). See
+   * https://stripe.com/global for the full list.
+   *
    * @param {string} businessId - Business ID
    * @param {Object} [params] - Optional parameters
    * @param {string} [params.email] - Merchant email (pre-fills onboarding form)
-   * @param {string} [params.country='US'] - Country code (US, CA, GB, etc.)
+   * @param {string} [params.country] - ISO-3166-1 alpha-2 country code (e.g. 'US', 'CA', 'GB'). Required on first onboarding.
    * @returns {Promise<Object>} Onboarding link and account ID
-   * 
+   *
    * @example
    * const onboarding = await client.createStripeOnboardingLink('business-id', {
    *   email: 'merchant@example.com',
-   *   country: 'US'
+   *   country: 'CA'
    * });
-   * 
+   *
    * // Redirect merchant to onboarding.onboarding_url
    */
   async createStripeOnboardingLink(businessId, params = {}) {
