@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { StripeTab } from './StripeTab';
 
-// Mock next/navigation
+// Mock next/navigation — keep router reference stable across renders so
+// useCallback dependencies don't churn and re-trigger load effects.
+const mockRouter = { push: vi.fn() };
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => mockRouter,
 }));
 
 // Mock authFetch
@@ -139,12 +141,19 @@ describe('StripeTab', () => {
       expect(screen.getByText('Connect with Stripe')).toBeTruthy();
     });
 
+    // Open the country picker and select a country (button is disabled until one is chosen)
+    fireEvent.click(screen.getByText('Select a country'));
+    fireEvent.click(screen.getByRole('option', { name: /United States/ }));
+
     fireEvent.click(screen.getByText('Connect with Stripe'));
 
     await waitFor(() => {
       expect(mockAuthFetch).toHaveBeenCalledWith(
         '/api/stripe/connect/onboard',
-        expect.objectContaining({ method: 'POST' }),
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"country":"US"'),
+        }),
         expect.anything()
       );
     });
