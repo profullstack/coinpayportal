@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from 'next';
+import { Suspense } from 'react';
 import Script from 'next/script';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { Providers } from '@/components/Providers';
+import RobautoPixel from '@/components/RobautoPixel';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -119,12 +121,9 @@ export default function RootLayout({
           src="https://datafa.st/js/script.js"
           strategy="afterInteractive"
         />
-        <Script
-          id="robauto-pixel"
-          src="https://robauto.ai/pixel.js"
-          data-site="c363139a-4644-408a-8df0-0d873f9ec641"
-          strategy="afterInteractive"
-        />
+        <Suspense fallback={null}>
+          <RobautoPixel />
+        </Suspense>
       </body>
     </html>
   );
