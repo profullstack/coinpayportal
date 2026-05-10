@@ -7,6 +7,7 @@ export default function Header() {
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
 
@@ -15,6 +16,12 @@ export default function Header() {
     const token = localStorage.getItem('auth_token');
     setIsLoggedIn(!!token);
     setIsHydrated(true);
+    if (token) {
+      fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => setIsAdmin(!!data?.merchant?.is_admin))
+        .catch(() => {});
+    }
   }, []);
 
   // Listen for storage changes (e.g., login/logout in another tab)
@@ -53,6 +60,7 @@ export default function Header() {
     { name: 'Home', href: '/' },
     { name: 'Wallet', href: '/web-wallet' },
     { name: 'API', href: '/docs' },
+    { name: 'Blog', href: '/blog' },
     { name: 'Reputation', href: '/reputation' },
     { name: 'Pricing', href: '/pricing' },
     { name: 'x402', href: '/x402' },
@@ -64,6 +72,7 @@ export default function Header() {
     { name: 'Escrow', href: '/escrow' },
     { name: 'Wallet', href: '/web-wallet' },
     { name: 'API', href: '/docs' },
+    { name: 'Blog', href: '/blog' },
     { name: 'Developer', href: '/dashboard/oauth' },
     { name: 'Reputation', href: '/reputation' },
     { name: 'x402', href: '/x402' },
@@ -148,6 +157,15 @@ export default function Header() {
                         >
                           Settings
                         </Link>
+                        {isAdmin && (
+                          <Link
+                            href="/admin"
+                            className="block px-4 py-2 text-sm font-semibold text-purple-700 hover:bg-gray-100"
+                            onClick={() => setUserMenuOpen(false)}
+                          >
+                            Admin
+                          </Link>
+                        )}
                         <button
                           onClick={handleLogout}
                           className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
