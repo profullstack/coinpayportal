@@ -1,0 +1,14 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "CoinPay",
+  "name_for_model": "coinpay",
+  "description_for_human": "Non-custodial crypto payment gateway with multi-chain support and Lightning.",
+  "description_for_model": "CoinPay is a non-custodial cryptocurrency payment gateway. It exposes a public OpenAPI spec at /openapi.yaml describing endpoints for invoices, payment status, supported chains, and merchant lookup. Funds are never custodied — payments settle directly to merchant wallet addresses.",
+  "api": {
+    "type": "openapi",
+    "url": "https://coinpayportal.com/openapi.yaml"
+  },
+  "logo_url": "https://coinpayportal.com/logo.svg",
+  "contact_email": "hello@coinpayportal.com",
+  "legal_info_url": "https://coinpayportal.com/privacy"
+}

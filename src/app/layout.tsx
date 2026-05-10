@@ -18,6 +18,7 @@ export const metadata: Metadata = {
     address: false,
     telephone: false,
   },
+  alternates: { canonical: '/' },
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
@@ -58,6 +59,22 @@ export const metadata: Metadata = {
   },
 };
 
+const SITE_URL = (process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com').replace(/\/$/, '');
+
+const organizationJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Organization',
+  name: 'CoinPay',
+  url: SITE_URL,
+  logo: `${SITE_URL}/logo.svg`,
+  description:
+    'Non-custodial cryptocurrency payment gateway with multi-chain support, Lightning, and built-in escrow. Accept BTC, ETH, stablecoins; funds settle directly to merchant wallets.',
+  email: 'hello@coinpayportal.com',
+  sameAs: [
+    'https://github.com/profullstack/coinpay',
+  ],
+};
+
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
@@ -76,6 +93,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        />
+      </head>
       <body className="flex flex-col min-h-screen font-sans">
         <Providers>
           <a
@@ -94,6 +117,12 @@ export default function RootLayout({
           data-website-id="dfid_Bc4cBplBsTIY1hg3v3QDj"
           data-domain="coinpayportal.com"
           src="https://datafa.st/js/script.js"
+          strategy="afterInteractive"
+        />
+        <Script
+          id="robauto-pixel"
+          src="https://robauto.ai/pixel.js"
+          data-site="c363139a-4644-408a-8df0-0d873f9ec641"
           strategy="afterInteractive"
         />
       </body>
