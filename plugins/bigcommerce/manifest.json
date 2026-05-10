@@ -1,0 +1,25 @@
+{
+  "name": "coinpayportal-bigcommerce",
+  "displayName": "CoinPayPortal for BigCommerce",
+  "version": "0.0.0",
+  "status": "stub",
+  "platform": "bigcommerce",
+  "platformMinVersion": "v3 Storefront / v3 Admin",
+  "language": "node",
+  "sdk": "packages/sdk",
+  "supportedEvents": [
+    "payment.confirmed",
+    "payment.expired",
+    "payment.failed",
+    "invoice.paid"
+  ],
+  "capabilities": {
+    "checkout": "stub",
+    "webhooks": "stub",
+    "refunds": "not_supported",
+    "partialPayments": "not_supported",
+    "sandbox": "stub"
+  },
+  "approvalRequired": false,
+  "approvalNotes": "Offsite app does not require partner approval. Native checkout payment methods on hosted checkout do."
+}

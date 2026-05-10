@@ -1,0 +1,25 @@
+{
+  "name": "coinpayportal-squarespace",
+  "displayName": "CoinPayPortal for Squarespace Commerce",
+  "version": "0.0.0",
+  "status": "stub",
+  "platform": "squarespace",
+  "platformMinVersion": "Commerce API v1",
+  "language": "html+node",
+  "sdk": "packages/sdk",
+  "supportedEvents": [
+    "payment.confirmed",
+    "payment.expired",
+    "payment.failed",
+    "invoice.paid"
+  ],
+  "capabilities": {
+    "checkout": "workaround",
+    "webhooks": "stub",
+    "refunds": "not_supported",
+    "partialPayments": "not_supported",
+    "sandbox": "stub"
+  },
+  "approvalRequired": false,
+  "approvalNotes": "Squarespace has no public payment-method extension API. Integration paths are limited to Code Injection workarounds or manual invoice links until Squarespace ships an extension SPI."
+}

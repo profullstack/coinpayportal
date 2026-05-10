@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!--
+  Stub module manifest. Real dependencies and version bumps go here once
+  this plugin is implemented.
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:Module/etc/module.xsd">
+    <module name="CoinPayPortal_PaymentGateway" setup_version="0.0.0">
+        <sequence>
+            <module name="Magento_Payment"/>
+            <module name="Magento_Sales"/>
+        </sequence>
+    </module>
+</config>

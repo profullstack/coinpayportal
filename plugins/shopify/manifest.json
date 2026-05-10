@@ -1,0 +1,25 @@
+{
+  "name": "coinpayportal-shopify",
+  "displayName": "CoinPayPortal for Shopify",
+  "version": "0.0.0",
+  "status": "stub",
+  "platform": "shopify",
+  "platformMinVersion": "2024-10 Admin API",
+  "language": "node",
+  "sdk": "packages/sdk",
+  "supportedEvents": [
+    "payment.confirmed",
+    "payment.expired",
+    "payment.failed",
+    "invoice.paid"
+  ],
+  "capabilities": {
+    "checkout": "stub",
+    "webhooks": "stub",
+    "refunds": "not_supported",
+    "partialPayments": "not_supported",
+    "sandbox": "stub"
+  },
+  "approvalRequired": true,
+  "approvalNotes": "Shopify Payments App Extension requires partner approval and a revenue-share agreement before live payments. Off-checkout app mode does not require approval but cannot intercept the native checkout flow."
+}

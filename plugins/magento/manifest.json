@@ -1,0 +1,24 @@
+{
+  "name": "coinpayportal-magento",
+  "displayName": "CoinPayPortal for Magento / Adobe Commerce",
+  "version": "0.0.0",
+  "status": "stub",
+  "platform": "magento2",
+  "platformMinVersion": "2.4",
+  "language": "php",
+  "sdk": "packages/coinpay-php",
+  "supportedEvents": [
+    "payment.confirmed",
+    "payment.expired",
+    "payment.failed",
+    "invoice.paid"
+  ],
+  "capabilities": {
+    "checkout": "stub",
+    "webhooks": "stub",
+    "refunds": "not_supported",
+    "partialPayments": "not_supported",
+    "sandbox": "stub"
+  },
+  "approvalRequired": false
+}

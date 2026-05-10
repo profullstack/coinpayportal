@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module>
+    <name>coinpayportal</name>
+    <displayName><![CDATA[CoinPayPortal — Crypto Payments]]></displayName>
+    <version><![CDATA[0.0.0]]></version>
+    <description><![CDATA[Accept crypto payments via CoinPayPortal hosted checkout.]]></description>
+    <author><![CDATA[Profullstack, Inc.]]></author>
+    <tab><![CDATA[payments_gateways]]></tab>
+    <is_configurable>1</is_configurable>
+    <need_instance>0</need_instance>
+    <limited_countries></limited_countries>
+</module>
