@@ -1,0 +1,4 @@
+Contact: mailto:security@coinpayportal.com
+Preferred-Languages: en
+Canonical: https://coinpayportal.com/.well-known/security.txt
+Expires: 2027-05-10T00:00:00.000Z

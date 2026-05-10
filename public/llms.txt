@@ -1,0 +1,33 @@
+# CoinPay
+
+> Non-custodial cryptocurrency payment gateway for e-commerce. Accept BTC,
+> ETH, stablecoins, and Lightning payments with automatic fee handling and
+> real-time settlement — funds go directly to merchant wallets, never held
+> by CoinPay.
+
+## What We Do
+- Non-custodial crypto checkout for online stores (no asset custody risk)
+- Multi-chain support — Bitcoin, Ethereum, EVM L2s, Lightning (LNURL-pay)
+- Real-time payment confirmation with webhook notifications
+- Built-in escrow and dispute resolution for merchant↔customer protection
+- Merchant dashboard, invoices, payouts, reputation, and OAuth-based API
+
+## Key Pages
+- [Home](https://coinpayportal.com/)
+- [About](https://coinpayportal.com/about)
+- [Features](https://coinpayportal.com/features)
+- [Pricing](https://coinpayportal.com/pricing)
+- [Businesses](https://coinpayportal.com/businesses)
+- [Clients](https://coinpayportal.com/clients)
+- [Docs](https://coinpayportal.com/docs)
+- [Blog](https://coinpayportal.com/blog)
+- [Help](https://coinpayportal.com/help)
+- [Security](https://coinpayportal.com/security)
+- [Privacy](https://coinpayportal.com/privacy)
+- [Contact](https://coinpayportal.com/contact)
+
+## Contact
+- Website: https://coinpayportal.com
+- Email: hello@coinpayportal.com
+- Support: support@coinpayportal.com
+- Security: security@coinpayportal.com
