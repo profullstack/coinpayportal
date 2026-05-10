@@ -108,8 +108,14 @@ echo "▶ [4/5] Upgrading dependencies..."
 cd "${LNBITS_DIR}"
 
 if [ -d ".venv" ]; then
-  .venv/bin/pip install --upgrade pip -q 2>/dev/null || true
-  .venv/bin/pip install -e ".[all]" -q 2>/dev/null || .venv/bin/pip install -e . -q
+  .venv/bin/pip install --upgrade pip -q
+  # Surface install errors instead of falling back silently. Previous
+  # version did `pip install -e ".[all]" 2>/dev/null || pip install -e .`,
+  # which masked missing-extra failures and let new hard deps (e.g. the
+  # pyinstrument bump in upstream commit 8b426efa) ship to a venv that
+  # didn't have them — LNbits then crashed on import while systemd still
+  # reported `active`. Fail loud here so the deploy actually fails.
+  .venv/bin/pip install -e ".[all]"
   echo "  Dependencies updated"
 else
   echo "  No virtualenv found — run setup-droplet.sh first"
