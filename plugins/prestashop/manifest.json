@@ -1,0 +1,24 @@
+{
+  "name": "coinpayportal-prestashop",
+  "displayName": "CoinPayPortal for PrestaShop",
+  "version": "0.0.0",
+  "status": "stub",
+  "platform": "prestashop",
+  "platformMinVersion": "8.0",
+  "language": "php",
+  "sdk": "packages/coinpay-php",
+  "supportedEvents": [
+    "payment.confirmed",
+    "payment.expired",
+    "payment.failed",
+    "invoice.paid"
+  ],
+  "capabilities": {
+    "checkout": "stub",
+    "webhooks": "stub",
+    "refunds": "not_supported",
+    "partialPayments": "not_supported",
+    "sandbox": "stub"
+  },
+  "approvalRequired": false
+}

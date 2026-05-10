@@ -1,0 +1,25 @@
+{
+  "name": "coinpayportal-ecwid",
+  "displayName": "CoinPayPortal for Ecwid / Lightspeed eCom",
+  "version": "0.0.0",
+  "status": "stub",
+  "platform": "ecwid",
+  "platformMinVersion": "Ecwid REST API v3",
+  "language": "node",
+  "sdk": "packages/sdk",
+  "supportedEvents": [
+    "payment.confirmed",
+    "payment.expired",
+    "payment.failed",
+    "invoice.paid"
+  ],
+  "capabilities": {
+    "checkout": "stub",
+    "webhooks": "stub",
+    "refunds": "not_supported",
+    "partialPayments": "not_supported",
+    "sandbox": "stub"
+  },
+  "approvalRequired": false,
+  "approvalNotes": "External payment apps must be registered with Ecwid's developer console; production listing requires Ecwid app store review."
+}

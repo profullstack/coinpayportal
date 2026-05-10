@@ -1,0 +1,25 @@
+{
+  "name": "coinpayportal-wix",
+  "displayName": "CoinPayPortal for Wix Stores",
+  "version": "0.0.0",
+  "status": "stub",
+  "platform": "wix",
+  "platformMinVersion": "Wix Payment Provider SPI v1",
+  "language": "node",
+  "sdk": "packages/sdk",
+  "supportedEvents": [
+    "payment.confirmed",
+    "payment.expired",
+    "payment.failed",
+    "invoice.paid"
+  ],
+  "capabilities": {
+    "checkout": "stub",
+    "webhooks": "stub",
+    "refunds": "not_supported",
+    "partialPayments": "not_supported",
+    "sandbox": "stub"
+  },
+  "approvalRequired": true,
+  "approvalNotes": "Wix Payment Provider SPI listing requires Wix partner approval. Until approved, plugin runs as private app on a single dev store."
+}

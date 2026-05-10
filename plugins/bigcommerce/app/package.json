@@ -1,0 +1,14 @@
+{
+  "name": "coinpayportal-bigcommerce-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'TODO: wire up BigCommerce app dev server'",
+    "build": "echo 'TODO'",
+    "start": "echo 'TODO'"
+  },
+  "dependencies": {
+    "@coinpayportal/sdk": "workspace:*"
+  }
+}
