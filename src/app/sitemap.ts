@@ -1,12 +1,15 @@
-import { MetadataRoute } from 'next';
+import type { MetadataRoute } from 'next';
+import { listPosts, SITE_URL } from '@/lib/blog';
 
-const BASE_URL = 'https://coinpayportal.com';
+export const dynamic = 'force-dynamic';
 
-export default function sitemap(): MetadataRoute.Sitemap {
-  const routes = [
-    '/',
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const posts = await listPosts(500);
+
+  const staticRoutes: MetadataRoute.Sitemap = [
+    '',
     '/login',
-    '/signup',
+    '/register',
     '/pricing',
     '/wallet',
     '/dashboard',
@@ -17,13 +20,24 @@ export default function sitemap(): MetadataRoute.Sitemap {
     '/contact',
     '/escrow',
     '/reputation',
-    '/status',
     '/help',
-  ];
-
-  return routes.map((route) => ({
-    url: `${BASE_URL}${route}`,
-    changeFrequency: 'weekly' as const,
-    priority: route === '/' ? 1 : 0.8,
+    '/security',
+    '/blog',
+    '/features',
+    '/businesses',
+    '/clients',
+  ].map((path) => ({
+    url: `${SITE_URL}${path}`,
+    changeFrequency: path === '/blog' ? 'daily' : 'weekly',
+    priority: path === '' ? 1 : 0.7,
   }));
+
+  const blogRoutes: MetadataRoute.Sitemap = posts.map((post) => ({
+    url: `${SITE_URL}/blog/${post.slug}`,
+    lastModified: new Date(post.published_at),
+    changeFrequency: 'weekly',
+    priority: 0.6,
+  }));
+
+  return [...staticRoutes, ...blogRoutes];
 }

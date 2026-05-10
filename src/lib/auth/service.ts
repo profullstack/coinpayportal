@@ -36,6 +36,7 @@ export interface AuthResult {
     id: string;
     email: string;
     name?: string;
+    is_admin?: boolean;
   };
   token?: string;
   error?: string;
@@ -263,7 +264,7 @@ export async function verifySession(
     // Get merchant from database
     const { data: merchant, error } = await supabase
       .from('merchants')
-      .select('id, email, name')
+      .select('id, email, name, is_admin')
       .eq('id', decoded.userId)
       .single();
 
@@ -280,6 +281,7 @@ export async function verifySession(
         id: merchant.id,
         email: merchant.email,
         name: merchant.name,
+        is_admin: merchant.is_admin ?? false,
       },
     };
   } catch (error) {
