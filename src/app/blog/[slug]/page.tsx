@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getPostBySlug, sanitizeBlogHtml, formatBlogDate, SITE_URL } from '@/lib/blog';
+import { getPostBySlug, formatBlogDate, SITE_URL } from '@/lib/blog';
+import { sanitizeBlogHtml } from '@/lib/blog-sanitize';
 
 type RouteParams = { params: Promise<{ slug: string }> };
 
