@@ -10,7 +10,35 @@ interface DidInfo {
   public_key: string;
   verified: boolean;
   created_at: string;
+  did_kind?: 'human' | 'agent' | 'service';
+  lifetime?: 'persistent' | 'ephemeral';
+  label?: string | null;
 }
+
+interface Delegation {
+  id: string;
+  agent_did: string;
+  issued_at: string;
+  expires_at: string | null;
+  revoked: boolean;
+  data: {
+    principal_did: string;
+    agent_did: string;
+    scope: string[];
+    label?: string | null;
+    expires_at: string | null;
+  };
+}
+
+const DELEGATION_SCOPES = [
+  'reputation:read',
+  'reputation:submit_receipt',
+  'escrow:create',
+  'escrow:settle',
+  'invoice:create',
+  'wallet:read',
+  'wallet:transfer',
+];
 
 interface Credential {
   id: string;
@@ -52,6 +80,17 @@ export default function ClaimDidPage() {
   const [credLoading, setCredLoading] = useState(false);
   const [receiptsLoading, setReceiptsLoading] = useState(false);
 
+  // Delegation state
+  const [delegations, setDelegations] = useState<Delegation[]>([]);
+  const [delegationsLoading, setDelegationsLoading] = useState(false);
+  const [showDelegateForm, setShowDelegateForm] = useState(false);
+  const [delegateAgentDid, setDelegateAgentDid] = useState('');
+  const [delegateLabel, setDelegateLabel] = useState('');
+  const [delegateScopes, setDelegateScopes] = useState<string[]>(['reputation:read']);
+  const [delegateExpires, setDelegateExpires] = useState('');
+  const [delegateBusy, setDelegateBusy] = useState(false);
+  const [delegateError, setDelegateError] = useState('');
+
   useEffect(() => {
     fetchDid();
   }, []);
@@ -63,12 +102,71 @@ export default function ClaimDidPage() {
         setDidInfo(result.data);
         fetchCredentials(result.data.did);
         fetchReceipts(result.data.did);
+        fetchDelegations();
       }
     } catch {
       // No DID yet
     } finally {
       setLoading(false);
     }
+  }
+
+  async function fetchDelegations() {
+    setDelegationsLoading(true);
+    try {
+      const result = await authFetch('/api/reputation/did/delegate', {}, router);
+      if (result && result.response.ok) {
+        setDelegations(result.data.delegations || []);
+      }
+    } catch { /* noop */ }
+    finally { setDelegationsLoading(false); }
+  }
+
+  async function handleDelegate(e: React.FormEvent) {
+    e.preventDefault();
+    setDelegateError('');
+    setDelegateBusy(true);
+    try {
+      const result = await authFetch('/api/reputation/did/delegate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agent_did: delegateAgentDid.trim(),
+          scope: delegateScopes,
+          expires_at: delegateExpires ? new Date(delegateExpires).toISOString() : undefined,
+          label: delegateLabel.trim() || undefined,
+        }),
+      }, router);
+      if (!result) { setDelegateError('Authentication required'); return; }
+      if (result.response.ok) {
+        setDelegateAgentDid('');
+        setDelegateLabel('');
+        setDelegateExpires('');
+        setDelegateScopes(['reputation:read']);
+        setShowDelegateForm(false);
+        fetchDelegations();
+      } else {
+        setDelegateError(result.data?.error || 'Failed to issue delegation');
+      }
+    } catch (err: any) {
+      setDelegateError(err?.message || 'Failed to issue delegation');
+    } finally {
+      setDelegateBusy(false);
+    }
+  }
+
+  async function handleRevokeDelegation(id: string) {
+    if (!confirm('Revoke this delegation? The agent will lose authority immediately.')) return;
+    const result = await authFetch(`/api/reputation/did/delegate?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }, router);
+    if (result?.response.ok) fetchDelegations();
+  }
+
+  function toggleScope(scope: string) {
+    setDelegateScopes((prev) =>
+      prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]
+    );
   }
 
   async function fetchCredentials(did: string) {
@@ -191,17 +289,19 @@ export default function ClaimDidPage() {
                 </button>
               </div>
             </div>
-            <div className="flex gap-6 text-sm">
-              <div>
-                <span className="text-gray-400">Status: </span>
-                <span className={didInfo.verified ? 'text-green-400' : 'text-yellow-400'}>
-                  {didInfo.verified ? '✅ Verified' : '⏳ Unverified'}
-                </span>
-              </div>
-              <div>
-                <span className="text-gray-400">Created: </span>
-                <span>{new Date(didInfo.created_at).toLocaleDateString()}</span>
-              </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="px-2 py-1 rounded bg-violet-500/20 text-violet-300 border border-violet-500/30">
+                {didInfo.did_kind === 'agent' ? 'Agent' : didInfo.did_kind === 'service' ? 'Service' : 'Principal'}
+              </span>
+              <span className="px-2 py-1 rounded bg-gray-700/60 text-gray-300 border border-gray-600">
+                {didInfo.lifetime === 'ephemeral' ? 'Ephemeral' : 'Persistent'}
+              </span>
+              <span className={`px-2 py-1 rounded border ${didInfo.verified ? 'bg-green-500/20 text-green-300 border-green-500/30' : 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'}`}>
+                {didInfo.verified ? '✅ Verified' : '⏳ Unverified'}
+              </span>
+              <span className="px-2 py-1 rounded bg-gray-700/40 text-gray-400 border border-gray-700">
+                Created {new Date(didInfo.created_at).toLocaleDateString()}
+              </span>
             </div>
           </div>
         </div>
@@ -282,6 +382,131 @@ export default function ClaimDidPage() {
                   </div>
                 </Link>
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* Delegated Authority */}
+        <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 mb-6">
+          <div className="flex justify-between items-start mb-3">
+            <div>
+              <h2 className="text-lg font-bold">🤝 Delegated Authority</h2>
+              <p className="text-gray-400 text-xs mt-1">
+                Authorize AI agents or services to act on your behalf with scoped, revocable, signed credentials.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowDelegateForm((s) => !s)}
+              className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs rounded transition whitespace-nowrap"
+            >
+              {showDelegateForm ? 'Cancel' : '+ Delegate'}
+            </button>
+          </div>
+
+          {showDelegateForm && (
+            <form onSubmit={handleDelegate} className="space-y-3 mb-4 border border-violet-500/30 bg-violet-500/5 rounded-lg p-4">
+              {delegateError && (
+                <div className="text-red-400 text-xs">{delegateError}</div>
+              )}
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">Agent DID</label>
+                <input
+                  type="text"
+                  value={delegateAgentDid}
+                  onChange={(e) => setDelegateAgentDid(e.target.value)}
+                  placeholder="did:key:z..."
+                  required
+                  className="w-full border border-gray-700 bg-gray-900 rounded px-3 py-2 text-sm font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">Label (optional)</label>
+                <input
+                  type="text"
+                  value={delegateLabel}
+                  onChange={(e) => setDelegateLabel(e.target.value)}
+                  placeholder="e.g. Pricing Bot, Refund Agent"
+                  className="w-full border border-gray-700 bg-gray-900 rounded px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-2">Scopes</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {DELEGATION_SCOPES.map((s) => (
+                    <label key={s} className="flex items-center gap-2 text-xs text-gray-300">
+                      <input
+                        type="checkbox"
+                        checked={delegateScopes.includes(s)}
+                        onChange={() => toggleScope(s)}
+                        className="rounded"
+                      />
+                      <code className="text-violet-300">{s}</code>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">Expires (optional)</label>
+                <input
+                  type="datetime-local"
+                  value={delegateExpires}
+                  onChange={(e) => setDelegateExpires(e.target.value)}
+                  className="border border-gray-700 bg-gray-900 rounded px-3 py-2 text-sm"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={delegateBusy || delegateScopes.length === 0}
+                className="bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white px-4 py-2 rounded text-sm font-medium"
+              >
+                {delegateBusy ? 'Issuing...' : 'Issue Delegation Credential'}
+              </button>
+            </form>
+          )}
+
+          {delegationsLoading ? (
+            <div className="animate-pulse h-16 bg-gray-700 rounded" />
+          ) : delegations.length === 0 ? (
+            <p className="text-gray-400 text-sm">No delegations issued. Use this to let an AI agent submit receipts, settle escrow, or read reputation on your behalf — without sharing your private key.</p>
+          ) : (
+            <div className="space-y-2">
+              {delegations.map((d) => {
+                const expired = d.expires_at && new Date(d.expires_at).getTime() < Date.now();
+                return (
+                  <div key={d.id} className="border border-gray-700 rounded-lg p-3 bg-gray-900/40">
+                    <div className="flex justify-between items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold text-white">
+                            {d.data.label || 'Unlabeled agent'}
+                          </span>
+                          {d.revoked && <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-300">Revoked</span>}
+                          {!d.revoked && expired && <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300">Expired</span>}
+                          {!d.revoked && !expired && <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-300">Active</span>}
+                        </div>
+                        <p className="font-mono text-xs text-gray-400 mt-1 break-all">{d.agent_did}</p>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {d.data.scope.map((s) => (
+                            <code key={s} className="text-[10px] px-1.5 py-0.5 bg-gray-800 rounded text-violet-300">{s}</code>
+                          ))}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">
+                          Issued {new Date(d.issued_at).toLocaleDateString()}
+                          {d.expires_at && <> · Expires {new Date(d.expires_at).toLocaleDateString()}</>}
+                        </p>
+                      </div>
+                      {!d.revoked && (
+                        <button
+                          onClick={() => handleRevokeDelegation(d.id)}
+                          className="text-xs text-red-400 hover:text-red-300 whitespace-nowrap"
+                        >
+                          Revoke
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
