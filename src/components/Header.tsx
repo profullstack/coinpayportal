@@ -54,13 +54,14 @@ export default function Header() {
     router.push('/');
   };
 
-  const PUBLIC_ROUTES = new Set(['/', '/web-wallet', '/docs', '/blog', '/pricing']);
+  const PUBLIC_ROUTES = new Set(['/', '/web-wallet', '/docs', '/blog', '/pricing', '/did']);
 
   const navigation = [
     { name: 'Home', href: '/' },
     { name: 'Wallet', href: '/web-wallet' },
     { name: 'API', href: '/docs' },
     { name: 'Blog', href: '/blog' },
+    { name: 'DID', href: '/did' },
     { name: 'Reputation', href: '/reputation' },
     { name: 'Pricing', href: '/pricing' },
     { name: 'x402', href: '/x402' },
@@ -74,6 +75,7 @@ export default function Header() {
     { name: 'API', href: '/docs' },
     { name: 'Blog', href: '/blog' },
     { name: 'Developer', href: '/dashboard/oauth' },
+    { name: 'DID', href: '/did' },
     { name: 'Reputation', href: '/reputation' },
     { name: 'x402', href: '/x402' },
   ];

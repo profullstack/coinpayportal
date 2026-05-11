@@ -16,25 +16,30 @@ vi.mock('@/lib/auth/middleware', () => ({
   isMerchantAuth: (ctx: { type: string }) => ctx.type === 'merchant',
 }));
 
-vi.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          single: () => Promise.resolve({ data: mockExistingDid, error: mockExistingDid ? null : { code: 'PGRST116' } }),
-        }),
+vi.mock('@supabase/supabase-js', () => {
+  const existingResult = () =>
+    Promise.resolve({ data: mockExistingDid, error: mockExistingDid ? null : { code: 'PGRST116' } });
+  const eqChain: any = {
+    eq: () => eqChain,
+    single: existingResult,
+    maybeSingle: existingResult,
+  };
+  return {
+    createClient: () => ({
+      from: () => ({
+        select: () => eqChain,
+        insert: (data: unknown) => {
+          mockInsertedData = data;
+          return {
+            select: () => ({
+              single: () => Promise.resolve(mockInsertResult),
+            }),
+          };
+        },
       }),
-      insert: (data: unknown) => {
-        mockInsertedData = data;
-        return {
-          select: () => ({
-            single: () => Promise.resolve(mockInsertResult),
-          }),
-        };
-      },
     }),
-  }),
-}));
+  };
+});
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -86,7 +91,7 @@ describe('POST /api/reputation/did/claim', () => {
     const res = await POST(makeRequest());
     expect(res.status).toBe(409);
     const json = await res.json();
-    expect(json.error).toContain('already has a DID');
+    expect(json.error).toContain('already has a principal DID');
   });
 
   it('auto-generates did:key when no body provided', async () => {

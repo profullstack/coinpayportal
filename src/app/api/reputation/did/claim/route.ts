@@ -60,20 +60,6 @@ export async function POST(request: NextRequest) {
       ? auth.context.merchantId
       : auth.context.merchantId;
 
-    // Check if merchant already has a DID
-    const { data: existing } = await supabase
-      .from('merchant_dids')
-      .select('*')
-      .eq('merchant_id', merchantId)
-      .single();
-
-    if (existing) {
-      return NextResponse.json(
-        { error: 'Merchant already has a DID. Each merchant can only have one DID.' },
-        { status: 409 }
-      );
-    }
-
     let body: Record<string, string> | null = null;
     try {
       const text = await request.text();
@@ -82,6 +68,27 @@ export async function POST(request: NextRequest) {
       }
     } catch {
       // empty body = auto-generate
+    }
+
+    const didKind = (body?.did_kind === 'agent' || body?.did_kind === 'service') ? body.did_kind : 'human';
+    const lifetime = body?.lifetime === 'ephemeral' ? 'ephemeral' : 'persistent';
+    const label = typeof body?.label === 'string' && body.label.trim() ? body.label.trim().slice(0, 80) : null;
+
+    if (didKind === 'human') {
+      // One human DID per merchant
+      const { data: existing } = await supabase
+        .from('merchant_dids')
+        .select('id')
+        .eq('merchant_id', merchantId)
+        .eq('did_kind', 'human')
+        .maybeSingle();
+
+      if (existing) {
+        return NextResponse.json(
+          { error: 'Merchant already has a principal DID. Issue delegations instead.' },
+          { status: 409 }
+        );
+      }
     }
 
     let did: string;
@@ -136,6 +143,9 @@ export async function POST(request: NextRequest) {
         public_key: publicKey,
         private_key_encrypted: privateKeyEncrypted,
         verified: true,
+        did_kind: didKind,
+        lifetime,
+        label,
       })
       .select()
       .single();
@@ -150,6 +160,9 @@ export async function POST(request: NextRequest) {
       public_key: data.public_key,
       verified: data.verified,
       created_at: data.created_at,
+      did_kind: data.did_kind,
+      lifetime: data.lifetime,
+      label: data.label,
     }, { status: 201 });
   } catch (error) {
     console.error('DID claim error:', error);

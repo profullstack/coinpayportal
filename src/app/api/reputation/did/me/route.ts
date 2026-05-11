@@ -29,8 +29,9 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await supabase
       .from('merchant_dids')
-      .select('did, public_key, verified, created_at')
+      .select('did, public_key, verified, created_at, did_kind, lifetime, label')
       .eq('merchant_id', merchantId)
+      .eq('did_kind', 'human')
       .single();
 
     if (error || !data) {
@@ -42,6 +43,9 @@ export async function GET(request: NextRequest) {
       public_key: data.public_key,
       verified: data.verified,
       created_at: data.created_at,
+      did_kind: data.did_kind,
+      lifetime: data.lifetime,
+      label: data.label,
     });
   } catch (error) {
     console.error('DID lookup error:', error);
