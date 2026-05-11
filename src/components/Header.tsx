@@ -54,7 +54,7 @@ export default function Header() {
     router.push('/');
   };
 
-  const PUBLIC_ROUTES = new Set(['/', '/web-wallet', '/docs']);
+  const PUBLIC_ROUTES = new Set(['/', '/web-wallet', '/docs', '/blog']);
 
   const navigation = [
     { name: 'Home', href: '/' },
