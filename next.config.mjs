@@ -52,7 +52,7 @@ const nextConfig = {
             // 'unsafe-eval' has been removed to prevent script injection attacks.
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' https://datafa.st",
+              "script-src 'self' 'unsafe-inline' https://datafa.st https://invitejs.trustpilot.com",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https:",
               "font-src 'self' data:",
