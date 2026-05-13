@@ -44,9 +44,9 @@ Where to find them:
 
    The response includes `id`, `pay_address`, `pay_amount`, and a hosted `payment_url`. Redirect the customer to `payment_url` or render the address + amount yourself.
 
-3. **Wait for confirmation.** Do not poll. Register the `webhook_url` and handle `payment.confirmed` (see WEBHOOKS prompt). When you receive it, look up the order by `order_id` and mark it paid.
+3. **Wait for completion.** Do not poll. Register the `webhook_url` and treat BOTH `payment.confirmed` AND `payment.forwarded` as completion (see WEBHOOKS prompt). Crypto payments on some chains fire `payment.forwarded` (funds in merchant wallet) and never `payment.confirmed`; handlers that only watch `payment.confirmed` silently miss them. Dedupe by `payment.id` so it doesn't matter which fires first.
 
-4. **Reconcile.** On `payment.forwarded` you'll get the on-chain txid for the merchant payout. Persist it for accounting.
+4. **Store the payout txid.** `payment.forwarded` events carry `data.tx_hash` — the on-chain txid for the merchant payout. Persist it for accounting / receipts.
 
 5. **Expiry.** Payments expire (default ~15 min). Handle `payment.expired` by releasing inventory or showing a "create new payment" button.
 
