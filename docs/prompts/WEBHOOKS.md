@@ -18,9 +18,19 @@ Where to find it:
 
 ## Events
 
-- `payment.confirmed` — buyer paid; safe to fulfill the order
-- `payment.forwarded` — funds forwarded to merchant wallet (settles the merchant payout, includes on-chain txid)
+**Treat BOTH `payment.confirmed` AND `payment.forwarded` as completion** — your handler should fulfill the order on whichever arrives first. They mean different things internally and which one fires depends on the payment rail:
+
+| Event | Card rail | Crypto rail | Action |
+| --- | --- | --- | --- |
+| `payment.confirmed` | Fires after Stripe Checkout completes — funds in your CoinPay-connected Stripe account | Fires when the chain has enough confirmations — funds NOT yet in your merchant wallet | Fulfill if rail is card; safe to fulfill if rail is crypto (CoinPay forwards next) |
+| `payment.forwarded` | Not fired for card | Fires when crypto funds are forwarded to your merchant wallet — includes the on-chain payout txid | Fulfill (this is the canonical "merchant has the money" event for crypto) |
+
+A handler that only switches on `payment.confirmed` will silently miss every crypto payment — `payment.forwarded` is the only signal that fires for the crypto path on some chain/wallet configs. Make both events terminal `"complete"` states and dedupe by `payment.id` so it doesn't matter which lands first.
+
+Other events:
+
 - `payment.expired` — payment window passed without funding
+- `payment.failed` — payment was attempted but failed (typically card decline)
 - `escrow.funded` / `escrow.released` / `escrow.refunded` / `escrow.disputed`
 - `series.cycle.created` / `series.cycle.funded` / `series.cycle.missed` / `series.canceled`
 
@@ -80,11 +90,18 @@ export async function POST(req) {
   // Idempotency: skip if we've seen this delivery before
   if (await alreadyProcessed(event.id)) return new Response('ok');
 
-  switch (event.type) {
-    case 'payment.confirmed': /* mark order paid */ break;
-    case 'payment.forwarded': /* store payout txid */ break;
-    case 'payment.expired':   /* release reservation */ break;
-    // ...
+  // Use an allowlist Set, not a switch — adding a new completion event
+  // should be one change in one place, and dedupe by payment.id covers
+  // the case where both `payment.confirmed` and `payment.forwarded` fire
+  // for the same crypto payment.
+  const COMPLETE = new Set(['payment.confirmed', 'payment.forwarded']);
+  const FAIL = new Set(['payment.expired', 'payment.failed']);
+
+  if (COMPLETE.has(event.type)) {
+    // Mark order paid + store payout txid if present (event.data.tx_hash
+    // is set on `payment.forwarded` for crypto).
+  } else if (FAIL.has(event.type)) {
+    // Release reservation.
   }
 
   await markProcessed(event.id);
@@ -97,7 +114,15 @@ export async function POST(req) {
 - The signature is computed over the **raw** request body. Do not re-stringify parsed JSON — many frameworks (Next.js, Express with `express.json()`) lose the exact bytes. Capture the raw body.
 - Reject deliveries older than 5 minutes (replay protection).
 - Always idempotent: dedupe by `x-coinpay-delivery` or `event.id`.
-- Return 2xx quickly; do heavy work in a background queue.
+- **Return 2xx quickly — do not `await` slow IO inside the handler.** CoinPay's outbound delivery uses 3 retries with a 30s timeout each (up to 93s). If your handler awaits PDF rendering, email sending, or any third-party API, you can blow CoinPay's retry budget — which in turn ripples back to Stripe (whose webhook to CoinPay also has a 30s budget for card payments) and silently breaks the whole chain. Grant the credit / mark the order paid synchronously, then `void` the slow work:
+
+  ```js
+  await markOrderPaid(event.data.payment_id); // fast: DB update
+  void sendReceiptEmail(...).catch(console.error); // slow: defer
+  return new Response('ok'); // 200 within milliseconds
+  ```
+
+- Treat `payment.confirmed` AND `payment.forwarded` as completion (see Events table above) — handlers that only listen for `payment.confirmed` silently miss crypto payments.
 - Use `example-business.com` for the placeholder webhook URL.
 
 ## Deliverable
