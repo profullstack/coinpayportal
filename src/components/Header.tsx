@@ -47,11 +47,18 @@ export default function Header() {
     };
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    } catch {
+      // best-effort — still clear local state below
+    }
     localStorage.removeItem('auth_token');
     setIsLoggedIn(false);
+    setIsAdmin(false);
     setUserMenuOpen(false);
     router.push('/');
+    router.refresh();
   };
 
   const PUBLIC_ROUTES = new Set(['/', '/web-wallet', '/docs', '/blog', '/pricing', '/did']);
@@ -288,6 +295,15 @@ export default function Header() {
                   >
                     Settings
                   </Link>
+                  {isAdmin && (
+                    <Link
+                      href="/admin"
+                      className="block px-3 py-2 text-base font-semibold text-purple-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      Admin
+                    </Link>
+                  )}
                   <button
                     onClick={() => {
                       handleLogout();
