@@ -26,10 +26,19 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Invalid DID format' }, { status: 400 });
     }
 
-    const [reputation, trustProfile, attestationScore] = await Promise.all([
+    const [reputation, trustProfile, attestationScore, didRow, credCount] = await Promise.all([
       computeReputation(supabase, agentDid),
       computeTrustVector(supabase, agentDid),
       getAttestationScore(supabase, agentDid),
+      supabase
+        .from('merchant_dids')
+        .select('did_kind, lifetime, label, verified, created_at')
+        .eq('did', agentDid)
+        .maybeSingle(),
+      supabase
+        .from('reputation_credentials')
+        .select('id', { count: 'exact', head: true })
+        .eq('subject_did', agentDid),
     ]);
 
     const tier = computeTrustTier(trustProfile.trust_vector);
@@ -49,6 +58,16 @@ export async function GET(
         total: attestationScore.total_attestations,
         by_role: attestationScore.by_role,
       },
+      did_info: didRow?.data
+        ? {
+            did_kind: didRow.data.did_kind as 'human' | 'agent' | 'service',
+            lifetime: didRow.data.lifetime as 'persistent' | 'ephemeral',
+            label: didRow.data.label as string | null,
+            verified: !!didRow.data.verified,
+            created_at: didRow.data.created_at as string,
+          }
+        : null,
+      credentials_count: credCount?.count ?? 0,
       computed_at: trustProfile.computed_at,
     });
   } catch (error) {
