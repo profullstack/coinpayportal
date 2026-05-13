@@ -1,5 +1,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { verifyToken } from './jwt';
 import { extractBearerToken } from './middleware';
 import { getSupabaseAdmin } from '../supabase/server';
@@ -63,6 +65,53 @@ export async function requireAdmin(
 
   if (!merchant.is_admin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  return { id: merchant.id, email: merchant.email ?? email, is_admin: true };
+}
+
+/**
+ * Server-side guard for admin App Router pages. Reads the `token` cookie set
+ * by the login flow, verifies it, and confirms the merchant has `is_admin`.
+ * Redirects unauthenticated users to /login and non-admins to /dashboard so
+ * the page never renders for unauthorized callers.
+ */
+export async function requireAdminPage(redirectPath = '/admin'): Promise<AdminMerchant> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get('token')?.value ?? null;
+
+  if (!token) {
+    redirect(`/login?redirect=${encodeURIComponent(redirectPath)}`);
+  }
+
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    redirect('/dashboard');
+  }
+
+  let merchantId: string;
+  let email: string;
+  try {
+    const decoded = verifyToken(token, secret);
+    merchantId = decoded.userId;
+    email = decoded.email;
+  } catch {
+    redirect(`/login?redirect=${encodeURIComponent(redirectPath)}`);
+  }
+
+  if (!merchantId) {
+    redirect(`/login?redirect=${encodeURIComponent(redirectPath)}`);
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { data: merchant, error } = await supabase
+    .from('merchants')
+    .select('id, email, is_admin')
+    .eq('id', merchantId)
+    .single();
+
+  if (error || !merchant || !merchant.is_admin) {
+    redirect('/dashboard');
   }
 
   return { id: merchant.id, email: merchant.email ?? email, is_admin: true };

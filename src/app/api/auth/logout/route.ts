@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
 
-    // Clear any auth cookies if they exist
+    response.cookies.delete('token');
     response.cookies.delete('auth-token');
     response.cookies.delete('refresh-token');
 
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
       { status: 200 }
     );
 
-    // Clear any auth cookies
+    response.cookies.delete('token');
     response.cookies.delete('auth-token');
     response.cookies.delete('refresh-token');
 
