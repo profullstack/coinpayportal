@@ -44,11 +44,13 @@ jobs:
 
       - name: Derive version
         id: meta
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             VERSION="${GITHUB_REF_NAME#plugins-v}"
           else
-            VERSION="${{ github.event.inputs.version }}"
+            VERSION="${INPUT_VERSION}"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Building plugins version ${VERSION}"
