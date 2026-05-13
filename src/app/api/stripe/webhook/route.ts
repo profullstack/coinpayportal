@@ -3,6 +3,23 @@ import { createClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/server/optional-deps';
 import { sendPaymentWebhook } from '@/lib/webhooks/service';
 
+// Background-dispatch wrapper for merchant webhooks. sendPaymentWebhook
+// retries up to 3 times with a 30s timeout each — awaiting it inline could
+// hold the Stripe webhook handler past Stripe's own 30s budget, which made
+// every recent checkout.session.completed event sit with pending_webhooks>0
+// and never confirm on the merchant side. Calling this with `void` lets the
+// handler return 200 to Stripe immediately while the merchant call continues
+// on the Node event loop.
+async function firePaymentWebhook(
+  ...args: Parameters<typeof sendPaymentWebhook>
+): Promise<void> {
+  try {
+    await sendPaymentWebhook(...args);
+  } catch (err) {
+    console.error('[Stripe Webhook] background sendPaymentWebhook failed', err);
+  }
+}
+
 function getSupabase() {
   return createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -130,7 +147,7 @@ async function handleCheckoutSessionCompleted(session: any) {
           .limit(1);
 
         // Fire merchant webhook
-        await sendPaymentWebhook(
+        void firePaymentWebhook(
           supabase,
           businessId,
           session.id,
@@ -187,7 +204,7 @@ async function handleCheckoutSessionCompleted(session: any) {
 
     // Fire merchant webhook with card_confirmed event
     if (businessId) {
-      await sendPaymentWebhook(
+      void firePaymentWebhook(
         supabase,
         businessId,
         coinpayPaymentId,
@@ -278,7 +295,7 @@ async function handlePaymentIntentFailed(paymentIntent: any) {
       })
       .eq('id', coinpayPaymentId);
 
-    await sendPaymentWebhook(
+    void firePaymentWebhook(
       supabase,
       businessId,
       coinpayPaymentId,
@@ -539,7 +556,7 @@ async function handleInvoiceCheckoutCompleted(session: any, invoiceId: string, b
 
     // Fire merchant webhook
     if (businessId) {
-      await sendPaymentWebhook(
+      void firePaymentWebhook(
         supabase,
         businessId,
         invoiceId,
