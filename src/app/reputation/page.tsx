@@ -48,6 +48,14 @@ interface DidInfo {
   created_at: string;
 }
 
+interface PublicDidInfo {
+  did_kind: 'human' | 'agent' | 'service';
+  lifetime: 'persistent' | 'ephemeral';
+  label: string | null;
+  verified: boolean;
+  created_at: string;
+}
+
 const WINDOW_TOOLTIPS: Record<string, string> = {
   tasks: 'Total number of reputation receipts (transactions, tasks, social actions) recorded in this time window.',
   accepted_rate: 'Percentage of tasks/transactions that were accepted or completed successfully without disputes.',
@@ -100,6 +108,94 @@ function WindowCard({ label, data }: { label: string; data: ReputationWindow }) 
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function PublicDidPills({ info, credentialsCount }: { info: PublicDidInfo; credentialsCount: number }) {
+  const kindLabel = info.did_kind === 'agent' ? 'Agent' : info.did_kind === 'service' ? 'Service' : 'Principal';
+  const lifetimeLabel = info.lifetime === 'ephemeral' ? 'Ephemeral' : 'Persistent';
+  return (
+    <div className="flex flex-wrap gap-2 text-xs mt-3">
+      <span className="px-2 py-1 rounded bg-violet-500/20 text-violet-700 dark:text-violet-300 border border-violet-500/30">
+        {kindLabel}
+      </span>
+      <span className="px-2 py-1 rounded bg-gray-200 dark:bg-gray-700/60 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600">
+        {lifetimeLabel}
+      </span>
+      <span className={`px-2 py-1 rounded border ${info.verified ? 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30' : 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border-yellow-500/30'}`}>
+        {info.verified ? '✅ Verified' : '⏳ Unverified'}
+      </span>
+      <span className="px-2 py-1 rounded bg-gray-200 dark:bg-gray-700/40 text-gray-700 dark:text-gray-400 border border-gray-300 dark:border-gray-700">
+        {credentialsCount} credential{credentialsCount === 1 ? '' : 's'}
+      </span>
+      <span className="px-2 py-1 rounded bg-gray-200 dark:bg-gray-700/40 text-gray-700 dark:text-gray-400 border border-gray-300 dark:border-gray-700">
+        Created {new Date(info.created_at).toLocaleDateString()}
+      </span>
+      {info.label && (
+        <span className="px-2 py-1 rounded bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300 border border-fuchsia-500/30">
+          {info.label}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function EmbedSection({ did }: { did: string }) {
+  const [copied, setCopied] = useState('');
+  const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/reputation?did=${encodeURIComponent(did)}`;
+  const badgeUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/reputation/badge/${encodeURIComponent(did)}`;
+  const badgeMarkdown = `[![Reputation](${badgeUrl})](${publicUrl})`;
+
+  async function copyText(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(label);
+      setTimeout(() => setCopied(''), 2000);
+    } catch { /* noop */ }
+  }
+
+  return (
+    <div className="bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-6 mt-8">
+      <h2 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">🔗 Embed This Profile</h2>
+      <div className="space-y-4">
+        <div>
+          <label className="text-sm text-gray-500 dark:text-gray-400 block mb-1">Profile URL</label>
+          <div className="flex gap-2">
+            <input
+              readOnly
+              value={publicUrl}
+              className="flex-1 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded text-sm font-mono text-gray-700 dark:text-gray-300"
+            />
+            <button
+              onClick={() => copyText(publicUrl, 'url')}
+              className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm rounded transition"
+            >
+              {copied === 'url' ? '✓ Copied!' : 'Copy'}
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="text-sm text-gray-500 dark:text-gray-400 block mb-1">Reputation Badge (Markdown)</label>
+          <div className="flex gap-2">
+            <input
+              readOnly
+              value={badgeMarkdown}
+              className="flex-1 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded text-sm font-mono text-gray-700 dark:text-gray-300"
+            />
+            <button
+              onClick={() => copyText(badgeMarkdown, 'badge')}
+              className="px-4 py-2 bg-gray-600 dark:bg-gray-700 hover:bg-gray-700 dark:hover:bg-gray-600 text-white text-sm rounded transition"
+            >
+              {copied === 'badge' ? '✓ Copied!' : 'Copy'}
+            </button>
+          </div>
+          <div className="mt-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={badgeUrl} alt="Reputation Badge" className="h-5" />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -260,6 +356,8 @@ function ReputationPageInner() {
   const [agentDid, setAgentDid] = useState('');
   const [reputation, setReputation] = useState<ReputationResult | null>(null);
   const [trustVector, setTrustVector] = useState<TrustVector | null>(null);
+  const [publicDidInfo, setPublicDidInfo] = useState<PublicDidInfo | null>(null);
+  const [credentialsCount, setCredentialsCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [myDid, setMyDid] = useState<DidInfo | null>(null);
@@ -273,6 +371,8 @@ function ReputationPageInner() {
     setError('');
     setReputation(null);
     setTrustVector(null);
+    setPublicDidInfo(null);
+    setCredentialsCount(0);
     try {
       const res = await fetch(`/api/reputation/agent/${encodeURIComponent(did)}/reputation`);
       const data = await res.json();
@@ -281,6 +381,8 @@ function ReputationPageInner() {
       } else {
         setReputation(data.reputation);
         if (data.trust_vector) setTrustVector(data.trust_vector);
+        if (data.did_info) setPublicDidInfo(data.did_info);
+        if (typeof data.credentials_count === 'number') setCredentialsCount(data.credentials_count);
       }
     } catch {
       setError('Failed to fetch reputation');
@@ -344,11 +446,10 @@ function ReputationPageInner() {
         <Link href="/reputation" className="text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 text-sm mb-4 inline-block">
           ← Back to Reputation
         </Link>
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Reputation Profile</h1>
-            <p className="text-gray-500 dark:text-gray-400 mt-1 font-mono text-sm break-all">{queryDid}</p>
-          </div>
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Reputation Profile</h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1 font-mono text-sm break-all">{queryDid}</p>
+          {publicDidInfo && <PublicDidPills info={publicDidInfo} credentialsCount={credentialsCount} />}
         </div>
 
         {loading && <div className="animate-pulse h-48 bg-gray-200 dark:bg-gray-800 rounded-lg" />}
@@ -358,6 +459,7 @@ function ReputationPageInner() {
           </div>
         )}
         {reputation && <ReputationDisplay reputation={reputation} trustVector={trustVector || undefined} />}
+        {reputation && <EmbedSection did={queryDid} />}
       </div>
     );
   }
