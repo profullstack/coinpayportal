@@ -3,14 +3,37 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 
+type Kind = 'outrank' | 'crawlproof';
+
 type Integration = {
   id: string;
   name: string;
+  kind: Kind;
   access_token: string;
   created_at: string;
   last_used_at: string | null;
   request_count: number;
 };
+
+const KIND_META: Record<Kind, { label: string; defaultName: string; webhookPath: string; setupHref: string }> = {
+  outrank: {
+    label: 'Outrank',
+    defaultName: 'Outrank',
+    webhookPath: '/api/webhooks/outrank',
+    setupHref: 'https://outrank.so',
+  },
+  crawlproof: {
+    label: 'Crawlproof',
+    defaultName: 'Crawlproof',
+    webhookPath: '/api/webhooks/crawlproof',
+    setupHref: 'https://crawlproof.com/docs/autoblog-webhook',
+  },
+};
+
+function webhookUrlFor(kind: Kind): string {
+  if (typeof window === 'undefined') return KIND_META[kind].webhookPath;
+  return `${window.location.origin}${KIND_META[kind].webhookPath}`;
+}
 
 function authHeaders(extra?: HeadersInit): HeadersInit {
   const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
@@ -24,15 +47,11 @@ export default function AdminContent() {
   const [loading, setLoading] = useState(true);
   const [authState, setAuthState] = useState<'unknown' | 'unauthenticated' | 'forbidden' | 'ok'>('unknown');
   const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState('Outrank');
+  const [newKind, setNewKind] = useState<Kind>('crawlproof');
+  const [newName, setNewName] = useState(KIND_META.crawlproof.defaultName);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const webhookUrl =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}/api/webhooks/outrank`
-      : '/api/webhooks/outrank';
 
   const fetchIntegrations = useCallback(async () => {
     setLoading(true);
@@ -72,7 +91,7 @@ export default function AdminContent() {
       const res = await fetch('/api/admin/integrations', {
         method: 'POST',
         headers: authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ name: newName }),
+        body: JSON.stringify({ name: newName, kind: newKind }),
       });
       if (!res.ok) {
         setError('Failed to create integration');
@@ -81,7 +100,7 @@ export default function AdminContent() {
       const data = await res.json();
       setIntegrations((prev) => [data.integration, ...prev]);
       setRevealed((prev) => ({ ...prev, [data.integration.id]: true }));
-      setNewName('Outrank');
+      setNewName(KIND_META[newKind].defaultName);
     } catch {
       setError('Network error');
     } finally {
@@ -89,10 +108,10 @@ export default function AdminContent() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Revoke this integration? Outrank will stop being able to publish.')) return;
+  const handleDelete = async (it: Integration) => {
+    if (!confirm(`Revoke this ${KIND_META[it.kind].label} integration? The source will stop being able to publish.`)) return;
     try {
-      const res = await fetch(`/api/admin/integrations/${id}`, {
+      const res = await fetch(`/api/admin/integrations/${it.id}`, {
         method: 'DELETE',
         headers: authHeaders(),
       });
@@ -100,7 +119,7 @@ export default function AdminContent() {
         setError('Failed to delete');
         return;
       }
-      setIntegrations((prev) => prev.filter((i) => i.id !== id));
+      setIntegrations((prev) => prev.filter((i) => i.id !== it.id));
     } catch {
       setError('Network error');
     }
@@ -140,7 +159,7 @@ export default function AdminContent() {
   return (
     <div className="container mx-auto px-4 py-12 max-w-4xl">
       <h1 className="text-3xl font-bold text-white mb-2">Admin</h1>
-      <p className="text-gray-400 mb-8">Blog publishing webhooks (Outrank)</p>
+      <p className="text-gray-400 mb-8">Blog publishing webhooks (Crawlproof, Outrank)</p>
 
       {error && (
         <div className="mb-4 rounded border border-red-500/50 bg-red-500/10 px-4 py-3 text-sm text-red-300">
@@ -149,20 +168,38 @@ export default function AdminContent() {
       )}
 
       <section className="mb-8 rounded-lg border border-slate-700 bg-slate-900/50 p-6">
-        <h2 className="text-lg font-semibold text-white mb-2">Webhook endpoint</h2>
-        <p className="text-sm text-gray-400 mb-3">
-          Paste this into the Outrank dashboard <em>Webhook URL</em> field.
-        </p>
-        <div className="flex gap-2">
-          <code className="flex-1 break-all rounded bg-slate-950 px-3 py-2 text-sm text-purple-300 font-mono">
-            {webhookUrl}
-          </code>
-          <button
-            onClick={() => copy('url', webhookUrl)}
-            className="rounded bg-purple-600/20 px-3 py-2 text-sm text-purple-300 hover:bg-purple-600/30"
-          >
-            {copied === 'url' ? 'Copied' : 'Copy'}
-          </button>
+        <h2 className="text-lg font-semibold text-white mb-3">Webhook endpoints</h2>
+        <div className="space-y-3">
+          {(Object.keys(KIND_META) as Kind[]).map((k) => {
+            const url = webhookUrlFor(k);
+            const meta = KIND_META[k];
+            return (
+              <div key={k}>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-medium text-white">{meta.label}</span>
+                  <a
+                    href={meta.setupHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-gray-400 hover:text-purple-300"
+                  >
+                    docs ↗
+                  </a>
+                </div>
+                <div className="flex gap-2">
+                  <code className="flex-1 break-all rounded bg-slate-950 px-3 py-2 text-sm text-purple-300 font-mono">
+                    {url}
+                  </code>
+                  <button
+                    onClick={() => copy(`url-${k}`, url)}
+                    className="rounded bg-purple-600/20 px-3 py-2 text-sm text-purple-300 hover:bg-purple-600/30"
+                  >
+                    {copied === `url-${k}` ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </section>
 
@@ -178,13 +215,28 @@ export default function AdminContent() {
           </button>
         </div>
 
-        <div className="mb-6 flex gap-2">
+        <div className="mb-6 grid grid-cols-1 gap-2 sm:grid-cols-[160px_1fr_auto]">
+          <select
+            value={newKind}
+            onChange={(e) => {
+              const k = e.target.value as Kind;
+              setNewKind(k);
+              setNewName(KIND_META[k].defaultName);
+            }}
+            className="rounded bg-slate-950 px-3 py-2 text-sm text-white border border-slate-700 focus:border-purple-500 focus:outline-none"
+          >
+            {(Object.keys(KIND_META) as Kind[]).map((k) => (
+              <option key={k} value={k}>
+                {KIND_META[k].label}
+              </option>
+            ))}
+          </select>
           <input
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Integration name"
-            className="flex-1 rounded bg-slate-950 px-3 py-2 text-sm text-white border border-slate-700 focus:border-purple-500 focus:outline-none"
+            className="rounded bg-slate-950 px-3 py-2 text-sm text-white border border-slate-700 focus:border-purple-500 focus:outline-none"
           />
           <button
             onClick={handleCreate}
@@ -202,12 +254,16 @@ export default function AdminContent() {
             {integrations.map((it) => {
               const isRevealed = !!revealed[it.id];
               const masked = `${it.access_token.slice(0, 8)}…${it.access_token.slice(-4)}`;
+              const kindLabel = KIND_META[it.kind]?.label ?? it.kind;
               return (
                 <li key={it.id} className="rounded border border-slate-700/60 bg-slate-950/60 p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline gap-3">
                         <span className="font-medium text-white">{it.name}</span>
+                        <span className="rounded bg-purple-500/10 px-2 py-0.5 text-xs uppercase tracking-wide text-purple-300">
+                          {kindLabel}
+                        </span>
                         <span className="text-xs text-gray-400">
                           {it.request_count} requests
                           {it.last_used_at && ` · last ${new Date(it.last_used_at).toLocaleString()}`}
@@ -231,12 +287,12 @@ export default function AdminContent() {
                         </button>
                       </div>
                       <p className="mt-2 text-xs text-gray-400">
-                        Use as <code className="text-purple-300">Authorization: Bearer &lt;token&gt;</code> in Outrank.
+                        Use as <code className="text-purple-300">Authorization: Bearer &lt;token&gt;</code> in {kindLabel}.
                         Created {new Date(it.created_at).toLocaleDateString()}.
                       </p>
                     </div>
                     <button
-                      onClick={() => handleDelete(it.id)}
+                      onClick={() => handleDelete(it)}
                       className="text-xs text-red-400 hover:text-red-300"
                     >
                       Revoke
