@@ -63,8 +63,8 @@ importers:
         specifier: ^2.0.1
         version: 2.0.1
       '@profullstack/autoblog':
-        specifier: github:profullstack/autoblog#b28d289
-        version: https://codeload.github.com/profullstack/autoblog/tar.gz/b28d289d6f539542e726f9c4693879929d2a5bfb
+        specifier: github:profullstack/autoblog#4008755
+        version: https://codeload.github.com/profullstack/autoblog/tar.gz/400875581b2cba4dc6449e19ac481847b8c496b0
       '@profullstack/coinpay':
         specifier: workspace:*
         version: link:packages/sdk
@@ -1647,9 +1647,9 @@ packages:
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
 
-  '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/b28d289d6f539542e726f9c4693879929d2a5bfb':
-    resolution: {tarball: https://codeload.github.com/profullstack/autoblog/tar.gz/b28d289d6f539542e726f9c4693879929d2a5bfb}
-    version: 0.1.0
+  '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/400875581b2cba4dc6449e19ac481847b8c496b0':
+    resolution: {tarball: https://codeload.github.com/profullstack/autoblog/tar.gz/400875581b2cba4dc6449e19ac481847b8c496b0}
+    version: 0.2.0
     engines: {node: '>=18'}
 
   '@project-serum/sol-wallet-adapter@0.2.6':
@@ -9203,7 +9203,7 @@ snapshots:
 
   '@polka/url@1.0.0-next.29': {}
 
-  '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/b28d289d6f539542e726f9c4693879929d2a5bfb': {}
+  '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/400875581b2cba4dc6449e19ac481847b8c496b0': {}
 
   '@project-serum/sol-wallet-adapter@0.2.6(@solana/web3.js@1.98.4(bufferutil@4.0.9)(typescript@5.9.3)(utf-8-validate@5.0.10))':
     dependencies:
