@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 import { verifyAndParse } from '@profullstack/autoblog';
+import { gatePost } from '@profullstack/autoblog/quality';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { SITE_URL } from '@/lib/blog';
 import { pingWebSubHub } from '@/lib/websub';
@@ -35,7 +36,9 @@ export async function POST(req: NextRequest) {
   const supabase = getSupabaseAdmin();
   const { data: integrations, error: lookupErr } = await supabase
     .from('outrank_integrations')
-    .select('id, access_token')
+    .select(
+      'id, access_token, allowed_niches, min_word_count, max_link_density, banned_terms, min_quality_score',
+    )
     .eq('kind', 'crawlproof');
   if (lookupErr) {
     return NextResponse.json({ error: 'Lookup failed' }, { status: 500 });
@@ -58,6 +61,23 @@ export async function POST(req: NextRequest) {
   });
   if (!parsed.ok) {
     return NextResponse.json({ error: parsed.reason }, { status: parsed.status });
+  }
+
+  const gate = await gatePost(parsed.post, {
+    allowedNiches: (integration as any).allowed_niches ?? [],
+    heuristics: {
+      minWordCount: (integration as any).min_word_count ?? 500,
+      maxLinkDensity: (integration as any).max_link_density ?? 1.0,
+      bannedTerms: (integration as any).banned_terms ?? [],
+    },
+    minQualityScore: (integration as any).min_quality_score ?? undefined,
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? undefined,
+  });
+  if (!gate.ok) {
+    return NextResponse.json(
+      { error: `gate ${gate.stage} reject`, reasons: gate.reasons },
+      { status: gate.stage === 'niche' ? 403 : 422 },
+    );
   }
 
   const { post } = parsed;
