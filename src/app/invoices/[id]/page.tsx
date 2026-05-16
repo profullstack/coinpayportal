@@ -306,7 +306,7 @@ export default function InvoiceDetailPage() {
                 </Link>
               )}
 
-              {['sent', 'overdue', 'paid'].includes(invoice.status) && (
+              {invoice.status !== 'cancelled' && (
                 <button
                   onClick={handleCopyShareLink}
                   className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${
@@ -314,6 +314,7 @@ export default function InvoiceDetailPage() {
                       ? 'bg-green-500/20 text-green-400 border border-green-500/30'
                       : 'bg-gray-700 hover:bg-gray-600 text-white'
                   }`}
+                  title={invoice.status === 'draft' ? 'Link is shareable but the payment page only opens once the invoice is sent.' : undefined}
                 >
                   {copiedLink ? '✓ Link Copied!' : '🔗 Copy Sharable Link'}
                 </button>
