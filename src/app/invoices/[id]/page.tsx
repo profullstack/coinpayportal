@@ -47,6 +47,17 @@ export default function InvoiceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
   const [error, setError] = useState('');
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const handleCopyShareLink = async () => {
+    if (!invoice) return;
+    const url = `${window.location.origin}/now/${invoice.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    } catch { /* ignore */ }
+  };
 
   useEffect(() => {
     fetchInvoice();
@@ -293,6 +304,19 @@ export default function InvoiceDetailPage() {
                 >
                   🔗 View Payment Page
                 </Link>
+              )}
+
+              {['sent', 'overdue', 'paid'].includes(invoice.status) && (
+                <button
+                  onClick={handleCopyShareLink}
+                  className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${
+                    copiedLink
+                      ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                      : 'bg-gray-700 hover:bg-gray-600 text-white'
+                  }`}
+                >
+                  {copiedLink ? '✓ Link Copied!' : '🔗 Copy Sharable Link'}
+                </button>
               )}
 
               {['draft', 'sent', 'overdue'].includes(invoice.status) && (
