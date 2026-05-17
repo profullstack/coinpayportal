@@ -2,6 +2,10 @@ import 'server-only';
 import sanitizeHtml from 'sanitize-html';
 
 const OPTIONS: sanitizeHtml.IOptions = {
+  // Workaround for GHSA-rpr9-rxv7-x643 (CVE-2026-44990): sanitize-html's default
+  // `nonTextTags` omits `xmp`, letting an attacker smuggle live markup through
+  // <xmp>...</xmp>. Override the list so xmp's contents are discarded with the tag.
+  nonTextTags: ['script', 'style', 'textarea', 'option', 'xmp', 'noscript', 'noembed', 'noframes'],
   allowedTags: [
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'p', 'br', 'hr',
