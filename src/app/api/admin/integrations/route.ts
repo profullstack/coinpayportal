@@ -14,7 +14,16 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: 'Failed to load integrations' }, { status: 500 });
+    console.error('[admin/integrations] supabase error', error);
+    return NextResponse.json(
+      {
+        error: 'Failed to load integrations',
+        detail: error.message,
+        code: error.code,
+        hint: error.hint,
+      },
+      { status: 500 },
+    );
   }
   return NextResponse.json({ integrations: data ?? [] });
 }
