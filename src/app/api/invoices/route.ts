@@ -7,7 +7,7 @@ import { resolveMerchant } from '@/lib/auth/merchant';
 /**
  * GET /api/invoices
  * List all invoices for authenticated merchant.
- * Accepts either a JWT Bearer token or a cp_live_ API key.
+ * Accepts either a JWT Bearer token or a CoinPay API key.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/invoices
  * Create a new invoice.
- * Accepts either a JWT Bearer token or a cp_live_ API key.
+ * Accepts either a JWT Bearer token or a CoinPay API key.
  * When authenticated via API key the business is already resolved from the key;
  * the caller may still pass business_id but it must match the key's business.
  */
