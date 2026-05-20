@@ -1,11 +1,11 @@
 /**
  * Shared OAuth authentication utility
- * Supports both JWT Bearer tokens and CoinPay API keys (cp_live_*)
+ * Supports both JWT Bearer tokens and CoinPay API keys (cp_live_* / cp_test_*)
  */
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
-import { isApiKey, validateApiKeyFormat, getBusinessByApiKey } from '@/lib/auth/apikey';
+import { isApiKey, getBusinessByApiKey } from '@/lib/auth/apikey';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -69,10 +69,9 @@ export async function getAuthUser(request: NextRequest): Promise<{ id: string } 
  * Uses the same getBusinessByApiKey as the main auth module for consistency.
  */
 async function resolveApiKey(apiKey: string): Promise<{ id: string } | null> {
-  // Quick format check — accept any string starting with cp_live_
-  // (the full validation happens in getBusinessByApiKey)
-  if (!apiKey || !apiKey.startsWith('cp_live_')) {
-    console.warn('[OAuth Auth] API key does not start with cp_live_');
+  // Quick format check; the full validation happens in getBusinessByApiKey.
+  if (!isApiKey(apiKey)) {
+    console.warn('[OAuth Auth] API key does not use a CoinPay prefix');
     return null;
   }
 

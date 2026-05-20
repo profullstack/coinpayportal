@@ -4,7 +4,8 @@ import { randomBytes } from 'crypto';
 /**
  * API Key Configuration
  */
-const API_KEY_PREFIX = 'cp_live_';
+const API_KEY_PREFIXES = ['cp_live_', 'cp_test_'] as const;
+const API_KEY_PREFIX = API_KEY_PREFIXES[0];
 const API_KEY_LENGTH = 32; // 32 random characters after prefix
 const TOTAL_KEY_LENGTH = API_KEY_PREFIX.length + API_KEY_LENGTH;
 
@@ -57,14 +58,15 @@ export function validateApiKeyFormat(apiKey: string): ApiKeyValidation {
     };
   }
 
-  if (!apiKey.startsWith(API_KEY_PREFIX)) {
+  const prefix = API_KEY_PREFIXES.find(candidate => apiKey.startsWith(candidate));
+  if (!prefix) {
     return {
       valid: false,
-      error: `API key must start with ${API_KEY_PREFIX}`,
+      error: `API key must start with ${API_KEY_PREFIXES.join(' or ')}`,
     };
   }
 
-  if (apiKey.length !== TOTAL_KEY_LENGTH) {
+  if (apiKey.length !== prefix.length + API_KEY_LENGTH) {
     return {
       valid: false,
       error: `API key must be ${TOTAL_KEY_LENGTH} characters long`,
@@ -72,7 +74,7 @@ export function validateApiKeyFormat(apiKey: string): ApiKeyValidation {
   }
 
   // Validate that the part after prefix is hexadecimal (case-insensitive)
-  const keyPart = apiKey.substring(API_KEY_PREFIX.length);
+  const keyPart = apiKey.substring(prefix.length);
   if (!/^[a-fA-F0-9]{32}$/.test(keyPart)) {
     return {
       valid: false,
@@ -197,5 +199,5 @@ export async function regenerateApiKey(
  * @returns {boolean} True if token is an API key
  */
 export function isApiKey(token: string): boolean {
-  return token?.startsWith(API_KEY_PREFIX) ?? false;
+  return API_KEY_PREFIXES.some(prefix => token?.startsWith(prefix)) ?? false;
 }
