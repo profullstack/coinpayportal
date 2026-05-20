@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { verifyToken } from '@/lib/auth/jwt';
-import { getJwtSecret } from '@/lib/secrets';
+import { resolveMerchant } from '@/lib/auth/merchant';
 import { getCryptoPrice } from '@/lib/rates/tatum';
 import { generatePaymentAddress, type SystemBlockchain } from '@/lib/wallets/system-wallet';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
@@ -22,19 +21,12 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.substring(7);
-    const jwtSecret = getJwtSecret();
-    if (!jwtSecret) {
-      return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
-    }
-
-    const decoded = verifyToken(token, jwtSecret);
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const authResult = await resolveMerchant(supabase, request);
+    if ('error' in authResult) {
+      return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status });
+    }
+    const { merchantId } = authResult;
 
     // Get the invoice with client and business info
     const { data: invoice, error: fetchError } = await supabase
@@ -45,7 +37,7 @@ export async function POST(
         businesses (id, name, merchant_id)
       `)
       .eq('id', id)
-      .eq('user_id', decoded.userId)
+      .eq('user_id', merchantId)
       .single();
 
     if (fetchError || !invoice) {
