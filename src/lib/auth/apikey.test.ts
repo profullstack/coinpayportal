@@ -53,6 +53,13 @@ describe('API Key Service', () => {
       expect(result.error).toBeUndefined();
     });
 
+    it('should validate a correctly formatted test API key', () => {
+      const validKey = 'cp_test_' + 'b'.repeat(32);
+      const result = validateApiKeyFormat(validKey);
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+
     it('should reject empty API key', () => {
       const result = validateApiKeyFormat('');
       expect(result.valid).toBe(false);
@@ -68,7 +75,7 @@ describe('API Key Service', () => {
     it('should reject API key without correct prefix', () => {
       const result = validateApiKeyFormat('invalid_' + 'a'.repeat(32));
       expect(result.valid).toBe(false);
-      expect(result.error).toContain('must start with cp_live_');
+      expect(result.error).toContain('must start with cp_live_ or cp_test_');
     });
 
     it('should reject API key with incorrect length', () => {
@@ -291,6 +298,10 @@ describe('API Key Service', () => {
 
     it('should return true for any string starting with cp_live_', () => {
       expect(isApiKey('cp_live_anything')).toBe(true);
+    });
+
+    it('should return true for any string starting with cp_test_', () => {
+      expect(isApiKey('cp_test_anything')).toBe(true);
     });
 
     it('should return false for JWT token', () => {
