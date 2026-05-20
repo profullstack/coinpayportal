@@ -8,3 +8,5 @@ export { computeTrustTier, computeCompositeScore, scoreToTier } from './trust-ti
 export type { TrustTier, TrustTierResult } from './trust-tiers';
 export { submitAttestation, getAttestationStatus, getAttestationScore } from './mutual-attestation';
 export type { AttestationInput, MutualAttestationStatus } from './mutual-attestation';
+export { recordReputationEvent, getReputationEvents, signEvent, verifyEventSignature } from './portable-events';
+export type { PortableReputationEvent, RecordEventInput, QueryOpts } from './portable-events';
