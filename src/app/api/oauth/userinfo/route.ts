@@ -61,17 +61,23 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // wallet:read scope — fetch wallet addresses
+  // wallet:read scope — return the merchant's configured payout/receive
+  // wallet addresses from merchant_wallets (the table powering the
+  // /settings/wallets page on coinpayportal). The legacy `wallets` table is
+  // an HD-key store with no address column; reading from it always returned
+  // empty, so OIDC clients silently got no wallets even when the merchant
+  // had a full set configured.
   if (scopes.includes('wallet:read')) {
     const { data: wallets } = await supabase
-      .from('wallets')
-      .select('address, chain, label')
-      .eq('user_id', userId);
+      .from('merchant_wallets')
+      .select('wallet_address, cryptocurrency, label')
+      .eq('merchant_id', userId)
+      .eq('is_active', true);
 
     if (wallets && wallets.length > 0) {
       claims.wallets = wallets.map((w: any) => ({
-        address: w.address,
-        chain: w.chain,
+        address: w.wallet_address,
+        chain: w.cryptocurrency,
         label: w.label || undefined,
       }));
     }
