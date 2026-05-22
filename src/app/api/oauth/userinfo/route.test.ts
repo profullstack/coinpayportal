@@ -206,24 +206,34 @@ describe('GET /api/oauth/userinfo', () => {
       });
     });
 
-    // Override from to handle wallets table
+    // Override from to handle the merchant_wallets table (.eq().eq() chain
+    // because we filter by both merchant_id and is_active).
     const { createClient } = await import('@supabase/supabase-js');
-    const mockWalletData = [
-      { address: '0xabc123', chain: 'ethereum', label: 'Main wallet' },
-      { address: 'bc1q...', chain: 'bitcoin', label: null },
+    const mockWalletRows = [
+      { wallet_address: '0xabc123', cryptocurrency: 'ETH', label: 'Main wallet' },
+      { wallet_address: 'bc1q...', cryptocurrency: 'BTC', label: null },
     ];
-    const mockWalletEq = vi.fn(() => Promise.resolve({ data: mockWalletData, error: null }));
-    const mockWalletSelect = vi.fn(() => ({ eq: mockWalletEq }));
+    const mockWalletInnerEq = vi.fn(() =>
+      Promise.resolve({ data: mockWalletRows, error: null }),
+    );
+    const mockWalletOuterEq = vi.fn(() => ({ eq: mockWalletInnerEq }));
+    const mockWalletSelect = vi.fn(() => ({ eq: mockWalletOuterEq }));
 
     (createClient as any).mockReturnValue({
       from: vi.fn((table: string) => {
-        if (table === 'wallets') {
+        if (table === 'merchant_wallets') {
           return { select: mockWalletSelect };
         }
-        if (table === 'reputation') {
+        if (table === 'merchant_dids') {
           return { select: mockSelect };
         }
-        return { select: vi.fn(() => ({ eq: vi.fn(() => ({ single: () => Promise.resolve({ data: { id: 'user-123' }, error: null }) })) })) };
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              single: () => Promise.resolve({ data: { id: 'user-123' }, error: null }),
+            })),
+          })),
+        };
       }),
     });
 
@@ -235,7 +245,7 @@ describe('GET /api/oauth/userinfo', () => {
     expect(body.wallets).toBeDefined();
     expect(body.wallets).toHaveLength(2);
     expect(body.wallets[0].address).toBe('0xabc123');
-    expect(body.wallets[0].chain).toBe('ethereum');
+    expect(body.wallets[0].chain).toBe('ETH');
     expect(body.wallets[1].address).toBe('bc1q...');
   });
 });
