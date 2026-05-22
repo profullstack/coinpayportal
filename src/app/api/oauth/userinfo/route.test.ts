@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock Supabase
 const mockSingle = vi.fn();
-const mockEq = vi.fn(() => ({ single: mockSingle, eq: mockEq }));
+// merchant_dids lookup uses .maybeSingle(); share the mock fn so existing
+// tests that drive call ordering via mockSingle keep working.
+const mockEq = vi.fn(() => ({ single: mockSingle, maybeSingle: mockSingle, eq: mockEq }));
 const mockSelect = vi.fn(() => ({ eq: mockEq }));
 
 vi.mock('@supabase/supabase-js', () => ({
