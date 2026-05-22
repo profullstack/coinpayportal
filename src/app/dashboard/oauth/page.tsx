@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
+import { decryptClientSecret } from '@/lib/crypto/oauth-secret';
 
 interface OAuthClient {
   id: string;
@@ -14,6 +15,7 @@ interface OAuthClient {
   scopes: string[];
   is_active: boolean;
   created_at: string;
+  has_encrypted_secret: boolean;
 }
 
 export default function OAuthDashboardPage() {
@@ -23,6 +25,9 @@ export default function OAuthDashboardPage() {
   const [error, setError] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Per-client reveal state — undefined = collapsed, '' = passphrase pending,
+  // a real string = decrypted secret currently visible in the row.
+  const [revealing, setRevealing] = useState<Record<string, { passphrase: string; error: string; busy: boolean; plaintext: string | null } | undefined>>({});
 
   useEffect(() => {
     fetchClients();
@@ -62,6 +67,60 @@ export default function OAuthDashboardPage() {
       document.body.removeChild(el);
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 2000);
+    }
+  };
+
+  const openReveal = (clientId: string) => {
+    setRevealing((prev) => ({
+      ...prev,
+      [clientId]: { passphrase: '', error: '', busy: false, plaintext: null },
+    }));
+  };
+
+  const closeReveal = (clientId: string) => {
+    setRevealing((prev) => {
+      const next = { ...prev };
+      delete next[clientId];
+      return next;
+    });
+  };
+
+  const setRevealPassphrase = (clientId: string, passphrase: string) => {
+    setRevealing((prev) => {
+      const state = prev[clientId];
+      if (!state) return prev;
+      return { ...prev, [clientId]: { ...state, passphrase, error: '' } };
+    });
+  };
+
+  const submitReveal = async (client: OAuthClient) => {
+    const state = revealing[client.id];
+    if (!state) return;
+    setRevealing((prev) => ({ ...prev, [client.id]: { ...state, busy: true, error: '' } }));
+    try {
+      const result = await authFetch(`/api/oauth/clients/${client.id}/encrypted-secret`, {}, router);
+      if (!result) return;
+      const { response, data } = result;
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Could not load ciphertext');
+      }
+      if (!data.encrypted_secret) {
+        throw new Error('No encrypted copy on file — recreate the app to set one.');
+      }
+      const plaintext = await decryptClientSecret(data.encrypted_secret, state.passphrase);
+      setRevealing((prev) => ({
+        ...prev,
+        [client.id]: { ...state, busy: false, error: '', plaintext },
+      }));
+    } catch (err) {
+      setRevealing((prev) => ({
+        ...prev,
+        [client.id]: {
+          ...state,
+          busy: false,
+          error: err instanceof Error ? err.message : 'Decryption failed',
+        },
+      }));
     }
   };
 
@@ -264,6 +323,80 @@ export default function OAuthDashboardPage() {
                         </span>
                       ))}
                     </div>
+                  </div>
+
+                  {/* Client Secret reveal */}
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
+                      Client Secret
+                    </label>
+                    {!client.has_encrypted_secret ? (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        No encrypted copy saved. The secret is only shown once at creation time.
+                      </p>
+                    ) : revealing[client.id] === undefined ? (
+                      <button
+                        type="button"
+                        onClick={() => openReveal(client.id)}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/20 px-3 py-1.5 text-xs font-medium text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40"
+                      >
+                        Reveal secret →
+                      </button>
+                    ) : revealing[client.id]?.plaintext ? (
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 truncate rounded bg-gray-100 dark:bg-gray-700 px-2 py-1 font-mono text-sm text-gray-900 dark:text-gray-100">
+                          {revealing[client.id]?.plaintext}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(revealing[client.id]!.plaintext!, `${client.id}:secret`)}
+                          className="rounded border border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/20 px-2 py-1 text-xs text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40"
+                        >
+                          {copiedId === `${client.id}:secret` ? '✓ Copied' : 'Copy'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => closeReveal(client.id)}
+                          className="rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        >
+                          Hide
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="password"
+                          autoFocus
+                          placeholder="Passphrase"
+                          value={revealing[client.id]?.passphrase ?? ''}
+                          onChange={(e) => setRevealPassphrase(client.id, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') submitReveal(client);
+                            if (e.key === 'Escape') closeReveal(client.id);
+                          }}
+                          autoComplete="off"
+                          className="flex-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1 text-sm text-gray-900 dark:text-gray-100"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => submitReveal(client)}
+                          disabled={revealing[client.id]?.busy || !(revealing[client.id]?.passphrase ?? '').length}
+                          className="rounded bg-purple-600 px-3 py-1 text-xs font-semibold text-white hover:bg-purple-500 disabled:opacity-50"
+                        >
+                          {revealing[client.id]?.busy ? 'Decrypting…' : 'Decrypt'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => closeReveal(client.id)}
+                          className="rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                    {revealing[client.id]?.error && (
+                      <p className="mt-1 text-xs text-red-600">{revealing[client.id]?.error}</p>
+                    )}
                   </div>
                 </div>
               </div>

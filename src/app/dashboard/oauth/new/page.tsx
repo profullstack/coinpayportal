@@ -4,10 +4,12 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
+import { encryptClientSecret } from '@/lib/crypto/oauth-secret';
 
 const AVAILABLE_SCOPES = ['openid', 'profile', 'email', 'payments:read', 'payments:write'];
 
 interface CreatedSecret {
+  id: string;
   client_id: string;
   client_secret: string;
 }
@@ -41,6 +43,11 @@ function OAuthNewForm() {
   const [error, setError] = useState('');
   const [createdSecret, setCreatedSecret] = useState<CreatedSecret | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [passphrase, setPassphrase] = useState('');
+  const [passphraseConfirm, setPassphraseConfirm] = useState('');
+  const [stashing, setStashing] = useState(false);
+  const [stashError, setStashError] = useState('');
+  const [stashed, setStashed] = useState(false);
 
   useEffect(() => {
     if (editId) {
@@ -140,8 +147,9 @@ function OAuthNewForm() {
           return;
         }
 
-        // Show the secret
+        // Show the secret + invite the user to store an encrypted copy.
         setCreatedSecret({
+          id: data.client.id,
           client_id: data.client.client_id,
           client_secret: data.client.client_secret,
         });
@@ -150,6 +158,41 @@ function OAuthNewForm() {
       setError('An error occurred');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const stashEncryptedSecret = async () => {
+    if (!createdSecret) return;
+    setStashError('');
+    if (passphrase.length < 8) {
+      setStashError('Passphrase must be at least 8 characters.');
+      return;
+    }
+    if (passphrase !== passphraseConfirm) {
+      setStashError('Passphrases do not match.');
+      return;
+    }
+    setStashing(true);
+    try {
+      const ciphertext = await encryptClientSecret(createdSecret.client_secret, passphrase);
+      const result = await authFetch(`/api/oauth/clients/${createdSecret.id}/encrypted-secret`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ encrypted_secret: ciphertext }),
+      }, router);
+      if (!result) return;
+      const { response, data } = result;
+      if (!response.ok || !data.success) {
+        setStashError(data.error || 'Could not save encrypted secret');
+        return;
+      }
+      setStashed(true);
+      setPassphrase('');
+      setPassphraseConfirm('');
+    } catch (err) {
+      setStashError(err instanceof Error ? err.message : 'Encryption failed');
+    } finally {
+      setStashing(false);
     }
   };
 
@@ -236,6 +279,48 @@ function OAuthNewForm() {
                   {copiedField === 'secret' ? '✓ Copied' : 'Copy'}
                 </button>
               </div>
+            </div>
+
+            {/* Stash an encrypted copy so this can be revealed later */}
+            <div className="mb-6 rounded-lg border border-purple-200 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/20 p-4">
+              <h3 className="text-sm font-semibold text-purple-900 dark:text-purple-200">
+                {stashed ? '✓ Encrypted copy saved' : 'Save an encrypted copy so you can reveal it later'}
+              </h3>
+              {!stashed && (
+                <>
+                  <p className="mt-1 text-xs text-purple-800 dark:text-purple-300">
+                    Pick a passphrase. We encrypt the secret in your browser with WebCrypto (PBKDF2 + AES-256-GCM)
+                    and only store the ciphertext. If you forget the passphrase, you&rsquo;ll have to recreate the app.
+                  </p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <input
+                      type="password"
+                      placeholder="Passphrase (min. 8 chars)"
+                      value={passphrase}
+                      onChange={(e) => setPassphrase(e.target.value)}
+                      autoComplete="new-password"
+                      className="rounded border border-purple-300 dark:border-purple-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
+                    />
+                    <input
+                      type="password"
+                      placeholder="Confirm passphrase"
+                      value={passphraseConfirm}
+                      onChange={(e) => setPassphraseConfirm(e.target.value)}
+                      autoComplete="new-password"
+                      className="rounded border border-purple-300 dark:border-purple-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
+                    />
+                  </div>
+                  {stashError && <p className="mt-2 text-xs text-red-600">{stashError}</p>}
+                  <button
+                    type="button"
+                    onClick={stashEncryptedSecret}
+                    disabled={stashing || passphrase.length === 0}
+                    className="mt-3 inline-flex items-center justify-center rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-500 disabled:opacity-50"
+                  >
+                    {stashing ? 'Encrypting…' : 'Save encrypted copy'}
+                  </button>
+                </>
+              )}
             </div>
 
             <Link
