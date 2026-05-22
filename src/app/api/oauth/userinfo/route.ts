@@ -77,16 +77,21 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // DID scope — check reputation system
+  // DID scope — return the merchant's human DID from merchant_dids
+  // (same source /api/reputation/did/me reads from). The legacy `reputation`
+  // table doesn't carry the DID; reading from it returned empty for every
+  // OIDC client, so downstream apps (d0rz, c0mpute, etc.) never learned the
+  // user's CoinPay-issued DID after a successful OAuth handshake.
   if (scopes.includes('did')) {
-    const { data: rep } = await supabase
-      .from('reputation')
+    const { data: didRow } = await supabase
+      .from('merchant_dids')
       .select('did')
-      .eq('user_id', userId)
-      .single();
+      .eq('merchant_id', userId)
+      .eq('did_kind', 'human')
+      .maybeSingle();
 
-    if (rep?.did) {
-      claims.did = rep.did;
+    if (didRow?.did) {
+      claims.did = didRow.did;
     }
   }
 
