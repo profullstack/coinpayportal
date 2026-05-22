@@ -26,9 +26,9 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = getSupabase();
-  const { data: clients, error } = await supabase
+  const { data: rows, error } = await supabase
     .from('oauth_clients')
-    .select('id, client_id, name, description, redirect_uris, scopes, is_active, created_at, updated_at')
+    .select('id, client_id, name, description, redirect_uris, scopes, is_active, created_at, updated_at, client_secret_encrypted')
     .eq('owner_id', user.id)
     .order('created_at', { ascending: false });
 
@@ -38,6 +38,13 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+
+  // Surface only whether the encrypted secret exists, not the ciphertext —
+  // the dedicated /encrypted-secret endpoint returns it on demand.
+  const clients = (rows ?? []).map((row) => {
+    const { client_secret_encrypted: enc, ...rest } = row as Record<string, unknown>;
+    return { ...rest, has_encrypted_secret: !!enc };
+  });
 
   return NextResponse.json({ success: true, clients });
 }
