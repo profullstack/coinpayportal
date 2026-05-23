@@ -1,10 +1,8 @@
 import type { Metadata, Viewport } from 'next';
-import { Suspense } from 'react';
 import Script from 'next/script';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { Providers } from '@/components/Providers';
-import RobautoPixel from '@/components/RobautoPixel';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -127,10 +125,11 @@ export default function RootLayout({
             f.parentNode.insertBefore(a,f)})(window,document,'script', 'https://invitejs.trustpilot.com/tp.min.js', 'tp');
             tp('register', 'or0OSCi4s53Y7syG');`}
         </Script>
-        <Suspense fallback={null}>
-          <RobautoPixel />
-        </Suspense>
-              <Script data-site="69420039-675a-4c3e-95ec-c8287fc21cc5" src="https://crawlproof.com/stats.js" strategy="afterInteractive" />
+        <Script
+          data-site="69420039-675a-4c3e-95ec-c8287fc21cc5"
+          src="https://crawlproof.com/stats.js"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );
