@@ -1,0 +1,35 @@
+# Managed by sh1pt Actions Fleet
+# pack: node-pnpm-test@1.0.0
+# install: sh1pt-actions-store
+# hash: sha256:14a3f6fdbc21be92e815a16317251c967e4fbd95a5daf98819e0c23e7d56bf4f
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm test
+        env:
+          CI: true
