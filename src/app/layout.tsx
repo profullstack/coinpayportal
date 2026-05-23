@@ -130,6 +130,7 @@ export default function RootLayout({
         <Suspense fallback={null}>
           <RobautoPixel />
         </Suspense>
+              <Script data-site="09d382f0-1b98-4d28-b360-78eaf4e030f2" src="https://crawlproof.com/stats.js" strategy="afterInteractive" />
       </body>
     </html>
   );
