@@ -131,6 +131,7 @@ export default function RootLayout({
           <RobautoPixel />
         </Suspense>
               <Script data-site="09d382f0-1b98-4d28-b360-78eaf4e030f2" src="https://crawlproof.com/stats.js" strategy="afterInteractive" />
+              <Script data-site="69420039-675a-4c3e-95ec-c8287fc21cc5" src="https://crawlproof.com/stats.js" strategy="afterInteractive" />
       </body>
     </html>
   );
