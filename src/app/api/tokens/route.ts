@@ -1,35 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { authenticateRequest, isMerchantAuth, isBusinessAuth } from '@/lib/auth/middleware';
+import { authenticateRequest, isBusinessAuth, isMerchantAuth } from '@/lib/auth/middleware';
 import {
+  coinToSupportedToken,
   getSupportedWalletsForBusiness,
   verifyBusinessAccess,
   walletToSupportedCoin,
 } from '@/lib/wallets/supported-coins';
 
 /**
- * GET /api/supported-coins
- * 
- * Returns the list of supported cryptocurrencies configured for a business.
- * Business wallets win. If a business wallet is not configured for a
- * cryptocurrency, the merchant-level global wallet is used as a fallback.
- * 
- * Authentication:
- * - API Key: Business ID is derived from the API key. If business_id is
- *   provided, it must match the API key's business.
- * - JWT: Requires business_id query parameter
- * 
- * Query Parameters:
- * - business_id (required for JWT auth): The business UUID
- * - active_only (optional): If "true", only return active wallets
- * 
- * Response:
- * {
- *   success: true,
- *   coins: [{ symbol, name, is_active, has_wallet, wallet_source }],
- *   business_id: string,
- *   total: number
- * }
+ * GET /api/tokens
+ *
+ * Payment-option friendly view of /api/supported-coins.
+ * Business wallets win; merchant global wallets are used as fallback.
+ *
+ * Query:
+ * - business_id: required for JWT auth, optional for API keys when it matches scope
+ * - active_only: if true, only active wallets are returned
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -39,48 +26,40 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json(
         { success: false, error: 'Server configuration error' },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // Authenticate request
-    const authHeader = request.headers.get('authorization');
-    const authResult = await authenticateRequest(supabase, authHeader);
-
+    const authResult = await authenticateRequest(supabase, request.headers.get('authorization'));
     if (!authResult.success || !authResult.context) {
       return NextResponse.json(
         { success: false, error: authResult.error || 'Authentication required' },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
-    // Parse query parameters
     const { searchParams } = new URL(request.url);
     const queryBusinessId = searchParams.get('business_id');
     const activeOnly = searchParams.get('active_only') === 'true';
 
-    // Resolve business ID based on auth type
     let businessId: string;
     let merchantId: string;
 
     if (isBusinessAuth(authResult.context)) {
-      // API key auth - business ID comes from the API key
       if (queryBusinessId && queryBusinessId !== authResult.context.businessId) {
         return NextResponse.json(
           { success: false, error: 'business_id does not match API key scope' },
-          { status: 403 }
+          { status: 403 },
         );
       }
       businessId = authResult.context.businessId;
       merchantId = authResult.context.merchantId;
     } else if (isMerchantAuth(authResult.context)) {
-      // JWT auth - business ID must be provided in query params
       if (!queryBusinessId) {
         return NextResponse.json(
           { success: false, error: 'business_id is required when using JWT authentication' },
-          { status: 400 }
+          { status: 400 },
         );
       }
       businessId = queryBusinessId;
@@ -88,17 +67,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     } else {
       return NextResponse.json(
         { success: false, error: 'Invalid authentication context' },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
-    // Verify business belongs to merchant. This also guards API key contexts
-    // where callers pass an explicit business_id.
     const access = await verifyBusinessAccess(supabase, businessId, merchantId);
     if (!access.ok) {
       return NextResponse.json(
         { success: false, error: access.error },
-        { status: access.status ?? 404 }
+        { status: access.status ?? 404 },
       );
     }
 
@@ -109,30 +86,29 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       activeOnly,
     );
     if (walletResult.error) {
-      console.error('Error fetching wallets:', walletResult.error);
+      console.error('Error fetching tokens:', walletResult.error);
       return NextResponse.json(
-        { success: false, error: 'Failed to fetch supported coins' },
-        { status: 500 }
+        { success: false, error: 'Failed to fetch tokens' },
+        { status: 500 },
       );
     }
 
     const coins = (walletResult.wallets || []).map(walletToSupportedCoin);
+    const tokens = coins.map(coinToSupportedToken);
 
-    return NextResponse.json(
-      {
-        success: true,
-        coins,
-        business_id: businessId,
-        merchant_id: merchantId,
-        total: coins.length,
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({
+      success: true,
+      tokens,
+      coins,
+      business_id: businessId,
+      merchant_id: merchantId,
+      total: tokens.length,
+    });
   } catch (error) {
-    console.error('Supported coins error:', error);
+    console.error('Tokens API error:', error);
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

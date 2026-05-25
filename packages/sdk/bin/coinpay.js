@@ -189,6 +189,9 @@ ${colors.cyan}Commands:${colors.reset}
     list                  List payments
     qr <id>               Get payment QR code
 
+  ${colors.bright}tokens${colors.reset}
+    list                  List checkout tokens (--business-id, --active-only)
+
   ${colors.bright}business${colors.reset}
     create                Create a new business
     get <id>              Get business details
@@ -328,6 +331,9 @@ ${colors.cyan}Examples:${colors.reset}
 
   # Connect Stripe to a business (country is locked at Stripe account creation)
   coinpay card connect onboard <business-id> --country CA --email merchant@example.com
+
+  # List payment tokens for a business
+  coinpay tokens list --business-id <business-id> --active-only
 
 ${colors.cyan}Environment Variables:${colors.reset}
   COINPAY_API_KEY         API key (overrides config)
@@ -637,6 +643,39 @@ async function handlePayment(subcommand, args, flags) {
     default:
       print.error(`Unknown payment command: ${subcommand}`);
       showHelp();
+  }
+}
+
+/**
+ * Token discovery commands
+ */
+async function handleTokens(subcommand, args, flags) {
+  const client = createClient();
+
+  switch (subcommand) {
+    case 'list': {
+      const businessId = flags['business-id'];
+      const activeOnly = flags['active-only'] === true || flags.active === true;
+      const result = await client.getTokens({ businessId, activeOnly });
+
+      if (flags.json) {
+        print.json(result);
+        break;
+      }
+
+      const tokens = result.tokens || [];
+      print.info(`Payment tokens (${tokens.length})`);
+      for (const token of tokens) {
+        const chain = token.chain ? ` on ${token.chain}` : '';
+        const source = token.wallet_source ? ` (${token.wallet_source})` : '';
+        console.log(`  ${colors.bright}${token.code}${colors.reset} ${token.ticker || token.symbol}${chain}${source}`);
+      }
+      break;
+    }
+
+    default:
+      print.error(`Unknown tokens command: ${subcommand}`);
+      print.info('Available: list');
   }
 }
 
@@ -2725,6 +2764,10 @@ async function handleLightning(subcommand, args, flags) {
         
       case 'payment':
         await handlePayment(subcommand, args, flags);
+        break;
+
+      case 'tokens':
+        await handleTokens(subcommand, args, flags);
         break;
         
       case 'business':

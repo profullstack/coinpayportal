@@ -307,9 +307,11 @@ Delete a business (soft delete).
 
 ### Get Supported Coins
 
-Get the list of supported cryptocurrencies (wallets) configured for a business. This endpoint is useful for displaying available payment options to customers.
+Get the list of supported cryptocurrencies (wallets) configured for a business. This endpoint is useful for displaying available payment options to customers. Business-level wallets win; if a business does not have a wallet for a token, CoinPay falls back to the merchant's global wallet for that token.
 
 **Endpoint:** `GET /api/supported-coins`
+
+For checkout token pickers, use `GET /api/tokens`. It returns the same data plus lower-case `code` values accepted by `POST /api/payments/create`. `GET /api/get-tokens` is kept as a legacy alias, but new integrations should use `/api/tokens` or `/api/supported-coins`.
 
 **Headers:** `Authorization: Bearer cp_live_your_api_key` or `Authorization: Bearer jwt_token`
 
@@ -317,7 +319,7 @@ Get the list of supported cryptocurrencies (wallets) configured for a business. 
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `business_id` | string | Yes (JWT only) | Business UUID. Required when using JWT authentication. Not needed with API key auth. |
+| `business_id` | string | Yes (JWT), optional (API key) | Business UUID. Required when using JWT authentication. With a business API key, the business is derived from the key; if you pass `business_id`, it must match the key scope. |
 | `active_only` | boolean | No | If `true`, only return active wallets. Default: `false` |
 
 **Response:**
@@ -329,13 +331,15 @@ Get the list of supported cryptocurrencies (wallets) configured for a business. 
       "symbol": "BTC",
       "name": "Bitcoin",
       "is_active": true,
-      "has_wallet": true
+      "has_wallet": true,
+      "wallet_source": "business"
     },
     {
       "symbol": "ETH",
       "name": "Ethereum",
       "is_active": true,
-      "has_wallet": true
+      "has_wallet": true,
+      "wallet_source": "merchant_global"
     },
     {
       "symbol": "SOL",
@@ -345,7 +349,30 @@ Get the list of supported cryptocurrencies (wallets) configured for a business. 
     }
   ],
   "business_id": "your-business-uuid",
+  "merchant_id": "your-merchant-uuid",
   "total": 3
+}
+```
+
+**Token picker response (`GET /api/tokens`):**
+```json
+{
+  "success": true,
+  "tokens": [
+    {
+      "code": "usdc_pol",
+      "symbol": "USDC_POL",
+      "ticker": "USDC",
+      "name": "USD Coin (Polygon)",
+      "chain": "Polygon",
+      "is_active": true,
+      "has_wallet": true,
+      "wallet_source": "merchant_global"
+    }
+  ],
+  "business_id": "your-business-uuid",
+  "merchant_id": "your-merchant-uuid",
+  "total": 1
 }
 ```
 
@@ -385,14 +412,14 @@ curl "https://coinpayportal.com/api/supported-coins?active_only=true" \
 
 **Example - JavaScript (fetch):**
 ```javascript
-const response = await fetch('https://coinpayportal.com/api/supported-coins', {
+const response = await fetch('https://coinpayportal.com/api/tokens?active_only=true', {
   headers: {
     'Authorization': 'Bearer cp_live_your_api_key',
   },
 });
 
 const data = await response.json();
-// data.coins contains the list of supported cryptocurrencies
+// data.tokens contains lower-case codes accepted by /api/payments/create
 // Use this to display payment options to customers
 ```
 
@@ -407,6 +434,9 @@ const coins = await client.getSupportedCoins();
 
 // Get only active coins
 const activeCoins = await client.getSupportedCoins({ activeOnly: true });
+
+// Get checkout tokens for a specific business
+const tokens = await client.getTokens({ businessId: 'your-business-uuid', activeOnly: true });
 ```
 
 **Error Responses:**
@@ -439,7 +469,7 @@ const activeCoins = await client.getSupportedCoins({ activeOnly: true });
 
 ### Create Payment
 
-Generate a new payment request. This is the primary endpoint merchants use to accept crypto payments.
+Generate a new payment request. This is the primary endpoint merchants use to accept crypto payments. Business wallets are preferred for the requested chain; if missing, CoinPay uses the merchant-level global wallet for that chain.
 
 **Endpoint:** `POST /api/payments/create`
 
@@ -465,7 +495,7 @@ Generate a new payment request. This is the primary endpoint merchants use to ac
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `business_id` | string | Yes | Your business UUID from the dashboard |
+| `business_id` | string | Yes | Your business UUID from the dashboard. Required with JWT auth; business API keys derive it from the key and reject mismatches. |
 | `amount` | number | Yes | Amount in fiat currency (e.g., 100.00) |
 | `currency` | string | No | Fiat currency code (default: "USD") |
 | `blockchain` | string | Yes | Blockchain/cryptocurrency to accept |

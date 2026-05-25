@@ -111,6 +111,11 @@ describe('CoinPayClient', () => {
       expect(typeof client.listPayments).toBe('function');
     });
 
+    it('should have token discovery methods', () => {
+      expect(typeof client.getSupportedCoins).toBe('function');
+      expect(typeof client.getTokens).toBe('function');
+    });
+
     it('should have getPaymentQR method', () => {
       expect(typeof client.getPaymentQR).toBe('function');
     });
@@ -353,6 +358,45 @@ describe('CoinPayClient', () => {
         expect.objectContaining({
           body: expect.stringContaining('"blockchain":"ETH"'),
         })
+      );
+    });
+  });
+
+  describe('token discovery', () => {
+    let client;
+    let mockFetch;
+
+    beforeEach(() => {
+      client = new CoinPayClient({
+        apiKey: 'cp_live_test_api_key_12345678',
+        baseUrl: 'https://api.test.com',
+      });
+      mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ success: true, tokens: [] }),
+      });
+      global.fetch = mockFetch;
+    });
+
+    it('calls /tokens with business_id and active_only', async () => {
+      await client.getTokens({ businessId: 'biz_123', activeOnly: true });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.test.com/tokens?business_id=biz_123&active_only=true',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Authorization': 'Bearer cp_live_test_api_key_12345678',
+          }),
+        })
+      );
+    });
+
+    it('calls /supported-coins for coin discovery', async () => {
+      await client.getSupportedCoins({ businessId: 'biz_123' });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.test.com/supported-coins?business_id=biz_123',
+        expect.any(Object)
       );
     });
   });

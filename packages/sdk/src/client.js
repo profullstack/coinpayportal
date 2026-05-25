@@ -280,6 +280,45 @@ export class CoinPayClient {
   }
 
   /**
+   * Get supported payment coins for a business.
+   *
+   * Business API keys derive the business from the key. Passing businessId is
+   * still allowed and must match the key scope. Merchant JWTs require
+   * businessId.
+   *
+   * @param {Object} [params]
+   * @param {string} [params.businessId] - Business ID
+   * @param {boolean} [params.activeOnly] - Only return active wallets
+   * @returns {Promise<Object>} Supported coins response
+   */
+  async getSupportedCoins({ businessId, activeOnly } = {}) {
+    const params = new URLSearchParams();
+    if (businessId) params.set('business_id', businessId);
+    if (activeOnly) params.set('active_only', 'true');
+    const query = params.toString();
+    return this.request(`/supported-coins${query ? `?${query}` : ''}`);
+  }
+
+  /**
+   * Get payment-option tokens for a business.
+   *
+   * Returns lower-case `code` values accepted by /payments/create, plus
+   * display fields for checkout coin pickers.
+   *
+   * @param {Object} [params]
+   * @param {string} [params.businessId] - Business ID
+   * @param {boolean} [params.activeOnly] - Only return active wallets
+   * @returns {Promise<Object>} Tokens response
+   */
+  async getTokens({ businessId, activeOnly } = {}) {
+    const params = new URLSearchParams();
+    if (businessId) params.set('business_id', businessId);
+    if (activeOnly) params.set('active_only', 'true');
+    const query = params.toString();
+    return this.request(`/tokens${query ? `?${query}` : ''}`);
+  }
+
+  /**
    * Get payment QR code URL
    *
    * Returns the URL to the QR code image endpoint. The endpoint returns

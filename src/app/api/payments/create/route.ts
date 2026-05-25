@@ -8,6 +8,10 @@ import {
 } from '@/lib/entitlements/middleware';
 import { incrementTransactionCount } from '@/lib/entitlements/service';
 import { getStripe } from '@/lib/server/optional-deps';
+import {
+  getPaymentReceivingWallet,
+  verifyBusinessAccess,
+} from '@/lib/wallets/supported-coins';
 
 /**
  * Map frontend currency values to blockchain types
@@ -169,10 +173,12 @@ export async function POST(request: NextRequest) {
 
     // Get merchant ID from auth context
     let merchantId: string;
+    let authBusinessId: string | null = null;
     if (isMerchantAuth(authResult.context)) {
       merchantId = authResult.context.merchantId;
     } else if (isBusinessAuth(authResult.context)) {
       merchantId = authResult.context.merchantId;
+      authBusinessId = authResult.context.businessId;
     } else {
       return NextResponse.json(
         { success: false, error: 'Invalid authentication context' },
@@ -204,7 +210,7 @@ export async function POST(request: NextRequest) {
     
     // Transform frontend data to service format
     const {
-      business_id,
+      business_id: requestedBusinessId,
       amount_usd,
       amount,
       currency,
@@ -220,6 +226,33 @@ export async function POST(request: NextRequest) {
     const paymentMethod: PaymentMethod = (['crypto', 'card', 'both'].includes(rawPaymentMethod))
       ? rawPaymentMethod
       : 'crypto';
+
+    let business_id: string;
+    if (authBusinessId) {
+      if (requestedBusinessId && requestedBusinessId !== authBusinessId) {
+        return NextResponse.json(
+          { success: false, error: 'business_id does not match API key scope' },
+          { status: 403 }
+        );
+      }
+      business_id = authBusinessId;
+    } else {
+      if (!requestedBusinessId) {
+        return NextResponse.json(
+          { success: false, error: 'business_id is required' },
+          { status: 400 }
+        );
+      }
+      business_id = requestedBusinessId;
+    }
+
+    const access = await verifyBusinessAccess(supabase, business_id, merchantId);
+    if (!access.ok) {
+      return NextResponse.json(
+        { success: false, error: access.error },
+        { status: access.status ?? 404 }
+      );
+    }
 
     // Determine the amount (support both amount_usd and amount)
     const paymentAmount = amount_usd ?? amount;
@@ -264,19 +297,19 @@ export async function POST(request: NextRequest) {
     // --- Crypto payment creation ---
     if (needsCrypto && blockchainType) {
       const cryptoCode = blockchainToCrypto(blockchainType);
-      const { data: wallet, error: walletError } = await supabase
-        .from('business_wallets')
-        .select('wallet_address')
-        .eq('business_id', business_id)
-        .eq('cryptocurrency', cryptoCode)
-        .eq('is_active', true)
-        .single();
+      const wallet = await getPaymentReceivingWallet(supabase, {
+        businessId: business_id,
+        merchantId,
+        cryptocurrency: cryptoCode,
+      });
 
-      if (walletError || !wallet) {
+      if (!wallet.walletAddress) {
         return NextResponse.json(
           {
             success: false,
-            error: `No ${cryptoCode} wallet configured for this business. Please add a wallet address in the business settings.`
+            error:
+              wallet.error ||
+              `No ${cryptoCode} wallet configured for this business. Please add a business wallet or merchant global wallet.`
           },
           { status: 400 }
         );
@@ -287,8 +320,10 @@ export async function POST(request: NextRequest) {
         amount: paymentAmount,
         currency: 'USD',
         blockchain: blockchainType,
-        merchant_wallet_address: wallet.wallet_address,
-        metadata: Object.keys(paymentMetadata).length > 0 ? paymentMetadata : undefined,
+        merchant_wallet_address: wallet.walletAddress,
+        metadata: Object.keys(paymentMetadata).length > 0
+          ? { ...paymentMetadata, wallet_source: wallet.source }
+          : { wallet_source: wallet.source },
       });
 
       if (!result.success) {

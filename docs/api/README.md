@@ -481,6 +481,8 @@ List global merchant wallets (not tied to a specific business).
 
 **Auth required:** Yes (JWT)
 
+Business-scoped API calls such as `/api/supported-coins`, `/api/tokens`, and `/api/payments/create` can use these global merchant wallets as a fallback when a business-specific wallet is missing for a chain. Business-specific wallets always take priority.
+
 ---
 
 ### POST /api/wallets
@@ -524,7 +526,7 @@ Create a new payment request. This generates a unique payment address where the 
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `business_id` | string | ✅ | UUID of the business |
+| `business_id` | string | ✅ | UUID of the business. Required with JWT auth; business API keys derive it from the key and reject mismatches. |
 | `amount_usd` / `amount` | number | ✅ | Amount in USD |
 | `currency` / `blockchain` | string | ✅ | `btc`, `bch`, `eth`, `pol`, `sol`, `doge`, `xrp`, `ada`, `bnb`, `usdt`, `usdc`, `usdc_eth`, `usdc_pol`, `usdc_sol` |
 | `description` | string | ❌ | Description shown to customer |
@@ -564,7 +566,7 @@ Create a new payment request. This generates a unique payment address where the 
 | Status | Error | When |
 |--------|-------|------|
 | 400 | Invalid cryptocurrency type | Unsupported chain |
-| 400 | No wallet configured | Business missing wallet for this chain |
+| 400 | No wallet configured | No active business wallet or merchant global wallet exists for this chain |
 | 401 | Authentication required | Missing or invalid auth |
 | 429 | Monthly transaction limit exceeded | Plan limit reached |
 
@@ -872,20 +874,61 @@ If no params, returns fees for all supported blockchains.
 
 ### GET /api/supported-coins
 
-List supported cryptocurrencies and which ones have wallets configured for a business.
+List supported cryptocurrencies and which ones have wallets configured for a business. Business wallets win; merchant global wallets are used as fallback when the business does not have that chain configured.
 
 **Auth required:** Yes (JWT or API Key)
+
+**Query Parameters:**
+| Param | Type | Required | Notes |
+|-------|------|----------|-------|
+| `business_id` | string | JWT only | Required for JWT auth. Optional with a business API key, but it must match the key scope. |
+| `active_only` | boolean | No | If `true`, return active wallets only |
 
 **Response (200):**
 ```json
 {
   "success": true,
   "coins": [
-    { "symbol": "BTC", "name": "Bitcoin", "is_active": true, "has_wallet": true },
-    { "symbol": "ETH", "name": "Ethereum", "is_active": true, "has_wallet": true },
-    { "symbol": "SOL", "name": "Solana", "is_active": true, "has_wallet": false },
-    { "symbol": "POL", "name": "Polygon", "is_active": true, "has_wallet": true }
-  ]
+    { "symbol": "BTC", "name": "Bitcoin", "is_active": true, "has_wallet": true, "wallet_source": "business" },
+    { "symbol": "ETH", "name": "Ethereum", "is_active": true, "has_wallet": true, "wallet_source": "merchant_global" }
+  ],
+  "business_id": "biz_123",
+  "merchant_id": "mer_123",
+  "total": 2
+}
+```
+
+---
+
+### GET /api/tokens
+
+Checkout-friendly token list for a business. This endpoint returns lower-case `code` values accepted by `POST /api/payments/create`.
+
+`GET /api/get-tokens` is a legacy compatibility alias for this endpoint. New integrations should use `/api/tokens`.
+
+**Auth required:** Yes (JWT or API Key)
+
+**Query Parameters:** Same as `/api/supported-coins`.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "tokens": [
+    {
+      "code": "usdc_pol",
+      "symbol": "USDC_POL",
+      "ticker": "USDC",
+      "name": "USD Coin (Polygon)",
+      "chain": "Polygon",
+      "is_active": true,
+      "has_wallet": true,
+      "wallet_source": "merchant_global"
+    }
+  ],
+  "business_id": "biz_123",
+  "merchant_id": "mer_123",
+  "total": 1
 }
 ```
 
