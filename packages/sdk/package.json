@@ -17,6 +17,10 @@
       "import": "./src/payments.js",
       "types": "./src/payments.d.ts"
     },
+    "./tokens": {
+      "import": "./src/tokens.js",
+      "types": "./src/tokens.d.ts"
+    },
     "./card-payments": {
       "import": "./src/card-payments.js",
       "types": "./src/card-payments.d.ts"

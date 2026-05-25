@@ -67,6 +67,15 @@ vi.mock('@/lib/payments/service', () => ({
 
 import { POST } from './route';
 
+function mockSingleQuery(response: any) {
+  const query: any = {
+    eq: vi.fn(),
+    single: vi.fn().mockResolvedValue(response),
+  };
+  query.eq.mockReturnValue(query);
+  return query;
+}
+
 function setupMockChain(overrides: Record<string, any> = {}) {
   const defaults: Record<string, any> = {
     business_wallets: {
@@ -92,13 +101,9 @@ function setupMockChain(overrides: Record<string, any> = {}) {
       }),
     },
     businesses: {
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({
-            data: { tier: 'free', merchant_id: 'merchant_123' },
-          }),
-        }),
-      }),
+      select: vi.fn().mockReturnValue(mockSingleQuery({
+        data: { id: 'biz_123', tier: 'free', merchant_id: 'merchant_123' },
+      })),
     },
     payments: {
       insert: vi.fn().mockReturnValue({
@@ -322,13 +327,9 @@ describe('Unified Payment Creation - POST /api/payments/create', () => {
     it('should use correct platform fee for pro tier', async () => {
       setupMockChain({
         businesses: {
-          select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              single: vi.fn().mockResolvedValue({
-                data: { tier: 'pro', merchant_id: 'merchant_123' },
-              }),
-            }),
-          }),
+          select: vi.fn().mockReturnValue(mockSingleQuery({
+            data: { id: 'biz_123', tier: 'pro', merchant_id: 'merchant_123' },
+          })),
         },
       });
 

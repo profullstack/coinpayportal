@@ -41,6 +41,14 @@ export interface ListPaymentsParams {
   offset?: number;
 }
 
+/** Parameters for supported coin/token discovery */
+export interface SupportedCoinsParams {
+  /** Business ID. Required for merchant JWTs; optional with business API keys if it matches key scope. */
+  businessId?: string;
+  /** If true, only active wallets are returned. */
+  activeOnly?: boolean;
+}
+
 /** Options for the `waitForPayment` polling method */
 export interface WaitForPaymentOptions {
   /** Polling interval in milliseconds (default: `5000`) */
@@ -107,6 +115,36 @@ export interface GetPaymentResponse {
 export interface ListPaymentsResponse {
   success: boolean;
   payments: Payment[];
+}
+
+/** Supported payment coin record */
+export interface SupportedCoin {
+  symbol: string;
+  name: string;
+  is_active: boolean;
+  has_wallet: boolean;
+  wallet_source: 'business' | 'merchant_global';
+}
+
+/** Checkout token record with lower-case code accepted by createPayment currency */
+export interface SupportedToken extends SupportedCoin {
+  code: string;
+  ticker: string;
+  chain?: string;
+}
+
+/** Response from supported coin discovery */
+export interface SupportedCoinsResponse {
+  success: boolean;
+  coins: SupportedCoin[];
+  business_id: string;
+  merchant_id?: string;
+  total: number;
+}
+
+/** Response from token discovery */
+export interface TokensResponse extends SupportedCoinsResponse {
+  tokens: SupportedToken[];
 }
 
 /**
@@ -185,6 +223,20 @@ export class CoinPayClient {
    * @returns Paginated list of payments
    */
   listPayments(params: ListPaymentsParams): Promise<ListPaymentsResponse>;
+
+  /**
+   * List supported payment coins for a business.
+   *
+   * Business wallets win; merchant global wallets are used as fallback.
+   */
+  getSupportedCoins(params?: SupportedCoinsParams): Promise<SupportedCoinsResponse>;
+
+  /**
+   * List checkout-friendly tokens for a business.
+   *
+   * Returns lower-case `code` values accepted by `createPayment({ currency })`.
+   */
+  getTokens(params?: SupportedCoinsParams): Promise<TokensResponse>;
 
   /**
    * Get a URL pointing to the QR code image for a payment.

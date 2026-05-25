@@ -47,6 +47,11 @@ import {
   FiatCurrency,
 } from './payments.js';
 import {
+  getTokens,
+  getSupportedCoins,
+  getSupportedCoins as getSupportedPaymentCoins,
+} from './tokens.js';
+import {
   verifyWebhookSignature,
   generateWebhookSignature,
   parseWebhookPayload,
@@ -182,6 +187,9 @@ export {
   createPayment,
   getPayment,
   listPayments,
+  getTokens,
+  getSupportedCoins,
+  getSupportedPaymentCoins,
   
   // Escrow functions
   createEscrow,

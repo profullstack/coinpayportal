@@ -12,8 +12,21 @@ export type {
   PaymentParams, 
   ListPaymentsParams, 
   WaitForPaymentOptions, 
-  CreateBusinessParams 
+  CreateBusinessParams,
+  SupportedCoinsParams,
+  SupportedCoin,
+  SupportedToken,
+  SupportedCoinsResponse,
+  TokensResponse,
 } from './client.js';
+
+export {
+  getTokens,
+  getSupportedCoins,
+} from './tokens.js';
+export type {
+  TokenDiscoveryParams,
+} from './tokens.js';
 
 // Payment exports
 export {

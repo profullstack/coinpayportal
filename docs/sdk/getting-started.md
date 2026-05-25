@@ -162,8 +162,12 @@ Blockchain.USDC_SOL  // USDC on Solana
 | `getPayment(id)` | Get payment details and status |
 | `waitForPayment(id, options?)` | Poll until payment reaches terminal status |
 | `listPayments(params)` | List payments for a business |
+| `getTokens({ businessId?, activeOnly? })` | List checkout token options; returns lower-case `code` values for `createPayment` |
+| `getSupportedCoins({ businessId?, activeOnly? })` | List configured business/global wallet coins |
 | `getPaymentQRUrl(id)` | Get QR code image URL |
 | `getPaymentQR(id)` | Get QR code as binary ArrayBuffer |
+
+`getTokens` and `getSupportedCoins` require a `businessId` when using a merchant JWT. Business API keys are scoped to one business, so `businessId` is optional; if provided, it must match the key scope. Business wallets are preferred, with merchant global wallets used as fallback.
 
 ### Businesses
 

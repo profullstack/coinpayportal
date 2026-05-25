@@ -240,6 +240,30 @@ const { payment, usage } = await client.createPayment({
 }
 ```
 
+#### `client.getTokens(params?)`
+
+List checkout-ready tokens for a business. Use this instead of hard-coding a coin list. Business wallets take priority; merchant global wallets are used as fallback.
+
+```javascript
+const { tokens } = await client.getTokens({
+  businessId: 'biz_123',
+  activeOnly: true,
+});
+
+for (const token of tokens) {
+  console.log(token.code); // "btc", "usdc_pol", ...
+}
+```
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `businessId` | `string` | JWT only | Optional with a business API key; if set, it must match the key scope |
+| `activeOnly` | `boolean` | — | Return active wallets only |
+
+#### `client.getSupportedCoins(params?)`
+
+Returns the lower-level `/api/supported-coins` shape with `coins` instead of token-picker `code` fields.
+
 ---
 
 #### `client.getPayment(paymentId)`
@@ -561,6 +585,9 @@ coinpay payment get pay_abc123
 
 # List payments
 coinpay payment list --business-id biz_123 --status pending --limit 10
+
+# List checkout tokens
+coinpay tokens list --business-id biz_123 --active-only
 
 # Get QR code
 coinpay payment qr pay_abc123
