@@ -28,4 +28,13 @@ describe('sanitizeBlogHtml', () => {
     expect(out).toContain('rel="noopener noreferrer"');
     expect(out).toContain('target="_blank"');
   });
+
+  it('does not open in-page TOC anchors in a new tab', () => {
+    const out = sanitizeBlogHtml(
+      '<a href="#intro" target="_blank" rel="noopener noreferrer">Intro</a>',
+    );
+    expect(out).toContain('href="#intro"');
+    expect(out).not.toContain('target="_blank"');
+    expect(out).not.toContain('rel="noopener noreferrer"');
+  });
 });

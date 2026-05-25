@@ -23,7 +23,17 @@ const OPTIONS: sanitizeHtml.IOptions = {
   allowedSchemes: ['http', 'https', 'mailto'],
   allowedSchemesAppliedToAttributes: ['href', 'src'],
   transformTags: {
-    a: sanitizeHtml.simpleTransform('a', { rel: 'noopener noreferrer', target: '_blank' }, true),
+    a: (tagName, attribs) => {
+      const href = attribs.href ?? '';
+      if (href.startsWith('#')) {
+        const { target: _target, rel: _rel, ...rest } = attribs;
+        return { tagName, attribs: rest };
+      }
+      return {
+        tagName,
+        attribs: { ...attribs, rel: 'noopener noreferrer', target: '_blank' },
+      };
+    },
   },
 };
 
