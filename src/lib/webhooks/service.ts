@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { resolveWebhookSecret } from './secret';
 
 /**
  * SSRF Protection - validates webhook URLs before making requests
@@ -496,20 +497,7 @@ export async function sendPaymentWebhook(
       return { success: true };
     }
 
-    // Decrypt the webhook secret. If decryption fails (e.g. legacy plaintext
-    // value, or pre-derived-key encryption), fall back to using the value
-    // as-is so we don't strand legacy rows.
-    let plaintextSecret: string = business.webhook_secret;
-    try {
-      const { decrypt, deriveKey } = await import('@/lib/crypto/encryption');
-      const encryptionKey = process.env.ENCRYPTION_KEY;
-      if (encryptionKey && business.merchant_id && business.webhook_secret.includes(':')) {
-        const derivedKey = deriveKey(encryptionKey, business.merchant_id);
-        plaintextSecret = decrypt(business.webhook_secret, derivedKey);
-      }
-    } catch (err) {
-      console.warn(`[Webhook] Failed to decrypt webhook_secret for business ${businessId}, falling back to raw value:`, err);
-    }
+    const plaintextSecret = resolveWebhookSecret(business.webhook_secret, business.merchant_id);
 
     const timestamp = Math.floor(Date.now() / 1000);
     const now = new Date();
@@ -609,7 +597,7 @@ export async function sendEscrowWebhook(
   try {
     const { data: business, error: businessError } = await supabase
       .from('businesses')
-      .select('webhook_url, webhook_secret')
+      .select('webhook_url, webhook_secret, merchant_id')
       .eq('id', businessId)
       .single();
 
@@ -642,7 +630,8 @@ export async function sendEscrowWebhook(
     };
 
     const payloadString = JSON.stringify(payload);
-    const signatureHeader = signWebhookPayload(payload, business.webhook_secret, timestamp);
+    const plaintextSecret = resolveWebhookSecret(business.webhook_secret, business.merchant_id);
+    const signatureHeader = signWebhookPayload(payload, plaintextSecret, timestamp);
 
     const result = await deliverWebhookDirect(
       business.webhook_url,

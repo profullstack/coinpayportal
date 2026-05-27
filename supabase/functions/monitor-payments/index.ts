@@ -61,6 +61,67 @@ interface PaymentAddress {
   commission_wallet: string;
 }
 
+function base64ToBytes(value: string): Uint8Array {
+  return Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
+}
+
+async function deriveWebhookKey(masterKey: string, merchantId: string): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const material = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(masterKey),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: encoder.encode(merchantId),
+      iterations: 100000,
+      hash: 'SHA-256',
+    },
+    material,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt']
+  );
+}
+
+async function resolveWebhookSecret(
+  storedSecret: string,
+  merchantId?: string | null
+): Promise<string> {
+  if (!storedSecret.includes(':')) return storedSecret;
+
+  const encryptionKey = Deno.env.get('ENCRYPTION_KEY');
+  if (!encryptionKey || !merchantId) return storedSecret;
+
+  try {
+    const [ivBase64, authTagBase64, encryptedBase64] = storedSecret.split(':');
+    if (!ivBase64 || !authTagBase64 || !encryptedBase64) return storedSecret;
+
+    const key = await deriveWebhookKey(encryptionKey, merchantId);
+    const encrypted = base64ToBytes(encryptedBase64);
+    const authTag = base64ToBytes(authTagBase64);
+    const encryptedWithTag = new Uint8Array(encrypted.length + authTag.length);
+    encryptedWithTag.set(encrypted);
+    encryptedWithTag.set(authTag, encrypted.length);
+
+    const plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: base64ToBytes(ivBase64), tagLength: 128 },
+      key,
+      encryptedWithTag
+    );
+
+    return new TextDecoder().decode(plaintext);
+  } catch (error) {
+    console.warn('Failed to decrypt webhook_secret, falling back to stored value:', error);
+    return storedSecret;
+  }
+}
+
 /**
  * Check balance for a Bitcoin address using Blockstream API
  */
@@ -278,7 +339,7 @@ async function sendWebhook(
     // Get business webhook URL
     const { data: business } = await supabase
       .from('businesses')
-      .select('webhook_url, webhook_secret')
+      .select('webhook_url, webhook_secret, merchant_id')
       .eq('id', payment.business_id)
       .single();
     
@@ -311,11 +372,15 @@ async function sendWebhook(
     // Create HMAC signature in SDK format: t=timestamp,v1=signature
     let signature = '';
     if (business.webhook_secret) {
+      const plaintextSecret = await resolveWebhookSecret(
+        business.webhook_secret,
+        business.merchant_id
+      );
       const encoder = new TextEncoder();
       const signedPayload = `${timestamp}.${payloadString}`;
       const key = await crypto.subtle.importKey(
         'raw',
-        encoder.encode(business.webhook_secret),
+        encoder.encode(plaintextSecret),
         { name: 'HMAC', hash: 'SHA-256' },
         false,
         ['sign']

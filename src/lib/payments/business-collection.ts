@@ -14,6 +14,7 @@ import { getProvider, getRpcUrl, type BlockchainType } from '../blockchain/provi
 import { generatePaymentAddress } from '../blockchain/wallets';
 import { deliverWebhook, logWebhookAttempt, retryFailedWebhook } from '../webhooks/service';
 import { decrypt } from '../crypto/encryption';
+import { resolveWebhookSecret } from '../webhooks/secret';
 
 /**
  * Supported blockchains for business collection
@@ -570,7 +571,7 @@ async function sendBusinessCollectionWebhook(
     // Get business webhook configuration
     const { data: business, error: businessError } = await supabase
       .from('businesses')
-      .select('webhook_url, webhook_secret')
+      .select('webhook_url, webhook_secret, merchant_id')
       .eq('id', businessId)
       .single();
 
@@ -594,10 +595,11 @@ async function sendBusinessCollectionWebhook(
     };
 
     // Deliver webhook with retries
+    const plaintextSecret = resolveWebhookSecret(business.webhook_secret || '', business.merchant_id);
     const result = await retryFailedWebhook(
       business.webhook_url,
       payload,
-      business.webhook_secret || '',
+      plaintextSecret,
       3
     );
 

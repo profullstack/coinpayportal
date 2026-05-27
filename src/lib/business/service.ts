@@ -3,6 +3,7 @@ import { encrypt, decrypt, deriveKey } from '../crypto/encryption';
 import { generateApiKey } from '../auth/apikey';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
+import { resolveWebhookSecret } from '../webhooks/secret';
 
 /**
  * Generate a secure webhook secret
@@ -42,14 +43,9 @@ export async function getWebhookSecret(
       };
     }
 
-    // Decrypt the webhook secret
-    const encryptionKey = getEncryptionKey();
-    const derivedKey = deriveKey(encryptionKey, merchantId);
-    const decryptedSecret = decrypt(business.webhook_secret, derivedKey);
-
     return {
       success: true,
-      secret: decryptedSecret,
+      secret: resolveWebhookSecret(business.webhook_secret, merchantId),
     };
   } catch (error) {
     return {
