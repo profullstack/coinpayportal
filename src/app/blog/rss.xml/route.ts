@@ -1,51 +1,28 @@
 import { NextResponse } from 'next/server';
+import { buildRssXml } from '@profullstack/autoblog/feeds';
 import { listPosts, SITE_URL } from '@/lib/blog';
 import { webSubHubUrl } from '@/lib/websub';
 
 export const dynamic = 'force-dynamic';
 
-function escapeXml(input: string): string {
-  return input
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
-
 export async function GET() {
   const posts = await listPosts(50);
-  const lastBuildDate = new Date(
-    posts[0]?.published_at ?? Date.now(),
-  ).toUTCString();
-
-  const items = posts
-    .map((post) => {
-      const url = `${SITE_URL}/blog/${post.slug}`;
-      return `    <item>
-      <title>${escapeXml(post.title)}</title>
-      <link>${url}</link>
-      <guid isPermaLink="true">${url}</guid>
-      <pubDate>${new Date(post.published_at).toUTCString()}</pubDate>
-      ${post.meta_description ? `<description>${escapeXml(post.meta_description)}</description>` : ''}
-      ${post.tags.map((t) => `<category>${escapeXml(t)}</category>`).join('\n      ')}
-    </item>`;
-    })
-    .join('\n');
-
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
-  <channel>
-    <title>CoinPay Blog</title>
-    <link>${SITE_URL}/blog</link>
-    <description>Crypto payments, Lightning, and merchant-side updates from the CoinPay team.</description>
-    <language>en-us</language>
-    <lastBuildDate>${lastBuildDate}</lastBuildDate>
-    <atom:link href="${SITE_URL}/blog/rss.xml" rel="self" type="application/rss+xml" />
-    <atom:link href="${webSubHubUrl()}" rel="hub" />
-${items}
-  </channel>
-</rss>`;
+  const xml = buildRssXml({
+    title: 'CoinPay Blog',
+    description:
+      'Crypto payments, Lightning, and merchant-side updates from the CoinPay team.',
+    siteUrl: SITE_URL,
+    language: 'en-us',
+    hubUrl: webSubHubUrl(),
+    posts: posts.map((p) => ({
+      slug: p.slug,
+      title: p.title,
+      publishedAt: p.published_at,
+      excerpt: p.meta_description,
+      imageUrl: p.image_url,
+      categories: p.tags,
+    })),
+  });
 
   return new NextResponse(xml, {
     headers: {
