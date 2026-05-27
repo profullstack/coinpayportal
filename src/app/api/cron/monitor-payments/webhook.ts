@@ -6,6 +6,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { resolveWebhookSecret } from '@/lib/webhooks/secret';
 import type { Payment } from './types';
 
 /**
@@ -22,7 +23,7 @@ export async function sendWebhook(
   try {
     const { data: business } = await supabase
       .from('businesses')
-      .select('webhook_url, webhook_secret')
+      .select('webhook_url, webhook_secret, merchant_id')
       .eq('id', payment.business_id)
       .single();
     
@@ -54,11 +55,12 @@ export async function sendWebhook(
     // Create HMAC signature in SDK format: t=timestamp,v1=signature
     let signature = '';
     if (business.webhook_secret) {
+      const plaintextSecret = resolveWebhookSecret(business.webhook_secret, business.merchant_id);
       const encoder = new TextEncoder();
       const signedPayload = `${timestamp}.${payloadString}`;
       const key = await crypto.subtle.importKey(
         'raw',
-        encoder.encode(business.webhook_secret),
+        encoder.encode(plaintextSecret),
         { name: 'HMAC', hash: 'SHA-256' },
         false,
         ['sign']

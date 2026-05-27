@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifySession } from '@/lib/auth/service';
 import { generateTestWebhookSignature } from '@/lib/sdk';
+import { resolveWebhookSecret } from '@/lib/webhooks/secret';
 
 /**
  * POST /api/businesses/[id]/webhook-test
@@ -59,7 +60,7 @@ export async function POST(
     // Verify the business belongs to the merchant
     const { data: business, error: businessError } = await supabase
       .from('businesses')
-      .select('id, name, webhook_url, webhook_secret')
+      .select('id, name, webhook_url, webhook_secret, merchant_id')
       .eq('id', businessId)
       .eq('merchant_id', sessionResult.merchant.id)
       .single();
@@ -118,7 +119,8 @@ export async function POST(
     const payloadString = JSON.stringify(testPayload);
     
     // Generate signature using SDK's format: t=timestamp,v1=signature
-    const signature = generateTestWebhookSignature(payloadString, business.webhook_secret);
+    const plaintextSecret = resolveWebhookSecret(business.webhook_secret, business.merchant_id);
+    const signature = generateTestWebhookSignature(payloadString, plaintextSecret);
 
     // Deliver the webhook
     const startTime = Date.now();
