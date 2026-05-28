@@ -115,7 +115,7 @@
     "overrides": {
       "axios": ">=1.14.0",
       "lodash-es": ">=4.18.0",
-      "brace-expansion": ">=2.0.3",
+      "brace-expansion": ">=5.0.6",
       "picomatch": ">=4.0.4",
       "flatted": ">=3.4.2",
       "h3": ">=1.15.11",
@@ -127,11 +127,12 @@
       "lodash": ">=4.18.0",
       "jws": ">=4.0.1",
       "esbuild": ">=0.25.0",
-      "protobufjs": ">=7.5.5",
+      "protobufjs": ">=8.2.0",
       "postcss": ">=8.5.10",
       "follow-redirects": ">=1.16.0",
       "uuid": ">=14.0.0",
-      "ip-address": ">=10.1.1"
+      "ip-address": ">=10.1.1",
+      "ws@>=8.0.0": ">=8.20.1"
     }
   }
 }
