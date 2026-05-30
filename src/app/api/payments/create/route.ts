@@ -12,6 +12,7 @@ import {
   getPaymentReceivingWallet,
   verifyBusinessAccess,
 } from '@/lib/wallets/supported-coins';
+import { isValidPayoutAddress } from '@/lib/blockchain/address-format';
 
 /**
  * Map frontend currency values to blockchain types
@@ -221,6 +222,7 @@ export async function POST(request: NextRequest) {
       payment_method: rawPaymentMethod,
       success_url,
       cancel_url,
+      merchant_wallet_address: requestedMerchantWallet,
     } = body;
 
     const paymentMethod: PaymentMethod = (['crypto', 'card', 'both'].includes(rawPaymentMethod))
@@ -297,22 +299,56 @@ export async function POST(request: NextRequest) {
     // --- Crypto payment creation ---
     if (needsCrypto && blockchainType) {
       const cryptoCode = blockchainToCrypto(blockchainType);
-      const wallet = await getPaymentReceivingWallet(supabase, {
-        businessId: business_id,
-        merchantId,
-        cryptocurrency: cryptoCode,
-      });
 
-      if (!wallet.walletAddress) {
-        return NextResponse.json(
-          {
-            success: false,
-            error:
-              wallet.error ||
-              `No ${cryptoCode} wallet configured for this business. Please add a business wallet or merchant global wallet.`
-          },
-          { status: 400 }
-        );
+      // Determine where the merchant (post-fee) leg forwards to.
+      //
+      // An explicit merchant_wallet_address in the request overrides the
+      // business's own configured wallet. This is what lets an invoice forward
+      // the 99% net to the *invoice recipient* (e.g. a ugig worker) while the
+      // platform fee is still split off as usual. Without an override we keep
+      // the original B2C behaviour: forward to the business/merchant-global
+      // wallet, where the business itself is the recipient.
+      let recipientAddress: string;
+      let walletSource: string;
+
+      const overrideAddress =
+        typeof requestedMerchantWallet === 'string' ? requestedMerchantWallet.trim() : '';
+
+      if (overrideAddress) {
+        // `false` = malformed for this chain → reject. `null` = chain we have
+        // no validator for → trust the caller rather than block a legitimate
+        // payout.
+        if (isValidPayoutAddress(overrideAddress, blockchainType) === false) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Invalid ${cryptoCode} merchant_wallet_address`,
+            },
+            { status: 400 }
+          );
+        }
+        recipientAddress = overrideAddress;
+        walletSource = 'request_override';
+      } else {
+        const wallet = await getPaymentReceivingWallet(supabase, {
+          businessId: business_id,
+          merchantId,
+          cryptocurrency: cryptoCode,
+        });
+
+        if (!wallet.walletAddress) {
+          return NextResponse.json(
+            {
+              success: false,
+              error:
+                wallet.error ||
+                `No ${cryptoCode} wallet configured for this business. Please add a business wallet or merchant global wallet.`
+            },
+            { status: 400 }
+          );
+        }
+        recipientAddress = wallet.walletAddress;
+        walletSource = wallet.source ?? 'business';
       }
 
       const result = await createPayment(supabase, {
@@ -320,10 +356,10 @@ export async function POST(request: NextRequest) {
         amount: paymentAmount,
         currency: 'USD',
         blockchain: blockchainType,
-        merchant_wallet_address: wallet.walletAddress,
+        merchant_wallet_address: recipientAddress,
         metadata: Object.keys(paymentMetadata).length > 0
-          ? { ...paymentMetadata, wallet_source: wallet.source }
-          : { wallet_source: wallet.source },
+          ? { ...paymentMetadata, wallet_source: walletSource }
+          : { wallet_source: walletSource },
       });
 
       if (!result.success) {

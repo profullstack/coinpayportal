@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { isValidPayoutAddress } from '@/lib/blockchain/address-format';
 
 /**
  * Tests for the payment creation API route
@@ -424,5 +425,57 @@ describe('USDC Chain Options', () => {
 
   it('should still support generic usdc for backwards compatibility', () => {
     expect(mapCurrencyToBlockchain('usdc')).toBe('USDC');
+  });
+});
+
+describe('Invoice recipient override (merchant_wallet_address)', () => {
+  /**
+   * Mirrors the recipient-selection branch in the route: an explicit, valid
+   * override wins; otherwise fall back to the business wallet. Uses the real
+   * isValidPayoutAddress (pure, no heavy crypto imports).
+   */
+  function selectRecipient(
+    blockchain: string,
+    requestedMerchantWallet: string | undefined,
+    businessWallet: string
+  ): { address?: string; source?: string; error?: string } {
+    const overrideAddress =
+      typeof requestedMerchantWallet === 'string' ? requestedMerchantWallet.trim() : '';
+    if (overrideAddress) {
+      if (isValidPayoutAddress(overrideAddress, blockchain) === false) {
+        return { error: 'invalid' };
+      }
+      return { address: overrideAddress, source: 'request_override' };
+    }
+    return { address: businessWallet, source: 'business' };
+  }
+
+  // Real business receiving address from the production audit.
+  const BUSINESS_SOL = 'FX8QhU1TPUHGs2X8PibbHikd4YvdQMPfVuFd6mqk9qJw';
+
+  it('forwards to the explicit recipient (worker) when a valid override is given', () => {
+    const r = selectRecipient('USDC_SOL', BUSINESS_SOL, BUSINESS_SOL);
+    expect(r.address).toBe(BUSINESS_SOL);
+    expect(r.source).toBe('request_override');
+  });
+
+  it('falls back to the business wallet for B2C (no override)', () => {
+    const r = selectRecipient('SOL', undefined, BUSINESS_SOL);
+    expect(r.address).toBe(BUSINESS_SOL);
+    expect(r.source).toBe('business');
+    const blank = selectRecipient('SOL', '   ', BUSINESS_SOL);
+    expect(blank.source).toBe('business');
+  });
+
+  it('rejects an override that is malformed for a chain we can validate', () => {
+    const r = selectRecipient('SOL', '0xnot-a-sol-address!!', BUSINESS_SOL);
+    expect(r.error).toBe('invalid');
+    expect(r.address).toBeUndefined();
+  });
+
+  it('accepts an override on a chain we have no validator for (trusts caller)', () => {
+    const r = selectRecipient('DOGE', 'DQA5Jj7K9o4n3Vd2gWmHhelYwUge3abcde', BUSINESS_SOL);
+    expect(r.source).toBe('request_override');
+    expect(r.error).toBeUndefined();
   });
 });
