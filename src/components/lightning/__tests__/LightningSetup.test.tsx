@@ -2,6 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { LightningSetup } from '../LightningSetup';
 
+const { mockEnableLightning } = vi.hoisted(() => ({
+  mockEnableLightning: vi.fn(),
+}));
+vi.mock('@/components/web-wallet/WalletContext', () => ({
+  useWebWallet: () => ({
+    wallet: {
+      walletId: 'w-1',
+      enableLightning: (...args: unknown[]) => mockEnableLightning(...args),
+    },
+  }),
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -27,7 +39,7 @@ describe('LightningSetup', () => {
   });
 
   it('should show loading state on click', async () => {
-    global.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
+    mockEnableLightning.mockReturnValue(new Promise(() => {}));
 
     render(<LightningSetup {...defaultProps} />);
     fireEvent.click(screen.getByText('Enable Lightning ⚡'));
@@ -43,9 +55,7 @@ describe('LightningSetup', () => {
       node_pubkey: '02abcdef1234567890abcdef1234567890',
       status: 'active',
     };
-    global.fetch = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ success: true, data: { node: fakeNode } }),
-    });
+    mockEnableLightning.mockResolvedValue(fakeNode);
 
     render(<LightningSetup {...defaultProps} />);
     fireEvent.click(screen.getByText('Enable Lightning ⚡'));
@@ -58,9 +68,7 @@ describe('LightningSetup', () => {
 
   it('should call onSetupComplete callback', async () => {
     const fakeNode = { id: 'node-1', node_pubkey: '02abc', status: 'active' };
-    global.fetch = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ success: true, data: { node: fakeNode } }),
-    });
+    mockEnableLightning.mockResolvedValue(fakeNode);
     const onComplete = vi.fn();
 
     render(<LightningSetup {...defaultProps} onSetupComplete={onComplete} />);
@@ -72,13 +80,7 @@ describe('LightningSetup', () => {
   });
 
   it('should show error on API failure', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      json: () =>
-        Promise.resolve({
-          success: false,
-          error: { message: 'Node limit reached' },
-        }),
-    });
+    mockEnableLightning.mockRejectedValue(new Error('Node limit reached'));
 
     render(<LightningSetup {...defaultProps} />);
     fireEvent.click(screen.getByText('Enable Lightning ⚡'));
@@ -89,33 +91,24 @@ describe('LightningSetup', () => {
   });
 
   it('should show error on network failure', async () => {
-    global.fetch = vi.fn().mockRejectedValue(new Error('Failed'));
+    mockEnableLightning.mockRejectedValue(new Error('Failed'));
 
     render(<LightningSetup {...defaultProps} />);
     fireEvent.click(screen.getByText('Enable Lightning ⚡'));
 
     await waitFor(() => {
-      expect(screen.getByText('Network error. Please try again.')).toBeDefined();
+      expect(screen.getByText('Failed')).toBeDefined();
     });
   });
 
-  it('should send correct payload to API', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      json: () =>
-        Promise.resolve({ success: true, data: { node: { id: 'n1' } } }),
-    });
+  it('should call the signed wallet SDK with provisioning details', async () => {
+    mockEnableLightning.mockResolvedValue({ id: 'n1' });
 
     render(<LightningSetup {...defaultProps} />);
     fireEvent.click(screen.getByText('Enable Lightning ⚡'));
 
     await waitFor(() => {
-      const [url, opts] = (global.fetch as any).mock.calls[0];
-      expect(url).toBe('/api/lightning/nodes');
-      expect(opts.method).toBe('POST');
-      const body = JSON.parse(opts.body);
-      expect(body.wallet_id).toBe('w-1');
-      expect(body.business_id).toBe('b-1');
-      expect(body.mnemonic).toBe('test mnemonic phrase');
+      expect(mockEnableLightning).toHaveBeenCalledWith('test mnemonic phrase', 'b-1');
     });
   });
 });

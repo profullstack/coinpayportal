@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { createInvoice as createLnbitsInvoice } from '@/lib/lightning/lnbits';
 import { createClient } from '@supabase/supabase-js';
+import { authorizeWalletRequest } from '../wallet-auth';
 
 function getSupabase() {
   return createClient(
@@ -17,7 +18,8 @@ function getSupabase() {
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const rawBody = await request.text();
+    const body = JSON.parse(rawBody);
     const { wallet_id, amount_sats, description } = body;
 
     if (!wallet_id) {
@@ -31,6 +33,9 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabase();
+    const authError = await authorizeWalletRequest(supabase, request, wallet_id, rawBody);
+    if (authError) return authError;
+
     const { data: wallet } = await supabase
       .from('wallets')
       .select('ln_wallet_inkey, ln_wallet_adminkey')

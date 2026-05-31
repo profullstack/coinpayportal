@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 // Use vi.hoisted so mocks are available in vi.mock factories
-const { mockStripe, mockSupabase } = vi.hoisted(() => {
+const { mockStripe, mockSupabase, mockResolveMerchant, mockVerifyBusinessAccess } = vi.hoisted(() => {
   const mockStripe = {
     accounts: {
       create: vi.fn().mockResolvedValue({
@@ -26,7 +26,12 @@ const { mockStripe, mockSupabase } = vi.hoisted(() => {
     from: vi.fn(),
   };
 
-  return { mockStripe, mockSupabase };
+  return {
+    mockStripe,
+    mockSupabase,
+    mockResolveMerchant: vi.fn(),
+    mockVerifyBusinessAccess: vi.fn(),
+  };
 });
 
 vi.mock('stripe', () => ({
@@ -35,6 +40,14 @@ vi.mock('stripe', () => ({
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn().mockReturnValue(mockSupabase),
+}));
+
+vi.mock('@/lib/auth/merchant', () => ({
+  resolveMerchant: (...args: unknown[]) => mockResolveMerchant(...args),
+}));
+
+vi.mock('@/lib/wallets/supported-coins', () => ({
+  verifyBusinessAccess: (...args: unknown[]) => mockVerifyBusinessAccess(...args),
 }));
 
 import { POST } from './route';
@@ -97,6 +110,8 @@ describe('POST /api/stripe/connect/onboard', () => {
       country: 'US',
       email: 'test@example.com',
     });
+    mockResolveMerchant.mockResolvedValue({ merchantId: 'merchant_uuid_123', apiKeyBusinessId: null });
+    mockVerifyBusinessAccess.mockResolvedValue({ ok: true });
     setupSupabase();
   });
 
@@ -248,6 +263,36 @@ describe('POST /api/stripe/connect/onboard', () => {
 
     expect(response.status).toBe(400);
     expect(data.error).toBe('businessId is required');
+  });
+
+  it('should reject unauthenticated onboarding before calling Stripe', async () => {
+    mockResolveMerchant.mockResolvedValue({ error: 'Missing authorization header', status: 401 });
+    const request = new NextRequest('http://localhost:3000/api/stripe/connect/onboard', {
+      method: 'POST',
+      body: JSON.stringify({ business_id: 'biz_123', country: 'US' }),
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(401);
+    expect(mockStripe.accounts.create).not.toHaveBeenCalled();
+  });
+
+  it('should reject businesses outside the authenticated merchant scope', async () => {
+    mockVerifyBusinessAccess.mockResolvedValue({
+      ok: false,
+      error: 'Business not found or access denied',
+      status: 404,
+    });
+    const request = new NextRequest('http://localhost:3000/api/stripe/connect/onboard', {
+      method: 'POST',
+      body: JSON.stringify({ business_id: 'other_business', country: 'US' }),
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(404);
+    expect(mockStripe.accounts.create).not.toHaveBeenCalled();
   });
 
   it('should handle Stripe errors gracefully', async () => {

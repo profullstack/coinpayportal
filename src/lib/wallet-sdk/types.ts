@@ -319,6 +319,13 @@ export interface LightningAddress {
   username?: string;
 }
 
+export interface LightningNode {
+  id: string;
+  wallet_id: string;
+  status: string;
+  node_pubkey?: string | null;
+}
+
 export interface LightningInvoice {
   payment_hash: string;
   payment_request: string;

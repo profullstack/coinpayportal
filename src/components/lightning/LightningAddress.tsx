@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useWebWallet } from '@/components/web-wallet/WalletContext';
 
 interface LightningAddressProps {
   walletId: string;
 }
 
 export function LightningAddress({ walletId }: LightningAddressProps) {
+  const { wallet } = useWebWallet();
   const [username, setUsername] = useState('');
   const [currentAddress, setCurrentAddress] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -18,8 +20,11 @@ export function LightningAddress({ walletId }: LightningAddressProps) {
 
   // Check existing Lightning Address
   useEffect(() => {
-    fetch(`/api/lightning/address?wallet_id=${walletId}`)
-      .then((r) => r.json())
+    if (!wallet || wallet.walletId !== walletId) {
+      setChecking(false);
+      return;
+    }
+    wallet.getLightningAddress()
       .then((data) => {
         if (data.lightning_address) {
           setCurrentAddress(data.lightning_address);
@@ -28,7 +33,7 @@ export function LightningAddress({ walletId }: LightningAddressProps) {
       })
       .catch(() => {})
       .finally(() => setChecking(false));
-  }, [walletId]);
+  }, [wallet, walletId]);
 
   useEffect(() => {
     if (currentAddress) return;
@@ -79,22 +84,12 @@ export function LightningAddress({ walletId }: LightningAddressProps) {
     setMessage(null);
 
     try {
-      const res = await fetch('/api/lightning/address', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet_id: walletId, username: username.trim().toLowerCase() }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        setCurrentAddress(data.lightning_address);
-        setMessage({ type: 'success', text: 'Lightning Address registered!' });
-      } else {
-        setMessage({ type: 'error', text: data.error || 'Failed to register' });
-      }
-    } catch {
-      setMessage({ type: 'error', text: 'Network error' });
+      if (!wallet || wallet.walletId !== walletId) throw new Error('Wallet is locked');
+      const data = await wallet.setLightningAddress(username.trim().toLowerCase());
+      setCurrentAddress(data.lightning_address);
+      setMessage({ type: 'success', text: 'Lightning Address registered!' });
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Network error' });
     } finally {
       setLoading(false);
     }
