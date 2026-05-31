@@ -173,13 +173,14 @@ function LightningAssetView() {
   useEffect(() => {
     if (!wallet) return;
     // Check if LN node exists for this wallet
-    fetch(`/api/lightning/nodes?wallet_id=${wallet.walletId}`, {
-      headers: { 'Authorization': `Bearer ${wallet.walletId}` },
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.success && data.data?.node) {
-          setLnNode(data.data.node);
+    wallet.getLightningNode()
+      .then((node) => {
+        if (node) {
+          setLnNode({
+            id: node.id,
+            status: node.status,
+            node_pubkey: node.node_pubkey ?? null,
+          });
         }
       })
       .catch(() => {})
@@ -215,7 +216,7 @@ function LightningAssetView() {
             onSetupComplete={(node) => setLnNode(node)}
           />
         ) : (
-          <LightningDashboard lnNode={lnNode} mnemonic={wallet?.getMnemonic() || ''} walletId={wallet?.walletId || ''} />
+          <LightningDashboard lnNode={lnNode} walletId={wallet?.walletId || ''} />
         )}
       </div>
     </>
@@ -224,7 +225,7 @@ function LightningAssetView() {
 
 // ── Lightning Dashboard ──
 
-function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: string; status: string; node_pubkey: string | null }; mnemonic: string; walletId: string }) {
+function LightningDashboard({ lnNode, walletId }: { lnNode: { id: string; status: string; node_pubkey: string | null }; walletId: string }) {
   const { wallet } = useWebWallet();
   const [activeTab, setActiveTab] = useState<'receive' | 'send' | 'payments'>('receive');
   const [lnBalance, setLnBalance] = useState<{ sats: number; usd: number } | null>(null);
@@ -291,26 +292,12 @@ function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: stri
     // Create BOLT11 invoice (one-time, works with all wallets)
     if (amountSats > 0) {
       try {
-        const resp = await fetch('/api/lightning/invoices', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            node_id: lnNode.id,
-            wallet_id: walletId,
-            amount_sats: amountSats,
-            description: newDesc,
-            mnemonic,
-          }),
-        });
-        const data = await resp.json();
-        if (data.success) {
-          results.push('BOLT11 invoice created');
-          setLastInvoice(data.data.invoice.bolt11);
-        } else {
-          errors.push(`BOLT11: ${data.error?.message || 'failed'}`);
-        }
-      } catch {
-        errors.push('BOLT11: network error');
+        if (!wallet) throw new Error('Wallet is locked');
+        const invoice = await wallet.createLightningInvoice(amountSats, newDesc);
+        results.push('BOLT11 invoice created');
+        setLastInvoice(invoice.payment_request);
+      } catch (error) {
+        errors.push(`BOLT11: ${error instanceof Error ? error.message : 'network error'}`);
       }
     }
 
@@ -477,27 +464,16 @@ function LightningDashboard({ lnNode, mnemonic, walletId }: { lnNode: { id: stri
               setPayLoading(true);
               setMessage(null);
               try {
-                const resp = await fetch('/api/lightning/payments', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    node_id: lnNode.id,
-                    wallet_id: walletId,
-                    bolt12: payBolt12,
-                    amount_sats: payAmount ? parseInt(payAmount) : undefined,
-                    mnemonic,
-                  }),
-                });
-                const data = await resp.json();
-                if (data.success) {
-                  setMessage({ type: 'success', text: 'Payment sent!' });
-                  setPayBolt12('');
-                  setPayAmount('');
-                } else {
-                  setMessage({ type: 'error', text: data.error?.message || 'Payment failed' });
-                }
-              } catch {
-                setMessage({ type: 'error', text: 'Network error' });
+                if (!wallet) throw new Error('Wallet is locked');
+                await wallet.payLightningInvoice(
+                  payBolt12,
+                  payAmount ? parseInt(payAmount) : undefined
+                );
+                setMessage({ type: 'success', text: 'Payment sent!' });
+                setPayBolt12('');
+                setPayAmount('');
+              } catch (error) {
+                setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Network error' });
               } finally {
                 setPayLoading(false);
               }

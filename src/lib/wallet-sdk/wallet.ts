@@ -828,12 +828,16 @@ export class Wallet {
     return (this._ln ??= createLightningMethods(this.client, this._walletId, () => this.getMnemonic()));
   }
 
+  getLightningNode() { return this.ln.getLightningNode(); }
+  enableLightning(mnemonic: string, businessId?: string) { return this.ln.enableLightning(mnemonic, businessId); }
   getLightningAddress() { return this.ln.getLightningAddress(); }
   setLightningAddress(username: string) { return this.ln.setLightningAddress(username); }
   createLightningInvoice(amount: number, memo?: string) { return this.ln.createLightningInvoice(amount, memo); }
-  payLightningInvoice(bolt11: string) { return this.ln.payLightningInvoice(bolt11); }
+  payLightningInvoice(bolt11: string, amountSats?: number) { return this.ln.payLightningInvoice(bolt11, amountSats); }
   checkLightningPayment(hash: string) { return this.ln.checkLightningPayment(hash); }
-  listLightningPayments(limit?: number) { return this.ln.listLightningPayments(limit); }
+  listLightningPayments(limit?: number, filters?: { nodeId?: string; businessId?: string; offerId?: string }) {
+    return this.ln.listLightningPayments(limit, filters);
+  }
 }
 
 // ── Mapping Helpers ──

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { LnNode } from '@/lib/lightning/types';
+import { useWebWallet } from '@/components/web-wallet/WalletContext';
 
 interface LightningSetupProps {
   walletId: string;
@@ -20,6 +21,7 @@ export function LightningSetup({
   mnemonic,
   onSetupComplete,
 }: LightningSetupProps) {
+  const { wallet } = useWebWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [node, setNode] = useState<LnNode | null>(null);
@@ -29,26 +31,12 @@ export function LightningSetup({
     setError(null);
 
     try {
-      const res = await fetch('/api/lightning/nodes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          wallet_id: walletId,
-          business_id: businessId,
-          mnemonic,
-        }),
-      });
-
-      const json = await res.json();
-
-      if (json.success) {
-        setNode(json.data.node);
-        onSetupComplete?.(json.data.node);
-      } else {
-        setError(json.error?.message || 'Failed to enable Lightning');
-      }
+      if (!wallet || wallet.walletId !== walletId) throw new Error('Wallet is locked');
+      const nextNode = await wallet.enableLightning(mnemonic, businessId);
+      setNode(nextNode as LnNode);
+      onSetupComplete?.(nextNode as LnNode);
     } catch (err) {
-      setError('Network error. Please try again.');
+      setError(err instanceof Error ? err.message : 'Network error. Please try again.');
     } finally {
       setLoading(false);
     }

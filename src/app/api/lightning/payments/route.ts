@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { getLightningService } from '@/lib/lightning/lightning-service';
 import { listPayments as listLnbitsPayments, payInvoice } from '@/lib/lightning/lnbits';
+import { authorizeWalletRequest } from '../wallet-auth';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -19,7 +20,8 @@ function getSupabase() {
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const rawBody = await request.text();
+    const body = JSON.parse(rawBody);
     const { wallet_id, bolt12, amount_sats } = body;
 
     if (!wallet_id) {
@@ -30,6 +32,9 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabase();
+    const authError = await authorizeWalletRequest(supabase, request, wallet_id, rawBody);
+    if (authError) return authError;
+
     const { data: walletRow } = await supabase
       .from('wallets')
       .select('ln_wallet_adminkey')
@@ -115,9 +120,17 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50', 10);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
 
+    if (!wallet_id) {
+      return WalletErrors.badRequest('VALIDATION_ERROR', 'wallet_id is required');
+    }
+
+    const supabase = getSupabase();
+    const authError = await authorizeWalletRequest(supabase, request, wallet_id);
+    if (authError) return authError;
+
     const service = getLightningService();
 
-    if (node_id && wallet_id) {
+    if (node_id) {
       const node = await service.getNode(node_id);
       if (!node) return WalletErrors.notFound('node');
       if (node.wallet_id !== wallet_id) {
@@ -143,7 +156,6 @@ export async function GET(request: NextRequest) {
 
     if (wallet_id) {
       try {
-        const supabase = getSupabase();
         const { data: walletRow } = await supabase
           .from('wallets')
           .select('ln_wallet_inkey')

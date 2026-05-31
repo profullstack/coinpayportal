@@ -2,8 +2,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { LightningAddress } from '../LightningAddress';
 
+const { mockGetLightningAddress, mockSetLightningAddress, mockWallet } = vi.hoisted(() => {
+  const mockGetLightningAddress = vi.fn();
+  const mockSetLightningAddress = vi.fn();
+  return {
+    mockGetLightningAddress,
+    mockSetLightningAddress,
+    mockWallet: {
+      walletId: 'w1',
+      getLightningAddress: (...args: unknown[]) => mockGetLightningAddress(...args),
+      setLightningAddress: (...args: unknown[]) => mockSetLightningAddress(...args),
+    },
+  };
+});
+
 vi.mock('@/components/web-wallet/WalletContext', () => ({
   useWebWallet: () => ({
+    wallet: mockWallet,
     resyncWalletFromSeed: vi.fn().mockResolvedValue({ walletId: 'w1' }),
   }),
 }));
@@ -13,14 +28,13 @@ global.fetch = mockFetch;
 
 beforeEach(() => {
   mockFetch.mockReset();
+  mockGetLightningAddress.mockReset();
+  mockSetLightningAddress.mockReset();
 });
 
 describe('LightningAddress', () => {
   it('shows input when no address registered', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ lightning_address: null }),
-    });
+    mockGetLightningAddress.mockResolvedValueOnce({ lightning_address: null });
 
     render(<LightningAddress walletId="w1" />);
 
@@ -31,12 +45,9 @@ describe('LightningAddress', () => {
   });
 
   it('shows existing address with copy button', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({
-        lightning_address: 'alice@coinpayportal.com',
-        username: 'alice',
-      }),
+    mockGetLightningAddress.mockResolvedValueOnce({
+      lightning_address: 'alice@coinpayportal.com',
+      username: 'alice',
     });
 
     render(<LightningAddress walletId="w1" />);
@@ -49,10 +60,7 @@ describe('LightningAddress', () => {
 
   it('registers a new username', async () => {
     // Initial check — no address
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ lightning_address: null }),
-    });
+    mockGetLightningAddress.mockResolvedValueOnce({ lightning_address: null });
 
     render(<LightningAddress walletId="w1" />);
 
@@ -76,13 +84,9 @@ describe('LightningAddress', () => {
     });
 
     // Mock registration
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({
-        success: true,
-        lightning_address: 'bob@coinpayportal.com',
-        username: 'bob',
-      }),
+    mockSetLightningAddress.mockResolvedValueOnce({
+      lightning_address: 'bob@coinpayportal.com',
+      username: 'bob',
     });
 
     fireEvent.click(screen.getByText('Claim Lightning Address'));
@@ -93,10 +97,7 @@ describe('LightningAddress', () => {
   });
 
   it('shows unavailable state for duplicate username and blocks submit', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ lightning_address: null }),
-    });
+    mockGetLightningAddress.mockResolvedValueOnce({ lightning_address: null });
 
     render(<LightningAddress walletId="w1" />);
 
@@ -122,10 +123,7 @@ describe('LightningAddress', () => {
   });
 
   it('filters invalid characters from username input', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ lightning_address: null }),
-    });
+    mockGetLightningAddress.mockResolvedValueOnce({ lightning_address: null });
 
     render(<LightningAddress walletId="w1" />);
 

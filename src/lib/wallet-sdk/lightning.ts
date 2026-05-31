@@ -9,9 +9,11 @@ import type { WalletAPIClient } from './client';
 import type {
   LightningAddress,
   LightningInvoice,
+  LightningNode,
   LightningPayment,
   LightningPaymentStatus,
 } from './types';
+import type { LnPayment } from '@/lib/lightning/types';
 
 /**
  * Add Lightning methods to a wallet instance.
@@ -45,6 +47,40 @@ export function createLightningMethods(
 
   return {
     /**
+     * Get the Lightning node for this wallet.
+     */
+    async getLightningNode(): Promise<LightningNode | null> {
+      const data = await client.request<any>({
+        method: 'GET',
+        path: '/api/lightning/nodes',
+        query: { wallet_id: walletId },
+        authenticated: true,
+      });
+      const node = data?.data?.node || data?.node || null;
+      if (node?.id) cachedNodeId = node.id;
+      return node;
+    },
+
+    /**
+     * Provision a Lightning node for this wallet.
+     */
+    async enableLightning(mnemonic: string, businessId?: string): Promise<LightningNode> {
+      const data = await client.request<any>({
+        method: 'POST',
+        path: '/api/lightning/nodes',
+        body: {
+          wallet_id: walletId,
+          business_id: businessId,
+          mnemonic,
+        },
+        authenticated: true,
+      });
+      const node = data?.data?.node || data?.node;
+      if (node?.id) cachedNodeId = node.id;
+      return node;
+    },
+
+    /**
      * Get the Lightning Address for this wallet.
      */
     async getLightningAddress(): Promise<LightningAddress> {
@@ -52,7 +88,7 @@ export function createLightningMethods(
         method: 'GET',
         path: '/api/lightning/address',
         query: { wallet_id: walletId },
-        authenticated: false,
+        authenticated: true,
       });
       return {
         lightning_address: data.lightning_address || null,
@@ -94,16 +130,16 @@ export function createLightningMethods(
         authenticated: true,
       });
       return {
-        payment_hash: data.data?.payment_hash || data.payment_hash,
-        payment_request: data.data?.invoice?.bolt11 || data.payment_request,
-        checking_id: data.data?.checking_id || data.checking_id,
+        payment_hash: data.data?.payment_hash || data.invoice?.payment_hash || data.payment_hash,
+        payment_request: data.data?.invoice?.bolt11 || data.invoice?.bolt11 || data.payment_request,
+        checking_id: data.data?.checking_id || data.invoice?.payment_hash || data.checking_id,
       };
     },
 
     /**
      * Pay a Lightning invoice (BOLT11).
      */
-    async payLightningInvoice(bolt11: string): Promise<LightningPayment> {
+    async payLightningInvoice(bolt11: string, amountSats?: number): Promise<LightningPayment> {
       const nodeId = await resolveNodeId();
       const data = await client.request<any>({
         method: 'POST',
@@ -113,6 +149,7 @@ export function createLightningMethods(
           node_id: nodeId,
           bolt11,
           bolt12: bolt11,
+          amount_sats: amountSats,
           mnemonic: getMnemonic(),
         },
         authenticated: true,
@@ -127,6 +164,7 @@ export function createLightningMethods(
       const data = await client.request<any>({
         method: 'GET',
         path: `/api/lightning/payments/${paymentHash}`,
+        query: { wallet_id: walletId },
         authenticated: true,
       });
       return { paid: data.paid ?? data.data?.paid ?? false };
@@ -135,12 +173,20 @@ export function createLightningMethods(
     /**
      * List Lightning payments.
      */
-    async listLightningPayments(limit: number = 20): Promise<LightningPayment[]> {
-      const nodeId = await resolveNodeId();
+    async listLightningPayments(
+      limit: number = 20,
+      filters: { nodeId?: string; businessId?: string; offerId?: string } = {}
+    ): Promise<LnPayment[]> {
       const data = await client.request<any>({
         method: 'GET',
         path: '/api/lightning/payments',
-        query: { wallet_id: walletId, node_id: nodeId, limit: String(limit) },
+        query: {
+          wallet_id: walletId,
+          node_id: filters.nodeId,
+          business_id: filters.businessId,
+          offer_id: filters.offerId,
+          limit: String(limit),
+        },
         authenticated: true,
       });
       return data.data?.payments || data.payments || [];

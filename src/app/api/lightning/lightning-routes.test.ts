@@ -52,9 +52,16 @@ vi.mock('@/lib/lightning/lightning-service', () => ({
 
 const mockCreateUserWallet = vi.fn();
 const mockWaitForExtensions = vi.fn().mockResolvedValue(true);
+const mockPayInvoice = vi.fn();
 vi.mock('@/lib/lightning/lnbits', () => ({
   createUserWallet: (...args: any[]) => mockCreateUserWallet(...args),
   waitForExtensions: (...args: any[]) => mockWaitForExtensions(...args),
+  payInvoice: (...args: any[]) => mockPayInvoice(...args),
+}));
+
+const mockAuthenticateWalletRequest = vi.fn();
+vi.mock('@/lib/web-wallet/auth', () => ({
+  authenticateWalletRequest: (...args: any[]) => mockAuthenticateWalletRequest(...args),
 }));
 
 // ──────────────────────────────────────────────
@@ -83,6 +90,7 @@ describe('Lightning Route Handlers', () => {
     vi.clearAllMocks();
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://localhost:54321');
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-service-key');
+    mockAuthenticateWalletRequest.mockResolvedValue({ success: true, walletId: 'w-1' });
   });
 
   // ────────────────────────────────────
@@ -168,10 +176,10 @@ describe('Lightning Route Handlers', () => {
   describe('GET /api/lightning/nodes/:id', () => {
     it('should return node on success', async () => {
       const { GET } = await import('./nodes/[id]/route');
-      const fakeNode = { id: 'node-1', status: 'active' };
+      const fakeNode = { id: 'node-1', wallet_id: 'w-1', status: 'active' };
       mockGetNode.mockResolvedValue(fakeNode);
 
-      const req = makeRequest('http://localhost:3000/api/lightning/nodes/node-1');
+      const req = makeRequest('http://localhost:3000/api/lightning/nodes/node-1?wallet_id=w-1');
       const res = await GET(req, { params: Promise.resolve({ id: 'node-1' }) });
       const body = await res.json();
 
@@ -184,12 +192,22 @@ describe('Lightning Route Handlers', () => {
       const { GET } = await import('./nodes/[id]/route');
       mockGetNode.mockResolvedValue(null);
 
-      const req = makeRequest('http://localhost:3000/api/lightning/nodes/bad');
+      const req = makeRequest('http://localhost:3000/api/lightning/nodes/bad?wallet_id=w-1');
       const res = await GET(req, { params: Promise.resolve({ id: 'bad' }) });
       const body = await res.json();
 
       expect(res.status).toBe(404);
       expect(body.success).toBe(false);
+    });
+
+    it('should not return another wallet node', async () => {
+      const { GET } = await import('./nodes/[id]/route');
+      mockGetNode.mockResolvedValue({ id: 'node-2', wallet_id: 'w-2', status: 'active' });
+
+      const req = makeRequest('http://localhost:3000/api/lightning/nodes/node-2?wallet_id=w-1');
+      const res = await GET(req, { params: Promise.resolve({ id: 'node-2' }) });
+
+      expect(res.status).toBe(404);
     });
   });
 
@@ -277,19 +295,15 @@ describe('Lightning Route Handlers', () => {
   // ────────────────────────────────────
 
   describe('GET /api/lightning/payments', () => {
-    it('should list payments by node_id without requiring wallet_id', async () => {
+    it('should require wallet_id before listing payments', async () => {
       const { GET } = await import('./payments/route');
-      mockListPayments.mockResolvedValue({
-        payments: [{ id: 'p-1', status: 'settled' }],
-        total: 1,
-      });
 
       const req = makeRequest('http://localhost:3000/api/lightning/payments?node_id=n1');
       const res = await GET(req);
       const body = await res.json();
 
-      expect(res.status).toBe(200);
-      expect(body.data.payments).toHaveLength(1);
+      expect(res.status).toBe(400);
+      expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('should list payments', async () => {
@@ -298,9 +312,9 @@ describe('Lightning Route Handlers', () => {
         payments: [{ id: 'p-1', status: 'settled' }],
         total: 1,
       });
-      mockGetNode.mockResolvedValue({ id: 'n1', wallet_id: 'w1' } as any);
+      mockGetNode.mockResolvedValue({ id: 'n1', wallet_id: 'w-1' } as any);
 
-      const req = makeRequest('http://localhost:3000/api/lightning/payments?node_id=n1&wallet_id=w1');
+      const req = makeRequest('http://localhost:3000/api/lightning/payments?node_id=n1&wallet_id=w-1');
       const res = await GET(req);
       const body = await res.json();
 
@@ -312,11 +326,48 @@ describe('Lightning Route Handlers', () => {
       const { GET } = await import('./payments/route');
       mockListPayments.mockResolvedValue({ payments: [], total: 0 });
 
-      const req = makeRequest('http://localhost:3000/api/lightning/payments');
+      const req = makeRequest('http://localhost:3000/api/lightning/payments?wallet_id=w-1');
       const res = await GET(req);
       const body = await res.json();
 
       expect(body.data.payments).toHaveLength(0);
+    });
+  });
+
+  describe('GET /api/lightning/nodes', () => {
+    it('should reject unauthenticated node lookups before querying node data', async () => {
+      const { GET } = await import('./nodes/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: false,
+        error: 'Missing authorization header',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/lightning/nodes?wallet_id=w-1');
+      const res = await GET(req);
+
+      expect(res.status).toBe(401);
+      expect(mockChain.select).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('POST /api/lightning/payments', () => {
+    it('should reject unauthenticated payment requests before loading wallet keys', async () => {
+      const { POST } = await import('./payments/route');
+      mockAuthenticateWalletRequest.mockResolvedValue({
+        success: false,
+        error: 'Missing authorization header',
+      });
+
+      const req = makeRequest('http://localhost:3000/api/lightning/payments', {
+        method: 'POST',
+        body: JSON.stringify({ wallet_id: 'w-1', bolt12: 'lnbc1invoice' }),
+        headers: { 'content-type': 'application/json' },
+      });
+      const res = await POST(req);
+
+      expect(res.status).toBe(401);
+      expect(mockChain.select).not.toHaveBeenCalled();
+      expect(mockPayInvoice).not.toHaveBeenCalled();
     });
   });
 
@@ -327,10 +378,11 @@ describe('Lightning Route Handlers', () => {
   describe('GET /api/lightning/payments/:hash', () => {
     it('should return payment by hash', async () => {
       const { GET } = await import('./payments/[hash]/route');
-      const fakePayment = { id: 'p-1', payment_hash: 'abc123', status: 'settled' };
+      const fakePayment = { id: 'p-1', node_id: 'node-1', payment_hash: 'abc123', status: 'settled' };
       mockGetPaymentStatus.mockResolvedValue(fakePayment);
+      mockGetNode.mockResolvedValue({ id: 'node-1', wallet_id: 'w-1' });
 
-      const req = makeRequest('http://localhost:3000/api/lightning/payments/abc123');
+      const req = makeRequest('http://localhost:3000/api/lightning/payments/abc123?wallet_id=w-1');
       const res = await GET(req, { params: Promise.resolve({ hash: 'abc123' }) });
       const body = await res.json();
 
@@ -342,8 +394,24 @@ describe('Lightning Route Handlers', () => {
       const { GET } = await import('./payments/[hash]/route');
       mockGetPaymentStatus.mockResolvedValue(null);
 
-      const req = makeRequest('http://localhost:3000/api/lightning/payments/bad');
+      const req = makeRequest('http://localhost:3000/api/lightning/payments/bad?wallet_id=w-1');
       const res = await GET(req, { params: Promise.resolve({ hash: 'bad' }) });
+
+      expect(res.status).toBe(404);
+    });
+
+    it('should not return another wallet payment', async () => {
+      const { GET } = await import('./payments/[hash]/route');
+      mockGetPaymentStatus.mockResolvedValue({
+        id: 'p-2',
+        node_id: 'node-2',
+        payment_hash: 'other',
+        status: 'settled',
+      });
+      mockGetNode.mockResolvedValue({ id: 'node-2', wallet_id: 'w-2' });
+
+      const req = makeRequest('http://localhost:3000/api/lightning/payments/other?wallet_id=w-1');
+      const res = await GET(req, { params: Promise.resolve({ hash: 'other' }) });
 
       expect(res.status).toBe(404);
     });

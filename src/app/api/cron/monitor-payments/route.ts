@@ -6,8 +6,7 @@
  * Background job to monitor pending payments and escrows.
  * Should be called by an external cron service every 15 seconds.
  *
- * Authentication: CRON_SECRET or INTERNAL_API_KEY in Authorization header,
- * or x-vercel-cron header for Vercel Cron.
+ * Authentication: CRON_SECRET or INTERNAL_API_KEY in Authorization header.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -46,11 +45,6 @@ function getCronSecret(): string | undefined {
  * Authenticate the cron request
  */
 function authenticateRequest(request: NextRequest): boolean {
-  // Allow Vercel Cron requests
-  if (request.headers.get('x-vercel-cron') === '1') {
-    return true;
-  }
-
   const cronSecret = getCronSecret();
   if (!cronSecret) {
     console.error('CRON_SECRET or INTERNAL_API_KEY not configured');

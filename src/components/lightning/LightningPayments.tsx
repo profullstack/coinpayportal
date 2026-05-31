@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { LnPayment } from '@/lib/lightning/types';
+import { useWebWallet } from '@/components/web-wallet/WalletContext';
 
 interface LightningPaymentsProps {
   nodeId?: string;
@@ -14,39 +15,27 @@ interface LightningPaymentsProps {
  * Lists Lightning payments (incoming + outgoing) with status and amount.
  */
 export function LightningPayments({ nodeId, walletId, businessId, offerId }: LightningPaymentsProps) {
+  const { wallet } = useWebWallet();
   const [payments, setPayments] = useState<LnPayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchPayments();
-  }, [nodeId, walletId, businessId, offerId]);
-
-  const fetchPayments = async () => {
+  const fetchPayments = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams();
-      if (nodeId) params.set('node_id', nodeId);
-      if (walletId) params.set('wallet_id', walletId);
-      if (businessId) params.set('business_id', businessId);
-      if (offerId) params.set('offer_id', offerId);
-      // Show all directions (incoming + outgoing)
-
-      const res = await fetch(`/api/lightning/payments?${params}`);
-      const json = await res.json();
-
-      if (json.success) {
-        setPayments(json.data.payments);
-      } else {
-        setError(json.error?.message || 'Failed to load payments');
-      }
+      if (!wallet || (walletId && wallet.walletId !== walletId)) throw new Error('Wallet is locked');
+      setPayments(await wallet.listLightningPayments(20, { nodeId, businessId, offerId }));
     } catch (err) {
-      setError('Network error');
+      setError(err instanceof Error ? err.message : 'Network error');
     } finally {
       setLoading(false);
     }
-  };
+  }, [businessId, nodeId, offerId, wallet, walletId]);
+
+  useEffect(() => {
+    fetchPayments();
+  }, [fetchPayments]);
 
   if (loading) {
     return (
