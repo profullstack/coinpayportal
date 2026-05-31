@@ -126,6 +126,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const authError = await authorizeWalletRequest(supabase, request, wallet_id, rawBody);
+    if (authError) return authError;
+
     // Validate username format
     if (!LIGHTNING_USERNAME_REGEX.test(username)) {
       return NextResponse.json(
@@ -133,9 +136,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    const authError = await authorizeWalletRequest(supabase, request, wallet_id, rawBody);
-    if (authError) return authError;
 
     // Check if username is already taken
     const { data: existing } = await supabase

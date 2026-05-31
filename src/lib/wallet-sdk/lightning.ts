@@ -56,7 +56,9 @@ export function createLightningMethods(
         query: { wallet_id: walletId },
         authenticated: true,
       });
-      return data?.data?.node || data?.node || null;
+      const node = data?.data?.node || data?.node || null;
+      if (node?.id) cachedNodeId = node.id;
+      return node;
     },
 
     /**
@@ -73,7 +75,9 @@ export function createLightningMethods(
         },
         authenticated: true,
       });
-      return data?.data?.node || data?.node;
+      const node = data?.data?.node || data?.node;
+      if (node?.id) cachedNodeId = node.id;
+      return node;
     },
 
     /**
@@ -173,13 +177,12 @@ export function createLightningMethods(
       limit: number = 20,
       filters: { nodeId?: string; businessId?: string; offerId?: string } = {}
     ): Promise<LnPayment[]> {
-      const nodeId = filters.nodeId || await resolveNodeId();
       const data = await client.request<any>({
         method: 'GET',
         path: '/api/lightning/payments',
         query: {
           wallet_id: walletId,
-          node_id: nodeId,
+          node_id: filters.nodeId,
           business_id: filters.businessId,
           offer_id: filters.offerId,
           limit: String(limit),

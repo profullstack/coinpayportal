@@ -154,6 +154,22 @@ describe('/api/lightning/address', () => {
     expect(body.error).toBe('Wallet not found');
   });
 
+  it('authenticates before validating a requested username', async () => {
+    mockAuthenticateWalletRequest.mockResolvedValue({ success: false, error: 'Missing signature' });
+
+    const { POST } = await import('./route');
+    const req = new NextRequest('http://localhost:3000/api/lightning/address', {
+      method: 'POST',
+      body: JSON.stringify({ wallet_id: 'w1', username: 'INVALID' }),
+      headers: { 'content-type': 'application/json' },
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(401);
+    expect(mockAuthenticateWalletRequest).toHaveBeenCalledTimes(1);
+  });
+
   it('self-heals LNbits wallet linkage on GET when username exists', async () => {
     mockFrom.mockImplementation((table: string) => {
       const state: { selectCols?: string; eqMap: Record<string, unknown> } = { eqMap: {} };
