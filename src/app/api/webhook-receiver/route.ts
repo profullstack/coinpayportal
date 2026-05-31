@@ -12,7 +12,7 @@
  * // Express.js example with raw body parsing
  * app.post('/webhooks/coinpay', express.raw({ type: 'application/json' }), (req, res) => {
  *   const signature = req.headers['x-coinpay-signature'];
- *   const payload = req.body.toString(); // Raw body as string
+ *   const payload = req.body.toString();
  *
  *   const isValid = verifyWebhookSignature({
  *     payload,
@@ -24,12 +24,10 @@
  *     return res.status(401).json({ error: 'Invalid signature' });
  *   }
  *
- *   // Parse and process the webhook event
  *   const event = parseWebhookPayload(payload);
  *
  *   switch (event.type) {
  *     case WebhookEvent.PAYMENT_COMPLETED:
- *       // Handle completed payment
  *       console.log('Payment completed:', event.data);
  *       break;
  *   }
@@ -44,130 +42,155 @@ import { verifyIncomingWebhook, WebhookEvent } from '@/lib/sdk';
 import { getWebhookSecret } from '@/lib/secrets';
 
 /**
+ * Event tracking record — stores webhook events for audit trail.
+ * In production, replace the in-memory store with a database (KV/PostgreSQL/Redis).
+ */
+interface EventRecord {
+  id: string;
+  type: string;
+  business_id: string;
+  received_at: string;
+  processed: boolean;
+  status: 'pending' | 'awaiting_payment' | 'confirming' | 'completed' | 'expired' | 'failed' | 'refunded';
+  data?: any;
+}
+
+// In-memory event store (development only — replace with persistent storage in production)
+const eventStore: Map<string, EventRecord> = new Map();
+
+/**
+ * Create and track an event record from a webhook payload.
+ */
+function trackEvent(type: string, id: string, business_id: string, data: any): EventRecord {
+  if (!type || !id) {
+    throw new Error('Invalid webhook: missing required fields (type, id)');
+  }
+
+  const statusMap: Record<string, EventRecord['status']> = {
+    [WebhookEvent.PAYMENT_CREATED]: 'pending',
+    [WebhookEvent.PAYMENT_PENDING]: 'awaiting_payment',
+    [WebhookEvent.PAYMENT_CONFIRMING]: 'confirming',
+    [WebhookEvent.PAYMENT_COMPLETED]: 'completed',
+    [WebhookEvent.PAYMENT_EXPIRED]: 'expired',
+    [WebhookEvent.PAYMENT_FAILED]: 'failed',
+    [WebhookEvent.PAYMENT_REFUNDED]: 'refunded',
+  };
+
+  const event: EventRecord = {
+    id,
+    type,
+    business_id: business_id || 'unknown',
+    received_at: new Date().toISOString(),
+    processed: false,
+    status: statusMap[type] || 'pending',
+    data,
+  };
+
+  eventStore.set(id, event);
+  console.log(`[WebhookTracker] ${type} → ${event.status} | business: ${event.business_id} | id: ${id}`);
+  return event;
+}
+
+/**
  * POST /api/webhook-receiver
  *
  * Example endpoint showing how to receive and verify CoinPay webhooks
  * using the @profullstack/coinpay SDK.
- *
- * Note: The SDK expects the raw request body as a string for signature verification.
  */
 export async function POST(request: NextRequest) {
   try {
-    // Get the webhook signature from headers
-    // The SDK uses 'x-coinpay-signature' header
     const signature = request.headers.get('x-coinpay-signature');
 
     if (!signature) {
       return NextResponse.json(
-        {
-          success: false,
-          error: 'Missing X-CoinPay-Signature header',
-        },
+        { success: false, error: 'Missing X-CoinPay-Signature header' },
         { status: 401 }
       );
     }
 
-    // Get the raw request body as a string (required for signature verification)
     const rawBody = await request.text();
-
-    // Get the webhook secret from secrets module
-    // In production, this would be the secret provided when configuring webhooks
     const webhookSecret = getWebhookSecret();
+
     if (!webhookSecret) {
       console.error('WEBHOOK_SECRET environment variable is not set');
       return NextResponse.json(
-        { error: 'Internal server error' },
+        { error: 'Internal server error — webhook secret not configured' },
         { status: 500 }
       );
     }
 
-    // Verify the webhook signature using the SDK
-    // The SDK expects: payload (string), signature (format: t=timestamp,v1=hash), secret
     const isValid = verifyIncomingWebhook(rawBody, signature, webhookSecret);
 
     if (!isValid) {
       console.warn('Invalid webhook signature received');
       return NextResponse.json(
-        {
-          success: false,
-          error: 'Invalid webhook signature',
-        },
+        { success: false, error: 'Invalid webhook signature' },
         { status: 401 }
       );
     }
 
-    // Parse the verified payload
     const event = JSON.parse(rawBody);
     const { type, id, data, business_id } = event;
 
-    console.log(`Received webhook: ${type} (${id}) for business ${business_id}`);
+    // Track the event
+    const record = trackEvent(type, id, business_id, data);
 
-    // Process the webhook event using SDK's WebhookEvent constants
+    // Business logic per event type
     switch (type) {
       case WebhookEvent.PAYMENT_CREATED:
-        console.log('Payment created:', data);
-        // TODO: Initialize order tracking
+        // Payment initialized — tracking record created above
         break;
 
       case WebhookEvent.PAYMENT_PENDING:
-        console.log('Payment pending:', data);
-        // TODO: Update order status to "awaiting payment"
+        // Funds detected, awaiting blockchain confirmation
+        // TODO: Notify merchant that payment is pending confirmation
         break;
 
       case WebhookEvent.PAYMENT_CONFIRMING:
-        console.log('Payment confirming:', data);
-        // TODO: Update order status to "payment detected, awaiting confirmations"
+        // Payment detected on-chain, awaiting sufficient confirmations
+        // TODO: Update order status to "confirming" in database
         break;
 
       case WebhookEvent.PAYMENT_COMPLETED:
-        console.log('Payment completed:', data);
-        // TODO: Fulfill the order, send confirmation email, etc.
+        // Payment fully confirmed — fulfill the order
+        // TODO: Trigger fulfillment workflow, send confirmation email
+        console.log(`[Fulfillment] Payment completed for ${id}, business ${business_id}`);
         break;
 
       case WebhookEvent.PAYMENT_EXPIRED:
-        console.log('Payment expired:', data);
-        // TODO: Cancel order, notify customer
+        // Payment window closed
+        // TODO: Notify buyer that payment window expired
         break;
 
       case WebhookEvent.PAYMENT_FAILED:
-        console.log('Payment failed:', data);
-        // TODO: Handle failed payment, notify customer
+        // Transaction failed (insufficient funds, network error)
+        // TODO: Notify buyer, offer retry option
         break;
 
       case WebhookEvent.PAYMENT_REFUNDED:
-        console.log('Payment refunded:', data);
-        // TODO: Process refund, update records
-        break;
-
-      case WebhookEvent.BUSINESS_CREATED:
-        console.log('Business created:', data);
-        break;
-
-      case WebhookEvent.BUSINESS_UPDATED:
-        console.log('Business updated:', data);
+        // Payment refunded by merchant or arbiter
+        // TODO: Process refund through payment gateway
         break;
 
       default:
-        console.warn(`Unknown webhook event type: ${type}`);
+        console.log(`[Webhook] Unhandled event type: ${type}`);
     }
 
-    // Acknowledge receipt of the webhook
-    return NextResponse.json(
-      {
-        success: true,
-        received: true,
-        event_type: type,
-        event_id: id,
-      },
-      { status: 200 }
-    );
+    // Mark processed
+    record.processed = true;
+    eventStore.set(id, record);
+
+    return NextResponse.json({
+      success: true,
+      received: true,
+      event_type: type,
+      event_id: id,
+      status: record.status,
+    });
   } catch (error) {
     console.error('Webhook processing error:', error);
     return NextResponse.json(
-      {
-        success: false,
-        error: 'Internal server error',
-      },
+      { success: false, error: 'Internal server error' },
       { status: 500 }
     );
   }
