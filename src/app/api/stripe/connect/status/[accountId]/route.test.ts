@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { mockStripe, mockSupabase } = vi.hoisted(() => {
+const { mockStripe, mockSupabase, mockResolveMerchant, mockVerifyBusinessAccess } = vi.hoisted(() => {
   const mockStripe = {
     accounts: {
       retrieve: vi.fn().mockResolvedValue({
@@ -23,7 +23,12 @@ const { mockStripe, mockSupabase } = vi.hoisted(() => {
     from: vi.fn(),
   };
 
-  return { mockStripe, mockSupabase };
+  return {
+    mockStripe,
+    mockSupabase,
+    mockResolveMerchant: vi.fn(),
+    mockVerifyBusinessAccess: vi.fn(),
+  };
 });
 
 vi.mock('stripe', () => ({
@@ -32,6 +37,14 @@ vi.mock('stripe', () => ({
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn().mockReturnValue(mockSupabase),
+}));
+
+vi.mock('@/lib/auth/merchant', () => ({
+  resolveMerchant: (...args: unknown[]) => mockResolveMerchant(...args),
+}));
+
+vi.mock('@/lib/wallets/supported-coins', () => ({
+  verifyBusinessAccess: (...args: unknown[]) => mockVerifyBusinessAccess(...args),
 }));
 
 import { GET } from './route';
@@ -62,6 +75,8 @@ describe('GET /api/stripe/connect/status/[accountId]', () => {
     process.env.STRIPE_SECRET_KEY = 'sk_test_123';
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+    mockResolveMerchant.mockResolvedValue({ merchantId: 'merchant_uuid_123', apiKeyBusinessId: null });
+    mockVerifyBusinessAccess.mockResolvedValue({ ok: true });
     mockFromChain();
   });
 
@@ -99,6 +114,20 @@ describe('GET /api/stripe/connect/status/[accountId]', () => {
 
     expect(response.status).toBe(404);
     expect(data.error).toBe('Stripe account not found');
+  });
+
+  it('should reject status lookups outside the authenticated merchant scope', async () => {
+    mockVerifyBusinessAccess.mockResolvedValue({
+      ok: false,
+      error: 'Business not found or access denied',
+      status: 404,
+    });
+    const request = new NextRequest('http://localhost:3000/api/stripe/connect/status/other_business');
+
+    const response = await GET(request, { params: Promise.resolve({ accountId: 'other_business' }) });
+
+    expect(response.status).toBe(404);
+    expect(mockStripe.accounts.retrieve).not.toHaveBeenCalled();
   });
 
   it('should report incomplete onboarding', async () => {

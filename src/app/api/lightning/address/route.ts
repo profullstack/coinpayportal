@@ -2,6 +2,7 @@ import { encryptLnKey, decryptLnKey } from '@/lib/lightning/key-encryption';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createPayLink, createUserWallet, getPayLink } from '@/lib/lightning/lnbits';
+import { authorizeWalletRequest } from '../wallet-auth';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -115,7 +116,8 @@ async function ensureLightningAddressBackend(supabase: ReturnType<typeof getSupa
 export async function POST(request: NextRequest) {
   try {
     const supabase = getSupabase();
-    const { wallet_id, username } = await request.json();
+    const rawBody = await request.text();
+    const { wallet_id, username } = JSON.parse(rawBody);
 
     if (!wallet_id || !username) {
       return NextResponse.json(
@@ -131,6 +133,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const authError = await authorizeWalletRequest(supabase, request, wallet_id, rawBody);
+    if (authError) return authError;
 
     // Check if username is already taken
     const { data: existing } = await supabase
@@ -255,6 +260,9 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
+
+  const authError = await authorizeWalletRequest(supabase, request, walletId);
+  if (authError) return authError;
 
   let wallet: any = null;
   let walletLookupError: any = null;

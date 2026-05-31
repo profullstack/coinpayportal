@@ -2,6 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { LightningPayments } from '../LightningPayments';
 
+const { mockListLightningPayments } = vi.hoisted(() => ({
+  mockListLightningPayments: vi.fn(),
+}));
+vi.mock('@/components/web-wallet/WalletContext', () => ({
+  useWebWallet: () => ({
+    wallet: {
+      walletId: 'w-1',
+      listLightningPayments: (...args: unknown[]) => mockListLightningPayments(...args),
+    },
+  }),
+}));
+
 const mockPayments = [
   {
     id: 'p-1',
@@ -39,19 +51,17 @@ beforeEach(() => {
 
 describe('LightningPayments', () => {
   it('should show loading state initially', () => {
-    global.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
-    render(<LightningPayments nodeId="n-1" />);
+    mockListLightningPayments.mockReturnValue(new Promise(() => {}));
+    render(<LightningPayments nodeId="n-1" walletId="w-1" />);
     // Pulse animation divs are rendered during loading
     const container = document.querySelector('.animate-pulse');
     expect(container).toBeTruthy();
   });
 
   it('should display payments on success', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ success: true, data: { payments: mockPayments } }),
-    });
+    mockListLightningPayments.mockResolvedValue(mockPayments);
 
-    render(<LightningPayments nodeId="n-1" />);
+    render(<LightningPayments nodeId="n-1" walletId="w-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('+100 sats')).toBeDefined();
@@ -60,11 +70,9 @@ describe('LightningPayments', () => {
   });
 
   it('should display payer notes', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ success: true, data: { payments: mockPayments } }),
-    });
+    mockListLightningPayments.mockResolvedValue(mockPayments);
 
-    render(<LightningPayments nodeId="n-1" />);
+    render(<LightningPayments nodeId="n-1" walletId="w-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('Thanks for the coffee!')).toBeDefined();
@@ -72,11 +80,9 @@ describe('LightningPayments', () => {
   });
 
   it('should show empty state when no payments', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ success: true, data: { payments: [] } }),
-    });
+    mockListLightningPayments.mockResolvedValue([]);
 
-    render(<LightningPayments nodeId="n-1" />);
+    render(<LightningPayments nodeId="n-1" walletId="w-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('No Lightning payments yet')).toBeDefined();
@@ -84,15 +90,9 @@ describe('LightningPayments', () => {
   });
 
   it('should show error state on failure', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      json: () =>
-        Promise.resolve({
-          success: false,
-          error: { message: 'Something went wrong' },
-        }),
-    });
+    mockListLightningPayments.mockRejectedValue(new Error('Something went wrong'));
 
-    render(<LightningPayments nodeId="n-1" />);
+    render(<LightningPayments nodeId="n-1" walletId="w-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('Something went wrong')).toBeDefined();
@@ -100,27 +100,26 @@ describe('LightningPayments', () => {
   });
 
   it('should show error on network failure', async () => {
-    global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+    mockListLightningPayments.mockRejectedValue(new Error('Network error'));
 
-    render(<LightningPayments nodeId="n-1" />);
+    render(<LightningPayments nodeId="n-1" walletId="w-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('Network error')).toBeDefined();
     });
   });
 
-  it('should pass query params for filtering', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ success: true, data: { payments: [] } }),
-    });
+  it('should load payments through the signed wallet SDK', async () => {
+    mockListLightningPayments.mockResolvedValue([]);
 
-    render(<LightningPayments nodeId="n-1" businessId="b-1" offerId="o-1" />);
+    render(<LightningPayments nodeId="n-1" walletId="w-1" businessId="b-1" offerId="o-1" />);
 
     await waitFor(() => {
-      const url = (global.fetch as any).mock.calls[0][0];
-      expect(url).toContain('node_id=n-1');
-      expect(url).toContain('business_id=b-1');
-      expect(url).toContain('offer_id=o-1');
+      expect(mockListLightningPayments).toHaveBeenCalledWith(20, {
+        nodeId: 'n-1',
+        businessId: 'b-1',
+        offerId: 'o-1',
+      });
     });
   });
 });

@@ -3,7 +3,8 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { createUserWallet, waitForExtensions } from '@/lib/lightning/lnbits';
-import { mnemonicToSeed, isValidMnemonic } from '@/lib/web-wallet/keys';
+import { isValidMnemonic } from '@/lib/web-wallet/keys';
+import { authorizeWalletRequest } from '../wallet-auth';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -26,6 +27,9 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = getSupabase();
+    const authError = await authorizeWalletRequest(supabase, request, walletId);
+    if (authError) return authError;
+
     const { data: node, error } = await supabase
       .from('ln_nodes')
       .select('id, wallet_id, lnbits_wallet_id, node_pubkey, status, created_at')
@@ -55,7 +59,8 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const rawBody = await request.text();
+    const body = JSON.parse(rawBody);
     const { wallet_id, business_id, mnemonic } = body;
 
     if (!wallet_id) {
@@ -66,6 +71,8 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabase();
+    const authError = await authorizeWalletRequest(supabase, request, wallet_id, rawBody);
+    if (authError) return authError;
 
     // Check if node already exists for this wallet (idempotent)
     const { data: existing } = await supabase

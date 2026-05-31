@@ -5,6 +5,7 @@ const mockCreatePayLink = vi.fn();
 const mockCreateUserWallet = vi.fn();
 const mockGetPayLink = vi.fn();
 const mockFrom = vi.fn();
+const mockAuthenticateWalletRequest = vi.fn();
 
 vi.mock('@/lib/lightning/lnbits', () => ({
   createPayLink: (...args: unknown[]) => mockCreatePayLink(...args),
@@ -18,11 +19,16 @@ vi.mock('@supabase/supabase-js', () => ({
   })),
 }));
 
+vi.mock('@/lib/web-wallet/auth', () => ({
+  authenticateWalletRequest: (...args: unknown[]) => mockAuthenticateWalletRequest(...args),
+}));
+
 describe('/api/lightning/address', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://localhost:54321');
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key');
+    mockAuthenticateWalletRequest.mockResolvedValue({ success: true, walletId: 'w1' });
 
     mockFrom.mockImplementation((table: string) => {
       const state: {
@@ -121,6 +127,7 @@ describe('/api/lightning/address', () => {
   });
 
   it('returns 404 when wallet does not exist', async () => {
+    mockAuthenticateWalletRequest.mockResolvedValue({ success: true, walletId: 'missing' });
     mockFrom.mockImplementation(() => {
       const query = {
         select: vi.fn(() => query),
