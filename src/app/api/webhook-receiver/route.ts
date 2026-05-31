@@ -1,50 +1,16 @@
 /**
  * Example Webhook Receiver Endpoint
  *
- * This endpoint demonstrates how external applications would use the
- * @profullstack/coinpay SDK to receive and verify webhooks from CoinPay.
- *
- * External applications should implement a similar endpoint:
- *
- * ```javascript
- * import { verifyWebhookSignature, parseWebhookPayload, WebhookEvent } from '@profullstack/coinpay';
- *
- * // Express.js example with raw body parsing
- * app.post('/webhooks/coinpay', express.raw({ type: 'application/json' }), (req, res) => {
- *   const signature = req.headers['x-coinpay-signature'];
- *   const payload = req.body.toString();
- *
- *   const isValid = verifyWebhookSignature({
- *     payload,
- *     signature,
- *     secret: process.env.WEBHOOK_SECRET
- *   });
- *
- *   if (!isValid) {
- *     return res.status(401).json({ error: 'Invalid signature' });
- *   }
- *
- *   const event = parseWebhookPayload(payload);
- *
- *   switch (event.type) {
- *     case WebhookEvent.PAYMENT_COMPLETED:
- *       console.log('Payment completed:', event.data);
- *       break;
- *   }
- *
- *   res.json({ received: true });
- * });
- * ```
+ * Receives and verifies CoinPay webhooks using the @profullstack/coinpay SDK.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyIncomingWebhook, WebhookEvent } from '@/lib/sdk';
 import { getWebhookSecret } from '@/lib/secrets';
 
-/**
- * Event tracking record — stores webhook events for audit trail.
- * In production, replace the in-memory store with a database (KV/PostgreSQL/Redis).
- */
+/** Maximum event records kept in memory to prevent unbounded growth. */
+const MAX_EVENT_STORE = 1000;
+
 interface EventRecord {
   id: string;
   type: string;
@@ -55,17 +21,16 @@ interface EventRecord {
   data?: any;
 }
 
-// In-memory event store (development only — replace with persistent storage in production)
+/** In-memory store with eviction — oldest entries removed when limit is exceeded. */
 const eventStore: Map<string, EventRecord> = new Map();
 
-/**
- * Create and track an event record from a webhook payload.
- */
-function trackEvent(type: string, id: string, business_id: string, data: any): EventRecord {
-  if (!type || !id) {
-    throw new Error('Invalid webhook: missing required fields (type, id)');
-  }
+function trimStore(): void {
+  if (eventStore.size <= MAX_EVENT_STORE) return;
+  const keysToDelete = [...eventStore.keys()].slice(0, eventStore.size - MAX_EVENT_STORE);
+  for (const key of keysToDelete) eventStore.delete(key);
+}
 
+function trackEvent(type: string, id: string, business_id: string, data: any): EventRecord {
   const statusMap: Record<string, EventRecord['status']> = {
     [WebhookEvent.PAYMENT_CREATED]: 'pending',
     [WebhookEvent.PAYMENT_PENDING]: 'awaiting_payment',
@@ -87,20 +52,14 @@ function trackEvent(type: string, id: string, business_id: string, data: any): E
   };
 
   eventStore.set(id, event);
+  trimStore();
   console.log(`[WebhookTracker] ${type} → ${event.status} | business: ${event.business_id} | id: ${id}`);
   return event;
 }
 
-/**
- * POST /api/webhook-receiver
- *
- * Example endpoint showing how to receive and verify CoinPay webhooks
- * using the @profullstack/coinpay SDK.
- */
 export async function POST(request: NextRequest) {
   try {
     const signature = request.headers.get('x-coinpay-signature');
-
     if (!signature) {
       return NextResponse.json(
         { success: false, error: 'Missing X-CoinPay-Signature header' },
@@ -120,7 +79,6 @@ export async function POST(request: NextRequest) {
     }
 
     const isValid = verifyIncomingWebhook(rawBody, signature, webhookSecret);
-
     if (!isValid) {
       console.warn('Invalid webhook signature received');
       return NextResponse.json(
@@ -129,56 +87,64 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const event = JSON.parse(rawBody);
+    let event: { type: string; id: string; data?: any; business_id?: string };
+    try {
+      event = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json(
+        { success: false, error: 'Invalid JSON in webhook payload' },
+        { status: 400 }
+      );
+    }
+
     const { type, id, data, business_id } = event;
 
-    // Track the event
+    if (!type || !id) {
+      return NextResponse.json(
+        { success: false, error: 'Missing required fields: type, id' },
+        { status: 400 }
+      );
+    }
+
     const record = trackEvent(type, id, business_id, data);
 
-    // Business logic per event type
     switch (type) {
       case WebhookEvent.PAYMENT_CREATED:
-        // Payment initialized — tracking record created above
         break;
 
       case WebhookEvent.PAYMENT_PENDING:
-        // Funds detected, awaiting blockchain confirmation
-        // TODO: Notify merchant that payment is pending confirmation
         break;
 
       case WebhookEvent.PAYMENT_CONFIRMING:
-        // Payment detected on-chain, awaiting sufficient confirmations
-        // TODO: Update order status to "confirming" in database
         break;
 
       case WebhookEvent.PAYMENT_COMPLETED:
-        // Payment fully confirmed — fulfill the order
-        // TODO: Trigger fulfillment workflow, send confirmation email
         console.log(`[Fulfillment] Payment completed for ${id}, business ${business_id}`);
         break;
 
       case WebhookEvent.PAYMENT_EXPIRED:
-        // Payment window closed
-        // TODO: Notify buyer that payment window expired
         break;
 
       case WebhookEvent.PAYMENT_FAILED:
-        // Transaction failed (insufficient funds, network error)
-        // TODO: Notify buyer, offer retry option
         break;
 
       case WebhookEvent.PAYMENT_REFUNDED:
-        // Payment refunded by merchant or arbiter
-        // TODO: Process refund through payment gateway
+        break;
+
+      case WebhookEvent.BUSINESS_CREATED:
+        console.log('Business created:', data);
+        break;
+
+      case WebhookEvent.BUSINESS_UPDATED:
+        console.log('Business updated:', data);
         break;
 
       default:
         console.log(`[Webhook] Unhandled event type: ${type}`);
     }
 
-    // Mark processed
+    // Mark processed (in-place mutation — already in the Map)
     record.processed = true;
-    eventStore.set(id, record);
 
     return NextResponse.json({
       success: true,
