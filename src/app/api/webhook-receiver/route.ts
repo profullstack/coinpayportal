@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const record = trackEvent(type, id, business_id, data);
+    const record = trackEvent(type, id, business_id ?? '', data);
 
     switch (type) {
       case WebhookEvent.PAYMENT_CREATED:

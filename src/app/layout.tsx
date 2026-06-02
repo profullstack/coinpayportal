@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { ReferralProvider } from '@profullstack/referrals/react';
 import Script from 'next/script';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
@@ -109,7 +110,7 @@ export default function RootLayout({
           </a>
           <Header />
           <main id="main-content" className="flex-grow">
-            {children}
+            <ReferralProvider>{children}</ReferralProvider>
           </main>
           <Footer />
         </Providers>

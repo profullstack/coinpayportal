@@ -69,6 +69,12 @@ importers:
       '@profullstack/coinpay':
         specifier: workspace:*
         version: link:packages/sdk
+      '@profullstack/emailer':
+        specifier: file:../emailer
+        version: file:../emailer
+      '@profullstack/referrals':
+        specifier: file:../referrals
+        version: file:../referrals(react@19.2.0)
       '@scure/bip32':
         specifier: ^1.3.3
         version: 1.7.0
@@ -283,7 +289,7 @@ importers:
         version: 3.6.2
       vitest:
         specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.7.5)(@vitest/ui@1.6.1)(jsdom@29.1.1(@noble/hashes@1.8.0))(lightningcss@1.32.0)(terser@5.48.0)
+        version: 2.1.9(@types/node@22.7.5)(@vitest/ui@1.6.1(vitest@1.6.1))(jsdom@29.1.1(@noble/hashes@1.8.0))(lightningcss@1.32.0)(terser@5.48.0)
 
 packages:
 
@@ -1668,6 +1674,18 @@ packages:
     resolution: {tarball: https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af}
     version: 0.4.0
     engines: {node: '>=18'}
+
+  '@profullstack/emailer@file:../emailer':
+    resolution: {directory: ../emailer, type: directory}
+
+  '@profullstack/referrals@file:../referrals':
+    resolution: {directory: ../referrals, type: directory}
+    engines: {node: '>=18'}
+    peerDependencies:
+      react: '>=18'
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@project-serum/sol-wallet-adapter@0.2.6':
     resolution: {integrity: sha512-cpIb13aWPW8y4KzkZAPDgw+Kb+DXjCC6rZoH74MGm3I/6e/zKyGnfAuW5olb2zxonFqsYgnv7ev8MQnvSgJ3/g==}
@@ -4354,8 +4372,8 @@ packages:
   electron-to-chromium@1.5.260:
     resolution: {integrity: sha512-ov8rBoOBhVawpzdre+Cmz4FB+y66Eqrk6Gwqd8NGxuhv99GQ8XqMAr351KEkOt7gukXWDg6gJWEMKgL2RLMPtA==}
 
-  electron-to-chromium@1.5.364:
-    resolution: {integrity: sha512-G/dYE3+AYhyHwzTwg8UbnXf7zqMERYh7l2jJ3QujhFsH8agSYwtnGAR2aZ7f0AakIKJXd5En/Hre4igIUrdlYw==}
+  electron-to-chromium@1.5.363:
+    resolution: {integrity: sha512-VjUKPyWzGnT1fujlkEGC/BvN70Hh70KXtAqcmniXviYlJC/ivcT+BWGPyxWVbJZLfvtKR6dqg1L7T7pgAMBtWA==}
 
   elliptic@6.6.1:
     resolution: {integrity: sha512-RaddvvMatK2LJHqFJ+YA4WysVN5Ita9E35botqIYspQ4TkRAlCicdzKOjlyv/1Za5RyTNn7di//eEV0uTAfe3g==}
@@ -7028,8 +7046,8 @@ packages:
     resolution: {integrity: sha512-n1cw8k1k0x4pgA2+9XrOkFydTerNcJ1zWCO5Nn9scWHTD+5tp8dghT2x1uduQePZTZgd3Tupf+x9BxJjeJi77Q==}
     engines: {node: '>=14.0.0'}
 
-  tldts-core@7.4.1:
-    resolution: {integrity: sha512-sc2nGvGbixlJRHwTh/qQdPXTxJU1UDJboGPQm4d/01YUJ9r/u6aeIulQvEaxUlvKDN7hb1qCLjax+jhVAPLa/g==}
+  tldts-core@7.4.0:
+    resolution: {integrity: sha512-/mb9kRld+x1sIMXxWNOAp5m6C+D4GrAORWlJkOJ5dElvxdN1eutz/o7qHLp9gFvDF4Y3/L2xeScoxz6AbEo8rQ==}
 
   tldts@7.4.0:
     resolution: {integrity: sha512-yHBe+zVfzNZ3QfTPW/Z6KK1G2t340gFjMHqI/4KKSt/abzYydzuCnpqdaF5gCCABby+9Yfbj59oR5F2Fd5CBzg==}
@@ -9248,6 +9266,12 @@ snapshots:
   '@polka/url@1.0.0-next.29': {}
 
   '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af': {}
+
+  '@profullstack/emailer@file:../emailer': {}
+
+  '@profullstack/referrals@file:../referrals(react@19.2.0)':
+    optionalDependencies:
+      react: 19.2.0
 
   '@project-serum/sol-wallet-adapter@0.2.6(@solana/web3.js@1.98.4(bufferutil@4.0.9)(typescript@5.9.3)(utf-8-validate@5.0.10))':
     dependencies:
@@ -12724,7 +12748,7 @@ snapshots:
     dependencies:
       baseline-browser-mapping: 2.10.32
       caniuse-lite: 1.0.30001793
-      electron-to-chromium: 1.5.364
+      electron-to-chromium: 1.5.363
       node-releases: 2.0.46
       update-browserslist-db: 1.2.3(browserslist@4.28.2)
 
@@ -13309,7 +13333,7 @@ snapshots:
 
   electron-to-chromium@1.5.260: {}
 
-  electron-to-chromium@1.5.364: {}
+  electron-to-chromium@1.5.363: {}
 
   elliptic@6.6.1:
     dependencies:
@@ -16594,12 +16618,12 @@ snapshots:
 
   tinyspy@3.0.2: {}
 
-  tldts-core@7.4.1:
+  tldts-core@7.4.0:
     optional: true
 
   tldts@7.4.0:
     dependencies:
-      tldts-core: 7.4.1
+      tldts-core: 7.4.0
     optional: true
 
   tmpl@1.0.5: {}
@@ -17060,7 +17084,7 @@ snapshots:
       - supports-color
       - terser
 
-  vitest@2.1.9(@types/node@22.7.5)(@vitest/ui@1.6.1)(jsdom@29.1.1(@noble/hashes@1.8.0))(lightningcss@1.32.0)(terser@5.48.0):
+  vitest@2.1.9(@types/node@22.7.5)(@vitest/ui@1.6.1(vitest@1.6.1))(jsdom@29.1.1(@noble/hashes@1.8.0))(lightningcss@1.32.0)(terser@5.48.0):
     dependencies:
       '@vitest/expect': 2.1.9
       '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@22.7.5)(lightningcss@1.32.0)(terser@5.48.0))
