@@ -13,10 +13,8 @@ import {
   TransactionList,
   type TransactionItem,
 } from '@/components/web-wallet/TransactionList';
-import {
-  decryptWithPassword,
-  loadWalletFromStorage,
-} from '@/lib/web-wallet/client-crypto';
+import { decryptWithPassword } from '@/lib/web-wallet/client-crypto';
+import { getActiveWallet } from '@/lib/web-wallet/wallet-registry';
 import type { WalletChain } from '@/lib/web-wallet/identity';
 import { isValidChain } from '@/lib/web-wallet/identity';
 import type { TransactionListOptions } from '@/lib/wallet-sdk/types';
@@ -925,12 +923,12 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
       setPasswordError('Password is required');
       return;
     }
-    const stored = loadWalletFromStorage();
-    if (!stored) {
+    const active = getActiveWallet();
+    if (!active) {
       setPasswordError('Wallet data not found');
       return;
     }
-    const result = await decryptWithPassword(stored.encrypted, password);
+    const result = await decryptWithPassword(active.encrypted, password);
     if (!result) {
       setPasswordError('Incorrect password');
       return;
