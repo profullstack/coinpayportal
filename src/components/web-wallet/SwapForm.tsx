@@ -7,8 +7,8 @@ import { useWebWallet } from './WalletContext';
 import { type FiatCurrency, getFiatSymbol } from '@/lib/web-wallet/settings';
 import {
   decryptWithPassword,
-  loadWalletFromStorage,
 } from '@/lib/web-wallet/client-crypto';
+import { getActiveWallet } from '@/lib/web-wallet/wallet-registry';
 import type { WalletChain } from '@/lib/web-wallet/identity';
 
 // All coins supported for swaps (must match changenow.ts SWAP_SUPPORTED_COINS)
@@ -179,13 +179,13 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
     if (!wallet || !quote || !password) return;
     
     // Validate password first
-    const stored = loadWalletFromStorage();
-    if (!stored) {
+    const active = getActiveWallet();
+    if (!active) {
       setPasswordError('Wallet data not found');
       return;
     }
     
-    const decrypted = await decryptWithPassword(stored.encrypted, password);
+    const decrypted = await decryptWithPassword(active.encrypted, password);
     if (!decrypted) {
       setPasswordError('Incorrect password');
       return;

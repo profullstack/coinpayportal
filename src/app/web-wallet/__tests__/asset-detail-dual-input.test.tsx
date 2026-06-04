@@ -75,11 +75,14 @@ vi.mock('qrcode', () => ({
 // ── Crypto mock ──
 
 const mockDecryptWithPassword = vi.fn();
-const mockLoadWalletFromStorage = vi.fn();
+const mockGetActiveWallet = vi.fn();
 
 vi.mock('@/lib/web-wallet/client-crypto', () => ({
   decryptWithPassword: (...args: unknown[]) => mockDecryptWithPassword(...args),
-  loadWalletFromStorage: () => mockLoadWalletFromStorage(),
+}));
+
+vi.mock('@/lib/web-wallet/wallet-registry', () => ({
+  getActiveWallet: () => mockGetActiveWallet(),
 }));
 
 // ── Mock fetch for exchange rates ──
@@ -153,7 +156,7 @@ beforeEach(() => {
   mockPush.mockReset();
   mockReplace.mockReset();
   mockDecryptWithPassword.mockReset();
-  mockLoadWalletFromStorage.mockReset();
+  mockGetActiveWallet.mockReset();
   mockFetch.mockReset();
   
   // Default mock for rates API
@@ -398,7 +401,7 @@ describe('AssetDetailPage - Send Tab - Dual Input System', () => {
     const user = userEvent.setup();
     renderUnlockedPage('BTC');
     
-    mockLoadWalletFromStorage.mockReturnValue({
+    mockGetActiveWallet.mockReturnValue({
       encrypted: { salt: 'abc', iv: 'def', ciphertext: 'ghi' },
     });
     mockDecryptWithPassword.mockResolvedValue('decrypted-seed');
@@ -474,7 +477,7 @@ describe('AssetDetailPage - Send Tab - Dual Input System', () => {
     expect(fiatInput).toBeDisabled();
     
     // Navigate to error state and reset
-    mockLoadWalletFromStorage.mockReturnValue({
+    mockGetActiveWallet.mockReturnValue({
       encrypted: { salt: 'abc', iv: 'def', ciphertext: 'ghi' },
     });
     mockDecryptWithPassword.mockResolvedValue('decrypted-seed');

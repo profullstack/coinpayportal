@@ -102,11 +102,14 @@ vi.mock('qrcode', () => ({
 // ── Crypto mock ──
 
 const mockDecryptWithPassword = vi.fn();
-const mockLoadWalletFromStorage = vi.fn();
+const mockGetActiveWallet = vi.fn();
 
 vi.mock('@/lib/web-wallet/client-crypto', () => ({
   decryptWithPassword: (...args: unknown[]) => mockDecryptWithPassword(...args),
-  loadWalletFromStorage: () => mockLoadWalletFromStorage(),
+}));
+
+vi.mock('@/lib/web-wallet/wallet-registry', () => ({
+  getActiveWallet: () => mockGetActiveWallet(),
 }));
 
 // ── Wallet state ──
@@ -175,7 +178,7 @@ beforeEach(() => {
   mockPush.mockReset();
   mockReplace.mockReset();
   mockDecryptWithPassword.mockReset();
-  mockLoadWalletFromStorage.mockReset();
+  mockGetActiveWallet.mockReset();
   mockParams = { chain: 'BTC' };
   mockState = {
     hasWallet: true,
@@ -650,7 +653,7 @@ describe('AssetDetailPage – Send tab', () => {
   });
 
   it('should show error on incorrect password', async () => {
-    mockLoadWalletFromStorage.mockReturnValue({
+    mockGetActiveWallet.mockReturnValue({
       encrypted: { salt: 'abc', iv: 'def', ciphertext: 'ghi' },
     });
     mockDecryptWithPassword.mockResolvedValue(null);
@@ -686,7 +689,7 @@ describe('AssetDetailPage – Send tab', () => {
   });
 
   it('should show success after successful send', async () => {
-    mockLoadWalletFromStorage.mockReturnValue({
+    mockGetActiveWallet.mockReturnValue({
       encrypted: { salt: 'abc', iv: 'def', ciphertext: 'ghi' },
     });
     mockDecryptWithPassword.mockResolvedValue('decrypted-seed');
@@ -725,7 +728,7 @@ describe('AssetDetailPage – Send tab', () => {
   });
 
   it('should show error state on send failure', async () => {
-    mockLoadWalletFromStorage.mockReturnValue({
+    mockGetActiveWallet.mockReturnValue({
       encrypted: { salt: 'abc', iv: 'def', ciphertext: 'ghi' },
     });
     mockDecryptWithPassword.mockResolvedValue('decrypted-seed');
@@ -763,7 +766,7 @@ describe('AssetDetailPage – Send tab', () => {
   });
 
   it('should show Try Again button on error and reset to form', async () => {
-    mockLoadWalletFromStorage.mockReturnValue({
+    mockGetActiveWallet.mockReturnValue({
       encrypted: { salt: 'abc', iv: 'def', ciphertext: 'ghi' },
     });
     mockDecryptWithPassword.mockResolvedValue('decrypted-seed');
@@ -800,7 +803,7 @@ describe('AssetDetailPage – Send tab', () => {
   });
 
   it('should show Send Another button on success and reset to form', async () => {
-    mockLoadWalletFromStorage.mockReturnValue({
+    mockGetActiveWallet.mockReturnValue({
       encrypted: { salt: 'abc', iv: 'def', ciphertext: 'ghi' },
     });
     mockDecryptWithPassword.mockResolvedValue('decrypted-seed');
