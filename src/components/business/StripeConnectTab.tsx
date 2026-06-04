@@ -35,6 +35,8 @@ export function StripeConnectTab({ businessId }: StripeConnectTabProps) {
   const [balance, setBalance] = useState<BalanceSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [onboarding, setOnboarding] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [error, setError] = useState('');
   const [justConnected, setJustConnected] = useState(false);
   const [country, setCountry] = useState('');
@@ -92,6 +94,30 @@ export function StripeConnectTab({ businessId }: StripeConnectTabProps) {
     };
     load();
   }, [fetchConnectStatus, fetchBalance]);
+
+  const handleDisconnect = async () => {
+    setDisconnecting(true);
+    setError('');
+    try {
+      const result = await authFetch('/api/stripe/connect/disconnect', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business_id: businessId }),
+      }, router);
+      if (!result) { setDisconnecting(false); return; }
+      const { response, data } = result;
+      if (response.ok && data.success) {
+        setConnectStatus({ connected: false });
+        setBalance(null);
+        setShowDisconnectConfirm(false);
+      } else {
+        setError(data.error || 'Failed to disconnect Stripe account');
+      }
+    } catch {
+      setError('Failed to disconnect Stripe account');
+    }
+    setDisconnecting(false);
+  };
 
   const handleOnboard = async () => {
     // For first-time onboarding the user must pick a country. Returning to
@@ -203,6 +229,38 @@ export function StripeConnectTab({ businessId }: StripeConnectTabProps) {
                 </p>
               </div>
             )}
+
+            <div className="pt-3 border-t border-gray-700">
+              {!showDisconnectConfirm ? (
+                <button
+                  onClick={() => setShowDisconnectConfirm(true)}
+                  className="px-4 py-1.5 bg-red-900/40 text-red-400 border border-red-700 text-xs font-medium rounded-lg hover:bg-red-900/70"
+                >
+                  Disconnect Stripe Account
+                </button>
+              ) : (
+                <div className="p-3 bg-red-900/20 border border-red-700 rounded-lg space-y-2">
+                  <p className="text-sm font-medium text-red-300">Permanently delete this Stripe Connect account?</p>
+                  <p className="text-xs text-red-400">This will delete the Stripe account and cannot be undone. You will need to re-onboard to accept card payments.</p>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={handleDisconnect}
+                      disabled={disconnecting}
+                      className="px-4 py-1.5 bg-red-700 text-white text-xs font-medium rounded-lg hover:bg-red-600 disabled:opacity-50"
+                    >
+                      {disconnecting ? 'Disconnecting...' : 'Yes, Disconnect'}
+                    </button>
+                    <button
+                      onClick={() => setShowDisconnectConfirm(false)}
+                      disabled={disconnecting}
+                      className="px-4 py-1.5 bg-gray-700 text-gray-300 text-xs font-medium rounded-lg hover:bg-gray-600 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <div className="py-8 px-6 bg-gray-800 rounded-lg">
