@@ -13,9 +13,14 @@ interface CombinedStats {
   successful_transactions: number;
   crypto_volume_usd: string;
   crypto_transactions: number;
+  crypto_successful_transactions: number;
+  crypto_fees_usd: string;
   card_volume_usd: string;
   card_transactions: number;
+  card_successful_transactions: number;
+  card_fees_usd: string;
   total_fees_usd: string;
+  trends?: DashboardTrends;
 }
 
 interface CryptoPayment {
@@ -61,6 +66,87 @@ interface PlanInfo {
 }
 
 type TabType = 'all' | 'crypto' | 'card';
+type TrendMetric = 'volume_usd' | 'transactions' | 'successful_transactions' | 'fees_usd';
+
+interface TrendSeries {
+  volume_usd: number[];
+  transactions: number[];
+  successful_transactions: number[];
+  fees_usd: number[];
+}
+
+interface DashboardTrends {
+  labels: string[];
+  all: TrendSeries;
+  crypto: TrendSeries;
+  card: TrendSeries;
+}
+
+interface TrendRow {
+  label: string;
+  metric: TrendMetric;
+  series?: number[];
+}
+
+const SPARKLINE_CHARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+function buildSparkline(series: number[] = []): string {
+  if (series.length === 0) return '──────────────';
+
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  if (max <= 0) return SPARKLINE_CHARS[0].repeat(series.length);
+  if (max === min) return SPARKLINE_CHARS[3].repeat(series.length);
+
+  return series
+    .map((value) => {
+      const index = Math.round(((value - min) / (max - min)) * (SPARKLINE_CHARS.length - 1));
+      return SPARKLINE_CHARS[index];
+    })
+    .join('');
+}
+
+function sumSeries(series: number[] = []): number {
+  return series.reduce((sum, value) => sum + value, 0);
+}
+
+function formatTrendValue(value: number, metric: TrendMetric): string {
+  if (metric === 'volume_usd' || metric === 'fees_usd') {
+    return value.toLocaleString(undefined, {
+      style: 'currency',
+      currency: 'USD',
+      notation: value >= 10000 ? 'compact' : 'standard',
+      maximumFractionDigits: value >= 1000 ? 1 : 2,
+    });
+  }
+
+  return value.toLocaleString();
+}
+
+function MetricTrendRows({ rows }: { rows: TrendRow[] }) {
+  return (
+    <div className="mt-5 space-y-2 border-t border-gray-100 dark:border-gray-700 pt-4">
+      {rows.map((row) => {
+        const total = sumSeries(row.series);
+        return (
+          <div key={`${row.label}-${row.metric}`} className="grid grid-cols-[52px_1fr_auto] items-center gap-2 text-xs">
+            <span className="truncate font-medium text-gray-500 dark:text-gray-400">{row.label}</span>
+            <span
+              aria-label={`${row.label} last 14 days trend`}
+              className="overflow-hidden whitespace-nowrap font-mono text-[13px] leading-none text-gray-400 dark:text-gray-500"
+            >
+              {buildSparkline(row.series)}
+            </span>
+            <span className="whitespace-nowrap tabular-nums text-gray-700 dark:text-gray-200">
+              {formatTrendValue(total, row.metric)}
+            </span>
+          </div>
+        );
+      })}
+      <p className="text-[11px] font-medium uppercase text-gray-400 dark:text-gray-500">Last 14d</p>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -186,9 +272,14 @@ export default function DashboardPage() {
         successful_transactions: analytics.combined.successful_transactions,
         crypto_volume_usd: analytics.crypto.total_volume_usd,
         crypto_transactions: analytics.crypto.total_transactions,
+        crypto_successful_transactions: analytics.crypto.successful_transactions,
+        crypto_fees_usd: analytics.crypto.total_fees_usd,
         card_volume_usd: analytics.card.total_volume_usd,
         card_transactions: analytics.card.total_transactions,
+        card_successful_transactions: analytics.card.successful_transactions,
+        card_fees_usd: analytics.card.total_fees_usd,
         total_fees_usd: analytics.combined.total_fees_usd,
+        trends: analytics.trends,
       });
 
       // Also fetch businesses and plan info from legacy dashboard endpoint
@@ -705,6 +796,11 @@ export default function DashboardPage() {
                 </svg>
               </div>
             </div>
+            <MetricTrendRows rows={[
+              { label: 'All', metric: 'volume_usd', series: combinedStats?.trends?.all.volume_usd },
+              { label: 'Crypto', metric: 'volume_usd', series: combinedStats?.trends?.crypto.volume_usd },
+              { label: 'Cards', metric: 'volume_usd', series: combinedStats?.trends?.card.volume_usd },
+            ]} />
           </div>
 
           {/* Crypto Volume */}
@@ -725,6 +821,11 @@ export default function DashboardPage() {
                 </svg>
               </div>
             </div>
+            <MetricTrendRows rows={[
+              { label: 'Payments', metric: 'transactions', series: combinedStats?.trends?.crypto.transactions },
+              { label: 'Success', metric: 'successful_transactions', series: combinedStats?.trends?.crypto.successful_transactions },
+              { label: 'Fees', metric: 'fees_usd', series: combinedStats?.trends?.crypto.fees_usd },
+            ]} />
           </div>
 
           {/* Card Volume */}
@@ -745,6 +846,11 @@ export default function DashboardPage() {
                 </svg>
               </div>
             </div>
+            <MetricTrendRows rows={[
+              { label: 'Txns', metric: 'transactions', series: combinedStats?.trends?.card.transactions },
+              { label: 'Success', metric: 'successful_transactions', series: combinedStats?.trends?.card.successful_transactions },
+              { label: 'Fees', metric: 'fees_usd', series: combinedStats?.trends?.card.fees_usd },
+            ]} />
           </div>
 
           {/* Total Fees */}
@@ -765,6 +871,11 @@ export default function DashboardPage() {
                 </svg>
               </div>
             </div>
+            <MetricTrendRows rows={[
+              { label: 'All', metric: 'fees_usd', series: combinedStats?.trends?.all.fees_usd },
+              { label: 'Crypto', metric: 'fees_usd', series: combinedStats?.trends?.crypto.fees_usd },
+              { label: 'Cards', metric: 'fees_usd', series: combinedStats?.trends?.card.fees_usd },
+            ]} />
           </div>
         </div>
 

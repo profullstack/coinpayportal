@@ -38,6 +38,13 @@ function makeChain(resolvedValue: { data: any; error: any }) {
   return chain;
 }
 
+function daysAgo(days: number) {
+  const date = new Date();
+  date.setUTCHours(12, 0, 0, 0);
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString();
+}
+
 describe('GET /api/stripe/analytics', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -118,6 +125,71 @@ describe('GET /api/stripe/analytics', () => {
     expect(data.analytics.crypto.total_transactions).toBe(3);
     expect(data.analytics.card.total_transactions).toBe(2);
     expect(data.analytics.combined.total_transactions).toBe(5);
+  });
+
+  it('should return a 14-day analytics trend contract', async () => {
+    const request = new NextRequest('http://localhost:3000/api/stripe/analytics', {
+      headers: { authorization: 'Bearer valid-token' },
+    });
+    (verifyToken as any).mockReturnValue({ userId: 'merchant-1' });
+    (listBusinesses as any).mockResolvedValue({
+      success: true,
+      businesses: [{ id: 'biz-1' }],
+    });
+
+    let callCount = 0;
+    mockFrom.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return makeChain({
+          data: [
+            {
+              status: 'completed',
+              amount: '100.00',
+              crypto_amount: '1.0',
+              fee_amount: '0.01',
+              created_at: daysAgo(1),
+            },
+            {
+              status: 'pending',
+              amount: '75.00',
+              crypto_amount: '0.75',
+              fee_amount: '0.0075',
+              created_at: daysAgo(1),
+            },
+          ],
+          error: null,
+        });
+      }
+
+      return makeChain({
+        data: [
+          {
+            status: 'completed',
+            amount: 25000,
+            platform_fee_amount: 250,
+            stripe_fee_amount: 80,
+            created_at: daysAgo(0),
+          },
+        ],
+        error: null,
+      });
+    });
+
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(data.analytics.trends.labels).toHaveLength(14);
+    expect(data.analytics.trends.all.volume_usd).toHaveLength(14);
+    expect(data.analytics.trends.crypto.transactions.at(-2)).toBe(2);
+    expect(data.analytics.trends.crypto.successful_transactions.at(-2)).toBe(1);
+    expect(data.analytics.trends.crypto.volume_usd.at(-2)).toBe(100);
+    expect(data.analytics.trends.crypto.fees_usd.at(-2)).toBe(1);
+    expect(data.analytics.trends.card.transactions.at(-1)).toBe(1);
+    expect(data.analytics.trends.card.volume_usd.at(-1)).toBe(250);
+    expect(data.analytics.trends.card.fees_usd.at(-1)).toBe(3.3);
+    expect(data.analytics.trends.all.transactions.at(-1)).toBe(1);
+    expect(data.analytics.trends.all.volume_usd.at(-1)).toBe(250);
   });
 
   it('should filter by business_id when provided', async () => {

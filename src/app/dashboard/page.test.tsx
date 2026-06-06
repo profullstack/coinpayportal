@@ -49,6 +49,42 @@ const mockAnalyticsResponse = vi.hoisted(() => ({
       total_transactions: 40,
       successful_transactions: 35,
     },
+    trends: {
+      labels: [
+        '2026-05-24',
+        '2026-05-25',
+        '2026-05-26',
+        '2026-05-27',
+        '2026-05-28',
+        '2026-05-29',
+        '2026-05-30',
+        '2026-05-31',
+        '2026-06-01',
+        '2026-06-02',
+        '2026-06-03',
+        '2026-06-04',
+        '2026-06-05',
+        '2026-06-06',
+      ],
+      all: {
+        volume_usd: [0, 150, 0, 225, 100, 0, 350, 0, 400, 125, 0, 500, 250, 600],
+        transactions: [0, 2, 0, 3, 1, 0, 4, 0, 5, 2, 0, 6, 3, 7],
+        successful_transactions: [0, 1, 0, 2, 1, 0, 3, 0, 4, 1, 0, 5, 2, 6],
+        fees_usd: [0, 1.5, 0, 2.25, 1, 0, 3.5, 0, 4, 1.25, 0, 5, 2.5, 6],
+      },
+      crypto: {
+        volume_usd: [0, 100, 0, 125, 100, 0, 200, 0, 250, 75, 0, 300, 100, 350],
+        transactions: [0, 1, 0, 2, 1, 0, 2, 0, 3, 1, 0, 3, 1, 4],
+        successful_transactions: [0, 1, 0, 1, 1, 0, 2, 0, 2, 1, 0, 3, 1, 3],
+        fees_usd: [0, 1, 0, 1.25, 1, 0, 2, 0, 2.5, 0.75, 0, 3, 1, 3.5],
+      },
+      card: {
+        volume_usd: [0, 50, 0, 100, 0, 0, 150, 0, 150, 50, 0, 200, 150, 250],
+        transactions: [0, 1, 0, 1, 0, 0, 2, 0, 2, 1, 0, 3, 2, 3],
+        successful_transactions: [0, 0, 0, 1, 0, 0, 1, 0, 2, 0, 0, 2, 1, 3],
+        fees_usd: [0, 0.5, 0, 1, 0, 0, 1.5, 0, 1.5, 0.5, 0, 2, 1.5, 2.5],
+      },
+    },
   },
 }));
 
@@ -343,6 +379,19 @@ describe('DashboardPage', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/1.0% commission/)).toBeInTheDocument();
+      });
+    });
+
+    it('should display compact 14-day trend graphs', async () => {
+      render(<DashboardPage />);
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Last 14d')).toHaveLength(4);
+        expect(screen.getAllByLabelText(/last 14 days trend/i).length).toBeGreaterThanOrEqual(12);
+        expect(screen.getAllByText('Cards').length).toBeGreaterThan(0);
+        expect(screen.getByText('Payments')).toBeInTheDocument();
+        expect(screen.getByText('Txns')).toBeInTheDocument();
+        expect(screen.getAllByText('Fees').length).toBeGreaterThan(0);
       });
     });
   });
@@ -660,7 +709,7 @@ describe('DashboardPage', () => {
       render(<DashboardPage />);
 
       await waitFor(() => {
-        const cryptoTab = screen.getByText('Crypto');
+        const cryptoTab = screen.getByRole('button', { name: /crypto/i });
         fireEvent.click(cryptoTab);
       });
 
