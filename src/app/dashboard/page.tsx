@@ -11,13 +11,19 @@ interface CombinedStats {
   total_volume_usd: string;
   total_transactions: number;
   successful_transactions: number;
+  failed_transactions: number;
+  failure_rate: number;
   crypto_volume_usd: string;
   crypto_transactions: number;
   crypto_successful_transactions: number;
+  crypto_failed_transactions: number;
+  crypto_failure_rate: number;
   crypto_fees_usd: string;
   card_volume_usd: string;
   card_transactions: number;
   card_successful_transactions: number;
+  card_failed_transactions: number;
+  card_failure_rate: number;
   card_fees_usd: string;
   total_fees_usd: string;
   trends?: DashboardTrends;
@@ -72,6 +78,8 @@ interface TrendSeries {
   volume_usd: number[];
   transactions: number[];
   successful_transactions: number[];
+  failed_transactions: number[];
+  failure_rate: number[];
   fees_usd: number[];
 }
 
@@ -86,12 +94,6 @@ interface TrendRow {
   label: string;
   metric: TrendMetric;
   series?: number[];
-}
-
-const FAILURE_STATUSES = new Set(['failed', 'expired', 'forwarding_failed', 'settle_failed', 'settlement_failed']);
-
-function isFailureStatus(status: string) {
-  return FAILURE_STATUSES.has(status.toLowerCase());
 }
 
 const SPARKLINE_CHARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -127,6 +129,46 @@ function formatTrendValue(value: number, metric: TrendMetric): string {
   }
 
   return value.toLocaleString();
+}
+
+function formatFailureRate(value: number | undefined): string {
+  const rate = Number.isFinite(value) ? value! : 0;
+  return `${rate.toFixed(1)}%`;
+}
+
+function FailureRateBarChart({ series }: { series?: number[] }) {
+  const values = series?.length ? series : Array(14).fill(0);
+
+  return (
+    <div className="mt-5 border-t border-red-100 dark:border-red-900/40 pt-4">
+      <div
+        aria-label="Failure rate last 14 days red bar chart"
+        className="flex h-20 items-end gap-1"
+      >
+        {values.map((value, index) => {
+          const safeValue = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
+          const height = safeValue === 0 ? 2 : Math.max(6, safeValue * 0.72);
+
+          return (
+            <div
+              key={`${index}-${safeValue}`}
+              className="flex min-w-0 flex-1 items-end"
+              title={`${safeValue.toFixed(1)}%`}
+            >
+              <div
+                className="w-full rounded-t bg-red-500"
+                style={{ height: `${height}px`, opacity: safeValue === 0 ? 0.22 : 0.45 + safeValue / 185 }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex items-center justify-between text-[11px] font-medium uppercase text-red-400 dark:text-red-300">
+        <span>Last 14d</span>
+        <span>Failure rate</span>
+      </div>
+    </div>
+  );
 }
 
 function MetricTrendRows({ rows }: { rows: TrendRow[] }) {
@@ -276,13 +318,19 @@ export default function DashboardPage() {
         total_volume_usd: analytics.combined.total_volume_usd,
         total_transactions: analytics.combined.total_transactions,
         successful_transactions: analytics.combined.successful_transactions,
+        failed_transactions: analytics.combined.failed_transactions || 0,
+        failure_rate: analytics.combined.failure_rate || 0,
         crypto_volume_usd: analytics.crypto.total_volume_usd,
         crypto_transactions: analytics.crypto.total_transactions,
         crypto_successful_transactions: analytics.crypto.successful_transactions,
+        crypto_failed_transactions: analytics.crypto.failed_transactions || 0,
+        crypto_failure_rate: analytics.crypto.failure_rate || 0,
         crypto_fees_usd: analytics.crypto.total_fees_usd,
         card_volume_usd: analytics.card.total_volume_usd,
         card_transactions: analytics.card.total_transactions,
         card_successful_transactions: analytics.card.successful_transactions,
+        card_failed_transactions: analytics.card.failed_transactions || 0,
+        card_failure_rate: analytics.card.failure_rate || 0,
         card_fees_usd: analytics.card.total_fees_usd,
         total_fees_usd: analytics.combined.total_fees_usd,
         trends: analytics.trends,
@@ -466,9 +514,6 @@ export default function DashboardPage() {
     const num = parseFloat(amount);
     return isNaN(num) ? '0' : num.toFixed(decimals);
   };
-
-  const visibleFailureCount = cryptoPayments.filter((payment) => isFailureStatus(payment.status)).length
-    + cardTransactions.filter((transaction) => isFailureStatus(transaction.status)).length;
 
   const getStatusColor = (status: string): string => {
     switch (status.toLowerCase()) {
@@ -868,16 +913,27 @@ export default function DashboardPage() {
               <div>
                 <p className="text-sm font-medium text-red-700 dark:text-red-300">Failures</p>
                 <p className="mt-2 text-3xl font-bold text-red-600">
-                  {visibleFailureCount}
+                  {formatFailureRate(combinedStats?.failure_rate)}
                 </p>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  failed or expired in view
+                  {combinedStats?.failed_transactions || 0} failed of {combinedStats?.total_transactions || 0} transactions
                 </p>
               </div>
               <div className="p-3 bg-red-100 dark:bg-red-900/20 rounded-full">
                 <svg className="h-8 w-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
                 </svg>
+              </div>
+            </div>
+            <FailureRateBarChart series={combinedStats?.trends?.all.failure_rate} />
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded border border-red-100 bg-red-50 px-2 py-1.5 text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
+                <span className="block text-[10px] font-medium uppercase text-red-400 dark:text-red-300">Crypto</span>
+                <span className="font-semibold">{formatFailureRate(combinedStats?.crypto_failure_rate)}</span>
+              </div>
+              <div className="rounded border border-red-100 bg-red-50 px-2 py-1.5 text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
+                <span className="block text-[10px] font-medium uppercase text-red-400 dark:text-red-300">Cards</span>
+                <span className="font-semibold">{formatFailureRate(combinedStats?.card_failure_rate)}</span>
               </div>
             </div>
           </div>

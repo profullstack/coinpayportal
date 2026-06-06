@@ -37,17 +37,23 @@ const mockAnalyticsResponse = vi.hoisted(() => ({
       total_volume_usd: '5000.00',
       total_transactions: 100,
       successful_transactions: 85,
+      failed_transactions: 12,
+      failure_rate: 12.0,
       total_fees_usd: '25.00',
     },
     crypto: {
       total_volume_usd: '3000.00',
       total_transactions: 60,
       successful_transactions: 50,
+      failed_transactions: 8,
+      failure_rate: 13.3,
     },
     card: {
       total_volume_usd: '2000.00',
       total_transactions: 40,
       successful_transactions: 35,
+      failed_transactions: 4,
+      failure_rate: 10.0,
     },
     trends: {
       labels: [
@@ -70,18 +76,24 @@ const mockAnalyticsResponse = vi.hoisted(() => ({
         volume_usd: [0, 150, 0, 225, 100, 0, 350, 0, 400, 125, 0, 500, 250, 600],
         transactions: [0, 2, 0, 3, 1, 0, 4, 0, 5, 2, 0, 6, 3, 7],
         successful_transactions: [0, 1, 0, 2, 1, 0, 3, 0, 4, 1, 0, 5, 2, 6],
+        failed_transactions: [0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1, 1],
+        failure_rate: [0, 50, 0, 33.3, 0, 0, 25, 0, 20, 50, 0, 16.7, 33.3, 14.3],
         fees_usd: [0, 1.5, 0, 2.25, 1, 0, 3.5, 0, 4, 1.25, 0, 5, 2.5, 6],
       },
       crypto: {
         volume_usd: [0, 100, 0, 125, 100, 0, 200, 0, 250, 75, 0, 300, 100, 350],
         transactions: [0, 1, 0, 2, 1, 0, 2, 0, 3, 1, 0, 3, 1, 4],
         successful_transactions: [0, 1, 0, 1, 1, 0, 2, 0, 2, 1, 0, 3, 1, 3],
+        failed_transactions: [0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+        failure_rate: [0, 0, 0, 50, 0, 0, 0, 0, 33.3, 0, 0, 0, 0, 25],
         fees_usd: [0, 1, 0, 1.25, 1, 0, 2, 0, 2.5, 0.75, 0, 3, 1, 3.5],
       },
       card: {
         volume_usd: [0, 50, 0, 100, 0, 0, 150, 0, 150, 50, 0, 200, 150, 250],
         transactions: [0, 1, 0, 1, 0, 0, 2, 0, 2, 1, 0, 3, 2, 3],
         successful_transactions: [0, 0, 0, 1, 0, 0, 1, 0, 2, 0, 0, 2, 1, 3],
+        failed_transactions: [0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 1, 0],
+        failure_rate: [0, 100, 0, 0, 0, 0, 50, 0, 0, 100, 0, 33.3, 50, 0],
         fees_usd: [0, 0.5, 0, 1, 0, 0, 1.5, 0, 1.5, 0.5, 0, 2, 1.5, 2.5],
       },
     },
@@ -358,12 +370,14 @@ describe('DashboardPage', () => {
       });
     });
 
-    it('should track visible failures in a red dashboard card', async () => {
+    it('should track failure rates in a red dashboard card', async () => {
       render(<DashboardPage />);
 
       await waitFor(() => {
         expect(screen.getByText('Failures')).toHaveClass('text-red-700');
-        expect(screen.getByText('failed or expired in view')).toBeInTheDocument();
+        expect(screen.getByText('12.0%')).toBeInTheDocument();
+        expect(screen.getByText('12 failed of 100 transactions')).toBeInTheDocument();
+        expect(screen.getByLabelText('Failure rate last 14 days red bar chart')).toBeInTheDocument();
       });
     });
 
@@ -395,12 +409,13 @@ describe('DashboardPage', () => {
       render(<DashboardPage />);
 
       await waitFor(() => {
-        expect(screen.getAllByText('Last 14d')).toHaveLength(4);
+        expect(screen.getAllByText('Last 14d')).toHaveLength(5);
         expect(screen.getAllByLabelText(/last 14 days trend/i).length).toBeGreaterThanOrEqual(12);
         expect(screen.getAllByText('Cards').length).toBeGreaterThan(0);
         expect(screen.getByText('Payments')).toBeInTheDocument();
         expect(screen.getByText('Txns')).toBeInTheDocument();
         expect(screen.getAllByText('Fees').length).toBeGreaterThan(0);
+        expect(screen.getByLabelText('Failure rate last 14 days red bar chart')).toBeInTheDocument();
       });
     });
   });
