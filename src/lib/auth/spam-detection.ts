@@ -115,12 +115,18 @@ export function checkSpamSignup(input: {
   // Timing: form submitted in under 2 seconds = bot
   if (input.registrationStartMs) {
     const elapsed = Date.now() - input.registrationStartMs;
-    if (elapsed < 2000) {
-      reasons.push("too_fast");
-      score += 40;
-    } else if (elapsed < 5000) {
-      reasons.push("suspicious_speed");
-      score += 15;
+    // Only apply speed check if elapsed time is positive to avoid clock desync false-positives.
+    // Also, reduced weights (too_fast: 40 -> 20, suspicious_speed: 15 -> 5) so that fast
+    // submission (e.g. autofill) combined with empty optional name (no_name: 15) does not
+    // falsely block legitimate users.
+    if (elapsed >= 0) {
+      if (elapsed < 2000) {
+        reasons.push("too_fast");
+        score += 20;
+      } else if (elapsed < 5000) {
+        reasons.push("suspicious_speed");
+        score += 5;
+      }
     }
   }
 
@@ -141,9 +147,11 @@ export function checkSpamSignup(input: {
     score += 50;
   }
 
+  // Dotted gmail accounts are common; reduced weight from 35 to 20 to avoid
+  // blocking real users using dots in their emails when they don't specify a name.
   if (isDottedGmailEvasion(input.email)) {
     reasons.push("dotted_gmail");
-    score += 35;
+    score += 20;
   }
 
   if (isCorporateWithGibberishName(name, input.email)) {
