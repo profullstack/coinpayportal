@@ -1,3 +1,7 @@
+/**
+ * @vitest-environment jsdom
+ */
+
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { StoredWallet, EncryptedData } from './client-crypto';
 import {

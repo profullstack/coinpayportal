@@ -627,7 +627,9 @@ describe('Swap Module', () => {
 
     it('should handle timeout', async () => {
       const controller = { abort: vi.fn() };
-      vi.spyOn(global, 'AbortController').mockImplementation(() => controller);
+      vi.spyOn(global, 'AbortController').mockImplementation(function () {
+        return controller;
+      });
       
       mockFetch.mockImplementation(() => {
         return new Promise((_, reject) => {

@@ -11,16 +11,18 @@ import { encryptSeedPhrase, decryptSeedPhrase } from './backup';
 // We need to import Wallet to test its static method and instance behavior
 // We'll mock the API client to avoid network calls
 vi.mock('./client', () => ({
-  WalletAPIClient: vi.fn().mockImplementation(() => ({
-    request: vi.fn().mockResolvedValue({
-      wallet_id: 'test-wallet-id',
-      created_at: new Date().toISOString(),
-      addresses: [],
-    }),
-    setSignatureAuth: vi.fn(),
-    setJWTToken: vi.fn(),
-    clearAuth: vi.fn(),
-  })),
+  WalletAPIClient: vi.fn().mockImplementation(function () {
+    return {
+      request: vi.fn().mockResolvedValue({
+        wallet_id: 'test-wallet-id',
+        created_at: new Date().toISOString(),
+        addresses: [],
+      }),
+      setSignatureAuth: vi.fn(),
+      setJWTToken: vi.fn(),
+      clearAuth: vi.fn(),
+    };
+  }),
   hexToUint8Array: vi.fn((hex: string) => new Uint8Array(hex.match(/.{1,2}/g)?.map(b => parseInt(b, 16)) || [])),
   uint8ArrayToHex: vi.fn((arr: Uint8Array) => Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('')),
 }));

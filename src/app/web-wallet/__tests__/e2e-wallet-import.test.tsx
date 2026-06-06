@@ -1,4 +1,8 @@
 /**
+ * @vitest-environment jsdom
+ */
+
+/**
  * E2E Test: Wallet Import Flow
  *
  * Tests the complete wallet import flow: seed entry → password → dashboard.

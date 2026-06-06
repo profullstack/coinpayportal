@@ -1,4 +1,8 @@
 /**
+ * @vitest-environment jsdom
+ */
+
+/**
  * E2E Test: Settings Flow
  *
  * Tests wallet settings: lock, password change, seed reveal, wallet deletion.
