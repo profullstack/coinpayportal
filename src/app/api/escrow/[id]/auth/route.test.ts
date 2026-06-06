@@ -5,10 +5,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { POST } from './route';
 import { createClient } from '@supabase/supabase-js';
+import { getEscrow } from '@/lib/escrow/service';
 
 // Mock dependencies
 vi.mock('@supabase/supabase-js');
-vi.mock('@/lib/escrow/service');
+vi.mock('@/lib/escrow/service', () => ({
+  getEscrow: vi.fn(),
+}));
 
 const mockSupabaseClient = {
   from: vi.fn(),
@@ -46,9 +49,14 @@ const mockEscrowData = {
   updated_at: '2024-01-01T00:00:00Z',
 };
 
-// Mock getEscrow to return the public version (without tokens)
-vi.mock('@/lib/escrow/service', () => ({
-  getEscrow: vi.fn(() => ({
+const mockGetEscrow = vi.mocked(getEscrow);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test_service_key';
+  mockCreateClient.mockReturnValue(mockSupabaseClient as any);
+  mockGetEscrow.mockResolvedValue({
     success: true,
     escrow: {
       ...mockEscrowData,
@@ -57,13 +65,7 @@ vi.mock('@/lib/escrow/service', () => ({
       beneficiary_token: undefined,
       escrow_address_id: undefined,
     },
-  })),
-}));
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test_service_key';
+  } as any);
 });
 
 describe('POST /api/escrow/:id/auth', () => {
