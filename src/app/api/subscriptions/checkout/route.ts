@@ -20,6 +20,7 @@ import {
  */
 export async function POST(request: NextRequest) {
   try {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com';
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -116,6 +117,8 @@ export async function POST(request: NextRequest) {
       success: true,
       payment: {
         id: result.payment.id,
+        checkout_path: `/pay/${result.payment.id}`,
+        checkout_url: `${appUrl.replace(/\/$/, '')}/pay/${result.payment.id}`,
         payment_address: result.payment.paymentAddress,
         amount: result.payment.amount,
         currency: result.payment.currency,
