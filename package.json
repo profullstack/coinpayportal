@@ -75,6 +75,7 @@
     "node-fetch": "^3.3.2",
     "openpgp": "^6.3.0",
     "papaparse": "^5.5.3",
+    "posthog-js": "^1.381.0",
     "qrcode": "^1.5.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
