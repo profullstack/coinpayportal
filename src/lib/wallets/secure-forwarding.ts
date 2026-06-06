@@ -15,11 +15,41 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { ethers } from 'ethers';
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  sendAndConfirmTransaction,
+  SystemProgram,
+  Transaction as SolanaTransaction,
+  TransactionInstruction,
+} from '@solana/web3.js';
+import bs58 from 'bs58';
 import { decrypt } from '../crypto/encryption';
 import { getProvider, getRpcUrl, type BlockchainType, SolanaProvider, BitcoinProvider, EthereumProvider } from '../blockchain/providers';
 import { splitTieredPayment } from '../payments/fees';
 import { sendPaymentWebhook } from '../webhooks/service';
 import { isBusinessPaidTier } from '../entitlements/service';
+
+const EVM_TOKEN_CONFIG = {
+  USDT: { contractAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6 },
+  USDT_ETH: { contractAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6 },
+  USDT_POL: { contractAddress: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', decimals: 6 },
+  USDC: { contractAddress: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', decimals: 6 },
+  USDC_ETH: { contractAddress: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', decimals: 6 },
+  USDC_POL: { contractAddress: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', decimals: 6 },
+  USDC_BASE: { contractAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6 },
+} as const;
+
+const SOLANA_TOKEN_CONFIG = {
+  USDT_SOL: { mintAddress: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', decimals: 6 },
+  USDC_SOL: { mintAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
+} as const;
+
+const ERC20_TRANSFER_ABI = ['function transfer(address to, uint256 amount) returns (bool)'];
+const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1Q2hvZbsiqW5xWH25efTNsLJA8knL');
 
 /**
  * Result of a secure forwarding operation
@@ -130,6 +160,174 @@ function clearSensitiveData(data: { privateKey?: string }): void {
   }
 }
 
+function isEVMToken(chain: BlockchainType): chain is keyof typeof EVM_TOKEN_CONFIG {
+  return chain in EVM_TOKEN_CONFIG;
+}
+
+function isSolanaToken(chain: BlockchainType): chain is keyof typeof SOLANA_TOKEN_CONFIG {
+  return chain in SOLANA_TOKEN_CONFIG;
+}
+
+function toTokenUnits(amount: number, decimals: number): bigint {
+  return BigInt(Math.floor(amount * 10 ** decimals));
+}
+
+async function forwardEVMTokenSplit(
+  chain: BlockchainType,
+  rpcUrl: string,
+  privateKey: string,
+  recipients: Array<{ address: string; amount: number }>
+): Promise<{ merchantTxHash?: string; platformTxHash?: string }> {
+  const config = EVM_TOKEN_CONFIG[chain as keyof typeof EVM_TOKEN_CONFIG];
+  const provider = new ethers.JsonRpcProvider(rpcUrl);
+  const wallet = new ethers.Wallet(privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`, provider);
+  const token = new ethers.Contract(config.contractAddress, ERC20_TRANSFER_ABI, wallet);
+
+  const txHashes: string[] = [];
+  for (const recipient of recipients) {
+    const amountUnits = toTokenUnits(recipient.amount, config.decimals);
+    if (amountUnits <= 0n) continue;
+
+    const tx = await token.transfer(recipient.address, amountUnits);
+    await tx.wait();
+    txHashes.push(tx.hash);
+  }
+
+  return {
+    merchantTxHash: txHashes[0],
+    platformTxHash: txHashes[1] || txHashes[0],
+  };
+}
+
+async function deriveFullSolanaKeypair(seed: Uint8Array): Promise<Uint8Array> {
+  const { createPrivateKey, createPublicKey } = await import('crypto');
+  const privateKeyObj = createPrivateKey({
+    key: Buffer.concat([
+      Buffer.from('302e020100300506032b657004220420', 'hex'),
+      Buffer.from(seed),
+    ]),
+    format: 'der',
+    type: 'pkcs8',
+  });
+  const publicKeyObj = createPublicKey(privateKeyObj);
+  const publicKeyDer = publicKeyObj.export({ format: 'der', type: 'spki' });
+  const publicKey = publicKeyDer.subarray(-32);
+  const fullKeypair = new Uint8Array(64);
+  fullKeypair.set(seed, 0);
+  fullKeypair.set(publicKey, 32);
+  return fullKeypair;
+}
+
+async function parseSolanaKeypair(privateKey: string): Promise<Keypair> {
+  try {
+    const decoded = bs58.decode(privateKey);
+    if (decoded.length === 64) return Keypair.fromSecretKey(decoded);
+    if (decoded.length === 32) return Keypair.fromSecretKey(await deriveFullSolanaKeypair(decoded));
+  } catch {
+    // Fall back to hex below.
+  }
+
+  const hexBytes = Uint8Array.from(Buffer.from(privateKey, 'hex'));
+  if (hexBytes.length === 64) return Keypair.fromSecretKey(hexBytes);
+  if (hexBytes.length === 32) return Keypair.fromSecretKey(await deriveFullSolanaKeypair(hexBytes));
+  throw new Error(`Invalid Solana private key length: ${hexBytes.length}`);
+}
+
+function getAssociatedTokenAddress(owner: PublicKey, mint: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+    ASSOCIATED_TOKEN_PROGRAM_ID
+  )[0];
+}
+
+async function addCreateAssociatedTokenAccountIfMissing(
+  connection: Connection,
+  transaction: SolanaTransaction,
+  payer: PublicKey,
+  owner: PublicKey,
+  mint: PublicKey
+): Promise<PublicKey> {
+  const associatedTokenAddress = getAssociatedTokenAddress(owner, mint);
+  const existing = await connection.getAccountInfo(associatedTokenAddress);
+  if (existing) return associatedTokenAddress;
+
+  transaction.add(new TransactionInstruction({
+    programId: ASSOCIATED_TOKEN_PROGRAM_ID,
+    keys: [
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: associatedTokenAddress, isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: false, isWritable: false },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.alloc(0),
+  }));
+
+  return associatedTokenAddress;
+}
+
+function createSplTransferInstruction(
+  sourceTokenAccount: PublicKey,
+  destinationTokenAccount: PublicKey,
+  owner: PublicKey,
+  amountUnits: bigint
+): TransactionInstruction {
+  const data = Buffer.alloc(9);
+  data.writeUInt8(3, 0);
+  data.writeBigUInt64LE(amountUnits, 1);
+
+  return new TransactionInstruction({
+    programId: TOKEN_PROGRAM_ID,
+    keys: [
+      { pubkey: sourceTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: destinationTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: true, isWritable: false },
+    ],
+    data,
+  });
+}
+
+async function forwardSolanaTokenSplit(
+  chain: BlockchainType,
+  rpcUrl: string,
+  privateKey: string,
+  recipients: Array<{ address: string; amount: number }>
+): Promise<{ merchantTxHash?: string; platformTxHash?: string }> {
+  const config = SOLANA_TOKEN_CONFIG[chain as keyof typeof SOLANA_TOKEN_CONFIG];
+  const connection = new Connection(rpcUrl, 'confirmed');
+  const keypair = await parseSolanaKeypair(privateKey);
+  const mint = new PublicKey(config.mintAddress);
+  const sourceAccounts = await connection.getTokenAccountsByOwner(keypair.publicKey, { mint });
+  const sourceTokenAccount = sourceAccounts.value[0]?.pubkey;
+
+  if (!sourceTokenAccount) {
+    throw new Error(`No source ${chain} token account found for ${keypair.publicKey.toString()}`);
+  }
+
+  const transaction = new SolanaTransaction();
+  for (const recipient of recipients) {
+    const amountUnits = toTokenUnits(recipient.amount, config.decimals);
+    if (amountUnits <= 0n) continue;
+
+    const recipientOwner = new PublicKey(recipient.address);
+    const recipientTokenAccount = await addCreateAssociatedTokenAccountIfMissing(
+      connection,
+      transaction,
+      keypair.publicKey,
+      recipientOwner,
+      mint
+    );
+    transaction.add(createSplTransferInstruction(sourceTokenAccount, recipientTokenAccount, keypair.publicKey, amountUnits));
+  }
+
+  const signature = await sendAndConfirmTransaction(connection, transaction, [keypair], { commitment: 'confirmed' });
+  return {
+    merchantTxHash: signature,
+    platformTxHash: signature,
+  };
+}
+
 /**
  * Forward a payment securely using encrypted keys from database
  * This is the main function for secure forwarding
@@ -206,7 +404,33 @@ export async function forwardPaymentSecurely(
     let platformTxHash: string | undefined;
 
     try {
-      if (provider.sendTransaction) {
+      if (isEVMToken(addressData.cryptocurrency)) {
+        const tokenTxHashes = await forwardEVMTokenSplit(
+          addressData.cryptocurrency,
+          rpcUrl,
+          sensitiveData.privateKey,
+          [
+            { address: addressData.merchant_wallet, amount: merchantAmount },
+            { address: addressData.commission_wallet, amount: platformFee },
+          ]
+        );
+        merchantTxHash = tokenTxHashes.merchantTxHash;
+        platformTxHash = tokenTxHashes.platformTxHash;
+        console.log(`[SECURE] Forwarded EVM token payment ${paymentId}: merchant=${merchantTxHash}, platform=${platformTxHash}`);
+      } else if (isSolanaToken(addressData.cryptocurrency)) {
+        const tokenTxHashes = await forwardSolanaTokenSplit(
+          addressData.cryptocurrency,
+          rpcUrl,
+          sensitiveData.privateKey,
+          [
+            { address: addressData.merchant_wallet, amount: merchantAmount },
+            { address: addressData.commission_wallet, amount: platformFee },
+          ]
+        );
+        merchantTxHash = tokenTxHashes.merchantTxHash;
+        platformTxHash = tokenTxHashes.platformTxHash;
+        console.log(`[SECURE] Forwarded Solana token payment ${paymentId} in single tx: ${merchantTxHash}`);
+      } else if (provider.sendTransaction) {
         // Use split transaction for all providers that support it
         // This is more efficient and handles fee deduction properly
         const recipients = [

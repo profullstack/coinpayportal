@@ -27,7 +27,7 @@ export type BlockchainType =
   | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
   | 'USDT' | 'USDT_ETH' | 'USDT_POL' | 'USDT_SOL'
   | 'USDC'
-  | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
+  | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL' | 'USDC_BASE';
 
 /**
  * Transaction details interface
@@ -1941,6 +1941,7 @@ export function getProvider(
     case 'USDT_ETH':
     case 'USDC':
     case 'USDC_ETH':
+    case 'USDC_BASE':
       return new EthereumProvider(rpcUrl);
     case 'POL':
     case 'USDT_POL':
@@ -1985,6 +1986,7 @@ export function getRpcUrl(chain: BlockchainType): string {
     USDC_ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
     USDC_POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
     USDC_SOL: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+    USDC_BASE: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
   };
 
   return urls[chain];
