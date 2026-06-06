@@ -10,6 +10,8 @@ type TrendSeries = {
   volume_usd: number[];
   transactions: number[];
   successful_transactions: number[];
+  failed_transactions: number[];
+  failure_rate: number[];
   fees_usd: number[];
 };
 
@@ -18,6 +20,8 @@ function emptyTrendSeries(): TrendSeries {
     volume_usd: Array(TREND_DAYS).fill(0),
     transactions: Array(TREND_DAYS).fill(0),
     successful_transactions: Array(TREND_DAYS).fill(0),
+    failed_transactions: Array(TREND_DAYS).fill(0),
+    failure_rate: Array(TREND_DAYS).fill(0),
     fees_usd: Array(TREND_DAYS).fill(0),
   };
 }
@@ -33,6 +37,16 @@ function isSuccessfulCryptoStatus(status: unknown): boolean {
 
 function isSuccessfulCardStatus(status: unknown): boolean {
   return ['completed', 'succeeded'].includes(String(status || '').toLowerCase());
+}
+
+function isFailedCryptoStatus(status: unknown): boolean {
+  return ['failed', 'expired', 'forwarding_failed', 'settle_failed', 'settlement_failed']
+    .includes(String(status || '').toLowerCase());
+}
+
+function isFailedCardStatus(status: unknown): boolean {
+  return ['failed', 'canceled', 'cancelled', 'requires_payment_method']
+    .includes(String(status || '').toLowerCase());
 }
 
 function getCryptoVolumeUsd(payment: any): number {
@@ -84,14 +98,25 @@ function addTrendPoint(
   index: number,
   volumeUsd: number,
   feeUsd: number,
-  successful: boolean
+  successful: boolean,
+  failed: boolean
 ) {
   series.transactions[index] += 1;
+  if (failed) {
+    series.failed_transactions[index] += 1;
+  }
   if (!successful) return;
 
   series.successful_transactions[index] += 1;
   series.volume_usd[index] += volumeUsd;
   series.fees_usd[index] += feeUsd;
+}
+
+function finalizeFailureRates(series: TrendSeries) {
+  series.failure_rate = series.transactions.map((transactions, index) => {
+    if (transactions <= 0) return 0;
+    return Number(((series.failed_transactions[index] / transactions) * 100).toFixed(1));
+  });
 }
 
 function buildTrends(cryptoPayments: any[], cardTransactions: any[]) {
@@ -107,10 +132,11 @@ function buildTrends(cryptoPayments: any[], cardTransactions: any[]) {
     if (index === undefined) continue;
 
     const successful = isSuccessfulCryptoStatus(payment.status);
+    const failed = isFailedCryptoStatus(payment.status);
     const volumeUsd = getCryptoVolumeUsd(payment);
     const feeUsd = getCryptoFeeUsd(payment);
-    addTrendPoint(crypto, index, volumeUsd, feeUsd, successful);
-    addTrendPoint(all, index, volumeUsd, feeUsd, successful);
+    addTrendPoint(crypto, index, volumeUsd, feeUsd, successful, failed);
+    addTrendPoint(all, index, volumeUsd, feeUsd, successful, failed);
   }
 
   for (const transaction of cardTransactions || []) {
@@ -119,11 +145,16 @@ function buildTrends(cryptoPayments: any[], cardTransactions: any[]) {
     if (index === undefined) continue;
 
     const successful = isSuccessfulCardStatus(transaction.status);
+    const failed = isFailedCardStatus(transaction.status);
     const volumeUsd = getCardVolumeUsd(transaction);
     const feeUsd = getCardFeeUsd(transaction);
-    addTrendPoint(card, index, volumeUsd, feeUsd, successful);
-    addTrendPoint(all, index, volumeUsd, feeUsd, successful);
+    addTrendPoint(card, index, volumeUsd, feeUsd, successful, failed);
+    addTrendPoint(all, index, volumeUsd, feeUsd, successful, failed);
   }
+
+  finalizeFailureRates(crypto);
+  finalizeFailureRates(card);
+  finalizeFailureRates(all);
 
   return { labels, all, crypto, card };
 }
@@ -205,18 +236,24 @@ export async function GET(request: NextRequest) {
             total_volume_usd: '0',
             total_transactions: 0,
             successful_transactions: 0,
+            failed_transactions: 0,
+            failure_rate: 0,
             total_fees_usd: '0',
           },
           card: {
             total_volume_usd: '0',
             total_transactions: 0,
             successful_transactions: 0,
+            failed_transactions: 0,
+            failure_rate: 0,
             total_fees_usd: '0',
           },
           combined: {
             total_volume_usd: '0',
             total_transactions: 0,
             successful_transactions: 0,
+            failed_transactions: 0,
+            failure_rate: 0,
             total_fees_usd: '0',
           },
           trends: buildTrends([], []),
@@ -269,6 +306,7 @@ export async function GET(request: NextRequest) {
 
     // Calculate crypto analytics
     const successfulCryptoPayments = (cryptoPayments || []).filter(p => isSuccessfulCryptoStatus(p.status));
+    const failedCryptoPayments = (cryptoPayments || []).filter(p => isFailedCryptoStatus(p.status));
     
     const cryptoAnalytics = {
       total_volume_usd: successfulCryptoPayments.reduce(
@@ -276,6 +314,10 @@ export async function GET(request: NextRequest) {
       ).toFixed(2),
       total_transactions: cryptoPayments?.length || 0,
       successful_transactions: successfulCryptoPayments.length,
+      failed_transactions: failedCryptoPayments.length,
+      failure_rate: cryptoPayments?.length
+        ? Number(((failedCryptoPayments.length / cryptoPayments.length) * 100).toFixed(1))
+        : 0,
       total_fees_usd: successfulCryptoPayments.reduce(
         (sum, p) => sum + getCryptoFeeUsd(p), 0
       ).toFixed(2),
@@ -283,6 +325,7 @@ export async function GET(request: NextRequest) {
 
     // Calculate card analytics
     const successfulCardTransactions = (cardTransactions || []).filter(t => isSuccessfulCardStatus(t.status));
+    const failedCardTransactions = (cardTransactions || []).filter(t => isFailedCardStatus(t.status));
     
     const cardAnalytics = {
       total_volume_usd: successfulCardTransactions.reduce(
@@ -290,6 +333,10 @@ export async function GET(request: NextRequest) {
       ).toFixed(2),
       total_transactions: cardTransactions?.length || 0,
       successful_transactions: successfulCardTransactions.length,
+      failed_transactions: failedCardTransactions.length,
+      failure_rate: cardTransactions?.length
+        ? Number(((failedCardTransactions.length / cardTransactions.length) * 100).toFixed(1))
+        : 0,
       total_fees_usd: successfulCardTransactions.reduce(
         (sum, t) => sum + getCardFeeUsd(t), 0
       ).toFixed(2),
@@ -303,6 +350,13 @@ export async function GET(request: NextRequest) {
       ).toFixed(2),
       total_transactions: cryptoAnalytics.total_transactions + cardAnalytics.total_transactions,
       successful_transactions: cryptoAnalytics.successful_transactions + cardAnalytics.successful_transactions,
+      failed_transactions: cryptoAnalytics.failed_transactions + cardAnalytics.failed_transactions,
+      failure_rate: (cryptoAnalytics.total_transactions + cardAnalytics.total_transactions) > 0
+        ? Number(((
+          (cryptoAnalytics.failed_transactions + cardAnalytics.failed_transactions) /
+          (cryptoAnalytics.total_transactions + cardAnalytics.total_transactions)
+        ) * 100).toFixed(1))
+        : 0,
       total_fees_usd: (
         parseFloat(cryptoAnalytics.total_fees_usd) + 
         parseFloat(cardAnalytics.total_fees_usd)

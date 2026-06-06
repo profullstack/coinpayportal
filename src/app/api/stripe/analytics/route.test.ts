@@ -81,6 +81,7 @@ describe('GET /api/stripe/analytics', () => {
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data.analytics.combined.total_transactions).toBe(0);
+    expect(data.analytics.combined.failure_rate).toBe(0);
   });
 
   it('should calculate combined analytics correctly', async () => {
@@ -103,6 +104,7 @@ describe('GET /api/stripe/analytics', () => {
             { status: 'completed', amount_usd: '100.00', fee_usd: '1.00' },
             { status: 'completed', amount_usd: '200.00', fee_usd: '2.00' },
             { status: 'pending', amount_usd: '50.00', fee_usd: '0.50' },
+            { status: 'expired', amount_usd: '25.00', fee_usd: '0.00' },
           ],
           error: null,
         });
@@ -112,6 +114,7 @@ describe('GET /api/stripe/analytics', () => {
           data: [
             { status: 'succeeded', amount: 15000, currency: 'usd', platform_fee: 150, stripe_fee: 75 },
             { status: 'succeeded', amount: 25000, currency: 'usd', platform_fee: 250, stripe_fee: 125 },
+            { status: 'failed', amount: 5000, currency: 'usd', platform_fee: 0, stripe_fee: 0 },
           ],
           error: null,
         });
@@ -122,9 +125,15 @@ describe('GET /api/stripe/analytics', () => {
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data.success).toBe(true);
-    expect(data.analytics.crypto.total_transactions).toBe(3);
-    expect(data.analytics.card.total_transactions).toBe(2);
-    expect(data.analytics.combined.total_transactions).toBe(5);
+    expect(data.analytics.crypto.total_transactions).toBe(4);
+    expect(data.analytics.crypto.failed_transactions).toBe(1);
+    expect(data.analytics.crypto.failure_rate).toBe(25);
+    expect(data.analytics.card.total_transactions).toBe(3);
+    expect(data.analytics.card.failed_transactions).toBe(1);
+    expect(data.analytics.card.failure_rate).toBe(33.3);
+    expect(data.analytics.combined.total_transactions).toBe(7);
+    expect(data.analytics.combined.failed_transactions).toBe(2);
+    expect(data.analytics.combined.failure_rate).toBe(28.6);
   });
 
   it('should return a 14-day analytics trend contract', async () => {
@@ -157,6 +166,13 @@ describe('GET /api/stripe/analytics', () => {
               fee_amount: '0.0075',
               created_at: daysAgo(1),
             },
+            {
+              status: 'expired',
+              amount: '25.00',
+              crypto_amount: '0.25',
+              fee_amount: '0',
+              created_at: daysAgo(1),
+            },
           ],
           error: null,
         });
@@ -171,6 +187,13 @@ describe('GET /api/stripe/analytics', () => {
             stripe_fee_amount: 80,
             created_at: daysAgo(0),
           },
+          {
+            status: 'failed',
+            amount: 10000,
+            platform_fee_amount: 0,
+            stripe_fee_amount: 0,
+            created_at: daysAgo(0),
+          },
         ],
         error: null,
       });
@@ -181,14 +204,21 @@ describe('GET /api/stripe/analytics', () => {
 
     expect(data.analytics.trends.labels).toHaveLength(14);
     expect(data.analytics.trends.all.volume_usd).toHaveLength(14);
-    expect(data.analytics.trends.crypto.transactions.at(-2)).toBe(2);
+    expect(data.analytics.trends.all.failure_rate).toHaveLength(14);
+    expect(data.analytics.trends.crypto.transactions.at(-2)).toBe(3);
     expect(data.analytics.trends.crypto.successful_transactions.at(-2)).toBe(1);
+    expect(data.analytics.trends.crypto.failed_transactions.at(-2)).toBe(1);
+    expect(data.analytics.trends.crypto.failure_rate.at(-2)).toBe(33.3);
     expect(data.analytics.trends.crypto.volume_usd.at(-2)).toBe(100);
     expect(data.analytics.trends.crypto.fees_usd.at(-2)).toBe(1);
-    expect(data.analytics.trends.card.transactions.at(-1)).toBe(1);
+    expect(data.analytics.trends.card.transactions.at(-1)).toBe(2);
+    expect(data.analytics.trends.card.failed_transactions.at(-1)).toBe(1);
+    expect(data.analytics.trends.card.failure_rate.at(-1)).toBe(50);
     expect(data.analytics.trends.card.volume_usd.at(-1)).toBe(250);
     expect(data.analytics.trends.card.fees_usd.at(-1)).toBe(3.3);
-    expect(data.analytics.trends.all.transactions.at(-1)).toBe(1);
+    expect(data.analytics.trends.all.transactions.at(-1)).toBe(2);
+    expect(data.analytics.trends.all.failed_transactions.at(-1)).toBe(1);
+    expect(data.analytics.trends.all.failure_rate.at(-1)).toBe(50);
     expect(data.analytics.trends.all.volume_usd.at(-1)).toBe(250);
   });
 
