@@ -31,6 +31,8 @@ interface CombinedStats {
 
 interface CryptoPayment {
   id: string;
+  business_id?: string;
+  business_name?: string;
   amount_crypto: string;
   amount_usd: string;
   currency: string;
@@ -72,6 +74,7 @@ interface PlanInfo {
 }
 
 type TabType = 'all' | 'crypto' | 'card';
+type TransactionFilter = 'all' | 'failed';
 type TrendMetric = 'volume_usd' | 'transactions' | 'successful_transactions' | 'fees_usd';
 
 interface TrendSeries {
@@ -217,6 +220,7 @@ export default function DashboardPage() {
   }, [combinedStats?.total_volume_usd]);
   const [selectedBusinessId, setSelectedBusinessId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<TabType>('all');
+  const [transactionFilter, setTransactionFilter] = useState<TransactionFilter>('all');
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
@@ -279,7 +283,7 @@ export default function DashboardPage() {
     if (businesses.length > 0) {
       fetchDashboardData(selectedBusinessId);
     }
-  }, [selectedBusinessId, activeTab]);
+  }, [selectedBusinessId, activeTab, transactionFilter]);
 
   const fetchDashboardData = async (businessId?: string) => {
     try {
@@ -359,7 +363,7 @@ export default function DashboardPage() {
 
       // Fetch crypto payments if needed
       if (activeTab === 'all' || activeTab === 'crypto') {
-        let cryptoUrl = '/api/payments?limit=10';
+        let cryptoUrl = transactionFilter === 'failed' ? '/api/payments?limit=100' : '/api/payments?limit=10';
         if (businessId) {
           cryptoUrl += `&business_id=${businessId}`;
         }
@@ -368,7 +372,7 @@ export default function DashboardPage() {
 
       // Fetch card transactions if needed
       if (activeTab === 'all' || activeTab === 'card') {
-        let cardUrl = '/api/stripe/transactions?limit=10';
+        let cardUrl = transactionFilter === 'failed' ? '/api/stripe/transactions?limit=100' : '/api/stripe/transactions?limit=10';
         if (businessId) {
           cardUrl += `&business_id=${businessId}`;
         }
@@ -392,6 +396,8 @@ export default function DashboardPage() {
       if (cryptoResults && cryptoResults.response.ok && cryptoResults.data.success) {
         const transformedCrypto = (cryptoResults.data.payments || []).map((p: any) => ({
           id: p.id,
+          business_id: p.business_id,
+          business_name: p.business_name,
           amount_crypto: p.amount_crypto,
           amount_usd: p.amount_usd,
           currency: p.currency,
@@ -424,6 +430,18 @@ export default function DashboardPage() {
 
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
+  };
+
+  const handleFailuresClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    setActiveTab('all');
+    setTransactionFilter('failed');
+    document.getElementById('dashboard-transactions')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.history.replaceState(null, '', '#dashboard-transactions');
+  };
+
+  const clearTransactionFilter = () => {
+    setTransactionFilter('all');
   };
 
   const exportToCSV = async () => {
@@ -531,11 +549,32 @@ export default function DashboardPage() {
     }
   };
 
+  const isFailedStatus = (status: string): boolean => {
+    return [
+      'failed',
+      'expired',
+      'forwarding_failed',
+      'settle_failed',
+      'settlement_failed',
+      'canceled',
+      'cancelled',
+      'requires_payment_method',
+    ].includes(status.toLowerCase());
+  };
+
+  const visibleCryptoPayments = transactionFilter === 'failed'
+    ? cryptoPayments.filter((payment) => isFailedStatus(payment.status))
+    : cryptoPayments;
+
+  const visibleCardTransactions = transactionFilter === 'failed'
+    ? cardTransactions.filter((transaction) => isFailedStatus(transaction.status))
+    : cardTransactions;
+
   const renderAllTransactions = () => {
     // Combine and sort crypto + card transactions
     const allTxns = [
-      ...cryptoPayments.map(p => ({ ...p, type: 'crypto' })),
-      ...cardTransactions.map(t => ({ ...t, type: 'card' }))
+      ...visibleCryptoPayments.map(p => ({ ...p, type: 'crypto' })),
+      ...visibleCardTransactions.map(t => ({ ...t, type: 'card' }))
     ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     if (allTxns.length === 0) {
@@ -544,7 +583,9 @@ export default function DashboardPage() {
           <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
           </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No transactions yet</h3>
+          <h3 className="mt-2 text-sm font-medium text-gray-900">
+            {transactionFilter === 'failed' ? 'No failed transactions found' : 'No transactions yet'}
+          </h3>
           <p className="mt-1 text-sm text-gray-500">Get started by creating your first payment.</p>
         </div>
       );
@@ -557,6 +598,7 @@ export default function DashboardPage() {
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Type</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">ID</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Amount</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Business</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Details</th>
@@ -588,6 +630,9 @@ export default function DashboardPage() {
                   </div>
                 )}
               </td>
+              <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-300">
+                {'business_name' in txn && txn.business_name ? txn.business_name : 'N/A'}
+              </td>
               <td className="px-4 py-4 whitespace-nowrap">
                 <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(txn.status)}`}>
                   {txn.status}
@@ -611,10 +656,12 @@ export default function DashboardPage() {
   };
 
   const renderCryptoTransactions = () => {
-    if (cryptoPayments.length === 0) {
+    if (visibleCryptoPayments.length === 0) {
       return (
         <div className="px-6 py-12 text-center">
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No crypto payments yet</h3>
+          <h3 className="mt-2 text-sm font-medium text-gray-900">
+            {transactionFilter === 'failed' ? 'No failed crypto payments found' : 'No crypto payments yet'}
+          </h3>
           <p className="mt-1 text-sm text-gray-500">Get started by creating your first crypto payment.</p>
         </div>
       );
@@ -626,6 +673,7 @@ export default function DashboardPage() {
           <tr>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Payment ID</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Amount</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Business</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Chain</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Address</th>
@@ -634,7 +682,7 @@ export default function DashboardPage() {
           </tr>
         </thead>
         <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-          {cryptoPayments.map((payment) => (
+          {visibleCryptoPayments.map((payment) => (
             <tr key={payment.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
               <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
                 <Link
@@ -649,6 +697,9 @@ export default function DashboardPage() {
                 <div className="text-gray-500 text-xs">
                   {formatAmount(payment.amount_crypto, 8)} {payment.currency?.toUpperCase()}
                 </div>
+              </td>
+              <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-300">
+                {payment.business_name || 'N/A'}
               </td>
               <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-300">
                 {payment.currency?.toUpperCase()}
@@ -675,10 +726,12 @@ export default function DashboardPage() {
   };
 
   const renderCardTransactions = () => {
-    if (cardTransactions.length === 0) {
+    if (visibleCardTransactions.length === 0) {
       return (
         <div className="px-6 py-12 text-center">
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No card transactions yet</h3>
+          <h3 className="mt-2 text-sm font-medium text-gray-900">
+            {transactionFilter === 'failed' ? 'No failed card transactions found' : 'No card transactions yet'}
+          </h3>
           <p className="mt-1 text-sm text-gray-500">Card payments will appear here once processed.</p>
         </div>
       );
@@ -697,7 +750,7 @@ export default function DashboardPage() {
           </tr>
         </thead>
         <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-          {cardTransactions.map((transaction) => (
+          {visibleCardTransactions.map((transaction) => (
             <tr key={transaction.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
               <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
                 <span className="text-purple-600">
@@ -908,7 +961,12 @@ export default function DashboardPage() {
           </div>
 
           {/* Failures */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 border border-red-100 dark:border-red-900/40">
+          <a
+            href="#dashboard-transactions"
+            onClick={handleFailuresClick}
+            className="block bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 border border-red-100 dark:border-red-900/40 transition hover:border-red-300 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+            aria-label="Show failed transactions below"
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-red-700 dark:text-red-300">Failures</p>
@@ -936,7 +994,7 @@ export default function DashboardPage() {
                 <span className="font-semibold">{formatFailureRate(combinedStats?.card_failure_rate)}</span>
               </div>
             </div>
-          </div>
+          </a>
 
           {/* Total Fees */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
@@ -965,10 +1023,23 @@ export default function DashboardPage() {
         </div>
 
         {/* Transactions Section with Tabs */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+        <div id="dashboard-transactions" className="scroll-mt-8 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Transactions</h2>
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  {transactionFilter === 'failed' ? 'Failed Transactions' : 'Transactions'}
+                </h2>
+                {transactionFilter === 'failed' && (
+                  <button
+                    type="button"
+                    onClick={clearTransactionFilter}
+                    className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
+                  >
+                    Clear failure filter
+                  </button>
+                )}
+              </div>
               <button
                 onClick={exportToCSV}
                 disabled={exporting}
