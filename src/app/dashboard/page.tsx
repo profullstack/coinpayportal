@@ -88,6 +88,12 @@ interface TrendRow {
   series?: number[];
 }
 
+const FAILURE_STATUSES = new Set(['failed', 'expired', 'forwarding_failed', 'settle_failed', 'settlement_failed']);
+
+function isFailureStatus(status: string) {
+  return FAILURE_STATUSES.has(status.toLowerCase());
+}
+
 const SPARKLINE_CHARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 function buildSparkline(series: number[] = []): string {
@@ -461,6 +467,9 @@ export default function DashboardPage() {
     return isNaN(num) ? '0' : num.toFixed(decimals);
   };
 
+  const visibleFailureCount = cryptoPayments.filter((payment) => isFailureStatus(payment.status)).length
+    + cardTransactions.filter((transaction) => isFailureStatus(transaction.status)).length;
+
   const getStatusColor = (status: string): string => {
     switch (status.toLowerCase()) {
       case 'completed':
@@ -777,7 +786,7 @@ export default function DashboardPage() {
         )}
 
         {/* Combined Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6 mb-8">
           {/* Total Volume */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
             <div className="flex items-center justify-between">
@@ -851,6 +860,26 @@ export default function DashboardPage() {
               { label: 'Success', metric: 'successful_transactions', series: combinedStats?.trends?.card.successful_transactions },
               { label: 'Fees', metric: 'fees_usd', series: combinedStats?.trends?.card.fees_usd },
             ]} />
+          </div>
+
+          {/* Failures */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 border border-red-100 dark:border-red-900/40">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-red-700 dark:text-red-300">Failures</p>
+                <p className="mt-2 text-3xl font-bold text-red-600">
+                  {visibleFailureCount}
+                </p>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  failed or expired in view
+                </p>
+              </div>
+              <div className="p-3 bg-red-100 dark:bg-red-900/20 rounded-full">
+                <svg className="h-8 w-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                </svg>
+              </div>
+            </div>
           </div>
 
           {/* Total Fees */}

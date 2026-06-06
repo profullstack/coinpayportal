@@ -358,6 +358,15 @@ describe('DashboardPage', () => {
       });
     });
 
+    it('should track visible failures in a red dashboard card', async () => {
+      render(<DashboardPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Failures')).toHaveClass('text-red-700');
+        expect(screen.getByText('failed or expired in view')).toBeInTheDocument();
+      });
+    });
+
     it('should display card transactions count', async () => {
       render(<DashboardPage />);
 
