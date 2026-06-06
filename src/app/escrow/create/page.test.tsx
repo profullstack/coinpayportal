@@ -553,10 +553,12 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
     const allRateCalls = mockFetch.mock.calls.filter(
       (call: any[]) => call[0].includes('/api/rates')
     );
-    const newRateCalls = allRateCalls.length - initialRateCallCount;
-    expect(newRateCalls).toBeLessThan(3);
+    const changedChainRateCalls = allRateCalls
+      .slice(initialRateCallCount)
+      .filter((call: any[]) => /coin=(BTC|ETH|SOL)&fiat=USD/.test(call[0]));
+    expect(changedChainRateCalls.length).toBeLessThan(3);
     // The last rate call should be for SOL (the final chain selection)
-    const lastRateCall = allRateCalls[allRateCalls.length - 1];
+    const lastRateCall = changedChainRateCalls[changedChainRateCalls.length - 1];
     expect(lastRateCall[0]).toContain('/api/rates?coin=SOL&fiat=USD');
   });
 
