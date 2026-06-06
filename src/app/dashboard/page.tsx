@@ -444,16 +444,35 @@ export default function DashboardPage() {
     setTransactionFilter('all');
   };
 
+  const isFailedStatus = (status: string): boolean => {
+    return [
+      'failed',
+      'expired',
+      'forwarding_failed',
+      'settle_failed',
+      'settlement_failed',
+      'canceled',
+      'cancelled',
+      'requires_payment_method',
+    ].includes(status.toLowerCase());
+  };
+
   const exportToCSV = async () => {
     try {
       setExporting(true);
 
       let dataToExport: any[] = [];
       let filename = '';
+      const cryptoPaymentsToExport = transactionFilter === 'failed'
+        ? cryptoPayments.filter((payment) => isFailedStatus(payment.status))
+        : cryptoPayments;
+      const cardTransactionsToExport = transactionFilter === 'failed'
+        ? cardTransactions.filter((transaction) => isFailedStatus(transaction.status))
+        : cardTransactions;
 
       if (activeTab === 'all') {
         // Export both crypto and card data
-        const cryptoData = cryptoPayments.map(p => ({
+        const cryptoData = cryptoPaymentsToExport.map(p => ({
           type: 'crypto',
           id: p.id,
           amount_usd: p.amount_usd,
@@ -464,7 +483,7 @@ export default function DashboardPage() {
           payment_address: p.payment_address,
           tx_hash: p.tx_hash || '',
         }));
-        const cardData = cardTransactions.map(t => ({
+        const cardData = cardTransactionsToExport.map(t => ({
           type: 'card',
           id: t.id,
           amount_usd: t.amount_usd,
@@ -478,7 +497,7 @@ export default function DashboardPage() {
         dataToExport = [...cryptoData, ...cardData];
         filename = 'all-transactions';
       } else if (activeTab === 'crypto') {
-        dataToExport = cryptoPayments.map(p => ({
+        dataToExport = cryptoPaymentsToExport.map(p => ({
           id: p.id,
           amount_usd: p.amount_usd,
           amount_crypto: p.amount_crypto,
@@ -490,7 +509,7 @@ export default function DashboardPage() {
         }));
         filename = 'crypto-payments';
       } else if (activeTab === 'card') {
-        dataToExport = cardTransactions.map(t => ({
+        dataToExport = cardTransactionsToExport.map(t => ({
           id: t.id,
           amount_usd: t.amount_usd,
           currency: t.currency,
@@ -500,6 +519,10 @@ export default function DashboardPage() {
           business_name: t.business_name,
         }));
         filename = 'card-transactions';
+      }
+
+      if (transactionFilter === 'failed') {
+        filename = `failed-${filename}`;
       }
 
       if (dataToExport.length === 0) {
@@ -547,19 +570,6 @@ export default function DashboardPage() {
       default:
         return 'text-gray-600 bg-gray-100';
     }
-  };
-
-  const isFailedStatus = (status: string): boolean => {
-    return [
-      'failed',
-      'expired',
-      'forwarding_failed',
-      'settle_failed',
-      'settlement_failed',
-      'canceled',
-      'cancelled',
-      'requires_payment_method',
-    ].includes(status.toLowerCase());
   };
 
   const visibleCryptoPayments = transactionFilter === 'failed'

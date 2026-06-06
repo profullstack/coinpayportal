@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { useRouter } from 'next/navigation';
+import Papa from 'papaparse';
 import DashboardPage from './page';
 
 // Mock Next.js router
@@ -215,6 +216,9 @@ Object.assign(global, {
     revokeObjectURL: vi.fn(),
   },
 });
+
+Element.prototype.scrollIntoView = vi.fn();
+HTMLAnchorElement.prototype.click = vi.fn();
 
 describe('DashboardPage', () => {
   const mockPush = vi.fn();
@@ -827,6 +831,32 @@ describe('DashboardPage', () => {
 
       // Should have clicked the export button successfully
       expect(screen.getByRole('button', { name: /export csv/i })).toBeInTheDocument();
+    });
+
+    it('should export only currently filtered failed transactions', async () => {
+      render(<DashboardPage />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Show failed transactions below')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByLabelText('Show failed transactions below'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Failed Transactions')).toBeInTheDocument();
+        expect(screen.getByText('failed')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /export csv/i }));
+
+      await waitFor(() => {
+        const exportedRows = vi.mocked(Papa.unparse).mock.calls.at(-1)?.[0] as Array<{ id: string; status: string }>;
+        expect(exportedRows).toHaveLength(1);
+        expect(exportedRows[0]).toMatchObject({
+          id: 'payment-345-mno-pqr-678',
+          status: 'failed',
+        });
+      });
     });
   });
 
