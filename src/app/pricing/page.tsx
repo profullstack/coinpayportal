@@ -49,6 +49,7 @@ export default function PricingPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
   const [upgrading, setUpgrading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState('');
 
   useEffect(() => {
     fetchPlans();
@@ -88,9 +89,7 @@ export default function PricingPage() {
     setLoading(false);
   };
 
-  const [selectedBlockchain, setSelectedBlockchain] = useState<string>('ETH');
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [paymentDetails, setPaymentDetails] = useState<any>(null);
+  const selectedBlockchain = 'ETH';
 
   const handleUpgrade = async (planId: string) => {
     if (!isAuthenticated) {
@@ -104,6 +103,7 @@ export default function PricingPage() {
     }
 
     setUpgrading(true);
+    setCheckoutError('');
     
     try {
       const result = await authFetch('/api/subscriptions/checkout', {
@@ -119,18 +119,15 @@ export default function PricingPage() {
 
       const { data } = result;
       
-      if (data.success && data.payment) {
-        // Show payment modal with crypto address
-        setPaymentDetails(data);
-        setShowPaymentModal(true);
-        setUpgrading(false);
+      if (data.success && (data.payment?.checkout_path || data.payment?.checkout_url)) {
+        router.push(data.payment.checkout_path || new URL(data.payment.checkout_url).pathname);
       } else {
-        alert(data.error || 'Unable to start checkout. Please try again.');
+        setCheckoutError(data.error || 'Unable to start checkout. Please try again.');
         setUpgrading(false);
       }
     } catch (err) {
       console.error('Checkout error:', err);
-      alert('Unable to start checkout. Please try again.');
+      setCheckoutError('Unable to start checkout. Please try again.');
       setUpgrading(false);
     }
   };
@@ -255,6 +252,12 @@ export default function PricingPage() {
             </button>
           </div>
         </div>
+
+        {checkoutError && (
+          <div className="mb-8 max-w-2xl mx-auto rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {checkoutError}
+          </div>
+        )}
 
         {/* Pricing Cards */}
         <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
@@ -461,99 +464,6 @@ export default function PricingPage() {
         </div>
       </div>
 
-      {/* Crypto Payment Modal */}
-      {showPaymentModal && paymentDetails && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold text-gray-900">Complete Your Payment</h3>
-              <button
-                onClick={() => setShowPaymentModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="bg-purple-50 rounded-lg p-4 mb-4">
-              <p className="text-sm text-purple-600 font-medium">Upgrading to</p>
-              <p className="text-lg font-bold text-purple-900">
-                {paymentDetails.plan.name} - {paymentDetails.plan.billing_period === 'yearly' ? 'Annual' : 'Monthly'}
-              </p>
-              <p className="text-2xl font-extrabold text-purple-900 mt-1">
-                ${paymentDetails.plan.price}
-              </p>
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Select Cryptocurrency
-              </label>
-              <select
-                value={selectedBlockchain}
-                onChange={(e) => setSelectedBlockchain(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-800 border border-white/10 rounded-lg text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-              >
-                <option value="BTC">Bitcoin (BTC)</option>
-                <option value="ETH">Ethereum (ETH)</option>
-                <option value="POL">Polygon (POL)</option>
-                <option value="SOL">Solana (SOL)</option>
-                <option value="BCH">Bitcoin Cash (BCH)</option>
-              </select>
-            </div>
-
-            <div className="bg-gray-50 rounded-lg p-4 mb-4">
-              <p className="text-sm text-gray-600 mb-2">Send payment to:</p>
-              <div className="bg-white border border-gray-200 rounded-lg p-3">
-                <code className="text-sm break-all text-gray-900">
-                  {paymentDetails.payment.payment_address}
-                </code>
-              </div>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(paymentDetails.payment.payment_address);
-                  alert('Address copied to clipboard!');
-                }}
-                className="mt-2 text-sm text-purple-600 hover:text-purple-500 font-medium"
-              >
-                Copy Address
-              </button>
-            </div>
-
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
-              <p className="text-sm text-yellow-800">
-                <strong>Important:</strong> Send exactly ${paymentDetails.plan.price} worth of {selectedBlockchain}.
-                Your subscription will be activated once the payment is confirmed on the blockchain (usually within 10-30 minutes).
-              </p>
-            </div>
-
-            <div className="text-sm text-gray-500 mb-4">
-              <p>Payment expires: {new Date(paymentDetails.payment.expires_at).toLocaleString()}</p>
-              <p>Payment ID: {paymentDetails.payment.id}</p>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowPaymentModal(false)}
-                className="flex-1 py-2 px-4 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  // Refresh to check payment status
-                  window.location.href = `/settings/subscription?payment_id=${paymentDetails.payment.id}`;
-                }}
-                className="flex-1 py-2 px-4 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-500"
-              >
-                I've Sent Payment
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
