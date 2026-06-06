@@ -24,11 +24,23 @@ vi.mock('@/lib/rates/tatum', () => ({
   getCryptoPrice: vi.fn(async () => 0.0005),
 }));
 
+vi.mock('@/lib/payments/service', () => ({
+  createPayment: vi.fn(async () => ({
+    success: true,
+    payment: {
+      id: 'pay-p2p-1',
+      payment_address: 'bc1qcoinpaymiddleman',
+      crypto_amount: 0.0005,
+    },
+  })),
+}));
+
 vi.mock('@/lib/server/optional-deps', () => ({
   getStripe: vi.fn(),
 }));
 
 import { createClient } from '@supabase/supabase-js';
+import { createPayment } from '@/lib/payments/service';
 import { POST } from './route';
 
 const PLATFORM_KEY = 'rp_test_' + 'a'.repeat(32);
@@ -182,6 +194,14 @@ function buildStub({ existingBusiness = false }: { existingBusiness?: boolean } 
 describe('POST /api/p2p/request', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(createPayment).mockResolvedValue({
+      success: true,
+      payment: {
+        id: 'pay-p2p-1',
+        payment_address: 'bc1qcoinpaymiddleman',
+        crypto_amount: 0.0005,
+      } as any,
+    });
   });
 
   it('rejects requests without a platform API key', async () => {
@@ -228,6 +248,8 @@ describe('POST /api/p2p/request', () => {
       invoice_number: 'INV-001',
       fee_rate: 0.01,
       fee_amount_usd: 1,
+      payment_address: 'bc1qcoinpaymiddleman',
+      crypto_amount: '0.00050000',
     });
     expect(body.pay_url).toMatch(/\/invoices\/inv-1\/pay$/);
 
@@ -249,6 +271,16 @@ describe('POST /api/p2p/request', () => {
       fee_amount: 1,
       status: 'sent',
     });
+    expect(createPayment).toHaveBeenCalledWith(stub.supabase, expect.objectContaining({
+      amount: 100,
+      blockchain: 'BTC',
+      merchant_wallet_address: 'bc1qpayeeaddr',
+      metadata: expect.objectContaining({
+        source: 'p2p_invoice',
+        invoice_id: 'inv-1',
+        invoice_number: 'INV-001',
+      }),
+    }));
   });
 
   it('reuses the existing merchant + business on a repeat request', async () => {

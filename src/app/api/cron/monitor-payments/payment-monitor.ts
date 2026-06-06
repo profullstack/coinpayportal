@@ -104,30 +104,32 @@ export async function monitorPayments(
     stats.checked++;
 
     try {
-      // Check if payment has expired (15 minutes)
       const expiresAt = new Date(payment.expires_at);
-      if (now > expiresAt) {
-        await supabase
-          .from('payments')
-          .update({
-            status: 'expired',
-            updated_at: now.toISOString(),
-          })
-          .eq('id', payment.id);
+      const isExpired = now > expiresAt;
 
-        await sendWebhook(supabase, { ...payment, status: 'expired' } as Payment, 'payment.expired', {
-          reason: 'Payment window expired (15 minutes)',
-          expired_at: now.toISOString(),
-        });
-
-        stats.expired++;
-        console.log(`Payment ${payment.id} expired`);
-        continue;
-      }
-
-      // Check blockchain balance
+      // Always check the chain before expiring an addressed payment. This
+      // prevents late or briefly missed deposits from being marked expired
+      // while funds are already sitting at the generated CoinPay address.
       if (!payment.payment_address) {
-        console.log(`Payment ${payment.id} has no payment address`);
+        if (isExpired) {
+          await supabase
+            .from('payments')
+            .update({
+              status: 'expired',
+              updated_at: now.toISOString(),
+            })
+            .eq('id', payment.id);
+
+          await sendWebhook(supabase, { ...payment, status: 'expired' } as Payment, 'payment.expired', {
+            reason: 'Payment window expired (15 minutes)',
+            expired_at: now.toISOString(),
+          });
+
+          stats.expired++;
+          console.log(`Payment ${payment.id} expired`);
+        } else {
+          console.log(`Payment ${payment.id} has no payment address`);
+        }
         continue;
       }
 
@@ -141,6 +143,7 @@ export async function monitorPayments(
           .from('payments')
           .update({
             status: 'confirmed',
+            confirmed_at: now.toISOString(),
             updated_at: now.toISOString(),
           })
           .eq('id', payment.id);
@@ -216,6 +219,22 @@ export async function monitorPayments(
             await enqueueForwardingRetry(supabase, payment.id, errMsg, 1);
           }
         }
+      } else if (isExpired) {
+        await supabase
+          .from('payments')
+          .update({
+            status: 'expired',
+            updated_at: now.toISOString(),
+          })
+          .eq('id', payment.id);
+
+        await sendWebhook(supabase, { ...payment, status: 'expired' } as Payment, 'payment.expired', {
+          reason: 'Payment window expired (15 minutes)',
+          expired_at: now.toISOString(),
+        });
+
+        stats.expired++;
+        console.log(`Payment ${payment.id} expired`);
       }
     } catch (paymentError) {
       console.error(`Error processing payment ${payment.id}:`, paymentError);
@@ -237,19 +256,33 @@ export async function monitorPayments(
     for (const payment of pendingBusinessCollectionPayments || []) {
       try {
         const expiresAt = new Date(payment.expires_at);
-        if (now > expiresAt) {
-          await supabase
-            .from('business_collection_payments')
-            .update({ status: 'expired', updated_at: now.toISOString() })
-            .eq('id', payment.id);
+        const isExpired = now > expiresAt;
+
+        if (!payment.payment_address) {
+          if (isExpired) {
+            await supabase
+              .from('business_collection_payments')
+              .update({ status: 'expired', updated_at: now.toISOString() })
+              .eq('id', payment.id);
+          }
           continue;
         }
 
-        if (!payment.payment_address) continue;
-
         const balance = await checkBalance(payment.payment_address, payment.blockchain);
         const tolerance = payment.crypto_amount * 0.01;
-        if (balance < payment.crypto_amount - tolerance) continue;
+        if (balance < payment.crypto_amount - tolerance) {
+          if (isExpired) {
+            await supabase
+              .from('business_collection_payments')
+              .update({ status: 'expired', updated_at: now.toISOString() })
+              .eq('id', payment.id);
+          }
+          continue;
+        }
+
+        if (isExpired) {
+          console.log(`Business collection payment ${payment.id} was funded after its payment window; processing instead of expiring`);
+        }
 
         await supabase
           .from('business_collection_payments')

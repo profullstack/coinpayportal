@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { resolveMerchant } from '@/lib/auth/merchant';
-import { getCryptoPrice } from '@/lib/rates/tatum';
-import { generatePaymentAddress, type SystemBlockchain } from '@/lib/wallets/system-wallet';
+import { createPayment, type Blockchain } from '@/lib/payments/service';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { sendEmail } from '@/lib/email';
 import { invoiceSentTemplate } from '@/lib/email/invoice-templates';
@@ -57,41 +56,33 @@ export async function POST(
       return NextResponse.json({ success: false, error: 'Client email is required to send invoice' }, { status: 400 });
     }
 
-    // Calculate crypto amount from current exchange rate
-    const baseCrypto = invoice.crypto_currency.startsWith('USDC_')
-      ? 'USDC'
-      : invoice.crypto_currency.startsWith('USDT_')
-        ? 'USDT'
-        : invoice.crypto_currency;
-
-    const cryptoAmount = await getCryptoPrice(
-      parseFloat(invoice.amount),
-      invoice.currency || 'USD',
-      baseCrypto
-    );
-
-    // Generate system intermediary payment address
     const isPaidTier = await isBusinessPaidTier(supabase, invoice.business_id);
-    const baseBlockchain = (invoice.crypto_currency.startsWith('USDC_')
-      ? invoice.crypto_currency.replace('USDC_', '')
-      : invoice.crypto_currency) as SystemBlockchain;
 
-    const addressResult = await generatePaymentAddress(
-      supabase,
-      invoice.id,
-      invoice.business_id,
-      baseBlockchain,
-      invoice.merchant_wallet_address || '',
-      cryptoAmount,
-      isPaidTier
-    );
+    // Create a normal CoinPay payment so invoices use the same intermediary
+    // payment address, tiered commission, and secure forwarding path as /payments.
+    const paymentResult = await createPayment(supabase, {
+      business_id: invoice.business_id,
+      amount: parseFloat(invoice.amount),
+      currency: invoice.currency || 'USD',
+      blockchain: invoice.crypto_currency as Blockchain,
+      merchant_wallet_address: invoice.merchant_wallet_address || '',
+      metadata: {
+        ...(invoice.metadata && typeof invoice.metadata === 'object' ? invoice.metadata : {}),
+        source: 'invoice',
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+      },
+    });
 
-    if (!addressResult.success) {
+    if (!paymentResult.success || !paymentResult.payment?.payment_address) {
       return NextResponse.json(
-        { success: false, error: `Failed to generate payment address: ${addressResult.error}` },
+        { success: false, error: `Failed to create invoice payment: ${paymentResult.error || 'No payment address generated'}` },
         { status: 500 }
       );
     }
+
+    const coinpayPayment = paymentResult.payment;
+    const cryptoAmount = Number(coinpayPayment.crypto_amount || 0);
 
     // Calculate fee amount
     const feeAmount = parseFloat(invoice.amount) * parseFloat(invoice.fee_rate);
@@ -161,8 +152,12 @@ export async function POST(
       .update({
         status: 'sent',
         crypto_amount: cryptoAmount.toFixed(8),
-        payment_address: addressResult.address,
+        payment_address: coinpayPayment.payment_address,
         fee_amount: feeAmount,
+        metadata: {
+          ...(invoice.metadata && typeof invoice.metadata === 'object' ? invoice.metadata : {}),
+          coinpay_payment_id: coinpayPayment.id,
+        },
         ...(stripeCheckoutUrl && { stripe_checkout_url: stripeCheckoutUrl }),
         ...(stripeSessionId && { stripe_session_id: stripeSessionId }),
         updated_at: new Date().toISOString(),

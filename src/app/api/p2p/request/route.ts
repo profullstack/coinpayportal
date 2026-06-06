@@ -23,8 +23,7 @@ import { z } from 'zod';
 import { resolveOrProvisionPayee, resolveOrProvisionPayerClient } from '@/lib/p2p/resolve';
 import { getFeePercentage } from '@/lib/payments/fees';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
-import { generatePaymentAddress, type SystemBlockchain } from '@/lib/wallets/system-wallet';
-import { getCryptoPrice } from '@/lib/rates/tatum';
+import { createPayment, type Blockchain } from '@/lib/payments/service';
 import { getStripe } from '@/lib/server/optional-deps';
 
 function getSupabase() {
@@ -145,19 +144,8 @@ export async function POST(request: NextRequest) {
     const feeRate = getFeePercentage(isPaidTier);
     const feeAmount = amount_usd * feeRate;
 
-    // Optionally derive a fresh crypto payment address.
     let paymentAddress: string | null = null;
     let cryptoAmount: number | null = null;
-    if (cryptoCurrency && merchantWalletAddress) {
-      const baseCrypto = cryptoCurrency.startsWith('USDC_') ? 'USDC'
-        : cryptoCurrency.startsWith('USDT_') ? 'USDT'
-        : cryptoCurrency;
-      try {
-        cryptoAmount = await getCryptoPrice(amount_usd, 'USD', baseCrypto);
-      } catch {
-        cryptoAmount = null;
-      }
-    }
 
     const { data: invoice, error: insertErr } = await supabase
       .from('invoices')
@@ -170,7 +158,7 @@ export async function POST(request: NextRequest) {
         currency: 'USD',
         amount: amount_usd,
         crypto_currency: cryptoCurrency || null,
-        crypto_amount: cryptoAmount?.toFixed(8) ?? null,
+        crypto_amount: null,
         merchant_wallet_address: merchantWalletAddress,
         fee_rate: feeRate,
         fee_amount: feeAmount,
@@ -189,28 +177,46 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: insertErr?.message ?? 'Insert failed' }, { status: 500 });
     }
 
-    if (cryptoCurrency && merchantWalletAddress && cryptoAmount) {
-      const baseBlockchain = (cryptoCurrency.startsWith('USDC_')
-        ? cryptoCurrency.replace('USDC_', '')
-        : cryptoCurrency.startsWith('USDT_')
-          ? cryptoCurrency.replace('USDT_', '')
-          : cryptoCurrency) as SystemBlockchain;
-      const addrResult = await generatePaymentAddress(
-        supabase,
-        invoice.id,
-        businessId,
-        baseBlockchain,
-        merchantWalletAddress,
-        cryptoAmount,
-        isPaidTier
-      );
-      if (addrResult.success && addrResult.address) {
-        paymentAddress = addrResult.address;
-        await supabase
-          .from('invoices')
-          .update({ payment_address: paymentAddress })
-          .eq('id', invoice.id);
+    if (cryptoCurrency && merchantWalletAddress) {
+      const paymentResult = await createPayment(supabase, {
+        business_id: businessId,
+        amount: amount_usd,
+        currency: 'USD',
+        blockchain: cryptoCurrency as Blockchain,
+        merchant_wallet_address: merchantWalletAddress,
+        metadata: {
+          p2p: true,
+          platform: platform.name,
+          payer_did: payer.did || null,
+          source: 'p2p_invoice',
+          invoice_id: invoice.id,
+          invoice_number: invoice.invoice_number,
+        },
+      });
+
+      if (!paymentResult.success || !paymentResult.payment?.payment_address) {
+        return NextResponse.json(
+          { success: false, error: paymentResult.error || 'Failed to create CoinPay payment address' },
+          { status: 500 }
+        );
       }
+
+      paymentAddress = paymentResult.payment.payment_address;
+      cryptoAmount = Number(paymentResult.payment.crypto_amount || 0);
+
+      await supabase
+        .from('invoices')
+        .update({
+          payment_address: paymentAddress,
+          crypto_amount: cryptoAmount.toFixed(8),
+          metadata: {
+            p2p: true,
+            platform: platform.name,
+            payer_did: payer.did || null,
+            coinpay_payment_id: paymentResult.payment.id,
+          },
+        })
+        .eq('id', invoice.id);
     }
 
     let stripeCheckoutUrl: string | null = null;

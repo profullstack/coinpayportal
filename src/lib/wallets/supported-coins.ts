@@ -14,6 +14,7 @@ export const CRYPTO_NAMES: Record<string, string> = {
   USDC_ETH: 'USD Coin (Ethereum)',
   USDC_POL: 'USD Coin (Polygon)',
   USDC_SOL: 'USD Coin (Solana)',
+  USDC_BASE: 'USD Coin (Base)',
   BNB: 'BNB',
   XRP: 'XRP',
   ADA: 'Cardano',

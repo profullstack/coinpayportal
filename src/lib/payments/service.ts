@@ -16,7 +16,7 @@ export type Blockchain =
   | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
   | 'USDT' | 'USDT_ETH' | 'USDT_POL' | 'USDT_SOL'
   | 'USDC'
-  | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
+  | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL' | 'USDC_BASE';
 
 /**
  * Payment expiration time in minutes
@@ -141,7 +141,9 @@ export async function createPayment(
     // Calculate crypto amount
     const cryptoCurrency = input.blockchain.startsWith('USDC_')
       ? 'USDC'
-      : input.blockchain;
+      : input.blockchain.startsWith('USDT_')
+        ? 'USDT'
+        : input.blockchain;
     
     // Add estimated network fee to the amount so merchant receives full amount after forwarding
     // Use dynamic fee estimation from Tatum API
@@ -199,13 +201,15 @@ export async function createPayment(
 
     // Generate a unique payment address using the system wallet
     // This is the address customers will pay to
-    const baseBlockchain = (input.blockchain.startsWith('USDC_') || input.blockchain.startsWith('USDT_'))
-      ? input.blockchain.replace(/^USD[CT]_/, '') as SystemBlockchain
-      : input.blockchain as SystemBlockchain;
+    const paymentAddressCryptocurrency = input.blockchain as SystemBlockchain;
 
     // Only generate system wallet address for supported blockchains
-    const supportedBlockchains: SystemBlockchain[] = ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'DOGE', 'XRP', 'ADA', 'BNB', 'USDT', 'USDC'];
-    if (supportedBlockchains.includes(baseBlockchain)) {
+    const supportedBlockchains: SystemBlockchain[] = [
+      'BTC', 'BCH', 'ETH', 'POL', 'SOL', 'DOGE', 'XRP', 'ADA', 'BNB',
+      'USDT', 'USDT_ETH', 'USDT_POL', 'USDT_SOL',
+      'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL', 'USDC_BASE',
+    ];
+    if (supportedBlockchains.includes(paymentAddressCryptocurrency)) {
       // Check if merchant has a paid subscription tier for commission rate
       // Paid tier (Professional) = 0.5% commission, Free tier (Starter) = 1% commission
       const isPaidTier = await isBusinessPaidTier(supabase, input.business_id);
@@ -214,7 +218,7 @@ export async function createPayment(
         supabase,
         payment.id,
         input.business_id,
-        baseBlockchain,
+        paymentAddressCryptocurrency,
         input.merchant_wallet_address || '', // Merchant's wallet for forwarding
         cryptoAmount,
         isPaidTier // Pass subscription tier for tiered commission rates

@@ -13,9 +13,24 @@ const RPC_ENDPOINTS: Record<string, string> = {
   SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
   BNB: process.env.BNB_RPC_URL || 'https://bsc-dataseed.binance.org',
   XRP: process.env.XRP_RPC_URL || 'https://s1.ripple.com:51234',
+  BASE: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
 };
 
 const CRYPTO_APIS_KEY = process.env.CRYPTO_APIS_KEY || '';
+
+const ERC20_BALANCE_OF_SELECTOR = '0x70a08231';
+const EVM_TOKENS = {
+  USDT_ETH: { contractAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6 },
+  USDT_POL: { contractAddress: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', decimals: 6 },
+  USDC_ETH: { contractAddress: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', decimals: 6 },
+  USDC_POL: { contractAddress: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', decimals: 6 },
+  USDC_BASE: { contractAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6 },
+} as const;
+
+const SOLANA_TOKENS = {
+  USDT_SOL: { mintAddress: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', decimals: 6 },
+  USDC_SOL: { mintAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
+} as const;
 
 
 // Drain response body to prevent socket/memory leaks on error responses
@@ -187,6 +202,43 @@ async function checkEVMBalance(address: string, rpcUrl: string, chain: string): 
   }
 }
 
+async function checkEVMTokenBalance(
+  address: string,
+  rpcUrl: string,
+  contractAddress: string,
+  decimals: number
+): Promise<BalanceResult> {
+  try {
+    const paddedAddress = address.toLowerCase().replace(/^0x/, '').padStart(64, '0');
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_call',
+        params: [{ to: contractAddress, data: `${ERC20_BALANCE_OF_SELECTOR}${paddedAddress}` }, 'latest'],
+        id: 1,
+      }),
+    });
+
+    if (!response.ok) {
+      await drainResponse(response);
+      return { balance: 0 };
+    }
+
+    const data = await response.json();
+    if (data.error) {
+      console.error(`[Monitor] EVM token balance RPC error for ${address}:`, data.error);
+      return { balance: 0 };
+    }
+
+    return { balance: Number(BigInt(data.result || '0x0')) / 10 ** decimals };
+  } catch (error) {
+    console.error(`[Monitor] Error checking EVM token balance for ${address}:`, error);
+    return { balance: 0 };
+  }
+}
+
 /**
  * Check balance for a Solana address
  */
@@ -248,6 +300,57 @@ async function checkSolanaBalance(address: string, rpcUrl: string): Promise<Bala
     return { balance, txHash };
   } catch (error) {
     console.error(`[Monitor] Error checking SOL balance for ${address}:`, error);
+    return { balance: 0 };
+  }
+}
+
+async function checkSolanaTokenBalance(
+  address: string,
+  rpcUrl: string,
+  mintAddress: string,
+  decimals: number
+): Promise<BalanceResult> {
+  try {
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'getTokenAccountsByOwner',
+        params: [
+          address,
+          { mint: mintAddress },
+          { encoding: 'jsonParsed' },
+        ],
+        id: 1,
+      }),
+    });
+
+    if (!response.ok) {
+      await drainResponse(response);
+      return { balance: 0 };
+    }
+
+    const data = await response.json();
+    if (data.error) {
+      console.error(`[Monitor] Solana token balance RPC error for ${address}:`, data.error);
+      return { balance: 0 };
+    }
+
+    const accounts = data.result?.value || [];
+    let balance = 0;
+    for (const account of accounts) {
+      const tokenAmount = account?.account?.data?.parsed?.info?.tokenAmount;
+      if (typeof tokenAmount?.uiAmount === 'number') {
+        balance += tokenAmount.uiAmount;
+      } else if (typeof tokenAmount?.amount === 'string') {
+        balance += Number(tokenAmount.amount) / 10 ** decimals;
+      }
+    }
+
+    return { balance };
+  } catch (error) {
+    console.error(`[Monitor] Error checking Solana token balance for ${address}:`, error);
     return { balance: 0 };
   }
 }
@@ -380,19 +483,27 @@ export async function checkBalance(address: string, blockchain: string): Promise
     case 'BCH':
       return checkBCHBalance(address);
     case 'ETH':
+      return checkEVMBalance(address, RPC_ENDPOINTS.ETH, 'ETH');
     case 'USDT':
     case 'USDT_ETH':
+      return checkEVMTokenBalance(address, RPC_ENDPOINTS.ETH, EVM_TOKENS.USDT_ETH.contractAddress, EVM_TOKENS.USDT_ETH.decimals);
     case 'USDC':
     case 'USDC_ETH':
-      return checkEVMBalance(address, RPC_ENDPOINTS.ETH, 'ETH');
-    case 'POL':
+      return checkEVMTokenBalance(address, RPC_ENDPOINTS.ETH, EVM_TOKENS.USDC_ETH.contractAddress, EVM_TOKENS.USDC_ETH.decimals);
     case 'USDT_POL':
+      return checkEVMTokenBalance(address, RPC_ENDPOINTS.POL, EVM_TOKENS.USDT_POL.contractAddress, EVM_TOKENS.USDT_POL.decimals);
     case 'USDC_POL':
+      return checkEVMTokenBalance(address, RPC_ENDPOINTS.POL, EVM_TOKENS.USDC_POL.contractAddress, EVM_TOKENS.USDC_POL.decimals);
+    case 'USDC_BASE':
+      return checkEVMTokenBalance(address, RPC_ENDPOINTS.BASE, EVM_TOKENS.USDC_BASE.contractAddress, EVM_TOKENS.USDC_BASE.decimals);
+    case 'POL':
       return checkEVMBalance(address, RPC_ENDPOINTS.POL, 'POL');
     case 'SOL':
-    case 'USDT_SOL':
-    case 'USDC_SOL':
       return checkSolanaBalance(address, RPC_ENDPOINTS.SOL);
+    case 'USDT_SOL':
+      return checkSolanaTokenBalance(address, RPC_ENDPOINTS.SOL, SOLANA_TOKENS.USDT_SOL.mintAddress, SOLANA_TOKENS.USDT_SOL.decimals);
+    case 'USDC_SOL':
+      return checkSolanaTokenBalance(address, RPC_ENDPOINTS.SOL, SOLANA_TOKENS.USDC_SOL.mintAddress, SOLANA_TOKENS.USDC_SOL.decimals);
     case 'BNB':
       return checkBNBBalance(address);
     case 'DOGE':
@@ -412,23 +523,23 @@ export async function checkBalance(address: string, blockchain: string): Promise
  */
 export async function processPayment(supabase: any, payment: Payment): Promise<{ confirmed: boolean; expired: boolean }> {
   const now = new Date();
-  
-  // Check if payment has expired
   const expiresAt = new Date(payment.expires_at);
-  if (now > expiresAt) {
-    console.log(`[Monitor] Payment ${payment.id} expired`);
-    await supabase
-      .from('payments')
-      .update({
-        status: 'expired',
-        updated_at: now.toISOString(),
-      })
-      .eq('id', payment.id);
-    return { confirmed: false, expired: true };
-  }
+  const isExpired = now > expiresAt;
   
   // Check if we have a payment address
   if (!payment.payment_address) {
+    if (isExpired) {
+      console.log(`[Monitor] Payment ${payment.id} expired`);
+      await supabase
+        .from('payments')
+        .update({
+          status: 'expired',
+          updated_at: now.toISOString(),
+        })
+        .eq('id', payment.id);
+      return { confirmed: false, expired: true };
+    }
+
     console.log(`[Monitor] Payment ${payment.id} has no address`);
     return { confirmed: false, expired: false };
   }
@@ -488,6 +599,18 @@ export async function processPayment(supabase: any, payment: Payment): Promise<{
     }
     
     return { confirmed: true, expired: false };
+  }
+
+  if (isExpired) {
+    console.log(`[Monitor] Payment ${payment.id} expired`);
+    await supabase
+      .from('payments')
+      .update({
+        status: 'expired',
+        updated_at: now.toISOString(),
+      })
+      .eq('id', payment.id);
+    return { confirmed: false, expired: true };
   }
   
   return { confirmed: false, expired: false };

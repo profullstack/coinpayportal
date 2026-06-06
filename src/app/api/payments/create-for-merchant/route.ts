@@ -70,6 +70,7 @@ const CURRENCY_TO_BLOCKCHAIN: Record<string, Blockchain> = {
   usdc_eth: 'USDC_ETH',
   usdc_pol: 'USDC_POL',
   usdc_sol: 'USDC_SOL',
+  usdc_base: 'USDC_BASE',
 };
 
 async function authenticatePlatform(

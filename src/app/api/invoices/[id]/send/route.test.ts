@@ -18,6 +18,17 @@ vi.mock('@/lib/wallets/system-wallet', () => ({
   generatePaymentAddress: vi.fn().mockResolvedValue({ success: true, address: 'SoLaDdReSs123' }),
 }));
 
+vi.mock('@/lib/payments/service', () => ({
+  createPayment: vi.fn().mockResolvedValue({
+    success: true,
+    payment: {
+      id: 'pay-invoice-1',
+      payment_address: 'SoLaDdReSs123',
+      crypto_amount: 0.05,
+    },
+  }),
+}));
+
 vi.mock('@/lib/entitlements/service', () => ({
   isBusinessPaidTier: vi.fn().mockResolvedValue(false),
 }));
@@ -62,6 +73,7 @@ vi.mock('@supabase/supabase-js', () => ({
 }));
 
 import { POST } from './route';
+import { createPayment } from '@/lib/payments/service';
 
 const baseInvoice = {
   id: 'inv-1',
@@ -89,6 +101,14 @@ function makeRequest(): NextRequest {
 describe('POST /api/invoices/[id]/send', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(createPayment).mockResolvedValue({
+      success: true,
+      payment: {
+        id: 'pay-invoice-1',
+        payment_address: 'SoLaDdReSs123',
+        crypto_amount: 0.05,
+      } as any,
+    });
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     process.env.NEXT_PUBLIC_APP_URL = 'https://coinpayportal.com';
@@ -141,6 +161,17 @@ describe('POST /api/invoices/[id]/send', () => {
     const body = await res.json();
 
     expect(body.success).toBe(true);
+    expect(createPayment).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      business_id: 'biz-1',
+      amount: 100,
+      blockchain: 'SOL',
+      merchant_wallet_address: 'wallet123',
+      metadata: expect.objectContaining({
+        source: 'invoice',
+        invoice_id: 'inv-1',
+        invoice_number: 'INV-001',
+      }),
+    }));
     expect(mockStripeCreate).toHaveBeenCalledTimes(1);
 
     // Verify the Stripe session was created with correct params

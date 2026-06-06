@@ -39,6 +39,34 @@ export async function runInvoiceMonitorCycle(supabase: any, now: Date): Promise<
         try {
           if (!invoice.payment_address || !invoice.crypto_currency) continue;
 
+          const metadata = (invoice.metadata && typeof invoice.metadata === 'object') ? invoice.metadata : {};
+          const linkedPaymentId = metadata.coinpay_payment_id;
+          if (linkedPaymentId) {
+            const { data: linkedPayment } = await supabase
+              .from('payments')
+              .select('id, status, tx_hash, forward_tx_hash, updated_at')
+              .eq('id', linkedPaymentId)
+              .single();
+
+            if (linkedPayment && ['confirmed', 'forwarding', 'forwarded', 'forwarding_failed'].includes(linkedPayment.status)) {
+              await supabase
+                .from('invoices')
+                .update({
+                  status: 'paid',
+                  paid_at: now.toISOString(),
+                  tx_hash: linkedPayment.tx_hash || linkedPayment.forward_tx_hash || null,
+                  updated_at: now.toISOString(),
+                })
+                .eq('id', invoice.id);
+
+              stats.paid++;
+              console.log(`[Monitor] Invoice ${invoice.invoice_number} PAID via CoinPay payment ${linkedPaymentId}`);
+            }
+
+            // Linked invoices are forwarded by the normal payments monitor.
+            continue;
+          }
+
           const balanceResult = await checkBalance(invoice.payment_address, invoice.crypto_currency);
           const expectedAmount = parseFloat(invoice.crypto_amount || '0');
 
