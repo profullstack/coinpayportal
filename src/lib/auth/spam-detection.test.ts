@@ -23,33 +23,33 @@ describe('Spam Detection Heuristics', () => {
     expect(result.reasons).toContain('honeypot_filled');
   });
 
-  it('BUG DEMO: should block legitimate user who does not provide name and registers fast', () => {
+  it('should not block a legitimate user who omits optional name and registers fast', () => {
     const result = checkSpamSignup({
       name: '', // optional name left blank
       email: 'john.doe@example.com',
       registrationStartMs: Date.now() - 1500, // submits in 1.5s (e.g. browser autofill)
     });
-    // This currently fails/blocks legitimate user
-    expect(result.blocked).toBe(true);
+    expect(result.blocked).toBe(false);
     expect(result.reasons).toContain('too_fast');
     expect(result.reasons).toContain('no_name');
   });
 
-  it('BUG DEMO: should block legitimate user when client clock is ahead of server clock (negative elapsed)', () => {
+  it('should not treat client clock skew as a too-fast registration', () => {
     const result = checkSpamSignup({
       name: 'John Doe',
       email: 'john.doe@example.com',
       registrationStartMs: Date.now() + 5000, // client clock is 5s ahead of server clock
     });
-    // elapsed will be -5000, which is < 2000, triggering 'too_fast'
-    // Even if name is provided, if other factors like dotted gmail or similar trigger, it can block.
-    // If no name is provided:
+    expect(result.blocked).toBe(false);
+    expect(result.reasons).not.toContain('too_fast');
+
     const resultNoName = checkSpamSignup({
       name: '',
       email: 'john.doe@example.com',
       registrationStartMs: Date.now() + 5000,
     });
-    expect(resultNoName.reasons).toContain('too_fast');
-    expect(resultNoName.blocked).toBe(true);
+    expect(resultNoName.reasons).not.toContain('too_fast');
+    expect(resultNoName.reasons).toContain('no_name');
+    expect(resultNoName.blocked).toBe(false);
   });
 });
