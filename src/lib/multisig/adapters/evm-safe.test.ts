@@ -12,12 +12,16 @@ vi.mock('ethers', () => {
 
   return {
     ethers: {
-      JsonRpcProvider: vi.fn().mockImplementation(() => ({})),
+      JsonRpcProvider: vi.fn().mockImplementation(function () {
+        return {};
+      }),
       isAddress: vi.fn().mockReturnValue(true),
       ZeroAddress,
-      Interface: vi.fn().mockImplementation(() => ({
-        encodeFunctionData: vi.fn().mockReturnValue('0xencodedSetupData'),
-      })),
+      Interface: vi.fn().mockImplementation(function () {
+        return {
+          encodeFunctionData: vi.fn().mockReturnValue('0xencodedSetupData'),
+        };
+      }),
       AbiCoder: {
         defaultAbiCoder: () => ({
           encode: vi.fn().mockReturnValue('0xencoded'),
@@ -27,13 +31,15 @@ vi.mock('ethers', () => {
       solidityPacked: vi.fn().mockReturnValue('0xpacked'),
       getCreate2Address: vi.fn().mockReturnValue('0xPredictedSafeAddress1234567890abcdef1234'),
       parseEther: vi.fn().mockReturnValue(BigInt('1000000000000000000')),
-      Contract: vi.fn().mockImplementation(() => ({
-        nonce: vi.fn().mockResolvedValue(0n),
-        getTransactionHash: vi.fn().mockResolvedValue('0xSafeTxHash123'),
-        interface: {
-          encodeFunctionData: vi.fn().mockReturnValue('0xexecTxData'),
-        },
-      })),
+      Contract: vi.fn().mockImplementation(function () {
+        return {
+          nonce: vi.fn().mockResolvedValue(0n),
+          getTransactionHash: vi.fn().mockResolvedValue('0xSafeTxHash123'),
+          interface: {
+            encodeFunctionData: vi.fn().mockReturnValue('0xexecTxData'),
+          },
+        };
+      }),
       recoverAddress: vi.fn().mockReturnValue('0x1234567890123456789012345678901234567890'),
       toUtf8Bytes: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
       concat: vi.fn().mockReturnValue('0xconcatenatedSigs'),

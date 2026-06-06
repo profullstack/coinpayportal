@@ -23,37 +23,45 @@ vi.mock('axios', () => ({
 // Mock ethers for Ethereum provider
 vi.mock('ethers', () => ({
   ethers: {
-    JsonRpcProvider: vi.fn().mockImplementation(() => ({
+    JsonRpcProvider: vi.fn().mockImplementation(function () {
+      return {
       getBalance: vi.fn().mockResolvedValue(BigInt('1000000000000000000')),
       getTransaction: vi.fn(),
       getTransactionReceipt: vi.fn(),
       getBlockNumber: vi.fn().mockResolvedValue(1000),
       estimateGas: vi.fn().mockResolvedValue(BigInt('21000')),
-    })),
+      };
+    }),
     formatEther: vi.fn((val) => (Number(val) / 1e18).toString()),
     parseEther: vi.fn((val) => BigInt(parseFloat(val) * 1e18)),
-    Wallet: vi.fn().mockImplementation(() => ({
+    Wallet: vi.fn().mockImplementation(function () {
+      return {
       sendTransaction: vi.fn().mockResolvedValue({
         hash: '0xmocktxhash',
         wait: vi.fn().mockResolvedValue({}),
       }),
-    })),
+      };
+    }),
   },
 }));
 
 // Mock @solana/web3.js
 vi.mock('@solana/web3.js', () => ({
-  Connection: vi.fn().mockImplementation(() => ({
+  Connection: vi.fn().mockImplementation(function () {
+    return {
     getBalance: vi.fn().mockResolvedValue(1000000000), // 1 SOL in lamports
     getTransaction: vi.fn(),
     getSlot: vi.fn().mockResolvedValue(1000),
     getLatestBlockhash: vi.fn().mockResolvedValue({
       blockhash: 'mockblockhash',
     }),
-  })),
-  PublicKey: vi.fn().mockImplementation((address) => ({
-    toString: () => address,
-  })),
+    };
+  }),
+  PublicKey: vi.fn().mockImplementation(function (address) {
+    return {
+      toString: () => address,
+    };
+  }),
   Keypair: {
     fromSecretKey: vi.fn().mockImplementation(() => ({
       publicKey: {
@@ -61,11 +69,13 @@ vi.mock('@solana/web3.js', () => ({
       },
     })),
   },
-  Transaction: vi.fn().mockImplementation(() => ({
+  Transaction: vi.fn().mockImplementation(function () {
+    return {
     add: vi.fn().mockReturnThis(),
     recentBlockhash: null,
     feePayer: null,
-  })),
+    };
+  }),
   SystemProgram: {
     transfer: vi.fn().mockReturnValue({}),
   },

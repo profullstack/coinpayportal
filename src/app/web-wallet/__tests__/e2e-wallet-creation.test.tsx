@@ -1,4 +1,8 @@
 /**
+ * @vitest-environment jsdom
+ */
+
+/**
  * E2E Test: Wallet Creation Flow
  *
  * Tests the complete wallet creation flow from landing → create → seed backup → dashboard.

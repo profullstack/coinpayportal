@@ -5,7 +5,7 @@ import path from 'path';
 export default defineConfig({
   plugins: [react()] as any,
   test: {
-    environment: 'jsdom',
+    environment: 'node',
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
     // Explicitly include SDK package tests
@@ -30,14 +30,6 @@ export default defineConfig({
       // Skip API route tests that pull system-wallet through payment flow (same ws issue)
       'src/app/api/payments/route.test.ts',
       'src/app/api/cron/monitor-payments/route.test.ts',
-    ],
-    environmentMatchGlobs: [
-      // Use jsdom for React component tests
-      ['**/*.tsx', 'jsdom'],
-      // Use node for everything else
-      ['**/*.ts', 'node'],
-      // SDK tests use node environment
-      ['packages/sdk/**/*.js', 'node'],
     ],
   },
   resolve: {
