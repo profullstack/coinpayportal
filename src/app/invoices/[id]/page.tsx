@@ -14,6 +14,8 @@ interface Invoice {
   crypto_currency: string | null;
   crypto_amount: string | null;
   payment_address: string | null;
+  stripe_checkout_url: string | null;
+  stripe_session_id: string | null;
   merchant_wallet_address: string | null;
   fee_rate: string;
   fee_amount: string | null;
@@ -48,6 +50,9 @@ export default function InvoiceDetailPage() {
   const [actionLoading, setActionLoading] = useState('');
   const [error, setError] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
+  // null = unknown/loading. cardsEnabled reflects whether the invoice's business
+  // has a Stripe Connect account with card charges enabled.
+  const [cardsEnabled, setCardsEnabled] = useState<boolean | null>(null);
 
   const handleCopyShareLink = async () => {
     if (!invoice) return;
@@ -68,10 +73,38 @@ export default function InvoiceDetailPage() {
     if (!result) return;
     if (result.data.success) {
       setInvoice(result.data.invoice);
+      fetchCardStatus(result.data.invoice.businesses?.id);
     } else {
       setError(result.data.error || 'Invoice not found');
     }
     setLoading(false);
+  };
+
+  // Determine whether the business can accept card payments via Stripe Connect.
+  const fetchCardStatus = async (businessId?: string) => {
+    if (!businessId) { setCardsEnabled(false); return; }
+    try {
+      const result = await authFetch(`/api/stripe/connect/status/${businessId}`, {}, router);
+      if (!result) return;
+      setCardsEnabled(!!(result.data.success && result.data.charges_enabled));
+    } catch {
+      setCardsEnabled(false);
+    }
+  };
+
+  const handleEnableCard = async () => {
+    setActionLoading('enable-card');
+    setError('');
+    const result = await authFetch(`/api/invoices/${invoiceId}/enable-card`, { method: 'POST' }, router);
+    if (result?.data.success) {
+      setInvoice(result.data.invoice);
+    } else if (result?.data.needsStripeOnboarding) {
+      setCardsEnabled(false);
+      setError(result.data.error || 'Connect Stripe to accept card payments.');
+    } else {
+      setError(result?.data.error || 'Failed to enable card payments');
+    }
+    setActionLoading('');
   };
 
   const handleSend = async () => {
@@ -330,6 +363,72 @@ export default function InvoiceDetailPage() {
                 </button>
               )}
             </div>
+
+            {/* Payment Methods */}
+            {invoice.status !== 'cancelled' && (
+              <div className="bg-gray-800/50 rounded-2xl border border-gray-700 p-6 space-y-3">
+                <h3 className="text-sm font-semibold text-gray-400 uppercase mb-1">Payment Methods</h3>
+
+                {/* Crypto — always offered when a currency is set */}
+                <div className="flex items-center gap-2 text-sm">
+                  <span className={invoice.crypto_currency ? 'text-green-400' : 'text-gray-500'}>
+                    {invoice.crypto_currency ? '✓' : '—'}
+                  </span>
+                  <span className="text-gray-300">
+                    Crypto{invoice.crypto_currency ? ` (${invoice.crypto_currency})` : ' — set a currency before sending'}
+                  </span>
+                </div>
+
+                {/* Card via Stripe Connect */}
+                <div className="flex items-center gap-2 text-sm">
+                  <span className={invoice.stripe_checkout_url || cardsEnabled ? 'text-green-400' : 'text-gray-500'}>
+                    {invoice.stripe_checkout_url ? '✓' : cardsEnabled ? '✓' : '—'}
+                  </span>
+                  <span className="text-gray-300">Credit card (Stripe Connect)</span>
+                </div>
+
+                {/* Pre-send hint: cards are off, only crypto will be offered */}
+                {invoice.status === 'draft' && cardsEnabled === false && (
+                  <div className="mt-1 p-3 bg-yellow-900/20 border border-yellow-800 rounded-lg text-xs text-yellow-300">
+                    Only crypto will be offered to your client. Connect Stripe to also accept credit cards.
+                    {invoice.businesses?.id && (
+                      <Link
+                        href={`/businesses/${invoice.businesses.id}`}
+                        className="block mt-2 text-yellow-200 underline hover:text-yellow-100"
+                      >
+                        Connect Stripe →
+                      </Link>
+                    )}
+                  </div>
+                )}
+
+                {/* Post-send: business is connected but this invoice has no card URL yet */}
+                {['sent', 'overdue'].includes(invoice.status) && !invoice.stripe_checkout_url && cardsEnabled === true && (
+                  <button
+                    onClick={handleEnableCard}
+                    disabled={actionLoading === 'enable-card'}
+                    className="mt-1 w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium disabled:opacity-50 transition-colors text-sm"
+                  >
+                    {actionLoading === 'enable-card' ? 'Enabling...' : '💳 Enable card payments'}
+                  </button>
+                )}
+
+                {/* Post-send: business not connected, only crypto on this invoice */}
+                {['sent', 'overdue'].includes(invoice.status) && !invoice.stripe_checkout_url && cardsEnabled === false && (
+                  <div className="mt-1 p-3 bg-yellow-900/20 border border-yellow-800 rounded-lg text-xs text-yellow-300">
+                    This invoice only offers crypto. Connect Stripe, then return here to enable card payments.
+                    {invoice.businesses?.id && (
+                      <Link
+                        href={`/businesses/${invoice.businesses.id}`}
+                        className="block mt-2 text-yellow-200 underline hover:text-yellow-100"
+                      >
+                        Connect Stripe →
+                      </Link>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Dates */}
             <div className="bg-gray-800/50 rounded-2xl border border-gray-700 p-6">
