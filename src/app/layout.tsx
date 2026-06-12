@@ -131,6 +131,7 @@ export default function RootLayout({
           src="https://crawlproof.com/stats.js"
           strategy="afterInteractive"
         />
+              <Script data-site="69420039-675a-4c3e-95ec-c8287fc21cc5" src="https://crawlproof.com/stats.js" strategy="afterInteractive" />
       </body>
     </html>
   );
