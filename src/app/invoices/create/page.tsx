@@ -84,9 +84,13 @@ export default function CreateInvoicePage() {
   };
 
   const fetchWallets = async (businessId: string) => {
-    const result = await authFetch(`/api/businesses/${businessId}`, {}, router);
-    if (result?.data.success && result.data.business?.wallets) {
-      setWallets(result.data.business.wallets);
+    // Wallets live in their own table/endpoint; the business record does not
+    // embed them. Read the dedicated wallets endpoint and offer active ones.
+    const result = await authFetch(`/api/businesses/${businessId}/wallets`, {}, router);
+    if (result?.data.success && Array.isArray(result.data.wallets)) {
+      setWallets(result.data.wallets.filter((w: Wallet & { is_active?: boolean }) => w.is_active !== false));
+    } else {
+      setWallets([]);
     }
   };
 
