@@ -31,6 +31,9 @@ export default function CreateInvoicePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // null = unknown/loading; true/false = whether the business can accept cards
+  // via Stripe Connect. Card payments are attached automatically on send.
+  const [cardsEnabled, setCardsEnabled] = useState<boolean | null>(null);
 
   const [form, setForm] = useState({
     business_id: '',
@@ -62,7 +65,10 @@ export default function CreateInvoicePage() {
   useEffect(() => {
     if (form.business_id) {
       fetchClients(form.business_id);
-      fetchWallets(form.business_id);
+      fetchPaymentMethods(form.business_id);
+    } else {
+      setWallets([]);
+      setCardsEnabled(null);
     }
   }, [form.business_id]);
 
@@ -83,14 +89,23 @@ export default function CreateInvoicePage() {
     if (result?.data.success) setClients(result.data.clients);
   };
 
-  const fetchWallets = async (businessId: string) => {
-    // Wallets live in their own table/endpoint; the business record does not
-    // embed them. Read the dedicated wallets endpoint and offer active ones.
-    const result = await authFetch(`/api/businesses/${businessId}/wallets`, {}, router);
-    if (result?.data.success && Array.isArray(result.data.wallets)) {
-      setWallets(result.data.wallets.filter((w: Wallet & { is_active?: boolean }) => w.is_active !== false));
+  // Load every accepted payment method for the business (crypto wallets + card
+  // availability) from one endpoint, so the invoice reflects exactly what the
+  // payer will be able to use.
+  const fetchPaymentMethods = async (businessId: string) => {
+    const result = await authFetch(`/api/businesses/${businessId}/payment-methods`, {}, router);
+    if (result?.data.success) {
+      const crypto = Array.isArray(result.data.crypto) ? result.data.crypto : [];
+      // Map to the Wallet shape the crypto dropdown expects.
+      setWallets(crypto.map((c: { cryptocurrency: string; wallet_address: string }, i: number) => ({
+        id: `${c.cryptocurrency}-${i}`,
+        cryptocurrency: c.cryptocurrency,
+        wallet_address: c.wallet_address,
+      })));
+      setCardsEnabled(!!result.data.card?.enabled);
     } else {
       setWallets([]);
+      setCardsEnabled(false);
     }
   };
 
@@ -283,27 +298,55 @@ export default function CreateInvoicePage() {
             </div>
           </div>
 
-          {/* Crypto Currency */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Crypto Currency</label>
-            <select
-              value={form.crypto_currency}
-              onChange={e => {
-                const wallet = wallets.find(w => w.cryptocurrency === e.target.value);
-                setForm({ ...form, crypto_currency: e.target.value, merchant_wallet_address: wallet?.wallet_address || '' });
-              }}
-              className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
-            >
-              <option value="">Select crypto (set before sending)</option>
-              {wallets.length > 0
-                ? wallets.map(w => <option key={w.id} value={w.cryptocurrency}>{w.cryptocurrency}</option>)
-                : ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'DOGE', 'XRP', 'ADA', 'BNB', 'USDT', 'USDT_ETH', 'USDT_POL', 'USDT_SOL', 'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL']
-                    .map(c => <option key={c} value={c}>{c}</option>)
-              }
-            </select>
-            {wallets.length === 0 && form.business_id && (
-              <p className="text-xs text-yellow-400 mt-1">No wallets configured for this business. Add wallets in business settings.</p>
-            )}
+          {/* Payment Methods — every method the payer will be offered */}
+          <div className="border border-gray-700 rounded-xl p-4 space-y-4">
+            <label className="block text-sm font-semibold text-gray-200">Payment Methods</label>
+            <p className="text-xs text-gray-500">These are the methods your client will be able to pay with for this business.</p>
+
+            {/* Crypto */}
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1">Crypto</label>
+              <select
+                value={form.crypto_currency}
+                onChange={e => {
+                  const wallet = wallets.find(w => w.cryptocurrency === e.target.value);
+                  setForm({ ...form, crypto_currency: e.target.value, merchant_wallet_address: wallet?.wallet_address || '' });
+                }}
+                className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
+              >
+                <option value="">Select crypto (set before sending)</option>
+                {wallets.length > 0
+                  ? wallets.map(w => <option key={w.id} value={w.cryptocurrency}>{w.cryptocurrency}</option>)
+                  : ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'DOGE', 'XRP', 'ADA', 'BNB', 'USDT', 'USDT_ETH', 'USDT_POL', 'USDT_SOL', 'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL']
+                      .map(c => <option key={c} value={c}>{c}</option>)
+                }
+              </select>
+              {wallets.length === 0 && form.business_id && (
+                <p className="text-xs text-yellow-400 mt-1">No wallets configured for this business. Add wallets in business settings.</p>
+              )}
+            </div>
+
+            {/* Credit card via Stripe Connect */}
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1">Credit / Debit Card</label>
+              {cardsEnabled === true ? (
+                <div className="flex items-center gap-2 text-sm text-green-400 bg-green-900/20 border border-green-800 rounded-lg px-3 py-2">
+                  <span>✓</span>
+                  <span>Card payments enabled (Stripe Connect) — offered automatically when you send this invoice.</span>
+                </div>
+              ) : cardsEnabled === false ? (
+                <div className="text-sm text-yellow-300 bg-yellow-900/20 border border-yellow-800 rounded-lg px-3 py-2">
+                  Card payments are off for this business. Connect Stripe to also accept cards.
+                  {form.business_id && (
+                    <Link href={`/businesses/${form.business_id}`} className="block mt-1 text-yellow-200 underline hover:text-yellow-100">
+                      Connect Stripe →
+                    </Link>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">Select a business to see card availability.</p>
+              )}
+            </div>
           </div>
 
           {/* Due Date */}
@@ -392,8 +435,6 @@ export default function CreateInvoicePage() {
               </div>
             )}
           </div>
-
-          {/* TODO: Add Stripe/card payment option in future */}
 
           {/* Submit */}
           <div className="flex justify-end gap-3 pt-4">
