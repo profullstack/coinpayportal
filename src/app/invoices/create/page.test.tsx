@@ -23,8 +23,12 @@ vi.mock('@/lib/auth/client', () => ({
 }));
 
 describe('CreateInvoicePage', () => {
+  // Wallets returned by GET /api/businesses/biz_1/wallets. Overridden per-test.
+  let walletsResponse: any[] = [];
+
   beforeEach(() => {
     vi.clearAllMocks();
+    walletsResponse = [];
 
     mockAuthFetch.mockImplementation((url: string) => {
       if (url === '/api/businesses') {
@@ -44,13 +48,10 @@ describe('CreateInvoicePage', () => {
         });
       }
 
-      if (url === '/api/businesses/biz_1') {
+      if (url === '/api/businesses/biz_1/wallets') {
         return Promise.resolve({
           response: { ok: true },
-          data: {
-            success: true,
-            business: { wallets: [] },
-          },
+          data: { success: true, wallets: walletsResponse },
         });
       }
 
@@ -74,7 +75,7 @@ describe('CreateInvoicePage', () => {
 
     await waitFor(() => {
       expect(mockAuthFetch).toHaveBeenCalledWith('/api/clients?business_id=biz_1', {}, expect.anything());
-      expect(mockAuthFetch).toHaveBeenCalledWith('/api/businesses/biz_1', {}, expect.anything());
+      expect(mockAuthFetch).toHaveBeenCalledWith('/api/businesses/biz_1/wallets', {}, expect.anything());
     });
 
     const cryptoSelect = screen.getAllByRole('combobox')[3];
@@ -90,5 +91,39 @@ describe('CreateInvoicePage', () => {
     expect(optionValues).toContain('XRP');
     expect(optionValues).toContain('ADA');
     expect(optionValues).toContain('BNB');
+  });
+
+  it('populates the crypto dropdown from the business wallets endpoint', async () => {
+    walletsResponse = [
+      { id: 'w1', cryptocurrency: 'BTC', wallet_address: 'bc1qbtc', is_active: true },
+      { id: 'w2', cryptocurrency: 'SOL', wallet_address: 'solADDR', is_active: true },
+      { id: 'w3', cryptocurrency: 'ETH', wallet_address: '0xeth', is_active: false },
+    ];
+
+    const user = userEvent.setup();
+    render(<CreateInvoicePage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Create Invoice' })).toBeInTheDocument();
+    });
+
+    const businessSelect = screen.getAllByRole('combobox')[0];
+    await user.selectOptions(businessSelect, 'biz_1');
+
+    await waitFor(() => {
+      expect(mockAuthFetch).toHaveBeenCalledWith('/api/businesses/biz_1/wallets', {}, expect.anything());
+    });
+
+    const cryptoSelect = screen.getAllByRole('combobox')[3];
+    const optionValues = Array.from(cryptoSelect.querySelectorAll('option')).map((option) => option.getAttribute('value'));
+
+    // Active configured wallets are offered...
+    expect(optionValues).toContain('BTC');
+    expect(optionValues).toContain('SOL');
+    // ...inactive wallets are filtered out...
+    expect(optionValues).not.toContain('ETH');
+    // ...and the generic fallback list is not used.
+    expect(optionValues).not.toContain('DOGE');
+    expect(screen.queryByText(/No wallets configured for this business/)).not.toBeInTheDocument();
   });
 });
