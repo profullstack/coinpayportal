@@ -94,17 +94,25 @@ export async function createMerchantWallet(
     }
 
     // Check if wallet already exists for this cryptocurrency
-    const { data: existing } = await supabase
+    const { data: existing, error: checkError } = await supabase
       .from('merchant_wallets')
       .select('id')
       .eq('merchant_id', merchantId)
       .eq('cryptocurrency', input.cryptocurrency)
-      .single();
+      .limit(1)
+      .maybeSingle();
 
     if (existing) {
       return {
         success: false,
         error: `Wallet for ${input.cryptocurrency} already exists. Use update instead.`,
+      };
+    }
+
+    if (checkError) {
+      return {
+        success: false,
+        error: checkError.message,
       };
     }
 
