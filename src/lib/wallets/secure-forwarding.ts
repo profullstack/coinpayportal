@@ -169,7 +169,7 @@ function isSolanaToken(chain: BlockchainType): chain is keyof typeof SOLANA_TOKE
 }
 
 function toTokenUnits(amount: number, decimals: number): bigint {
-  return BigInt(Math.floor(amount * 10 ** decimals));
+  return BigInt(Math.round(amount * 10 ** decimals));
 }
 
 async function forwardEVMTokenSplit(
