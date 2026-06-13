@@ -102,13 +102,7 @@ export async function createMerchantWallet(
       .limit(1)
       .maybeSingle();
 
-    if (existing) {
-      return {
-        success: false,
-        error: `Wallet for ${input.cryptocurrency} already exists. Use update instead.`,
-      };
-    }
-
+    // Check error first — conventional ordering per P2 review
     if (checkError) {
       return {
         success: false,
@@ -116,7 +110,16 @@ export async function createMerchantWallet(
       };
     }
 
+    if (existing) {
+      return {
+        success: false,
+        error: `Wallet for ${input.cryptocurrency} already exists. Use update instead.`,
+      };
+    }
+
     // Insert wallet
+    // DB UNIQUE(merchant_id, cryptocurrency) constraint serves as
+    // final safeguard against TOCTOU races between concurrent requests
     const { data: wallet, error } = await supabase
       .from('merchant_wallets')
       .insert({
@@ -129,10 +132,24 @@ export async function createMerchantWallet(
       .select()
       .single();
 
-    if (error || !wallet) {
+    if (error) {
+      // Surface DB unique-constraint violation as a user-friendly message
+      if (error.code === '23505') {
+        return {
+          success: false,
+          error: `Wallet for ${input.cryptocurrency} already exists. Use update instead.`,
+        };
+      }
       return {
         success: false,
-        error: error?.message || 'Failed to create wallet',
+        error: error.message,
+      };
+    }
+
+    if (!wallet) {
+      return {
+        success: false,
+        error: 'Failed to create wallet',
       };
     }
 
@@ -432,6 +449,22 @@ export async function importWalletsToBusiness(
     );
 
     if (insertError) {
+      // If a unique-constraint violation occurred (race condition),
+      // the wallets that didn't conflict were still inserted.
+      // Report the error but don't fail the import entirely.
+      if (insertError.code === '23505') {
+        // Some wallets may have been imported; re-count to report accurately
+        const { data: afterWallets } = await supabase
+          .from('business_wallets')
+          .select('cryptocurrency')
+          .eq('business_id', businessId);
+        const afterCount = (afterWallets || []).length;
+        return {
+          success: true,
+          imported: afterCount - (existingWallets || []).length,
+          skipped: merchantWallets.length - afterCount,
+        };
+      }
       return {
         success: false,
         error: insertError.message,
