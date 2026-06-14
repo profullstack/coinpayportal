@@ -117,12 +117,21 @@ export async function createWallet(
     }
 
     // Check if wallet already exists for this cryptocurrency
-    const { data: existing } = await supabase
+    const { data: existing, error: checkError } = await supabase
       .from('business_wallets')
       .select('id')
       .eq('business_id', businessId)
       .eq('cryptocurrency', input.cryptocurrency)
-      .single();
+      .limit(1)
+      .maybeSingle();
+
+    // Check error first — conventional ordering per P2 review
+    if (checkError) {
+      return {
+        success: false,
+        error: checkError.message,
+      };
+    }
 
     if (existing) {
       return {
@@ -132,6 +141,8 @@ export async function createWallet(
     }
 
     // Insert wallet
+    // DB UNIQUE(business_id, cryptocurrency) constraint serves as
+    // final safeguard against TOCTOU races between concurrent requests
     const { data: wallet, error } = await supabase
       .from('business_wallets')
       .insert({
@@ -143,10 +154,24 @@ export async function createWallet(
       .select()
       .single();
 
-    if (error || !wallet) {
+    if (error) {
+      // Surface DB unique-constraint violation as a user-friendly message
+      if (error.code === '23505') {
+        return {
+          success: false,
+          error: `Wallet for ${input.cryptocurrency} already exists. Use update instead.`,
+        };
+      }
       return {
         success: false,
-        error: error?.message || 'Failed to create wallet',
+        error: error.message,
+      };
+    }
+
+    if (!wallet) {
+      return {
+        success: false,
+        error: 'Failed to create wallet',
       };
     }
 
