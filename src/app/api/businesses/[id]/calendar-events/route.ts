@@ -70,7 +70,8 @@ export async function GET(
       .order('start_at', { ascending: true });
 
     if (error) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+      console.error('Fetch calendar events error:', error.message);
+      return NextResponse.json({ success: false, error: 'Failed to fetch calendar events' }, { status: 400 });
     }
 
     return NextResponse.json({ success: true, events: events || [] });

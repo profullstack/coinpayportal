@@ -82,7 +82,8 @@ export async function PUT(
       .single();
 
     if (error) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+      console.error('Update calendar event error:', error.message);
+      return NextResponse.json({ success: false, error: 'Failed to update calendar event' }, { status: 400 });
     }
 
     return NextResponse.json({ success: true, event });
@@ -131,7 +132,8 @@ export async function DELETE(
       .eq('business_id', businessId);
 
     if (error) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+      console.error('Delete calendar event error:', error.message);
+      return NextResponse.json({ success: false, error: 'Failed to delete calendar event' }, { status: 400 });
     }
 
     return NextResponse.json({ success: true });
