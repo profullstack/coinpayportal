@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const LNBITS_URL = process.env.LNBITS_URL || 'https://ln.coinpayportal.com';
+const PUBLIC_DOMAIN = process.env.NEXT_PUBLIC_DOMAIN || 'coinpayportal.com';
 
 /**
  * Proxy /.well-known/lnurlp/<username> to LNbits
@@ -44,7 +45,7 @@ export async function GET(
     if (data.callback && data.callback.includes(LNBITS_URL)) {
       data.callback = data.callback.replace(
         LNBITS_URL,
-        `https://${request.headers.get('host') || 'coinpayportal.com'}`
+        `https://${PUBLIC_DOMAIN}`
       );
     }
 
