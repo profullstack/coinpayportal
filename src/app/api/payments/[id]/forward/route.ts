@@ -153,6 +153,29 @@ export async function GET(
     }
 
     const { id: paymentId } = await params;
+    const merchantId = payload.sub || payload.userId;
+
+    // Verify the authenticated user owns this payment
+    const { data: payment, error: paymentError } = await supabaseAdmin
+      .from('payments')
+      .select('business_id, businesses!inner(merchant_id)')
+      .eq('id', paymentId)
+      .single();
+
+    if (paymentError || !payment) {
+      return NextResponse.json(
+        { success: false, error: 'Payment not found' },
+        { status: 404 }
+      );
+    }
+
+    const ownerMerchantId = (payment.businesses as any)?.merchant_id;
+    if (ownerMerchantId !== merchantId) {
+      return NextResponse.json(
+        { success: false, error: 'Payment not found' },
+        { status: 404 }
+      );
+    }
 
     const status = await getForwardingStatus(supabaseAdmin, paymentId);
 
