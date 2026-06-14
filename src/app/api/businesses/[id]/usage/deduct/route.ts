@@ -53,6 +53,17 @@ export async function POST(
       return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
     }
 
+    // Verify the authenticated merchant owns this business
+    const { data: business } = await supabase
+      .from('businesses')
+      .select('merchant_id')
+      .eq('id', id)
+      .single();
+
+    if (!business || business.merchant_id !== auth.merchantId) {
+      return NextResponse.json({ success: false, error: 'Business not found' }, { status: 404 });
+    }
+
     const body = await request.json();
     const { user_email, action_type, quantity, metadata } = body;
 
