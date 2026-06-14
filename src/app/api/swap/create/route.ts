@@ -14,6 +14,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSwap, isSwapSupported, SWAP_SUPPORTED_COINS } from '@/lib/swap/changenow';
 import { createClient } from '@supabase/supabase-js';
+import { verifyToken } from '@/lib/auth/jwt';
+import { getJwtSecret } from '@/lib/secrets';
 
 function getSupabase() {
   return createClient(
@@ -23,6 +25,24 @@ function getSupabase() {
 }
 
 export async function POST(request: NextRequest) {
+  // Verify authentication
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    );
+  }
+
+  const token = authHeader.substring(7);
+  const payload = verifyToken(token, getJwtSecret());
+  if (!payload) {
+    return NextResponse.json(
+      { error: 'Invalid or expired token' },
+      { status: 401 }
+    );
+  }
+
   const supabase = getSupabase();
   try {
     const body = await request.json();
