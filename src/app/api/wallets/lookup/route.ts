@@ -1,8 +1,11 @@
 /**
  * GET /api/wallets/lookup?address=<addr>
  * Look up if a wallet address belongs to a registered CoinPay user.
- * Checks merchant_wallets and business_wallets → merchants.email.
- * Returns { found: true, email } or { found: false }.
+ * Checks merchant_wallets and business_wallets.
+ * Returns { found: true } or { found: false }.
+ *
+ * NOTE: Email is intentionally not included in the response to prevent
+ * unauthenticated email enumeration via wallet address scanning.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -65,7 +68,7 @@ export async function GET(request: NextRequest) {
     const email = await lookupEmailByAddress(supabase, address);
 
     if (email) {
-      return NextResponse.json({ found: true, email });
+      return NextResponse.json({ found: true });
     }
 
     return NextResponse.json({ found: false });
