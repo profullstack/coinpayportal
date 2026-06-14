@@ -104,7 +104,8 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+      console.error('Create client DB error:', error.message);
+      return NextResponse.json({ success: false, error: 'Failed to create client' }, { status: 400 });
     }
 
     return NextResponse.json({ success: true, client }, { status: 201 });
