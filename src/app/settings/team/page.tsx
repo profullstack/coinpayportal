@@ -33,9 +33,15 @@ export default function OrgTeamPage() {
       }
       const list: Org[] = data.organizations ?? [];
       setOrgs(list);
-      // Prefer an org the user can manage; otherwise the first one.
+      // Honor ?org=<id> deep links (from the Organizations page); otherwise prefer an
+      // org the user can manage, then the first one.
+      const requested =
+        typeof window !== 'undefined'
+          ? new URLSearchParams(window.location.search).get('org')
+          : null;
+      const requestedOrg = requested ? list.find((o) => o.id === requested) : undefined;
       const manageable = list.find((o) => o.role === 'owner' || o.role === 'admin');
-      setSelected((manageable ?? list[0])?.id ?? '');
+      setSelected((requestedOrg ?? manageable ?? list[0])?.id ?? '');
       setLoading(false);
     })();
   }, [router]);
