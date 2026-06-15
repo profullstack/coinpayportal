@@ -374,6 +374,102 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* Organizations */}
+        <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+          <div className="p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 h-10 w-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-purple-600">
+                  <svg
+                    className="h-5 w-5"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0H5m14 0h2M5 21H3m4-14h2m-2 4h2m-2 4h2m4-8h2m-2 4h2m-2 4h2"></path>
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Organizations
+                  </h2>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                    Create organizations, rename or delete them, and move businesses between them
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => router.push('/settings/organizations')}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+              >
+                Manage Organizations
+                <svg
+                  className="ml-2 h-4 w-4"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path d="M9 5l7 7-7 7"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Organization Team */}
+        <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+          <div className="p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 h-10 w-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-purple-600">
+                  <svg
+                    className="h-5 w-5"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a4 4 0 10-1-7.87"></path>
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Organization Team
+                  </h2>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                    Invite teammates with read-only, writer, or admin access across all your businesses
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => router.push('/settings/team')}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+              >
+                Manage Team
+                <svg
+                  className="ml-2 h-4 w-4"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path d="M9 5l7 7-7 7"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* Additional Info */}
         <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
           <p>
