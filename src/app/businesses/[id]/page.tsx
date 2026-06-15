@@ -18,6 +18,7 @@ import { CryptoTransactionsTab } from '@/components/business/CryptoTransactionsT
 import { CryptoEscrowsTab } from '@/components/business/CryptoEscrowsTab';
 import { CryptoPayoutsTab } from '@/components/business/CryptoPayoutsTab';
 import { CalendarTab } from '@/components/business/CalendarTab';
+import { MembersTab } from '@/components/business/MembersTab';
 
 // Webhook configuration is intentionally NOT a per-rail tab. There is one
 // businesses.webhook_url + businesses.webhook_secret per business — both
@@ -31,6 +32,7 @@ const CRYPTO_TABS: { id: TabType; label: string | ((w: Wallet[]) => string) }[] 
   { id: 'crypto-escrows', label: 'Escrows' },
   { id: 'crypto-payouts', label: 'Payouts' },
   { id: 'calendar', label: 'Calendar' },
+  { id: 'members', label: 'Members' },
 ];
 
 const CARD_TABS: { id: TabType; label: string }[] = [
@@ -41,10 +43,12 @@ const CARD_TABS: { id: TabType; label: string }[] = [
   { id: 'stripe-payouts', label: 'Payouts' },
   { id: 'stripe-api-keys', label: 'API Keys' },
   { id: 'calendar', label: 'Calendar' },
+  { id: 'members', label: 'Members' },
 ];
 
 const WEBHOOK_TABS: { id: TabType; label: string }[] = [
   { id: 'webhooks', label: 'Webhooks' },
+  { id: 'members', label: 'Members' },
 ];
 
 export default function BusinessDetailPage() {
@@ -329,6 +333,10 @@ export default function BusinessDetailPage() {
 
             {activeTab === 'calendar' && (
               <CalendarTab businessId={businessId} />
+            )}
+
+            {activeTab === 'members' && (
+              <MembersTab businessId={businessId} />
             )}
           </div>
         </div>

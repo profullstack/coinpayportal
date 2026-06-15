@@ -76,6 +76,12 @@ describe('Business Service', () => {
       };
 
       mockSupabase.from = vi.fn(() => ({
+        // merchants lookup for default_org_id
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+          })),
+        })),
         insert: vi.fn(() => ({
           select: vi.fn(() => ({
             single: vi.fn().mockResolvedValue({
@@ -114,6 +120,12 @@ describe('Business Service', () => {
       };
 
       mockSupabase.from = vi.fn(() => ({
+        // merchants lookup for default_org_id
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+          })),
+        })),
         insert: vi.fn(() => ({
           select: vi.fn(() => ({
             single: vi.fn().mockResolvedValue({

@@ -3,6 +3,19 @@ import { createClient } from '@supabase/supabase-js';
 import { getBusiness, updateBusiness, deleteBusiness } from '@/lib/business/service';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
+import { authorizeBusiness } from '@/lib/auth/authz';
+import { can } from '@/lib/auth/permissions';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+/** Resolve the owning merchant id for a business (needed for webhook-secret key derivation). */
+async function getOwnerId(supabase: SupabaseClient, businessId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('businesses')
+    .select('merchant_id')
+    .eq('id', businessId)
+    .maybeSingle();
+  return data?.merchant_id ?? null;
+}
 
 /**
  * Helper to verify auth and get merchant ID
@@ -68,7 +81,13 @@ export async function GET(
       );
     }
 
-    const result = await getBusiness(supabase, id, auth.merchantId!);
+    const authz = await authorizeBusiness(supabase, auth.merchantId!, id, 'business.read');
+    if (!authz.ok) {
+      return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+    }
+
+    const ownerId = await getOwnerId(supabase, id);
+    const result = await getBusiness(supabase, id, ownerId!);
 
     if (!result.success) {
       return NextResponse.json(
@@ -77,8 +96,14 @@ export async function GET(
       );
     }
 
+    // Redact secrets from members who cannot manage them (a readonly/writer member
+    // must not be able to read the API key or webhook secret).
+    const business: any = { ...result.business };
+    if (!can(authz.role, 'apikey.manage')) delete business.api_key;
+    if (!can(authz.role, 'webhook.manage')) delete business.webhook_secret;
+
     return NextResponse.json(
-      { success: true, business: result.business },
+      { success: true, business },
       { status: 200 }
     );
   } catch (error) {
@@ -118,7 +143,12 @@ export async function PATCH(
       );
     }
 
-    const result = await updateBusiness(supabase, id, auth.merchantId!, body);
+    const authz = await authorizeBusiness(supabase, auth.merchantId!, id, 'business.update');
+    if (!authz.ok) {
+      return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+    }
+    const ownerId = await getOwnerId(supabase, id);
+    const result = await updateBusiness(supabase, id, ownerId!, body);
 
     if (!result.success) {
       return NextResponse.json(
@@ -166,7 +196,12 @@ export async function DELETE(
       );
     }
 
-    const result = await deleteBusiness(supabase, id, auth.merchantId!);
+    const authz = await authorizeBusiness(supabase, auth.merchantId!, id, 'business.delete');
+    if (!authz.ok) {
+      return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+    }
+    const ownerId = await getOwnerId(supabase, id);
+    const result = await deleteBusiness(supabase, id, ownerId!);
 
     if (!result.success) {
       return NextResponse.json(

@@ -4,6 +4,8 @@ import { generateApiKey } from '../auth/apikey';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { resolveWebhookSecret } from '../webhooks/secret';
+import { getAccessibleBusinessRoles } from '../auth/authz';
+import { can } from '../auth/permissions';
 
 /**
  * Generate a secure webhook secret
@@ -217,11 +219,20 @@ export async function createBusiness(
     const apiKey = generateApiKey();
     const apiKeyCreatedAt = new Date().toISOString();
 
+    // Place the business in the owner's default organization so org-level team
+    // members inherit access. Falls back to null (ungrouped) if not set.
+    const { data: merchant } = await supabase
+      .from('merchants')
+      .select('default_org_id')
+      .eq('id', merchantId)
+      .maybeSingle();
+
     // Insert business
     const { data: business, error } = await supabase
       .from('businesses')
       .insert({
         merchant_id: merchantId,
+        organization_id: merchant?.default_org_id ?? null,
         name: input.name,
         description: input.description,
         webhook_url: input.webhook_url,
@@ -277,6 +288,49 @@ export async function listBusinesses(
       success: true,
       businesses: (businesses || []) as Business[],
     };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to list businesses',
+    };
+  }
+}
+
+/**
+ * List every business the merchant can access — owned plus those granted via org or
+ * per-business team membership. Use this for team-aware list views; `listBusinesses`
+ * remains owner-only for flows that must stay scoped to the account owner.
+ */
+export async function listAccessibleBusinesses(
+  supabase: SupabaseClient,
+  merchantId: string
+): Promise<BusinessListResult> {
+  try {
+    const roleMap = await getAccessibleBusinessRoles(supabase, merchantId);
+    const ids = [...roleMap.keys()];
+    if (ids.length === 0) {
+      return { success: true, businesses: [] };
+    }
+
+    const { data: businesses, error } = await supabase
+      .from('businesses')
+      .select('*')
+      .in('id', ids);
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    // Redact secrets per-business for members who cannot manage them.
+    const redacted = (businesses || []).map((b: any) => {
+      const role = roleMap.get(b.id);
+      const out = { ...b };
+      if (!can(role, 'apikey.manage')) delete out.api_key;
+      if (!can(role, 'webhook.manage')) delete out.webhook_secret;
+      return out;
+    });
+
+    return { success: true, businesses: redacted as Business[] };
   } catch (error) {
     return {
       success: false,

@@ -9,12 +9,20 @@ interface Business {
   name: string;
   description: string | null;
   webhook_url: string | null;
+  organization_id: string | null;
   created_at: string;
+}
+
+interface OrgOption {
+  id: string;
+  name: string;
 }
 
 export default function BusinessesPage() {
   const router = useRouter();
   const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [orgs, setOrgs] = useState<OrgOption[]>([]);
+  const [activeOrg, setActiveOrg] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -26,7 +34,11 @@ export default function BusinessesPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setActiveOrg(localStorage.getItem('active_org_id') || '');
+    }
     fetchBusinesses();
+    fetchOrgs();
   }, []);
 
   const fetchBusinesses = async () => {
@@ -49,6 +61,27 @@ export default function BusinessesPage() {
       setLoading(false);
     }
   };
+
+  const fetchOrgs = async () => {
+    const result = await authFetch('/api/organizations', {}, router);
+    if (!result) return;
+    if (result.response.ok && result.data.success) {
+      setOrgs((result.data.organizations ?? []).map((o: any) => ({ id: o.id, name: o.name })));
+    }
+  };
+
+  const changeActiveOrg = (id: string) => {
+    setActiveOrg(id);
+    if (typeof window !== 'undefined') {
+      if (id) localStorage.setItem('active_org_id', id);
+      else localStorage.removeItem('active_org_id');
+    }
+  };
+
+  // Filter by the selected organization (empty = all).
+  const visibleBusinesses = activeOrg
+    ? businesses.filter((b) => b.organization_id === activeOrg)
+    : businesses;
 
   const handleCreate = () => {
     setFormData({
@@ -149,23 +182,40 @@ export default function BusinessesPage() {
               Manage your businesses and payment settings
             </p>
           </div>
-          <button
-            onClick={handleCreate}
-            className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-500"
-          >
-            <svg
-              className="h-5 w-5 mr-2"
-              fill="none"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
+          <div className="flex items-center gap-3">
+            {orgs.length > 1 && (
+              <select
+                value={activeOrg}
+                onChange={(e) => changeActiveOrg(e.target.value)}
+                title="Filter by organization"
+                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white"
+              >
+                <option value="">All organizations</option>
+                {orgs.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              onClick={handleCreate}
+              className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-500"
             >
-              <path d="M12 4v16m8-8H4"></path>
-            </svg>
-            Create Business
-          </button>
+              <svg
+                className="h-5 w-5 mr-2"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path d="M12 4v16m8-8H4"></path>
+              </svg>
+              Create Business
+            </button>
+          </div>
         </div>
 
         {/* Error Message */}
@@ -176,7 +226,7 @@ export default function BusinessesPage() {
         )}
 
         {/* Businesses Grid */}
-        {businesses.length === 0 ? (
+        {visibleBusinesses.length === 0 ? (
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-12 text-center">
             <svg
               className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
@@ -217,7 +267,7 @@ export default function BusinessesPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {businesses.map((business) => (
+            {visibleBusinesses.map((business) => (
               <div
                 key={business.id}
                 className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"

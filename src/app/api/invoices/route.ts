@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getFeePercentage } from '@/lib/payments/fees';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { resolveMerchant } from '@/lib/auth/merchant';
+import { authorizeBusiness, listAccessibleBusinessIds } from '@/lib/auth/authz';
 
 /**
  * GET /api/invoices
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status });
     }
 
-    const { merchantId } = authResult;
+    const { merchantId, apiKeyBusinessId } = authResult;
 
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get('business_id');
@@ -34,10 +35,25 @@ export async function GET(request: NextRequest) {
         clients (id, name, email, company_name),
         businesses (id, name)
       `)
-      .eq('user_id', merchantId)
       .order('created_at', { ascending: false });
 
-    if (businessId) query = query.eq('business_id', businessId);
+    // Scope to the businesses the caller may read. API keys are locked to their own
+    // business; team members see invoices for every business they can access.
+    if (apiKeyBusinessId) {
+      query = query.eq('business_id', apiKeyBusinessId);
+    } else if (businessId) {
+      const authz = await authorizeBusiness(supabase, merchantId, businessId, 'business.read');
+      if (!authz.ok) {
+        return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+      }
+      query = query.eq('business_id', businessId);
+    } else {
+      const ids = await listAccessibleBusinessIds(supabase, merchantId);
+      if (ids.length === 0) {
+        return NextResponse.json({ success: true, invoices: [] });
+      }
+      query = query.in('business_id', ids);
+    }
     if (status) query = query.eq('status', status);
     if (clientId) query = query.eq('client_id', clientId);
     if (dateFrom) query = query.gte('created_at', new Date(dateFrom).toISOString());
@@ -103,17 +119,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify business belongs to the authenticated merchant
+    // Authorize. API keys are already scoped to their business; JWT/team callers must
+    // hold invoice.write on the target business (writer/admin/owner).
+    if (!(apiKeyBusinessId && apiKeyBusinessId === resolvedBusinessId)) {
+      const authz = await authorizeBusiness(supabase, merchantId, resolvedBusinessId, 'invoice.write');
+      if (!authz.ok) {
+        return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+      }
+    }
+
+    // Resolve the business + its owner. The owner's id is used as the invoice user_id so
+    // owner-scoped views still surface invoices a team member created.
     const { data: business } = await supabase
       .from('businesses')
-      .select('id')
+      .select('id, merchant_id')
       .eq('id', resolvedBusinessId)
-      .eq('merchant_id', merchantId)
       .single();
 
     if (!business) {
       return NextResponse.json({ success: false, error: 'Business not found' }, { status: 404 });
     }
+    const invoiceOwnerId = business.merchant_id ?? merchantId;
 
     // Generate invoice number
     const { data: maxInvoice } = await supabase
@@ -138,7 +164,7 @@ export async function POST(request: NextRequest) {
     const { data: invoice, error } = await supabase
       .from('invoices')
       .insert({
-        user_id: merchantId,
+        user_id: invoiceOwnerId,
         business_id: resolvedBusinessId,
         client_id: client_id || null,
         invoice_number: invoiceNumber,

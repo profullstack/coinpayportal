@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { createBusiness, listBusinesses } from '@/lib/business/service';
+import { createBusiness, listAccessibleBusinesses } from '@/lib/business/service';
 import { authenticateRequest, isMerchantAuth } from '@/lib/auth/middleware';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const result = await listBusinesses(supabase, merchantId);
+    const result = await listAccessibleBusinesses(supabase, merchantId);
 
     if (!result.success) {
       return NextResponse.json(

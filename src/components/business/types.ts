@@ -35,7 +35,8 @@ export type TabType =
   | 'crypto-transactions'
   | 'crypto-escrows'
   | 'crypto-payouts'
-  | 'calendar';
+  | 'calendar'
+  | 'members';
 
 export const SUPPORTED_CRYPTOS = [
   { value: 'BTC', label: 'Bitcoin (BTC)' },
