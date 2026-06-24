@@ -713,8 +713,16 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
   it('should submit multisig escrow via /api/escrow/multisig with multisig payload and hide token UX', async () => {
     const user = userEvent.setup();
 
+    // Valid EVM signer addresses (0x + 40 hex) so client-side validation passes.
+    const DEP = '0x' + '1'.repeat(40);
+    const BEN = '0x' + '2'.repeat(40);
+    const ARB = '0x' + '3'.repeat(40);
+
     vi.mocked(authFetch).mockImplementation(async (url: string) => {
-      if (url === '/api/businesses') return null as any;
+      // Logged-in user (so the multisig submit button is shown), no businesses.
+      if (url === '/api/businesses') {
+        return { response: { ok: true } as any, data: { success: true, businesses: [] } } as any;
+      }
       if (url === '/api/escrow/multisig') {
         return {
           response: { ok: true } as any,
@@ -752,9 +760,9 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
     await user.clear(screen.getByPlaceholderText(/0\.00 USD/));
     await user.type(screen.getByPlaceholderText(/0\.00 USD/), '42');
 
-    await user.type(screen.getByPlaceholderText('Depositor signer address (0x...)'), '0xdep');
-    await user.type(screen.getByPlaceholderText('Beneficiary signer address (0x...)'), '0xben');
-    await user.type(screen.getByPlaceholderText('Arbiter signer address (0x...)'), '0xarb');
+    await user.type(screen.getByPlaceholderText('Depositor signer address (0x...)'), DEP);
+    await user.type(screen.getByPlaceholderText('Beneficiary signer address (0x...)'), BEN);
+    await user.type(screen.getByPlaceholderText('Arbiter signer address (0x...)'), ARB);
 
     await user.click(screen.getByRole('button', { name: 'Create Escrow' }));
 
@@ -769,9 +777,9 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
     const body = JSON.parse((createCall?.[1] as any).body);
 
     expect(body).toMatchObject({
-      depositor_pubkey: '0xdep',
-      beneficiary_pubkey: '0xben',
-      arbiter_pubkey: '0xarb',
+      depositor_pubkey: DEP,
+      beneficiary_pubkey: BEN,
+      arbiter_pubkey: ARB,
     });
     expect(body.depositor_address).toBeUndefined();
     expect(body.beneficiary_address).toBeUndefined();
@@ -783,8 +791,21 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
     expect(screen.queryByText('Beneficiary Token (for recipient)')).not.toBeInTheDocument();
   });
 
-  it('should show auth-required error for multisig when authFetch returns null', async () => {
+  it('should show auth-required error for multisig when the session expires at submit', async () => {
     const user = userEvent.setup();
+
+    const DEP = '0x' + '1'.repeat(40);
+    const BEN = '0x' + '2'.repeat(40);
+    const ARB = '0x' + '3'.repeat(40);
+
+    // Logged in at render (so the submit button shows), but the multisig
+    // create call returns null — simulating an expired session at submit time.
+    vi.mocked(authFetch).mockImplementation(async (url: string) => {
+      if (url === '/api/businesses') {
+        return { response: { ok: true } as any, data: { success: true, businesses: [] } } as any;
+      }
+      return null as any;
+    });
 
     render(<CreateEscrowPage />);
 
@@ -796,9 +817,9 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
 
     await user.clear(screen.getByPlaceholderText(/0\.00 USD/));
     await user.type(screen.getByPlaceholderText(/0\.00 USD/), '12');
-    await user.type(screen.getByPlaceholderText('Depositor signer address (0x...)'), '0xdep');
-    await user.type(screen.getByPlaceholderText('Beneficiary signer address (0x...)'), '0xben');
-    await user.type(screen.getByPlaceholderText('Arbiter signer address (0x...)'), '0xarb');
+    await user.type(screen.getByPlaceholderText('Depositor signer address (0x...)'), DEP);
+    await user.type(screen.getByPlaceholderText('Beneficiary signer address (0x...)'), BEN);
+    await user.type(screen.getByPlaceholderText('Arbiter signer address (0x...)'), ARB);
 
     await user.click(screen.getByRole('button', { name: 'Create Escrow' }));
 
@@ -810,6 +831,57 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
       call[0] === '/api/escrow/multisig'
     );
     expect(anonymousMultisigCalls.length).toBe(0);
+  });
+
+  it('gates multisig for logged-out users before form entry (M-1)', async () => {
+    const user = userEvent.setup();
+
+    // Default beforeEach mock: authFetch resolves null → logged out.
+    render(<CreateEscrowPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Create Escrow' })).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('Escrow Model *'), 'multisig_2of3');
+
+    // Up-front notice + login affordance instead of a submit button.
+    expect(screen.getByText('🔒 Multisig escrow requires an account')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Log in to create' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create Escrow' })).not.toBeInTheDocument();
+  });
+
+  it('shows field-level errors for invalid multisig signer addresses (M-2)', async () => {
+    const user = userEvent.setup();
+
+    // Logged in so the submit button is present.
+    vi.mocked(authFetch).mockImplementation(async (url: string) => {
+      if (url === '/api/businesses') {
+        return { response: { ok: true } as any, data: { success: true, businesses: [] } } as any;
+      }
+      return null as any;
+    });
+
+    render(<CreateEscrowPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Create Escrow' })).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('Escrow Model *'), 'multisig_2of3');
+
+    await user.type(screen.getByPlaceholderText('Depositor signer address (0x...)'), 'not-an-address');
+    await user.type(screen.getByPlaceholderText('Beneficiary signer address (0x...)'), '0x1234');
+    await user.type(screen.getByPlaceholderText('Arbiter signer address (0x...)'), '0x5678');
+
+    await user.click(screen.getByRole('button', { name: 'Create Escrow' }));
+
+    // Field-level errors are shown locally — no create request is made.
+    await waitFor(() => {
+      expect(screen.getAllByText(/valid signer address/i).length).toBeGreaterThan(0);
+    });
+
+    expect(vi.mocked(authFetch).mock.calls.some((c) => c[0] === '/api/escrow/multisig')).toBe(false);
   });
 
 });

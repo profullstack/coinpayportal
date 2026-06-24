@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
 import { SUPPORTED_FIAT_CURRENCIES, type FiatCurrency } from '@/lib/web-wallet/settings';
 import { buildEscrowCopyLines } from './copy-lines';
+import { isEvmMultisigChain, validateMultisigSigner } from './signer-validation';
 
 const CHAINS = [
   { value: 'BTC', label: 'Bitcoin (BTC)' },
@@ -92,10 +93,6 @@ function isMultisigEscrow(escrow: CreatedEscrow): escrow is MultisigEscrow {
   return escrow.escrow_model === 'multisig_2of3';
 }
 
-function isEvmMultisigChain(chain: string): boolean {
-  return ['ETH', 'POL', 'BASE', 'ARB', 'OP', 'BNB', 'AVAX'].includes(chain);
-}
-
 function multisigSignerFieldLabel(role: 'Depositor' | 'Beneficiary' | 'Arbiter', chain: string): string {
   const field = isEvmMultisigChain(chain) ? 'Signer Address' : 'Public Key';
   return `${role} ${field} *`;
@@ -118,6 +115,13 @@ export default function CreateEscrowPage() {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loadingAuth, setLoadingAuth] = useState(true);
+  // Per-field multisig signer validation errors (M-2): surfaced locally
+  // before the authenticated create request.
+  const [signerErrors, setSignerErrors] = useState<{
+    depositor?: string;
+    beneficiary?: string;
+    arbiter?: string;
+  }>({});
   const [formData, setFormData] = useState({
     escrow_model: 'custodial' as 'custodial' | 'multisig_2of3',
     chain: 'USDC_POL',
@@ -316,17 +320,44 @@ export default function CreateEscrowPage() {
     }
   };
 
+  // Validate a single multisig signer field and store the result (M-2).
+  const validateSignerField = useCallback(
+    (role: 'depositor' | 'beneficiary' | 'arbiter', value: string) => {
+      const message = validateMultisigSigner(value, formData.chain);
+      setSignerErrors((prev) => ({ ...prev, [role]: message ?? undefined }));
+      return message;
+    },
+    [formData.chain],
+  );
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    const isMultisig = formData.escrow_model === 'multisig_2of3';
+
+    // M-2: run chain-specific signer validation locally before any API
+    // request so the user gets field-level feedback (and isn't blocked
+    // behind the authentication gate to discover address-format errors).
+    if (isMultisig) {
+      const nextErrors = {
+        depositor: validateMultisigSigner(formData.depositor_address, formData.chain) ?? undefined,
+        beneficiary: validateMultisigSigner(formData.beneficiary_address, formData.chain) ?? undefined,
+        arbiter: validateMultisigSigner(formData.arbiter_address, formData.chain) ?? undefined,
+      };
+      setSignerErrors(nextErrors);
+      const firstInvalid = (['depositor', 'beneficiary', 'arbiter'] as const).find(
+        (role) => nextErrors[role],
+      );
+      if (firstInvalid) {
+        document.getElementById(firstInvalid)?.focus();
+        return;
+      }
+    }
+
     setCreating(true);
 
     try {
-      const isMultisig = formData.escrow_model === 'multisig_2of3';
-      if (isMultisig && !formData.arbiter_address.trim()) {
-        setError('Arbiter signer address/public key is required for multisig escrow');
-        return;
-      }
 
       const body: Record<string, unknown> = {
         chain: formData.chain,
@@ -889,6 +920,8 @@ export default function CreateEscrowPage() {
                 if (nextModel === 'multisig_2of3') {
                   setIsRecurring(false);
                 }
+                // Signer-format rules differ by model/chain — clear stale errors.
+                setSignerErrors({});
               }}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
             >
@@ -896,6 +929,25 @@ export default function CreateEscrowPage() {
               <option value="multisig_2of3">2-of-3 Multisig (depositor + beneficiary + arbiter)</option>
             </select>
           </div>
+
+          {/* M-1: multisig requires authentication — tell the user up front,
+              before they fill out signer addresses, and let them log in
+              without losing this page. */}
+          {!loadingAuth && !isLoggedIn && formData.escrow_model === 'multisig_2of3' && (
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 text-sm text-amber-800 dark:text-amber-300">
+              <p className="font-semibold mb-1">🔒 Multisig escrow requires an account</p>
+              <p>
+                You&apos;ll need to be logged in to create a 2-of-3 multisig escrow.{' '}
+                <Link
+                  href="/login?redirect=/escrow/create"
+                  className="font-medium underline hover:text-amber-900 dark:hover:text-amber-100"
+                >
+                  Log in or sign up
+                </Link>{' '}
+                first, or choose the custodial model above.
+              </p>
+            </div>
+          )}
 
           {/* Chain */}
           <div>
@@ -909,6 +961,8 @@ export default function CreateEscrowPage() {
               onChange={async (e) => {
                 const newChain = e.target.value;
                 setFormData((prev) => ({ ...prev, chain: newChain }));
+                // Address/pubkey format is chain-specific — clear stale errors.
+                setSignerErrors({});
                 if (formData.use_platform_arbiter) {
                   try {
                     const res = await fetch(`/api/escrow/platform-arbiter?chain=${newChain}`);
@@ -1064,17 +1118,28 @@ export default function CreateEscrowPage() {
               type="text"
               required
               value={formData.depositor_address}
-              onChange={(e) => setFormData({ ...formData, depositor_address: e.target.value })}
+              aria-invalid={!!signerErrors.depositor}
+              onChange={(e) => {
+                setFormData({ ...formData, depositor_address: e.target.value });
+                if (signerErrors.depositor) {
+                  setSignerErrors((prev) => ({ ...prev, depositor: undefined }));
+                }
+              }}
               onBlur={(e) => {
-                if (formData.escrow_model !== 'multisig_2of3') {
+                if (formData.escrow_model === 'multisig_2of3') {
+                  validateSignerField('depositor', e.target.value);
+                } else {
                   lookupWalletEmail(e.target.value, 'depositor');
                 }
               }}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm"
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm ${signerErrors.depositor ? 'border-red-400 dark:border-red-600' : 'border-gray-300 dark:border-gray-600'}`}
               placeholder={formData.escrow_model === 'multisig_2of3'
                 ? multisigSignerPlaceholder('Depositor', formData.chain)
                 : 'Your wallet address (sender)'}
             />
+            {signerErrors.depositor && (
+              <p className="mt-1 text-xs text-red-600 dark:text-red-400">{signerErrors.depositor}</p>
+            )}
           </div>
 
           {/* Beneficiary Address */}
@@ -1089,17 +1154,28 @@ export default function CreateEscrowPage() {
               type="text"
               required
               value={formData.beneficiary_address}
-              onChange={(e) => setFormData({ ...formData, beneficiary_address: e.target.value })}
+              aria-invalid={!!signerErrors.beneficiary}
+              onChange={(e) => {
+                setFormData({ ...formData, beneficiary_address: e.target.value });
+                if (signerErrors.beneficiary) {
+                  setSignerErrors((prev) => ({ ...prev, beneficiary: undefined }));
+                }
+              }}
               onBlur={(e) => {
-                if (formData.escrow_model !== 'multisig_2of3') {
+                if (formData.escrow_model === 'multisig_2of3') {
+                  validateSignerField('beneficiary', e.target.value);
+                } else {
                   lookupWalletEmail(e.target.value, 'beneficiary');
                 }
               }}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm"
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm ${signerErrors.beneficiary ? 'border-red-400 dark:border-red-600' : 'border-gray-300 dark:border-gray-600'}`}
               placeholder={formData.escrow_model === 'multisig_2of3'
                 ? multisigSignerPlaceholder('Beneficiary', formData.chain)
                 : 'Recipient wallet address'}
             />
+            {signerErrors.beneficiary && (
+              <p className="mt-1 text-xs text-red-600 dark:text-red-400">{signerErrors.beneficiary}</p>
+            )}
           </div>
 
           {/* Arbiter Address (optional) */}
@@ -1150,13 +1226,27 @@ export default function CreateEscrowPage() {
               id="arbiter"
               type="text"
               value={formData.arbiter_address}
-              onChange={(e) => setFormData({ ...formData, arbiter_address: e.target.value, use_platform_arbiter: false })}
+              aria-invalid={!!signerErrors.arbiter}
+              onChange={(e) => {
+                setFormData({ ...formData, arbiter_address: e.target.value, use_platform_arbiter: false });
+                if (signerErrors.arbiter) {
+                  setSignerErrors((prev) => ({ ...prev, arbiter: undefined }));
+                }
+              }}
+              onBlur={(e) => {
+                if (formData.escrow_model === 'multisig_2of3' && !formData.use_platform_arbiter) {
+                  validateSignerField('arbiter', e.target.value);
+                }
+              }}
               disabled={formData.use_platform_arbiter}
-              className={`w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm ${formData.use_platform_arbiter ? 'opacity-60 cursor-not-allowed' : ''}`}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-sm ${formData.use_platform_arbiter ? 'opacity-60 cursor-not-allowed' : ''} ${signerErrors.arbiter ? 'border-red-400 dark:border-red-600' : 'border-gray-300 dark:border-gray-600'}`}
               placeholder={formData.escrow_model === 'multisig_2of3'
                 ? multisigSignerPlaceholder('Arbiter', formData.chain)
                 : 'Third-party dispute resolver (optional)'}
             />
+            {signerErrors.arbiter && (
+              <p className="mt-1 text-xs text-red-600 dark:text-red-400">{signerErrors.arbiter}</p>
+            )}
           </div>
 
           {/* Depositor Email (custodial only) */}
@@ -1335,13 +1425,24 @@ export default function CreateEscrowPage() {
             >
               Cancel
             </Link>
-            <button
-              type="submit"
-              disabled={creating}
-              className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {creating ? 'Creating...' : 'Create Escrow'}
-            </button>
+            {!loadingAuth && !isLoggedIn && formData.escrow_model === 'multisig_2of3' ? (
+              // M-1: don't let the user submit a multisig escrow only to be
+              // told they must log in — route them to login (and back here).
+              <Link
+                href="/login?redirect=/escrow/create"
+                className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+              >
+                Log in to create
+              </Link>
+            ) : (
+              <button
+                type="submit"
+                disabled={creating}
+                className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {creating ? 'Creating...' : 'Create Escrow'}
+              </button>
+            )}
           </div>
         </form>
       </div>
