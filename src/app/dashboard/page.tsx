@@ -45,6 +45,33 @@ interface CryptoPayment {
   forward_tx_hash?: string;
   forwarded_at?: string;
   tx_hash?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// Hosted CoinPay checkout page for a given payment id.
+function paymentPageUrl(id: string): string {
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return `${origin}/pay/${id}`;
+}
+
+// Best-effort human label for *which* property/product a payment came from.
+// Merchants pass these via the widget/API (description, redirect_url, success_url).
+function paymentSource(metadata?: Record<string, unknown>): string {
+  if (!metadata) return '';
+  const description = typeof metadata.description === 'string' ? metadata.description : '';
+  const url =
+    (typeof metadata.redirect_url === 'string' && metadata.redirect_url) ||
+    (typeof metadata.success_url === 'string' && metadata.success_url) ||
+    '';
+  let host = '';
+  if (url) {
+    try {
+      host = new URL(url).host;
+    } catch {
+      host = url;
+    }
+  }
+  return [description, host].filter(Boolean).join(' · ');
 }
 
 interface CardTransaction {
@@ -410,6 +437,7 @@ export default function DashboardPage() {
           forward_tx_hash: p.forward_tx_hash,
           forwarded_at: p.forwarded_at,
           tx_hash: p.tx_hash,
+          metadata: p.metadata,
         }));
         setCryptoPayments(transformedCrypto);
       }
@@ -475,6 +503,9 @@ export default function DashboardPage() {
         const cryptoData = cryptoPaymentsToExport.map(p => ({
           type: 'crypto',
           id: p.id,
+          business_name: p.business_name || 'Unknown',
+          source: paymentSource(p.metadata),
+          payment_page: paymentPageUrl(p.id),
           amount_usd: p.amount_usd,
           amount_crypto: p.amount_crypto,
           currency: p.currency,
@@ -486,6 +517,9 @@ export default function DashboardPage() {
         const cardData = cardTransactionsToExport.map(t => ({
           type: 'card',
           id: t.id,
+          business_name: t.business_name || 'Unknown',
+          source: '',
+          payment_page: paymentPageUrl(t.id),
           amount_usd: t.amount_usd,
           amount_crypto: '',
           currency: t.currency,
@@ -499,6 +533,9 @@ export default function DashboardPage() {
       } else if (activeTab === 'crypto') {
         dataToExport = cryptoPaymentsToExport.map(p => ({
           id: p.id,
+          business_name: p.business_name || 'Unknown',
+          source: paymentSource(p.metadata),
+          payment_page: paymentPageUrl(p.id),
           amount_usd: p.amount_usd,
           amount_crypto: p.amount_crypto,
           currency: p.currency,
@@ -653,7 +690,19 @@ export default function DashboardPage() {
               </td>
               <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-300">
                 {txn.type === 'crypto' ? (
-                  txn.payment_address ? `${txn.payment_address.slice(0, 10)}...` : 'N/A'
+                  <div className="space-y-0.5">
+                    {paymentSource(txn.metadata) && (
+                      <div className="text-gray-700 dark:text-gray-200">{paymentSource(txn.metadata)}</div>
+                    )}
+                    <a
+                      href={paymentPageUrl(txn.id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-purple-600 hover:text-purple-800 hover:underline"
+                    >
+                      View payment page →
+                    </a>
+                  </div>
                 ) : (
                   txn.business_name || 'N/A'
                 )}
@@ -709,7 +758,18 @@ export default function DashboardPage() {
                 </div>
               </td>
               <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-300">
-                {payment.business_name || 'N/A'}
+                <div className="text-gray-700 dark:text-gray-200">{payment.business_name || 'N/A'}</div>
+                {paymentSource(payment.metadata) && (
+                  <div className="text-xs text-gray-500">{paymentSource(payment.metadata)}</div>
+                )}
+                <a
+                  href={paymentPageUrl(payment.id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-purple-600 hover:text-purple-800 hover:underline"
+                >
+                  View payment page →
+                </a>
               </td>
               <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-300">
                 {payment.currency?.toUpperCase()}

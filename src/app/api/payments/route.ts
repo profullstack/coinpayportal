@@ -107,6 +107,7 @@ export async function GET(request: NextRequest) {
         detected_at,
         confirmed_at,
         forwarded_at,
+        metadata,
         businesses (
           name
         )
@@ -181,6 +182,7 @@ export async function GET(request: NextRequest) {
         forwarded_at: payment.forwarded_at || null,
         fee_amount: payment.fee_amount?.toString() || null,
         merchant_amount: payment.merchant_amount?.toString() || null,
+        metadata: payment.metadata || {},
       };
     });
 
