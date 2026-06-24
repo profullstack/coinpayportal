@@ -29,7 +29,7 @@ describe('Entitlements Service', () => {
   describe('PLAN_FEATURES constant', () => {
     it('should define starter plan features correctly', () => {
       expect(PLAN_FEATURES.starter).toBeDefined();
-      expect(PLAN_FEATURES.starter.monthlyTransactionLimit).toBe(100);
+      expect(PLAN_FEATURES.starter.monthlyTransactionLimit).toBeNull();
       expect(PLAN_FEATURES.starter.advancedAnalytics).toBe(false);
       expect(PLAN_FEATURES.starter.customWebhooks).toBe(false);
       expect(PLAN_FEATURES.starter.whiteLabel).toBe(false);

@@ -395,12 +395,12 @@ export default function PricingPage() {
           <div className="space-y-6">
             <div className="bg-white/5 rounded-lg border border-white/10 p-6">
               <h3 className="text-lg font-semibold text-white">
-                What happens when I reach my transaction limit?
+                Is there a limit on how many transactions I can process?
               </h3>
               <p className="mt-2 text-gray-400">
-                On the Starter plan, you can process up to 100 transactions per month. 
-                When you reach this limit, you'll need to upgrade to Professional for 
-                unlimited transactions. We'll notify you when you're approaching your limit.
+                No. All plans, including Starter, include unlimited transactions.
+                Professional adds advanced analytics, custom webhooks, white-label,
+                and priority support on top.
               </p>
             </div>
             <div className="bg-white/5 rounded-lg border border-white/10 p-6">

@@ -5,7 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
  */
 export const PLAN_FEATURES = {
   starter: {
-    monthlyTransactionLimit: 100,
+    monthlyTransactionLimit: null, // unlimited
     allChainsSupported: true,
     basicApiAccess: true,
     advancedAnalytics: false,

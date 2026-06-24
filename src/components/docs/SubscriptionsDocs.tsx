@@ -27,7 +27,7 @@ export function SubscriptionsDocs() {
         <div className="p-4 rounded-lg bg-slate-800/50 border border-white/10">
           <div className="font-semibold text-white mb-2">Starter (Free)</div>
           <ul className="text-gray-300 text-sm space-y-1">
-            <li>• Up to 100 transactions/month</li>
+            <li>• Unlimited transactions</li>
             <li>• All supported chains</li>
             <li>• Basic API access</li>
             <li>• Email support</li>
@@ -55,7 +55,7 @@ export function SubscriptionsDocs() {
       "name": "Starter",
       "description": "Perfect for testing and small projects",
       "pricing": { "monthly": 0, "yearly": 0 },
-      "limits": { "monthly_transactions": 100, "is_unlimited": false },
+      "limits": { "monthly_transactions": null, "is_unlimited": true },
       "features": {
         "all_chains_supported": true,
         "basic_api_access": true,
@@ -104,9 +104,9 @@ export function SubscriptionsDocs() {
     },
     "usage": {
       "transactions_this_month": 45,
-      "transaction_limit": 100,
-      "transactions_remaining": 55,
-      "is_unlimited": false
+      "transaction_limit": null,
+      "transactions_remaining": null,
+      "is_unlimited": true
     },
     "status": "active"
   }
