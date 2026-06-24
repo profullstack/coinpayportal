@@ -558,12 +558,13 @@ describe('DashboardPage', () => {
       });
     });
 
-    it('should show details column with addresses and business names', async () => {
+    it('should show details column with payment page links and business names', async () => {
       render(<DashboardPage />);
 
       await waitFor(() => {
-        // Crypto transactions show truncated addresses
-        expect(screen.getByText(/0x12345678/)).toBeInTheDocument();
+        // Crypto transactions link to their hosted payment page so merchants
+        // can tell which property/product a payment came from.
+        expect(screen.getAllByText(/View payment page/).length).toBeGreaterThan(0);
         // Card transactions show business names (check there are multiple instances including table cells)
         expect(screen.getAllByText('Test Business 1').length).toBeGreaterThan(1);
       });
