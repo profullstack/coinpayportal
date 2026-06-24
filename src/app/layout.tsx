@@ -131,7 +131,7 @@ export default function RootLayout({
           src="https://crawlproof.com/stats.js"
           strategy="afterInteractive"
         />
-      </body>
+      <script async src="https://feedback.profullstack.com/embed/profullstack-feedback.js" data-property="coinpayportal.com"></script></body>
     </html>
   );
 }
