@@ -23,8 +23,9 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
-const CONFIG_FILE = join(homedir(), '.coinpay.json');
-const DEFAULT_WALLET_FILE = join(homedir(), '.coinpay-wallet.gpg');
+const HOME_DIRECTORY = process.env.COINPAY_HOME || process.env.HOME || homedir();
+const CONFIG_FILE = join(HOME_DIRECTORY, '.coinpay.json');
+const DEFAULT_WALLET_FILE = join(HOME_DIRECTORY, '.coinpay-wallet.gpg');
 
 // ANSI colors
 const colors = {
@@ -74,11 +75,11 @@ function saveConfig(config) {
  */
 function getWalletFilePath(flags = {}) {
   if (flags['wallet-file']) {
-    return flags['wallet-file'].replace(/^~/, homedir());
+    return flags['wallet-file'].replace(/^~/, HOME_DIRECTORY);
   }
   const config = loadConfig();
   if (config.walletFile) {
-    return config.walletFile.replace(/^~/, homedir());
+    return config.walletFile.replace(/^~/, HOME_DIRECTORY);
   }
   return DEFAULT_WALLET_FILE;
 }
