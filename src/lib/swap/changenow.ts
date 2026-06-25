@@ -110,6 +110,14 @@ export function isSwapSupported(coin: string): coin is SwapCoin {
   return SWAP_SUPPORTED_COINS.includes(coin as SwapCoin);
 }
 
+function parsePositiveAmount(value: string): number {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('Amount must be a positive number');
+  }
+  return amount;
+}
+
 class ChangeNowClient {
   private apiKey: string;
 
@@ -343,7 +351,7 @@ export async function getSwapQuote(params: SwapQuoteParams): Promise<QuoteRespon
   const fromMapping = CN_COIN_MAP[params.from];
   const toMapping = CN_COIN_MAP[params.to];
 
-  const amount = parseFloat(params.amount);
+  const amount = parsePositiveAmount(params.amount);
   
   // Get estimate and min amount (v2 API requires network info)
   const [estimate, minAmount] = await Promise.all([
@@ -392,7 +400,7 @@ export async function createSwap(params: SwapCreateParams & {
     to: toMapping.ticker,
     fromNetwork: fromMapping.network,
     toNetwork: toMapping.network,
-    amount: parseFloat(params.amount),
+    amount: parsePositiveAmount(params.amount),
     address: params.settleAddress,
     refundAddress: params.refundAddress,
   });

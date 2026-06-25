@@ -73,6 +73,18 @@ describe('ChangeNOW Client (v2 API)', () => {
   });
 
   describe('getSwapQuote (v2 API)', () => {
+    it('should reject partially numeric amounts before calling the provider', async () => {
+      await expect(
+        getSwapQuote({
+          from: 'BTC',
+          to: 'ETH',
+          amount: '1abc',
+        })
+      ).rejects.toThrow('Amount must be a positive number');
+
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
     it('should get a quote for BTC to ETH swap', async () => {
       vi.mocked(fetch)
         // First call: v2 estimate
@@ -171,6 +183,20 @@ describe('ChangeNOW Client (v2 API)', () => {
   });
 
   describe('createSwap (v2 API)', () => {
+    it('should reject partially numeric amounts before creating an exchange', async () => {
+      await expect(
+        createSwap({
+          from: 'BTC',
+          to: 'ETH',
+          amount: '1abc',
+          settleAddress: '0xpayout...',
+          quoteId: '',
+        })
+      ).rejects.toThrow('Amount must be a positive number');
+
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
     it('should create an exchange with v2 API', async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,

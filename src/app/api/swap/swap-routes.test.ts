@@ -103,6 +103,16 @@ describe('Swap API Routes', () => {
       expect(data.error).toContain('Invalid amount');
     });
 
+    it('should reject amounts with trailing characters', async () => {
+      const request = new NextRequest('http://localhost/api/swap/quote?from=BTC&to=ETH&amount=1abc');
+      const response = await getQuote(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error).toContain('Invalid amount');
+      expect(changenow.getSwapQuote).not.toHaveBeenCalled();
+    });
+
     it('should return quote on success', async () => {
       vi.mocked(changenow.getSwapQuote).mockResolvedValueOnce({
         depositCoin: 'btc',
