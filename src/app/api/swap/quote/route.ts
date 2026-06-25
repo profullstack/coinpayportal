@@ -59,8 +59,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Validate amount
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
+    const amountNum = Number(amount);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
       return NextResponse.json(
         { error: 'Invalid amount: must be a positive number' },
         { status: 400 }
