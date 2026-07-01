@@ -14,7 +14,7 @@ DataDirectory /var/lib/tor
 Log notice file /var/log/tor/notices.log
 User debian-tor
 
-HiddenServiceDir /var/lib/tor/hidden_service
+HiddenServiceDir /mnt/files/tor/hidden_service
 HiddenServicePort 80 127.0.0.1:${PORT}
 
 SocksPort 0
@@ -22,10 +22,11 @@ ORPort 0
 ExitPolicy reject *:*
 EOF
 
-# Perms for mounted volume
-mkdir -p /var/lib/tor/hidden_service /var/log/tor
-chown -R debian-tor:debian-tor /var/lib/tor /var/log/tor
-chmod 700 /var/lib/tor/hidden_service || true
+# Perms. The onion keys live on the existing Railway volume mounted at
+# /mnt/files (coinpay allows only one volume/service) so the .onion is stable.
+mkdir -p /mnt/files/tor/hidden_service /var/lib/tor /var/log/tor
+chown -R debian-tor:debian-tor /mnt/files/tor /var/lib/tor /var/log/tor
+chmod 700 /mnt/files/tor/hidden_service || true
 
 # Start Tor
 echo "Starting Tor daemon..."
@@ -43,18 +44,18 @@ echo "Tor started successfully (PID: $TOR_PID)"
 # Wait for onion hostname (first run generates keys)
 echo "Waiting for Tor to generate hidden service keys..."
 for i in $(seq 1 60); do
-  if [ -s /var/lib/tor/hidden_service/hostname ]; then
+  if [ -s /mnt/files/tor/hidden_service/hostname ]; then
     break
   fi
   if [ $i -eq 10 ] || [ $i -eq 30 ]; then
-    ls -la /var/lib/tor/hidden_service/ 2>/dev/null || echo "Directory not accessible"
+    ls -la /mnt/files/tor/hidden_service/ 2>/dev/null || echo "Directory not accessible"
     tail -5 /var/log/tor/notices.log 2>/dev/null || echo "No logs available"
   fi
   sleep 1
 done
 
-if [ -s /var/lib/tor/hidden_service/hostname ]; then
-  ONION_URL="$(cat /var/lib/tor/hidden_service/hostname)"
+if [ -s /mnt/files/tor/hidden_service/hostname ]; then
+  ONION_URL="$(cat /mnt/files/tor/hidden_service/hostname)"
   echo "🧅 TOR HIDDEN SERVICE READY!"
   echo "ONION_URL=${ONION_URL}"
   echo "Your site is accessible at: http://${ONION_URL}"

@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 export default function Footer() {
   const currentYear = new Date().getFullYear();
+  const onionUrl = process.env.NEXT_PUBLIC_ONION_URL;
 
   const footerLinks = {
     product: [
@@ -214,6 +215,21 @@ export default function Footer() {
             </div>
             
             <div className="mt-4 md:mt-0 flex items-center space-x-4">
+              {onionUrl && (
+                <a
+                  href={onionUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={onionUrl}
+                  className="inline-flex items-center gap-2 text-xs text-gray-400 hover:text-purple-400 transition-colors"
+                >
+                  <span className="relative flex h-2 w-2" aria-hidden="true">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                  </span>
+                  🧅 Available on Tor network
+                </a>
+              )}
               <p className="text-xs text-gray-400">
                 Non-custodial crypto payment gateway • 0.5% transaction fee
               </p>
