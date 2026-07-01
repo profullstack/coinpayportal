@@ -221,13 +221,18 @@ export default function Footer() {
                   target="_blank"
                   rel="noopener noreferrer"
                   title={onionUrl}
-                  className="inline-flex items-center gap-2 text-xs text-gray-400 hover:text-purple-400 transition-colors"
+                  className="flex flex-col text-xs text-gray-400 hover:text-purple-400 transition-colors"
                 >
-                  <span className="relative flex h-2 w-2" aria-hidden="true">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                  <span className="inline-flex items-center gap-2">
+                    <span className="relative flex h-2 w-2" aria-hidden="true">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                    </span>
+                    🧅 Available on Tor network
                   </span>
-                  🧅 Available on Tor network
+                  <span className="font-mono break-all text-purple-400">
+                    {onionUrl.replace(/^https?:\/\//, '')}
+                  </span>
                 </a>
               )}
               <p className="text-xs text-gray-400">
