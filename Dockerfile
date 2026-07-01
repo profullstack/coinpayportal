@@ -7,10 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tor ca-certificates tini gettext-base \
  && rm -rf /var/lib/apt/lists/*
 
-# Prepare Tor dirs (Railway volume mounts at /var/lib/tor to keep a stable .onion)
-RUN mkdir -p /var/lib/tor/hidden_service /var/log/tor \
- && chown -R debian-tor:debian-tor /var/lib/tor /var/log/tor \
- && chmod 700 /var/lib/tor/hidden_service
+# Prepare Tor dirs. DataDirectory is ephemeral (/var/lib/tor); the hidden
+# service keys live on the existing Railway volume at /mnt/files/tor (created
+# at runtime by entrypoint.sh) so the .onion address stays stable.
+RUN mkdir -p /var/lib/tor /var/log/tor \
+ && chown -R debian-tor:debian-tor /var/lib/tor /var/log/tor
 
 # Build-time public env vars (inlined into the Next.js bundle at `pnpm build`)
 ARG NEXT_PUBLIC_API_URL
@@ -36,15 +37,14 @@ ENV NEXT_PUBLIC_ONION_URL=$NEXT_PUBLIC_ONION_URL
 
 # App build
 WORKDIR /app
-# Copy lockfiles first for better caching
-COPY pnpm-lock.yaml* package.json pnpm-workspace.yaml ./
 # Pin pnpm to a known-good version (avoid `pnpm@latest` surprises on Railway).
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
-# Coinpay's Railway build uses --no-frozen-lockfile (the lockfile drifts); match it.
-RUN pnpm install --no-frozen-lockfile
-
-# Copy the rest and build
+# Copy the whole repo before install: the root package.json depends on the
+# workspace package @profullstack/coinpay (packages/*), so pnpm needs those
+# manifests present at install time. Coinpay's Railway build uses
+# --no-frozen-lockfile (the lockfile drifts); match it.
 COPY . .
+RUN pnpm install --no-frozen-lockfile
 RUN pnpm build
 
 # Runtime env
