@@ -137,4 +137,48 @@ describe('POST /api/x402/verify', () => {
     const data = await res.json();
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
+
+  it('should reject a replayed Stripe PaymentIntent (uniqueKey must include paymentIntentId)', async () => {
+    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+
+    // 1st single() -> API key lookup (active); 2nd single() -> replay check finds an existing row
+    mockSingle
+      .mockResolvedValueOnce({
+        data: { id: 'key1', business_id: 'biz1', active: true },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { id: 'already-verified-payment' },
+        error: null,
+      });
+
+    // Stripe API reports the PaymentIntent succeeded
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ status: 'succeeded' }),
+    }) as any;
+
+    const payment = {
+      scheme: 'stripe-checkout',
+      payload: {
+        network: 'stripe',
+        scheme: 'stripe-checkout',
+        from: '0xBuyer',
+        to: '0xMerchant',
+        amount: '100',
+        paymentIntentId: 'pi_reused_123',
+      },
+    };
+
+    const req = makeRequest({ payment });
+    const res = await POST(req);
+    const data = await res.json();
+
+    // Before the fix uniqueKey was undefined for Stripe, the replay check was
+    // skipped, and this returned 200 valid — allowing unlimited reuse.
+    expect(res.status).toBe(400);
+    expect(data.error).toContain('replay');
+    // The replay lookup must actually run (2nd single() call), i.e. uniqueKey was set
+    expect(mockSingle).toHaveBeenCalledTimes(2);
+  });
 });

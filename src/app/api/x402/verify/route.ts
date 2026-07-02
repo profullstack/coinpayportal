@@ -226,8 +226,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
 
-    // Check for replay (nonce/txId already used)
-    const uniqueKey = payment.payload.nonce || payment.payload.txId || payment.payload.txSignature || payment.payload.preimage;
+    // Check for replay (nonce/txId already used).
+    // Stripe proofs carry no nonce/txId/txSignature/preimage — their unique
+    // identifier is the PaymentIntent id, so include it here. Without it the
+    // replay check below is skipped for Stripe and a single succeeded
+    // PaymentIntent can be redeemed unlimited times.
+    const uniqueKey =
+      payment.payload.nonce ||
+      payment.payload.txId ||
+      payment.payload.txSignature ||
+      payment.payload.preimage ||
+      payment.payload.paymentIntentId;
     if (uniqueKey) {
       const { data: existingPayment } = await supabase
         .from('x402_payments')
