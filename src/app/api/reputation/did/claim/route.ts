@@ -120,6 +120,18 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // Bind the claimed DID to the supplied public key. The signature above
+      // only proves the caller controls `public_key` — not that they own
+      // `body.did`. Without this check a caller could sign with their own key
+      // yet pass ANY did (e.g. another party's did:key) and have it stored as
+      // verified under their merchant. Require did == did:key(public_key).
+      if (body.did !== publicKeyToDidKey(pubKeyBytes)) {
+        return NextResponse.json(
+          { error: 'did does not match public_key' },
+          { status: 400 }
+        );
+      }
+
       did = body.did;
       publicKey = body.public_key;
     } else {

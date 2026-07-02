@@ -1,5 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { generateKeyPairSync, sign } from 'crypto';
+
+// ── did:key helpers (mirror of route.ts, ed25519 multicodec 0xed01) ──
+
+function base58btcEncode(bytes: Uint8Array): string {
+  const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  let num = BigInt('0x' + Buffer.from(bytes).toString('hex'));
+  const result: string[] = [];
+  while (num > 0n) {
+    result.unshift(ALPHABET[Number(num % 58n)]);
+    num = num / 58n;
+  }
+  for (const b of bytes) {
+    if (b === 0) result.unshift('1');
+    else break;
+  }
+  return result.join('');
+}
+
+function deriveDidKey(pubRaw: Buffer): string {
+  return `did:key:z${base58btcEncode(Buffer.concat([Buffer.from([0xed, 0x01]), pubRaw]))}`;
+}
+
+function edKeypair() {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const pubRaw = Buffer.from(publicKey.export({ type: 'spki', format: 'der' })).subarray(-32);
+  return { privateKey, pubRaw, pubB64url: Buffer.from(pubRaw).toString('base64url') };
+}
 
 // ── Mock state ─────────────────────────────────────────────────────
 
@@ -121,5 +149,54 @@ describe('POST /api/reputation/did/claim', () => {
     const { POST } = await import('./route');
     const res = await POST(makeRequest());
     expect(res.status).toBe(500);
+  });
+
+  it('rejects a link whose did does not match the supplied public_key', async () => {
+    // Attacker signs the claim message with their OWN key (so the signature is
+    // valid) but supplies a did:key they do not own. Must be rejected.
+    const { privateKey, pubB64url } = edKeypair();
+    const victimDid = 'did:key:z6MkVictimNotOwnedByTheCaller';
+    const signature = sign(
+      null,
+      Buffer.from(`claim-did:${victimDid}:merchant-123`),
+      privateKey
+    ).toString('base64url');
+
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest({
+      did: victimDid,
+      public_key: pubB64url,
+      signature,
+      did_kind: 'agent',
+    }));
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/did does not match/i);
+  });
+
+  it('links an existing DID when did matches the supplied public_key', async () => {
+    const { privateKey, pubRaw, pubB64url } = edKeypair();
+    const did = deriveDidKey(Buffer.from(pubRaw));
+    const signature = sign(
+      null,
+      Buffer.from(`claim-did:${did}:merchant-123`),
+      privateKey
+    ).toString('base64url');
+    mockInsertResult = {
+      data: { did, public_key: pubB64url, verified: true, created_at: '2026-01-01T00:00:00Z' },
+      error: null,
+    };
+
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest({
+      did,
+      public_key: pubB64url,
+      signature,
+      did_kind: 'agent',
+    }));
+
+    expect(res.status).toBe(201);
+    expect((mockInsertedData as Record<string, unknown>).did).toBe(did);
   });
 });
