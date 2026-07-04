@@ -6,6 +6,7 @@ import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { sendEmail } from '@/lib/email';
 import { invoiceSentTemplate } from '@/lib/email/invoice-templates';
 import { createInvoiceStripeCheckout } from '@/lib/payments/invoice-stripe';
+import { businessHasPaypal } from '@/lib/paypal/accounts';
 
 /**
  * POST /api/invoices/[id]/send
@@ -102,6 +103,16 @@ export async function POST(
       console.error('Failed to create Stripe checkout session for invoice:', stripeError);
     }
 
+    // Enable the PayPal option if the business has connected a PayPal account.
+    // Orders are created on-demand when the payer clicks pay, so there's nothing
+    // to pre-generate here — just flag availability for the pay page.
+    let paypalEnabled = false;
+    try {
+      paypalEnabled = await businessHasPaypal(supabase, invoice.business_id);
+    } catch (paypalError) {
+      console.error('Failed to check PayPal availability for invoice:', paypalError);
+    }
+
     // Update invoice
     const { data: updatedInvoice, error: updateError } = await supabase
       .from('invoices')
@@ -116,6 +127,7 @@ export async function POST(
         },
         ...(stripeCheckoutUrl && { stripe_checkout_url: stripeCheckoutUrl }),
         ...(stripeSessionId && { stripe_session_id: stripeSessionId }),
+        paypal_enabled: paypalEnabled,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
