@@ -25,6 +25,7 @@ export async function GET(
         crypto_amount,
         payment_address,
         stripe_checkout_url,
+        paypal_enabled,
         due_date,
         notes,
         created_at,
