@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
 import { getStripe } from '@/lib/server/optional-deps';
+import { parsePaginationParam } from '@/lib/api/pagination';
 
 /**
  * GET /api/stripe/subscriptions
@@ -28,8 +29,8 @@ export async function GET(request: NextRequest) {
     const businessId = searchParams.get('businessId');
     const customerId = searchParams.get('customerId');
     const status = searchParams.get('status');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100);
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const limit = parsePaginationParam(searchParams.get('limit'), 20, { min: 1, max: 100 });
+    const offset = parsePaginationParam(searchParams.get('offset'), 0);
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
