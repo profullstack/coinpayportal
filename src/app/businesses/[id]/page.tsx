@@ -14,6 +14,7 @@ import { StripeDisputesTab } from '@/components/business/StripeDisputesTab';
 import { StripePayoutsTab } from '@/components/business/StripePayoutsTab';
 
 import { StripeApiKeysTab } from '@/components/business/StripeApiKeysTab';
+import { PayPalConnectTab } from '@/components/business/PayPalConnectTab';
 import { CryptoTransactionsTab } from '@/components/business/CryptoTransactionsTab';
 import { CryptoEscrowsTab } from '@/components/business/CryptoEscrowsTab';
 import { CryptoPayoutsTab } from '@/components/business/CryptoPayoutsTab';
@@ -43,6 +44,12 @@ const CARD_TABS: { id: TabType; label: string }[] = [
   { id: 'stripe-payouts', label: 'Payouts' },
   { id: 'stripe-api-keys', label: 'API Keys' },
   { id: 'calendar', label: 'Calendar' },
+  { id: 'members', label: 'Members' },
+];
+
+const PAYPAL_TABS: { id: TabType; label: string }[] = [
+  { id: 'general', label: 'General' },
+  { id: 'paypal-connect', label: 'PayPal Connect' },
   { id: 'members', label: 'Members' },
 ];
 
@@ -161,6 +168,7 @@ export default function BusinessDetailPage() {
   const currentTabs =
     paymentMode === 'crypto' ? CRYPTO_TABS
     : paymentMode === 'card' ? CARD_TABS
+    : paymentMode === 'paypal' ? PAYPAL_TABS
     : WEBHOOK_TABS;
 
   return (
@@ -227,6 +235,18 @@ export default function BusinessDetailPage() {
               }`}
             >
               💳 Credit Card
+            </button>
+            <button
+              role="tab"
+              aria-selected={paymentMode === 'paypal'}
+              onClick={() => handleModeChange('paypal')}
+              className={`px-6 py-2.5 text-sm font-semibold rounded-md transition-all ${
+                paymentMode === 'paypal'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              🅿️ PayPal
             </button>
             <button
               role="tab"
@@ -317,6 +337,10 @@ export default function BusinessDetailPage() {
 
             {activeTab === 'stripe-api-keys' && (
               <StripeApiKeysTab businessId={businessId} />
+            )}
+
+            {activeTab === 'paypal-connect' && (
+              <PayPalConnectTab businessId={businessId} />
             )}
 
             {activeTab === 'crypto-transactions' && (
