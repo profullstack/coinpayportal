@@ -17,13 +17,21 @@ derivation so addresses match the CoinPay web wallet exactly.
 | `src/core/vault.ts` | WebCrypto AES-256-GCM + PBKDF2 (600k) seed encryption | P0-3 |
 | `src/core/storage.ts` | `browser.storage` abstraction (+ in-memory impl for tests) | P0-3 |
 | `src/core/wallet.ts` | Create / import / lock / unlock lifecycle; no plaintext seed at rest | P0-2/3 |
+| `src/core/backup.ts` | Seed-backup confirmation logic (multiple-choice) | P0-2 |
 | `src/background/index.ts` | Service worker: storage wiring, message router, idle auto-lock | P0-3/6 |
-| `src/popup/*` | Read-only popup rendering wallet state + addresses | P0-5 |
+| `src/popup/*` | Onboarding (create w/ backup+confirm, import), unlock, wallet view | P0-2/5 |
 | `vite.config.ts` | Cross-browser MV3 build → `dist/` (Chrome + Firefox) | P0-1 |
 
-16 unit tests cover vault round-trip / wrong-password / no-plaintext-at-rest,
-the full wallet lifecycle, and derivation parity against a known BIP-39 vector
-(incl. the canonical `m/44'/60'` ETH address as a cross-check).
+21 unit tests cover vault round-trip / wrong-password / no-plaintext-at-rest,
+the full wallet lifecycle (incl. the deferred-persistence backup gate), the
+backup-confirmation helpers, and derivation parity against a known BIP-39
+vector (incl. the canonical `m/44'/60'` ETH address as a cross-check).
+
+The popup is a real onboarding flow: **Create** (generate → back up the 12-word
+phrase → confirm a few words → set password) or **Import** (paste phrase +
+password), then a **locked → unlock** path and a wallet view listing per-chain
+addresses with a Lock button. The wallet is only persisted after the backup is
+confirmed (P0-2).
 
 ### Build & load
 
@@ -41,13 +49,8 @@ service worker), `popup/index.html` + `popup/main.js`, `icons/`.
 - **Firefox**: run `build:firefox`, then `about:debugging` → This Firefox → *Load
   Temporary Add-on* → pick `dist/manifest.json`.
 
-The popup currently renders wallet state + derived addresses (read-only); create
-a wallet from the background console (`chrome.runtime`) or via the onboarding UI
-once it lands.
-
 ### Not yet built (next phases — see PRD)
 
-- **Onboarding UI** (create/import/backup flows) — Phase 1 remainder.
 - **Send** (prepare → approve → sign → broadcast) — Phase 2. Note the PRD's
   key finding: the transaction signer is **not** free SDK reuse and must be
   ported/de-Node-ified from `src/lib/web-wallet/signing.ts` or replaced.

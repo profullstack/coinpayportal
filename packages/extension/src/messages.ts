@@ -8,7 +8,9 @@ import type { DerivedAddress } from './core/derivation.js';
 
 export type WalletRequest =
   | { type: 'getState' }
-  | { type: 'create'; password: string; words?: 12 | 24 }
+  | { type: 'beginCreate'; words?: 12 | 24 }
+  | { type: 'confirmCreate'; password: string }
+  | { type: 'cancelCreate' }
   | { type: 'import'; mnemonic: string; password: string }
   | { type: 'unlock'; password: string }
   | { type: 'lock' }

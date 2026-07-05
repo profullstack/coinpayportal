@@ -5,19 +5,70 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CoinPay</title>
     <style>
-      :root { font-family: system-ui, sans-serif; }
-      body { width: 320px; margin: 0; padding: 16px; }
-      h1 { font-size: 16px; margin: 0 0 12px; }
-      .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #eee; font-size: 13px; }
-      .chain { font-weight: 600; }
-      .addr { color: #666; font-family: ui-monospace, monospace; font-size: 11px; }
-      .muted { color: #888; font-size: 12px; }
+      :root {
+        --bg: #ffffff;
+        --fg: #1a1a1a;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --brand: #7c3aed;
+        --brand-fg: #ffffff;
+        --warn-bg: #fef3c7;
+        --warn-fg: #92400e;
+        --err: #dc2626;
+        --chip: #f3f4f6;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #17171b; --fg: #f3f4f6; --muted: #9ca3af; --border: #2b2b31;
+          --chip: #23232a; --warn-bg: #3a2e0b; --warn-fg: #fcd34d;
+        }
+      }
+      * { box-sizing: border-box; }
+      body { width: 340px; margin: 0; padding: 16px; background: var(--bg); color: var(--fg); }
+      .title { font-size: 17px; margin: 0 0 10px; }
+      .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+      .stack { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+      .row { display: flex; gap: 8px; margin-top: 14px; }
+      .row .btn { flex: 1; }
+      .btn {
+        appearance: none; border: 1px solid var(--border); background: var(--chip); color: var(--fg);
+        padding: 9px 12px; border-radius: 8px; font-size: 13px; cursor: pointer; font-weight: 500;
+      }
+      .btn:hover { border-color: var(--brand); }
+      .btn.primary { background: var(--brand); color: var(--brand-fg); border-color: var(--brand); }
+      .btn.small { padding: 5px 10px; font-size: 12px; }
+      .btn.choice { flex: 1; }
+      .btn.choice.selected { background: var(--brand); color: var(--brand-fg); border-color: var(--brand); }
+      .field { display: block; margin-top: 10px; }
+      .label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+      .input {
+        width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px;
+        background: var(--bg); color: var(--fg); font-size: 13px;
+      }
+      .textarea { resize: vertical; font-family: ui-monospace, monospace; }
+      .muted { color: var(--muted); font-size: 12px; }
+      .small { font-size: 11px; }
+      .warn { background: var(--warn-bg); color: var(--warn-fg); padding: 8px 10px; border-radius: 8px; font-size: 12px; }
+      .err { color: var(--err); font-size: 12px; }
+      .seed { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; counter-reset: w; }
+      .seed .word {
+        counter-increment: w; background: var(--chip); border: 1px solid var(--border);
+        border-radius: 6px; padding: 6px 8px; font-size: 12px; font-family: ui-monospace, monospace;
+      }
+      .seed .word::before { content: counter(w) ". "; color: var(--muted); }
+      .confirm-q { margin-top: 12px; }
+      .choices { display: flex; gap: 6px; margin-top: 4px; }
+      .accounts { display: flex; flex-direction: column; gap: 8px; }
+      .account { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+      .acct-head { display: flex; justify-content: space-between; align-items: baseline; }
+      .chain { font-weight: 600; font-size: 13px; }
+      .tokens { color: var(--muted); font-size: 11px; }
+      .addr { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; word-break: break-all; }
     </style>
   </head>
   <body>
-    <h1>CoinPay Wallet</h1>
-    <div id="status" class="muted">Loading…</div>
-    <div id="accounts"></div>
+    <div id="app"><p class="muted">Loading…</p></div>
     <script type="module" src="./main.js"></script>
   </body>
 </html>
