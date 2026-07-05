@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
 import { getStripe } from '@/lib/server/optional-deps';
+import { parsePaginationParam } from '@/lib/api/pagination';
 
 /**
  * GET /api/stripe/subscriptions/plans
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest) {
     const merchantId = decoded.userId;
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get('businessId');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100);
+    const limit = parsePaginationParam(searchParams.get('limit'), 20, { min: 1, max: 100 });
     const activeFilter = searchParams.get('active');
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

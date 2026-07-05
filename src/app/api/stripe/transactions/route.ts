@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
+import { parsePaginationParam } from '@/lib/api/pagination';
 
 /**
  * GET /api/stripe/transactions
@@ -68,8 +69,8 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const dateFrom = searchParams.get('date_from');
     const dateTo = searchParams.get('date_to');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100);
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const limit = parsePaginationParam(searchParams.get('limit'), 50, { min: 1, max: 100 });
+    const offset = parsePaginationParam(searchParams.get('offset'), 0);
 
     // Build query - include business name via join
     let query = supabase
