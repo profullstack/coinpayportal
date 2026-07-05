@@ -4,7 +4,15 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
-type PaymentTab = 'crypto' | 'card' | 'paypal';
+// 'crypto' | 'card' | 'paypal' | a manual method_id (e.g. 'zelle').
+type PaymentTab = string;
+
+interface ManualMethod {
+  method_id: string;
+  display_name: string;
+  handle: string;
+  instructions: string;
+}
 
 interface InvoicePayData {
   id: string;
@@ -17,6 +25,7 @@ interface InvoicePayData {
   payment_address: string;
   stripe_checkout_url: string | null;
   paypal_enabled: boolean;
+  manual_methods: ManualMethod[] | null;
   due_date: string | null;
   notes: string | null;
   created_at: string;
@@ -41,6 +50,7 @@ export default function InvoicePayPage() {
   const hasCardOption = !!(invoice?.stripe_checkout_url);
   const hasCryptoOption = !!(invoice?.payment_address);
   const hasPaypalOption = !!(invoice?.paypal_enabled);
+  const manualMethods: ManualMethod[] = invoice?.manual_methods || [];
 
   const copyToClipboard = async (text: string, field: string) => {
     try {
@@ -78,6 +88,7 @@ export default function InvoicePayPage() {
         if (!data.invoice.payment_address) {
           if (data.invoice.stripe_checkout_url) setActiveTab('card');
           else if (data.invoice.paypal_enabled) setActiveTab('paypal');
+          else if (data.invoice.manual_methods?.length) setActiveTab(data.invoice.manual_methods[0].method_id);
         }
         if (['paid', 'cancelled'].includes(data.invoice.status)) {
           if (pollRef.current) clearInterval(pollRef.current);
@@ -193,7 +204,7 @@ export default function InvoicePayPage() {
   const isPaid = invoice.status === 'paid';
   const isOverdue = invoice.status === 'overdue';
   const isPending = ['sent', 'overdue'].includes(invoice.status);
-  const methodCount = [hasCryptoOption, hasCardOption, hasPaypalOption].filter(Boolean).length;
+  const methodCount = [hasCryptoOption, hasCardOption, hasPaypalOption].filter(Boolean).length + manualMethods.length;
   const showTabs = methodCount > 1 && isPending;
 
   return (
@@ -298,6 +309,20 @@ export default function InvoicePayPage() {
                   </span>
                 </button>
               )}
+              {manualMethods.map((m) => (
+                <button
+                  key={m.method_id}
+                  onClick={() => setActiveTab(m.method_id)}
+                  className={`flex-1 py-3 px-3 text-sm font-medium transition-colors ${
+                    activeTab === m.method_id
+                      ? 'text-emerald-300 border-b-2 border-emerald-400 bg-emerald-500/10'
+                      : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700/50'
+                  }`}
+                  data-testid={`tab-${m.method_id}`}
+                >
+                  {m.display_name}
+                </button>
+              ))}
             </div>
           )}
 
@@ -393,6 +418,42 @@ export default function InvoicePayPage() {
                   </p>
                 </div>
               </div>
+            )}
+
+            {/* === MANUAL P2P TABS (Venmo / Cash App / Zelle) === */}
+            {manualMethods.map((m) =>
+              activeTab === m.method_id && isPending ? (
+                <div key={m.method_id} className="space-y-4" data-testid={`manual-section-${m.method_id}`}>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-2">
+                      Send {new Intl.NumberFormat('en-US', { style: 'currency', currency: invoice.currency }).format(parseFloat(invoice.amount))} via {m.display_name} to:
+                    </label>
+                    <div className="bg-gray-900/50 rounded-xl p-4">
+                      <p className="font-mono text-sm text-white break-all mb-3">{m.handle}</p>
+                      <button
+                        onClick={() => copyToClipboard(m.handle, `handle-${m.method_id}`)}
+                        className={`w-full py-3 px-4 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all ${
+                          copiedField === `handle-${m.method_id}`
+                            ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                            : 'bg-emerald-600 text-white hover:bg-emerald-500'
+                        }`}
+                      >
+                        {copiedField === `handle-${m.method_id}` ? '✓ Copied!' : `📋 Copy ${m.display_name} handle`}
+                      </button>
+                    </div>
+                  </div>
+                  {m.instructions && (
+                    <div className="bg-gray-900/50 rounded-xl p-4">
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Instructions</label>
+                      <p className="text-white text-sm">{m.instructions}</p>
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-500 text-center">
+                    After you send the payment, {invoice.businesses?.name || 'the merchant'} will confirm it and mark this
+                    invoice as paid. You don&apos;t need to do anything else here.
+                  </p>
+                </div>
+              ) : null
             )}
 
             {/* === CRYPTO TAB === */}

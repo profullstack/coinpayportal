@@ -136,12 +136,14 @@ export default function InvoiceDetailPage() {
   };
 
   const handleMarkPaid = async () => {
+    if (!confirm('Mark this invoice as paid? Use this once you have confirmed you received the payment (e.g. a Zelle/Venmo/Cash App transfer).')) return;
     setActionLoading('paid');
-    const txHash = prompt('Enter transaction hash (optional):');
-    const result = await authFetch(`/api/invoices/${invoiceId}`, {
-      method: 'PUT',
+    // Dedicated endpoint: records the manual rail and fires the invoice.paid
+    // webhook to the merchant, which the generic status PUT does not do.
+    const result = await authFetch(`/api/invoices/${invoiceId}/mark-paid`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'paid', tx_hash: txHash || undefined }),
+      body: JSON.stringify({ method: 'manual' }),
     }, router);
     if (result?.data.success) {
       setInvoice(result.data.invoice);
@@ -330,7 +332,7 @@ export default function InvoiceDetailPage() {
                 </button>
               )}
 
-              {invoice.status === 'sent' && invoice.payment_address && (
+              {['sent', 'overdue'].includes(invoice.status) && (
                 <Link
                   href={`/invoices/${invoice.id}/pay`}
                   className="block w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium text-center transition-colors"

@@ -17,7 +17,7 @@ export interface Wallet {
   created_at: string;
 }
 
-export type PaymentMode = 'crypto' | 'card' | 'paypal' | 'webhooks';
+export type PaymentMode = 'crypto' | 'card' | 'third_party' | 'webhooks';
 
 export type TabType =
   | 'general'
@@ -33,6 +33,7 @@ export type TabType =
   | 'stripe-webhooks'
   | 'stripe-api-keys'
   | 'paypal-connect'
+  | 'third-party'
   | 'crypto-transactions'
   | 'crypto-escrows'
   | 'crypto-payouts'
