@@ -26,6 +26,9 @@ export function ThirdPartyTab({ businessId }: ThirdPartyTabProps) {
   const [manual, setManual] = useState<ManualMethodState[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState('');
+
   const fetchManual = useCallback(async () => {
     try {
       const result = await authFetch(`/api/businesses/${businessId}/payment-methods/manual`, {}, router);
@@ -34,6 +37,29 @@ export function ThirdPartyTab({ businessId }: ThirdPartyTabProps) {
       if (response.ok && data.success) setManual(data.methods || []);
     } catch { /* ignore */ }
   }, [businessId, router]);
+
+  const importDefaults = useCallback(async () => {
+    setImporting(true);
+    setImportMsg('');
+    try {
+      const result = await authFetch(`/api/businesses/${businessId}/payment-methods/manual/import`, {
+        method: 'POST',
+      }, router);
+      if (result?.response.ok && result.data.success) {
+        setImportMsg(
+          result.data.imported > 0
+            ? `Imported ${result.data.imported} method${result.data.imported === 1 ? '' : 's'} from your account defaults.`
+            : 'No account defaults to import yet — set them in Settings → Payment Methods.'
+        );
+        await fetchManual();
+      } else {
+        setImportMsg(result?.data.error || 'Failed to import.');
+      }
+    } catch {
+      setImportMsg('Failed to import.');
+    }
+    setImporting(false);
+  }, [businessId, router, fetchManual]);
 
   useEffect(() => {
     const load = async () => {
@@ -55,11 +81,23 @@ export function ThirdPartyTab({ businessId }: ThirdPartyTabProps) {
       </section>
 
       <section>
-        <h3 className="text-lg font-semibold text-gray-100 mb-1">Manual P2P methods</h3>
-        <p className="text-xs text-gray-500 mb-4">
+        <div className="flex items-start justify-between gap-4 mb-1">
+          <h3 className="text-lg font-semibold text-gray-100">Manual P2P methods</h3>
+          <button
+            onClick={importDefaults}
+            disabled={importing}
+            className="shrink-0 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-medium rounded-lg disabled:opacity-50"
+            title="Apply the handles saved on your account to this business"
+          >
+            {importing ? 'Importing…' : '⬇ Import account defaults'}
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mb-2">
           Venmo, Cash App, and Zelle. Customers pay you directly with your handle and you mark the
           invoice paid — no CoinPay fee, and no account linking required. Each is off until you save a handle.
+          Set handles once in <a href="/settings/payment-methods" className="text-purple-400 hover:text-purple-300 underline">Settings → Payment Methods</a> and import them here.
         </p>
+        {importMsg && <p className="text-xs text-emerald-400 mb-3">{importMsg}</p>}
         {loading ? (
           <div className="text-center py-8">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600 mx-auto"></div>
