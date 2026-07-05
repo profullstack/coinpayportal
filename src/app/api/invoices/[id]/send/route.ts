@@ -7,6 +7,7 @@ import { sendEmail } from '@/lib/email';
 import { invoiceSentTemplate } from '@/lib/email/invoice-templates';
 import { createInvoiceStripeCheckout } from '@/lib/payments/invoice-stripe';
 import { businessHasPaypal } from '@/lib/paypal/accounts';
+import { getEnabledManualMethods } from '@/lib/payment-methods/manual';
 
 /**
  * POST /api/invoices/[id]/send
@@ -113,6 +114,15 @@ export async function POST(
       console.error('Failed to check PayPal availability for invoice:', paypalError);
     }
 
+    // Snapshot the business's enabled manual P2P methods (Venmo/Cash App/Zelle)
+    // with their handles so the pay page can show the customer where to send.
+    let manualMethods: Awaited<ReturnType<typeof getEnabledManualMethods>> = [];
+    try {
+      manualMethods = await getEnabledManualMethods(supabase, invoice.business_id);
+    } catch (manualError) {
+      console.error('Failed to resolve manual methods for invoice:', manualError);
+    }
+
     // Update invoice
     const { data: updatedInvoice, error: updateError } = await supabase
       .from('invoices')
@@ -128,6 +138,7 @@ export async function POST(
         ...(stripeCheckoutUrl && { stripe_checkout_url: stripeCheckoutUrl }),
         ...(stripeSessionId && { stripe_session_id: stripeSessionId }),
         paypal_enabled: paypalEnabled,
+        manual_methods: manualMethods,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
