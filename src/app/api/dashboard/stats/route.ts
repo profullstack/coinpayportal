@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/server';
 import { verifyToken } from '@/lib/auth/jwt';
+import { listAccessibleBusinessIds } from '@/lib/auth/authz';
 import { getEntitlements } from '@/lib/entitlements/service';
 import { getJwtSecret } from '@/lib/secrets';
 
@@ -54,12 +55,19 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const filterBusinessId = searchParams.get('business_id');
 
-    // Get merchant's businesses (with names for dropdown)
-    const { data: businesses, error: businessError } = await supabaseAdmin
-      .from('businesses')
-      .select('id, name')
-      .eq('merchant_id', merchantId)
-      .order('name');
+    // Every business this merchant can access — owned plus those granted via org
+    // or per-business team membership. Owner-only scoping here hid the client's
+    // business from invited team members (empty dropdown / only their own data).
+    const accessibleIds = await listAccessibleBusinessIds(supabaseAdmin, merchantId);
+
+    // Get accessible businesses (with names for dropdown)
+    const { data: businesses, error: businessError } = accessibleIds.length === 0
+      ? { data: [], error: null }
+      : await supabaseAdmin
+          .from('businesses')
+          .select('id, name')
+          .in('id', accessibleIds)
+          .order('name');
 
     if (businessError) {
       console.error('Business fetch error:', businessError);

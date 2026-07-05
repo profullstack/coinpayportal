@@ -18,7 +18,12 @@ vi.mock('@/lib/secrets', () => ({
   getJwtSecret: vi.fn(() => 'test-secret'),
 }));
 
+vi.mock('@/lib/auth/authz', () => ({
+  listAccessibleBusinessIds: vi.fn(),
+}));
+
 import { verifyToken } from '@/lib/auth/jwt';
+import { listAccessibleBusinessIds } from '@/lib/auth/authz';
 
 function makeChain(resolvedValue: { data: any; error: any; count?: number }) {
   const chain: any = {};
@@ -50,6 +55,8 @@ describe('GET /api/stripe/transactions', () => {
     vi.clearAllMocks();
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+    // Default: caller can access biz-1 (owned or via team membership).
+    (listAccessibleBusinessIds as any).mockResolvedValue(['biz-1']);
   });
 
   it('should require authorization header', async () => {
@@ -91,16 +98,10 @@ describe('GET /api/stripe/transactions', () => {
     expect(response.status).toBe(200);
   });
 
-  it('should filter by business_id when provided', async () => {
+  it('should filter by business_id when the caller can access it', async () => {
     (verifyToken as any).mockReturnValue({ userId: 'merchant-1' });
-    
-    mockFrom.mockImplementation((table: string) => {
-      if (table === 'businesses') {
-        return makeChain({ data: { id: 'biz-1' }, error: null });
-      }
-      // stripe_transactions
-      return makeChain({ data: mockTransactions, error: null, count: 1 });
-    });
+    (listAccessibleBusinessIds as any).mockResolvedValue(['biz-1']);
+    mockFrom.mockImplementation(() => makeChain({ data: mockTransactions, error: null, count: 1 }));
 
     const request = new NextRequest('http://localhost:3000/api/stripe/transactions?business_id=biz-1', {
       headers: { authorization: 'Bearer valid' },
@@ -109,15 +110,29 @@ describe('GET /api/stripe/transactions', () => {
     expect(response.status).toBe(200);
   });
 
-  it('should reject access to non-owned business', async () => {
+  it('should reject access to a business the caller cannot access', async () => {
     (verifyToken as any).mockReturnValue({ userId: 'merchant-1' });
-    mockFrom.mockImplementation(() => makeChain({ data: null, error: { code: 'PGRST116', message: 'not found' } }));
+    (listAccessibleBusinessIds as any).mockResolvedValue(['biz-1']);
+    mockFrom.mockImplementation(() => makeChain({ data: mockTransactions, error: null, count: 1 }));
 
     const request = new NextRequest('http://localhost:3000/api/stripe/transactions?business_id=not-mine', {
       headers: { authorization: 'Bearer valid' },
     });
     const response = await GET(request);
     expect(response.status).toBe(403);
+  });
+
+  it('should return empty when the caller can access no businesses', async () => {
+    (verifyToken as any).mockReturnValue({ userId: 'merchant-1' });
+    (listAccessibleBusinessIds as any).mockResolvedValue([]);
+
+    const request = new NextRequest('http://localhost:3000/api/stripe/transactions', {
+      headers: { authorization: 'Bearer valid' },
+    });
+    const response = await GET(request);
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.transactions).toEqual([]);
   });
 
   it('should filter by status when provided', async () => {
