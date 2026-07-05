@@ -23,6 +23,7 @@ const LOCAL_VAULT = 'vault';
 const LOCAL_ACCOUNTS = 'accounts';
 const LOCAL_META = 'meta';
 const SESSION_SEED = 'seed';
+const SESSION_PENDING = 'pendingMnemonic';
 
 export interface WalletMeta {
   createdAt: number;
@@ -52,14 +53,45 @@ export class WalletService {
     return (await this.session.get<string>(SESSION_SEED)) !== undefined;
   }
 
-  /** Create a brand-new wallet. Returns the mnemonic once for backup. */
-  async create(password: string, words: 12 | 24 = 12): Promise<CreateResult> {
+  /**
+   * Begin wallet creation: generate a mnemonic and derive a preview of the
+   * addresses, but DO NOT persist anything yet. The mnemonic is held in the
+   * session so the UI can show the backup + confirmation screens. The wallet
+   * is not usable until `confirmCreate()` (PRD P0-2).
+   */
+  async beginCreate(words: 12 | 24 = 12): Promise<CreateResult> {
     if (await this.isInitialized()) {
       throw new Error('A wallet already exists; import/overwrite is a separate flow');
     }
     const mnemonic: string = generateMnemonic(words);
-    const accounts = await this.#persistNewWallet(mnemonic, password);
+    const accounts = deriveAllAddresses(seedFromMnemonic(mnemonic), this.chains);
+    await this.session.set(SESSION_PENDING, mnemonic);
     return { mnemonic, accounts };
+  }
+
+  /** Finalize a pending creation once the user has confirmed their backup. */
+  async confirmCreate(password: string): Promise<DerivedAddress[]> {
+    const mnemonic = await this.session.get<string>(SESSION_PENDING);
+    if (!mnemonic) throw new Error('No pending wallet to confirm');
+    const accounts = await this.#persistNewWallet(mnemonic, password);
+    await this.session.remove(SESSION_PENDING);
+    return accounts;
+  }
+
+  /** Discard an in-progress creation. */
+  async cancelCreate(): Promise<void> {
+    await this.session.remove(SESSION_PENDING);
+  }
+
+  /**
+   * Create a wallet in one step (begin + confirm). Convenience for programmatic
+   * use / tests; the UI uses the two-step begin/confirm flow so the backup is
+   * confirmed before the wallet is persisted.
+   */
+  async create(password: string, words: 12 | 24 = 12): Promise<CreateResult> {
+    const result = await this.beginCreate(words);
+    await this.confirmCreate(password);
+    return result;
   }
 
   /** Import an existing BIP-39 mnemonic. */
