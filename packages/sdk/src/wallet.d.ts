@@ -252,6 +252,17 @@ export declare function validateMnemonic(mnemonic: string): boolean;
 export declare function getDerivationPath(chain: string, index?: number): string;
 
 /**
+ * Derive the address for a chain from a raw BIP-39 seed.
+ * (Standalone counterpart to `WalletClient.deriveAddress`; exported from
+ * wallet.js but previously missing from these type declarations.)
+ *
+ * @param seed - Raw seed bytes, e.g. bip39.mnemonicToSeedSync(mnemonic)
+ * @param chain - Chain id (e.g. 'BTC', 'ETH', 'SOL', 'POL', 'BCH')
+ * @param index - Address index (default 0)
+ */
+export declare function deriveAddress(seed: Uint8Array, chain: string, index?: number): string;
+
+/**
  * Restore a seed from encrypted backup
  */
 export declare function restoreFromBackup(encryptedBackup: string, password: string): Promise<string>;

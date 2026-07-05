@@ -1,0 +1,21 @@
+{
+  "name": "@profullstack/coinpay-extension",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "CoinPay cross-browser (MV3) wallet + x402 payment extension. See docs/BROWSER_EXTENSION_PRD.md.",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@profullstack/coinpay": "workspace:*",
+    "@scure/bip39": "^1.4.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.300",
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0"
+  }
+}
