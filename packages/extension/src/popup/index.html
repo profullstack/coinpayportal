@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CoinPay</title>
+    <style>
+      :root { font-family: system-ui, sans-serif; }
+      body { width: 320px; margin: 0; padding: 16px; }
+      h1 { font-size: 16px; margin: 0 0 12px; }
+      .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #eee; font-size: 13px; }
+      .chain { font-weight: 600; }
+      .addr { color: #666; font-family: ui-monospace, monospace; font-size: 11px; }
+      .muted { color: #888; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>CoinPay Wallet</h1>
+    <div id="status" class="muted">Loading…</div>
+    <div id="accounts"></div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
