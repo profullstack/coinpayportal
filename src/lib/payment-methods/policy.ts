@@ -79,6 +79,7 @@ export async function setMerchantMethodSetting(
     maxOrderValue?: number | null;
     currencyAllowlist?: string[] | null;
     displayOrder?: number | null;
+    config?: Record<string, unknown>;
   }
 ): Promise<PolicyResult> {
   if (patch.enabled === true) {
@@ -107,6 +108,7 @@ export async function setMerchantMethodSetting(
   if (patch.maxOrderValue !== undefined) row.max_order_value = patch.maxOrderValue;
   if (patch.currencyAllowlist !== undefined) row.currency_allowlist = patch.currencyAllowlist;
   if (patch.displayOrder !== undefined) row.display_order = patch.displayOrder;
+  if (patch.config !== undefined) row.config = patch.config;
 
   const { error } = await supabase
     .from('merchant_payment_settings')
@@ -115,6 +117,40 @@ export async function setMerchantMethodSetting(
 
   invalidateBusiness(businessId);
   return { ok: true };
+}
+
+/**
+ * Set up a "manual" 3rd-party method (Venmo / Cash App / Zelle) for a store in
+ * one call: unlock it for the business (these carry no compliance gate because
+ * CoinPay never touches the funds), then store the merchant's handle and
+ * enable/disable it. Passing an empty handle or enabled=false turns it off.
+ */
+export async function configureManualMethod(
+  supabase: SupabaseClient,
+  businessId: string,
+  methodId: string,
+  input: { handle?: string; instructions?: string; enabled: boolean }
+): Promise<PolicyResult> {
+  const method = await getCatalogMethod(supabase, methodId);
+  if (!method) return { ok: false, error: `Unknown payment method: ${methodId}`, status: 404 };
+  if (!method.published || method.force_disabled) {
+    return { ok: false, error: `Method ${methodId} is not available.`, status: 409 };
+  }
+
+  const handle = (input.handle || '').trim();
+  const enabling = input.enabled && handle.length > 0;
+  if (input.enabled && !handle) {
+    return { ok: false, error: 'A handle is required to enable this method.', status: 400 };
+  }
+
+  // Manual methods self-unlock at the business layer (no underwriting needed).
+  const unlock = await setBusinessMethodStatus(supabase, businessId, methodId, 'unlocked');
+  if (!unlock.ok) return unlock;
+
+  return setMerchantMethodSetting(supabase, businessId, methodId, {
+    enabled: enabling,
+    config: { handle, instructions: (input.instructions || '').trim() },
+  });
 }
 
 /**
