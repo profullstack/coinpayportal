@@ -19,16 +19,34 @@ derivation so addresses match the CoinPay web wallet exactly.
 | `src/core/wallet.ts` | Create / import / lock / unlock lifecycle; no plaintext seed at rest | P0-2/3 |
 | `src/background/index.ts` | Service worker: storage wiring, message router, idle auto-lock | P0-3/6 |
 | `src/popup/*` | Read-only popup rendering wallet state + addresses | P0-5 |
+| `vite.config.ts` | Cross-browser MV3 build → `dist/` (Chrome + Firefox) | P0-1 |
 
 16 unit tests cover vault round-trip / wrong-password / no-plaintext-at-rest,
 the full wallet lifecycle, and derivation parity against a known BIP-39 vector
 (incl. the canonical `m/44'/60'` ETH address as a cross-check).
 
+### Build & load
+
+```bash
+pnpm --filter @profullstack/coinpay-extension build           # -> dist/ (Chrome MV3)
+pnpm --filter @profullstack/coinpay-extension build:firefox   # -> dist/ (Firefox MV3)
+pnpm --filter @profullstack/coinpay-extension dev             # rebuild on change
+```
+
+`dist/` layout: `manifest.json`, `background/index.js` (self-contained ES module
+service worker), `popup/index.html` + `popup/main.js`, `icons/`.
+
+- **Chrome/Edge/Brave**: `chrome://extensions` → enable Developer mode → *Load
+  unpacked* → select `packages/extension/dist`.
+- **Firefox**: run `build:firefox`, then `about:debugging` → This Firefox → *Load
+  Temporary Add-on* → pick `dist/manifest.json`.
+
+The popup currently renders wallet state + derived addresses (read-only); create
+a wallet from the background console (`chrome.runtime`) or via the onboarding UI
+once it lands.
+
 ### Not yet built (next phases — see PRD)
 
-- **Build/bundling**: a bundler (Vite + `@crxjs`/`wxt`) to compile TS → `dist/`
-  and assemble per-browser manifests. Manifests live in `manifest/`; wiring the
-  bundler is the immediate next infra task.
 - **Onboarding UI** (create/import/backup flows) — Phase 1 remainder.
 - **Send** (prepare → approve → sign → broadcast) — Phase 2. Note the PRD's
   key finding: the transaction signer is **not** free SDK reuse and must be
