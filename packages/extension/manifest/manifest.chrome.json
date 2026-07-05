@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "CoinPay Wallet",
+  "description": "Non-custodial multi-chain CoinPay wallet with one-click x402 payments.",
+  "version": "0.0.1",
+  "action": {
+    "default_title": "CoinPay",
+    "default_popup": "popup/index.html"
+  },
+  "background": {
+    "service_worker": "background/index.js",
+    "type": "module"
+  },
+  "permissions": ["storage", "alarms"],
+  "host_permissions": ["https://coinpayportal.com/*"],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}
