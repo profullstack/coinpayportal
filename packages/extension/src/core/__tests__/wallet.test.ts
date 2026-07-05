@@ -65,6 +65,28 @@ describe('WalletService lifecycle', () => {
     await expect(ctx.svc.create('pw')).rejects.toThrow(/already exists/i);
   });
 
+  it('beginCreate does not persist until confirmCreate (backup gate)', async () => {
+    const { mnemonic, accounts } = await ctx.svc.beginCreate();
+    expect(mnemonic.split(' ')).toHaveLength(12);
+    expect(accounts).toHaveLength(5);
+    // Not usable yet: no vault persisted.
+    expect(await ctx.svc.isInitialized()).toBe(false);
+    expect(Object.keys(ctx.local.snapshot())).not.toContain('vault');
+
+    await ctx.svc.confirmCreate('pw');
+    expect(await ctx.svc.isInitialized()).toBe(true);
+    expect(await ctx.svc.isUnlocked()).toBe(true);
+    // Preview addresses match the persisted ones.
+    expect(await ctx.svc.getAccounts()).toEqual(accounts);
+  });
+
+  it('cancelCreate discards a pending creation', async () => {
+    await ctx.svc.beginCreate();
+    await ctx.svc.cancelCreate();
+    await expect(ctx.svc.confirmCreate('pw')).rejects.toThrow(/no pending/i);
+    expect(await ctx.svc.isInitialized()).toBe(false);
+  });
+
   it('import is deterministic for a given mnemonic', async () => {
     await ctx.svc.import(TEST_MNEMONIC, 'pw');
     const a = await ctx.svc.getAccounts();

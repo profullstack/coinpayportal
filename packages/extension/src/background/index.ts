@@ -37,11 +37,18 @@ async function handle(req: WalletRequest): Promise<WalletResponse> {
     switch (req.type) {
       case 'getState':
         return { ok: true, state: { initialized: await wallet.isInitialized(), unlocked: await wallet.isUnlocked() } };
-      case 'create': {
-        const { mnemonic, accounts } = await wallet.create(req.password, req.words ?? 12);
-        scheduleAutoLock();
+      case 'beginCreate': {
+        const { mnemonic, accounts } = await wallet.beginCreate(req.words ?? 12);
         return { ok: true, mnemonic, accounts };
       }
+      case 'confirmCreate': {
+        const accounts = await wallet.confirmCreate(req.password);
+        scheduleAutoLock();
+        return { ok: true, accounts };
+      }
+      case 'cancelCreate':
+        await wallet.cancelCreate();
+        return { ok: true, state: { initialized: await wallet.isInitialized(), unlocked: await wallet.isUnlocked() } };
       case 'import': {
         const accounts = await wallet.import(req.mnemonic, req.password);
         scheduleAutoLock();
