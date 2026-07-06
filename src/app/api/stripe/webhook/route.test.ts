@@ -145,6 +145,65 @@ describe('POST /api/stripe/webhook', () => {
     expect(data.received).toBe(true);
   });
 
+  it('attributes payment_intent.succeeded via the connected account when metadata is empty', async () => {
+    // Checkout copies metadata only onto the session, so payment_intent.succeeded
+    // often has empty metadata. The handler must resolve business/merchant from
+    // the destination account instead of writing a null/null (invisible) row.
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    mockFromChain({
+      stripe_transactions: { upsert },
+      stripe_accounts: {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: { business_id: 'biz_resolved' } }),
+          }),
+        }),
+      },
+      businesses: {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: { merchant_id: 'merch_resolved' } }),
+          }),
+        }),
+      },
+    });
+
+    const paymentIntent = {
+      id: 'pi_nometa',
+      amount: 15000,
+      currency: 'usd',
+      metadata: {},
+      on_behalf_of: 'acct_connected',
+    };
+
+    mockStripe.webhooks.constructEvent.mockReturnValue({
+      type: 'payment_intent.succeeded',
+      data: { object: paymentIntent },
+    });
+    mockStripe.charges.list.mockResolvedValue({
+      data: [{ id: 'ch_nometa', balance_transaction: 'txn_nometa' }],
+    });
+    mockStripe.balanceTransactions.retrieve.mockResolvedValue({ fee: 100 });
+
+    const request = new NextRequest('http://localhost:3000/api/stripe/webhook', {
+      method: 'POST',
+      body: JSON.stringify(paymentIntent),
+      headers: { 'stripe-signature': 'valid_sig' },
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        merchant_id: 'merch_resolved',
+        business_id: 'biz_resolved',
+        stripe_payment_intent_id: 'pi_nometa',
+        status: 'completed',
+      }),
+      expect.objectContaining({ onConflict: 'stripe_payment_intent_id' }),
+    );
+  });
+
   it('should handle account.updated event', async () => {
     const account = {
       id: 'acct_test123',

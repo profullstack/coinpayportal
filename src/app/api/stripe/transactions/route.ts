@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
 import { parsePaginationParam } from '@/lib/api/pagination';
+import { listAccessibleBusinessIds } from '@/lib/auth/authz';
 
 /**
  * GET /api/stripe/transactions
@@ -72,6 +73,16 @@ export async function GET(request: NextRequest) {
     const limit = parsePaginationParam(searchParams.get('limit'), 50, { min: 1, max: 100 });
     const offset = parsePaginationParam(searchParams.get('offset'), 0);
 
+    // Every business this user can access — owned plus those granted via org or
+    // per-business team membership. Scoping the rows by business_id (rather than
+    // merchant_id) does double duty: it lets invited team members see the client's
+    // transactions, AND surfaces rows the webhook wrote with a null merchant_id
+    // (charges made without CoinPay metadata) that the old merchant_id filter hid.
+    const accessibleBusinessIds = await listAccessibleBusinessIds(supabase, merchantId);
+    if (accessibleBusinessIds.length === 0) {
+      return NextResponse.json({ success: true, transactions: [] }, { status: 200 });
+    }
+
     // Build query - include business name via join
     let query = supabase
       .from('stripe_transactions')
@@ -94,21 +105,14 @@ export async function GET(request: NextRequest) {
           name
         )
       `)
-      .eq('merchant_id', merchantId)
+      .in('business_id', accessibleBusinessIds)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
     // Apply filters
     if (businessId) {
-      // Verify the business belongs to this merchant
-      const { data: business, error: businessError } = await supabase
-        .from('businesses')
-        .select('id')
-        .eq('id', businessId)
-        .eq('merchant_id', merchantId)
-        .single();
-
-      if (businessError || !business) {
+      // Verify the caller can access the requested business (owner or team member).
+      if (!accessibleBusinessIds.includes(businessId)) {
         return NextResponse.json(
           { success: false, error: 'Business not found or access denied' },
           { status: 403 }
@@ -155,14 +159,30 @@ export async function GET(request: NextRequest) {
       for (const a of accounts || []) {
         if (a.email) accountMap[a.business_id] = a.email;
       }
-      // Also get merchant email
-      const { data: merchant } = await supabase
-        .from('merchants')
-        .select('id, email')
-        .eq('id', merchantId)
-        .single();
-      if (merchant?.email) {
-        for (const bid of bizIds) merchantEmailMap[bid] = merchant.email;
+      // Resolve the OWNING merchant's email per business (not the caller's — a
+      // team member viewing the client's transactions must see the client's email).
+      const { data: bizOwners } = await supabase
+        .from('businesses')
+        .select('id, merchant_id')
+        .in('id', bizIds);
+      const ownerByBiz: Record<string, string> = {};
+      const ownerIds = [...new Set((bizOwners || []).map(b => b.merchant_id).filter(Boolean))];
+      for (const b of bizOwners || []) {
+        if (b.merchant_id) ownerByBiz[b.id] = b.merchant_id;
+      }
+      if (ownerIds.length > 0) {
+        const { data: owners } = await supabase
+          .from('merchants')
+          .select('id, email')
+          .in('id', ownerIds);
+        const emailByMerchant: Record<string, string> = {};
+        for (const m of owners || []) {
+          if (m.email) emailByMerchant[m.id] = m.email;
+        }
+        for (const bid of bizIds) {
+          const email = emailByMerchant[ownerByBiz[bid]];
+          if (email) merchantEmailMap[bid] = email;
+        }
       }
     }
 

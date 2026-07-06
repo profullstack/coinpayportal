@@ -19,12 +19,12 @@ vi.mock('@/lib/secrets', () => ({
   getJwtSecret: vi.fn(() => 'test-secret'),
 }));
 
-vi.mock('@/lib/business/service', () => ({
-  listBusinesses: vi.fn(),
+vi.mock('@/lib/auth/authz', () => ({
+  listAccessibleBusinessIds: vi.fn(),
 }));
 
 import { verifyToken } from '@/lib/auth/jwt';
-import { listBusinesses } from '@/lib/business/service';
+import { listAccessibleBusinessIds } from '@/lib/auth/authz';
 
 function makeChain(resolvedValue: { data: any; error: any }) {
   const chain: any = {};
@@ -75,7 +75,7 @@ describe('GET /api/stripe/analytics', () => {
       headers: { authorization: 'Bearer valid-token' },
     });
     (verifyToken as any).mockReturnValue({ userId: 'merchant-1' });
-    (listBusinesses as any).mockResolvedValue({ success: true, businesses: [] });
+    (listAccessibleBusinessIds as any).mockResolvedValue([]);
 
     const response = await GET(request);
     expect(response.status).toBe(200);
@@ -89,10 +89,7 @@ describe('GET /api/stripe/analytics', () => {
       headers: { authorization: 'Bearer valid-token' },
     });
     (verifyToken as any).mockReturnValue({ userId: 'merchant-1' });
-    (listBusinesses as any).mockResolvedValue({
-      success: true,
-      businesses: [{ id: 'biz-1' }],
-    });
+    (listAccessibleBusinessIds as any).mockResolvedValue(['biz-1']);
 
     let callCount = 0;
     mockFrom.mockImplementation(() => {
@@ -141,10 +138,7 @@ describe('GET /api/stripe/analytics', () => {
       headers: { authorization: 'Bearer valid-token' },
     });
     (verifyToken as any).mockReturnValue({ userId: 'merchant-1' });
-    (listBusinesses as any).mockResolvedValue({
-      success: true,
-      businesses: [{ id: 'biz-1' }],
-    });
+    (listAccessibleBusinessIds as any).mockResolvedValue(['biz-1']);
 
     let callCount = 0;
     mockFrom.mockImplementation(() => {
@@ -227,10 +221,7 @@ describe('GET /api/stripe/analytics', () => {
       headers: { authorization: 'Bearer valid-token' },
     });
     (verifyToken as any).mockReturnValue({ userId: 'merchant-1' });
-    (listBusinesses as any).mockResolvedValue({
-      success: true,
-      businesses: [{ id: 'biz-1' }, { id: 'biz-2' }],
-    });
+    (listAccessibleBusinessIds as any).mockResolvedValue(['biz-1', 'biz-2']);
     mockFrom.mockImplementation(() => makeChain({ data: [], error: null }));
 
     const response = await GET(request);
@@ -242,10 +233,7 @@ describe('GET /api/stripe/analytics', () => {
       headers: { authorization: 'Bearer valid-token' },
     });
     (verifyToken as any).mockReturnValue({ userId: 'merchant-1' });
-    (listBusinesses as any).mockResolvedValue({
-      success: true,
-      businesses: [{ id: 'biz-1' }],
-    });
+    (listAccessibleBusinessIds as any).mockResolvedValue(['biz-1']);
 
     const response = await GET(request);
     expect(response.status).toBe(404);
@@ -256,10 +244,7 @@ describe('GET /api/stripe/analytics', () => {
       headers: { authorization: 'Bearer valid-token' },
     });
     (verifyToken as any).mockReturnValue({ userId: 'merchant-1' });
-    (listBusinesses as any).mockResolvedValue({
-      success: true,
-      businesses: [{ id: 'biz-1' }],
-    });
+    (listAccessibleBusinessIds as any).mockResolvedValue(['biz-1']);
     mockFrom.mockImplementation(() => makeChain({ data: null, error: { message: 'db error' } }));
 
     const response = await GET(request);

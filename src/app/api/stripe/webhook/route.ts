@@ -323,8 +323,8 @@ async function handlePaymentIntentFailed(paymentIntent: any) {
 async function handlePaymentSucceeded(paymentIntent: any) {
   const supabase = getSupabase();
   try {
-    const merchantId = paymentIntent.metadata?.merchant_id;
-    const businessId = paymentIntent.metadata?.business_id;
+    let merchantId = paymentIntent.metadata?.merchant_id;
+    let businessId = paymentIntent.metadata?.business_id;
     const platformFee = parseInt(paymentIntent.metadata?.platform_fee_amount || '0');
     // Get the charge details for fees
     const stripe = await getStripe();
@@ -335,6 +335,38 @@ async function handlePaymentSucceeded(paymentIntent: any) {
 
     const charge = charges.data[0];
     if (!charge) return;
+
+    // Fallback attribution. Stripe Checkout only copies metadata onto the
+    // *session*, so payment_intent.succeeded frequently arrives with EMPTY
+    // metadata — which previously produced stripe_transactions rows with null
+    // merchant_id/business_id that the dashboard silently hid (Stripe showed
+    // more card payments than the dashboard did). Resolve the owner from the
+    // connected (destination) account instead.
+    if (!businessId || !merchantId) {
+      const connectedAccount =
+        paymentIntent.on_behalf_of ||
+        (charge.destination as string) ||
+        paymentIntent.transfer_data?.destination ||
+        (charge as any).transfer_data?.destination;
+      if (connectedAccount) {
+        const { data: acct } = await supabase
+          .from('stripe_accounts')
+          .select('business_id')
+          .eq('stripe_account_id', connectedAccount)
+          .maybeSingle();
+        if (acct?.business_id) {
+          businessId = businessId || acct.business_id;
+          if (!merchantId) {
+            const { data: biz } = await supabase
+              .from('businesses')
+              .select('merchant_id')
+              .eq('id', acct.business_id)
+              .maybeSingle();
+            merchantId = biz?.merchant_id;
+          }
+        }
+      }
+    }
 
     const stripeFee = charge.balance_transaction
       ? (await stripe.balanceTransactions.retrieve(charge.balance_transaction as string)).fee

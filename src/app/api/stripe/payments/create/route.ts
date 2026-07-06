@@ -85,6 +85,11 @@ export async function POST(request: NextRequest) {
           transfer_data: {
             destination: stripeAccount.stripe_account_id,
           },
+          // Propagate business/merchant onto the PaymentIntent too. Checkout only
+          // copies metadata to the session, so payment_intent.succeeded otherwise
+          // fires with empty metadata and handlePaymentSucceeded wrote null
+          // merchant_id/business_id rows that were invisible to the dashboard.
+          metadata: sessionMetadata,
         },
         success_url: successUrl || `${process.env.NEXT_PUBLIC_APP_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: cancelUrl || `${process.env.NEXT_PUBLIC_APP_URL}/payment/cancel`,

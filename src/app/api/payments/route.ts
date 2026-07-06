@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
-import { listBusinesses } from '@/lib/business/service';
+import { listAccessibleBusinessIds } from '@/lib/auth/authz';
 import { getJwtSecret } from '@/lib/secrets';
 // Re-export POST from create sub-route so POST /api/payments works
 export { POST } from './create/route';
@@ -64,16 +64,10 @@ export async function GET(request: NextRequest) {
     const dateFrom = searchParams.get('date_from');
     const dateTo = searchParams.get('date_to');
 
-    // First, get all businesses for this user to ensure they can only see their own payments
-    const businessResult = await listBusinesses(supabase, decoded.userId);
-    if (!businessResult.success || !businessResult.businesses) {
-      return NextResponse.json(
-        { success: false, error: 'Failed to fetch businesses' },
-        { status: 400 }
-      );
-    }
-
-    const userBusinessIds = businessResult.businesses.map(b => b.id);
+    // All businesses this user can access — owned plus those granted via org or
+    // per-business team membership. Owner-only scoping here hid data from invited
+    // team members (they saw only their own businesses).
+    const userBusinessIds = await listAccessibleBusinessIds(supabase, decoded.userId);
 
     // If no businesses, return empty array
     if (userBusinessIds.length === 0) {
