@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Papa from 'papaparse';
@@ -87,6 +87,8 @@ interface CardTransaction {
   brand: string | null;
   customer_name: string | null;
   customer_email: string | null;
+  failure_reason: string | null;
+  failure_code: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -228,11 +230,15 @@ function MetricTrendRows({ rows }: { rows: TrendRow[] }) {
   );
 }
 
+const CARD_PAGE_SIZE = 25;
+
 export default function DashboardPage() {
   const router = useRouter();
   const [combinedStats, setCombinedStats] = useState<CombinedStats | null>(null);
   const [cryptoPayments, setCryptoPayments] = useState<CryptoPayment[]>([]);
   const [cardTransactions, setCardTransactions] = useState<CardTransaction[]>([]);
+  const [cardPage, setCardPage] = useState(0);
+  const [cardTotal, setCardTotal] = useState(0);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [planInfo, setPlanInfo] = useState<PlanInfo | null>(null);
 
@@ -307,12 +313,24 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, []);
 
-  // Refetch when business filter or tab changes
+  // Refetch when business filter or tab changes. Reset to the first page so the
+  // user isn't left on a now-out-of-range page.
   useEffect(() => {
+    setCardPage(0);
     if (businesses.length > 0) {
       fetchDashboardData(selectedBusinessId);
     }
   }, [selectedBusinessId, activeTab, transactionFilter]);
+
+  // Refetch card transactions when the page changes (skip the initial render).
+  const didMountCardPage = useRef(false);
+  useEffect(() => {
+    if (!didMountCardPage.current) {
+      didMountCardPage.current = true;
+      return;
+    }
+    fetchTransactionsData(selectedBusinessId);
+  }, [cardPage]);
 
   const fetchDashboardData = async (businessId?: string) => {
     try {
@@ -399,9 +417,12 @@ export default function DashboardPage() {
         promises.push(authFetch(cryptoUrl, {}, router));
       }
 
-      // Fetch card transactions if needed
+      // Fetch card transactions if needed. Paginated (server-side) unless we're
+      // filtering to failed (which pulls a wider slice and filters client-side).
       if (activeTab === 'all' || activeTab === 'card') {
-        let cardUrl = transactionFilter === 'failed' ? '/api/stripe/transactions?limit=100' : '/api/stripe/transactions?limit=10';
+        let cardUrl = transactionFilter === 'failed'
+          ? '/api/stripe/transactions?limit=100'
+          : `/api/stripe/transactions?limit=${CARD_PAGE_SIZE}&offset=${cardPage * CARD_PAGE_SIZE}`;
         if (businessId) {
           cardUrl += `&business_id=${businessId}`;
         }
@@ -447,6 +468,7 @@ export default function DashboardPage() {
       // Process card results
       if (cardResults && cardResults.response.ok && cardResults.data.success) {
         setCardTransactions(cardResults.data.transactions || []);
+        setCardTotal(cardResults.data.pagination?.total ?? (cardResults.data.transactions || []).length);
       }
 
     } catch (error) {
@@ -705,6 +727,11 @@ export default function DashboardPage() {
                 <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(txn.status)}`}>
                   {txn.status}
                 </span>
+                {txn.type === 'card' && txn.failure_reason && (
+                  <div className="mt-1 max-w-[220px] text-xs text-red-600 dark:text-red-400 whitespace-normal">
+                    {txn.failure_reason}
+                  </div>
+                )}
               </td>
               <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-300">
                 {new Date(txn.created_at).toLocaleDateString()}
@@ -875,6 +902,11 @@ export default function DashboardPage() {
                 <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(transaction.status)}`}>
                   {transaction.status}
                 </span>
+                {transaction.failure_reason && (
+                  <div className="mt-1 max-w-[220px] text-xs text-red-600 dark:text-red-400 whitespace-normal">
+                    {transaction.failure_reason}
+                  </div>
+                )}
               </td>
               <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-300">
                 {transaction.stripe_charge_id ? `${transaction.stripe_charge_id.slice(0, 10)}...` : 'N/A'}
@@ -1229,6 +1261,29 @@ export default function DashboardPage() {
             {activeTab === 'crypto' && renderCryptoTransactions()}
             {activeTab === 'card' && renderCardTransactions()}
           </div>
+          {activeTab === 'card' && transactionFilter !== 'failed' && cardTotal > CARD_PAGE_SIZE && (
+            <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 text-sm">
+              <span className="text-gray-500 dark:text-gray-400">
+                {`${cardPage * CARD_PAGE_SIZE + 1}–${Math.min((cardPage + 1) * CARD_PAGE_SIZE, cardTotal)}`} of {cardTotal}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setCardPage((p) => Math.max(0, p - 1))}
+                  disabled={cardPage === 0}
+                  className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setCardPage((p) => p + 1)}
+                  disabled={(cardPage + 1) * CARD_PAGE_SIZE >= cardTotal}
+                  className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

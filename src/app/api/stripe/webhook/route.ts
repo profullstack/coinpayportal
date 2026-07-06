@@ -293,17 +293,87 @@ async function handleCheckoutSessionCompleted(session: any) {
 }
 
 /**
- * Handle payment_intent.payment_failed — mark CoinPay payment as failed
- * and forward payment.failed webhook to the merchant.
+ * Record a failed card payment on stripe_transactions WITH the decline reason,
+ * so the merchant can see why it failed. Flips the create-route placeholder
+ * (matched by Checkout Session id) to 'failed'; upserts by payment intent when
+ * there's no placeholder. Runs for every payment_intent.payment_failed — card
+ * checkouts have no CoinPay metadata, so the old handler skipped them entirely.
+ */
+async function recordCardFailure(supabase: ReturnType<typeof getSupabase>, stripe: any, paymentIntent: any) {
+  try {
+    const err = paymentIntent.last_payment_error || {};
+    const failure_reason = err.message || 'Card payment failed';
+    const failure_code = err.decline_code || err.code || null;
+
+    let businessId = paymentIntent.metadata?.business_id;
+    let merchantId = paymentIntent.metadata?.merchant_id;
+
+    // The Checkout Session carries metadata + customer even when the PI does not.
+    const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent.id, limit: 1 });
+    const session = sessions.data[0];
+    const sessionId = session?.id;
+    if (!businessId) businessId = session?.metadata?.business_id;
+    if (!merchantId) merchantId = session?.metadata?.merchant_id;
+
+    // Fallback attribution via the connected (destination) account.
+    if (!businessId) {
+      const acct = paymentIntent.on_behalf_of || paymentIntent.transfer_data?.destination;
+      if (acct) {
+        const { data: a } = await supabase
+          .from('stripe_accounts').select('business_id').eq('stripe_account_id', acct).maybeSingle();
+        if (a?.business_id) businessId = a.business_id;
+      }
+    }
+    if (businessId && !merchantId) {
+      const { data: b } = await supabase
+        .from('businesses').select('merchant_id').eq('id', businessId).maybeSingle();
+      merchantId = b?.merchant_id;
+    }
+
+    const failFields: Record<string, any> = {
+      status: 'failed',
+      rail: 'card',
+      business_id: businessId,
+      merchant_id: merchantId,
+      amount: paymentIntent.amount,
+      currency: paymentIntent.currency || 'usd',
+      stripe_payment_intent_id: paymentIntent.id,
+      failure_reason,
+      failure_code,
+      ...(session ? customerFromSession(session) : {}),
+      updated_at: new Date().toISOString(),
+    };
+
+    let flipped = false;
+    if (sessionId) {
+      const { data } = await supabase
+        .from('stripe_transactions').update(failFields).eq('stripe_checkout_session_id', sessionId).select('id');
+      flipped = !!(data && data.length > 0);
+    }
+    if (!flipped) {
+      await supabase
+        .from('stripe_transactions')
+        .upsert({ ...failFields, stripe_checkout_session_id: sessionId ?? null }, { onConflict: 'stripe_payment_intent_id' });
+    }
+  } catch (e) {
+    console.error('[Stripe Webhook] recordCardFailure error:', e);
+  }
+}
+
+/**
+ * Handle payment_intent.payment_failed — record the card failure (with reason),
+ * mark CoinPay payment as failed, and forward payment.failed webhook to merchant.
  */
 async function handlePaymentIntentFailed(paymentIntent: any) {
   const supabase = getSupabase();
   try {
+    // Always record the card-side failure + reason (independent of CoinPay).
+    await recordCardFailure(supabase, await getStripe(), paymentIntent);
+
     const coinpayPaymentId = paymentIntent.metadata?.coinpay_payment_id;
     const businessId = paymentIntent.metadata?.business_id;
 
     if (!coinpayPaymentId || !businessId) {
-      console.log('[Stripe Webhook] payment_intent.payment_failed without coinpay metadata, skipping');
       return;
     }
 
