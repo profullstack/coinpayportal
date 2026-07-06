@@ -672,7 +672,7 @@ export default function DashboardPage() {
               </td>
               <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
                 <Link
-                  href={`/payments/${txn.id}`}
+                  href={txn.type === 'card' ? `/transactions/${txn.id}` : `/payments/${txn.id}`}
                   className="text-purple-600 hover:text-purple-800 hover:underline"
                 >
                   {txn.id.slice(0, 8)}...
@@ -845,9 +845,12 @@ export default function DashboardPage() {
           {visibleCardTransactions.map((transaction) => (
             <tr key={transaction.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
               <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
-                <span className="text-purple-600">
+                <Link
+                  href={`/transactions/${transaction.id}`}
+                  className="text-purple-600 hover:text-purple-800 hover:underline"
+                >
                   {transaction.id.slice(0, 8)}...
-                </span>
+                </Link>
               </td>
               <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-100">
                 <div className="font-medium">${formatAmount(transaction.amount_usd, 2)} USD</div>
