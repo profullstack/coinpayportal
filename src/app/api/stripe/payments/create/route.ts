@@ -96,7 +96,9 @@ export async function POST(request: NextRequest) {
         metadata: sessionMetadata,
       });
 
-    // Create transaction record
+    // Create the placeholder transaction record. Store the Checkout Session id so
+    // the webhook can flip THIS row to completed (rather than inserting a separate
+    // completed row and leaving this one stuck at 'pending').
     await supabase
       .from('stripe_transactions')
       .insert({
@@ -108,6 +110,7 @@ export async function POST(request: NextRequest) {
         net_to_merchant: amount - platformFeeAmount,
         status: 'pending',
         rail: 'card',
+        stripe_checkout_session_id: session.id,
       });
 
     return NextResponse.json({
