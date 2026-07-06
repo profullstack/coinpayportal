@@ -11,13 +11,13 @@ vi.mock('@/lib/auth/jwt', () => ({
   verifyToken: vi.fn(),
 }));
 
-vi.mock('@/lib/business/service', () => ({
-  listBusinesses: vi.fn(),
+vi.mock('@/lib/auth/authz', () => ({
+  listAccessibleBusinessIds: vi.fn(),
 }));
 
 // Import mocked modules
 import { verifyToken } from '@/lib/auth/jwt';
-import { listBusinesses } from '@/lib/business/service';
+import { listAccessibleBusinessIds } from '@/lib/auth/authz';
 
 let mockSupabase: any;
 
@@ -104,10 +104,7 @@ describe('GET /api/payments', () => {
 
   it('should return empty array if user has no businesses', async () => {
     vi.mocked(verifyToken).mockReturnValue({ userId: 'user-123', email: 'test@test.com' });
-    vi.mocked(listBusinesses).mockResolvedValue({
-      success: true,
-      businesses: [],
-    });
+    vi.mocked(listAccessibleBusinessIds).mockResolvedValue([]);
 
     const request = new NextRequest('http://localhost/api/payments', {
       headers: {
@@ -125,10 +122,7 @@ describe('GET /api/payments', () => {
 
   it('should return payments for user businesses', async () => {
     vi.mocked(verifyToken).mockReturnValue({ userId: 'user-123', email: 'test@test.com' });
-    vi.mocked(listBusinesses).mockResolvedValue({
-      success: true,
-      businesses: [{ id: 'business-1', name: 'Test Business' }],
-    });
+    vi.mocked(listAccessibleBusinessIds).mockResolvedValue(['business-1']);
 
     const mockPayments = [
       {
@@ -170,13 +164,7 @@ describe('GET /api/payments', () => {
 
   it('should filter by business_id', async () => {
     vi.mocked(verifyToken).mockReturnValue({ userId: 'user-123', email: 'test@test.com' });
-    vi.mocked(listBusinesses).mockResolvedValue({
-      success: true,
-      businesses: [
-        { id: 'business-1', name: 'Business 1' },
-        { id: 'business-2', name: 'Business 2' },
-      ],
-    });
+    vi.mocked(listAccessibleBusinessIds).mockResolvedValue(['business-1', 'business-2']);
 
     const request = new NextRequest('http://localhost/api/payments?business_id=business-1', {
       headers: {
@@ -194,10 +182,7 @@ describe('GET /api/payments', () => {
 
   it('should filter by status', async () => {
     vi.mocked(verifyToken).mockReturnValue({ userId: 'user-123', email: 'test@test.com' });
-    vi.mocked(listBusinesses).mockResolvedValue({
-      success: true,
-      businesses: [{ id: 'business-1', name: 'Test Business' }],
-    });
+    vi.mocked(listAccessibleBusinessIds).mockResolvedValue(['business-1']);
 
     const request = new NextRequest('http://localhost/api/payments?status=confirmed', {
       headers: {
@@ -215,10 +200,7 @@ describe('GET /api/payments', () => {
 
   it('should filter by currency', async () => {
     vi.mocked(verifyToken).mockReturnValue({ userId: 'user-123', email: 'test@test.com' });
-    vi.mocked(listBusinesses).mockResolvedValue({
-      success: true,
-      businesses: [{ id: 'business-1', name: 'Test Business' }],
-    });
+    vi.mocked(listAccessibleBusinessIds).mockResolvedValue(['business-1']);
 
     const request = new NextRequest('http://localhost/api/payments?currency=btc', {
       headers: {
@@ -236,10 +218,7 @@ describe('GET /api/payments', () => {
 
   it('should filter by date range', async () => {
     vi.mocked(verifyToken).mockReturnValue({ userId: 'user-123', email: 'test@test.com' });
-    vi.mocked(listBusinesses).mockResolvedValue({
-      success: true,
-      businesses: [{ id: 'business-1', name: 'Test Business' }],
-    });
+    vi.mocked(listAccessibleBusinessIds).mockResolvedValue(['business-1']);
 
     const request = new NextRequest(
       'http://localhost/api/payments?date_from=2024-01-01&date_to=2024-01-31',
@@ -259,33 +238,9 @@ describe('GET /api/payments', () => {
     expect(mockSupabase.lt).toHaveBeenCalled();
   });
 
-  it('should return 400 if listBusinesses fails', async () => {
-    vi.mocked(verifyToken).mockReturnValue({ userId: 'user-123', email: 'test@test.com' });
-    vi.mocked(listBusinesses).mockResolvedValue({
-      success: false,
-      error: 'Database error',
-    });
-
-    const request = new NextRequest('http://localhost/api/payments', {
-      headers: {
-        Authorization: 'Bearer valid-token',
-      },
-    });
-    
-    const response = await GET(request);
-    const data = await response.json();
-    
-    expect(response.status).toBe(400);
-    expect(data.success).toBe(false);
-    expect(data.error).toBe('Failed to fetch businesses');
-  });
-
   it('should return 500 if database query fails', async () => {
     vi.mocked(verifyToken).mockReturnValue({ userId: 'user-123', email: 'test@test.com' });
-    vi.mocked(listBusinesses).mockResolvedValue({
-      success: true,
-      businesses: [{ id: 'business-1', name: 'Test Business' }],
-    });
+    vi.mocked(listAccessibleBusinessIds).mockResolvedValue(['business-1']);
 
     mockSupabase.then = vi.fn((resolve) => resolve({
       data: null,
@@ -308,10 +263,7 @@ describe('GET /api/payments', () => {
 
   it('should not allow filtering by business_id not owned by user', async () => {
     vi.mocked(verifyToken).mockReturnValue({ userId: 'user-123', email: 'test@test.com' });
-    vi.mocked(listBusinesses).mockResolvedValue({
-      success: true,
-      businesses: [{ id: 'business-1', name: 'Test Business' }],
-    });
+    vi.mocked(listAccessibleBusinessIds).mockResolvedValue(['business-1']);
 
     const request = new NextRequest('http://localhost/api/payments?business_id=other-business', {
       headers: {

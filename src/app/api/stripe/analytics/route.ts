@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
-import { listBusinesses } from '@/lib/business/service';
+import { listAccessibleBusinessIds } from '@/lib/auth/authz';
 import { getJwtSecret } from '@/lib/secrets';
 
 const TREND_DAYS = 14;
@@ -216,16 +216,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const filterBusinessId = searchParams.get('business_id');
 
-    // First, get all businesses for this user to ensure they can only see their own data
-    const businessResult = await listBusinesses(supabase, merchantId);
-    if (!businessResult.success || !businessResult.businesses) {
-      return NextResponse.json(
-        { success: false, error: 'Failed to fetch businesses' },
-        { status: 400 }
-      );
-    }
-
-    const allBusinessIds = businessResult.businesses.map(b => b.id);
+    // Every business this user can access — owned plus those granted via org or
+    // per-business team membership. Owner-only scoping hid the client's stats
+    // from invited team members.
+    const allBusinessIds = await listAccessibleBusinessIds(supabase, merchantId);
 
     // If no businesses, return empty stats
     if (allBusinessIds.length === 0) {
@@ -289,11 +283,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Fetch card transactions statistics
+    // Fetch card transactions statistics. Scope by business_id only (not
+    // merchant_id): the webhook writes merchant_id from Stripe metadata, so rows
+    // for charges made without CoinPay metadata land with a null merchant_id and
+    // were silently dropped from the counts. business_id is the reliable owner key.
     const { data: cardTransactions, error: cardError } = await supabase
       .from('stripe_transactions')
       .select('*')
-      .eq('merchant_id', merchantId)
       .in('business_id', queryBusinessIds);
 
     if (cardError) {
