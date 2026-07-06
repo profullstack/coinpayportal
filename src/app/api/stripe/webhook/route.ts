@@ -35,6 +35,23 @@ function getWebhookSecrets(): string[] {
   ].filter(Boolean) as string[];
 }
 
+// Paying customer's name/email for the merchant's transactions list. Checkout
+// exposes these on customer_details; direct PaymentIntents on the charge's
+// billing_details (with receipt_email as a fallback).
+function customerFromSession(session: any): { customer_name: string | null; customer_email: string | null } {
+  return {
+    customer_name: session?.customer_details?.name ?? null,
+    customer_email: session?.customer_details?.email ?? session?.customer_email ?? null,
+  };
+}
+
+function customerFromCharge(charge: any, paymentIntent?: any): { customer_name: string | null; customer_email: string | null } {
+  return {
+    customer_name: charge?.billing_details?.name ?? null,
+    customer_email: charge?.billing_details?.email ?? paymentIntent?.receipt_email ?? charge?.receipt_email ?? null,
+  };
+}
+
 export async function POST(request: NextRequest) {
   const supabase = getSupabase();
   try {
@@ -138,6 +155,7 @@ async function handleCheckoutSessionCompleted(session: any) {
             stripe_charge_id: session.payment_intent, // best we have
             platform_fee_amount: platformFee,
             net_to_merchant: (session.amount_total || 0) - platformFee,
+            ...customerFromSession(session),
             updated_at: new Date().toISOString(),
           })
           .eq('merchant_id', session.metadata?.merchant_id)
@@ -244,6 +262,7 @@ async function handleCheckoutSessionCompleted(session: any) {
           status: 'completed',
           rail: 'card',
           stripe_payment_intent_id: session.payment_intent,
+          ...customerFromSession(session),
           updated_at: new Date().toISOString(),
         }, { onConflict: 'stripe_payment_intent_id' });
       if (txErr) {
@@ -391,6 +410,7 @@ async function handlePaymentSucceeded(paymentIntent: any) {
         net_to_merchant: paymentIntent.amount - stripeFee - platformFee,
         status: 'completed',
         rail: 'card',
+        ...customerFromCharge(charge, paymentIntent),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'stripe_payment_intent_id' });
 

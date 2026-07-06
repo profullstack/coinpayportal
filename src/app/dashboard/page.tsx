@@ -85,6 +85,8 @@ interface CardTransaction {
   stripe_charge_id: string | null;
   last4: string | null;
   brand: string | null;
+  customer_name: string | null;
+  customer_email: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -504,6 +506,8 @@ export default function DashboardPage() {
           type: 'crypto',
           id: p.id,
           business_name: p.business_name || 'Unknown',
+          customer_name: '',
+          customer_email: '',
           source: paymentSource(p.metadata),
           payment_page: paymentPageUrl(p.id),
           amount_usd: p.amount_usd,
@@ -518,6 +522,8 @@ export default function DashboardPage() {
           type: 'card',
           id: t.id,
           business_name: t.business_name || 'Unknown',
+          customer_name: t.customer_name || '',
+          customer_email: t.customer_email || '',
           source: '',
           payment_page: paymentPageUrl(t.id),
           amount_usd: t.amount_usd,
@@ -548,6 +554,8 @@ export default function DashboardPage() {
       } else if (activeTab === 'card') {
         dataToExport = cardTransactionsToExport.map(t => ({
           id: t.id,
+          customer_name: t.customer_name || '',
+          customer_email: t.customer_email || '',
           amount_usd: t.amount_usd,
           currency: t.currency,
           status: t.status,
@@ -645,6 +653,7 @@ export default function DashboardPage() {
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Type</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">ID</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Amount</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Customer</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Business</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date</th>
@@ -675,6 +684,18 @@ export default function DashboardPage() {
                   <div className="text-gray-500 text-xs">
                     {formatAmount(txn.amount_crypto, 8)} {txn.currency?.toUpperCase()}
                   </div>
+                )}
+              </td>
+              <td className="px-4 py-4 text-sm text-gray-700 dark:text-gray-200">
+                {txn.customer_name || txn.customer_email ? (
+                  <div className="space-y-0.5">
+                    {txn.customer_name && <div className="font-medium">{txn.customer_name}</div>}
+                    {txn.customer_email && (
+                      <div className="text-gray-500 dark:text-gray-400 text-xs break-all">{txn.customer_email}</div>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-gray-400">—</span>
                 )}
               </td>
               <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-300">
@@ -813,6 +834,7 @@ export default function DashboardPage() {
           <tr>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Transaction ID</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Amount</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Customer</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Business</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Stripe Charge</th>
@@ -830,6 +852,18 @@ export default function DashboardPage() {
               <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-100">
                 <div className="font-medium">${formatAmount(transaction.amount_usd, 2)} USD</div>
                 <div className="text-gray-500 text-xs">{transaction.currency.toUpperCase()}</div>
+              </td>
+              <td className="px-4 py-4 text-sm text-gray-700 dark:text-gray-200">
+                {transaction.customer_name || transaction.customer_email ? (
+                  <div className="space-y-0.5">
+                    {transaction.customer_name && <div className="font-medium">{transaction.customer_name}</div>}
+                    {transaction.customer_email && (
+                      <div className="text-gray-500 dark:text-gray-400 text-xs break-all">{transaction.customer_email}</div>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-gray-400">—</span>
+                )}
               </td>
               <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-300">
                 {transaction.business_name}

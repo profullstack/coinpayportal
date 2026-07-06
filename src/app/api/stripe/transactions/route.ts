@@ -99,6 +99,8 @@ export async function GET(request: NextRequest) {
         stripe_payment_intent_id,
         stripe_charge_id,
         stripe_balance_txn_id,
+        customer_name,
+        customer_email,
         created_at,
         updated_at,
         businesses (
@@ -214,6 +216,8 @@ export async function GET(request: NextRequest) {
         stripe_payment_intent_id: transaction.stripe_payment_intent_id,
         stripe_charge_id: transaction.stripe_charge_id || null,
         stripe_balance_txn_id: transaction.stripe_balance_txn_id || null,
+        customer_name: transaction.customer_name || null,
+        customer_email: transaction.customer_email || null,
         created_at: transaction.created_at,
         updated_at: transaction.updated_at,
         merchant_email: merchantEmailMap[transaction.business_id] || null,
@@ -222,10 +226,15 @@ export async function GET(request: NextRequest) {
     });
 
     // Get total count for pagination
-    const { count: totalCount, error: countError } = await supabase
+    // Count must match the list scoping: accessible businesses (owner + team),
+    // narrowed to the requested business when filtering. The old merchant_id
+    // count double-broke team members' pagination.
+    let countQuery = supabase
       .from('stripe_transactions')
       .select('*', { count: 'exact', head: true })
-      .eq('merchant_id', merchantId);
+      .in('business_id', businessId ? [businessId] : accessibleBusinessIds);
+    if (status) countQuery = countQuery.eq('status', status);
+    const { count: totalCount, error: countError } = await countQuery;
 
     if (countError) {
       console.error('Error getting transaction count:', countError);
