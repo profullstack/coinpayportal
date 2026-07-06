@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
+import { listAccessibleBusinessIds } from '@/lib/auth/authz';
 
 /**
  * GET /api/stripe/transactions/[id]
@@ -73,6 +74,8 @@ export async function GET(request: NextRequest, { params: paramsPromise }: { par
         stripe_payment_intent_id,
         stripe_charge_id,
         stripe_balance_txn_id,
+        customer_name,
+        customer_email,
         created_at,
         updated_at,
         businesses (
@@ -81,10 +84,12 @@ export async function GET(request: NextRequest, { params: paramsPromise }: { par
         )
       `)
       .eq('id', id)
-      .eq('merchant_id', merchantId)
-      .single();
+      .maybeSingle();
 
-    if (error || !transaction) {
+    // Team-aware access: the row is visible if the caller can access its
+    // business (owner or team member), not just if they own it directly.
+    const accessibleBusinessIds = await listAccessibleBusinessIds(supabase, merchantId);
+    if (error || !transaction || !accessibleBusinessIds.includes(transaction.business_id)) {
       return NextResponse.json(
         { success: false, error: 'Transaction not found' },
         { status: 404 }
@@ -124,6 +129,8 @@ export async function GET(request: NextRequest, { params: paramsPromise }: { par
       stripe_payment_intent_id: transaction.stripe_payment_intent_id,
       stripe_charge_id: transaction.stripe_charge_id || null,
       stripe_balance_txn_id: transaction.stripe_balance_txn_id || null,
+      customer_name: transaction.customer_name || null,
+      customer_email: transaction.customer_email || null,
       created_at: transaction.created_at,
       updated_at: transaction.updated_at,
       // For UI compatibility, add card-specific fields
