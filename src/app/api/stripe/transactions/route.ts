@@ -101,6 +101,8 @@ export async function GET(request: NextRequest) {
         stripe_balance_txn_id,
         customer_name,
         customer_email,
+        failure_reason,
+        failure_code,
         created_at,
         updated_at,
         businesses (
@@ -110,6 +112,13 @@ export async function GET(request: NextRequest) {
       .in('business_id', accessibleBusinessIds)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
+
+    // Hide reconciliation bookkeeping rows ('duplicate' = a paid checkout whose
+    // real completed row exists elsewhere) unless explicitly requested. These
+    // were the clutter that buried real transactions.
+    if (status !== 'duplicate') {
+      query = query.neq('status', 'duplicate');
+    }
 
     // Apply filters
     if (businessId) {
@@ -218,6 +227,8 @@ export async function GET(request: NextRequest) {
         stripe_balance_txn_id: transaction.stripe_balance_txn_id || null,
         customer_name: transaction.customer_name || null,
         customer_email: transaction.customer_email || null,
+        failure_reason: transaction.failure_reason || null,
+        failure_code: transaction.failure_code || null,
         created_at: transaction.created_at,
         updated_at: transaction.updated_at,
         merchant_email: merchantEmailMap[transaction.business_id] || null,
@@ -234,6 +245,7 @@ export async function GET(request: NextRequest) {
       .select('*', { count: 'exact', head: true })
       .in('business_id', businessId ? [businessId] : accessibleBusinessIds);
     if (status) countQuery = countQuery.eq('status', status);
+    else countQuery = countQuery.neq('status', 'duplicate');
     const { count: totalCount, error: countError } = await countQuery;
 
     if (countError) {

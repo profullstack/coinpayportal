@@ -76,6 +76,8 @@ export async function GET(request: NextRequest, { params: paramsPromise }: { par
         stripe_balance_txn_id,
         customer_name,
         customer_email,
+        failure_reason,
+        failure_code,
         created_at,
         updated_at,
         businesses (
@@ -131,6 +133,8 @@ export async function GET(request: NextRequest, { params: paramsPromise }: { par
       stripe_balance_txn_id: transaction.stripe_balance_txn_id || null,
       customer_name: transaction.customer_name || null,
       customer_email: transaction.customer_email || null,
+      failure_reason: transaction.failure_reason || null,
+      failure_code: transaction.failure_code || null,
       created_at: transaction.created_at,
       updated_at: transaction.updated_at,
       // For UI compatibility, add card-specific fields

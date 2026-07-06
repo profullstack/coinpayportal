@@ -27,7 +27,7 @@ import { listAccessibleBusinessIds } from '@/lib/auth/authz';
 
 function makeChain(resolvedValue: { data: any; error: any; count?: number }) {
   const chain: any = {};
-  for (const method of ['select', 'eq', 'in', 'gte', 'lte', 'order', 'range', 'single', 'limit']) {
+  for (const method of ['select', 'eq', 'neq', 'in', 'gte', 'lte', 'order', 'range', 'single', 'limit']) {
     chain[method] = vi.fn().mockReturnValue(chain);
   }
   chain.then = (resolve: any) => Promise.resolve(resolvedValue).then(resolve);
