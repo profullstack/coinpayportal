@@ -13,6 +13,11 @@ const { mockStripe, mockSupabase } = vi.hoisted(() => {
     balanceTransactions: {
       retrieve: vi.fn(),
     },
+    checkout: {
+      sessions: {
+        list: vi.fn(),
+      },
+    },
   };
 
   const mockSupabase = {
@@ -36,8 +41,11 @@ function mockFromChain(overrides: Record<string, any> = {}) {
   const defaults: Record<string, any> = {
     stripe_transactions: {
       update: vi.fn().mockReturnValue({
-        eq: vi.fn().mockResolvedValue({ data: [{}] }),
+        eq: vi.fn().mockReturnValue({
+          select: vi.fn().mockResolvedValue({ data: [] }),
+        }),
       }),
+      upsert: vi.fn().mockResolvedValue({ error: null }),
     },
     merchants: {
       select: vi.fn().mockReturnValue({
@@ -81,6 +89,9 @@ describe('POST /api/stripe/webhook', () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test123';
+    // Default: no Checkout Session found for a PaymentIntent (falls back to
+    // upsert-by-PI). Tests that exercise the placeholder-flip override this.
+    mockStripe.checkout.sessions.list.mockResolvedValue({ data: [] });
     mockFromChain();
   });
 
@@ -202,6 +213,45 @@ describe('POST /api/stripe/webhook', () => {
       }),
       expect.objectContaining({ onConflict: 'stripe_payment_intent_id' }),
     );
+  });
+
+  it('flips the create-route placeholder to completed by checkout session id (no duplicate row)', async () => {
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const flipEq = vi.fn().mockReturnValue({
+      select: vi.fn().mockResolvedValue({ data: [{ id: 'placeholder-1' }] }),
+    });
+    const update = vi.fn().mockReturnValue({ eq: flipEq });
+    mockFromChain({ stripe_transactions: { update, upsert } });
+    mockStripe.checkout.sessions.list.mockResolvedValue({ data: [{ id: 'cs_test_flip' }] });
+
+    const paymentIntent = {
+      id: 'pi_flip',
+      amount: 5000,
+      currency: 'usd',
+      metadata: { merchant_id: 'm1', business_id: 'b1', platform_fee_amount: '50' },
+    };
+    mockStripe.webhooks.constructEvent.mockReturnValue({
+      type: 'payment_intent.succeeded',
+      data: { object: paymentIntent },
+    });
+    mockStripe.charges.list.mockResolvedValue({
+      data: [{ id: 'ch_flip', balance_transaction: 'txn_flip' }],
+    });
+    mockStripe.balanceTransactions.retrieve.mockResolvedValue({ fee: 100 });
+
+    const request = new NextRequest('http://localhost:3000/api/stripe/webhook', {
+      method: 'POST',
+      body: '{}',
+      headers: { 'stripe-signature': 'valid_sig' },
+    });
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    // Placeholder flipped by session id — and NO duplicate upsert-by-PI row.
+    expect(flipEq).toHaveBeenCalledWith('stripe_checkout_session_id', 'cs_test_flip');
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'completed', stripe_payment_intent_id: 'pi_flip' }),
+    );
+    expect(upsert).not.toHaveBeenCalled();
   });
 
   it('should handle account.updated event', async () => {
@@ -331,8 +381,11 @@ function getDefaultChain() {
   return {
     stripe_transactions: {
       update: vi.fn().mockReturnValue({
-        eq: vi.fn().mockResolvedValue({ data: [{}] }),
+        eq: vi.fn().mockReturnValue({
+          select: vi.fn().mockResolvedValue({ data: [] }),
+        }),
       }),
+      upsert: vi.fn().mockResolvedValue({ error: null }),
     },
     merchants: {
       select: vi.fn().mockReturnValue({

@@ -13,6 +13,11 @@ const { mockStripe, mockSupabase, mockSendPaymentWebhook } = vi.hoisted(() => {
     balanceTransactions: {
       retrieve: vi.fn(),
     },
+    checkout: {
+      sessions: {
+        list: vi.fn().mockResolvedValue({ data: [] }),
+      },
+    },
   };
 
   const mockSupabase = {
@@ -121,6 +126,7 @@ describe('Stripe Webhook - checkout.session.completed', () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test123';
+    mockStripe.checkout.sessions.list.mockResolvedValue({ data: [] });
     setupMockChain();
   });
 

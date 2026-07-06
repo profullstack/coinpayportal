@@ -144,25 +144,40 @@ async function handleCheckoutSessionCompleted(session: any) {
       if (businessId) {
         console.log(`[Stripe Webhook] checkout.session.completed for external payment (business=${businessId})`);
 
-        // Update stripe_transactions record to completed
+        // Flip the placeholder row (created by /api/stripe/payments/create) to
+        // completed, matched deterministically by the Checkout Session id. The old
+        // heuristic (merchant_id + amount + newest pending) mis-matched under
+        // concurrent same-amount checkouts and often left the placeholder pending
+        // while a separate completed row was written — the pending/duplicate mess.
         const platformFee = parseInt(session.metadata?.platform_fee_amount || '0');
-        await supabase
+        const completedFields = {
+          status: 'completed',
+          business_id: businessId,
+          merchant_id: session.metadata?.merchant_id,
+          stripe_payment_intent_id: session.payment_intent,
+          stripe_charge_id: session.payment_intent, // best we have from the session
+          platform_fee_amount: platformFee,
+          net_to_merchant: (session.amount_total || 0) - platformFee,
+          ...customerFromSession(session),
+          updated_at: new Date().toISOString(),
+        };
+        const { data: flipped } = await supabase
           .from('stripe_transactions')
-          .update({
-            status: 'completed',
-            business_id: businessId,
-            stripe_payment_intent_id: session.payment_intent,
-            stripe_charge_id: session.payment_intent, // best we have
-            platform_fee_amount: platformFee,
-            net_to_merchant: (session.amount_total || 0) - platformFee,
-            ...customerFromSession(session),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('merchant_id', session.metadata?.merchant_id)
-          .eq('amount', session.amount_total)
-          .eq('status', 'pending')
-          .order('created_at', { ascending: false })
-          .limit(1);
+          .update(completedFields)
+          .eq('stripe_checkout_session_id', session.id)
+          .select('id');
+        if (!flipped || flipped.length === 0) {
+          // No placeholder (e.g. externally created session) — converge by PI.
+          await supabase
+            .from('stripe_transactions')
+            .upsert({
+              ...completedFields,
+              amount: session.amount_total,
+              currency: session.currency || 'usd',
+              rail: 'card',
+              stripe_checkout_session_id: session.id,
+            }, { onConflict: 'stripe_payment_intent_id' });
+        }
 
         // Fire merchant webhook
         void firePaymentWebhook(
@@ -391,28 +406,49 @@ async function handlePaymentSucceeded(paymentIntent: any) {
       ? (await stripe.balanceTransactions.retrieve(charge.balance_transaction as string)).fee
       : 0;
 
-    // Upsert transaction record. We must include business_id (the dashboard
-    // filters on it) and use stripe_payment_intent_id as the conflict target
-    // so checkout.session.completed and payment_intent.succeeded converge on
-    // the same row regardless of arrival order.
-    await supabase
-      .from('stripe_transactions')
-      .upsert({
-        merchant_id: merchantId,
-        business_id: businessId,
-        amount: paymentIntent.amount,
-        currency: paymentIntent.currency || 'usd',
-        platform_fee_amount: platformFee,
-        stripe_payment_intent_id: paymentIntent.id,
-        stripe_charge_id: charge.id,
-        stripe_balance_txn_id: charge.balance_transaction as string,
-        stripe_fee_amount: stripeFee,
-        net_to_merchant: paymentIntent.amount - stripeFee - platformFee,
-        status: 'completed',
-        rail: 'card',
-        ...customerFromCharge(charge, paymentIntent),
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'stripe_payment_intent_id' });
+    const completedFields = {
+      merchant_id: merchantId,
+      business_id: businessId,
+      amount: paymentIntent.amount,
+      currency: paymentIntent.currency || 'usd',
+      platform_fee_amount: platformFee,
+      stripe_payment_intent_id: paymentIntent.id,
+      stripe_charge_id: charge.id,
+      stripe_balance_txn_id: charge.balance_transaction as string,
+      stripe_fee_amount: stripeFee,
+      net_to_merchant: paymentIntent.amount - stripeFee - platformFee,
+      status: 'completed',
+      rail: 'card',
+      ...customerFromCharge(charge, paymentIntent),
+      updated_at: new Date().toISOString(),
+    };
+
+    // Prefer flipping the create-route placeholder row, matched by its Checkout
+    // Session id (resolved from this PaymentIntent). This converges both webhook
+    // events onto the SAME row so a paid checkout no longer leaves a stale pending
+    // placeholder alongside a separate completed row.
+    let flippedPlaceholder = false;
+    const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent.id, limit: 1 });
+    const sessionId = sessions.data[0]?.id;
+    if (sessionId) {
+      const { data: flipped } = await supabase
+        .from('stripe_transactions')
+        .update(completedFields)
+        .eq('stripe_checkout_session_id', sessionId)
+        .select('id');
+      flippedPlaceholder = !!(flipped && flipped.length > 0);
+    }
+
+    // No placeholder to flip — converge by payment intent (also covers events
+    // arriving before checkout.session.completed).
+    if (!flippedPlaceholder) {
+      await supabase
+        .from('stripe_transactions')
+        .upsert(
+          { ...completedFields, stripe_checkout_session_id: sessionId ?? null },
+          { onConflict: 'stripe_payment_intent_id' },
+        );
+    }
 
     // Create DID reputation event
     if (merchantId) {
