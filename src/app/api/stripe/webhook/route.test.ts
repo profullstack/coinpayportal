@@ -254,6 +254,48 @@ describe('POST /api/stripe/webhook', () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 
+  it('records a card failure with the decline reason on payment_intent.payment_failed', async () => {
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const update = vi.fn().mockReturnValue({
+      eq: vi.fn().mockReturnValue({ select: vi.fn().mockResolvedValue({ data: [] }) }),
+    });
+    mockFromChain({ stripe_transactions: { update, upsert } });
+    mockStripe.checkout.sessions.list.mockResolvedValue({ data: [] });
+
+    const paymentIntent = {
+      id: 'pi_fail',
+      amount: 5000,
+      currency: 'usd',
+      metadata: { merchant_id: 'm1', business_id: 'b1' },
+      last_payment_error: {
+        message: 'Your card was declined.',
+        decline_code: 'insufficient_funds',
+        code: 'card_declined',
+      },
+    };
+    mockStripe.webhooks.constructEvent.mockReturnValue({
+      type: 'payment_intent.payment_failed',
+      data: { object: paymentIntent },
+    });
+
+    const request = new NextRequest('http://localhost:3000/api/stripe/webhook', {
+      method: 'POST',
+      body: '{}',
+      headers: { 'stripe-signature': 'valid_sig' },
+    });
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        failure_reason: 'Your card was declined.',
+        failure_code: 'insufficient_funds',
+        stripe_payment_intent_id: 'pi_fail',
+      }),
+      expect.objectContaining({ onConflict: 'stripe_payment_intent_id' }),
+    );
+  });
+
   it('should handle account.updated event', async () => {
     const account = {
       id: 'acct_test123',

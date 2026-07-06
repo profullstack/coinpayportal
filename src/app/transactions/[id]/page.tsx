@@ -21,6 +21,8 @@ interface CardTransaction {
   stripe_balance_txn_id: string | null;
   customer_name: string | null;
   customer_email: string | null;
+  failure_reason: string | null;
+  failure_code: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -114,6 +116,15 @@ export default function CardTransactionDetailPage() {
             </div>
 
             <div className="px-6 py-2">
+              {transaction.failure_reason && (
+                <div className="my-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-3 py-2">
+                  <div className="text-xs font-medium text-red-700 dark:text-red-300">Failure reason</div>
+                  <div className="text-sm text-red-800 dark:text-red-200">{transaction.failure_reason}</div>
+                  {transaction.failure_code && (
+                    <div className="text-xs text-red-600 dark:text-red-400 mt-0.5">Code: {transaction.failure_code}</div>
+                  )}
+                </div>
+              )}
               <Row label="Customer">
                 {transaction.customer_name || transaction.customer_email ? (
                   <span>
