@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createPayment, Blockchain } from '@/lib/payments/service';
-import { authenticateRequest, isMerchantAuth, isBusinessAuth } from '@/lib/auth/middleware';
+import { authenticateRequest, isMerchantAuth, isBusinessAuth, hasScope } from '@/lib/auth/middleware';
 import {
   withTransactionLimit,
   createEntitlementErrorResponse,
@@ -185,6 +185,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: 'Invalid authentication context' },
         { status: 401 }
+      );
+    }
+
+    // Enforce scope for API-key auth (legacy keys hold '*', so they pass).
+    if (!hasScope(authResult.context, 'payments:create')) {
+      return NextResponse.json(
+        { success: false, error: 'API key missing required scope: payments:create' },
+        { status: 403 }
       );
     }
 
