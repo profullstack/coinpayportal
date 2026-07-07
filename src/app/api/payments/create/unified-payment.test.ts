@@ -49,6 +49,7 @@ vi.mock('@/lib/auth/middleware', () => ({
   authenticateRequest: vi.fn().mockResolvedValue(mockAuthResult),
   isMerchantAuth: vi.fn().mockImplementation((ctx: any) => ctx.type === 'merchant'),
   isBusinessAuth: vi.fn().mockImplementation((ctx: any) => ctx.type === 'business'),
+  hasScope: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock('@/lib/entitlements/middleware', () => ({
