@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { createHash } from 'crypto';
+import { createHmac } from 'crypto';
 import { generateApiKey, validateApiKeyFormat } from './apikey';
 
 /**
@@ -48,9 +48,25 @@ export interface ScopedKeyRecord {
   revoked_at: string | null;
 }
 
-/** SHA-256 hash used as the at-rest representation of a raw key. */
+/**
+ * Server-side pepper for key hashing. API keys are high-entropy random tokens
+ * (not user passwords), so a fast digest is appropriate — but we key it with a
+ * server secret (HMAC) so a database leak alone cannot verify or precompute
+ * hashes. Falls back across configured secrets; the empty-key path only occurs
+ * in tests where no secret is configured.
+ */
+function keyHashPepper(): string {
+  return (
+    process.env.API_KEY_HASH_PEPPER ||
+    process.env.ENCRYPTION_KEY ||
+    process.env.JWT_SECRET ||
+    ''
+  );
+}
+
+/** Keyed (HMAC-SHA256) hash used as the at-rest representation of a raw key. */
 export function hashApiKey(rawKey: string): string {
-  return createHash('sha256').update(rawKey).digest('hex');
+  return createHmac('sha256', keyHashPepper()).update(rawKey).digest('hex');
 }
 
 /** Display prefix: 'cp_live_' + first 8 chars of the random part. */
