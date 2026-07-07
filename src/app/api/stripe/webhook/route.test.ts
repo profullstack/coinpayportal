@@ -296,6 +296,34 @@ describe('POST /api/stripe/webhook', () => {
     );
   });
 
+  it('captures contact and marks expired on checkout.session.expired', async () => {
+    const eqPending = vi.fn().mockResolvedValue({ data: [{}] });
+    const eqSession = vi.fn().mockReturnValue({ eq: eqPending });
+    const update = vi.fn().mockReturnValue({ eq: eqSession });
+    mockFromChain({ stripe_transactions: { update, upsert: vi.fn() } });
+
+    const session = {
+      id: 'cs_expired',
+      customer_details: { name: 'Jane Doe', email: 'jane@example.com' },
+    };
+    mockStripe.webhooks.constructEvent.mockReturnValue({
+      type: 'checkout.session.expired',
+      data: { object: session },
+    });
+
+    const request = new NextRequest('http://localhost:3000/api/stripe/webhook', {
+      method: 'POST',
+      body: '{}',
+      headers: { 'stripe-signature': 'valid_sig' },
+    });
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'expired', customer_name: 'Jane Doe', customer_email: 'jane@example.com' }),
+    );
+    expect(eqSession).toHaveBeenCalledWith('stripe_checkout_session_id', 'cs_expired');
+  });
+
   it('should handle account.updated event', async () => {
     const account = {
       id: 'acct_test123',

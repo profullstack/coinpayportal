@@ -95,6 +95,10 @@ export async function POST(request: NextRequest) {
         await handleCheckoutSessionCompleted(event.data.object);
         break;
 
+      case 'checkout.session.expired':
+        await handleCheckoutSessionExpired(event.data.object);
+        break;
+
       case 'payment_intent.payment_failed':
         await handlePaymentIntentFailed(event.data.object);
         break;
@@ -295,6 +299,29 @@ async function handleCheckoutSessionCompleted(session: any) {
 
   } catch (error) {
     console.error('Error handling checkout session completed:', error);
+  }
+}
+
+/**
+ * Handle checkout.session.expired — the buyer abandoned the checkout. Mark the
+ * placeholder expired and capture any contact Stripe collected before they left
+ * (customer_details is populated once the buyer enters their email). Preserves
+ * invoice_number and never overwrites a row that already completed/failed.
+ */
+async function handleCheckoutSessionExpired(session: any) {
+  const supabase = getSupabase();
+  try {
+    await supabase
+      .from('stripe_transactions')
+      .update({
+        status: 'expired',
+        ...customerFromSession(session),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('stripe_checkout_session_id', session.id)
+      .eq('status', 'pending');
+  } catch (error) {
+    console.error('Error handling checkout session expired:', error);
   }
 }
 
