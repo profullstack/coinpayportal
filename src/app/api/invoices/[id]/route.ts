@@ -1,20 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { verifyToken } from '@/lib/auth/jwt';
-import { getJwtSecret } from '@/lib/secrets';
-
-function getAuth(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-  const token = authHeader.substring(7);
-  const jwtSecret = getJwtSecret();
-  if (!jwtSecret) return null;
-  try {
-    return verifyToken(token, jwtSecret);
-  } catch {
-    return null;
-  }
-}
+import { authorizeInvoice } from '@/lib/auth/invoice-access';
 
 /**
  * GET /api/invoices/[id]
@@ -25,27 +11,25 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const decoded = getAuth(request);
-    if (!decoded) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-    const { data: invoice, error } = await supabase
-      .from('invoices')
-      .select(`
+
+    const access = await authorizeInvoice(
+      supabase,
+      request,
+      id,
+      'business.read',
+      `
         *,
         clients (id, name, email, company_name, phone, address),
         businesses (id, name, description),
         invoice_schedules (*)
-      `)
-      .eq('id', id)
-      .eq('user_id', decoded.userId)
-      .single();
-
-    if (error || !invoice) {
-      return NextResponse.json({ success: false, error: 'Invoice not found' }, { status: 404 });
+      `,
+    );
+    if (!access.ok) {
+      return NextResponse.json({ success: false, error: access.error }, { status: access.status });
     }
 
-    return NextResponse.json({ success: true, invoice });
+    return NextResponse.json({ success: true, invoice: access.invoice });
   } catch (error) {
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
@@ -60,23 +44,14 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    const decoded = getAuth(request);
-    if (!decoded) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     const body = await request.json();
 
-    // Only allow updating certain fields based on status
-    const { data: existing } = await supabase
-      .from('invoices')
-      .select('status')
-      .eq('id', id)
-      .eq('user_id', decoded.userId)
-      .single();
-
-    if (!existing) {
-      return NextResponse.json({ success: false, error: 'Invoice not found' }, { status: 404 });
+    const access = await authorizeInvoice(supabase, request, id, 'invoice.write', 'id, status, business_id');
+    if (!access.ok) {
+      return NextResponse.json({ success: false, error: access.error }, { status: access.status });
     }
+    const existing = access.invoice as { status: string };
 
     const allowedFields: Record<string, unknown> = {};
     const editableFields = ['client_id', 'currency', 'amount', 'crypto_currency', 'due_date', 'notes', 'merchant_wallet_address', 'wallet_id'];
@@ -117,7 +92,6 @@ export async function PUT(
       .from('invoices')
       .update(allowedFields)
       .eq('id', id)
-      .eq('user_id', decoded.userId)
       .select(`*, clients (id, name, email, company_name), businesses (id, name)`)
       .single();
 
@@ -140,22 +114,13 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const decoded = getAuth(request);
-    if (!decoded) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    // Only allow deleting draft invoices
-    const { data: invoice } = await supabase
-      .from('invoices')
-      .select('status')
-      .eq('id', id)
-      .eq('user_id', decoded.userId)
-      .single();
-
-    if (!invoice) {
-      return NextResponse.json({ success: false, error: 'Invoice not found' }, { status: 404 });
+    const access = await authorizeInvoice(supabase, request, id, 'invoice.write', 'id, status, business_id');
+    if (!access.ok) {
+      return NextResponse.json({ success: false, error: access.error }, { status: access.status });
     }
+    const invoice = access.invoice as { status: string };
 
     if (invoice.status !== 'draft') {
       return NextResponse.json({ success: false, error: 'Only draft invoices can be deleted' }, { status: 400 });
@@ -164,8 +129,7 @@ export async function DELETE(
     const { error } = await supabase
       .from('invoices')
       .delete()
-      .eq('id', id)
-      .eq('user_id', decoded.userId);
+      .eq('id', id);
 
     if (error) {
       return NextResponse.json({ success: false, error: 'Failed to delete invoice' }, { status: 500 });

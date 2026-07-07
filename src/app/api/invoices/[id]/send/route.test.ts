@@ -72,6 +72,17 @@ vi.mock('@supabase/supabase-js', () => ({
   })),
 }));
 
+// Invoice access is authorized by business role via authorizeInvoice, which
+// resolves the caller and gates on the invoice's business. Stub the underlying
+// resolve/authorize so the route's real invoice fetch (via the supabase mock)
+// still runs.
+vi.mock('@/lib/auth/merchant', () => ({
+  resolveMerchant: vi.fn().mockResolvedValue({ merchantId: 'merch-1', apiKeyBusinessId: null }),
+}));
+vi.mock('@/lib/auth/authz', () => ({
+  authorizeBusiness: vi.fn().mockResolvedValue({ ok: true, role: 'owner' }),
+}));
+
 import { POST } from './route';
 import { createPayment } from '@/lib/payments/service';
 
@@ -123,9 +134,7 @@ describe('POST /api/invoices/[id]/send', () => {
         return {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                single: vi.fn().mockResolvedValue({ data: invoice, error: null }),
-              }),
+              single: vi.fn().mockResolvedValue({ data: invoice, error: null }),
             }),
           }),
           update: vi.fn().mockReturnValue({

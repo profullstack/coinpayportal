@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { verifyToken } from '@/lib/auth/jwt';
-import { getJwtSecret } from '@/lib/secrets';
-import { listWallets } from '@/lib/wallets/service';
+import { resolveMerchant } from '@/lib/auth/merchant';
+import { authorizeBusiness } from '@/lib/auth/authz';
 
 /**
  * GET /api/businesses/[id]/payment-methods
@@ -12,6 +11,11 @@ import { listWallets } from '@/lib/wallets/service';
  * the invoice flow so the creator (and ultimately the payer) see every accepted
  * method for the business.
  *
+ * Authorized by business ROLE (owner, team member, or a matching API key) — not
+ * by `businesses.merchant_id`. The old owner-only gate made this route 400 for
+ * team members, which the invoice-create UI surfaced as "Card payments are off
+ * for this business" and an empty wallet list even when both were configured.
+ *
  * Response:
  * {
  *   success: true,
@@ -19,34 +23,12 @@ import { listWallets } from '@/lib/wallets/service';
  *   card: { enabled: boolean, stripe_account_id: string | null }
  * }
  */
-async function verifyAuth(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return { error: 'Missing authorization header', status: 401 } as const;
-  }
-  const token = authHeader.substring(7);
-  const jwtSecret = getJwtSecret();
-  if (!jwtSecret) {
-    return { error: 'Server configuration error', status: 500 } as const;
-  }
-  try {
-    const decoded = verifyToken(token, jwtSecret);
-    return { merchantId: decoded.userId } as const;
-  } catch {
-    return { error: 'Invalid or expired token', status: 401 } as const;
-  }
-}
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    const auth = await verifyAuth(request);
-    if ('error' in auth) {
-      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
-    }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -55,12 +37,35 @@ export async function GET(
     }
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Active crypto wallets (listWallets verifies the business belongs to the merchant).
-    const walletResult = await listWallets(supabase, id, auth.merchantId);
-    if (!walletResult.success) {
-      return NextResponse.json({ success: false, error: walletResult.error }, { status: 400 });
+    const auth = await resolveMerchant(supabase, request);
+    if ('error' in auth) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
     }
-    const crypto = (walletResult.wallets || [])
+    const { merchantId, apiKeyBusinessId } = auth;
+
+    // Authorize read access to this business. API keys are locked to their own
+    // business; JWT/team callers must hold a role that grants business.read.
+    if (apiKeyBusinessId) {
+      if (apiKeyBusinessId !== id) {
+        return NextResponse.json({ success: false, error: 'Business not found' }, { status: 404 });
+      }
+    } else {
+      const authz = await authorizeBusiness(supabase, merchantId, id, 'business.read');
+      if (!authz.ok) {
+        return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+      }
+    }
+
+    // Active crypto wallets for the business.
+    const { data: wallets, error: walletError } = await supabase
+      .from('business_wallets')
+      .select('*')
+      .eq('business_id', id)
+      .order('cryptocurrency', { ascending: true });
+    if (walletError) {
+      return NextResponse.json({ success: false, error: walletError.message }, { status: 400 });
+    }
+    const crypto = (wallets || [])
       .filter((w) => w.is_active !== false)
       .map((w) => ({ cryptocurrency: w.cryptocurrency, wallet_address: w.wallet_address }));
 

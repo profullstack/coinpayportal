@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { resolveMerchant } from '@/lib/auth/merchant';
+import { authorizeInvoice } from '@/lib/auth/invoice-access';
 import { businessHasPaypal } from '@/lib/paypal/accounts';
 
 /**
@@ -16,22 +16,17 @@ export async function POST(
   try {
     const { id } = await params;
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-    const authResult = await resolveMerchant(supabase, request);
-    if ('error' in authResult) {
-      return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status });
+    const access = await authorizeInvoice(
+      supabase,
+      request,
+      id,
+      'invoice.write',
+      '*, businesses (id, name, merchant_id)',
+    );
+    if (!access.ok) {
+      return NextResponse.json({ success: false, error: access.error }, { status: access.status });
     }
-    const { merchantId } = authResult;
-
-    const { data: invoice, error: fetchError } = await supabase
-      .from('invoices')
-      .select('*, businesses (id, name, merchant_id)')
-      .eq('id', id)
-      .eq('user_id', merchantId)
-      .single();
-
-    if (fetchError || !invoice) {
-      return NextResponse.json({ success: false, error: 'Invoice not found' }, { status: 404 });
-    }
+    const { invoice } = access;
 
     if (!['sent', 'overdue'].includes(invoice.status)) {
       return NextResponse.json(
