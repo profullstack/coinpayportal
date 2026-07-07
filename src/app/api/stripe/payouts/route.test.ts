@@ -14,6 +14,10 @@ vi.mock('@/lib/auth/jwt', () => ({
   verifyToken: vi.fn(),
 }));
 
+vi.mock('@/lib/auth/authz', () => ({
+  listAccessibleOwnerMerchantIds: vi.fn(async () => ['test-merchant-id']),
+}));
+
 vi.mock('@/lib/secrets', () => ({
   getJwtSecret: vi.fn(() => 'test-secret'),
 }));
@@ -39,7 +43,7 @@ import { verifyToken } from '@/lib/auth/jwt';
 
 function makeChain(resolvedValue: { data: any; error: any; count?: number }) {
   const chain: any = {};
-  for (const method of ['select', 'eq', 'not', 'gte', 'lt', 'order', 'range', 'single', 'limit', 'insert']) {
+  for (const method of ['select', 'eq', 'in', 'not', 'gte', 'lt', 'order', 'range', 'single', 'limit', 'insert']) {
     chain[method] = vi.fn().mockReturnValue(chain);
   }
   chain.then = (resolve: any) => Promise.resolve(resolvedValue).then(resolve);

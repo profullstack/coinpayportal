@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
+import { authorizeBusiness, listAccessibleBusinessIds } from '@/lib/auth/authz';
 import { getJwtSecret } from '@/lib/secrets';
 
 /**
@@ -26,15 +27,21 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get('business_id');
 
+    // Team-aware: clients of every business the caller can access (owner + team),
+    // not just ones they personally created.
+    const accessibleIds = await listAccessibleBusinessIds(supabase, decoded.userId);
+    if (accessibleIds.length === 0) {
+      return NextResponse.json({ success: true, clients: [] });
+    }
+    if (businessId && !accessibleIds.includes(businessId)) {
+      return NextResponse.json({ success: false, error: 'Business not found' }, { status: 404 });
+    }
+
     let query = supabase
       .from('clients')
       .select('*')
-      .eq('user_id', decoded.userId)
+      .in('business_id', businessId ? [businessId] : accessibleIds)
       .order('created_at', { ascending: false });
-
-    if (businessId) {
-      query = query.eq('business_id', businessId);
-    }
 
     const { data: clients, error } = await query;
 
@@ -76,22 +83,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'business_id and email are required' }, { status: 400 });
     }
 
-    // Verify business belongs to user
+    // Team-aware: creating a customer is a writer+ capability (writer/admin/owner).
+    const authz = await authorizeBusiness(supabase, decoded.userId, business_id, 'customer.write');
+    if (!authz.ok) {
+      return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+    }
+
+    // Attribute the client to the business owner so owner-scoped views still see
+    // clients a team member created.
     const { data: business } = await supabase
       .from('businesses')
-      .select('id')
+      .select('merchant_id')
       .eq('id', business_id)
-      .eq('merchant_id', decoded.userId)
       .single();
-
-    if (!business) {
-      return NextResponse.json({ success: false, error: 'Business not found' }, { status: 404 });
-    }
+    const clientOwnerId = business?.merchant_id ?? decoded.userId;
 
     const { data: client, error } = await supabase
       .from('clients')
       .insert({
-        user_id: decoded.userId,
+        user_id: clientOwnerId,
         business_id,
         name,
         email,

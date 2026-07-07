@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
+import { listAccessibleOwnerMerchantIds } from '@/lib/auth/authz';
 import { getJwtSecret } from '@/lib/secrets';
 import { getStripe } from '@/lib/server/optional-deps';
 import { parsePaginationParam } from '@/lib/api/pagination';
@@ -62,6 +63,8 @@ export async function GET(request: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    const ownerMerchantIds = await listAccessibleOwnerMerchantIds(supabase, merchantId);
+
     // Get query parameters for filtering and pagination
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
@@ -83,7 +86,7 @@ export async function GET(request: NextRequest) {
         created_at,
         updated_at
       `)
-      .eq('merchant_id', merchantId)
+      .in('merchant_id', ownerMerchantIds)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -130,7 +133,7 @@ export async function GET(request: NextRequest) {
     const { count: totalCount, error: countError } = await supabase
       .from('stripe_payouts')
       .select('*', { count: 'exact', head: true })
-      .eq('merchant_id', merchantId);
+      .in('merchant_id', ownerMerchantIds);
 
     if (countError) {
       console.error('Error getting payouts count:', countError);
