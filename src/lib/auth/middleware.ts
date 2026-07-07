@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { verifyToken } from './jwt';
 import { isApiKey, getBusinessByApiKey } from './apikey';
+import { resolveScopedKey, scopesSatisfy, WILDCARD_SCOPE } from './scoped-keys';
 
 /**
  * Authentication context types
@@ -16,6 +17,8 @@ export interface BusinessAuthContext {
   businessId: string;
   merchantId: string;
   businessName: string;
+  /** Granted scopes. Legacy single keys resolve to ['*'] (all scopes). */
+  scopes: string[];
 }
 
 export type AuthContext = MerchantAuthContext | BusinessAuthContext;
@@ -160,7 +163,23 @@ async function authenticateWithApiKey(
   apiKey: string
 ): Promise<AuthResult> {
   try {
-    // Validate and get business by API key
+    // Prefer a scoped key (business_api_keys). Falls through to the legacy
+    // single key when this isn't one.
+    const scoped = await resolveScopedKey(supabase, apiKey);
+    if (scoped) {
+      return {
+        success: true,
+        context: {
+          type: 'business',
+          businessId: scoped.business.id,
+          merchantId: scoped.business.merchant_id,
+          businessName: scoped.business.name,
+          scopes: scoped.scopes,
+        },
+      };
+    }
+
+    // Legacy single key (businesses.api_key) — treated as all-scopes.
     const result = await getBusinessByApiKey(supabase, apiKey);
 
     if (!result.success || !result.business) {
@@ -177,6 +196,7 @@ async function authenticateWithApiKey(
         businessId: result.business.id,
         merchantId: result.business.merchant_id,
         businessName: result.business.name,
+        scopes: [WILDCARD_SCOPE],
       },
     };
   } catch (error) {
@@ -207,4 +227,18 @@ export function isMerchantAuth(context: AuthContext): context is MerchantAuthCon
  */
 export function isBusinessAuth(context: AuthContext): context is BusinessAuthContext {
   return context.type === 'business';
+}
+
+/**
+ * Whether the auth context is permitted to perform an action requiring `scope`.
+ * Merchant (JWT/dashboard) auth always passes; business (API-key) auth passes
+ * when its granted scopes satisfy the requirement (legacy keys hold '*').
+ *
+ * @param {AuthContext} context - Authentication context
+ * @param {string} scope - Required scope, e.g. 'payments:create'
+ * @returns {boolean} True if the action is permitted
+ */
+export function hasScope(context: AuthContext, scope: string): boolean {
+  if (isMerchantAuth(context)) return true;
+  return scopesSatisfy(context.scopes ?? [], scope);
 }
