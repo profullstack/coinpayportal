@@ -103,6 +103,29 @@ export async function authorizeBusiness(
   return { ok: true, role };
 }
 
+/**
+ * Authorize a capability on a business AND resolve the business owner's merchant
+ * id. Many service functions are still owner-scoped (`.eq('merchant_id', …)`);
+ * once the caller (owner OR a sufficiently-privileged team member) is authorized,
+ * routes run those services against the owner id.
+ */
+export async function authorizeBusinessOwner(
+  supabase: SupabaseClient,
+  userId: string,
+  businessId: string,
+  capability: Capability,
+): Promise<{ ok: true; role: Role; ownerId: string } | AuthzErr> {
+  const authz = await authorizeBusiness(supabase, userId, businessId, capability);
+  if (!authz.ok) return authz;
+  const { data } = await supabase
+    .from('businesses')
+    .select('merchant_id')
+    .eq('id', businessId)
+    .maybeSingle();
+  if (!data?.merchant_id) return { ok: false, status: 404, error: 'Business not found' };
+  return { ok: true, role: authz.role, ownerId: data.merchant_id };
+}
+
 /** Gate a capability on an organization. */
 export async function authorizeOrg(
   supabase: SupabaseClient,
