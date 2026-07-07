@@ -51,12 +51,18 @@ function mockFromChain(overrides: Record<string, any> = {}) {
       }),
     },
     stripe_transactions: {
-      insert: vi.fn().mockResolvedValue({ data: [{}] }),
+      insert: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          single: vi.fn().mockResolvedValue({ data: { id: 'txn_test_1' }, error: null }),
+        }),
+      }),
     },
   };
 
   const merged = { ...defaults, ...overrides };
-  mockSupabase.from.mockImplementation((table: string) => merged[table] || { insert: vi.fn() });
+  mockSupabase.from.mockImplementation((table: string) => merged[table] || {
+    insert: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ single: vi.fn().mockResolvedValue({ data: null, error: null }) }) }),
+  });
 }
 
 describe('POST /api/stripe/payments/create', () => {
