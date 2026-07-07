@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     if (authResult.apiKeyBusinessId && authResult.apiKeyBusinessId !== businessId) {
       return NextResponse.json({ error: 'businessId does not match API key scope' }, { status: 403 });
     }
-    const access = await verifyBusinessAccess(supabase, businessId, authResult.merchantId);
+    const access = await verifyBusinessAccess(supabase, businessId, authResult.merchantId, 'settings.manage');
     if (!access.ok) {
       return NextResponse.json({ error: access.error }, { status: access.status ?? 404 });
     }

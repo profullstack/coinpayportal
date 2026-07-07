@@ -197,3 +197,23 @@ export async function listAccessibleBusinessIds(
 ): Promise<string[]> {
   return [...(await getAccessibleBusinessRoles(supabase, userId)).keys()];
 }
+
+/**
+ * Owner merchant ids for every business the user can access. Use to scope tables
+ * that key by the owner's merchant_id (stripe_disputes/payouts/subscriptions) so
+ * team members see the owner's records, not just their own.
+ */
+export async function listAccessibleOwnerMerchantIds(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<string[]> {
+  const ids = await listAccessibleBusinessIds(supabase, userId);
+  const owners = new Set<string>([userId]);
+  if (ids.length > 0) {
+    const { data } = await supabase.from('businesses').select('merchant_id').in('id', ids);
+    for (const b of (data ?? []) as { merchant_id: string | null }[]) {
+      if (b.merchant_id) owners.add(b.merchant_id);
+    }
+  }
+  return [...owners];
+}

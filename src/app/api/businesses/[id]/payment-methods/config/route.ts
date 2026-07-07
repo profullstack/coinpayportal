@@ -77,7 +77,7 @@ export async function PUT(
     if ('error' in authResult) {
       return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status });
     }
-    const access = await verifyBusinessAccess(supabase, id, authResult.merchantId);
+    const access = await verifyBusinessAccess(supabase, id, authResult.merchantId, 'settings.manage');
     if (!access.ok) {
       return NextResponse.json({ success: false, error: access.error }, { status: access.status ?? 404 });
     }
