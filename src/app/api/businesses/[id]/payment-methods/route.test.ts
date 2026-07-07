@@ -1,17 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-vi.mock('@/lib/auth/jwt', () => ({
-  verifyToken: vi.fn().mockReturnValue({ userId: 'merch-1' }),
+const mockResolveMerchant = vi.fn();
+vi.mock('@/lib/auth/merchant', () => ({
+  resolveMerchant: (...args: any[]) => mockResolveMerchant(...args),
 }));
 
-vi.mock('@/lib/secrets', () => ({
-  getJwtSecret: vi.fn().mockReturnValue('test-secret'),
-}));
-
-const mockListWallets = vi.fn();
-vi.mock('@/lib/wallets/service', () => ({
-  listWallets: (...args: any[]) => mockListWallets(...args),
+const mockAuthorizeBusiness = vi.fn();
+vi.mock('@/lib/auth/authz', () => ({
+  authorizeBusiness: (...args: any[]) => mockAuthorizeBusiness(...args),
 }));
 
 const mockFrom = vi.fn();
@@ -27,13 +24,23 @@ function makeRequest(): NextRequest {
   });
 }
 
-function setupStripe(account: any) {
+// Wire up the two tables the route reads: business_wallets (crypto) + stripe_accounts (card).
+function setupTables(wallets: any[], stripeAccount: any) {
   mockFrom.mockImplementation((table: string) => {
+    if (table === 'business_wallets') {
+      return {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            order: vi.fn().mockResolvedValue({ data: wallets, error: null }),
+          }),
+        }),
+      };
+    }
     if (table === 'stripe_accounts') {
       return {
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
-            single: vi.fn().mockResolvedValue({ data: account, error: account ? null : { code: 'PGRST116' } }),
+            single: vi.fn().mockResolvedValue({ data: stripeAccount, error: stripeAccount ? null : { code: 'PGRST116' } }),
           }),
         }),
       };
@@ -47,18 +54,20 @@ describe('GET /api/businesses/[id]/payment-methods', () => {
     vi.clearAllMocks();
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+    // Default: a team member with read access to the business.
+    mockResolveMerchant.mockResolvedValue({ merchantId: 'merch-1', apiKeyBusinessId: null });
+    mockAuthorizeBusiness.mockResolvedValue({ ok: true, role: 'owner' });
   });
 
   it('returns active crypto wallets and card enabled when Stripe charges are on', async () => {
-    mockListWallets.mockResolvedValue({
-      success: true,
-      wallets: [
+    setupTables(
+      [
         { cryptocurrency: 'BTC', wallet_address: 'bc1q', is_active: true },
         { cryptocurrency: 'SOL', wallet_address: 'sol1', is_active: true },
         { cryptocurrency: 'ETH', wallet_address: '0xeth', is_active: false },
       ],
-    });
-    setupStripe({ stripe_account_id: 'acct_1', charges_enabled: true });
+      { stripe_account_id: 'acct_1', charges_enabled: true },
+    );
 
     const res = await GET(makeRequest(), { params: Promise.resolve({ id: 'biz-1' }) });
     const body = await res.json();
@@ -70,8 +79,7 @@ describe('GET /api/businesses/[id]/payment-methods', () => {
   });
 
   it('reports card disabled when charges are not enabled', async () => {
-    mockListWallets.mockResolvedValue({ success: true, wallets: [] });
-    setupStripe({ stripe_account_id: 'acct_1', charges_enabled: false });
+    setupTables([], { stripe_account_id: 'acct_1', charges_enabled: false });
 
     const res = await GET(makeRequest(), { params: Promise.resolve({ id: 'biz-1' }) });
     const body = await res.json();
@@ -81,8 +89,7 @@ describe('GET /api/businesses/[id]/payment-methods', () => {
   });
 
   it('reports card disabled when there is no Stripe account', async () => {
-    mockListWallets.mockResolvedValue({ success: true, wallets: [] });
-    setupStripe(null);
+    setupTables([], null);
 
     const res = await GET(makeRequest(), { params: Promise.resolve({ id: 'biz-1' }) });
     const body = await res.json();
@@ -90,11 +97,27 @@ describe('GET /api/businesses/[id]/payment-methods', () => {
     expect(body.card).toEqual({ enabled: false, stripe_account_id: null });
   });
 
-  it('400s when the business is not accessible', async () => {
-    mockListWallets.mockResolvedValue({ success: false, error: 'Business not found or access denied' });
-    setupStripe(null);
+  it('works for a team member (authorized by business role, not ownership)', async () => {
+    // The whole point of the fix: a non-owner with a role still sees the methods.
+    mockAuthorizeBusiness.mockResolvedValue({ ok: true, role: 'writer' });
+    setupTables([{ cryptocurrency: 'BTC', wallet_address: 'bc1q', is_active: true }], {
+      stripe_account_id: 'acct_1',
+      charges_enabled: true,
+    });
 
     const res = await GET(makeRequest(), { params: Promise.resolve({ id: 'biz-1' }) });
-    expect(res.status).toBe(400);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.card.enabled).toBe(true);
+    expect(body.crypto).toHaveLength(1);
+  });
+
+  it('404s when the business is not accessible', async () => {
+    mockAuthorizeBusiness.mockResolvedValue({ ok: false, status: 404, error: 'Business not found' });
+    setupTables([], null);
+
+    const res = await GET(makeRequest(), { params: Promise.resolve({ id: 'biz-1' }) });
+    expect(res.status).toBe(404);
   });
 });

@@ -30,6 +30,15 @@ vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({ from: mockFrom })),
 }));
 
+// authorizeInvoice gates on the invoice's business role; stub the resolve/authorize
+// primitives so the route's real invoice fetch (supabase mock) still runs.
+vi.mock('@/lib/auth/merchant', () => ({
+  resolveMerchant: vi.fn().mockResolvedValue({ merchantId: 'merch-1', apiKeyBusinessId: null }),
+}));
+vi.mock('@/lib/auth/authz', () => ({
+  authorizeBusiness: vi.fn().mockResolvedValue({ ok: true, role: 'owner' }),
+}));
+
 import { POST } from './route';
 
 const baseInvoice = {
@@ -61,9 +70,7 @@ function setupMocks(overrides: { invoice?: any; stripeAccount?: any } = {}) {
       return {
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              single: vi.fn().mockResolvedValue({ data: invoice, error: null }),
-            }),
+            single: vi.fn().mockResolvedValue({ data: invoice, error: null }),
           }),
         }),
         update: vi.fn().mockReturnValue({
