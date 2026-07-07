@@ -63,6 +63,12 @@ export async function GET(request: NextRequest) {
     const currency = searchParams.get('currency');
     const dateFrom = searchParams.get('date_from');
     const dateTo = searchParams.get('date_to');
+    // Optional pagination. When `limit` is supplied we page the results and
+    // return a total; without it the endpoint keeps its old "return all" behavior.
+    const limitParam = searchParams.get('limit');
+    const paginate = limitParam !== null;
+    const limit = Math.min(Math.max(parseInt(limitParam || '50', 10) || 50, 1), 100);
+    const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10) || 0, 0);
 
     // All businesses this user can access — owned plus those granted via org or
     // per-business team membership. Owner-only scoping here hid data from invited
@@ -77,7 +83,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Build query - include business name via join
+    // Build query - include business name via join. count:'exact' returns the
+    // total matching rows (ignoring the range) so we can paginate.
     let query = supabase
       .from('payments')
       .select(`
@@ -105,7 +112,7 @@ export async function GET(request: NextRequest) {
         businesses (
           name
         )
-      `)
+      `, { count: 'exact' })
       .in('business_id', userBusinessIds)
       .order('created_at', { ascending: false });
 
@@ -133,7 +140,30 @@ export async function GET(request: NextRequest) {
       query = query.lt('created_at', endDate.toISOString());
     }
 
-    const { data: payments, error } = await query;
+    if (paginate) {
+      query = query.range(offset, offset + limit - 1);
+    }
+
+    const { data: payments, error, count } = await query;
+
+    // Status summary across ALL matching rows (so paginated UIs can show accurate
+    // totals in their summary cards, not just the current page).
+    let summary: { total: number; successful: number; pending: number; failed: number } | undefined;
+    if (paginate && !error) {
+      let statusQuery = supabase.from('payments').select('status').in('business_id', userBusinessIds);
+      if (businessId && userBusinessIds.includes(businessId)) statusQuery = statusQuery.eq('business_id', businessId);
+      const { data: statusRows } = await statusQuery;
+      const successStatuses = new Set(['completed', 'confirmed', 'forwarded', 'forwarding']);
+      const pendingStatuses = new Set(['pending', 'detected']);
+      const failedStatuses = new Set(['failed', 'expired', 'forwarding_failed', 'settle_failed', 'settlement_failed']);
+      summary = { total: count ?? (statusRows?.length ?? 0), successful: 0, pending: 0, failed: 0 };
+      for (const r of statusRows || []) {
+        const s = String(r.status || '').toLowerCase();
+        if (successStatuses.has(s)) summary.successful++;
+        else if (pendingStatuses.has(s)) summary.pending++;
+        else if (failedStatuses.has(s)) summary.failed++;
+      }
+    }
 
     if (error) {
       console.error('Error fetching payments:', error);
@@ -181,7 +211,16 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json(
-      { success: true, payments: transformedPayments },
+      {
+        success: true,
+        payments: transformedPayments,
+        ...(paginate
+          ? {
+              pagination: { limit, offset, total: count ?? 0, has_more: offset + limit < (count ?? 0) },
+              summary,
+            }
+          : {}),
+      },
       { status: 200 }
     );
   } catch (error) {

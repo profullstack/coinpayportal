@@ -32,19 +32,32 @@ function isFailureStatus(status: string) {
   return FAILURE_STATUSES.has(status.toLowerCase());
 }
 
+const PAGE_SIZE = 20;
+
 export function CryptoTransactionsTab({ businessId }: CryptoTransactionsTabProps) {
   const router = useRouter();
   const [payments, setPayments] = useState<CryptoPayment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState<{ total: number; successful: number; pending: number; failed: number } | null>(null);
 
   const fetchPayments = useCallback(async () => {
     try {
-      const result = await authFetch(`/api/payments?business_id=${businessId}`, {}, router);
+      const result = await authFetch(
+        `/api/payments?business_id=${businessId}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`,
+        {},
+        router,
+      );
       if (!result) return;
       const { data } = result;
-      if (data.success) setPayments(data.payments || []);
+      if (data.success) {
+        setPayments(data.payments || []);
+        setTotal(data.pagination?.total ?? (data.payments || []).length);
+        setSummary(data.summary ?? null);
+      }
     } catch { /* ignore */ }
-  }, [businessId, router]);
+  }, [businessId, page, router]);
 
   useEffect(() => {
     const load = async () => {
@@ -110,10 +123,10 @@ export function CryptoTransactionsTab({ businessId }: CryptoTransactionsTabProps
       ) : (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4" aria-label="Crypto payment status summary">
-            <StatusSummaryCard label="Total" value={payments.length} className="border-gray-200 bg-gray-50 text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-            <StatusSummaryCard label="Successful" value={successfulCount} className="border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300" />
-            <StatusSummaryCard label="Pending" value={pendingCount} className="border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300" />
-            <StatusSummaryCard label="Failures" value={failureCount} className="border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300" />
+            <StatusSummaryCard label="Total" value={summary?.total ?? total} className="border-gray-200 bg-gray-50 text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+            <StatusSummaryCard label="Successful" value={summary?.successful ?? successfulCount} className="border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300" />
+            <StatusSummaryCard label="Pending" value={summary?.pending ?? pendingCount} className="border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300" />
+            <StatusSummaryCard label="Failures" value={summary?.failed ?? failureCount} className="border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300" />
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -161,6 +174,29 @@ export function CryptoTransactionsTab({ businessId }: CryptoTransactionsTabProps
               </tbody>
             </table>
           </div>
+          {total > PAGE_SIZE && (
+            <div className="flex items-center justify-between pt-3 mt-2 border-t border-gray-100 dark:border-gray-800 text-sm">
+              <span className="text-gray-500 dark:text-gray-400">
+                {`${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, total)}`} of {total}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={(page + 1) * PAGE_SIZE >= total}
+                  className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
