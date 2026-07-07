@@ -239,6 +239,7 @@ export default function DashboardPage() {
   const [cardTransactions, setCardTransactions] = useState<CardTransaction[]>([]);
   const [cardPage, setCardPage] = useState(0);
   const [cardTotal, setCardTotal] = useState(0);
+  const [allPage, setAllPage] = useState(0);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [planInfo, setPlanInfo] = useState<PlanInfo | null>(null);
 
@@ -317,6 +318,7 @@ export default function DashboardPage() {
   // user isn't left on a now-out-of-range page.
   useEffect(() => {
     setCardPage(0);
+    setAllPage(0);
     if (businesses.length > 0) {
       fetchDashboardData(selectedBusinessId);
     }
@@ -410,7 +412,10 @@ export default function DashboardPage() {
 
       // Fetch crypto payments if needed
       if (activeTab === 'all' || activeTab === 'crypto') {
-        let cryptoUrl = transactionFilter === 'failed' ? '/api/payments?limit=100' : '/api/payments?limit=10';
+        // The All tab paginates client-side over the merged crypto+card list, so
+        // pull a wider window (not just 10) for it.
+        const cryptoLimit = transactionFilter === 'failed' || activeTab === 'all' ? 100 : 10;
+        let cryptoUrl = `/api/payments?limit=${cryptoLimit}`;
         if (businessId) {
           cryptoUrl += `&business_id=${businessId}`;
         }
@@ -420,9 +425,14 @@ export default function DashboardPage() {
       // Fetch card transactions if needed. Paginated (server-side) unless we're
       // filtering to failed (which pulls a wider slice and filters client-side).
       if (activeTab === 'all' || activeTab === 'card') {
-        let cardUrl = transactionFilter === 'failed'
-          ? '/api/stripe/transactions?limit=100'
-          : `/api/stripe/transactions?limit=${CARD_PAGE_SIZE}&offset=${cardPage * CARD_PAGE_SIZE}`;
+        // Card tab: server-paginated (25/page). All tab: pull a wider window and
+        // paginate client-side alongside crypto. Failed: wider window, client-filtered.
+        let cardUrl: string;
+        if (transactionFilter === 'failed' || activeTab === 'all') {
+          cardUrl = '/api/stripe/transactions?limit=100';
+        } else {
+          cardUrl = `/api/stripe/transactions?limit=${CARD_PAGE_SIZE}&offset=${cardPage * CARD_PAGE_SIZE}`;
+        }
         if (businessId) {
           cardUrl += `&business_id=${businessId}`;
         }
@@ -647,14 +657,18 @@ export default function DashboardPage() {
     ? cardTransactions.filter((transaction) => isFailedStatus(transaction.status))
     : cardTransactions;
 
-  const renderAllTransactions = () => {
-    // Combine and sort crypto + card transactions
-    const allTxns = [
-      ...visibleCryptoPayments.map(p => ({ ...p, type: 'crypto' })),
-      ...visibleCardTransactions.map(t => ({ ...t, type: 'card' }))
-    ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  // Merged, date-sorted crypto + card list for the All tab (paginated client-side).
+  const allTxnsCombined = [
+    ...visibleCryptoPayments.map((p) => ({ ...p, type: 'crypto' as const })),
+    ...visibleCardTransactions.map((t) => ({ ...t, type: 'card' as const })),
+  ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const allTotal = allTxnsCombined.length;
 
-    if (allTxns.length === 0) {
+  const renderAllTransactions = () => {
+    // Page the merged list client-side.
+    const allTxns = allTxnsCombined.slice(allPage * CARD_PAGE_SIZE, (allPage + 1) * CARD_PAGE_SIZE);
+
+    if (allTxnsCombined.length === 0) {
       return (
         <div className="px-6 py-12 text-center">
           <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1261,6 +1275,29 @@ export default function DashboardPage() {
             {activeTab === 'crypto' && renderCryptoTransactions()}
             {activeTab === 'card' && renderCardTransactions()}
           </div>
+          {activeTab === 'all' && allTotal > CARD_PAGE_SIZE && (
+            <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 text-sm">
+              <span className="text-gray-500 dark:text-gray-400">
+                {`${allPage * CARD_PAGE_SIZE + 1}–${Math.min((allPage + 1) * CARD_PAGE_SIZE, allTotal)}`} of {allTotal}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setAllPage((p) => Math.max(0, p - 1))}
+                  disabled={allPage === 0}
+                  className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setAllPage((p) => p + 1)}
+                  disabled={(allPage + 1) * CARD_PAGE_SIZE >= allTotal}
+                  className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
           {activeTab === 'card' && transactionFilter !== 'failed' && cardTotal > CARD_PAGE_SIZE && (
             <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 text-sm">
               <span className="text-gray-500 dark:text-gray-400">
