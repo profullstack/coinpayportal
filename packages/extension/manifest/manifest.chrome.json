@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "CoinPay Wallet",
   "description": "Non-custodial multi-chain CoinPay wallet with one-click x402 payments.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "action": {
     "default_title": "CoinPay",
     "default_popup": "popup/index.html"
