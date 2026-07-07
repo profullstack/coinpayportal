@@ -497,6 +497,16 @@ function LightningDashboard({ lnNode, walletId }: { lnNode: { id: string; status
 function AssetDetailView({ chain }: { chain: WalletChain }) {
   const { wallet } = useWebWallet();
   const [activeTab, setActiveTab] = useState<Tab>('send');
+
+  // Honor ?tab=send|receive|history (set by the dashboard's per-asset actions).
+  // Read from window rather than useSearchParams to avoid a build-time Suspense
+  // requirement on this client route.
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    if (t === 'receive' || t === 'send' || t === 'history') {
+      setActiveTab(t as Tab);
+    }
+  }, []);
   const [totalBalance, setTotalBalance] = useState('0');
   const [usdValue, setUsdValue] = useState(0);
   const [displayCurrency, setDisplayCurrency] = useState<FiatCurrency>('USD');
