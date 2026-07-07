@@ -26,19 +26,30 @@ interface Transaction {
   created_at: string;
 }
 
+const PAGE_SIZE = 20;
+
 export function StripeTransactionsTab({ businessId }: StripeTransactionsTabProps) {
   const router = useRouter();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
 
   const fetchTransactions = useCallback(async () => {
     try {
-      const result = await authFetch(`/api/stripe/transactions?business_id=${businessId}&limit=20`, {}, router);
+      const result = await authFetch(
+        `/api/stripe/transactions?business_id=${businessId}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`,
+        {},
+        router,
+      );
       if (!result) return;
       const { data } = result;
-      if (data.success) setTransactions(data.transactions || []);
+      if (data.success) {
+        setTransactions(data.transactions || []);
+        setTotal(data.pagination?.total ?? (data.transactions || []).length);
+      }
     } catch { /* ignore */ }
-  }, [businessId, router]);
+  }, [businessId, page, router]);
 
   useEffect(() => {
     const load = async () => {
@@ -144,6 +155,29 @@ export function StripeTransactionsTab({ businessId }: StripeTransactionsTabProps
               ))}
             </tbody>
           </table>
+          {total > PAGE_SIZE && (
+            <div className="flex items-center justify-between pt-3 mt-2 border-t border-gray-100 dark:border-gray-800 text-sm">
+              <span className="text-gray-500 dark:text-gray-400">
+                {`${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, total)}`} of {total}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={(page + 1) * PAGE_SIZE >= total}
+                  className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
