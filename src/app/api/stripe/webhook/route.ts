@@ -38,18 +38,24 @@ function getWebhookSecrets(): string[] {
 // Paying customer's name/email for the merchant's transactions list. Checkout
 // exposes these on customer_details; direct PaymentIntents on the charge's
 // billing_details (with receipt_email as a fallback).
-function customerFromSession(session: any): { customer_name: string | null; customer_email: string | null } {
-  return {
-    customer_name: session?.customer_details?.name ?? null,
-    customer_email: session?.customer_details?.email ?? session?.customer_email ?? null,
-  };
+// Only include fields we actually have, so flipping a placeholder to completed
+// never nulls out contact that was captured up front (at payments/create).
+function customerFromSession(session: any): Record<string, string> {
+  const out: Record<string, string> = {};
+  const name = session?.customer_details?.name;
+  const email = session?.customer_details?.email ?? session?.customer_email;
+  if (name) out.customer_name = name;
+  if (email) out.customer_email = email;
+  return out;
 }
 
-function customerFromCharge(charge: any, paymentIntent?: any): { customer_name: string | null; customer_email: string | null } {
-  return {
-    customer_name: charge?.billing_details?.name ?? null,
-    customer_email: charge?.billing_details?.email ?? paymentIntent?.receipt_email ?? charge?.receipt_email ?? null,
-  };
+function customerFromCharge(charge: any, paymentIntent?: any): Record<string, string> {
+  const out: Record<string, string> = {};
+  const name = charge?.billing_details?.name;
+  const email = charge?.billing_details?.email ?? paymentIntent?.receipt_email ?? charge?.receipt_email;
+  if (name) out.customer_name = name;
+  if (email) out.customer_email = email;
+  return out;
 }
 
 export async function POST(request: NextRequest) {
