@@ -35,6 +35,7 @@ export type Capability =
   | 'webhook.manage'
   | 'settings.manage'
   | 'billing.manage'
+  | 'wallet.manage'
   // owner-only
   | 'business.delete'
   | 'funds.move';
@@ -65,6 +66,9 @@ const ADMIN_CAPS: Capability[] = [
   'webhook.manage',
   'settings.manage',
   'billing.manage',
+  // Managing which wallet addresses a business RECEIVES to (import/add/remove).
+  // Note: 'funds.move' (withdrawals / moving funds OUT) stays owner-only.
+  'wallet.manage',
 ];
 
 const OWNER_CAPS: Capability[] = [...ADMIN_CAPS, 'business.delete', 'funds.move'];

@@ -8,6 +8,7 @@ import {
   type Cryptocurrency,
   type UpdateWalletInput,
 } from '@/lib/wallets/service';
+import { authorizeBusinessOwner } from '@/lib/auth/authz';
 import { getJwtSecret } from '@/lib/secrets';
 
 /**
@@ -74,11 +75,16 @@ export async function GET(
       );
     }
 
+    const authz = await authorizeBusinessOwner(supabase, auth.merchantId!, id, 'business.read');
+    if (!authz.ok) {
+      return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+    }
+
     const result = await getWallet(
       supabase,
       id,
       cryptocurrency as Cryptocurrency,
-      auth.merchantId!
+      authz.ownerId
     );
 
     if (!result.success) {
@@ -133,11 +139,16 @@ export async function PATCH(
       );
     }
 
+    const authz = await authorizeBusinessOwner(supabase, auth.merchantId!, id, 'wallet.manage');
+    if (!authz.ok) {
+      return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+    }
+
     const result = await updateWallet(
       supabase,
       id,
       cryptocurrency as Cryptocurrency,
-      auth.merchantId!,
+      authz.ownerId,
       input
     );
 
@@ -187,11 +198,16 @@ export async function DELETE(
       );
     }
 
+    const authz = await authorizeBusinessOwner(supabase, auth.merchantId!, id, 'wallet.manage');
+    if (!authz.ok) {
+      return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+    }
+
     const result = await deleteWallet(
       supabase,
       id,
       cryptocurrency as Cryptocurrency,
-      auth.merchantId!
+      authz.ownerId
     );
 
     if (!result.success) {
