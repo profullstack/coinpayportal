@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getWebhookSecret, regenerateWebhookSecret } from '@/lib/business/service';
 import { verifyToken } from '@/lib/auth/jwt';
+import { authorizeBusinessOwner } from '@/lib/auth/authz';
 import { getJwtSecret } from '@/lib/secrets';
 
 /**
@@ -58,7 +59,11 @@ export async function GET(
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Get webhook secret
-    const result = await getWebhookSecret(supabase, id, decoded.userId);
+    const authzGet = await authorizeBusinessOwner(supabase, decoded.userId, id, 'webhook.manage');
+    if (!authzGet.ok) {
+      return NextResponse.json({ success: false, error: authzGet.error }, { status: authzGet.status });
+    }
+    const result = await getWebhookSecret(supabase, id, authzGet.ownerId);
 
     if (!result.success) {
       return NextResponse.json(
@@ -133,8 +138,14 @@ export async function POST(
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Regenerate webhook secret
-    const result = await regenerateWebhookSecret(supabase, id, decoded.userId);
+    // Team-aware gate: webhook secret management is an admin capability.
+    const authz = await authorizeBusinessOwner(supabase, decoded.userId, id, 'webhook.manage');
+    if (!authz.ok) {
+      return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+    }
+
+    // Regenerate webhook secret (owner-scoped service; caller is authorized above)
+    const result = await regenerateWebhookSecret(supabase, id, authz.ownerId);
 
     if (!result.success) {
       return NextResponse.json(

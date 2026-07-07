@@ -6,6 +6,7 @@ import {
   listWallets,
   type CreateWalletInput,
 } from '@/lib/wallets/service';
+import { authorizeBusinessOwner } from '@/lib/auth/authz';
 import { getJwtSecret } from '@/lib/secrets';
 
 /**
@@ -72,7 +73,12 @@ export async function GET(
       );
     }
 
-    const result = await listWallets(supabase, id, auth.merchantId!);
+    const authz = await authorizeBusinessOwner(supabase, auth.merchantId!, id, 'business.read');
+    if (!authz.ok) {
+      return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+    }
+
+    const result = await listWallets(supabase, id, authz.ownerId);
 
     if (!result.success) {
       return NextResponse.json(
@@ -127,7 +133,12 @@ export async function POST(
       );
     }
 
-    const result = await createWallet(supabase, id, auth.merchantId!, input);
+    const authz = await authorizeBusinessOwner(supabase, auth.merchantId!, id, 'wallet.manage');
+    if (!authz.ok) {
+      return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+    }
+
+    const result = await createWallet(supabase, id, authz.ownerId, input);
 
     if (!result.success) {
       return NextResponse.json(

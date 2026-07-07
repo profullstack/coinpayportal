@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { regenerateApiKey } from '@/lib/business/service';
+import { authorizeBusinessOwner } from '@/lib/auth/authz';
 import { getJwtSecret } from '@/lib/secrets';
 
 /**
@@ -68,7 +69,13 @@ export async function POST(
       );
     }
 
-    const result = await regenerateApiKey(supabase, id, auth.merchantId!);
+    // Team-aware gate: API key management is an admin capability, not owner-only.
+    const authz = await authorizeBusinessOwner(supabase, auth.merchantId!, id, 'apikey.manage');
+    if (!authz.ok) {
+      return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+    }
+
+    const result = await regenerateApiKey(supabase, id, authz.ownerId);
 
     if (!result.success) {
       return NextResponse.json(

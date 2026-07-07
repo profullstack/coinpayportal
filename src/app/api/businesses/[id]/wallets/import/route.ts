@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { importWalletsToBusiness } from '@/lib/wallets/merchant-service';
 import type { Cryptocurrency } from '@/lib/wallets/service';
+import { authorizeBusinessOwner } from '@/lib/auth/authz';
 import { getJwtSecret } from '@/lib/secrets';
 
 /**
@@ -80,9 +81,14 @@ export async function POST(
       ? undefined
       : (body.cryptocurrencies as Cryptocurrency[] | undefined);
 
+    const authz = await authorizeBusinessOwner(supabase, auth.merchantId!, businessId, 'wallet.manage');
+    if (!authz.ok) {
+      return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
+    }
+
     const result = await importWalletsToBusiness(
       supabase,
-      auth.merchantId!,
+      authz.ownerId,
       businessId,
       cryptocurrencies
     );
