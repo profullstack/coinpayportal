@@ -14,7 +14,10 @@
   },
   "dependencies": {
     "@profullstack/coinpay": "workspace:*",
-    "@scure/bip39": "^1.4.0"
+    "@scure/bip39": "^1.4.0",
+    "@noble/curves": "^2.0.1",
+    "@noble/hashes": "^2.0.1",
+    "buffer": "^6.0.3"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.300",
