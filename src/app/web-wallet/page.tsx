@@ -336,6 +336,7 @@ function DashboardView() {
                 assets={assets}
                 isLoading={loadingBalances}
                 onSelect={(asset) => router.push(`/web-wallet/asset/${asset.chain}`)}
+                onAction={(asset, action) => router.push(`/web-wallet/asset/${asset.chain}?tab=${action}`)}
                 onDeriveAll={handleDeriveAll}
                 isDeriving={isDeriving}
               />
