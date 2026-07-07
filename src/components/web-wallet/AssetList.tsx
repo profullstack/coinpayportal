@@ -14,11 +14,12 @@ interface AssetListProps {
   assets: AssetItem[];
   isLoading?: boolean;
   onSelect?: (asset: AssetItem) => void;
+  onAction?: (asset: AssetItem, action: 'send' | 'receive') => void;
   onDeriveAll?: () => void;
   isDeriving?: boolean;
 }
 
-export function AssetList({ assets, isLoading, onSelect, onDeriveAll, isDeriving }: AssetListProps) {
+export function AssetList({ assets, isLoading, onSelect, onAction, onDeriveAll, isDeriving }: AssetListProps) {
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
 
   const handleCopyAddress = async (
@@ -78,55 +79,71 @@ export function AssetList({ assets, isLoading, onSelect, onDeriveAll, isDeriving
       {assets.map((asset, i) => (
         <div
           key={`${asset.chain}-${asset.address}-${i}`}
-          onClick={() => onSelect?.(asset)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              onSelect?.(asset);
-            }
-          }}
-          role="button"
-          tabIndex={0}
-          className="flex w-full items-center gap-3 rounded-xl border border-white/5 bg-white/5 p-4 text-left hover:bg-white/10 transition-colors cursor-pointer"
+          className="rounded-xl border border-white/5 bg-white/5 p-4 transition-colors hover:bg-white/10"
         >
-          <ChainBadge chain={asset.chain} />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-white">{getSymbol(asset.chain)}</p>
-            <p className="truncate text-xs text-gray-400 font-mono">
-              {asset.address.slice(0, 10)}...{asset.address.slice(-6)}
-            </p>
+          <div
+            onClick={() => onSelect?.(asset)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onSelect?.(asset);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            className="flex w-full items-center gap-3 text-left cursor-pointer"
+          >
+            <ChainBadge chain={asset.chain} />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-white">{getSymbol(asset.chain)}</p>
+              <p className="truncate text-xs text-gray-400 font-mono">
+                {asset.address.slice(0, 10)}...{asset.address.slice(-6)}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm font-medium text-white">
+                {formatNativeBalance(asset.balance, asset.chain)} {getSymbol(asset.chain)}
+              </p>
+              {asset.chain === 'LN' && asset.usdValue !== undefined && asset.usdValue > 0 && (
+                <p className="text-xs text-gray-400">
+                  ≈ ${asset.usdValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              )}
+              {asset.chain !== 'LN' && asset.usdValue !== undefined && (
+                <p className="text-xs text-gray-400">
+                  ${asset.usdValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              )}
+            </div>
           </div>
-          {asset.chain !== 'LN' && (
+
+          {/* Explicit actions — the asset row alone wasn't a discoverable way to send/receive. */}
+          <div className="mt-3 flex items-center gap-2">
             <button
               type="button"
-              onClick={(event) => {
-                void handleCopyAddress(event, asset.address);
-              }}
-              className="shrink-0 rounded-lg bg-white/5 px-2.5 py-1.5 text-xs text-gray-300 hover:bg-white/10 hover:text-white transition-colors"
-              aria-label={`Copy ${asset.chain} address`}
+              onClick={() => onAction?.(asset, 'receive')}
+              className="flex-1 rounded-lg bg-green-600/90 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-500 transition-colors"
             >
-              {copiedAddress === asset.address ? 'Copied' : 'Copy'}
+              ↓ Receive
             </button>
-          )}
-          <div className="text-right">
-            <p className="text-sm font-medium text-white">
-              {formatNativeBalance(asset.balance, asset.chain)} {getSymbol(asset.chain)}
-            </p>
-            {asset.chain === 'LN' && asset.usdValue !== undefined && asset.usdValue > 0 && (
-              <p className="text-xs text-gray-400">
-                ≈ ${asset.usdValue.toLocaleString('en-US', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </p>
-            )}
-            {asset.chain !== 'LN' && asset.usdValue !== undefined && (
-              <p className="text-xs text-gray-400">
-                ${asset.usdValue.toLocaleString('en-US', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </p>
+            <button
+              type="button"
+              onClick={() => onAction?.(asset, 'send')}
+              className="flex-1 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-purple-500 transition-colors"
+            >
+              ↑ Send
+            </button>
+            {asset.chain !== 'LN' && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  void handleCopyAddress(event, asset.address);
+                }}
+                className="shrink-0 rounded-lg bg-white/5 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/10 hover:text-white transition-colors"
+                aria-label={`Copy ${asset.chain} address`}
+              >
+                {copiedAddress === asset.address ? 'Copied' : 'Copy'}
+              </button>
             )}
           </div>
         </div>
