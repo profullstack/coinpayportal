@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { authorizeBusiness } from '@/lib/auth/authz';
+import type { Capability } from '@/lib/auth/permissions';
 
 export const CRYPTO_NAMES: Record<string, string> = {
   BTC: 'Bitcoin',
@@ -93,22 +95,22 @@ export function coinToSupportedToken(coin: SupportedCoin): SupportedToken {
   };
 }
 
+/**
+ * Verify the caller can act on a business. Team-aware: the caller may be the
+ * owner OR a team member with the required capability (default `business.read`,
+ * i.e. any member). Pass a stricter capability (e.g. `settings.manage`) for
+ * sensitive writes so a read-only member can't perform them.
+ */
 export async function verifyBusinessAccess(
   supabase: SupabaseClient,
   businessId: string,
   merchantId: string,
+  capability: Capability = 'business.read',
 ): Promise<BusinessAccessResult> {
-  const { data: business, error } = await supabase
-    .from('businesses')
-    .select('id')
-    .eq('id', businessId)
-    .eq('merchant_id', merchantId)
-    .single();
-
-  if (error || !business) {
-    return { ok: false, error: 'Business not found or access denied', status: 404 };
+  const authz = await authorizeBusiness(supabase, merchantId, businessId, capability);
+  if (!authz.ok) {
+    return { ok: false, error: authz.error, status: authz.status };
   }
-
   return { ok: true };
 }
 

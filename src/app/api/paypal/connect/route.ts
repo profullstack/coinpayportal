@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     if (authResult.apiKeyBusinessId && authResult.apiKeyBusinessId !== businessId) {
       return NextResponse.json({ success: false, error: 'businessId does not match API key scope' }, { status: 403 });
     }
-    const access = await verifyBusinessAccess(supabase, businessId, authResult.merchantId);
+    const access = await verifyBusinessAccess(supabase, businessId, authResult.merchantId, 'settings.manage');
     if (!access.ok) {
       return NextResponse.json({ success: false, error: access.error }, { status: access.status ?? 404 });
     }
@@ -117,7 +117,7 @@ export async function DELETE(request: NextRequest) {
     if (authResult.apiKeyBusinessId && authResult.apiKeyBusinessId !== businessId) {
       return NextResponse.json({ success: false, error: 'businessId does not match API key scope' }, { status: 403 });
     }
-    const access = await verifyBusinessAccess(supabase, businessId, authResult.merchantId);
+    const access = await verifyBusinessAccess(supabase, businessId, authResult.merchantId, 'settings.manage');
     if (!access.ok) {
       return NextResponse.json({ success: false, error: access.error }, { status: access.status ?? 404 });
     }

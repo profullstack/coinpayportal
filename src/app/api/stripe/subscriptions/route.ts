@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
+import { listAccessibleOwnerMerchantIds } from '@/lib/auth/authz';
 import { getJwtSecret } from '@/lib/secrets';
 import { getStripe } from '@/lib/server/optional-deps';
 import { parsePaginationParam } from '@/lib/api/pagination';
@@ -38,10 +39,13 @@ export async function GET(request: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // Team-aware: subscriptions of every business the caller can access.
+    const ownerMerchantIds = await listAccessibleOwnerMerchantIds(supabase, merchantId);
+
     let query = supabase
       .from('subscriptions')
       .select('*, subscription_plans(name, amount, currency, interval)')
-      .eq('merchant_id', merchantId)
+      .in('merchant_id', ownerMerchantIds)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
