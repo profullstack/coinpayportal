@@ -12,22 +12,33 @@ function getSupabase() {
 export async function POST(request: NextRequest) {
   const supabase = getSupabase();
   try {
-    const { 
-      businessId, 
-      amount, 
-      currency = 'usd', 
-      description, 
+    const {
+      businessId,
+      amount,
+      currency = 'usd',
+      description,
       metadata = {},
       successUrl,
       cancelUrl,
+      customerEmail,
+      customerName,
+      invoiceNumber: callerInvoiceNumber,
     } = await request.json();
 
     if (!businessId || !amount || !currency) {
       return NextResponse.json(
-        { error: 'businessId, amount, and currency are required' }, 
+        { error: 'businessId, amount, and currency are required' },
         { status: 400 }
       );
     }
+
+    // Stable invoice number returned to the caller now, so an integration can
+    // record it before the customer reaches Stripe. Callers may supply their own.
+    const invoiceNumber =
+      (typeof callerInvoiceNumber === 'string' && callerInvoiceNumber.trim()) ||
+      `INV-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const customerEmailValue = typeof customerEmail === 'string' && customerEmail.trim() ? customerEmail.trim() : null;
+    const customerNameValue = typeof customerName === 'string' && customerName.trim() ? customerName.trim() : null;
 
     // Get business info
     const { data: business, error: bizError } = await supabase
@@ -64,6 +75,7 @@ export async function POST(request: NextRequest) {
       business_id: businessId,
       merchant_id: business.merchant_id,
       platform_fee_amount: platformFeeAmount.toString(),
+      invoice_number: invoiceNumber,
     };
 
     // Gateway Mode: destination charge, funds go directly to merchant
@@ -79,6 +91,9 @@ export async function POST(request: NextRequest) {
           },
         ],
         mode: 'payment',
+        // Prefill the buyer's email on Stripe Checkout when the integration
+        // already knows it (also captured on our side below, up front).
+        ...(customerEmailValue ? { customer_email: customerEmailValue } : {}),
         payment_intent_data: {
           application_fee_amount: platformFeeAmount,
           on_behalf_of: stripeAccount.stripe_account_id,
@@ -97,9 +112,10 @@ export async function POST(request: NextRequest) {
       });
 
     // Create the placeholder transaction record. Store the Checkout Session id so
-    // the webhook can flip THIS row to completed (rather than inserting a separate
-    // completed row and leaving this one stuck at 'pending').
-    await supabase
+    // the webhook can flip THIS row to completed. Invoice number + any known
+    // contact are stored NOW so they're captured before the customer completes
+    // (or closes the window).
+    const { data: inserted, error: insertError } = await supabase
       .from('stripe_transactions')
       .insert({
         merchant_id: business.merchant_id,
@@ -111,9 +127,20 @@ export async function POST(request: NextRequest) {
         status: 'pending',
         rail: 'card',
         stripe_checkout_session_id: session.id,
-      });
+        invoice_number: invoiceNumber,
+        customer_email: customerEmailValue,
+        customer_name: customerNameValue,
+      })
+      .select('id')
+      .single();
+
+    if (insertError) {
+      console.error('[payments/create] transaction insert error:', insertError);
+    }
 
     return NextResponse.json({
+      invoice_number: invoiceNumber,
+      transaction_id: inserted?.id ?? null,
       checkout_url: session.url,
       checkout_session_id: session.id,
       amount,

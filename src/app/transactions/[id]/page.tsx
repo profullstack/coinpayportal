@@ -23,6 +23,7 @@ interface CardTransaction {
   customer_email: string | null;
   failure_reason: string | null;
   failure_code: string | null;
+  invoice_number: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -125,6 +126,7 @@ export default function CardTransactionDetailPage() {
                   )}
                 </div>
               )}
+              {transaction.invoice_number && <Row label="Invoice #">{transaction.invoice_number}</Row>}
               <Row label="Customer">
                 {transaction.customer_name || transaction.customer_email ? (
                   <span>

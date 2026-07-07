@@ -103,6 +103,7 @@ export async function GET(request: NextRequest) {
         customer_email,
         failure_reason,
         failure_code,
+        invoice_number,
         created_at,
         updated_at,
         businesses (
@@ -229,6 +230,7 @@ export async function GET(request: NextRequest) {
         customer_email: transaction.customer_email || null,
         failure_reason: transaction.failure_reason || null,
         failure_code: transaction.failure_code || null,
+        invoice_number: transaction.invoice_number || null,
         created_at: transaction.created_at,
         updated_at: transaction.updated_at,
         merchant_email: merchantEmailMap[transaction.business_id] || null,
