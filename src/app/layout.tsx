@@ -49,10 +49,13 @@ export const metadata: Metadata = {
     images: ['/logo.svg'],
   },
   icons: {
+    // PNG first: some app/extension icon detectors take the first <link rel="icon">
+    // and don't render SVG. These are transparent (palette PNG + tRNS).
     icon: [
-      { url: '/icons/favicon.ico' },
       { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
       { url: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' },
+      { url: '/logo.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/favicon.ico' },
     ],
     apple: [
       { url: '/icons/apple-touch-icon-180x180.png', sizes: '180x180', type: 'image/png' },
@@ -67,7 +70,7 @@ const organizationJsonLd = {
   '@type': 'Organization',
   name: 'CoinPay',
   url: SITE_URL,
-  logo: `${SITE_URL}/logo.svg`,
+  logo: `${SITE_URL}/logo.png`,
   description:
     'Non-custodial cryptocurrency payment gateway with multi-chain support, Lightning, and built-in escrow. Accept BTC, ETH, stablecoins; funds settle directly to merchant wallets.',
   email: 'hello@coinpayportal.com',
