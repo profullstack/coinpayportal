@@ -98,6 +98,12 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isApiRoute = pathname.startsWith('/api/');
   const requestOrigin = request.headers.get('origin');
+  // The Tor hidden service listens on plain HTTP (HiddenServicePort 80 -> app).
+  // Tor Browser treats .onion as a secure origin and will CACHE an HSTS policy
+  // received here, then force every future request to https://<onion> — which
+  // has no TLS listener, so the site "won't load". Never emit HSTS on the onion.
+  const host = request.headers.get('host') ?? '';
+  const isOnion = host.endsWith('.onion');
 
   // Handle CORS preflight for API routes
   if (isApiRoute && request.method === 'OPTIONS') {
@@ -119,7 +125,7 @@ export function proxy(request: NextRequest) {
     // Skip rate limiting if we can't identify the client
     if (!clientIp) {
       const response = NextResponse.next();
-      addSecurityHeaders(response, isApiRoute, requestOrigin);
+      addSecurityHeaders(response, isApiRoute, requestOrigin, isOnion);
       const noIpCorsHeaders = getCorsHeaders(requestOrigin);
       if (noIpCorsHeaders['Access-Control-Allow-Origin']) {
         for (const [k, v] of Object.entries(noIpCorsHeaders)) {
@@ -153,7 +159,7 @@ export function proxy(request: NextRequest) {
     const response = NextResponse.next();
 
     // Security headers
-    addSecurityHeaders(response, isApiRoute, requestOrigin);
+    addSecurityHeaders(response, isApiRoute, requestOrigin, isOnion);
 
     // Rate limit headers
     response.headers.set('X-RateLimit-Limit', String(rl.limit));
@@ -164,20 +170,25 @@ export function proxy(request: NextRequest) {
   }
 
   const response = NextResponse.next();
-  addSecurityHeaders(response, isApiRoute, requestOrigin);
+  addSecurityHeaders(response, isApiRoute, requestOrigin, isOnion);
   return response;
 }
 
 function addSecurityHeaders(
   response: NextResponse,
   isApiRoute: boolean,
-  requestOrigin: string | null
+  requestOrigin: string | null,
+  isOnion: boolean
 ) {
-  // Security headers
-  response.headers.set(
-    'Strict-Transport-Security',
-    'max-age=31536000; includeSubDomains'
-  );
+  // HSTS only makes sense over HTTPS. The onion is served over plain HTTP, and
+  // emitting HSTS there makes Tor Browser force-upgrade to a non-existent
+  // https://<onion> and fail to load. Skip it for .onion hosts.
+  if (!isOnion) {
+    response.headers.set(
+      'Strict-Transport-Security',
+      'max-age=31536000; includeSubDomains'
+    );
+  }
   response.headers.set('X-Frame-Options', 'DENY');
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('X-XSS-Protection', '1; mode=block');
