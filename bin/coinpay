@@ -37,11 +37,128 @@ import {
 } from '../packages/sdk/src/card-payments.js';
 import { CoinPayClient } from '../packages/sdk/src/client.js';
 import { execSync, spawn } from 'child_process';
-import { existsSync, unlinkSync, readFileSync } from 'fs';
+import { existsSync, unlinkSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'fs';
 import { homedir } from 'os';
 import { resolve } from 'path';
+import { createServer } from 'http';
+import { randomBytes, createHash } from 'crypto';
 
 const API_BASE = process.env.COINPAY_API_URL || 'https://coinpayportal.com';
+
+// ── "coinpay login": browser OAuth (Authorization Code + PKCE, public client) ──
+const OAUTH_CLIENT_ID = process.env.COINPAY_OAUTH_CLIENT_ID || 'cp_a53f46a1788cfe82bb165519';
+const OAUTH_PORT = Number(process.env.COINPAY_OAUTH_PORT || 8976);
+const OAUTH_REDIRECT_URI = `http://127.0.0.1:${OAUTH_PORT}/callback`;
+const OAUTH_SCOPES = 'openid email profile';
+const CREDS_DIR = resolve(homedir(), '.config', 'coinpay');
+const CREDS_FILE = process.env.COINPAY_CREDENTIALS || resolve(CREDS_DIR, 'credentials.json');
+const b64url = (buf) => Buffer.from(buf).toString('base64url');
+
+function browserResultPage(title, detail) {
+  return `<!doctype html><html><head><meta charset="utf-8"><title>CoinPay</title>
+<style>body{background:#0a0b0d;color:#e8e3d6;font-family:ui-monospace,Menlo,monospace;display:grid;place-items:center;height:100vh;margin:0}
+.card{text-align:center;border:1px solid #1b2026;padding:40px 48px;border-radius:8px}
+h1{color:#9ef01a;font-size:20px;margin:0 0 10px}p{color:#8b938a;margin:0}</style></head>
+<body><div class="card"><h1>${title}</h1><p>${detail}</p></div></body></html>`;
+}
+
+function tryOpenBrowser(url) {
+  const cmd = process.platform === 'darwin' ? 'open'
+    : process.platform === 'win32' ? 'start'
+    : 'xdg-open';
+  try {
+    const p = spawn(cmd, [url], { stdio: 'ignore', detached: true });
+    p.on('error', () => {});
+    p.unref();
+  } catch { /* user can copy the URL manually */ }
+}
+
+async function login() {
+  const verifier = b64url(randomBytes(32));
+  const challenge = b64url(createHash('sha256').update(verifier).digest());
+  const state = b64url(randomBytes(16));
+  const authUrl = `${API_BASE}/api/oauth/authorize?` + new URLSearchParams({
+    response_type: 'code',
+    client_id: OAUTH_CLIENT_ID,
+    redirect_uri: OAUTH_REDIRECT_URI,
+    scope: OAUTH_SCOPES,
+    state,
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+  }).toString();
+
+  const code = await new Promise((resolvePromise, reject) => {
+    const server = createServer((req, res) => {
+      let url;
+      try { url = new URL(req.url, OAUTH_REDIRECT_URI); } catch { res.writeHead(400); return res.end(); }
+      if (url.pathname !== '/callback') { res.writeHead(404); return res.end('not found'); }
+      const finish = (status, page) => { res.writeHead(status, { 'content-type': 'text/html' }); res.end(page); server.close(); };
+      const err = url.searchParams.get('error');
+      if (err) { finish(400, browserResultPage('Login failed', err)); return reject(new Error(err)); }
+      if (url.searchParams.get('state') !== state) { finish(400, browserResultPage('Login failed', 'state mismatch')); return reject(new Error('state mismatch')); }
+      const c = url.searchParams.get('code');
+      if (!c) { finish(400, browserResultPage('Login failed', 'no code')); return reject(new Error('no authorization code')); }
+      finish(200, browserResultPage('✅ Logged in to CoinPay', 'You can close this tab and return to your terminal.'));
+      resolvePromise(c);
+    });
+    server.on('error', reject);
+    server.listen(OAUTH_PORT, '127.0.0.1', () => {
+      console.log('\n  Open this URL in your browser to authenticate:\n');
+      console.log('    \x1b[36m' + authUrl + '\x1b[0m\n');
+      tryOpenBrowser(authUrl);
+      console.log('  Waiting for you to approve at coinpayportal.com …');
+    });
+    setTimeout(() => { try { server.close(); } catch {} reject(new Error('login timed out after 5 minutes')); }, 5 * 60 * 1000).unref();
+  });
+
+  const tokenRes = await fetch(`${API_BASE}/api/oauth/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: OAUTH_REDIRECT_URI,
+      client_id: OAUTH_CLIENT_ID,
+      code_verifier: verifier,
+    }),
+  });
+  if (!tokenRes.ok) throw new Error(`token exchange failed (HTTP ${tokenRes.status})`);
+  const tokens = await tokenRes.json();
+  let info = {};
+  const infoRes = await fetch(`${API_BASE}/api/oauth/userinfo`, { headers: { authorization: `Bearer ${tokens.access_token}` } });
+  if (infoRes.ok) info = await infoRes.json();
+
+  mkdirSync(CREDS_DIR, { recursive: true });
+  const creds = {
+    issuer: API_BASE, client_id: OAUTH_CLIENT_ID,
+    sub: info.sub || null, email: info.email || null, name: info.name || null,
+    access_token: tokens.access_token, refresh_token: tokens.refresh_token || null,
+    id_token: tokens.id_token || null, token_type: tokens.token_type || 'Bearer',
+    obtained_at: new Date().toISOString(), expires_in: tokens.expires_in || null,
+  };
+  writeFileSync(CREDS_FILE, JSON.stringify(creds, null, 2));
+  try { chmodSync(CREDS_FILE, 0o600); } catch { /* best effort */ }
+  console.log(`\n  ✅ Logged in as \x1b[32m${info.email || info.sub || 'unknown'}\x1b[0m`);
+  console.log(`     Credentials saved to ${CREDS_FILE}\n`);
+}
+
+function loadCredentials() {
+  if (!existsSync(CREDS_FILE)) return null;
+  try { return JSON.parse(readFileSync(CREDS_FILE, 'utf8')); } catch { return null; }
+}
+
+async function whoami() {
+  const creds = loadCredentials();
+  if (!creds) { console.log('Not logged in. Run: coinpay login'); return; }
+  console.log(`Logged in as ${creds.email || creds.sub || 'unknown'}`);
+  if (creds.sub) console.log(`  sub:   ${creds.sub}`);
+  console.log(`  since: ${creds.obtained_at}`);
+}
+
+function logout() {
+  if (existsSync(CREDS_FILE)) { unlinkSync(CREDS_FILE); console.log('Logged out.'); }
+  else console.log('Not logged in.');
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -696,12 +813,20 @@ USAGE
   coinpay <command> [options]
 
 COMMANDS
+  login        Log in via browser (opens coinpayportal.com)
+  logout       Remove stored credentials
+  whoami       Show the logged-in account
   swap         Coin swap operations (no KYC)
   wallet       Wallet management
   reputation   Trust & reputation (CPTL)
   card         Card payments and escrow
   subscription Subscription billing management
   help         Show this help
+
+AUTH COMMANDS
+  coinpay login    Opens a browser to authenticate; prints the URL to visit
+  coinpay whoami   Show your logged-in email
+  coinpay logout   Clear stored credentials
 
 SWAP COMMANDS
   coinpay swap quote   Get a swap quote
@@ -1258,6 +1383,15 @@ async function main() {
   const subCommand = args[1];
 
   switch (command) {
+    case 'login':
+      await login();
+      break;
+    case 'logout':
+      logout();
+      break;
+    case 'whoami':
+      await whoami();
+      break;
     case 'swap':
       await handleSwap(subCommand, args.slice(2));
       break;

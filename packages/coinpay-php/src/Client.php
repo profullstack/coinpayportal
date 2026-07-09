@@ -16,7 +16,7 @@ class Client
 {
     public const DEFAULT_BASE_URL = 'https://coinpayportal.com/api';
     public const DEFAULT_TIMEOUT  = 30;
-    public const USER_AGENT       = 'coinpay-php/0.1.0';
+    public const USER_AGENT       = 'coinpay-php/0.6.12';
 
     /** @var string */
     private $apiKey;
