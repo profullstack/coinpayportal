@@ -3,11 +3,16 @@ export function parsePaginationParam(
   defaultValue: number,
   options: { min?: number; max?: number } = {}
 ) {
-  const parsed = Number.parseInt(value ?? '', 10);
+  const raw = value?.trim() ?? '';
   const min = options.min ?? 0;
   const max = options.max ?? Number.MAX_SAFE_INTEGER;
 
-  if (!Number.isFinite(parsed)) {
+  if (!/^-?\d+$/.test(raw)) {
+    return defaultValue;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed)) {
     return defaultValue;
   }
 
