@@ -3,7 +3,7 @@
  * Plugin Name: CoinPay for WooCommerce
  * Plugin URI:  https://coinpayportal.com
  * Description: Accept cryptocurrency (BTC, ETH, SOL, POL, BCH, USDC) and credit card payments through CoinPay hosted checkout.
- * Version:     0.1.0
+ * Version:     0.6.12
  * Author:      Profullstack, Inc.
  * Author URI:  https://profullstack.com
  * License:     MIT
@@ -18,7 +18,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('COINPAY_WC_VERSION', '0.1.0');
+define('COINPAY_WC_VERSION', '0.6.12');
 define('COINPAY_WC_FILE', __FILE__);
 define('COINPAY_WC_DIR', plugin_dir_path(__FILE__));
 define('COINPAY_WC_URL', plugin_dir_url(__FILE__));

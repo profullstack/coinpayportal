@@ -13,7 +13,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="${ROOT_DIR}/dist"
-VERSION="${COINPAY_PLUGIN_VERSION:-0.1.0}"
+VERSION="${COINPAY_PLUGIN_VERSION:-0.6.12}"
 
 "${ROOT_DIR}/scripts/sync-plugin-sdk.sh"
 

@@ -4,7 +4,7 @@ Tags: woocommerce, payments, bitcoin, cryptocurrency, stripe, credit-card, usdc,
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 0.1.0
+Stable tag: 0.6.12
 License: MIT
 License URI: https://opensource.org/licenses/MIT
 
