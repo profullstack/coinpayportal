@@ -86,11 +86,28 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Parse and validate pagination params
+    const parsedLimit = limit ? parseInt(limit, 10) : undefined;
+    const parsedOffset = offset ? parseInt(offset, 10) : undefined;
+
+    if (parsedLimit !== undefined && (isNaN(parsedLimit) || parsedLimit < 1)) {
+      return NextResponse.json(
+        { success: false, error: 'limit must be a positive integer' },
+        { status: 400 }
+      );
+    }
+    if (parsedOffset !== undefined && (isNaN(parsedOffset) || parsedOffset < 0)) {
+      return NextResponse.json(
+        { success: false, error: 'offset must be a non-negative integer' },
+        { status: 400 }
+      );
+    }
+
     // Get webhook logs
     const result = await getWebhookLogs(supabase, businessId, {
       payment_id: paymentId || undefined,
-      limit: limit ? parseInt(limit) : undefined,
-      offset: offset ? parseInt(offset) : undefined,
+      limit: parsedLimit,
+      offset: parsedOffset,
     });
 
     if (!result.success) {
