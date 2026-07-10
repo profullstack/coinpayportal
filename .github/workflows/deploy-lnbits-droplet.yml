@@ -14,7 +14,7 @@ jobs:
       DIRECT_SSH_KEY: ${{ secrets.LNBITS_DROPLET_SSH_KEY || secrets.LNBITS_DROP_SSH_KEY || vars.LNBITS_DROPLET_SSH_KEY || vars.LNBITS_DROP_SSH_KEY }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Load ENV_FILE
         shell: bash
