@@ -15,7 +15,9 @@
 #   1. Detects OS (Linux/macOS — Windows users: use WSL).
 #   2. Installs mise (https://mise.jdx.dev) if missing, lives under $HOME.
 #   3. Installs Node.js 20 via mise if no system Node 18+ is present.
-#   4. `npm install -g @profullstack/coinpay`.
+#   4. Fetches the CLI straight from the public GitHub repo (a tarball of
+#      packages/sdk — no npm registry publish, no auth token) into
+#      $COINPAY_HOME/pkg and `npm install`s only its runtime deps.
 #   5. Drops a wrapper at $HOME/.local/bin/coinpay that handles
 #      `coinpay update | upgrade | remove | uninstall` itself and
 #      forwards everything else to the real CLI.
@@ -27,7 +29,7 @@
 # Override env vars:
 #   COINPAY_HOME=/path           install dir          (default: $HOME/.coinpay)
 #   COINPAY_BIN=/path/dir        wrapper bin dir      (default: $HOME/.local/bin)
-#   COINPAY_NPM_VERSION=X.Y.Z    pin npm version      (default: latest)
+#   COINPAY_REF=branch|tag|sha   git ref to install   (default: master)
 #   COINPAY_NO_AUTOUPGRADE=1     skip the 5-min poll setup
 #   COINPAY_API_URL=https://…    pin API base         (default: https://coinpayportal.com)
 #
@@ -35,7 +37,15 @@
 
 set -eu
 
-NPM_PACKAGE="@profullstack/coinpay"
+# CLI is distributed from the public GitHub repo, not the npm registry —
+# installing needs no npm token (only the handful of runtime deps are
+# pulled from npm's public registry, which is unauthenticated).
+NPM_PACKAGE="@profullstack/coinpay"      # display name / package identity
+GH_REPO="profullstack/coinpayportal"
+PKG_SUBDIR="packages/sdk"
+COINPAY_REF="${COINPAY_REF:-master}"
+TARBALL_URL="https://codeload.github.com/$GH_REPO/tar.gz/$COINPAY_REF"
+RAW_PKG_URL="https://raw.githubusercontent.com/$GH_REPO/$COINPAY_REF/$PKG_SUBDIR/package.json"
 DEFAULT_API_URL="https://coinpayportal.com"
 INSTALL_URL="https://coinpayportal.com/install.sh"
 # 5-minute poll interval, matching infernet + c0mpute.
@@ -71,9 +81,10 @@ export USER HOME
 
 COINPAY_HOME="${COINPAY_HOME:-$HOME/.coinpay}"
 COINPAY_BIN="${COINPAY_BIN:-$HOME/.local/bin}"
-COINPAY_NPM_VERSION="${COINPAY_NPM_VERSION:-latest}"
 COINPAY_API_URL="${COINPAY_API_URL:-$DEFAULT_API_URL}"
 WRAPPER="$COINPAY_BIN/coinpay"
+PKG_DIR="$COINPAY_HOME/pkg"                 # extracted packages/sdk lives here
+REAL_BIN="$PKG_DIR/bin/coinpay.js"          # the actual CLI entrypoint (run via node)
 UPGRADER="$COINPAY_HOME/bin/coinpay-self-upgrade"
 LOG_DIR="$COINPAY_HOME/log"
 UPGRADE_LOG="$LOG_DIR/auto-upgrade.log"
@@ -169,40 +180,57 @@ ensure_node_via_mise() {
 }
 
 # ---------------------------------------------------------------------------
-# install / update the npm package
+# install / update the CLI from GitHub (no npm publish, no auth token)
+#
+# Downloads a tarball of the repo, extracts just packages/sdk into
+# $PKG_DIR, and `npm install`s only its runtime deps (public packages —
+# unauthenticated). Staged into $PKG_DIR.new then swapped atomically so a
+# failed fetch never leaves a half-installed CLI.
 # ---------------------------------------------------------------------------
-install_npm_package() {
-    if ! command -v npm >/dev/null 2>&1; then
-        fail "npm not found — node install must have failed"
-    fi
-    info "installing $NPM_PACKAGE@$COINPAY_NPM_VERSION (npm install -g)"
-    if ! npm install -g "$NPM_PACKAGE@$COINPAY_NPM_VERSION" >/dev/null 2>&1; then
-        # Retry verbosely so the user sees the failure.
-        npm install -g "$NPM_PACKAGE@$COINPAY_NPM_VERSION" \
-            || fail "npm install -g $NPM_PACKAGE failed"
-    fi
-    # Reshim mise so the new global binary is on PATH via the shim layer.
-    command -v mise >/dev/null 2>&1 && mise reshim >/dev/null 2>&1 || true
-    ok "$NPM_PACKAGE installed"
-}
+install_cli() {
+    for _t in curl tar node npm; do
+        command -v "$_t" >/dev/null 2>&1 || fail "$_t is required but not found"
+    done
 
-# Resolve where npm dropped the real coinpay binary.
-resolve_real_coinpay() {
-    _prefix="$(npm prefix -g 2>/dev/null)"
-    if [ -n "$_prefix" ] && [ -x "$_prefix/bin/coinpay" ]; then
-        echo "$_prefix/bin/coinpay"
-        unset _prefix
-        return 0
+    _tmp="$(mktemp -d 2>/dev/null || printf '%s' "$COINPAY_HOME/.tmp.$$")"
+    mkdir -p "$_tmp"
+
+    info "fetching $NPM_PACKAGE ($GH_REPO@$COINPAY_REF) from GitHub"
+    if ! curl -fsSL "$TARBALL_URL" | tar -xz -C "$_tmp" 2>/dev/null; then
+        rm -rf "$_tmp"
+        fail "download/extract failed — $TARBALL_URL (check COINPAY_REF=$COINPAY_REF)"
     fi
-    # mise-shim case: the shim itself is on PATH but not under npm prefix.
-    _shim="$(command -v coinpay 2>/dev/null || true)"
-    if [ -n "$_shim" ] && [ "$_shim" != "$WRAPPER" ]; then
-        echo "$_shim"
-        unset _prefix _shim
-        return 0
+
+    # Tarball top dir is coinpayportal-<ref>/ — locate packages/sdk inside it.
+    _src="$(find "$_tmp" -type d -path "*/$PKG_SUBDIR" 2>/dev/null | head -1)"
+    if [ -z "$_src" ] || [ ! -f "$_src/package.json" ]; then
+        rm -rf "$_tmp"
+        fail "$PKG_SUBDIR not found in tarball from $TARBALL_URL"
     fi
-    unset _prefix _shim
-    return 1
+
+    # Stage into a fresh dir, install deps, then swap into place.
+    rm -rf "$PKG_DIR.new"
+    mkdir -p "$PKG_DIR.new"
+    ( cd "$_src" && tar -cf - . ) | ( cd "$PKG_DIR.new" && tar -xf - )
+    rm -rf "$_tmp"
+
+    info "installing runtime dependencies (npm public registry — no auth)"
+    if ! ( cd "$PKG_DIR.new" && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 ); then
+        # Retry verbosely so the user sees the failure.
+        ( cd "$PKG_DIR.new" && npm install --omit=dev --no-audit --no-fund ) \
+            || { rm -rf "$PKG_DIR.new"; fail "npm install (runtime deps) failed"; }
+    fi
+    chmod +x "$PKG_DIR.new/bin/coinpay.js" 2>/dev/null || true
+
+    # Atomic swap: keep the old copy until the new one is in place.
+    rm -rf "$PKG_DIR.old"
+    [ -d "$PKG_DIR" ] && mv "$PKG_DIR" "$PKG_DIR.old"
+    mv "$PKG_DIR.new" "$PKG_DIR"
+    rm -rf "$PKG_DIR.old"
+
+    _ver="$(node -p "require('$PKG_DIR/package.json').version" 2>/dev/null || echo '?')"
+    ok "$NPM_PACKAGE@$_ver installed to $PKG_DIR"
+    unset _tmp _src _ver
 }
 
 # ---------------------------------------------------------------------------
@@ -210,7 +238,7 @@ resolve_real_coinpay() {
 #
 # The wrapper:
 #   • intercepts `update|upgrade|remove|uninstall` and runs them itself
-#   • forwards everything else to the real npm-installed binary
+#   • forwards everything else to the real CLI at $REAL_BIN, run via node
 #   • is the single entry point users put on their PATH; the auto-upgrade
 #     timer also exec's it
 # ---------------------------------------------------------------------------
@@ -226,8 +254,9 @@ COINPAY_HOME="\${COINPAY_HOME:-$COINPAY_HOME}"
 COINPAY_BIN="\${COINPAY_BIN:-$COINPAY_BIN}"
 NPM_PACKAGE="$NPM_PACKAGE"
 INSTALL_URL="$INSTALL_URL"
+REAL_BIN="$REAL_BIN"
 
-# Make sure mise shims + ~/.local/bin are on PATH so 'npm' resolves
+# Make sure mise shims + ~/.local/bin are on PATH so 'node' resolves
 # even when invoked from a non-interactive shell (cron, systemd timer).
 _mise_data="\${MISE_DATA_DIR:-\${XDG_DATA_HOME:-\$HOME/.local/share}/mise}"
 case ":\$PATH:" in
@@ -252,27 +281,16 @@ case "\${1:-}" in
         ;;
 esac
 
-# Forward to the real binary. Try npm prefix first, fall back to PATH.
-_real=""
-if command -v npm >/dev/null 2>&1; then
-    _prefix="\$(npm prefix -g 2>/dev/null)"
-    [ -n "\$_prefix" ] && [ -x "\$_prefix/bin/coinpay" ] && _real="\$_prefix/bin/coinpay"
+if [ ! -f "\$REAL_BIN" ]; then
+    printf 'coinpay: CLI not found at %s — re-run installer:\n  curl -fsSL %s | sh\n' "\$REAL_BIN" "\$INSTALL_URL" >&2
+    exit 127
 fi
-if [ -z "\$_real" ]; then
-    # Search PATH but skip our own wrapper to avoid recursion.
-    for _dir in \$(echo "\$PATH" | tr ':' ' '); do
-        if [ -x "\$_dir/coinpay" ] && [ "\$_dir/coinpay" != "\$0" ]; then
-            _real="\$_dir/coinpay"; break
-        fi
-    done
-fi
-
-if [ -z "\$_real" ] || [ ! -x "\$_real" ]; then
-    printf 'coinpay: real CLI not found — re-run installer:\n  curl -fsSL %s | sh\n' "\$INSTALL_URL" >&2
+if ! command -v node >/dev/null 2>&1; then
+    printf 'coinpay: node not on PATH — re-run installer:\n  curl -fsSL %s | sh\n' "\$INSTALL_URL" >&2
     exit 127
 fi
 
-exec "\$_real" "\$@"
+exec node "\$REAL_BIN" "\$@"
 WRAPPER_EOF
     chmod +x "$WRAPPER"
     ok "wrapper installed at $WRAPPER"
@@ -281,9 +299,9 @@ WRAPPER_EOF
 # ---------------------------------------------------------------------------
 # self-upgrade helper
 #
-# Runs every $UPGRADE_INTERVAL_SEC by the timer/agent below. Compares
-# the installed package version against npm registry; if a newer one
-# exists, runs `npm install -g` and logs.
+# Runs every $UPGRADE_INTERVAL_SEC by the timer/agent below. Compares the
+# installed version against packages/sdk/package.json on GitHub; if it
+# differs, re-runs the installer's update path. Idempotent, no npm token.
 # ---------------------------------------------------------------------------
 write_self_upgrade_helper() {
     mkdir -p "$COINPAY_HOME/bin" "$LOG_DIR"
@@ -294,10 +312,13 @@ write_self_upgrade_helper() {
 set -eu
 
 NPM_PACKAGE="$NPM_PACKAGE"
+PKG_DIR="$PKG_DIR"
+RAW_PKG_URL="$RAW_PKG_URL"
+INSTALL_URL="$INSTALL_URL"
 LOG_FILE="$UPGRADE_LOG"
 mkdir -p "\$(dirname "\$LOG_FILE")" 2>/dev/null || true
 
-# Same PATH wiring as the wrapper so npm resolves under cron/systemd.
+# Same PATH wiring as the wrapper so node/curl resolve under cron/systemd.
 _mise_data="\${MISE_DATA_DIR:-\${XDG_DATA_HOME:-\$HOME/.local/share}/mise}"
 PATH="\$HOME/.local/bin:\$_mise_data/shims:\$PATH"
 export PATH
@@ -306,48 +327,38 @@ unset _mise_data
 ts() { date -u +'%Y-%m-%dT%H:%M:%SZ'; }
 log() { printf '[%s] %s\n' "\$(ts)" "\$*" >> "\$LOG_FILE"; }
 
-if ! command -v npm >/dev/null 2>&1; then
-    log "npm not on PATH — skipping"
-    exit 0
-fi
-if ! command -v node >/dev/null 2>&1; then
-    log "node not on PATH — skipping"
-    exit 0
-fi
+for _t in curl node; do
+    command -v "\$_t" >/dev/null 2>&1 || { log "\$_t not on PATH — skipping"; exit 0; }
+done
 
-# Read the installed version straight off disk via node — avoids fragile
-# JSON parsing in shell. \$prefix is the global npm root; the package
-# layout npm v7+ guarantees is \$prefix/lib/node_modules/<pkg>/package.json
-# (or just <pkg>/package.json on Windows; we're Linux/macOS so OK).
-prefix="\$(npm prefix -g 2>/dev/null)"
-pkg_json="\$prefix/lib/node_modules/\$NPM_PACKAGE/package.json"
-[ -f "\$pkg_json" ] || pkg_json="\$prefix/node_modules/\$NPM_PACKAGE/package.json"
-if [ -f "\$pkg_json" ]; then
-    current="\$(node -p "require('\$pkg_json').version" 2>/dev/null || echo "")"
+# Installed version, straight off disk.
+if [ -f "\$PKG_DIR/package.json" ]; then
+    current="\$(node -p "require('\$PKG_DIR/package.json').version" 2>/dev/null || echo "")"
 else
     current=""
 fi
-latest="\$(npm view "\$NPM_PACKAGE" version 2>/dev/null || echo "")"
+
+# Latest version = version field of packages/sdk/package.json on GitHub.
+latest="\$(curl -fsSL "\$RAW_PKG_URL" 2>/dev/null \
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).version||""))}catch(e){}})' \
+    2>/dev/null || echo "")"
 
 if [ -z "\$latest" ]; then
-    log "could not reach npm registry; will retry"
+    log "could not read version from GitHub; will retry"
     exit 0
 fi
-# If we can't determine the current version (fresh install missing
-# package.json on disk), assume an upgrade is needed — npm install
-# is idempotent so the worst case is a no-op reinstall.
+# Unknown current version (fresh/partial install) → force an update pass.
 if [ -n "\$current" ] && [ "\$current" = "\$latest" ]; then
     # Quiet success — uncomment to debug:
     # log "up-to-date (\$current)"
     exit 0
 fi
 
-log "upgrade available: \${current:-?} → \$latest"
-if npm install -g "\$NPM_PACKAGE@\$latest" >> "\$LOG_FILE" 2>&1; then
+log "upgrade available: \${current:-?} → \$latest — running installer update"
+if curl -fsSL "\$INSTALL_URL" | sh -s -- update >> "\$LOG_FILE" 2>&1; then
     log "upgraded to \$latest"
-    command -v mise >/dev/null 2>&1 && mise reshim >/dev/null 2>&1 || true
 else
-    log "npm install failed; will retry next tick"
+    log "update failed; will retry next tick"
     exit 1
 fi
 UPGRADER_EOF
@@ -523,15 +534,10 @@ run_remove() {
     unschedule_launchd_agent
     unschedule_cron
 
-    if command -v npm >/dev/null 2>&1; then
-        npm uninstall -g "$NPM_PACKAGE" >/dev/null 2>&1 || true
-        ok "npm uninstall -g $NPM_PACKAGE"
-    fi
-
     rm -f "$WRAPPER" 2>/dev/null || true
     rm -rf "$COINPAY_HOME" 2>/dev/null || true
     ok "removed wrapper $WRAPPER"
-    ok "removed $COINPAY_HOME"
+    ok "removed $COINPAY_HOME (CLI + deps)"
 
     cat <<NOTE_EOF
 
@@ -569,7 +575,7 @@ run_install() {
     mkdir -p "$COINPAY_HOME/bin" "$COINPAY_BIN" "$LOG_DIR"
 
     ensure_node_via_mise
-    install_npm_package
+    install_cli
     write_self_upgrade_helper
     write_wrapper
     ensure_path
@@ -603,7 +609,7 @@ run_update() {
     detect_os
     info "checking for updates"
     ensure_node_via_mise
-    install_npm_package
+    install_cli
     write_self_upgrade_helper
     write_wrapper
     ensure_path
@@ -630,7 +636,7 @@ CoinPay installer — usage:
   curl -fsSL $INSTALL_URL | sh -s -- update          # upgrade in place
   curl -fsSL $INSTALL_URL | sh -s -- remove          # uninstall
 
-Env: COINPAY_HOME, COINPAY_BIN, COINPAY_NPM_VERSION, COINPAY_NO_AUTOUPGRADE
+Env: COINPAY_HOME, COINPAY_BIN, COINPAY_REF, COINPAY_NO_AUTOUPGRADE
 HELP_EOF
         ;;
     *)
