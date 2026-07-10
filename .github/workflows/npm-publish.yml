@@ -15,11 +15,11 @@ jobs:
         working-directory: packages/sdk
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
@@ -41,6 +41,21 @@ jobs:
       - name: Build (if build script exists)
         if: steps.check.outputs.published == 'false'
         run: npm run build --if-present
+
+      - name: Verify npm auth
+        if: steps.check.outputs.published == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::error::NPM_TOKEN secret is empty — set it in repo Settings → Secrets → Actions."
+            exit 1
+          fi
+          if ! WHO=$(npm whoami 2>/dev/null); then
+            echo "::error::npm auth failed — NPM_TOKEN is missing/expired/revoked. Generate a new @profullstack automation (or granular read+write) token and update the NPM_TOKEN secret. (A dead token surfaces downstream as a misleading 404 on publish.)"
+            exit 1
+          fi
+          echo "✅ Authenticated to npm as: ${WHO}"
 
       - name: Publish to npm
         if: steps.check.outputs.published == 'false'
