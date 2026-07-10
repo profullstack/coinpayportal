@@ -26,6 +26,22 @@ const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.u
 const HOME_DIRECTORY = process.env.COINPAY_HOME || process.env.HOME || homedir();
 const CONFIG_FILE = join(HOME_DIRECTORY, '.coinpay.json');
 const DEFAULT_WALLET_FILE = join(HOME_DIRECTORY, '.coinpay-wallet.gpg');
+// Where `coinpay update|upgrade|remove|uninstall` re-invoke the installer.
+const INSTALL_URL = process.env.COINPAY_INSTALL_URL || 'https://coinpayportal.com/install.sh';
+
+// Self-manage the CLI by delegating to the installer, which owns the
+// fetch-from-GitHub / uninstall logic. Works whether the user hit the
+// shell wrapper (which also intercepts these) or the raw binary directly.
+function handleSelfManage(action) {
+  const label = action === 'remove' ? 'Removing' : 'Updating';
+  print.info(`${label} the coinpay CLI via ${INSTALL_URL}`);
+  try {
+    execSync(`curl -fsSL "${INSTALL_URL}" | sh -s -- ${action}`, { stdio: 'inherit' });
+  } catch {
+    print.error(`coinpay ${action} failed — run it manually:\n  curl -fsSL ${INSTALL_URL} | sh -s -- ${action}`);
+    process.exit(1);
+  }
+}
 
 // ANSI colors
 const colors = {
@@ -273,6 +289,12 @@ ${colors.cyan}Commands:${colors.reset}
   ${colors.bright}webhook${colors.reset}
     logs <business-id>    Get webhook logs
     test <business-id>    Send test webhook
+
+  ${colors.bright}self${colors.reset}
+    update                Update the coinpay CLI to the latest version
+    upgrade               Alias for update
+    remove                Uninstall the coinpay CLI
+    uninstall             Alias for remove
 
 ${colors.cyan}Wallet Options:${colors.reset}
   --words <12|24>         Number of mnemonic words (default: 12)
@@ -2823,7 +2845,18 @@ async function handleLightning(subcommand, args, flags) {
       case 'oauth':
         await handleOAuth(subcommand, args, flags);
         break;
-        
+
+      case 'update':
+      case 'upgrade':
+      case 'self-update':
+        handleSelfManage('update');
+        break;
+
+      case 'remove':
+      case 'uninstall':
+        handleSelfManage('remove');
+        break;
+
       default:
         print.error(`Unknown command: ${command}`);
         showHelp();
