@@ -41,14 +41,16 @@ import { existsSync, unlinkSync, readFileSync, writeFileSync, mkdirSync, chmodSy
 import { homedir } from 'os';
 import { resolve } from 'path';
 import { createServer } from 'http';
+import { createInterface } from 'node:readline';
 import { randomBytes, createHash } from 'crypto';
 
 const API_BASE = process.env.COINPAY_API_URL || 'https://coinpayportal.com';
 
 // ── "coinpay login": browser OAuth (Authorization Code + PKCE, public client) ──
-const OAUTH_CLIENT_ID = process.env.COINPAY_OAUTH_CLIENT_ID || 'cp_a53f46a1788cfe82bb165519';
-const OAUTH_PORT = Number(process.env.COINPAY_OAUTH_PORT || 8976);
-const OAUTH_REDIRECT_URI = `http://127.0.0.1:${OAUTH_PORT}/callback`;
+// Out-of-band flow: authorize redirects to coinpayportal.com/oauth/cli, which
+// shows a code to paste back here. Works over SSH/remote (no loopback needed).
+const OAUTH_CLIENT_ID = process.env.COINPAY_OAUTH_CLIENT_ID || 'cp_55ffd6a6ee1064a163024301';
+const OAUTH_REDIRECT_URI = process.env.COINPAY_OAUTH_REDIRECT || `${API_BASE}/oauth/cli`;
 const OAUTH_SCOPES = 'openid email profile';
 const CREDS_DIR = resolve(homedir(), '.config', 'coinpay');
 const CREDS_FILE = process.env.COINPAY_CREDENTIALS || resolve(CREDS_DIR, 'credentials.json');
@@ -73,6 +75,34 @@ function tryOpenBrowser(url) {
   } catch { /* user can copy the URL manually */ }
 }
 
+// Accepts a bare code, a `?code=…&state=…` query, or the full redirect URL.
+function extractCode(input, expectedState) {
+  const t = String(input || '').trim();
+  if (!t) return null;
+  if (t.includes('code=') || t.includes('://') || t.startsWith('?')) {
+    let sp;
+    try { sp = new URL(t.includes('://') ? t : `http://x/?${t.replace(/^\?/, '')}`).searchParams; }
+    catch { return null; }
+    if (sp.get('state') && sp.get('state') !== expectedState) {
+      return { error: 'state mismatch — that code is from a different login attempt' };
+    }
+    return { code: sp.get('code') };
+  }
+  return { code: t }; // assume a bare authorization code
+}
+
+function promptForCode(state) {
+  return new Promise((resolvePromise, reject) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question('  code> ', (ans) => {
+      rl.close();
+      const r = extractCode(ans, state);
+      if (!r || !r.code) return reject(new Error(r && r.error ? r.error : 'no code entered'));
+      resolvePromise(r.code);
+    });
+  });
+}
+
 async function login() {
   const verifier = b64url(randomBytes(32));
   const challenge = b64url(createHash('sha256').update(verifier).digest());
@@ -87,29 +117,11 @@ async function login() {
     code_challenge_method: 'S256',
   }).toString();
 
-  const code = await new Promise((resolvePromise, reject) => {
-    const server = createServer((req, res) => {
-      let url;
-      try { url = new URL(req.url, OAUTH_REDIRECT_URI); } catch { res.writeHead(400); return res.end(); }
-      if (url.pathname !== '/callback') { res.writeHead(404); return res.end('not found'); }
-      const finish = (status, page) => { res.writeHead(status, { 'content-type': 'text/html' }); res.end(page); server.close(); };
-      const err = url.searchParams.get('error');
-      if (err) { finish(400, browserResultPage('Login failed', err)); return reject(new Error(err)); }
-      if (url.searchParams.get('state') !== state) { finish(400, browserResultPage('Login failed', 'state mismatch')); return reject(new Error('state mismatch')); }
-      const c = url.searchParams.get('code');
-      if (!c) { finish(400, browserResultPage('Login failed', 'no code')); return reject(new Error('no authorization code')); }
-      finish(200, browserResultPage('✅ Logged in to CoinPay', 'You can close this tab and return to your terminal.'));
-      resolvePromise(c);
-    });
-    server.on('error', reject);
-    server.listen(OAUTH_PORT, '127.0.0.1', () => {
-      console.log('\n  Open this URL in your browser to authenticate:\n');
-      console.log('    \x1b[36m' + authUrl + '\x1b[0m\n');
-      tryOpenBrowser(authUrl);
-      console.log('  Waiting for you to approve at coinpayportal.com …');
-    });
-    setTimeout(() => { try { server.close(); } catch {} reject(new Error('login timed out after 5 minutes')); }, 5 * 60 * 1000).unref();
-  });
+  console.log('\n  1. Open this URL in your browser and approve access:\n');
+  console.log('     \x1b[36m' + authUrl + '\x1b[0m\n');
+  tryOpenBrowser(authUrl);
+  console.log('  2. The page shows a code — paste it here (or paste the full redirect URL):\n');
+  const code = await promptForCode(state);
 
   const tokenRes = await fetch(`${API_BASE}/api/oauth/token`, {
     method: 'POST',
