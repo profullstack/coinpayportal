@@ -5,3 +5,16 @@ Disallow: /admin/
 Disallow: /dashboard/
 
 Sitemap: https://coinpayportal.com/sitemap.xml
+
+# Allow AI bots to access /api/ endpoints
+User-agent: GPTBot
+Allow: /api/
+
+User-agent: ClaudeBot
+Allow: /api/
+
+User-agent: PerplexityBot
+Allow: /api/
+
+User-agent: CCBot
+Allow: /api/
