@@ -58,7 +58,8 @@ export async function loginMerchant(client, { email, password }) {
  * @returns {Promise<Object>} Merchant information
  */
 export async function getMe(client) {
+  // GET — the /auth/me endpoint is GET-only (a POST returns 405).
   return client.request('/auth/me', {
-    method: 'POST',
+    method: 'GET',
   });
 }
