@@ -16,7 +16,7 @@ import {
 } from '../src/wallet.js';
 import { SwapClient, SwapCoins } from '../src/swap.js';
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import { createInterface } from 'readline';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -2625,6 +2625,69 @@ async function handleCard(subcommand, args, flags) {
 /**
  * Main entry point
  */
+// Top-level commands offered by the interactive menu (shown when `coinpay` is
+// run with no arguments in a TTY). Self-manage commands are intentionally omitted.
+const MENU_COMMANDS = [
+  ['config', 'API key & endpoint (set-key, set-url, show)'],
+  ['auth', 'Merchant account (register, login, me)'],
+  ['payment', 'Payments (create, get, list, qr)'],
+  ['tokens', 'List checkout tokens'],
+  ['business', 'Businesses (create, get, list, update)'],
+  ['rates', 'Exchange rates (get, list)'],
+  ['wallet', 'Local encrypted wallet (create, import, balance, send, history…)'],
+  ['swap', 'Cross-chain swaps'],
+  ['escrow', 'Escrow & series operations'],
+  ['ln', 'Lightning wallet'],
+  ['webhook', 'Webhook management'],
+  ['payout', 'Payouts'],
+  ['card', 'Card payments & issuing'],
+  ['reputation', 'DID, credentials, receipts, issuer'],
+  ['x402', 'x402 protocol operations'],
+  ['oauth', 'OAuth operations'],
+];
+
+function askLine(prompt) {
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(prompt, (answer) => { rl.close(); resolve(answer); });
+  });
+}
+
+// Re-invoke this CLI as a child so the real parser/handlers run unchanged.
+function runChild(argv) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [process.argv[1], ...argv], { stdio: 'inherit' });
+    child.on('exit', () => resolve());
+    child.on('error', () => resolve());
+  });
+}
+
+async function runInteractiveMenu() {
+  console.log('');
+  console.log(`  ${colors.bright}${colors.cyan}coinpay${colors.reset}  ·  interactive menu ${colors.reset}(v${VERSION})`);
+  for (;;) {
+    console.log('');
+    MENU_COMMANDS.forEach(([name, desc], i) => {
+      const num = colors.yellow + String(i + 1).padStart(2) + colors.reset;
+      console.log(`  ${num}  ${colors.bright}${name.padEnd(11)}${colors.reset}${desc}`);
+    });
+    console.log('');
+    const answer = (await askLine('  pick a number, type a command (with args), or q to quit: ')).trim();
+    if (!answer || answer === 'q' || answer === 'quit' || answer === 'exit') break;
+
+    let argv;
+    if (/^\d+$/.test(answer)) {
+      const idx = parseInt(answer, 10) - 1;
+      if (idx < 0 || idx >= MENU_COMMANDS.length) { print.error('  invalid choice'); continue; }
+      argv = [MENU_COMMANDS[idx][0]];
+    } else {
+      argv = answer.split(/\s+/);
+    }
+    console.log('');
+    await runChild(argv);
+  }
+}
+
 async function main() {
   const { command, subcommand, args, flags } = parseArgs(process.argv.slice(2));
   
@@ -2633,7 +2696,18 @@ async function main() {
     return;
   }
   
-  if (flags.help || flags.h || !command) {
+  if (flags.help || flags.h) {
+    showHelp();
+    return;
+  }
+
+  if (!command) {
+    // No command in an interactive terminal → browse-and-run menu instead of a
+    // bare help dump. Piped/non-TTY invocations keep printing help.
+    if (process.stdin.isTTY && process.stdout.isTTY) {
+      await runInteractiveMenu();
+      return;
+    }
     showHelp();
     return;
   }
