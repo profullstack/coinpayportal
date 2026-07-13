@@ -128,9 +128,11 @@ function getBaseUrl() {
  * Create client instance
  */
 function createClient() {
-  const apiKey = getApiKey();
+  // An API key, or the session token from `coinpay login` (the merchant JWT is
+  // accepted by the API the same way — via its userId claim).
+  const apiKey = getApiKey() || loadConfig().jwtToken;
   if (!apiKey) {
-    print.error('API key not configured. Run: coinpay config set-key <api-key>');
+    print.error('Not authenticated. Run: coinpay login  (or coinpay config set-key <api-key>)');
     process.exit(1);
   }
   return new CoinPayClient({ apiKey, baseUrl: getBaseUrl() });
@@ -2686,6 +2688,111 @@ function runChild(argv) {
   });
 }
 
+// An authenticated client (session token or API key) for the guided menu flows
+// that need to fetch your data. Returns null if not authenticated.
+function authedClientOrNull() {
+  const apiKey = getApiKey() || loadConfig().jwtToken;
+  return apiKey ? new CoinPayClient({ apiKey, baseUrl: getBaseUrl() }) : null;
+}
+
+function unwrapList(res) {
+  const list = res?.data ?? res?.businesses ?? res?.payments ?? res;
+  return Array.isArray(list) ? list : [];
+}
+
+// Fetch the merchant's businesses and let them pick one; returns a business id.
+async function pickBusiness(io) {
+  const client = authedClientOrNull();
+  if (!client) { print.error('Not signed in — run `coinpay login` first.'); return null; }
+  let list;
+  try { list = unwrapList(await client.listBusinesses()); }
+  catch (e) { print.error('Could not fetch businesses: ' + e.message); return null; }
+  if (!list.length) { print.info('No businesses yet — create one first (business → create).'); return null; }
+  if (list.length === 1) return list[0].id; // only one — no need to ask
+  return io.select({
+    message: 'Which business?',
+    choices: list.map((b) => ({ name: `${b.name || b.id}  ${colors.reset}(${b.id})`, value: b.id })),
+    pageSize: 15,
+  });
+}
+
+// Fetch payments for a business and let them pick one; returns a payment id.
+async function pickPayment(io, businessId) {
+  const client = authedClientOrNull();
+  if (!client) return null;
+  let list;
+  try { list = unwrapList(await client.listPayments({ businessId })); }
+  catch (e) { print.error('Could not fetch payments: ' + e.message); return null; }
+  if (!list.length) { print.info('No payments for that business yet.'); return null; }
+  return io.select({
+    message: 'Which payment?',
+    choices: list.map((p) => ({
+      name: `${p.id}  ${[p.amount, p.currency, p.status].filter(Boolean).join(' ')}`.trim(),
+      value: p.id,
+    })),
+    pageSize: 15,
+  });
+}
+
+// Guided interactive flows keyed by "command subcommand": fetch your data + ask
+// for inputs, then return the argv to run (or null to abort). Used by the menu.
+const GUIDED = {
+  'business get': async (io) => {
+    const id = await pickBusiness(io);
+    return id ? ['business', 'get', id] : null;
+  },
+  'business update': async (io) => {
+    const id = await pickBusiness(io);
+    if (!id) return null;
+    const name = (await io.input({ message: 'New name (blank to keep):' })).trim();
+    const url = (await io.input({ message: 'New webhook URL (blank to keep):' })).trim();
+    const argv = ['business', 'update', id];
+    if (name) argv.push('--name', name);
+    if (url) argv.push('--webhook-url', url);
+    if (argv.length === 3) { print.info('Nothing to update.'); return null; }
+    return argv;
+  },
+  'business create': async (io) => {
+    const name = (await io.input({ message: 'Business name:' })).trim();
+    if (!name) { print.error('Name is required.'); return null; }
+    const url = (await io.input({ message: 'Webhook URL (optional):' })).trim();
+    const argv = ['business', 'create', '--name', name];
+    if (url) argv.push('--webhook-url', url);
+    return argv;
+  },
+  'payment create': async (io) => {
+    const businessId = await pickBusiness(io);
+    if (!businessId) return null;
+    const amount = (await io.input({ message: 'Amount:' })).trim();
+    if (!amount) { print.error('Amount is required.'); return null; }
+    const currency = (await io.input({ message: 'Currency:', default: 'USD' })).trim() || 'USD';
+    const blockchain = await io.select({
+      message: 'Blockchain:',
+      choices: ['BTC', 'ETH', 'SOL', 'POL', 'BCH'].map((c) => ({ name: c, value: c })),
+    });
+    const description = (await io.input({ message: 'Description (optional):' })).trim();
+    const argv = ['payment', 'create', '--business-id', businessId, '--amount', amount, '--currency', currency, '--blockchain', blockchain];
+    if (description) argv.push('--description', description);
+    return argv;
+  },
+  'payment get': async (io) => {
+    const b = await pickBusiness(io);
+    if (!b) return null;
+    const p = await pickPayment(io, b);
+    return p ? ['payment', 'get', p] : null;
+  },
+  'payment qr': async (io) => {
+    const b = await pickBusiness(io);
+    if (!b) return null;
+    const p = await pickPayment(io, b);
+    return p ? ['payment', 'qr', p] : null;
+  },
+  'payment list': async (io) => {
+    const b = await pickBusiness(io);
+    return b ? ['payment', 'list', '--business-id', b] : null;
+  },
+};
+
 // Fallback menu (used only if @inquirer/prompts can't be loaded): a numbered
 // list, then a prompt for the subcommand + args.
 async function numberedMenu() {
@@ -2763,6 +2870,11 @@ async function runInteractiveMenu() {
       if (sub === TYPE) {
         let line; try { line = await input({ message: `coinpay ${cmd}` }); } catch { continue; }
         argv = [cmd, ...splitArgs(line)];
+      } else if (GUIDED[`${cmd} ${sub}`]) {
+        // Guided flow: fetch your data + ask for the inputs, then run.
+        let g; try { g = await GUIDED[`${cmd} ${sub}`]({ select, input }); } catch { continue; }
+        if (!g) continue;
+        argv = g;
       } else {
         let extra; try { extra = await input({ message: `args/flags for 'coinpay ${cmd} ${sub}' (optional):` }); } catch { continue; }
         argv = [cmd, sub, ...splitArgs(extra)];
