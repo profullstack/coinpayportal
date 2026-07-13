@@ -18,7 +18,7 @@ import { SwapClient, SwapCoins } from '../src/swap.js';
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 import { createInterface } from 'readline';
-import { homedir } from 'os';
+import { homedir, hostname } from 'os';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -2628,6 +2628,7 @@ async function handleCard(subcommand, args, flags) {
 // Top-level commands offered by the interactive menu (shown when `coinpay` is
 // run with no arguments in a TTY). Self-manage commands are intentionally omitted.
 const MENU_COMMANDS = [
+  ['login', 'Log in headlessly — approve in a browser on any device'],
   ['config', 'API key & endpoint (set-key, set-url, show)'],
   ['auth', 'Merchant account (register, login, me)'],
   ['payment', 'Payments (create, get, list, qr)'],
@@ -2768,6 +2769,73 @@ async function runInteractiveMenu() {
     await runChild(argv);
     console.log('');
   }
+}
+
+// Headless login: ask the server for a device code, show a URL to approve on any
+// device, and poll until a merchant session token is minted and stored. No
+// password on this machine — works over SSH / on a server.
+async function handleLogin() {
+  const cfg = loadConfig();
+  const base = (cfg.baseUrl || 'https://coinpayportal.com/api').replace(/\/$/, '');
+
+  let start;
+  try {
+    const res = await fetch(`${base}/cli-auth/start`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ client_name: hostname() }),
+    });
+    if (!res.ok) throw new Error(`server returned ${res.status}`);
+    start = await res.json();
+  } catch (err) {
+    print.error(`Couldn't start login: ${err.message}`);
+    process.exit(1);
+  }
+
+  print.info('');
+  console.log('  To log in, open this URL on any device (e.g. your desktop) and approve:');
+  console.log('');
+  console.log('    ' + colors.cyan + start.verification_uri_complete + colors.reset);
+  console.log('');
+  console.log('  …or go to ' + colors.cyan + start.verification_uri + colors.reset +
+    ' and enter code ' + colors.bright + start.user_code + colors.reset);
+  console.log('');
+  print.info('Waiting for approval… (Ctrl-C to cancel)');
+
+  const deadline = Date.now() + (start.expires_in || 600) * 1000;
+  const intervalMs = Math.max(1, start.interval || 5) * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, intervalMs));
+    let data = {};
+    try {
+      const res = await fetch(`${base}/cli-auth/poll`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ device_code: start.device_code }),
+      });
+      if (res.status === 202) continue; // authorization_pending
+      data = await res.json().catch(() => ({}));
+    } catch {
+      continue; // transient network error — keep polling
+    }
+    if (data.status === 'complete' && data.token) {
+      cfg.jwtToken = data.token;
+      saveConfig(cfg);
+      print.success('Logged in! Session saved to ' + CONFIG_FILE);
+      return;
+    }
+    if (data.status === 'denied') { print.error('Request denied.'); process.exit(1); }
+    if (data.status === 'expired') { print.error('Login request expired — run `coinpay login` again.'); process.exit(1); }
+  }
+  print.error('Timed out waiting for approval.');
+  process.exit(1);
+}
+
+function handleLogout() {
+  const cfg = loadConfig();
+  delete cfg.jwtToken;
+  saveConfig(cfg);
+  print.success('Logged out — session removed from ' + CONFIG_FILE);
 }
 
 async function main() {
@@ -2937,6 +3005,14 @@ async function handleLightning(subcommand, args, flags) {
 }
 
     switch (command) {
+      case 'login':
+        await handleLogin();
+        break;
+
+      case 'logout':
+        handleLogout();
+        break;
+
       case 'config':
         await handleConfig(subcommand, args);
         break;
