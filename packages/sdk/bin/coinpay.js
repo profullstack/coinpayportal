@@ -2646,6 +2646,26 @@ const MENU_COMMANDS = [
   ['oauth', 'OAuth operations'],
 ];
 
+// Subcommand hints shown when drilling into a command group from the menu.
+const SUBCOMMANDS = {
+  config: 'set-key, set-url, show',
+  auth: 'register, login, me',
+  payment: 'create, get, list, qr',
+  tokens: 'list',
+  business: 'create, get, list, update',
+  rates: 'get, list',
+  wallet: 'create, import, unlock, info, addresses, derive, balance, send, history, backup, delete',
+  swap: 'coins, quote, create, status, history',
+  escrow: 'create, get, list, release, refund, dispute, series',
+  ln: 'enable, address, invoice, send, balance, payments',
+  webhook: 'create, list, get, delete',
+  payout: 'create, list, get, status',
+  card: 'create, get, list, connect, escrow',
+  reputation: 'did, credentials, receipts, issuer',
+  x402: 'status, test',
+  oauth: 'authorize, token',
+};
+
 function askLine(prompt) {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -2679,7 +2699,14 @@ async function runInteractiveMenu() {
     if (/^\d+$/.test(answer)) {
       const idx = parseInt(answer, 10) - 1;
       if (idx < 0 || idx >= MENU_COMMANDS.length) { print.error('  invalid choice'); continue; }
-      argv = [MENU_COMMANDS[idx][0]];
+      // These are command groups — they need a subcommand. Prompt for it (with a
+      // hint) instead of running bare, which would just error "Unknown … command".
+      const [name, desc] = MENU_COMMANDS[idx];
+      const hint = SUBCOMMANDS[name] || (desc.match(/\(([^)]+)\)/)?.[1] ?? '');
+      const rest = (await askLine(
+        `  coinpay ${colors.bright}${name}${colors.reset} ▸ subcommand + args${hint ? ` (${hint})` : ''} — Enter to list: `
+      )).trim();
+      argv = [name, ...(rest ? rest.split(/\s+/) : [])];
     } else {
       argv = answer.split(/\s+/);
     }
