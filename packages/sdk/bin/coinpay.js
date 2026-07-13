@@ -1901,17 +1901,18 @@ async function handleAuth(subcommand, args, flags) {
         const client = new CoinPayClient({ apiKey: jwtToken, baseUrl: getBaseUrl() });
         const { getMe } = await import('../src/auth.js');
         const result = await getMe(client);
-        
+        const me = result?.merchant || result;
+
         print.success('Current merchant:');
-        print.info(`ID: ${result.id}`);
-        print.info(`Email: ${result.email}`);
-        if (result.name) {
-          print.info(`Name: ${result.name}`);
+        print.info(`ID: ${me.id}`);
+        print.info(`Email: ${me.email}`);
+        if (me.name) {
+          print.info(`Name: ${me.name}`);
         }
-        print.info(`Created: ${result.created_at}`);
-        
+        if (me.created_at) print.info(`Created: ${me.created_at}`);
+
         if (flags.json) {
-          print.json(result);
+          print.json(me);
         }
       } catch (error) {
         if (error.message.includes('401') || error.message.includes('403')) {
@@ -2629,6 +2630,8 @@ async function handleCard(subcommand, args, flags) {
 // run with no arguments in a TTY). Self-manage commands are intentionally omitted.
 const MENU_COMMANDS = [
   ['login', 'Log in headlessly — approve in a browser on any device'],
+  ['whoami', 'Show the signed-in merchant'],
+  ['logout', 'Sign out on this device'],
   ['config', 'API key & endpoint (set-key, set-url, show)'],
   ['auth', 'Merchant account (register, login, me)'],
   ['payment', 'Payments (create, get, list, qr)'],
@@ -2728,11 +2731,14 @@ async function runInteractiveMenu() {
   const TYPE = '\x00type';
   const splitArgs = (s) => (s ? s.trim().split(/\s+/).filter(Boolean) : []);
 
+  // Who's signed in (refreshed after login/logout). Shown in the menu header.
+  let me = await fetchMe();
+
   for (;;) {
     let cmd;
     try {
       cmd = await select({
-        message: 'coinpay — pick a command:',
+        message: `coinpay — ${me ? `signed in as ${me.email}` : 'not signed in (pick login)'} — pick a command:`,
         choices: MENU_COMMANDS.map(([name, desc]) => ({ name: `${name.padEnd(11)} ${desc}`, value: name })),
         pageSize: 20,
       });
@@ -2768,6 +2774,8 @@ async function runInteractiveMenu() {
     console.log('');
     await runChild(argv);
     console.log('');
+    // login/logout change who's signed in — refresh the header.
+    if (argv[0] === 'login' || argv[0] === 'logout') me = await fetchMe();
   }
 }
 
@@ -2821,7 +2829,8 @@ async function handleLogin() {
     if (data.status === 'complete' && data.token) {
       cfg.jwtToken = data.token;
       saveConfig(cfg);
-      print.success('Logged in! Session saved to ' + CONFIG_FILE);
+      const me = await fetchMe();
+      print.success(me ? `Logged in as ${meLabel(me)}` : 'Logged in! Session saved to ' + CONFIG_FILE);
       return;
     }
     if (data.status === 'denied') { print.error('Request denied.'); process.exit(1); }
@@ -2836,6 +2845,39 @@ function handleLogout() {
   delete cfg.jwtToken;
   saveConfig(cfg);
   print.success('Logged out — session removed from ' + CONFIG_FILE);
+}
+
+// Fetch the signed-in merchant (via the stored session token), or null if not
+// logged in / the token is stale. Used to greet after login, for `whoami`, and
+// to show who you are in the interactive menu.
+async function fetchMe() {
+  const cfg = loadConfig();
+  if (!cfg.jwtToken) return null;
+  try {
+    const client = new CoinPayClient({ apiKey: cfg.jwtToken, baseUrl: getBaseUrl() });
+    const { getMe } = await import('../src/auth.js');
+    const result = await getMe(client);
+    return result?.merchant || result || null;
+  } catch {
+    return null;
+  }
+}
+
+function meLabel(me) {
+  if (!me) return null;
+  return me.name ? `${me.name} <${me.email}>` : me.email;
+}
+
+async function handleWhoami(flags) {
+  const me = await fetchMe();
+  if (!me) {
+    print.error('Not signed in. Run: coinpay login');
+    process.exitCode = 1;
+    return;
+  }
+  print.success(`Signed in as ${meLabel(me)}`);
+  if (me.id) print.info(`Merchant ID: ${me.id}`);
+  if (flags?.json) print.json(me);
 }
 
 async function main() {
@@ -3011,6 +3053,10 @@ async function handleLightning(subcommand, args, flags) {
 
       case 'logout':
         handleLogout();
+        break;
+
+      case 'whoami':
+        await handleWhoami(flags);
         break;
 
       case 'config':
