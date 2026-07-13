@@ -2646,24 +2646,24 @@ const MENU_COMMANDS = [
   ['oauth', 'OAuth operations'],
 ];
 
-// Subcommand hints shown when drilling into a command group from the menu.
+// Subcommands per command group (name → [[subcommand, description], …]).
 const SUBCOMMANDS = {
-  config: 'set-key, set-url, show',
-  auth: 'register, login, me',
-  payment: 'create, get, list, qr',
-  tokens: 'list',
-  business: 'create, get, list, update',
-  rates: 'get, list',
-  wallet: 'create, import, unlock, info, addresses, derive, balance, send, history, backup, delete',
-  swap: 'coins, quote, create, status, history',
-  escrow: 'create, get, list, release, refund, dispute, series',
-  ln: 'enable, address, invoice, send, balance, payments',
-  webhook: 'create, list, get, delete',
-  payout: 'create, list, get, status',
-  card: 'create, get, list, connect, escrow',
-  reputation: 'did, credentials, receipts, issuer',
-  x402: 'status, test',
-  oauth: 'authorize, token',
+  config: [['set-key', 'Set your API key'], ['set-url', 'Set custom API URL'], ['show', 'Show current configuration']],
+  auth: [['register', 'Register new merchant account'], ['login', 'Login to merchant account'], ['me', 'Show current merchant info']],
+  payment: [['create', 'Create a new payment'], ['get', 'Get payment details <id>'], ['list', 'List payments'], ['qr', 'Get payment QR code <id>']],
+  tokens: [['list', 'List checkout tokens']],
+  business: [['create', 'Create a new business'], ['get', 'Get business details <id>'], ['list', 'List businesses'], ['update', 'Update business <id>']],
+  rates: [['get', 'Get exchange rate <crypto>'], ['list', 'Get all exchange rates']],
+  wallet: [['create', 'Create a new wallet'], ['import', 'Import wallet <mnemonic>'], ['unlock', 'Decrypt wallet and show info'], ['info', 'Show wallet info'], ['addresses', 'List all addresses'], ['derive', 'Derive new address <chain>'], ['derive-missing', 'Derive missing chains'], ['balance', 'Get balance(s) [chain]'], ['send', 'Send a transaction'], ['history', 'Transaction history'], ['backup', 'Export encrypted backup'], ['delete', 'Delete local wallet file']],
+  swap: [['coins', 'List supported coins'], ['quote', 'Get swap quote'], ['create', 'Create swap transaction'], ['status', 'Check swap status <swap-id>'], ['history', 'Swap history']],
+  escrow: [['create', 'Create a new escrow'], ['get', 'Get escrow status <id>'], ['list', 'List escrows'], ['release', 'Release funds <id>'], ['refund', 'Refund funds <id>'], ['dispute', 'Open a dispute <id>'], ['events', 'Get escrow audit log <id>'], ['auth', 'Authenticate with escrow token <id>'], ['series', 'Series operations']],
+  ln: [['enable', 'Enable Lightning wallet'], ['address', 'Lightning address'], ['invoice', 'Create an invoice'], ['send', 'Send a payment'], ['balance', 'Lightning balance'], ['payments', 'List payments']],
+  webhook: [['logs', 'Get webhook logs <business-id>'], ['test', 'Send test webhook <business-id>']],
+  payout: [['create', 'Create a payout'], ['list', 'List payouts'], ['get', 'Get payout details <id>']],
+  card: [['create', 'Create a card payment'], ['get', 'Get card payment status <id>'], ['list', 'List card payments'], ['connect', 'Stripe onboarding / status'], ['escrow', 'Release / refund card escrow']],
+  reputation: [['submit', 'Submit a task receipt'], ['query', 'Query agent reputation <did>'], ['credential', 'Get credential details <id>'], ['credentials', 'List credentials [did]'], ['receipts', 'List task receipts [did]'], ['badge', 'Reputation badge URL [did]'], ['verify', 'Verify a credential <id>'], ['revocations', 'List revoked credentials'], ['did', 'DID claim / me'], ['issuer', 'Issuer register / list / rotate']],
+  x402: [['status', 'x402 status'], ['test', 'x402 test']],
+  oauth: [['list', 'List OAuth clients'], ['create', 'Create an OAuth client'], ['get', 'Get client details <id>'], ['delete', 'Delete a client <id>']],
 };
 
 function askLine(prompt) {
@@ -2682,9 +2682,11 @@ function runChild(argv) {
   });
 }
 
-async function runInteractiveMenu() {
+// Fallback menu (used only if @inquirer/prompts can't be loaded): a numbered
+// list, then a prompt for the subcommand + args.
+async function numberedMenu() {
   console.log('');
-  console.log(`  ${colors.bright}${colors.cyan}coinpay${colors.reset}  ·  interactive menu ${colors.reset}(v${VERSION})`);
+  console.log(`  ${colors.bright}${colors.cyan}coinpay${colors.reset}  ·  interactive menu (v${VERSION})`);
   for (;;) {
     console.log('');
     MENU_COMMANDS.forEach(([name, desc], i) => {
@@ -2699,10 +2701,8 @@ async function runInteractiveMenu() {
     if (/^\d+$/.test(answer)) {
       const idx = parseInt(answer, 10) - 1;
       if (idx < 0 || idx >= MENU_COMMANDS.length) { print.error('  invalid choice'); continue; }
-      // These are command groups — they need a subcommand. Prompt for it (with a
-      // hint) instead of running bare, which would just error "Unknown … command".
-      const [name, desc] = MENU_COMMANDS[idx];
-      const hint = SUBCOMMANDS[name] || (desc.match(/\(([^)]+)\)/)?.[1] ?? '');
+      const name = MENU_COMMANDS[idx][0];
+      const hint = (SUBCOMMANDS[name] || []).map((s) => s[0]).join(', ');
       const rest = (await askLine(
         `  coinpay ${colors.bright}${name}${colors.reset} ▸ subcommand + args${hint ? ` (${hint})` : ''} — Enter to list: `
       )).trim();
@@ -2712,6 +2712,61 @@ async function runInteractiveMenu() {
     }
     console.log('');
     await runChild(argv);
+  }
+}
+
+// Arrow-key drill-down menu (parity with the ugig CLI): pick a command, pick a
+// subcommand, fill in args, run — looping until you quit. Falls back to the
+// numbered menu if @inquirer/prompts isn't installed.
+async function runInteractiveMenu() {
+  let select, input;
+  try { ({ select, input } = await import('@inquirer/prompts')); }
+  catch { return numberedMenu(); }
+
+  const BACK = '\x00back';
+  const TYPE = '\x00type';
+  const splitArgs = (s) => (s ? s.trim().split(/\s+/).filter(Boolean) : []);
+
+  for (;;) {
+    let cmd;
+    try {
+      cmd = await select({
+        message: 'coinpay — pick a command:',
+        choices: MENU_COMMANDS.map(([name, desc]) => ({ name: `${name.padEnd(11)} ${desc}`, value: name })),
+        pageSize: 20,
+      });
+    } catch { break; } // Ctrl-C / ESC quits
+
+    const subs = SUBCOMMANDS[cmd] || [];
+    let argv;
+    if (subs.length) {
+      let sub;
+      try {
+        sub = await select({
+          message: `coinpay ${cmd} — pick a subcommand:`,
+          choices: [
+            ...subs.map(([n, d]) => ({ name: `${n.padEnd(14)} ${d || ''}`.trimEnd(), value: n })),
+            { name: '✎ type subcommand + args…', value: TYPE },
+            { name: '↩ back', value: BACK },
+          ],
+          pageSize: 20,
+        });
+      } catch { continue; }
+      if (sub === BACK) continue;
+      if (sub === TYPE) {
+        let line; try { line = await input({ message: `coinpay ${cmd}` }); } catch { continue; }
+        argv = [cmd, ...splitArgs(line)];
+      } else {
+        let extra; try { extra = await input({ message: `args/flags for 'coinpay ${cmd} ${sub}' (optional):` }); } catch { continue; }
+        argv = [cmd, sub, ...splitArgs(extra)];
+      }
+    } else {
+      let line; try { line = await input({ message: `coinpay ${cmd}` }); } catch { continue; }
+      argv = [cmd, ...splitArgs(line)];
+    }
+    console.log('');
+    await runChild(argv);
+    console.log('');
   }
 }
 
