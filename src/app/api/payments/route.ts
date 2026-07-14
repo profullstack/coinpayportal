@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { listAccessibleBusinessIds } from '@/lib/auth/authz';
 import { getJwtSecret } from '@/lib/secrets';
+import { parsePaginationParam } from '@/lib/api/pagination';
 // Re-export POST from create sub-route so POST /api/payments works
 export { POST } from './create/route';
 
@@ -67,8 +68,8 @@ export async function GET(request: NextRequest) {
     // return a total; without it the endpoint keeps its old "return all" behavior.
     const limitParam = searchParams.get('limit');
     const paginate = limitParam !== null;
-    const limit = Math.min(Math.max(parseInt(limitParam || '50', 10) || 50, 1), 100);
-    const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10) || 0, 0);
+    const limit = parsePaginationParam(limitParam, 50, { min: 1, max: 100 });
+    const offset = parsePaginationParam(searchParams.get('offset'), 0);
 
     // All businesses this user can access — owned plus those granted via org or
     // per-business team membership. Owner-only scoping here hid data from invited
