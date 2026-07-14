@@ -13,6 +13,7 @@ import {
 } from '@/lib/entitlements/middleware';
 import { incrementTransactionCount } from '@/lib/entitlements/service';
 import { getJwtSecret } from '@/lib/secrets';
+import { parsePaginationParam } from '@/lib/api/pagination';
 
 /**
  * POST /api/business-collection
@@ -177,8 +178,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get('business_id') || undefined;
     const status = searchParams.get('status') || undefined;
-    const limit = parseInt(searchParams.get('limit') || '50', 10);
-    const offset = parseInt(searchParams.get('offset') || '0', 10);
+    const limit = parsePaginationParam(searchParams.get('limit'), 50, { min: 1 });
+    const offset = parsePaginationParam(searchParams.get('offset'), 0);
 
     // Create Supabase client
     const supabase = await createServerClient();

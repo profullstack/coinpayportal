@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { getLightningService } from '@/lib/lightning/lightning-service';
+import { parsePaginationParam } from '@/lib/api/pagination';
 
 
 /**
@@ -24,8 +25,8 @@ export async function GET(request: NextRequest) {
     const node_id = searchParams.get('node_id') || undefined;
     const wallet_id = searchParams.get('wallet_id') || undefined;
     const status = searchParams.get('status') || undefined;
-    const limit = parseInt(searchParams.get('limit') || '20', 10);
-    const offset = parseInt(searchParams.get('offset') || '0', 10);
+    const limit = parsePaginationParam(searchParams.get('limit'), 20, { min: 1 });
+    const offset = parsePaginationParam(searchParams.get('offset'), 0);
 
     const service = getLightningService();
 

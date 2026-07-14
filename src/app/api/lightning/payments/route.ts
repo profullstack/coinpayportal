@@ -5,6 +5,7 @@ import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { getLightningService } from '@/lib/lightning/lightning-service';
 import { listPayments as listLnbitsPayments, payInvoice } from '@/lib/lightning/lnbits';
 import { authorizeWalletRequest } from '../wallet-auth';
+import { parsePaginationParam } from '@/lib/api/pagination';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -117,8 +118,8 @@ export async function GET(request: NextRequest) {
       ? directionParam
       : undefined;
     const status = searchParams.get('status') || undefined;
-    const limit = parseInt(searchParams.get('limit') || '50', 10);
-    const offset = parseInt(searchParams.get('offset') || '0', 10);
+    const limit = parsePaginationParam(searchParams.get('limit'), 50, { min: 1 });
+    const offset = parsePaginationParam(searchParams.get('offset'), 0);
 
     if (!wallet_id) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'wallet_id is required');
