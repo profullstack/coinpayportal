@@ -14,11 +14,17 @@ const createMockSupabase = () => {
   const mockEq = vi.fn().mockReturnThis();
   const mockSingle = vi.fn();
   const mockOrder = vi.fn().mockReturnThis();
-  
+  const mockLimit = vi.fn().mockReturnThis();
+  // maybeSingle shares mockSingle's resolved-value queue so existing test
+  // sequencing (business check → existing-wallet check → insert) still lines up
+  const mockMaybeSingle = mockSingle;
+
   const mockSelect = vi.fn(() => ({
     eq: mockEq,
     single: mockSingle,
     order: mockOrder,
+    limit: mockLimit,
+    maybeSingle: mockMaybeSingle,
   }));
   
   const mockInsert = vi.fn(() => ({
@@ -49,6 +55,8 @@ const createMockSupabase = () => {
       eq: mockEq,
       single: mockSingle,
       order: mockOrder,
+      limit: mockLimit,
+      maybeSingle: mockMaybeSingle,
     },
   };
 };

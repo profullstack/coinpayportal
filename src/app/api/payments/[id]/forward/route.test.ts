@@ -445,6 +445,17 @@ describe('Payment Forward API', () => {
     describe('Get Forwarding Status', () => {
       it('should return forwarding status for valid request', async () => {
         vi.mocked(verifyToken).mockReturnValue({ sub: 'user-123' });
+        // GET verifies the caller owns the payment before returning status.
+        vi.mocked(supabaseAdmin.from).mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({
+                data: { business_id: 'biz-1', businesses: { merchant_id: 'user-123' } },
+                error: null,
+              }),
+            }),
+          }),
+        } as any);
         vi.mocked(getForwardingStatus).mockResolvedValue({
           paymentId: mockPaymentId,
           status: 'forwarded',
@@ -495,6 +506,17 @@ describe('Payment Forward API', () => {
 
       it('should return 500 on unexpected error', async () => {
         vi.mocked(verifyToken).mockReturnValue({ sub: 'user-123' });
+        // Pass the ownership check so the error path under test is reached.
+        vi.mocked(supabaseAdmin.from).mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({
+                data: { business_id: 'biz-1', businesses: { merchant_id: 'user-123' } },
+                error: null,
+              }),
+            }),
+          }),
+        } as any);
         vi.mocked(getForwardingStatus).mockRejectedValue(new Error('Database error'));
 
         const request = new NextRequest('http://localhost/api/payments/123/forward', {

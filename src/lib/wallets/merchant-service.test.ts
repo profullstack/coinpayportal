@@ -14,12 +14,18 @@ const createMockSupabase = () => {
   const mockIn = vi.fn().mockReturnThis();
   const mockSingle = vi.fn();
   const mockOrder = vi.fn().mockReturnThis();
+  const mockLimit = vi.fn().mockReturnThis();
+  // maybeSingle shares mockSingle's queued results so the existing-wallet
+  // check and the insert consume mockResolvedValueOnce calls in sequence
+  const mockMaybeSingle = mockSingle;
 
   const mockSelect = vi.fn(() => ({
     eq: mockEq,
     in: mockIn,
     single: mockSingle,
     order: mockOrder,
+    limit: mockLimit,
+    maybeSingle: mockMaybeSingle,
   }));
 
   const mockInsert = vi.fn(() => ({
@@ -51,6 +57,8 @@ const createMockSupabase = () => {
       in: mockIn,
       single: mockSingle,
       order: mockOrder,
+      limit: mockLimit,
+      maybeSingle: mockMaybeSingle,
     },
   };
 };

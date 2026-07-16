@@ -72,6 +72,9 @@ function mockSingleQuery(response: any) {
   const query: any = {
     eq: vi.fn(),
     single: vi.fn().mockResolvedValue(response),
+    // resolveBusinessRole() in the team-authz path reads businesses via
+    // .eq('id', …).maybeSingle(); the Stripe fee lookup still uses .single().
+    maybeSingle: vi.fn().mockResolvedValue(response),
   };
   query.eq.mockReturnValue(query);
   return query;

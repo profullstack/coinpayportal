@@ -51,7 +51,9 @@ describe('AssetList', () => {
     const onSelect = vi.fn();
     render(<AssetList assets={mockAssets} onSelect={onSelect} />);
 
-    fireEvent.click(screen.getByRole('button', { name: /copy btc address/i }).closest('div[role="button"]')!);
+    // The selectable row is the div[role="button"] wrapping the asset summary;
+    // the Send/Receive/Copy buttons now live in a sibling action bar outside it.
+    fireEvent.click(screen.getByText(/1A1zP1eP5Q\.\.\.DivfNa/).closest('[role="button"]')!);
     expect(onSelect).toHaveBeenCalledWith(mockAssets[0]);
   });
 
