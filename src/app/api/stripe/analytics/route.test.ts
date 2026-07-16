@@ -33,6 +33,7 @@ function makeChain(resolvedValue: { data: any; error: any }) {
   chain.eq = vi.fn().mockReturnValue(chain);
   chain.gte = vi.fn().mockReturnValue(chain);
   chain.lte = vi.fn().mockReturnValue(chain);
+  chain.lt = vi.fn().mockReturnValue(chain);
   // Make it thenable so await resolves
   chain.then = (resolve: any) => Promise.resolve(resolvedValue).then(resolve);
   return chain;
@@ -237,6 +238,29 @@ describe('GET /api/stripe/analytics', () => {
 
     const response = await GET(request);
     expect(response.status).toBe(404);
+  });
+
+  it('should apply an explicit date_from/date_to range (inclusive end)', async () => {
+    const request = new NextRequest(
+      'http://localhost:3000/api/stripe/analytics?date_from=2026-07-01&date_to=2026-07-07',
+      { headers: { authorization: 'Bearer valid-token' } }
+    );
+    (verifyToken as any).mockReturnValue({ userId: 'merchant-1' });
+    (listAccessibleBusinessIds as any).mockResolvedValue(['biz-1']);
+    const cryptoChain = makeChain({ data: [], error: null });
+    const cardChain = makeChain({ data: [], error: null });
+    mockFrom.mockReturnValueOnce(cryptoChain).mockReturnValueOnce(cardChain);
+
+    const response = await GET(request);
+    expect(response.status).toBe(200);
+
+    // date_from is a lower bound; date_to is inclusive → advance one day + strict lt.
+    const from = new Date('2026-07-01').toISOString();
+    const toExclusive = new Date('2026-07-08').toISOString();
+    for (const chain of [cryptoChain, cardChain]) {
+      expect(chain.gte).toHaveBeenCalledWith('created_at', from);
+      expect(chain.lt).toHaveBeenCalledWith('created_at', toExclusive);
+    }
   });
 
   it('should handle database errors gracefully', async () => {

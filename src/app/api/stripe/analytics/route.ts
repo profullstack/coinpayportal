@@ -235,8 +235,21 @@ export async function GET(request: NextRequest) {
     // Get optional business_id filter from query params
     const { searchParams } = new URL(request.url);
     const filterBusinessId = searchParams.get('business_id');
-    // Optional time-window filter: day/week/month/year/all (default all).
-    const since = periodSince(searchParams.get('period'));
+    // Time-window filter. An explicit date_from/date_to (calendar dates, from the
+    // dashboard's custom range) takes precedence over the day/week/month/year
+    // preset. date_to is inclusive — same convention as the transactions/payments
+    // /disputes list endpoints (advance one day and use a strict upper bound).
+    const dateFrom = searchParams.get('date_from');
+    const dateTo = searchParams.get('date_to');
+    const since = dateFrom
+      ? new Date(dateFrom).toISOString()
+      : periodSince(searchParams.get('period'));
+    let until: string | null = null;
+    if (dateTo) {
+      const end = new Date(dateTo);
+      end.setUTCDate(end.getUTCDate() + 1);
+      until = end.toISOString();
+    }
 
     // Every business this user can access — owned plus those granted via org or
     // per-business team membership. Owner-only scoping hid the client's stats
@@ -297,6 +310,7 @@ export async function GET(request: NextRequest) {
       .select('*')
       .in('business_id', queryBusinessIds);
     if (since) cryptoQuery = cryptoQuery.gte('created_at', since);
+    if (until) cryptoQuery = cryptoQuery.lt('created_at', until);
     const { data: cryptoPayments, error: cryptoError } = await cryptoQuery;
 
     if (cryptoError) {
@@ -316,6 +330,7 @@ export async function GET(request: NextRequest) {
       .select('*')
       .in('business_id', queryBusinessIds);
     if (since) cardQuery = cardQuery.gte('created_at', since);
+    if (until) cardQuery = cardQuery.lt('created_at', until);
     const { data: cardTransactions, error: cardError } = await cardQuery;
 
     if (cardError) {

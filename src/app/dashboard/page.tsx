@@ -121,7 +121,7 @@ interface PlanInfo {
 
 type TabType = 'all' | 'crypto' | 'card' | 'disputes';
 type TransactionFilter = 'all' | 'failed';
-type StatsPeriod = 'day' | 'week' | 'month' | 'year' | 'all';
+type StatsPeriod = 'day' | 'week' | 'month' | 'year' | 'all' | 'custom';
 
 const PERIOD_OPTIONS: { value: StatsPeriod; label: string }[] = [
   { value: 'day', label: 'Last 24 hours' },
@@ -129,7 +129,20 @@ const PERIOD_OPTIONS: { value: StatsPeriod; label: string }[] = [
   { value: 'month', label: 'Last 30 days' },
   { value: 'year', label: 'Last 12 months' },
   { value: 'all', label: 'All time' },
+  { value: 'custom', label: 'Custom range…' },
 ];
+
+// Preset lengths in days, for defaulting the custom range picker.
+const PERIOD_DAYS: Record<string, number> = { day: 1, week: 7, month: 30, year: 365 };
+
+// Local YYYY-MM-DD (matches <input type="date"> value + the list endpoints'
+// calendar-date contract).
+function toDateInput(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 type TrendMetric = 'volume_usd' | 'transactions' | 'successful_transactions' | 'fees_usd';
 
 interface TrendSeries {
@@ -284,6 +297,9 @@ export default function DashboardPage() {
   }, [combinedStats?.total_volume_usd]);
   const [selectedBusinessId, setSelectedBusinessId] = useState<string>('');
   const [statsPeriod, setStatsPeriod] = useState<StatsPeriod>('all');
+  // Custom range (YYYY-MM-DD); only applied when statsPeriod === 'custom'.
+  const [customFrom, setCustomFrom] = useState<string>('');
+  const [customTo, setCustomTo] = useState<string>('');
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [transactionFilter, setTransactionFilter] = useState<TransactionFilter>('all');
   const [loading, setLoading] = useState(true);
@@ -362,16 +378,24 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, selectedBusinessId, businesses.length]);
 
-  // The stats period only scopes the summary cards (analytics endpoint), not the
-  // transaction list — refetch just the stats when it changes (skip mount).
+  // Refetch when the time window changes. Presets rescope the summary cards only;
+  // a custom date range also rescopes the transaction/dispute lists, so refetch
+  // everything. Skip the initial mount (the mount effect already fetched).
   const didMountPeriod = useRef(false);
   useEffect(() => {
     if (!didMountPeriod.current) {
       didMountPeriod.current = true;
       return;
     }
+    // While a custom range is being picked, wait until both ends are valid.
+    if (statsPeriod === 'custom' && !(customFrom && customTo && customFrom <= customTo)) {
+      return;
+    }
     fetchCombinedStats(selectedBusinessId);
-  }, [statsPeriod]);
+    fetchTransactionsData(selectedBusinessId);
+    if (activeTab === 'disputes') fetchDisputes(selectedBusinessId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statsPeriod, customFrom, customTo]);
 
   // Refetch card transactions when the page changes (skip the initial render).
   const didMountCardPage = useRef(false);
@@ -382,6 +406,22 @@ export default function DashboardPage() {
     }
     fetchTransactionsData(selectedBusinessId);
   }, [cardPage]);
+
+  // Resolve the active custom date range as calendar dates for the API. Presets
+  // (day/week/month/year/all) keep using the `period` param on the stats
+  // endpoint and don't scope the lists; only a valid custom range does.
+  const buildDateRange = (): { date_from?: string; date_to?: string } => {
+    if (statsPeriod === 'custom' && customFrom && customTo && customFrom <= customTo) {
+      return { date_from: customFrom, date_to: customTo };
+    }
+    return {};
+  };
+
+  // `&date_from=…&date_to=…` suffix for list URLs when a custom range is active.
+  const dateRangeQuery = (): string => {
+    const { date_from, date_to } = buildDateRange();
+    return date_from ? `&date_from=${date_from}&date_to=${date_to}` : '';
+  };
 
   const fetchDashboardData = async (businessId?: string) => {
     try {
@@ -402,7 +442,14 @@ export default function DashboardPage() {
       // Fetch combined analytics
       const params = new URLSearchParams();
       if (businessId) params.set('business_id', businessId);
-      if (statsPeriod !== 'all') params.set('period', statsPeriod);
+      const range = buildDateRange();
+      if (range.date_from && range.date_to) {
+        // Custom range → explicit calendar bounds (takes precedence over period).
+        params.set('date_from', range.date_from);
+        params.set('date_to', range.date_to);
+      } else if (statsPeriod !== 'all' && statsPeriod !== 'custom') {
+        params.set('period', statsPeriod);
+      }
       const query = params.toString();
       const url = query ? `/api/stripe/analytics?${query}` : '/api/stripe/analytics';
 
@@ -459,6 +506,8 @@ export default function DashboardPage() {
   const fetchTransactionsData = async (businessId?: string) => {
     try {
       const promises = [];
+      // Apply the custom date range (if any) to the lists too.
+      const dateSuffix = dateRangeQuery();
 
       // Fetch crypto payments if needed
       if (activeTab === 'all' || activeTab === 'crypto') {
@@ -469,6 +518,7 @@ export default function DashboardPage() {
         if (businessId) {
           cryptoUrl += `&business_id=${businessId}`;
         }
+        cryptoUrl += dateSuffix;
         promises.push(authFetch(cryptoUrl, {}, router));
       }
 
@@ -486,6 +536,7 @@ export default function DashboardPage() {
         if (businessId) {
           cardUrl += `&business_id=${businessId}`;
         }
+        cardUrl += dateSuffix;
         promises.push(authFetch(cardUrl, {}, router));
       }
 
@@ -541,7 +592,16 @@ export default function DashboardPage() {
   };
 
   const handlePeriodChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    setStatsPeriod(event.target.value as StatsPeriod);
+    const value = event.target.value as StatsPeriod;
+    // Default a fresh custom range to the last 7 days so it filters immediately.
+    if (value === 'custom' && !(customFrom && customTo)) {
+      const today = new Date();
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 6);
+      setCustomFrom(toDateInput(weekAgo));
+      setCustomTo(toDateInput(today));
+    }
+    setStatsPeriod(value);
   };
 
   const fetchDisputes = async (businessId?: string) => {
@@ -549,6 +609,7 @@ export default function DashboardPage() {
     try {
       let url = '/api/stripe/disputes?limit=100';
       if (businessId) url += `&business_id=${businessId}`;
+      url += dateRangeQuery();
       const result = await authFetch(url, {}, router);
       if (!result) return; // redirected to login
       const { response, data } = result;
@@ -1239,6 +1300,33 @@ export default function DashboardPage() {
                 </svg>
               </div>
             </div>
+            {/* Custom date range (calendar) — shown when "Custom range…" is picked */}
+            {statsPeriod === 'custom' && (
+              <div className="flex items-center gap-2">
+                <label htmlFor="date-from" className="sr-only">From date</label>
+                <input
+                  id="date-from"
+                  type="date"
+                  value={customFrom}
+                  max={customTo || undefined}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                  className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                />
+                <span className="text-gray-400 text-sm">to</span>
+                <label htmlFor="date-to" className="sr-only">To date</label>
+                <input
+                  id="date-to"
+                  type="date"
+                  value={customTo}
+                  min={customFrom || undefined}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                  className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                />
+                {customFrom && customTo && customFrom > customTo && (
+                  <span className="text-xs text-red-600 dark:text-red-400">From must be before To</span>
+                )}
+              </div>
+            )}
             {/* Business Filter */}
             {businesses.length > 0 && (
               <div className="relative">
