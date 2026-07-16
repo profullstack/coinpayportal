@@ -179,6 +179,110 @@ function buildTrends(cryptoPayments: any[], cardTransactions: any[]) {
   return { labels, all, crypto, card };
 }
 
+type SeriesPoint = {
+  label: string;
+  crypto_volume_usd: number;
+  card_volume_usd: number;
+  total_volume_usd: number;
+  crypto_count: number;
+  card_count: number;
+  total_count: number;
+};
+
+function startOfUTCDay(d: Date): Date {
+  const x = new Date(d);
+  x.setUTCHours(0, 0, 0, 0);
+  return x;
+}
+
+/**
+ * Build a bucketed time series (successful volume + transaction counts, split by
+ * rail) over [windowStart, windowEnd). Granularity adapts to the span so the
+ * chart never has thousands of points: daily up to ~3 months, weekly up to ~2
+ * years, monthly beyond that.
+ */
+function buildSeries(
+  cryptoPayments: any[],
+  cardTransactions: any[],
+  windowStart: Date,
+  windowEnd: Date
+): { granularity: 'day' | 'week' | 'month'; points: SeriesPoint[] } {
+  const dayMs = 86400000;
+  const start = startOfUTCDay(windowStart);
+  const spanDays = Math.max(1, Math.ceil((windowEnd.getTime() - start.getTime()) / dayMs));
+  const granularity: 'day' | 'week' | 'month' =
+    spanDays <= 92 ? 'day' : spanDays <= 740 ? 'week' : 'month';
+
+  const indexOf = (t: number): number => {
+    if (granularity === 'month') {
+      const d = new Date(t);
+      return (d.getUTCFullYear() - start.getUTCFullYear()) * 12 + (d.getUTCMonth() - start.getUTCMonth());
+    }
+    const binMs = granularity === 'week' ? 7 * dayMs : dayMs;
+    return Math.floor((t - start.getTime()) / binMs);
+  };
+  const labelForIndex = (i: number): string => {
+    if (granularity === 'month') {
+      const dt = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1));
+      return dt.toISOString().slice(0, 7); // YYYY-MM
+    }
+    const binMs = granularity === 'week' ? 7 * dayMs : dayMs;
+    return new Date(start.getTime() + i * binMs).toISOString().slice(0, 10); // YYYY-MM-DD
+  };
+
+  const lastIndex = Math.max(0, indexOf(windowEnd.getTime() - 1));
+  const points: SeriesPoint[] = [];
+  for (let i = 0; i <= lastIndex; i++) {
+    points.push({
+      label: labelForIndex(i),
+      crypto_volume_usd: 0,
+      card_volume_usd: 0,
+      total_volume_usd: 0,
+      crypto_count: 0,
+      card_count: 0,
+      total_count: 0,
+    });
+  }
+
+  const add = (rows: any[], kind: 'crypto' | 'card') => {
+    for (const row of rows || []) {
+      if (!row.created_at) continue;
+      const t = new Date(row.created_at).getTime();
+      if (t < start.getTime() || t >= windowEnd.getTime()) continue;
+      const i = indexOf(t);
+      if (i < 0 || i >= points.length) continue;
+      const p = points[i];
+      if (kind === 'crypto') {
+        p.crypto_count += 1;
+        p.total_count += 1;
+        if (isSuccessfulCryptoStatus(row.status)) {
+          const v = getCryptoVolumeUsd(row);
+          p.crypto_volume_usd += v;
+          p.total_volume_usd += v;
+        }
+      } else {
+        p.card_count += 1;
+        p.total_count += 1;
+        if (isSuccessfulCardStatus(row.status)) {
+          const v = getCardVolumeUsd(row);
+          p.card_volume_usd += v;
+          p.total_volume_usd += v;
+        }
+      }
+    }
+  };
+  add(cryptoPayments, 'crypto');
+  add(cardTransactions, 'card');
+
+  for (const p of points) {
+    p.crypto_volume_usd = Number(p.crypto_volume_usd.toFixed(2));
+    p.card_volume_usd = Number(p.card_volume_usd.toFixed(2));
+    p.total_volume_usd = Number(p.total_volume_usd.toFixed(2));
+  }
+
+  return { granularity, points };
+}
+
 /**
  * GET /api/stripe/analytics
  * Fetch combined analytics (card + crypto) for merchant
@@ -251,6 +355,11 @@ export async function GET(request: NextRequest) {
       until = end.toISOString();
     }
 
+    // Window for the time-series charts. Defaults to the last 30 days when no
+    // filter is set so an "all time" view still gets a bounded, readable chart.
+    const chartEnd = until ? new Date(until) : new Date();
+    const chartStart = since ? new Date(since) : new Date(chartEnd.getTime() - 30 * 86400000);
+
     // Every business this user can access — owned plus those granted via org or
     // per-business team membership. Owner-only scoping hid the client's stats
     // from invited team members.
@@ -286,6 +395,7 @@ export async function GET(request: NextRequest) {
             total_fees_usd: '0',
           },
           trends: buildTrends([], []),
+          series: { granularity: 'day', points: [] },
         }
       });
     }
@@ -407,6 +517,7 @@ export async function GET(request: NextRequest) {
         card: cardAnalytics,
         combined: combinedAnalytics,
         trends: buildTrends(cryptoPayments || [], cardTransactions || []),
+        series: buildSeries(cryptoPayments || [], cardTransactions || [], chartStart, chartEnd),
       }
     });
 

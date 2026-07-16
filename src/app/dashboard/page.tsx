@@ -6,6 +6,18 @@ import Link from 'next/link';
 import Papa from 'papaparse';
 import { useRealtimePayments, type RealtimePayment } from '@/lib/realtime/useRealtimePayments';
 import { authFetch, requireAuth } from '@/lib/auth/client';
+import dynamic from 'next/dynamic';
+
+// Recharts is heavy and client-only; load it on the client after mount so it
+// stays out of the initial bundle.
+const DashboardCharts = dynamic(() => import('@/components/dashboard/DashboardCharts'), {
+  ssr: false,
+  loading: () => (
+    <div className="mb-8 h-64 flex items-center justify-center text-sm text-gray-400 dark:text-gray-500">
+      Loading charts…
+    </div>
+  ),
+});
 
 interface CombinedStats {
   total_volume_usd: string;
@@ -27,6 +39,169 @@ interface CombinedStats {
   card_fees_usd: string;
   total_fees_usd: string;
   trends?: DashboardTrends;
+  series?: DashboardSeries;
+}
+
+interface DashboardSeriesPoint {
+  label: string;
+  crypto_volume_usd: number;
+  card_volume_usd: number;
+  total_volume_usd: number;
+  crypto_count: number;
+  card_count: number;
+  total_count: number;
+}
+
+interface DashboardSeries {
+  granularity: 'day' | 'week' | 'month';
+  points: DashboardSeriesPoint[];
+}
+
+// Draw a compact 2×2 chart summary onto a jsPDF page using vector primitives
+// (crisp, no DOM/canvas capture). Mirrors the on-screen charts.
+function drawPdfCharts(
+  doc: any,
+  data: {
+    points: DashboardSeriesPoint[];
+    cryptoVolume: number;
+    cardVolume: number;
+    succeeded: number;
+    failed: number;
+    pending: number;
+    title: string;
+    rangeLabel: string;
+  }
+) {
+  const BLUE: [number, number, number] = [59, 130, 246];
+  const GREEN: [number, number, number] = [34, 197, 94];
+  const RED: [number, number, number] = [239, 68, 68];
+  const YELLOW: [number, number, number] = [234, 179, 8];
+  const usd0 = (n: number) => `$${Math.round(n).toLocaleString()}`;
+
+  doc.setFontSize(14);
+  doc.setTextColor(30);
+  doc.text(`${data.title} — Charts`, 14, 16);
+  doc.setFontSize(9);
+  doc.setTextColor(120);
+  doc.text(`Range: ${data.rangeLabel}`, 14, 22);
+
+  const cellW = 128;
+  const cellH = 66;
+  const gapX = 12;
+  const top = 30;
+  const rowGap = 18;
+  const cells = [
+    { x: 14, y: top },
+    { x: 14 + cellW + gapX, y: top },
+    { x: 14, y: top + cellH + rowGap },
+    { x: 14 + cellW + gapX, y: top + cellH + rowGap },
+  ];
+
+  const drawTitle = (x: number, y: number, t: string) => {
+    doc.setFontSize(10);
+    doc.setTextColor(60);
+    doc.text(t, x, y);
+  };
+  const plot = (cell: { x: number; y: number }) => ({
+    x: cell.x,
+    y: cell.y + 6,
+    w: cellW,
+    h: cellH - 12,
+  });
+  const baseline = (p: { x: number; y: number; w: number; h: number }) => {
+    doc.setDrawColor(210);
+    doc.setLineWidth(0.2);
+    doc.line(p.x, p.y + p.h, p.x + p.w, p.y + p.h);
+  };
+
+  // 1) Volume over time — line
+  drawTitle(cells[0].x, cells[0].y + 2, 'Volume over time (USD)');
+  const p0 = plot(cells[0]);
+  baseline(p0);
+  const vols = data.points.map((d) => d.total_volume_usd);
+  const maxV = Math.max(1, ...vols);
+  doc.setFontSize(7);
+  doc.setTextColor(150);
+  doc.text(usd0(maxV), p0.x, p0.y + 2);
+  if (vols.length >= 2) {
+    doc.setDrawColor(...BLUE);
+    doc.setLineWidth(0.5);
+    const dx = p0.w / (vols.length - 1);
+    for (let i = 1; i < vols.length; i++) {
+      const x1 = p0.x + dx * (i - 1);
+      const x2 = p0.x + dx * i;
+      const y1 = p0.y + p0.h - (vols[i - 1] / maxV) * p0.h;
+      const y2 = p0.y + p0.h - (vols[i] / maxV) * p0.h;
+      doc.line(x1, y1, x2, y2);
+    }
+  } else if (vols.length === 1) {
+    doc.setFillColor(...BLUE);
+    doc.circle(p0.x + p0.w / 2, p0.y + p0.h - (vols[0] / maxV) * p0.h, 1, 'F');
+  }
+
+  // 2) Transactions over time — bars
+  drawTitle(cells[1].x, cells[1].y + 2, 'Transactions over time');
+  const p1 = plot(cells[1]);
+  baseline(p1);
+  const counts = data.points.map((d) => d.total_count);
+  const maxC = Math.max(1, ...counts);
+  doc.setFontSize(7);
+  doc.setTextColor(150);
+  doc.text(String(maxC), p1.x, p1.y + 2);
+  if (counts.length > 0) {
+    doc.setFillColor(...BLUE);
+    const slot = p1.w / counts.length;
+    const bw = Math.max(0.6, slot * 0.7);
+    counts.forEach((c, i) => {
+      const h = (c / maxC) * p1.h;
+      doc.rect(p1.x + slot * i + (slot - bw) / 2, p1.y + p1.h - h, bw, h, 'F');
+    });
+  }
+
+  // Horizontal-bar helper for the split/status charts.
+  const drawHBars = (
+    cell: { x: number; y: number },
+    title: string,
+    bars: { label: string; value: number; color: [number, number, number] }[],
+    fmt: (n: number) => string
+  ) => {
+    drawTitle(cell.x, cell.y + 2, title);
+    const p = plot(cell);
+    const maxVal = Math.max(1, ...bars.map((b) => b.value));
+    const rowH = p.h / bars.length;
+    const barMax = p.w * 0.6;
+    bars.forEach((b, i) => {
+      const cy = p.y + rowH * i + rowH / 2;
+      doc.setFontSize(8);
+      doc.setTextColor(80);
+      doc.text(b.label, p.x, cy - 1);
+      const w = (b.value / maxVal) * barMax;
+      doc.setFillColor(...b.color);
+      doc.rect(p.x + 26, cy - 3, Math.max(0.5, w), 5, 'F');
+      doc.setTextColor(110);
+      doc.text(fmt(b.value), p.x + 28 + w, cy + 1);
+    });
+  };
+
+  drawHBars(
+    cells[2],
+    'Payment method split (volume)',
+    [
+      { label: 'Crypto', value: data.cryptoVolume, color: BLUE },
+      { label: 'Card', value: data.cardVolume, color: GREEN },
+    ],
+    usd0
+  );
+  drawHBars(
+    cells[3],
+    'Status breakdown',
+    [
+      { label: 'Succeeded', value: data.succeeded, color: GREEN },
+      { label: 'Failed', value: data.failed, color: RED },
+      { label: 'Pending', value: data.pending, color: YELLOW },
+    ],
+    (n) => String(n)
+  );
 }
 
 interface CryptoPayment {
@@ -484,6 +659,7 @@ export default function DashboardPage() {
         card_fees_usd: analytics.card.total_fees_usd,
         total_fees_usd: analytics.combined.total_fees_usd,
         trends: analytics.trends,
+        series: analytics.series,
       });
 
       // Also fetch businesses and plan info from legacy dashboard endpoint
@@ -748,131 +924,142 @@ export default function DashboardPage() {
     return rows;
   };
 
+  // Fetch + shape the full filtered set for the active tab. Shared by the CSV and
+  // PDF exporters so both produce identical rows and file names.
+  const gatherExportData = async (): Promise<{ rows: any[]; filename: string; title: string }> => {
+    let rows: any[] = [];
+    let name = '';
+    let title = '';
+
+    // Pull the full filtered sets (paging past the 100-row API cap) so the export
+    // is every row matching the current business + date-range filters.
+    const [allCrypto, allCard] = await Promise.all([
+      activeTab === 'all' || activeTab === 'crypto'
+        ? fetchAllForExport('/api/payments', 'payments')
+        : Promise.resolve([] as any[]),
+      activeTab === 'all' || activeTab === 'card'
+        ? fetchAllForExport('/api/stripe/transactions', 'transactions')
+        : Promise.resolve([] as any[]),
+    ]);
+    const cryptoPaymentsToExport = transactionFilter === 'failed'
+      ? allCrypto.filter((payment) => isFailedStatus(payment.status))
+      : allCrypto;
+    const cardTransactionsToExport = transactionFilter === 'failed'
+      ? allCard.filter((transaction) => isFailedStatus(transaction.status))
+      : allCard;
+
+    if (activeTab === 'all') {
+      const cryptoData = cryptoPaymentsToExport.map((p) => ({
+        type: 'crypto',
+        id: p.id,
+        business_name: p.business_name || 'Unknown',
+        customer_name: '',
+        customer_email: '',
+        source: paymentSource(p.metadata),
+        payment_page: paymentPageUrl(p.id),
+        amount_usd: p.amount_usd,
+        amount_crypto: p.amount_crypto,
+        currency: p.currency,
+        status: p.status,
+        created_at: p.created_at,
+        payment_address: p.payment_address,
+        tx_hash: p.tx_hash || '',
+      }));
+      const cardData = cardTransactionsToExport.map((t) => ({
+        type: 'card',
+        id: t.id,
+        business_name: t.business_name || 'Unknown',
+        customer_name: t.customer_name || '',
+        customer_email: t.customer_email || '',
+        source: '',
+        payment_page: paymentPageUrl(t.id),
+        amount_usd: t.amount_usd,
+        amount_crypto: '',
+        currency: t.currency,
+        status: t.status,
+        created_at: t.created_at,
+        payment_address: '',
+        tx_hash: t.stripe_charge_id || '',
+      }));
+      rows = [...cryptoData, ...cardData];
+      name = 'all-transactions';
+      title = 'All Transactions';
+    } else if (activeTab === 'crypto') {
+      rows = cryptoPaymentsToExport.map((p) => ({
+        id: p.id,
+        business_name: p.business_name || 'Unknown',
+        source: paymentSource(p.metadata),
+        payment_page: paymentPageUrl(p.id),
+        amount_usd: p.amount_usd,
+        amount_crypto: p.amount_crypto,
+        currency: p.currency,
+        status: p.status,
+        created_at: p.created_at,
+        payment_address: p.payment_address,
+        tx_hash: p.tx_hash || '',
+      }));
+      name = 'crypto-payments';
+      title = 'Crypto Payments';
+    } else if (activeTab === 'card') {
+      rows = cardTransactionsToExport.map((t) => ({
+        id: t.id,
+        customer_name: t.customer_name || '',
+        customer_email: t.customer_email || '',
+        amount_usd: t.amount_usd,
+        currency: t.currency,
+        status: t.status,
+        created_at: t.created_at,
+        stripe_charge_id: t.stripe_charge_id || '',
+        business_name: t.business_name,
+      }));
+      name = 'card-transactions';
+      title = 'Card Transactions';
+    } else if (activeTab === 'disputes') {
+      const allDisputes = await fetchAllForExport('/api/stripe/disputes', 'disputes');
+      rows = allDisputes.map((d) => ({
+        id: d.id,
+        stripe_dispute_id: d.stripe_dispute_id || '',
+        stripe_charge_id: d.stripe_charge_id || '',
+        business_name: d.business_name || '',
+        amount_usd: d.amount_usd,
+        currency: d.currency,
+        status: d.status,
+        reason: d.reason || '',
+        evidence_due_by: d.evidence_due_by || '',
+        created_at: d.created_at,
+      }));
+      name = 'disputes';
+      title = 'Card Disputes';
+    }
+
+    if (transactionFilter === 'failed' && activeTab !== 'disputes') {
+      name = `failed-${name}`;
+      title = `Failed ${title}`;
+    }
+
+    // Reflect a custom date range in the filename for traceability.
+    const { date_from, date_to } = buildDateRange();
+    const rangeSuffix = date_from && date_to ? `_${date_from}_to_${date_to}` : '';
+    const filename = `${name}${rangeSuffix}-${new Date().toISOString().split('T')[0]}`;
+    return { rows, filename, title };
+  };
+
   const exportToCSV = async () => {
     try {
       setExporting(true);
-
-      let dataToExport: any[] = [];
-      let filename = '';
-      // Pull the full filtered sets (paging past the 100-row API cap) so the CSV
-      // is every row matching the current business + date-range filters.
-      const [allCrypto, allCard] = await Promise.all([
-        activeTab === 'all' || activeTab === 'crypto'
-          ? fetchAllForExport('/api/payments', 'payments')
-          : Promise.resolve([] as any[]),
-        activeTab === 'all' || activeTab === 'card'
-          ? fetchAllForExport('/api/stripe/transactions', 'transactions')
-          : Promise.resolve([] as any[]),
-      ]);
-      const cryptoPaymentsToExport = transactionFilter === 'failed'
-        ? allCrypto.filter((payment) => isFailedStatus(payment.status))
-        : allCrypto;
-      const cardTransactionsToExport = transactionFilter === 'failed'
-        ? allCard.filter((transaction) => isFailedStatus(transaction.status))
-        : allCard;
-
-      if (activeTab === 'all') {
-        // Export both crypto and card data
-        const cryptoData = cryptoPaymentsToExport.map(p => ({
-          type: 'crypto',
-          id: p.id,
-          business_name: p.business_name || 'Unknown',
-          customer_name: '',
-          customer_email: '',
-          source: paymentSource(p.metadata),
-          payment_page: paymentPageUrl(p.id),
-          amount_usd: p.amount_usd,
-          amount_crypto: p.amount_crypto,
-          currency: p.currency,
-          status: p.status,
-          created_at: p.created_at,
-          payment_address: p.payment_address,
-          tx_hash: p.tx_hash || '',
-        }));
-        const cardData = cardTransactionsToExport.map(t => ({
-          type: 'card',
-          id: t.id,
-          business_name: t.business_name || 'Unknown',
-          customer_name: t.customer_name || '',
-          customer_email: t.customer_email || '',
-          source: '',
-          payment_page: paymentPageUrl(t.id),
-          amount_usd: t.amount_usd,
-          amount_crypto: '',
-          currency: t.currency,
-          status: t.status,
-          created_at: t.created_at,
-          payment_address: '',
-          tx_hash: t.stripe_charge_id || '',
-        }));
-        dataToExport = [...cryptoData, ...cardData];
-        filename = 'all-transactions';
-      } else if (activeTab === 'crypto') {
-        dataToExport = cryptoPaymentsToExport.map(p => ({
-          id: p.id,
-          business_name: p.business_name || 'Unknown',
-          source: paymentSource(p.metadata),
-          payment_page: paymentPageUrl(p.id),
-          amount_usd: p.amount_usd,
-          amount_crypto: p.amount_crypto,
-          currency: p.currency,
-          status: p.status,
-          created_at: p.created_at,
-          payment_address: p.payment_address,
-          tx_hash: p.tx_hash || '',
-        }));
-        filename = 'crypto-payments';
-      } else if (activeTab === 'card') {
-        dataToExport = cardTransactionsToExport.map(t => ({
-          id: t.id,
-          customer_name: t.customer_name || '',
-          customer_email: t.customer_email || '',
-          amount_usd: t.amount_usd,
-          currency: t.currency,
-          status: t.status,
-          created_at: t.created_at,
-          stripe_charge_id: t.stripe_charge_id || '',
-          business_name: t.business_name,
-        }));
-        filename = 'card-transactions';
-      } else if (activeTab === 'disputes') {
-        const allDisputes = await fetchAllForExport('/api/stripe/disputes', 'disputes');
-        dataToExport = allDisputes.map((d) => ({
-          id: d.id,
-          stripe_dispute_id: d.stripe_dispute_id || '',
-          stripe_charge_id: d.stripe_charge_id || '',
-          business_name: d.business_name || '',
-          amount_usd: d.amount_usd,
-          currency: d.currency,
-          status: d.status,
-          reason: d.reason || '',
-          evidence_due_by: d.evidence_due_by || '',
-          created_at: d.created_at,
-        }));
-        filename = 'disputes';
-      }
-
-      if (transactionFilter === 'failed' && activeTab !== 'disputes') {
-        filename = `failed-${filename}`;
-      }
-
-      if (dataToExport.length === 0) {
+      const { rows, filename } = await gatherExportData();
+      if (rows.length === 0) {
         alert('No data to export for the selected filters');
         return;
       }
 
-      // Reflect a custom date range in the filename for traceability.
-      const { date_from, date_to } = buildDateRange();
-      const rangeSuffix = date_from && date_to ? `_${date_from}_to_${date_to}` : '';
-
-      const csv = Papa.unparse(dataToExport);
+      const csv = Papa.unparse(rows);
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
-
       if (link.download !== undefined) {
         const url = URL.createObjectURL(blob);
         link.setAttribute('href', url);
-        link.setAttribute('download', `${filename}${rangeSuffix}-${new Date().toISOString().split('T')[0]}.csv`);
+        link.setAttribute('download', `${filename}.csv`);
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
@@ -882,6 +1069,84 @@ export default function DashboardPage() {
     } catch (error) {
       console.error('Export error:', error);
       alert('Failed to export data');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Columns too wide to be legible in a PDF table (full URLs / addresses) are
+  // dropped from the PDF only — the CSV still carries them.
+  const PDF_HIDDEN_COLUMNS = new Set(['payment_page', 'payment_address']);
+
+  const exportToPDF = async () => {
+    try {
+      setExporting(true);
+      const { rows, filename, title } = await gatherExportData();
+      if (rows.length === 0) {
+        alert('No data to export for the selected filters');
+        return;
+      }
+
+      // Lazy-load the PDF libs so they stay out of the main bundle.
+      const { jsPDF } = await import('jspdf');
+      const autoTable = (await import('jspdf-autotable')).default;
+
+      const keys = Object.keys(rows[0]).filter((k) => !PDF_HIDDEN_COLUMNS.has(k));
+      const columns = keys.map((key) => ({
+        header: key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+        dataKey: key,
+      }));
+
+      const doc = new jsPDF({ orientation: 'landscape' });
+      const { date_from, date_to } = buildDateRange();
+      const rangeLabel = date_from && date_to ? `${date_from} to ${date_to}` : 'All time';
+
+      // Lead with a charts summary page (mirrors the on-screen charts), then the
+      // data table on the following page(s).
+      if (combinedStats) {
+        drawPdfCharts(doc, {
+          points: combinedStats.series?.points ?? [],
+          cryptoVolume: parseFloat(combinedStats.crypto_volume_usd || '0'),
+          cardVolume: parseFloat(combinedStats.card_volume_usd || '0'),
+          succeeded: combinedStats.successful_transactions || 0,
+          failed: combinedStats.failed_transactions || 0,
+          pending: Math.max(
+            0,
+            (combinedStats.total_transactions || 0) -
+              (combinedStats.successful_transactions || 0) -
+              (combinedStats.failed_transactions || 0)
+          ),
+          title,
+          rangeLabel,
+        });
+        doc.addPage();
+      }
+
+      doc.setFontSize(14);
+      doc.setTextColor(30);
+      doc.text(title, 14, 15);
+      doc.setFontSize(9);
+      doc.setTextColor(120);
+      doc.text(
+        `Range: ${rangeLabel}   •   ${rows.length} row${rows.length === 1 ? '' : 's'}   •   Generated ${new Date().toLocaleString()}`,
+        14,
+        21
+      );
+
+      autoTable(doc, {
+        startY: 26,
+        columns,
+        body: rows,
+        styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak' },
+        headStyles: { fillColor: [124, 58, 237] }, // purple-600
+        alternateRowStyles: { fillColor: [245, 243, 255] },
+        margin: { left: 10, right: 10 },
+      });
+
+      doc.save(`${filename}.pdf`);
+    } catch (error) {
+      console.error('PDF export error:', error);
+      alert('Failed to export PDF');
     } finally {
       setExporting(false);
     }
@@ -1603,6 +1868,27 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Charts — reflect the active business + date-range filters */}
+        {combinedStats && (
+          <DashboardCharts
+            series={combinedStats.series}
+            methodSplit={{
+              cryptoVolume: parseFloat(combinedStats.crypto_volume_usd || '0'),
+              cardVolume: parseFloat(combinedStats.card_volume_usd || '0'),
+            }}
+            statusBreakdown={{
+              succeeded: combinedStats.successful_transactions || 0,
+              failed: combinedStats.failed_transactions || 0,
+              pending: Math.max(
+                0,
+                (combinedStats.total_transactions || 0) -
+                  (combinedStats.successful_transactions || 0) -
+                  (combinedStats.failed_transactions || 0)
+              ),
+            }}
+          />
+        )}
+
         {/* Transactions Section with Tabs */}
         <div id="dashboard-transactions" className="scroll-mt-8 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
@@ -1621,28 +1907,40 @@ export default function DashboardPage() {
                   </button>
                 )}
               </div>
-              <button
-                onClick={exportToCSV}
-                disabled={exporting}
-                className="inline-flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {exporting ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    Exporting...
-                  </>
-                ) : (
-                  <>
-                    <svg className="h-4 w-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    Export CSV
-                  </>
-                )}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={exportToCSV}
+                  disabled={exporting}
+                  className="inline-flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {exporting ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Exporting...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-4 w-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Export CSV
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={exportToPDF}
+                  disabled={exporting}
+                  className="inline-flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <svg className="h-4 w-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Export PDF
+                </button>
+              </div>
             </div>
 
             {/* Tab Navigation */}

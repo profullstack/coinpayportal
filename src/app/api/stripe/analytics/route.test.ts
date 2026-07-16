@@ -263,6 +263,40 @@ describe('GET /api/stripe/analytics', () => {
     }
   });
 
+  it('should return a bucketed time series for the window', async () => {
+    const request = new NextRequest('http://localhost:3000/api/stripe/analytics', {
+      headers: { authorization: 'Bearer valid-token' },
+    });
+    (verifyToken as any).mockReturnValue({ userId: 'merchant-1' });
+    (listAccessibleBusinessIds as any).mockResolvedValue(['biz-1']);
+    // A couple of days ago — safely inside the default 30-day window and strictly
+    // before "now" (the window's exclusive upper bound), independent of clock state.
+    const recent = new Date(Date.now() - 2 * 86400000).toISOString();
+    let call = 0;
+    // Clear any leftover mockReturnValueOnce queue from a prior test (clearAllMocks
+    // doesn't) so our implementation is actually used.
+    mockFrom.mockReset();
+    mockFrom.mockImplementation(() => {
+      call++;
+      if (call === 1) {
+        return makeChain({ data: [{ status: 'completed', amount_usd: '100.00', created_at: recent }], error: null });
+      }
+      return makeChain({ data: [{ status: 'succeeded', amount: 5000, currency: 'usd', created_at: recent }], error: null });
+    });
+
+    const response = await GET(request);
+    const data = await response.json();
+    expect(response.status).toBe(200);
+    expect(data.analytics.series.granularity).toBe('day');
+    expect(Array.isArray(data.analytics.series.points)).toBe(true);
+
+    const points = data.analytics.series.points as Array<{ total_count: number; total_volume_usd: number }>;
+    const totalCount = points.reduce((s, p) => s + p.total_count, 0);
+    const totalVol = points.reduce((s, p) => s + p.total_volume_usd, 0);
+    expect(totalCount).toBe(2); // one crypto + one card, both today
+    expect(totalVol).toBeCloseTo(150, 2); // $100 crypto + $50 card (5000 cents)
+  });
+
   it('should handle database errors gracefully', async () => {
     const request = new NextRequest('http://localhost:3000/api/stripe/analytics', {
       headers: { authorization: 'Bearer valid-token' },
