@@ -812,8 +812,12 @@ describe('DashboardPage', () => {
         fireEvent.click(exportButton);
       });
 
-      // Since export is async and might complete quickly, just check the button was clickable
-      expect(screen.getByRole('button', { name: /export csv/i })).toBeInTheDocument();
+      // Export now fetches the full filtered set before writing the CSV, so the
+      // button shows "Exporting…" while in flight and returns to "Export CSV"
+      // once the async work settles.
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /export csv/i })).toBeInTheDocument();
+      });
     });
 
     it('should export different data based on active tab', async () => {

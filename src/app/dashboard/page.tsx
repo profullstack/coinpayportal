@@ -717,18 +717,59 @@ export default function DashboardPage() {
     ].includes(status.toLowerCase());
   };
 
+  // Pull every row matching the current filters (business + date range), paging
+  // past the 100-row API cap, so the CSV is the full filtered set rather than the
+  // page currently on screen.
+  const fetchAllForExport = async (
+    path: string,
+    key: 'payments' | 'transactions' | 'disputes'
+  ): Promise<any[]> => {
+    const params = new URLSearchParams();
+    if (selectedBusinessId) params.set('business_id', selectedBusinessId);
+    const { date_from, date_to } = buildDateRange();
+    if (date_from && date_to) {
+      params.set('date_from', date_from);
+      params.set('date_to', date_to);
+    }
+    const PAGE = 100;
+    const MAX_ROWS = 10000; // safety bound to avoid runaway pagination
+    const rows: any[] = [];
+    let offset = 0;
+    while (rows.length < MAX_ROWS) {
+      params.set('limit', String(PAGE));
+      params.set('offset', String(offset));
+      const result = await authFetch(`${path}?${params.toString()}`, {}, router);
+      if (!result || !result.response.ok || !result.data.success) break;
+      const batch: any[] = result.data[key] || [];
+      rows.push(...batch);
+      if (batch.length < PAGE) break;
+      offset += PAGE;
+    }
+    return rows;
+  };
+
   const exportToCSV = async () => {
     try {
       setExporting(true);
 
       let dataToExport: any[] = [];
       let filename = '';
+      // Pull the full filtered sets (paging past the 100-row API cap) so the CSV
+      // is every row matching the current business + date-range filters.
+      const [allCrypto, allCard] = await Promise.all([
+        activeTab === 'all' || activeTab === 'crypto'
+          ? fetchAllForExport('/api/payments', 'payments')
+          : Promise.resolve([] as any[]),
+        activeTab === 'all' || activeTab === 'card'
+          ? fetchAllForExport('/api/stripe/transactions', 'transactions')
+          : Promise.resolve([] as any[]),
+      ]);
       const cryptoPaymentsToExport = transactionFilter === 'failed'
-        ? cryptoPayments.filter((payment) => isFailedStatus(payment.status))
-        : cryptoPayments;
+        ? allCrypto.filter((payment) => isFailedStatus(payment.status))
+        : allCrypto;
       const cardTransactionsToExport = transactionFilter === 'failed'
-        ? cardTransactions.filter((transaction) => isFailedStatus(transaction.status))
-        : cardTransactions;
+        ? allCard.filter((transaction) => isFailedStatus(transaction.status))
+        : allCard;
 
       if (activeTab === 'all') {
         // Export both crypto and card data
@@ -794,29 +835,49 @@ export default function DashboardPage() {
           business_name: t.business_name,
         }));
         filename = 'card-transactions';
+      } else if (activeTab === 'disputes') {
+        const allDisputes = await fetchAllForExport('/api/stripe/disputes', 'disputes');
+        dataToExport = allDisputes.map((d) => ({
+          id: d.id,
+          stripe_dispute_id: d.stripe_dispute_id || '',
+          stripe_charge_id: d.stripe_charge_id || '',
+          business_name: d.business_name || '',
+          amount_usd: d.amount_usd,
+          currency: d.currency,
+          status: d.status,
+          reason: d.reason || '',
+          evidence_due_by: d.evidence_due_by || '',
+          created_at: d.created_at,
+        }));
+        filename = 'disputes';
       }
 
-      if (transactionFilter === 'failed') {
+      if (transactionFilter === 'failed' && activeTab !== 'disputes') {
         filename = `failed-${filename}`;
       }
 
       if (dataToExport.length === 0) {
-        alert('No data to export');
+        alert('No data to export for the selected filters');
         return;
       }
+
+      // Reflect a custom date range in the filename for traceability.
+      const { date_from, date_to } = buildDateRange();
+      const rangeSuffix = date_from && date_to ? `_${date_from}_to_${date_to}` : '';
 
       const csv = Papa.unparse(dataToExport);
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
-      
+
       if (link.download !== undefined) {
         const url = URL.createObjectURL(blob);
         link.setAttribute('href', url);
-        link.setAttribute('download', `${filename}-${new Date().toISOString().split('T')[0]}.csv`);
+        link.setAttribute('download', `${filename}${rangeSuffix}-${new Date().toISOString().split('T')[0]}.csv`);
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        URL.revokeObjectURL(url);
       }
     } catch (error) {
       console.error('Export error:', error);
