@@ -6,6 +6,26 @@ import { getJwtSecret } from '@/lib/secrets';
 
 const TREND_DAYS = 14;
 
+const PERIOD_DAYS: Record<string, number> = {
+  day: 1,
+  week: 7,
+  month: 30,
+  year: 365,
+};
+
+/**
+ * Convert a period filter (day/week/month/year/all) into a lower-bound ISO
+ * timestamp. Returns null for 'all' (or unknown values) meaning "no time filter".
+ */
+function periodSince(period: string | null): string | null {
+  if (!period || period === 'all') return null;
+  const days = PERIOD_DAYS[period];
+  if (!days) return null;
+  const since = new Date();
+  since.setUTCDate(since.getUTCDate() - days);
+  return since.toISOString();
+}
+
 type TrendSeries = {
   volume_usd: number[];
   transactions: number[];
@@ -215,6 +235,8 @@ export async function GET(request: NextRequest) {
     // Get optional business_id filter from query params
     const { searchParams } = new URL(request.url);
     const filterBusinessId = searchParams.get('business_id');
+    // Optional time-window filter: day/week/month/year/all (default all).
+    const since = periodSince(searchParams.get('period'));
 
     // Every business this user can access — owned plus those granted via org or
     // per-business team membership. Owner-only scoping hid the client's stats
@@ -270,10 +292,12 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch crypto payments statistics
-    const { data: cryptoPayments, error: cryptoError } = await supabase
+    let cryptoQuery = supabase
       .from('payments')
       .select('*')
       .in('business_id', queryBusinessIds);
+    if (since) cryptoQuery = cryptoQuery.gte('created_at', since);
+    const { data: cryptoPayments, error: cryptoError } = await cryptoQuery;
 
     if (cryptoError) {
       console.error('Error fetching crypto payments:', cryptoError);
@@ -287,10 +311,12 @@ export async function GET(request: NextRequest) {
     // merchant_id): the webhook writes merchant_id from Stripe metadata, so rows
     // for charges made without CoinPay metadata land with a null merchant_id and
     // were silently dropped from the counts. business_id is the reliable owner key.
-    const { data: cardTransactions, error: cardError } = await supabase
+    let cardQuery = supabase
       .from('stripe_transactions')
       .select('*')
       .in('business_id', queryBusinessIds);
+    if (since) cardQuery = cardQuery.gte('created_at', since);
+    const { data: cardTransactions, error: cardError } = await cardQuery;
 
     if (cardError) {
       console.error('Error fetching card transactions:', cardError);

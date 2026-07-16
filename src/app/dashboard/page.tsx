@@ -106,6 +106,15 @@ interface PlanInfo {
 
 type TabType = 'all' | 'crypto' | 'card';
 type TransactionFilter = 'all' | 'failed';
+type StatsPeriod = 'day' | 'week' | 'month' | 'year' | 'all';
+
+const PERIOD_OPTIONS: { value: StatsPeriod; label: string }[] = [
+  { value: 'day', label: 'Last 24 hours' },
+  { value: 'week', label: 'Last 7 days' },
+  { value: 'month', label: 'Last 30 days' },
+  { value: 'year', label: 'Last 12 months' },
+  { value: 'all', label: 'All time' },
+];
 type TrendMetric = 'volume_usd' | 'transactions' | 'successful_transactions' | 'fees_usd';
 
 interface TrendSeries {
@@ -255,6 +264,7 @@ export default function DashboardPage() {
     return () => { document.title = original; };
   }, [combinedStats?.total_volume_usd]);
   const [selectedBusinessId, setSelectedBusinessId] = useState<string>('');
+  const [statsPeriod, setStatsPeriod] = useState<StatsPeriod>('all');
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [transactionFilter, setTransactionFilter] = useState<TransactionFilter>('all');
   const [loading, setLoading] = useState(true);
@@ -324,6 +334,17 @@ export default function DashboardPage() {
     }
   }, [selectedBusinessId, activeTab, transactionFilter]);
 
+  // The stats period only scopes the summary cards (analytics endpoint), not the
+  // transaction list — refetch just the stats when it changes (skip mount).
+  const didMountPeriod = useRef(false);
+  useEffect(() => {
+    if (!didMountPeriod.current) {
+      didMountPeriod.current = true;
+      return;
+    }
+    fetchCombinedStats(selectedBusinessId);
+  }, [statsPeriod]);
+
   // Refetch card transactions when the page changes (skip the initial render).
   const didMountCardPage = useRef(false);
   useEffect(() => {
@@ -351,10 +372,11 @@ export default function DashboardPage() {
   const fetchCombinedStats = async (businessId?: string) => {
     try {
       // Fetch combined analytics
-      let url = '/api/stripe/analytics';
-      if (businessId) {
-        url += `?business_id=${businessId}`;
-      }
+      const params = new URLSearchParams();
+      if (businessId) params.set('business_id', businessId);
+      if (statsPeriod !== 'all') params.set('period', statsPeriod);
+      const query = params.toString();
+      const url = query ? `/api/stripe/analytics?${query}` : '/api/stripe/analytics';
 
       const result = await authFetch(url, {}, router);
       if (!result) return; // Redirected to login
@@ -488,6 +510,10 @@ export default function DashboardPage() {
 
   const handleBusinessChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     setSelectedBusinessId(event.target.value);
+  };
+
+  const handlePeriodChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    setStatsPeriod(event.target.value as StatsPeriod);
   };
 
   const handleTabChange = (tab: TabType) => {
@@ -960,6 +986,32 @@ export default function DashboardPage() {
             </p>
           </div>
           <div className="flex items-center gap-4">
+            {/* Stats Period Filter */}
+            <div className="relative">
+              <label htmlFor="period-filter" className="sr-only">Filter stats by period</label>
+              <select
+                id="period-filter"
+                value={statsPeriod}
+                onChange={handlePeriodChange}
+                className="appearance-none bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg pl-10 pr-10 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 shadow-sm hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 cursor-pointer min-w-[160px]"
+              >
+                {PERIOD_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
             {/* Business Filter */}
             {businesses.length > 0 && (
               <div className="relative">
