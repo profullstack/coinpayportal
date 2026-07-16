@@ -93,6 +93,21 @@ interface CardTransaction {
   updated_at: string;
 }
 
+interface Dispute {
+  id: string;
+  stripe_dispute_id: string;
+  stripe_charge_id: string | null;
+  business_id: string | null;
+  business_name: string | null;
+  amount_usd: string;
+  currency: string;
+  status: string;
+  reason: string | null;
+  evidence_due_by: string | null;
+  actionable: boolean;
+  created_at: string;
+}
+
 interface Business {
   id: string;
   name: string;
@@ -104,7 +119,7 @@ interface PlanInfo {
   commission_percent: string;
 }
 
-type TabType = 'all' | 'crypto' | 'card';
+type TabType = 'all' | 'crypto' | 'card' | 'disputes';
 type TransactionFilter = 'all' | 'failed';
 type StatsPeriod = 'day' | 'week' | 'month' | 'year' | 'all';
 
@@ -251,6 +266,10 @@ export default function DashboardPage() {
   const [allPage, setAllPage] = useState(0);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [planInfo, setPlanInfo] = useState<PlanInfo | null>(null);
+  const [disputes, setDisputes] = useState<Dispute[]>([]);
+  const [disputesLoading, setDisputesLoading] = useState(false);
+  // Id of the transaction/dispute whose resolve action is currently in flight.
+  const [actionId, setActionId] = useState<string | null>(null);
 
   // Show total volume in tab title
   useEffect(() => {
@@ -333,6 +352,15 @@ export default function DashboardPage() {
       fetchDashboardData(selectedBusinessId);
     }
   }, [selectedBusinessId, activeTab, transactionFilter]);
+
+  // Load disputes lazily when the Disputes tab is active, and refetch on business
+  // filter change while it's open.
+  useEffect(() => {
+    if (activeTab === 'disputes' && businesses.length > 0) {
+      fetchDisputes(selectedBusinessId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, selectedBusinessId, businesses.length]);
 
   // The stats period only scopes the summary cards (analytics endpoint), not the
   // transaction list — refetch just the stats when it changes (skip mount).
@@ -516,6 +544,89 @@ export default function DashboardPage() {
     setStatsPeriod(event.target.value as StatsPeriod);
   };
 
+  const fetchDisputes = async (businessId?: string) => {
+    setDisputesLoading(true);
+    try {
+      let url = '/api/stripe/disputes?limit=100';
+      if (businessId) url += `&business_id=${businessId}`;
+      const result = await authFetch(url, {}, router);
+      if (!result) return; // redirected to login
+      const { response, data } = result;
+      if (response.ok && data.success) {
+        setDisputes(data.disputes || []);
+      } else {
+        setError(data.error || 'Failed to load disputes');
+      }
+    } catch (err) {
+      console.error('Error fetching disputes:', err);
+      setError('Failed to load disputes');
+    } finally {
+      setDisputesLoading(false);
+    }
+  };
+
+  const handleAcceptDispute = async (id: string) => {
+    if (
+      !window.confirm(
+        'Accept this dispute? You concede the charge — the cardholder keeps the funds and the dispute is closed. This cannot be undone.'
+      )
+    ) {
+      return;
+    }
+    setActionId(id);
+    try {
+      const result = await authFetch(`/api/stripe/disputes/${id}/accept`, { method: 'POST' }, router);
+      if (!result) return;
+      const { response, data } = result;
+      if (response.ok && data.success) {
+        setNotification('Dispute accepted');
+        setTimeout(() => setNotification(null), 5000);
+        await fetchDisputes(selectedBusinessId);
+        fetchCombinedStats(selectedBusinessId);
+      } else {
+        setError(data.error || 'Failed to accept dispute');
+      }
+    } catch (err) {
+      console.error('Error accepting dispute:', err);
+      setError('Failed to accept dispute');
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handleRefund = async (transactionId: string) => {
+    if (
+      !window.confirm(
+        'Refund this card payment in full? The funds (and the platform fee) are returned to the cardholder. This cannot be undone.'
+      )
+    ) {
+      return;
+    }
+    setActionId(transactionId);
+    try {
+      const result = await authFetch(
+        `/api/stripe/transactions/${transactionId}/refund`,
+        { method: 'POST' },
+        router
+      );
+      if (!result) return;
+      const { response, data } = result;
+      if (response.ok && data.success) {
+        setNotification('Refund issued');
+        setTimeout(() => setNotification(null), 5000);
+        await fetchTransactionsData(selectedBusinessId);
+        fetchCombinedStats(selectedBusinessId);
+      } else {
+        setError(data.error || 'Failed to issue refund');
+      }
+    } catch (err) {
+      console.error('Error issuing refund:', err);
+      setError('Failed to issue refund');
+    } finally {
+      setActionId(null);
+    }
+  };
+
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
   };
@@ -663,13 +774,23 @@ export default function DashboardPage() {
     switch (status.toLowerCase()) {
       case 'completed':
       case 'forwarded':
+      case 'succeeded':
+      case 'won':
         return 'text-green-600 bg-green-100';
       case 'pending':
       case 'detected':
+      case 'under_review':
+      case 'warning_under_review':
         return 'text-yellow-600 bg-yellow-100';
       case 'failed':
       case 'expired':
+      case 'needs_response':
+      case 'warning_needs_response':
         return 'text-red-600 bg-red-100';
+      case 'refunded':
+      case 'lost':
+      case 'warning_closed':
+        return 'text-gray-700 bg-gray-200';
       default:
         return 'text-gray-600 bg-gray-100';
     }
@@ -906,6 +1027,7 @@ export default function DashboardPage() {
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Stripe Charge</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date</th>
+            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Action</th>
           </tr>
         </thead>
         <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
@@ -953,6 +1075,111 @@ export default function DashboardPage() {
               </td>
               <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-300">
                 {new Date(transaction.created_at).toLocaleDateString()}
+              </td>
+              <td className="px-4 py-4 whitespace-nowrap text-right">
+                {['succeeded', 'completed'].includes(transaction.status) ? (
+                  <button
+                    onClick={() => handleRefund(transaction.id)}
+                    disabled={actionId === transaction.id}
+                    className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title="Refund this card payment in full"
+                  >
+                    {actionId === transaction.id ? 'Refunding...' : 'Refund'}
+                  </button>
+                ) : transaction.status === 'refunded' ? (
+                  <span className="text-xs text-gray-400">Refunded</span>
+                ) : (
+                  <span className="text-xs text-gray-400">—</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  };
+
+  const formatDisputeReason = (reason: string | null) =>
+    (reason || 'unknown').replace(/_/g, ' ');
+
+  const renderDisputes = () => {
+    if (disputesLoading) {
+      return (
+        <div className="px-6 py-12 text-center">
+          <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-red-500"></div>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading disputes...</p>
+        </div>
+      );
+    }
+
+    if (disputes.length === 0) {
+      return (
+        <div className="px-6 py-12 text-center">
+          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No card disputes</h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Chargebacks on your Stripe card payments will appear here.
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <table className="min-w-full divide-y divide-gray-200">
+        <thead className="bg-gray-50 dark:bg-gray-800">
+          <tr>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Dispute</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Amount</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Business</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Reason</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Respond by</th>
+            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Action</th>
+          </tr>
+        </thead>
+        <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+          {disputes.map((dispute) => (
+            <tr key={dispute.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+              <td className="px-4 py-4 whitespace-nowrap text-sm">
+                <div className="font-medium text-gray-900 dark:text-gray-100">
+                  {dispute.stripe_dispute_id?.slice(0, 14) || dispute.id.slice(0, 8)}...
+                </div>
+                {dispute.stripe_charge_id && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    charge {dispute.stripe_charge_id.slice(0, 10)}...
+                  </div>
+                )}
+              </td>
+              <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-100">
+                <div className="font-medium">${formatAmount(dispute.amount_usd, 2)}</div>
+                <div className="text-gray-500 text-xs">{dispute.currency.toUpperCase()}</div>
+              </td>
+              <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-300">
+                {dispute.business_name || '—'}
+              </td>
+              <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-300 capitalize">
+                {formatDisputeReason(dispute.reason)}
+              </td>
+              <td className="px-4 py-4 whitespace-nowrap">
+                <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(dispute.status)}`}>
+                  {dispute.status.replace(/_/g, ' ')}
+                </span>
+              </td>
+              <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-300">
+                {dispute.evidence_due_by ? new Date(dispute.evidence_due_by).toLocaleDateString() : '—'}
+              </td>
+              <td className="px-4 py-4 whitespace-nowrap text-right">
+                {dispute.actionable ? (
+                  <button
+                    onClick={() => handleAcceptDispute(dispute.id)}
+                    disabled={actionId === dispute.id}
+                    className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-600 text-white hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title="Concede the dispute (disputes.close). To fight it instead, submit evidence in your Stripe dashboard."
+                  >
+                    {actionId === dispute.id ? 'Accepting...' : 'Accept dispute'}
+                  </button>
+                ) : (
+                  <span className="text-xs text-gray-400">—</span>
+                )}
               </td>
             </tr>
           ))}
@@ -1317,6 +1544,21 @@ export default function DashboardPage() {
                     </span>
                   )}
                 </button>
+                <button
+                  onClick={() => handleTabChange('disputes')}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'disputes'
+                      ? 'border-red-500 text-red-600 dark:text-red-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
+                  }`}
+                >
+                  Disputes
+                  {disputes.length > 0 && (
+                    <span className="ml-2 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 py-0.5 px-2 rounded-full text-xs">
+                      {disputes.length}
+                    </span>
+                  )}
+                </button>
               </nav>
             </div>
           </div>
@@ -1326,6 +1568,7 @@ export default function DashboardPage() {
             {activeTab === 'all' && renderAllTransactions()}
             {activeTab === 'crypto' && renderCryptoTransactions()}
             {activeTab === 'card' && renderCardTransactions()}
+            {activeTab === 'disputes' && renderDisputes()}
           </div>
           {activeTab === 'all' && allTotal > CARD_PAGE_SIZE && (
             <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 text-sm">
