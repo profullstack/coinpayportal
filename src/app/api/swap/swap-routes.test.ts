@@ -46,6 +46,15 @@ vi.mock('@/lib/swap/changenow', () => ({
   },
 }));
 
+// Mock auth so the create route's Bearer-token check passes
+vi.mock('@/lib/auth/jwt', () => ({
+  verifyToken: vi.fn(() => ({ sub: 'test-user', userId: 'test-user' })),
+}));
+
+vi.mock('@/lib/secrets', () => ({
+  getJwtSecret: vi.fn(() => 'test-secret'),
+}));
+
 import * as changenow from '@/lib/swap/changenow';
 
 describe('Swap API Routes', () => {
@@ -153,6 +162,7 @@ describe('Swap API Routes', () => {
     it('should return 400 if missing parameters', async () => {
       const request = new NextRequest('http://localhost/api/swap/create', {
         method: 'POST',
+        headers: { authorization: 'Bearer test-token' },
         body: JSON.stringify({ from: 'BTC' }),
       });
       const response = await createSwap(request);
@@ -165,6 +175,7 @@ describe('Swap API Routes', () => {
     it('should return 400 for unsupported coin', async () => {
       const request = new NextRequest('http://localhost/api/swap/create', {
         method: 'POST',
+        headers: { authorization: 'Bearer test-token' },
         body: JSON.stringify({
           from: 'SHIB',
           to: 'ETH',
@@ -183,6 +194,7 @@ describe('Swap API Routes', () => {
     it('should return 400 for invalid settle address', async () => {
       const request = new NextRequest('http://localhost/api/swap/create', {
         method: 'POST',
+        headers: { authorization: 'Bearer test-token' },
         body: JSON.stringify({
           from: 'BTC',
           to: 'ETH',
@@ -215,6 +227,7 @@ describe('Swap API Routes', () => {
 
       const request = new NextRequest('http://localhost/api/swap/create', {
         method: 'POST',
+        headers: { authorization: 'Bearer test-token' },
         body: JSON.stringify({
           from: 'BTC',
           to: 'ETH',

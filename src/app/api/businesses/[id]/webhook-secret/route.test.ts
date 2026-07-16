@@ -4,9 +4,13 @@ const mockVerifyToken = vi.fn();
 const mockGetJwtSecret = vi.fn();
 const mockGetWebhookSecret = vi.fn();
 const mockRegenerateWebhookSecret = vi.fn();
+const mockAuthorizeBusinessOwner = vi.fn();
 
 vi.mock('@/lib/auth/jwt', () => ({
   verifyToken: (...args: unknown[]) => mockVerifyToken(...args),
+}));
+vi.mock('@/lib/auth/authz', () => ({
+  authorizeBusinessOwner: (...args: unknown[]) => mockAuthorizeBusinessOwner(...args),
 }));
 vi.mock('@/lib/secrets', () => ({
   getJwtSecret: () => mockGetJwtSecret(),
@@ -36,6 +40,7 @@ describe('GET /api/businesses/[id]/webhook-secret', () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     mockGetJwtSecret.mockReturnValue('jwt-secret');
     mockVerifyToken.mockReturnValue({ userId: 'user-1' });
+    mockAuthorizeBusinessOwner.mockResolvedValue({ ok: true, role: 'owner', ownerId: 'user-1' });
   });
 
   it('returns 401 without auth header', async () => {
@@ -103,6 +108,7 @@ describe('POST /api/businesses/[id]/webhook-secret', () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     mockGetJwtSecret.mockReturnValue('jwt-secret');
     mockVerifyToken.mockReturnValue({ userId: 'user-1' });
+    mockAuthorizeBusinessOwner.mockResolvedValue({ ok: true, role: 'owner', ownerId: 'user-1' });
   });
 
   it('returns 401 without auth header', async () => {
