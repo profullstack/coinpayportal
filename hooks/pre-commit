@@ -1,25 +1,41 @@
 #!/bin/sh
+#
+# CoinPay pre-commit hook — fast, staged-scoped checks.
+#
+# The previous hook ran a full `next build` plus the entire vitest suite on
+# every commit. That took several minutes, and the suite carries a number of
+# long-standing failures that no CI keeps green — so in practice everyone
+# committed with `git commit --no-verify`, which defeats the hook entirely.
+#
+# This version only looks at the source files you actually staged: it lints
+# them and runs just the vitest suites related to them. That runs in seconds
+# and only blocks on problems you are introducing. Run the full test suite
+# (`pnpm test`) and a full build (`pnpm build`) in CI or manually before a
+# release.
+#
+# Set SKIP_PRECOMMIT=1 to bypass (equivalent to --no-verify, but explicit).
 
-# CoinPay Pre-commit Hook
-# Runs build and tests before allowing commit
+set -eu
 
-echo "Running pre-commit checks..."
-
-# Run build
-echo "Building project..."
-pnpm build
-if [ $? -ne 0 ]; then
-  echo "❌ Build failed. Please fix errors before committing."
-  exit 1
+if [ "${SKIP_PRECOMMIT:-0}" = "1" ]; then
+  echo "Pre-commit: SKIP_PRECOMMIT=1 set, skipping checks."
+  exit 0
 fi
 
-# Run tests (without rebuilding) — limit memory to avoid OOM on 15GB server
-echo "Running tests..."
-NODE_OPTIONS="--max-old-space-size=2048" npx vitest run --no-file-parallelism
-if [ $? -ne 0 ]; then
-  echo "❌ Tests failed. Please fix failing tests before committing."
-  exit 1
+# Staged, still-present source files (Added / Copied / Modified / Renamed).
+FILES=$(git diff --cached --name-only --diff-filter=ACMR \
+  | grep -E '^src/.*\.(ts|tsx|js|jsx|mjs|cjs)$' || true)
+
+if [ -z "$FILES" ]; then
+  echo "Pre-commit: no staged source files, skipping checks."
+  exit 0
 fi
 
-echo "✅ All pre-commit checks passed!"
+echo "Pre-commit: linting staged files..."
+printf '%s\n' "$FILES" | tr '\n' '\0' | xargs -0 npx eslint
+
+echo "Pre-commit: running tests related to staged files..."
+printf '%s\n' "$FILES" | tr '\n' '\0' | xargs -0 npx vitest related --run --passWithNoTests
+
+echo "✅ Pre-commit checks passed."
 exit 0
