@@ -69,8 +69,35 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const dateFrom = searchParams.get('date_from');
     const dateTo = searchParams.get('date_to');
+    const businessId = searchParams.get('business_id');
     const limit = parsePaginationParam(searchParams.get('limit'), 50, { min: 1, max: 100 });
     const offset = parsePaginationParam(searchParams.get('offset'), 0);
+
+    // Optional business filter. Disputes have no business_id column, so resolve
+    // the charges belonging to that business and constrain by stripe_charge_id.
+    let chargeIdFilter: string[] | null = null;
+    if (businessId) {
+      const { data: bizCharges } = await supabase
+        .from('stripe_transactions')
+        .select('stripe_charge_id')
+        .eq('business_id', businessId)
+        .in('merchant_id', ownerMerchantIds)
+        .not('stripe_charge_id', 'is', null);
+      chargeIdFilter = (bizCharges || [])
+        .map((t) => t.stripe_charge_id as string)
+        .filter(Boolean);
+      // No charges for this business → no disputes.
+      if (chargeIdFilter.length === 0) {
+        return NextResponse.json(
+          {
+            success: true,
+            disputes: [],
+            pagination: { limit, offset, total: 0, has_more: false },
+          },
+          { status: 200 }
+        );
+      }
+    }
 
     // Build query
     let query = supabase
@@ -90,6 +117,10 @@ export async function GET(request: NextRequest) {
       .in('merchant_id', ownerMerchantIds)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
+
+    if (chargeIdFilter) {
+      query = query.in('stripe_charge_id', chargeIdFilter);
+    }
 
     // Apply filters
     if (status) {
@@ -117,26 +148,75 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Enrich with the business each disputed charge belongs to (disputes carry no
+    // business_id; map via stripe_transactions.stripe_charge_id).
+    const chargeIds = (disputes || [])
+      .map((d) => d.stripe_charge_id as string)
+      .filter(Boolean);
+    const businessByCharge = new Map<string, { id: string | null; name: string }>();
+    if (chargeIds.length > 0) {
+      const { data: txns } = await supabase
+        .from('stripe_transactions')
+        .select('stripe_charge_id, business_id, businesses(name)')
+        .in('stripe_charge_id', chargeIds)
+        .in('merchant_id', ownerMerchantIds);
+      for (const t of txns || []) {
+        const biz = (t as { businesses?: unknown }).businesses;
+        let name = 'Unknown';
+        if (Array.isArray(biz)) name = biz[0]?.name || 'Unknown';
+        else if (biz && typeof biz === 'object' && 'name' in biz) {
+          name = (biz as { name?: string }).name || 'Unknown';
+        }
+        businessByCharge.set(t.stripe_charge_id as string, {
+          id: (t.business_id as string) || null,
+          name,
+        });
+      }
+    }
+
+    // Only these dispute states can still be accepted/contested.
+    const ACTIONABLE = new Set([
+      'warning_needs_response',
+      'warning_under_review',
+      'needs_response',
+      'under_review',
+    ]);
+
     // Transform disputes to match expected format
-    const transformedDisputes = (disputes || []).map(dispute => ({
-      id: dispute.id,
-      stripe_dispute_id: dispute.stripe_dispute_id,
-      stripe_charge_id: dispute.stripe_charge_id,
-      amount_cents: dispute.amount || 0,
-      amount_usd: ((dispute.amount || 0) / 100).toFixed(2), // Convert cents to dollars
-      currency: dispute.currency || 'usd',
-      status: dispute.status,
-      reason: dispute.reason,
-      evidence_due_by: dispute.evidence_due_by,
-      created_at: dispute.created_at,
-      updated_at: dispute.updated_at,
-    }));
+    const transformedDisputes = (disputes || []).map(dispute => {
+      const biz = dispute.stripe_charge_id
+        ? businessByCharge.get(dispute.stripe_charge_id)
+        : undefined;
+      return {
+        id: dispute.id,
+        stripe_dispute_id: dispute.stripe_dispute_id,
+        stripe_charge_id: dispute.stripe_charge_id,
+        business_id: biz?.id || null,
+        business_name: biz?.name || null,
+        amount_cents: dispute.amount || 0,
+        amount_usd: ((dispute.amount || 0) / 100).toFixed(2), // Convert cents to dollars
+        currency: dispute.currency || 'usd',
+        status: dispute.status,
+        reason: dispute.reason,
+        evidence_due_by: dispute.evidence_due_by,
+        actionable: ACTIONABLE.has(String(dispute.status)),
+        created_at: dispute.created_at,
+        updated_at: dispute.updated_at,
+      };
+    });
 
     // Get total count for pagination
-    const { count: totalCount, error: countError } = await supabase
+    let countQuery = supabase
       .from('stripe_disputes')
       .select('*', { count: 'exact', head: true })
       .in('merchant_id', ownerMerchantIds);
+    if (chargeIdFilter) {
+      countQuery = countQuery.in('stripe_charge_id', chargeIdFilter);
+    }
+    if (status) {
+      countQuery = countQuery.eq('status', status);
+    }
+    const { count: totalCount, error: countError } = await countQuery;
 
     if (countError) {
       console.error('Error getting disputes count:', countError);

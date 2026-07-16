@@ -103,6 +103,15 @@ export async function POST(request: NextRequest) {
         await handleDisputeCreated(event.data.object);
         break;
 
+      case 'charge.dispute.updated':
+      case 'charge.dispute.closed':
+        await handleDisputeUpdated(event.data.object);
+        break;
+
+      case 'charge.refunded':
+        await handleChargeRefunded(event.data.object);
+        break;
+
       case 'payout.created':
         await handlePayoutCreated(event.data.object);
         break;
@@ -613,6 +622,45 @@ async function handleDisputeCreated(dispute: any) {
 
   } catch (error) {
     console.error('Error handling dispute created:', error);
+  }
+}
+
+// Keep the local dispute row's status/evidence deadline in sync as Stripe moves
+// the dispute through its lifecycle (under_review -> won/lost/warning_closed).
+async function handleDisputeUpdated(dispute: any) {
+  const supabase = getSupabase();
+  try {
+    await supabase
+      .from('stripe_disputes')
+      .update({
+        status: dispute.status,
+        evidence_due_by: dispute.evidence_details?.due_by
+          ? new Date(dispute.evidence_details.due_by * 1000)
+          : null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('stripe_dispute_id', dispute.id);
+  } catch (error) {
+    console.error('Error handling dispute updated:', error);
+  }
+}
+
+// Reconcile a card transaction's status when its charge is (fully) refunded,
+// whether the refund was issued from our dashboard or from the Stripe dashboard.
+async function handleChargeRefunded(charge: any) {
+  const supabase = getSupabase();
+  try {
+    if (!charge?.id) return;
+    // Only mark fully-refunded charges as refunded; partial refunds stay as-is.
+    if (charge.amount_refunded && charge.amount && charge.amount_refunded < charge.amount) {
+      return;
+    }
+    await supabase
+      .from('stripe_transactions')
+      .update({ status: 'refunded', updated_at: new Date().toISOString() })
+      .eq('stripe_charge_id', charge.id);
+  } catch (error) {
+    console.error('Error handling charge refunded:', error);
   }
 }
 
