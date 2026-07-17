@@ -2081,15 +2081,28 @@ async function handleReputation(subcommand, args, flags) {
       const client = createClient();
 
       if (didSubcommand === 'claim') {
-        const { claimDid } = await import('../src/reputation.js');
-        const result = await claimDid(client);
+        const { claimDid, getMyDid } = await import('../src/reputation.js');
+
+        // Idempotent: a merchant can only hold one principal DID, so if one
+        // already exists just show it (exit 0) instead of erroring with
+        // "already has a principal DID". This lets automated setup (e.g.
+        // c0mpute worker onboarding) call `did claim` unconditionally.
+        let existing = null;
+        try {
+          existing = await getMyDid(client);
+        } catch {
+          existing = null; // no DID yet — fall through to claim
+        }
+
+        const result = existing?.did ? existing : await claimDid(client);
 
         if (result.did) {
-          print.success(`DID claimed: ${result.did}`);
+          print.success(`${existing?.did ? 'DID ready' : 'DID claimed'}: ${result.did}`);
           console.log(`  Public Key: ${result.public_key}`);
           console.log(`  Verified: ${result.verified}`);
         } else {
           print.error(result.error || 'Failed to claim DID');
+          process.exitCode = 1;
         }
 
         if (flags.json) print.json(result);
