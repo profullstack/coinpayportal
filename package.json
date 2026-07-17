@@ -49,6 +49,7 @@
     "@profullstack/coinpay": "workspace:*",
     "@profullstack/emailer": "^1.0.1",
     "@profullstack/referrals": "^0.1.0",
+    "@profullstack/stack": "^0.1.0",
     "@scure/bip32": "^1.3.3",
     "@scure/bip39": "^1.2.2",
     "@simplewebauthn/browser": "^13.3.0",

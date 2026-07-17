@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { trackReferralCode } from "@profullstack/referrals/next";
+import { trackReferralCode } from "@profullstack/stack/referrals";
 
 export function middleware(request: NextRequest) {
   return trackReferralCode(request, NextResponse.next() as any);

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { ReferralProvider } from '@profullstack/referrals/react';
+import { FeedbackWidget } from '@profullstack/stack/feedback';
 import Script from 'next/script';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
@@ -134,7 +135,8 @@ export default function RootLayout({
           src="https://crawlproof.com/stats.js"
           strategy="afterInteractive"
         />
-      <script async src="https://feedback.profullstack.com/embed/profullstack-feedback.js" data-property="coinpayportal.com"></script></body>
+        <FeedbackWidget property="coinpayportal.com" />
+      </body>
     </html>
   );
 }

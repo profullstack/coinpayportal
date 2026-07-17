@@ -2,44 +2,17 @@
 // Sends trusted server-side events (user/customer lifecycle) to CrawlProof.
 // Docs: https://crawlproof.com/docs/stats-tracker
 
-type CrawlProofEvent = {
-  event: string;
-  project?: string;
-  email?: string;
-  name?: string;
-  user_id?: string;
-  marketing_consent?: boolean;
-  plan?: string;
-  metadata?: Record<string, unknown>;
-};
+import { createCrawlproofClient } from "@profullstack/stack/crawlproof";
 
-export async function sendCrawlProofEvent(event: CrawlProofEvent): Promise<void> {
-  const ingestUrl =
-    process.env.CRAWLPROOF_INGEST_URL || "https://crawlproof.com/api/events";
-  const projectKey = process.env.CRAWLPROOF_PROJECT_KEY;
+const client = createCrawlproofClient({
+  apiKey: process.env.CRAWLPROOF_PROJECT_KEY,
+  baseUrl: process.env.CRAWLPROOF_INGEST_URL?.replace(/\/api\/events$/, ""),
+  project: "coinpayportal.com",
+});
 
-  if (!projectKey) {
-    console.warn("CRAWLPROOF_PROJECT_KEY is not set; skipping CrawlProof event");
-    return;
-  }
-
-  try {
-    const response = await fetch(ingestUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${projectKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ project: "coinpayportal.com", ...event }),
-    });
-    if (!response.ok) {
-      console.warn("CrawlProof ingest failed", response.status, await response.text());
-    }
-  } catch (err) {
-    // Audience events are best-effort; never break the caller.
-    console.warn("CrawlProof ingest error", err);
-  }
-}
+export const sendCrawlProofEvent = (
+  event: Parameters<typeof client.sendEvent>[0]
+): Promise<void> => client.sendEvent(event).then(() => undefined);
 
 // Example:
 //   await sendCrawlProofEvent({
