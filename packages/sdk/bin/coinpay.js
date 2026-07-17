@@ -281,6 +281,7 @@ ${colors.cyan}Commands:${colors.reset}
     badge [did]           Get embeddable reputation badge URL
     verify <id>           Verify a credential
     revocations           List revoked credentials
+    did setup             Discover existing DID or create one (interactive)
     did claim             Claim (auto-generate) a new DID
     did me                Show your current DID
     issuer register       Register platform issuer (--name, --domain)
@@ -2143,6 +2144,59 @@ async function handleReputation(subcommand, args, flags) {
         }
 
         if (flags.json) print.json(result);
+      } else if (didSubcommand === 'setup') {
+        // Interactive "discover or create" flow: default to the merchant's
+        // existing DID (confirm use); if none, offer to create one. Confirms
+        // each decision. In non-interactive contexts (curl | sh, no TTY) it
+        // takes the sensible default silently so automated worker onboarding
+        // still completes.
+        const { getMyDid, claimDid } = await import('../src/reputation.js');
+        const interactive = process.stdin.isTTY;
+
+        let existing = null;
+        try {
+          existing = await getMyDid(client);
+        } catch {
+          existing = null;
+        }
+
+        if (existing?.did) {
+          print.success(`Found existing DID: ${existing.did}`);
+          console.log(`  Public Key: ${existing.public_key}`);
+          console.log(`  Verified: ${existing.verified}`);
+          if (interactive) {
+            const use = await promptYesNo('Use this DID for payouts & reputation?', true);
+            if (use) {
+              print.success('Using existing DID.');
+            } else {
+              print.info('Keeping it — a merchant holds one principal DID. To use a different identity, log in as another merchant.');
+            }
+          } else {
+            print.info('Using existing DID (non-interactive).');
+          }
+          if (flags.json) print.json(existing);
+        } else {
+          let create = true;
+          if (interactive) {
+            create = await promptYesNo('No DID found. Create a new payable DID now?', true);
+          } else {
+            print.info('No DID found — creating one (non-interactive).');
+          }
+          if (!create) {
+            print.info('Skipped. Run `coinpay reputation did setup` when ready.');
+          } else {
+            const result = await claimDid(client);
+            if (result.did) {
+              print.success(`DID claimed: ${result.did}`);
+              console.log(`  Public Key: ${result.public_key}`);
+              console.log(`  Verified: ${result.verified}`);
+            } else {
+              print.error(result.error || 'Failed to claim DID');
+              process.exitCode = 1;
+            }
+            if (flags.json) print.json(result);
+          }
+        }
       } else {
         // Default: show current DID
         const { getMyDid } = await import('../src/reputation.js');
