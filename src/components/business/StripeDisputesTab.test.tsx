@@ -71,7 +71,9 @@ describe('StripeDisputesTab', () => {
     render(<StripeDisputesTab businessId="biz-1" />);
     await waitFor(() => {
       expect(screen.getByText('$10.00')).toBeTruthy();
-      expect(screen.getByText('—')).toBeTruthy();
+      // A non-actionable dispute renders "—" for both the null due date and the
+      // (empty) actions cell.
+      expect(screen.getAllByText('—').length).toBeGreaterThan(0);
     });
   });
 });

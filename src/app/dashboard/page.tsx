@@ -6,6 +6,7 @@ import Link from 'next/link';
 import Papa from 'papaparse';
 import { useRealtimePayments, type RealtimePayment } from '@/lib/realtime/useRealtimePayments';
 import { authFetch, requireAuth } from '@/lib/auth/client';
+import { DisputeEvidenceModal } from '@/components/disputes/DisputeEvidenceModal';
 import dynamic from 'next/dynamic';
 
 // Recharts is heavy and client-only; load it on the client after mount so it
@@ -458,6 +459,8 @@ export default function DashboardPage() {
   const [disputesLoading, setDisputesLoading] = useState(false);
   // Id of the transaction/dispute whose resolve action is currently in flight.
   const [actionId, setActionId] = useState<string | null>(null);
+  // Dispute currently open in the evidence-submission modal.
+  const [evidenceDisputeId, setEvidenceDisputeId] = useState<string | null>(null);
 
   // Show total volume in tab title
   useEffect(() => {
@@ -1556,14 +1559,24 @@ export default function DashboardPage() {
               </td>
               <td className="px-4 py-4 whitespace-nowrap text-right">
                 {dispute.actionable ? (
-                  <button
-                    onClick={() => handleAcceptDispute(dispute.id)}
-                    disabled={actionId === dispute.id}
-                    className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-600 text-white hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title="Concede the dispute (disputes.close). To fight it instead, submit evidence in your Stripe dashboard."
-                  >
-                    {actionId === dispute.id ? 'Accepting...' : 'Accept dispute'}
-                  </button>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={() => setEvidenceDisputeId(dispute.id)}
+                      disabled={actionId === dispute.id}
+                      className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg bg-purple-600 text-white hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      title="Contest the dispute by submitting proof the customer received the deliverables"
+                    >
+                      Submit evidence
+                    </button>
+                    <button
+                      onClick={() => handleAcceptDispute(dispute.id)}
+                      disabled={actionId === dispute.id}
+                      className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      title="Concede the dispute — the cardholder keeps the funds (the refund-equivalent for a disputed charge)"
+                    >
+                      {actionId === dispute.id ? 'Accepting...' : 'Accept (refund customer)'}
+                    </button>
+                  </div>
                 ) : (
                   <span className="text-xs text-gray-400">—</span>
                 )}
@@ -1711,6 +1724,19 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* Dispute evidence submission modal */}
+        {evidenceDisputeId && (
+          <DisputeEvidenceModal
+            disputeId={evidenceDisputeId}
+            onClose={() => setEvidenceDisputeId(null)}
+            onSubmitted={() => {
+              setNotification('Evidence submitted to Stripe');
+              setTimeout(() => setNotification(null), 5000);
+              fetchDisputes(selectedBusinessId);
+            }}
+          />
+        )}
 
         {/* Real-time Notification */}
         {notification && (
