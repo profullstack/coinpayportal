@@ -4,11 +4,14 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { startAuthentication } from '@simplewebauthn/browser';
+import { getSafeLoginRedirect } from '@/lib/auth/login-redirect';
 
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get('redirect') || searchParams.get('redirectTo');
+  const redirectTo = getSafeLoginRedirect(
+    searchParams.get('redirect') || searchParams.get('redirectTo')
+  );
   const [formData, setFormData] = useState({
     email: '',
     password: '',

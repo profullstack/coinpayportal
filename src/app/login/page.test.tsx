@@ -189,6 +189,34 @@ describe('LoginPage', () => {
       });
     });
 
+    it('should ignore external redirect parameters after login', async () => {
+      vi.mocked(useSearchParams).mockReturnValue(
+        new URLSearchParams('redirect=https://example.com/phishing')
+      );
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          token: 'mock-jwt-token',
+          merchant: { id: 'merchant-123', is_admin: false },
+        }),
+      } as Response);
+
+      render(<LoginPage />);
+      fireEvent.change(screen.getByLabelText(/email address/i), {
+        target: { value: 'test@example.com' },
+      });
+      fireEvent.change(screen.getByLabelText(/password/i), {
+        target: { value: 'SecurePassword123!' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /log in/i }));
+
+      await waitFor(() => {
+        expect(locationHrefSpy).toHaveBeenCalledWith('/dashboard');
+      });
+      expect(locationHrefSpy).not.toHaveBeenCalledWith('https://example.com/phishing');
+    });
+
     it('should show loading state during login', async () => {
       vi.mocked(fetch).mockImplementationOnce(
         () =>
