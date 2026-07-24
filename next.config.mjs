@@ -54,7 +54,7 @@ const nextConfig = {
               "default-src 'self'",
               "script-src 'self' 'unsafe-inline' https://datafa.st https://crawlproof.com https://invitejs.trustpilot.com",
               "style-src 'self' 'unsafe-inline'",
-              "img-src 'self' data: https:",
+              "img-src 'self' data: https: https://crawlproof.com",
               "font-src 'self' data:",
               "connect-src 'self' https: wss: https://crawlproof.com",
               "object-src 'none'",
