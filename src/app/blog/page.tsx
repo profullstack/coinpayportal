@@ -1,6 +1,13 @@
 import type { Metadata } from 'next';
+import { Fragment } from 'react';
 import Link from 'next/link';
 import { listPosts, formatBlogDate, SITE_URL } from '@/lib/blog';
+import AdUnit from '@/components/AdUnit';
+
+// Drop a mid-list unit after this many posts, but only when the list is long
+// enough that it isn't effectively the bottom unit again.
+const MID_AD_AFTER = 3;
+const MID_AD_MIN_POSTS = 6;
 
 export const metadata: Metadata = {
   title: 'Blog — CoinPay',
@@ -19,6 +26,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function BlogIndexPage() {
   const posts = await listPosts(100);
+  const midAdAfter = posts.length >= MID_AD_MIN_POSTS ? MID_AD_AFTER : -1;
 
   return (
     <div className="container mx-auto px-4 py-12 max-w-5xl">
@@ -32,61 +40,75 @@ export default async function BlogIndexPage() {
         </div>
       </header>
 
+      {/* Top unit: above the list. */}
+      <AdUnit className="mb-8" />
+
       {posts.length === 0 ? (
         <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-8 text-center text-gray-400">
           No posts yet. Check back soon.
         </div>
       ) : (
         <ul className="space-y-6">
-          {posts.map((post) => (
-            <li
-              key={post.id}
-              className="group rounded-lg border border-slate-700/60 bg-slate-900/40 p-6 transition-colors hover:border-purple-500/50"
-            >
-              <Link href={`/blog/${post.slug}`} className="block">
-                <div className="flex flex-col gap-4 sm:flex-row">
-                  {post.image_url && (
-                    <div className="sm:w-48 sm:flex-shrink-0">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={post.image_url}
-                        alt=""
-                        className="h-32 w-full rounded object-cover"
-                        loading="lazy"
-                      />
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-xl font-semibold text-white transition-colors group-hover:text-purple-300 sm:text-2xl">
-                      {post.title}
-                    </h2>
-                    {post.meta_description && (
-                      <p className="mt-2 text-sm text-gray-400 line-clamp-3">
-                        {post.meta_description}
-                      </p>
+          {posts.map((post, i) => (
+            <Fragment key={post.id}>
+              <li
+                className="group rounded-lg border border-slate-700/60 bg-slate-900/40 p-6 transition-colors hover:border-purple-500/50"
+              >
+                <Link href={`/blog/${post.slug}`} className="block">
+                  <div className="flex flex-col gap-4 sm:flex-row">
+                    {post.image_url && (
+                      <div className="sm:w-48 sm:flex-shrink-0">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={post.image_url}
+                          alt=""
+                          className="h-32 w-full rounded object-cover"
+                          loading="lazy"
+                        />
+                      </div>
                     )}
-                    <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-gray-500">
-                      <time dateTime={post.published_at}>{formatBlogDate(post.published_at)}</time>
-                      {post.tags.length > 0 && (
-                        <>
-                          <span aria-hidden>·</span>
-                          <div className="flex flex-wrap gap-1.5">
-                            {post.tags.slice(0, 4).map((tag) => (
-                              <span key={tag} className="rounded bg-purple-600/15 px-2 py-0.5 text-purple-300">
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        </>
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-xl font-semibold text-white transition-colors group-hover:text-purple-300 sm:text-2xl">
+                        {post.title}
+                      </h2>
+                      {post.meta_description && (
+                        <p className="mt-2 text-sm text-gray-400 line-clamp-3">
+                          {post.meta_description}
+                        </p>
                       )}
+                      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                        <time dateTime={post.published_at}>{formatBlogDate(post.published_at)}</time>
+                        {post.tags.length > 0 && (
+                          <>
+                            <span aria-hidden>·</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {post.tags.slice(0, 4).map((tag) => (
+                                <span key={tag} className="rounded bg-purple-600/15 px-2 py-0.5 text-purple-300">
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </Link>
-            </li>
+                </Link>
+              </li>
+              {/* Mid unit: between cards, as a plain row so it doesn't
+                  masquerade as a post. */}
+              {i + 1 === midAdAfter && (
+                <li className="list-none">
+                  <AdUnit />
+                </li>
+              )}
+            </Fragment>
           ))}
         </ul>
       )}
+
+      {/* Bottom unit: after the list. */}
+      <AdUnit className="mt-10" />
     </div>
   );
 }

@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getPostBySlug, formatBlogDate, SITE_URL } from '@/lib/blog';
 import { sanitizeBlogHtml } from '@/lib/blog-sanitize';
+import { splitHtmlForMidAd } from '@/lib/blog-split-html';
+import AdUnit from '@/components/AdUnit';
 
 type RouteParams = { params: Promise<{ slug: string }> };
 
@@ -42,6 +44,9 @@ export default async function BlogPostPage({ params }: RouteParams) {
   if (!post) notFound();
 
   const html = post.content_html ? sanitizeBlogHtml(post.content_html) : null;
+  // Null for short posts and markdown-only bodies — those render straight
+  // through with just the top and bottom units.
+  const split = splitHtmlForMidAd(html);
 
   const ldJson = {
     '@context': 'https://schema.org',
@@ -97,8 +102,21 @@ export default async function BlogPostPage({ params }: RouteParams) {
           )}
         </header>
 
+        {/* Top unit: below the headline block, above the body. */}
+        <AdUnit className="mb-8" />
+
         {html ? (
-          <div className="blog-content" dangerouslySetInnerHTML={{ __html: html }} />
+          split ? (
+            <>
+              <div className="blog-content" dangerouslySetInnerHTML={{ __html: split.before }} />
+              {/* Mid unit: sits at a top-level block boundary near the middle,
+                  so it never breaks a list, quote or code block apart. */}
+              <AdUnit className="my-8" />
+              <div className="blog-content" dangerouslySetInnerHTML={{ __html: split.after }} />
+            </>
+          ) : (
+            <div className="blog-content" dangerouslySetInnerHTML={{ __html: html }} />
+          )
         ) : post.content_markdown ? (
           <pre className="whitespace-pre-wrap text-gray-300">{post.content_markdown}</pre>
         ) : (
@@ -120,6 +138,10 @@ export default async function BlogPostPage({ params }: RouteParams) {
           </Link>
         </div>
       </article>
+
+      {/* Bottom unit: after the article, below our own CTA so it never
+          outranks it. */}
+      <AdUnit className="mt-10" />
 
       <script
         type="application/ld+json"
