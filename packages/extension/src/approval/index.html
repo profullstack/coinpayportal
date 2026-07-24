@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CoinPay — Confirm</title>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --fg: #1a1a1a;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --brand: #7c3aed;
+        --brand-fg: #ffffff;
+        --warn-bg: #fef3c7;
+        --warn-fg: #92400e;
+        --err: #dc2626;
+        --ok: #059669;
+        --chip: #f3f4f6;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #17171b; --fg: #f3f4f6; --muted: #9ca3af; --border: #2b2b31;
+          --chip: #23232a; --warn-bg: #3a2e0b; --warn-fg: #fcd34d; --ok: #34d399;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+        display: flex; flex-direction: column; min-height: 100vh;
+      }
+      #app { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+      .title { font-size: 17px; margin: 0 0 4px; }
+      .origin {
+        display: inline-block; font-family: ui-monospace, monospace; font-size: 12px;
+        background: var(--chip); border: 1px solid var(--border); border-radius: 6px;
+        padding: 3px 7px; margin-bottom: 10px; word-break: break-all;
+      }
+      .muted { color: var(--muted); font-size: 12px; }
+      .small { font-size: 11px; }
+      .err { color: var(--err); font-size: 12px; }
+      .warn { background: var(--warn-bg); color: var(--warn-fg); padding: 8px 10px; border-radius: 8px; font-size: 12px; }
+      .totals { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 10px 0; }
+      .total-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; padding: 3px 0; }
+      .total-row .chain { font-weight: 600; }
+      .grand { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 8px; font-size: 15px; font-weight: 700; }
+      /* The payment list is the part that scrolls; header and buttons stay put
+         so "Approve" is always reachable even with 62 rows. */
+      .list { flex: 1; min-height: 80px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+      .item { display: flex; justify-content: space-between; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+      .item:last-child { border-bottom: none; }
+      .item .who { min-width: 0; }
+      .item .label { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .item .addr { display: block; color: var(--muted); font-family: ui-monospace, monospace; font-size: 10px; }
+      .item .amt { text-align: right; white-space: nowrap; }
+      .item .stage { display: block; font-size: 10px; color: var(--muted); }
+      .item.sent .stage { color: var(--ok); }
+      .item.failed .stage { color: var(--err); }
+      .field { display: block; margin-top: 10px; }
+      .label-text { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+      .input { width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--fg); font-size: 13px; }
+      .row { display: flex; gap: 8px; margin-top: 12px; }
+      .row .btn { flex: 1; }
+      .btn { appearance: none; border: 1px solid var(--border); background: var(--chip); color: var(--fg); padding: 10px 12px; border-radius: 8px; font-size: 13px; cursor: pointer; font-weight: 500; }
+      .btn:hover:not(:disabled) { border-color: var(--brand); }
+      .btn:disabled { opacity: 0.55; cursor: default; }
+      .btn.primary { background: var(--brand); color: var(--brand-fg); border-color: var(--brand); }
+      .btn.danger { color: var(--err); }
+      .progress-bar { height: 6px; background: var(--chip); border-radius: 999px; overflow: hidden; margin: 8px 0; }
+      .progress-bar > div { height: 100%; background: var(--brand); width: 0%; transition: width 0.2s; }
+      .accounts { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+      .account { border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; }
+      .account .chain { font-weight: 600; font-size: 12px; }
+      .account .addr { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; font-family: ui-monospace, monospace; word-break: break-all; }
+    </style>
+  </head>
+  <body>
+    <div id="app"><p class="muted">Loading…</p></div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
