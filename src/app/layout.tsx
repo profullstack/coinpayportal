@@ -136,6 +136,11 @@ export default function RootLayout({
           strategy="afterInteractive"
         />
         <FeedbackWidget property="coinpayportal.com" />
+              <div data-cp-ad="" data-slot="4afedddc-82dc-490b-a9e6-91ae8fcc0fd0" data-format="banner_300x250" />
+        <div data-cp-ad="" data-slot="4afedddc-82dc-490b-a9e6-91ae8fcc0fd0" data-format="banner_728x90" />
+        <div data-cp-ad="" data-slot="4afedddc-82dc-490b-a9e6-91ae8fcc0fd0" data-format="banner_320x50" />
+        <div data-cp-ad="" data-slot="4afedddc-82dc-490b-a9e6-91ae8fcc0fd0" data-format="text_link" />
+        <Script src="https://crawlproof.com/ad.js" strategy="afterInteractive" />
       </body>
     </html>
   );
