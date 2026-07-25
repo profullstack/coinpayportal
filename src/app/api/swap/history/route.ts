@@ -19,14 +19,32 @@ function getSupabase() {
   );
 }
 
+function parsePaginationInteger(
+  value: string | null,
+  fallback: number,
+  minimum: number,
+  maximum?: number
+) {
+  if (value === null || !/^\d+$/.test(value)) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum) {
+    return fallback;
+  }
+
+  return maximum === undefined ? parsed : Math.min(parsed, maximum);
+}
+
 export async function GET(request: NextRequest) {
   const supabase = getSupabase();
   try {
     const { searchParams } = new URL(request.url);
     const walletId = searchParams.get('walletId');
     const status = searchParams.get('status');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100);
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const limit = parsePaginationInteger(searchParams.get('limit'), 50, 1, 100);
+    const offset = parsePaginationInteger(searchParams.get('offset'), 0, 0);
 
     if (!walletId) {
       return NextResponse.json(
