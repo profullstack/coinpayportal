@@ -337,5 +337,6 @@ describe('POST /api/x402/settle', () => {
     expect(res.status).toBe(500);
     const data = await res.json();
     expect(data.details).toContain('Stripe not configured');
+    expect(mockEq).toHaveBeenCalledWith('unique_key', 'pi_test123');
   });
 });
