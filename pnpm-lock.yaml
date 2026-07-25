@@ -74,7 +74,7 @@ importers:
         version: 0.218.0(@opentelemetry/api@1.9.1)
       '@profullstack/autoblog':
         specifier: github:profullstack/autoblog#75e54af
-        version: https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af
+        version: https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af77cbcf61dbd90fb3ed529c1b2dad1ed6f
       '@profullstack/coinpay':
         specifier: workspace:*
         version: link:packages/sdk
@@ -304,6 +304,9 @@ importers:
       '@profullstack/coinpay':
         specifier: workspace:*
         version: link:../sdk
+      '@scure/bip32':
+        specifier: ^1.5.0
+        version: 1.7.0
       '@scure/bip39':
         specifier: ^1.4.0
         version: 1.6.0
@@ -314,6 +317,9 @@ importers:
       '@types/chrome':
         specifier: ^0.0.300
         version: 0.0.300
+      jsdom:
+        specifier: ^23.2.0
+        version: 23.2.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -322,7 +328,7 @@ importers:
         version: 8.0.10(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.0
-        version: 4.1.0(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/ui@1.6.1)(jsdom@29.1.1(@noble/hashes@2.0.1))(vite@8.0.10(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.0(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/ui@1.6.1)(jsdom@23.2.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))(vite@8.0.10(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
 
   packages/sdk:
     dependencies:
@@ -350,7 +356,7 @@ importers:
         version: 3.6.2
       vitest:
         specifier: ^4.1.0
-        version: 4.1.0(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/ui@1.6.1)(jsdom@29.1.1(@noble/hashes@1.8.0))(vite@8.0.10(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.0(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/ui@1.6.1(vitest@4.1.0))(jsdom@29.1.1(@noble/hashes@1.8.0))(vite@8.0.10(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
 
 packages:
 
@@ -1934,8 +1940,8 @@ packages:
   '@posthog/types@1.381.0':
     resolution: {integrity: sha512-AW68BovKFCNbPdq3VjOzfQeSQRYMvQVv+46LDywWFXO/oOTXFKwjY92FaJQSTXWgTNgDpqigCw3yUFDinK3hZA==}
 
-  '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af':
-    resolution: {tarball: https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af}
+  '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af77cbcf61dbd90fb3ed529c1b2dad1ed6f':
+    resolution: {tarball: https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af77cbcf61dbd90fb3ed529c1b2dad1ed6f}
     version: 0.4.0
     engines: {node: '>=18'}
 
@@ -8678,11 +8684,6 @@ snapshots:
       '@noble/hashes': 1.8.0
     optional: true
 
-  '@exodus/bytes@1.15.1(@noble/hashes@2.0.1)':
-    optionalDependencies:
-      '@noble/hashes': 2.0.1
-    optional: true
-
   '@fivebinaries/coin-selection@3.0.0':
     dependencies:
       '@emurgo/cardano-serialization-lib-browser': 13.2.1
@@ -9706,7 +9707,7 @@ snapshots:
 
   '@posthog/types@1.381.0': {}
 
-  '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af': {}
+  '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af77cbcf61dbd90fb3ed529c1b2dad1ed6f': {}
 
   '@profullstack/emailer@1.0.1': {}
 
@@ -13590,14 +13591,6 @@ snapshots:
       - '@noble/hashes'
     optional: true
 
-  data-urls@7.0.0(@noble/hashes@2.0.1):
-    dependencies:
-      whatwg-mimetype: 5.0.0
-      whatwg-url: 16.0.1(@noble/hashes@2.0.1)
-    transitivePeerDependencies:
-      - '@noble/hashes'
-    optional: true
-
   data-view-buffer@1.0.2:
     dependencies:
       call-bound: 1.0.4
@@ -14039,7 +14032,7 @@ snapshots:
       eslint: 9.39.1(jiti@1.21.7)
       eslint-import-resolver-node: 0.3.9
       eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.48.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint@9.39.1(jiti@1.21.7)))(eslint@9.39.1(jiti@1.21.7))
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.48.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.1(jiti@1.21.7))
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.48.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.48.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint@9.39.1(jiti@1.21.7)))(eslint@9.39.1(jiti@1.21.7)))(eslint@9.39.1(jiti@1.21.7))
       eslint-plugin-jsx-a11y: 6.10.2(eslint@9.39.1(jiti@1.21.7))
       eslint-plugin-react: 7.37.5(eslint@9.39.1(jiti@1.21.7))
       eslint-plugin-react-hooks: 7.0.1(eslint@9.39.1(jiti@1.21.7))
@@ -14072,7 +14065,7 @@ snapshots:
       tinyglobby: 0.2.17
       unrs-resolver: 1.11.1
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.48.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.1(jiti@1.21.7))
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.48.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.48.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint@9.39.1(jiti@1.21.7)))(eslint@9.39.1(jiti@1.21.7)))(eslint@9.39.1(jiti@1.21.7))
     transitivePeerDependencies:
       - supports-color
 
@@ -14087,7 +14080,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.48.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.1(jiti@1.21.7)):
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.48.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.48.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint@9.39.1(jiti@1.21.7)))(eslint@9.39.1(jiti@1.21.7)))(eslint@9.39.1(jiti@1.21.7)):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.1.9
@@ -14709,13 +14702,6 @@ snapshots:
       - '@noble/hashes'
     optional: true
 
-  html-encoding-sniffer@6.0.0(@noble/hashes@2.0.1):
-    dependencies:
-      '@exodus/bytes': 1.15.1(@noble/hashes@2.0.1)
-    transitivePeerDependencies:
-      - '@noble/hashes'
-    optional: true
-
   html-escaper@2.0.2: {}
 
   html2canvas@1.4.1:
@@ -15217,33 +15203,6 @@ snapshots:
       webidl-conversions: 8.0.1
       whatwg-mimetype: 5.0.0
       whatwg-url: 16.0.1(@noble/hashes@1.8.0)
-      xml-name-validator: 5.0.0
-    transitivePeerDependencies:
-      - '@noble/hashes'
-    optional: true
-
-  jsdom@29.1.1(@noble/hashes@2.0.1):
-    dependencies:
-      '@asamuzakjp/css-color': 5.1.11
-      '@asamuzakjp/dom-selector': 7.1.1
-      '@bramus/specificity': 2.4.2
-      '@csstools/css-syntax-patches-for-csstree': 1.1.6(css-tree@3.2.1)
-      '@exodus/bytes': 1.15.1(@noble/hashes@2.0.1)
-      css-tree: 3.2.1
-      data-urls: 7.0.0(@noble/hashes@2.0.1)
-      decimal.js: 10.6.0
-      html-encoding-sniffer: 6.0.0(@noble/hashes@2.0.1)
-      is-potential-custom-element-name: 1.0.1
-      lru-cache: 11.5.2
-      parse5: 8.0.1
-      saxes: 6.0.0
-      symbol-tree: 3.2.4
-      tough-cookie: 6.0.2
-      undici: 7.28.0
-      w3c-xmlserializer: 5.0.0
-      webidl-conversions: 8.0.1
-      whatwg-mimetype: 5.0.0
-      whatwg-url: 16.0.1(@noble/hashes@2.0.1)
       xml-name-validator: 5.0.0
     transitivePeerDependencies:
       - '@noble/hashes'
@@ -17630,7 +17589,7 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.0(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/ui@1.6.1)(jsdom@29.1.1(@noble/hashes@1.8.0))(vite@8.0.10(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0)):
+  vitest@4.1.0(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/ui@1.6.1(vitest@4.1.0))(jsdom@29.1.1(@noble/hashes@1.8.0))(vite@8.0.10(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.0
       '@vitest/mocker': 4.1.0(vite@8.0.10(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
@@ -17660,7 +17619,7 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.0(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/ui@1.6.1)(jsdom@29.1.1(@noble/hashes@2.0.1))(vite@8.0.10(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0)):
+  vitest@4.1.0(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/ui@1.6.1)(jsdom@23.2.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))(vite@8.0.10(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.0
       '@vitest/mocker': 4.1.0(vite@8.0.10(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
@@ -17686,7 +17645,7 @@ snapshots:
       '@opentelemetry/api': 1.9.1
       '@types/node': 20.19.43
       '@vitest/ui': 1.6.1(vitest@4.1.0)
-      jsdom: 29.1.1(@noble/hashes@2.0.1)
+      jsdom: 23.2.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
     transitivePeerDependencies:
       - msw
 
@@ -17741,15 +17700,6 @@ snapshots:
   whatwg-url@16.0.1(@noble/hashes@1.8.0):
     dependencies:
       '@exodus/bytes': 1.15.1(@noble/hashes@1.8.0)
-      tr46: 6.0.0
-      webidl-conversions: 8.0.1
-    transitivePeerDependencies:
-      - '@noble/hashes'
-    optional: true
-
-  whatwg-url@16.0.1(@noble/hashes@2.0.1):
-    dependencies:
-      '@exodus/bytes': 1.15.1(@noble/hashes@2.0.1)
       tr46: 6.0.0
       webidl-conversions: 8.0.1
     transitivePeerDependencies:
