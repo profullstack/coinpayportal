@@ -28,8 +28,8 @@ import { WebExtStorage, type WebExtStorageArea } from '../core/storage.js';
 import { ConnectionStore, normalizeOrigin } from '../core/connections.js';
 import { CoinPayApi, compressedPublicKey } from '../core/api.js';
 import { derivePrivateKey, derivationPath } from '../core/private-keys.js';
-import { runBatchPayments, summarizeBatch, parseBatchRequests } from '../core/batch.js';
-import { PAY_CHAINS, signingChain } from '../core/pay-chains.js';
+import { runBatchPayments, summarizeBatch, parseBatchRequests, type BatchItemResult } from '../core/batch.js';
+import { PAY_CHAINS, signingChain, toPayChain } from '../core/pay-chains.js';
 import type { NativeChain } from '../core/chains.js';
 import type { WalletRequest, WalletResponse, PendingApproval, WalletEvent } from '../messages.js';
 
@@ -47,8 +47,20 @@ const wallet = new WalletService(local, session);
 const connections = new ConnectionStore(local);
 const api = new CoinPayApi();
 
-function scheduleAutoLock(minutes = DEFAULT_IDLE_MINUTES): void {
-  chrome.alarms.create(AUTO_LOCK_ALARM, { delayInMinutes: minutes });
+const LOCAL_AUTO_LOCK_MINUTES = 'autoLockMinutes';
+
+async function autoLockMinutes(): Promise<number> {
+  const stored = await local.get<number>(LOCAL_AUTO_LOCK_MINUTES);
+  return typeof stored === 'number' && stored > 0 ? stored : DEFAULT_IDLE_MINUTES;
+}
+
+function scheduleAutoLock(minutes?: number): void {
+  if (typeof minutes === 'number') {
+    chrome.alarms.create(AUTO_LOCK_ALARM, { delayInMinutes: minutes });
+    return;
+  }
+  // Honour the user's configured timeout; fall back to the default if unset.
+  void autoLockMinutes().then((m) => chrome.alarms.create(AUTO_LOCK_ALARM, { delayInMinutes: m }));
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -290,6 +302,46 @@ async function handleSitePayBatch(
   }
 }
 
+/**
+ * A send the user initiated inside the extension.
+ *
+ * No approval window: they are already looking at the popup and confirmed
+ * there, so a second prompt would just be a prompt about their own click. It
+ * runs through the same executor as a site batch (a batch of one), so nonce
+ * handling, retries and the prepare/sign/broadcast split stay in one place.
+ */
+async function handleSend(chain: string, to: string, amount: string): Promise<BatchItemResult> {
+  if (!(await wallet.isInitialized())) throw new Error('No wallet has been set up yet');
+  if (!(await wallet.isUnlocked())) throw new Error('Wallet is locked');
+
+  const payChain = toPayChain(chain);
+  if (!payChain) throw new Error(`Unsupported chain: ${chain}`);
+  const recipient = to.trim();
+  if (!recipient) throw new Error('Recipient address is required');
+  if (!/^\d+(\.\d+)?$/.test(amount.trim()) || Number(amount) <= 0) {
+    throw new Error('Amount must be a positive number');
+  }
+
+  const seed = await wallet.requireSeed();
+  const walletId = await ensurePortalWallet(seed);
+  const accounts = await wallet.getAccounts();
+  const addresses: Partial<Record<NativeChain, string>> = {};
+  for (const account of accounts) addresses[account.chain] = account.address;
+
+  const authKey = derivePrivateKey(seed, 'ETH', 0);
+  try {
+    const [result] = await runBatchPayments(
+      [{ id: `popup-${Date.now()}`, chain: payChain, to: recipient, amount: amount.trim() }],
+      { api, walletId, seed, authKey, addresses },
+    );
+    if (!result) throw new Error('Send produced no result');
+    if (result.status === 'failed') throw new Error(result.error || 'Send failed');
+    return result;
+  } finally {
+    authKey.fill(0);
+  }
+}
+
 async function handleSiteConnect(origin: string): Promise<WalletResponse> {
   if (await connections.isConnected(origin)) {
     await connections.touch(origin);
@@ -377,6 +429,48 @@ async function handle(
         return { ok: true, state: { initialized: await wallet.isInitialized(), unlocked: false } };
       case 'getAccounts':
         return { ok: true, accounts: await wallet.getAccounts() };
+
+      // ── accounts: one seed, many BIP-44 indexes ──
+      case 'listAccounts':
+        return {
+          ok: true,
+          walletAccounts: await wallet.listAccounts(),
+          activeAccount: await wallet.getActiveAccount(),
+        };
+      case 'addAccount': {
+        await wallet.addAccount(req.label);
+        scheduleAutoLock();
+        return {
+          ok: true,
+          walletAccounts: await wallet.listAccounts(),
+          activeAccount: await wallet.getActiveAccount(),
+        };
+      }
+      case 'selectAccount': {
+        await wallet.selectAccount(req.index);
+        return { ok: true, accounts: await wallet.getAccounts() };
+      }
+      case 'renameAccount': {
+        const walletAccounts = await wallet.renameAccount(req.index, req.label);
+        return { ok: true, walletAccounts, activeAccount: await wallet.getActiveAccount() };
+      }
+
+      // ── user-initiated send (the popup's own payment, not a site's) ──
+      case 'send': {
+        const sent = await handleSend(req.chain, req.to, req.amount);
+        scheduleAutoLock();
+        return { ok: true, sent };
+      }
+
+      case 'getSettings':
+        return { ok: true, settings: { autoLockMinutes: await autoLockMinutes() } };
+      case 'setAutoLockMinutes': {
+        const minutes = Math.min(Math.max(Math.round(req.minutes), 1), 60 * 24);
+        await local.set(LOCAL_AUTO_LOCK_MINUTES, minutes);
+        scheduleAutoLock(minutes);
+        return { ok: true, settings: { autoLockMinutes: minutes } };
+      }
+
       case 'listConnections':
         return { ok: true, connections: await connections.list() };
       case 'disconnectSite':

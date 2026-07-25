@@ -27,6 +27,15 @@ export type WalletRequest =
   | { type: 'getAccounts' }
   | { type: 'listConnections' }
   | { type: 'disconnectSite'; origin: string }
+  // ── popup: accounts (one seed, many BIP-44 indexes) ──
+  | { type: 'listAccounts' }
+  | { type: 'addAccount'; label?: string }
+  | { type: 'selectAccount'; index: number }
+  | { type: 'renameAccount'; index: number; label: string }
+  // ── popup: user-initiated send ──
+  | { type: 'send'; chain: string; to: string; amount: string }
+  | { type: 'getSettings' }
+  | { type: 'setAutoLockMinutes'; minutes: number }
   // ── page (via content script) ──
   | { type: 'site:getState' }
   | { type: 'site:connect' }
@@ -41,6 +50,18 @@ export type WalletRequest =
 export interface WalletState {
   initialized: boolean;
   unlocked: boolean;
+  /** Active BIP-44 account index, and every account the user has added. */
+  activeAccount?: number;
+  accountList?: WalletAccountSummary[];
+}
+
+export interface WalletAccountSummary {
+  index: number;
+  label: string;
+}
+
+export interface WalletSettings {
+  autoLockMinutes: number;
 }
 
 /** What a page may learn about the wallet before connecting. */
@@ -74,6 +95,9 @@ export type WalletResponse =
   | { ok: true; connections: SiteConnection[] }
   | { ok: true; approval: PendingApproval }
   | { ok: true; results: BatchItemResult[] }
+  | { ok: true; walletAccounts: WalletAccountSummary[]; activeAccount: number }
+  | { ok: true; sent: BatchItemResult }
+  | { ok: true; settings: WalletSettings }
   | { ok: true }
   | { ok: false; error: string };
 

@@ -22,12 +22,20 @@ import type { KeyValueStore } from './storage.js';
 const LOCAL_VAULT = 'vault';
 const LOCAL_ACCOUNTS = 'accounts';
 const LOCAL_META = 'meta';
+const LOCAL_ACCOUNT_LIST = 'accountList';
+const LOCAL_ACTIVE_ACCOUNT = 'activeAccount';
 const SESSION_SEED = 'seed';
 const SESSION_PENDING = 'pendingMnemonic';
 
 export interface WalletMeta {
   createdAt: number;
   chains: NativeChain[];
+}
+
+/** A derived account: an index into the seed, plus a name the user chose. */
+export interface WalletAccount {
+  index: number;
+  label: string;
 }
 
 export interface CreateResult {
@@ -109,7 +117,7 @@ export class WalletService {
     if (!vault) throw new Error('No wallet to unlock');
     const seed = await decryptSeed(vault, password); // throws on wrong password
     await this.session.set(SESSION_SEED, bytesToB64(seed));
-    return (await this.local.get<DerivedAddress[]>(LOCAL_ACCOUNTS)) ?? [];
+    return this.getAccounts();
   }
 
   /** Drop the in-session seed. Vault + public accounts remain persisted. */
@@ -117,8 +125,87 @@ export class WalletService {
     await this.session.remove(SESSION_SEED);
   }
 
+  /** Addresses for the active account. */
   async getAccounts(): Promise<DerivedAddress[]> {
-    return (await this.local.get<DerivedAddress[]>(LOCAL_ACCOUNTS)) ?? [];
+    const byIndex = await this.#addressBook();
+    return byIndex[await this.getActiveAccount()] ?? byIndex[0] ?? [];
+  }
+
+  /* ---------- multiple accounts ----------
+     One recovery phrase backs an unlimited number of BIP-44 accounts, so
+     "add account" is derivation, not a second wallet — the same phrase still
+     restores everything. */
+
+  /** Every account the user has added, in creation order. */
+  async listAccounts(): Promise<WalletAccount[]> {
+    const stored = await this.local.get<WalletAccount[]>(LOCAL_ACCOUNT_LIST);
+    if (stored?.length) return stored;
+    // Wallets created before multi-account have exactly one, at index 0.
+    return [{ index: 0, label: 'Account 1' }];
+  }
+
+  async getActiveAccount(): Promise<number> {
+    return (await this.local.get<number>(LOCAL_ACTIVE_ACCOUNT)) ?? 0;
+  }
+
+  /** Switch which account the popup and site-facing APIs act as. */
+  async selectAccount(index: number): Promise<DerivedAddress[]> {
+    const accounts = await this.listAccounts();
+    if (!accounts.some((a) => a.index === index)) {
+      throw new Error(`No such account: ${index}`);
+    }
+    await this.local.set(LOCAL_ACTIVE_ACCOUNT, index);
+    return this.getAccounts();
+  }
+
+  /**
+   * Derive the next account from the same seed and make it active. Requires an
+   * unlocked wallet — the addresses can only come from the seed.
+   */
+  async addAccount(label?: string): Promise<WalletAccount> {
+    const seed = await this.requireSeed();
+    const accounts = await this.listAccounts();
+    const index = accounts.reduce((max, a) => Math.max(max, a.index), -1) + 1;
+    const account: WalletAccount = { index, label: label?.trim() || `Account ${index + 1}` };
+
+    const book = await this.#addressBook();
+    book[index] = deriveAllAddresses(seed, this.chains, index);
+
+    await this.local.set(LOCAL_ACCOUNTS, book);
+    await this.local.set(LOCAL_ACCOUNT_LIST, [...accounts, account]);
+    await this.local.set(LOCAL_ACTIVE_ACCOUNT, index);
+    return account;
+  }
+
+  /** Rename an account. Cosmetic only — the index is what derives addresses. */
+  async renameAccount(index: number, label: string): Promise<WalletAccount[]> {
+    const trimmed = label.trim();
+    if (!trimmed) throw new Error('Account name cannot be empty');
+    const accounts = await this.listAccounts();
+    if (!accounts.some((a) => a.index === index)) throw new Error(`No such account: ${index}`);
+    const next = accounts.map((a) => (a.index === index ? { ...a, label: trimmed } : a));
+    await this.local.set(LOCAL_ACCOUNT_LIST, next);
+    return next;
+  }
+
+  /** Addresses for a specific account index (derives on demand when unlocked). */
+  async addressesFor(index: number): Promise<DerivedAddress[]> {
+    const book = await this.#addressBook();
+    if (book[index]) return book[index];
+    const seed = await this.requireSeed();
+    book[index] = deriveAllAddresses(seed, this.chains, index);
+    await this.local.set(LOCAL_ACCOUNTS, book);
+    return book[index];
+  }
+
+  /**
+   * Addresses keyed by account index. Pre-multi-account installs stored a bare
+   * array for index 0, so coerce that shape rather than losing their addresses.
+   */
+  async #addressBook(): Promise<Record<number, DerivedAddress[]>> {
+    const stored = await this.local.get<DerivedAddress[] | Record<number, DerivedAddress[]>>(LOCAL_ACCOUNTS);
+    if (!stored) return {};
+    return Array.isArray(stored) ? { 0: stored } : { ...stored };
   }
 
   async getMeta(): Promise<WalletMeta | undefined> {
@@ -137,10 +224,12 @@ export class WalletService {
 
   async #persistNewWallet(mnemonic: string, password: string): Promise<DerivedAddress[]> {
     const seed = seedFromMnemonic(mnemonic);
-    const accounts = deriveAllAddresses(seed, this.chains);
+    const accounts = deriveAllAddresses(seed, this.chains, 0);
     const vault = await encryptSeed(seed, password);
     await this.local.set(LOCAL_VAULT, vault);
-    await this.local.set(LOCAL_ACCOUNTS, accounts);
+    await this.local.set(LOCAL_ACCOUNTS, { 0: accounts });
+    await this.local.set(LOCAL_ACCOUNT_LIST, [{ index: 0, label: 'Account 1' }]);
+    await this.local.set(LOCAL_ACTIVE_ACCOUNT, 0);
     await this.local.set(LOCAL_META, { createdAt: Date.now(), chains: [...this.chains] } satisfies WalletMeta);
     // Newly created/imported wallet starts unlocked for the session.
     await this.session.set(SESSION_SEED, bytesToB64(seed));
