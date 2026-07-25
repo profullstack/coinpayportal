@@ -37,16 +37,21 @@ export function deriveChainAddress(seed: Uint8Array, chain: NativeChain, index =
 }
 
 /**
- * Derive the full set of addresses for a wallet (one per native chain, index 0).
+ * Derive the full set of addresses for one account (one per native chain).
  * USDC and other tokens are surfaced via `tokens` on the base-chain address.
+ *
+ * `index` is the BIP-44 account index — the same seed yields an unlimited
+ * number of independent accounts, which is how a single recovery phrase backs
+ * several wallets (MetaMask's "Account 1/2/3").
  */
 export function deriveAllAddresses(
   seed: Uint8Array,
   chains: readonly NativeChain[] = DEFAULT_CHAINS,
+  index = 0,
 ): DerivedAddress[] {
   return chains.map((chain) => ({
     chain,
-    address: deriveChainAddress(seed, chain, 0),
+    address: deriveChainAddress(seed, chain, index),
     tokens: CHAINS[chain].tokens,
   }));
 }
