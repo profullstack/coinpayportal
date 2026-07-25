@@ -477,11 +477,41 @@ If neither field is provided, imports all active global wallets.
 
 ### GET /api/wallets
 
-List global merchant wallets (not tied to a specific business).
+List the caller's wallet addresses. Returns **both** global merchant wallets (account-level, not tied to a business) **and** the wallets of every business the caller can read — owned, or accessible via organization / per-business team membership.
 
-**Auth required:** Yes (JWT)
+**Auth required:** Yes (JWT, or an OAuth2 access token with the `wallet:read` scope)
 
-Business-scoped API calls such as `/api/supported-coins`, `/api/tokens`, and `/api/payments/create` can use these global merchant wallets as a fallback when a business-specific wallet is missing for a chain. Business-specific wallets always take priority.
+**Query parameters**
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `source` | `account` \| `business` \| `all` | ❌ | Defaults to `all`. `account` returns only global merchant wallets (the pre-existing behaviour). |
+| `business_id` | uuid | ❌ | Return only that business's wallets. Implies business scope, so it cannot be combined with `source=account`. Responds `404` if the caller cannot read the business. |
+
+**Response**
+
+```json
+{
+  "success": true,
+  "wallets": [
+    {
+      "id": "…",
+      "source": "business",
+      "merchant_id": null,
+      "business_id": "…",
+      "business_name": "Acme Inc",
+      "cryptocurrency": "ETH",
+      "wallet_address": "0x…",
+      "label": null,
+      "is_active": true
+    }
+  ]
+}
+```
+
+`source` tells you which store a row came from: `account` rows carry `merchant_id` and a null `business_id`, business rows the reverse. When the same address for the same chain appears in both places — which is what importing global wallets into a business produces — it is returned once, as the account-level entry.
+
+Business-scoped API calls such as `/api/supported-coins`, `/api/tokens`, and `/api/payments/create` can use global merchant wallets as a fallback when a business-specific wallet is missing for a chain. Business-specific wallets always take priority.
 
 ---
 
@@ -489,7 +519,7 @@ Business-scoped API calls such as `/api/supported-coins`, `/api/tokens`, and `/a
 
 Create a global merchant wallet.
 
-**Auth required:** Yes (JWT)
+**Auth required:** Yes (JWT). OAuth2 access tokens are rejected with `403 insufficient_scope` — no scope grants wallet writes.
 
 ---
 
@@ -497,7 +527,7 @@ Create a global merchant wallet.
 
 Get a specific global wallet.
 
-**Auth required:** Yes (JWT)
+**Auth required:** Yes (JWT, or an OAuth2 access token with the `wallet:read` scope)
 
 ---
 

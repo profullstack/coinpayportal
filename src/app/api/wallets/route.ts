@@ -1,35 +1,54 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { verifyToken } from '@/lib/auth/jwt';
 import {
   createMerchantWallet,
-  listMerchantWallets,
   type CreateMerchantWalletInput,
 } from '@/lib/wallets/merchant-service';
-import { getJwtSecret } from '@/lib/secrets';
+import { listUserWallets, type WalletSource } from '@/lib/wallets/user-wallets';
+import { resolveBearerAuth, hasScope } from '@/lib/auth/bearer';
+
+/** Scope an OAuth client must hold to read wallets. */
+const WALLET_READ_SCOPE = 'wallet:read';
 
 /**
- * Helper to verify auth and get merchant ID
+ * Verify auth, accepting a dashboard session token or an OAuth2 access token.
  */
-async function verifyAuth(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return { error: 'Missing authorization header', status: 401 };
-  }
+function verifyAuth(request: NextRequest) {
+  return resolveBearerAuth(request.headers.get('authorization'));
+}
 
-  const token = authHeader.substring(7);
-  const jwtSecret = getJwtSecret();
+function insufficientScope(scope: string) {
+  return NextResponse.json(
+    {
+      success: false,
+      error: `insufficient_scope: this token is missing the '${scope}' scope`,
+    },
+    {
+      status: 403,
+      headers: {
+        'WWW-Authenticate': `Bearer error="insufficient_scope", scope="${scope}"`,
+      },
+    }
+  );
+}
 
-  if (!jwtSecret) {
-    return { error: 'Server configuration error', status: 500 };
-  }
+function unauthorized(auth: { status: number; error: string; wwwAuthenticate?: string }) {
+  return NextResponse.json(
+    { success: false, error: auth.error },
+    {
+      status: auth.status,
+      ...(auth.wwwAuthenticate
+        ? { headers: { 'WWW-Authenticate': auth.wwwAuthenticate } }
+        : {}),
+    }
+  );
+}
 
-  try {
-    const decoded = verifyToken(token, jwtSecret);
-    return { merchantId: decoded.userId };
-  } catch (error) {
-    return { error: 'Invalid or expired token', status: 401 };
-  }
+/** Parse and validate the `source` query param. */
+function parseSource(raw: string | null): WalletSource | 'all' | null {
+  if (!raw) return 'all';
+  if (raw === 'account' || raw === 'business' || raw === 'all') return raw;
+  return null;
 }
 
 /**
@@ -48,17 +67,34 @@ function createSupabaseClient() {
 
 /**
  * GET /api/wallets
- * List all global wallets for the authenticated merchant
+ * List the caller's wallet addresses: account-level ("global") wallets plus the
+ * wallets of every business they can read. Most users keep addresses on a
+ * business, so account-level-only listing looked empty to OAuth clients.
+ *
+ * Query params:
+ *   - `source=account|business|all` (default `all`)
+ *   - `business_id=<uuid>` — only that business's wallets (implies business scope)
  */
 export async function GET(request: NextRequest) {
   try {
-    const auth = await verifyAuth(request);
-    if (auth.error) {
+    const auth = verifyAuth(request);
+    if (!auth.ok) {
+      return unauthorized(auth);
+    }
+
+    if (!hasScope(auth, WALLET_READ_SCOPE)) {
+      return insufficientScope(WALLET_READ_SCOPE);
+    }
+
+    const { searchParams } = new URL(request.url);
+    const source = parseSource(searchParams.get('source'));
+    if (!source) {
       return NextResponse.json(
-        { success: false, error: auth.error },
-        { status: auth.status }
+        { success: false, error: "Invalid source. Must be 'account', 'business', or 'all'" },
+        { status: 400 }
       );
     }
+    const businessId = searchParams.get('business_id') || undefined;
 
     const supabase = createSupabaseClient();
     if (!supabase) {
@@ -68,12 +104,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const result = await listMerchantWallets(supabase, auth.merchantId!);
+    const result = await listUserWallets(supabase, auth.userId, { source, businessId });
 
     if (!result.success) {
       return NextResponse.json(
         { success: false, error: result.error },
-        { status: 400 }
+        { status: result.status ?? 400 }
       );
     }
 
@@ -92,16 +128,20 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/wallets
- * Create a new global wallet for the authenticated merchant
+ * Create a new global wallet for the authenticated merchant.
+ *
+ * Dashboard sessions only — no OAuth scope grants wallet writes, so third-party
+ * access tokens are rejected here even though they may read wallets.
  */
 export async function POST(request: NextRequest) {
   try {
-    const auth = await verifyAuth(request);
-    if (auth.error) {
-      return NextResponse.json(
-        { success: false, error: auth.error },
-        { status: auth.status }
-      );
+    const auth = verifyAuth(request);
+    if (!auth.ok) {
+      return unauthorized(auth);
+    }
+
+    if (auth.kind === 'oauth') {
+      return insufficientScope('wallet:write');
     }
 
     const body = await request.json();
@@ -120,7 +160,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await createMerchantWallet(supabase, auth.merchantId!, input);
+    const result = await createMerchantWallet(supabase, auth.userId, input);
 
     if (!result.success) {
       return NextResponse.json(
