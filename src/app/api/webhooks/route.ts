@@ -3,6 +3,22 @@ import { createClient } from '@supabase/supabase-js';
 import { getWebhookLogs } from '@/lib/webhooks/service';
 import { verifySession } from '@/lib/auth/service';
 
+function parseIntegerParameter(
+  value: string | null,
+  minimum: number
+): number | null | undefined {
+  if (value === null) {
+    return undefined;
+  }
+
+  if (!/^\d+$/.test(value)) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= minimum ? parsed : null;
+}
+
 /**
  * GET /api/webhooks
  * Get webhook logs for the authenticated merchant's businesses
@@ -87,16 +103,16 @@ export async function GET(request: NextRequest) {
     }
 
     // Parse and validate pagination params
-    const parsedLimit = limit ? parseInt(limit, 10) : undefined;
-    const parsedOffset = offset ? parseInt(offset, 10) : undefined;
+    const parsedLimit = parseIntegerParameter(limit, 1);
+    const parsedOffset = parseIntegerParameter(offset, 0);
 
-    if (parsedLimit !== undefined && (isNaN(parsedLimit) || parsedLimit < 1)) {
+    if (parsedLimit === null) {
       return NextResponse.json(
         { success: false, error: 'limit must be a positive integer' },
         { status: 400 }
       );
     }
-    if (parsedOffset !== undefined && (isNaN(parsedOffset) || parsedOffset < 0)) {
+    if (parsedOffset === null) {
       return NextResponse.json(
         { success: false, error: 'offset must be a non-negative integer' },
         { status: 400 }
