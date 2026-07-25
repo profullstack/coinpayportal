@@ -110,7 +110,8 @@ export function WalletsTab({ businessId, wallets, onUpdate, onCopy }: WalletsTab
 
     try {
       const token = localStorage.getItem('auth_token');
-      const response = await fetch('/api/wallets', {
+      // Import source is the account-level wallet set, not other businesses'.
+      const response = await fetch('/api/wallets?source=account', {
         headers: {
           Authorization: `Bearer ${token}`,
         },

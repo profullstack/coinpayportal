@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyAccessToken } from '@/lib/oauth/tokens';
+import { listUserWallets } from '@/lib/wallets/user-wallets';
 
 function getSupabase() {
   return createClient(
@@ -62,23 +63,23 @@ export async function GET(request: NextRequest) {
   }
 
   // wallet:read scope — return the merchant's configured payout/receive
-  // wallet addresses from merchant_wallets (the table powering the
-  // /settings/wallets page on coinpayportal). The legacy `wallets` table is
-  // an HD-key store with no address column; reading from it always returned
-  // empty, so OIDC clients silently got no wallets even when the merchant
-  // had a full set configured.
+  // addresses. These live in two stores: account-level wallets in
+  // merchant_wallets (the /settings/wallets page) and per-business wallets in
+  // business_wallets (Business > Wallets). Reading only the account-level table
+  // returned nothing for the many users who keep addresses on a business, so
+  // OIDC clients silently got no wallets despite a valid grant. (The legacy
+  // `wallets` table is an HD-key store with no address column and is never a
+  // source here.)
   if (scopes.includes('wallet:read')) {
-    const { data: wallets } = await supabase
-      .from('merchant_wallets')
-      .select('wallet_address, cryptocurrency, label')
-      .eq('merchant_id', userId)
-      .eq('is_active', true);
+    const result = await listUserWallets(supabase, userId, { activeOnly: true });
+    const wallets = result.wallets ?? [];
 
-    if (wallets && wallets.length > 0) {
-      claims.wallets = wallets.map((w: any) => ({
+    if (wallets.length > 0) {
+      claims.wallets = wallets.map((w) => ({
         address: w.wallet_address,
         chain: w.cryptocurrency,
-        label: w.label || undefined,
+        label: w.label || w.business_name || undefined,
+        business_id: w.business_id || undefined,
       }));
     }
   }
