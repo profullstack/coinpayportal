@@ -83,6 +83,10 @@ export interface PublicPayment {
   confirmations?: number;
   created_at: string;
   expires_at?: string;
+  /** Customer's deposit transaction. Null until the payment is detected. */
+  tx_hash?: string | null;
+  /** Forward of the funds to the merchant. Null until the payment is forwarded. */
+  forward_tx_hash?: string | null;
 }
 
 export interface PaymentResult {
@@ -302,7 +306,14 @@ export async function getPayment(
 
 /**
  * Public fields safe to expose without authentication.
- * Excludes: business_id, merchant_wallet_address, metadata, tx_hash
+ * Excludes: business_id, merchant_wallet_address, metadata
+ *
+ * Transaction hashes are included deliberately. They are already public — the
+ * whole point of a hash is that anyone can look it up on a block explorer, and
+ * `payment_address` (also public here) exposes the same chain activity. Both
+ * parties to a payment need them to verify settlement themselves, and the
+ * authenticated list endpoint is JWT-only, so an integrator polling this
+ * endpoint has no other way to obtain them.
  */
 const PUBLIC_PAYMENT_FIELDS = [
   'id',
@@ -316,6 +327,8 @@ const PUBLIC_PAYMENT_FIELDS = [
   'confirmations',
   'created_at',
   'expires_at',
+  'tx_hash',
+  'forward_tx_hash',
 ].join(',');
 
 /**
