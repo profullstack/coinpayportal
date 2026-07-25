@@ -153,10 +153,55 @@ client_secret=cps_xxxxxxxxxxxx...`}
   "email": "alice@example.com",
   "email_verified": true,
   "wallets": [
-    { "address": "0x1234...", "chain": "ETH", "label": "Main" },
-    { "address": "bc1q...", "chain": "BTC" }
+    { "address": "bc1q...", "chain": "BTC", "label": "Main" },
+    { "address": "0x1234...", "chain": "ETH", "label": "Acme Inc", "business_id": "biz-uuid" }
   ],
   "did": "did:key:z6Mk..."
+}`}
+        </CodeBlock>
+
+        <p className="text-gray-400 text-sm mt-4">
+          <code className="text-gray-300">wallets</code> covers both account-level addresses and
+          the addresses of any business the user owns or belongs to; entries from a business carry
+          a <code className="text-gray-300">business_id</code>. For the full records — including
+          inactive wallets and per-business filtering — call{' '}
+          <code className="text-gray-300">GET /api/wallets</code> with the same access token.
+        </p>
+      </ApiEndpoint>
+
+      <h3 className="text-xl font-semibold text-white mt-8 mb-4">Wallets Endpoint</h3>
+
+      <ApiEndpoint
+        method="GET"
+        path="/api/wallets"
+        description="List the user's wallet addresses — account-level plus every business they can read. Requires the wallet:read scope."
+      >
+        <CodeBlock title="cURL Example" language="curl">
+{`curl "https://coinpayportal.com/api/wallets" \\
+  -H "Authorization: Bearer ACCESS_TOKEN"
+
+# Narrow the result set:
+#   ?source=account            only account-level ("global") wallets
+#   ?source=business           only wallets belonging to businesses
+#   ?business_id=<uuid>        only that business's wallets`}
+        </CodeBlock>
+
+        <CodeBlock title="Response">
+{`{
+  "success": true,
+  "wallets": [
+    {
+      "id": "wallet-uuid",
+      "source": "business",
+      "merchant_id": null,
+      "business_id": "biz-uuid",
+      "business_name": "Acme Inc",
+      "cryptocurrency": "ETH",
+      "wallet_address": "0x1234...",
+      "label": null,
+      "is_active": true
+    }
+  ]
 }`}
         </CodeBlock>
       </ApiEndpoint>

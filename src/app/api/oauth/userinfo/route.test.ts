@@ -244,8 +244,94 @@ describe('GET /api/oauth/userinfo', () => {
     expect(body.sub).toBe('user-123');
     expect(body.wallets).toBeDefined();
     expect(body.wallets).toHaveLength(2);
-    expect(body.wallets[0].address).toBe('0xabc123');
+    // Wallets come back sorted by cryptocurrency, so BTC precedes ETH.
+    expect(body.wallets[0].address).toBe('bc1q...');
+    expect(body.wallets[0].chain).toBe('BTC');
+    expect(body.wallets[1].address).toBe('0xabc123');
+    expect(body.wallets[1].chain).toBe('ETH');
+  });
+
+  it('should include wallets that belong to the user’s businesses (issue #187)', async () => {
+    (verifyAccessToken as any).mockReturnValue({
+      sub: 'user-123',
+      scope: 'openid wallet:read',
+    });
+
+    mockSingle.mockResolvedValue({ data: { id: 'user-123' }, error: null });
+
+    const { createClient } = await import('@supabase/supabase-js');
+
+    // Thenable query stub: `.eq()`/`.in()` chain and resolve to `result`.
+    const query = (result: any) => {
+      const q: any = {
+        eq: vi.fn(() => q),
+        in: vi.fn(() => q),
+        then: (resolve: any, reject: any) => Promise.resolve(result).then(resolve, reject),
+      };
+      return q;
+    };
+
+    (createClient as any).mockReturnValue({
+      from: vi.fn((table: string) => {
+        // The account has no global wallets at all — every address lives on a
+        // business, which is the standard setup that used to return nothing.
+        if (table === 'merchant_wallets') {
+          return { select: vi.fn(() => query({ data: [], error: null })) };
+        }
+        if (table === 'businesses') {
+          // Serves both the ownership lookup (.eq) and the name lookup (.in).
+          return {
+            select: vi.fn(() =>
+              query({ data: [{ id: 'biz-abc', name: 'Acme Inc' }], error: null }),
+            ),
+          };
+        }
+        if (table === 'business_wallets') {
+          return {
+            select: vi.fn(() =>
+              query({
+                data: [
+                  {
+                    id: 'bw-1',
+                    business_id: 'biz-abc',
+                    cryptocurrency: 'ETH',
+                    wallet_address: '0xbusiness',
+                    is_active: true,
+                    created_at: '2026-02-01T00:00:00Z',
+                    updated_at: '2026-02-01T00:00:00Z',
+                  },
+                ],
+                error: null,
+              }),
+            ),
+          };
+        }
+        if (table === 'merchant_dids') {
+          return { select: mockSelect };
+        }
+        // business_members / organization_members / merchants
+        return {
+          select: vi.fn(() => ({
+            ...query({ data: [], error: null }),
+            eq: vi.fn(() => ({
+              ...query({ data: [], error: null }),
+              single: () => Promise.resolve({ data: { id: 'user-123' }, error: null }),
+              maybeSingle: () => Promise.resolve({ data: null, error: null }),
+            })),
+          })),
+        };
+      }),
+    });
+
+    const req = makeRequest({ authorization: 'Bearer valid-token' });
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body.wallets).toHaveLength(1);
+    expect(body.wallets[0].address).toBe('0xbusiness');
     expect(body.wallets[0].chain).toBe('ETH');
-    expect(body.wallets[1].address).toBe('bc1q...');
+    expect(body.wallets[0].business_id).toBe('biz-abc');
+    // business_wallets has no label column; fall back to the business name.
+    expect(body.wallets[0].label).toBe('Acme Inc');
   });
 });

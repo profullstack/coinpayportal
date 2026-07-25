@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { verifyToken } from '@/lib/auth/jwt';
 import {
   getMerchantWallet,
   updateMerchantWallet,
@@ -8,30 +7,42 @@ import {
   type UpdateMerchantWalletInput,
 } from '@/lib/wallets/merchant-service';
 import type { Cryptocurrency } from '@/lib/wallets/service';
-import { getJwtSecret } from '@/lib/secrets';
+import { resolveBearerAuth, hasScope } from '@/lib/auth/bearer';
+
+const WALLET_READ_SCOPE = 'wallet:read';
 
 /**
- * Helper to verify auth and get merchant ID
+ * Verify auth, accepting a dashboard session token or an OAuth2 access token.
  */
-async function verifyAuth(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return { error: 'Missing authorization header', status: 401 };
-  }
+function verifyAuth(request: NextRequest) {
+  return resolveBearerAuth(request.headers.get('authorization'));
+}
 
-  const token = authHeader.substring(7);
-  const jwtSecret = getJwtSecret();
+function insufficientScope(scope: string) {
+  return NextResponse.json(
+    {
+      success: false,
+      error: `insufficient_scope: this token is missing the '${scope}' scope`,
+    },
+    {
+      status: 403,
+      headers: {
+        'WWW-Authenticate': `Bearer error="insufficient_scope", scope="${scope}"`,
+      },
+    }
+  );
+}
 
-  if (!jwtSecret) {
-    return { error: 'Server configuration error', status: 500 };
-  }
-
-  try {
-    const decoded = verifyToken(token, jwtSecret);
-    return { merchantId: decoded.userId };
-  } catch (error) {
-    return { error: 'Invalid or expired token', status: 401 };
-  }
+function unauthorized(auth: { status: number; error: string; wwwAuthenticate?: string }) {
+  return NextResponse.json(
+    { success: false, error: auth.error },
+    {
+      status: auth.status,
+      ...(auth.wwwAuthenticate
+        ? { headers: { 'WWW-Authenticate': auth.wwwAuthenticate } }
+        : {}),
+    }
+  );
 }
 
 /**
@@ -58,12 +69,13 @@ export async function GET(
 ) {
   try {
     const { cryptocurrency } = await params;
-    const auth = await verifyAuth(request);
-    if (auth.error) {
-      return NextResponse.json(
-        { success: false, error: auth.error },
-        { status: auth.status }
-      );
+    const auth = verifyAuth(request);
+    if (!auth.ok) {
+      return unauthorized(auth);
+    }
+
+    if (!hasScope(auth, WALLET_READ_SCOPE)) {
+      return insufficientScope(WALLET_READ_SCOPE);
     }
 
     const supabase = createSupabaseClient();
@@ -76,7 +88,7 @@ export async function GET(
 
     const result = await getMerchantWallet(
       supabase,
-      auth.merchantId!,
+      auth.userId,
       cryptocurrency.toUpperCase() as Cryptocurrency
     );
 
@@ -110,12 +122,14 @@ export async function PATCH(
 ) {
   try {
     const { cryptocurrency } = await params;
-    const auth = await verifyAuth(request);
-    if (auth.error) {
-      return NextResponse.json(
-        { success: false, error: auth.error },
-        { status: auth.status }
-      );
+    const auth = verifyAuth(request);
+    if (!auth.ok) {
+      return unauthorized(auth);
+    }
+
+    // No OAuth scope grants wallet writes.
+    if (auth.kind === 'oauth') {
+      return insufficientScope('wallet:write');
     }
 
     const body = await request.json();
@@ -135,7 +149,7 @@ export async function PATCH(
 
     const result = await updateMerchantWallet(
       supabase,
-      auth.merchantId!,
+      auth.userId,
       cryptocurrency.toUpperCase() as Cryptocurrency,
       input
     );
@@ -170,12 +184,14 @@ export async function DELETE(
 ) {
   try {
     const { cryptocurrency } = await params;
-    const auth = await verifyAuth(request);
-    if (auth.error) {
-      return NextResponse.json(
-        { success: false, error: auth.error },
-        { status: auth.status }
-      );
+    const auth = verifyAuth(request);
+    if (!auth.ok) {
+      return unauthorized(auth);
+    }
+
+    // No OAuth scope grants wallet writes.
+    if (auth.kind === 'oauth') {
+      return insufficientScope('wallet:write');
     }
 
     const supabase = createSupabaseClient();
@@ -188,7 +204,7 @@ export async function DELETE(
 
     const result = await deleteMerchantWallet(
       supabase,
-      auth.merchantId!,
+      auth.userId,
       cryptocurrency.toUpperCase() as Cryptocurrency
     );
 

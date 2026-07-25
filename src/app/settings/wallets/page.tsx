@@ -60,7 +60,9 @@ export default function GlobalWalletsPage() {
 
   const fetchWallets = async () => {
     try {
-      const result = await authFetch('/api/wallets', {}, router);
+      // This page manages account-level ("global") wallets only; /api/wallets
+      // otherwise also returns wallets belonging to the user's businesses.
+      const result = await authFetch('/api/wallets?source=account', {}, router);
       if (!result) return;
 
       const { response, data } = result;
