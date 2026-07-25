@@ -202,7 +202,12 @@ export async function POST(request: NextRequest) {
     }
 
     const { network, scheme } = payment.payload;
-    const uniqueKey = payment.payload.nonce || payment.payload.txId || payment.payload.txSignature || payment.payload.preimage;
+    const uniqueKey =
+      payment.payload.nonce ||
+      payment.payload.txId ||
+      payment.payload.txSignature ||
+      payment.payload.preimage ||
+      payment.payload.paymentIntentId;
 
     // Find the verified payment record
     const query = supabase
