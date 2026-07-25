@@ -14,6 +14,7 @@ import type { DerivedAddress } from '../core/derivation.js';
 import { pickIndices, makeChoices } from '../core/backup.js';
 import { call } from './rpc.js';
 import { el, mount, button, field, note } from './dom.js';
+import { PAY_CHAINS, signingChain, payChainLabel } from '../core/pay-chains.js';
 
 interface CreateFlow {
   mnemonic: string;
@@ -203,19 +204,19 @@ function renderUnlock(): void {
 
 // ── Wallet ───────────────────────────────────────────────────────────────────
 
+type Tab = 'wallet' | 'send' | 'settings';
+let activeTab: Tab = 'wallet';
+
 async function renderWallet(): Promise<void> {
   try {
-    const res = await call({ type: 'getAccounts' });
-    const accounts = 'accounts' in res ? res.accounts : [];
-    const rows = accounts.map((a) =>
-      el('div', { class: 'account' }, [
-        el('div', { class: 'acct-head' }, [
-          el('span', { class: 'chain', text: a.chain }),
-          a.tokens.length ? el('span', { class: 'tokens', text: '+ ' + a.tokens.join(', ') }) : el('span', {}),
-        ]),
-        el('code', { class: 'addr', text: a.address }),
-      ]),
-    );
+    const [accountsRes, listRes] = await Promise.all([
+      call({ type: 'getAccounts' }),
+      call({ type: 'listAccounts' }),
+    ]);
+    const addresses = 'accounts' in accountsRes ? accountsRes.accounts : [];
+    const walletAccounts = 'walletAccounts' in listRes ? listRes.walletAccounts : [{ index: 0, label: 'Account 1' }];
+    const active = 'activeAccount' in listRes ? listRes.activeAccount : 0;
+
     mount(
       el('div', { class: 'topbar' }, [
         el('h1', { class: 'title', text: 'CoinPay' }),
@@ -224,12 +225,165 @@ async function renderWallet(): Promise<void> {
           renderUnlock();
         }, 'btn small'),
       ]),
-      el('div', { class: 'accounts' }, rows.length ? rows : [note('No accounts yet.')]),
-      note('Send and x402 payments arrive in a later update.', 'muted small'),
+      accountSwitcher(walletAccounts, active),
+      tabs(),
+      activeTab === 'wallet' ? addressList(addresses)
+        : activeTab === 'send' ? sendForm(addresses)
+        : settingsPanel(),
     );
   } catch (err) {
     renderError(err);
   }
+}
+
+/** MetaMask-style account picker: one seed, many derived accounts. */
+function accountSwitcher(accounts: { index: number; label: string }[], active: number): HTMLElement {
+  const select = el('select', { class: 'acct-select' }) as HTMLSelectElement;
+  for (const a of accounts) {
+    const opt = el('option', { text: a.label, value: String(a.index) }) as HTMLOptionElement;
+    if (a.index === active) opt.selected = true;
+    select.append(opt);
+  }
+  select.addEventListener('change', async () => {
+    await call({ type: 'selectAccount', index: Number(select.value) });
+    void renderWallet();
+  });
+
+  return el('div', { class: 'acct-bar' }, [
+    select,
+    button('+ Add', async () => {
+      const label = prompt('Name for the new account?')?.trim();
+      const res = await call({ type: 'addAccount', ...(label ? { label } : {}) });
+      if (!res.ok) { alert(res.error); return; }
+      void renderWallet();
+    }, 'btn small'),
+    button('Rename', async () => {
+      const current = accounts.find((a) => a.index === active);
+      const label = prompt('Rename account', current?.label ?? '')?.trim();
+      if (!label) return;
+      const res = await call({ type: 'renameAccount', index: active, label });
+      if (!res.ok) { alert(res.error); return; }
+      void renderWallet();
+    }, 'btn small'),
+  ]);
+}
+
+function tabs(): HTMLElement {
+  const mk = (id: Tab, label: string) =>
+    button(label, () => { activeTab = id; void renderWallet(); }, `btn tab${activeTab === id ? ' active' : ''}`);
+  return el('div', { class: 'tabs' }, [mk('wallet', 'Wallet'), mk('send', 'Send'), mk('settings', 'Settings')]);
+}
+
+function addressList(addresses: DerivedAddress[]): HTMLElement {
+  const rows = addresses.map((a) =>
+    el('div', { class: 'account' }, [
+      el('div', { class: 'acct-head' }, [
+        el('span', { class: 'chain', text: a.chain }),
+        a.tokens.length ? el('span', { class: 'tokens', text: '+ ' + a.tokens.join(', ') }) : el('span', {}),
+      ]),
+      el('code', { class: 'addr', text: a.address }),
+      button('Copy', () => { void navigator.clipboard.writeText(a.address); }, 'btn small'),
+    ]),
+  );
+  return el('div', { class: 'accounts' }, rows.length ? rows : [note('No accounts yet.')]);
+}
+
+/** User-initiated send — the wallet paying out, not a site asking it to. */
+function sendForm(addresses: DerivedAddress[]): HTMLElement {
+  const chain = el('select', { class: 'acct-select' }) as HTMLSelectElement;
+  for (const c of PAY_CHAINS) {
+    // Only offer chains this account actually holds an address for — a token
+    // like USDC_POL signs with, and is listed under, its native chain.
+    if (!addresses.some((a) => a.chain === signingChain(c))) continue;
+    chain.append(el('option', { text: payChainLabel(c), value: c }) as HTMLOptionElement);
+  }
+
+  const to = field('Recipient address', { placeholder: 'Paste an address' });
+  const amount = field('Amount', { placeholder: '0.00', inputmode: 'decimal' });
+  const status = note('', 'muted small');
+
+  const submit = button('Review & send', async () => {
+    status.className = 'muted small';
+    status.textContent = '';
+    const chainValue = chain.value;
+    const toValue = to.input.value.trim();
+    const amountValue = amount.input.value.trim();
+    if (!chainValue || !toValue || !amountValue) {
+      fail(status, 'Chain, recipient and amount are all required.');
+      return;
+    }
+    if (!confirm(`Send ${amountValue} ${chainValue.toUpperCase()} to\n${toValue}?\n\nThis cannot be undone.`)) return;
+
+    submit.disabled = true;
+    status.textContent = 'Sending…';
+    try {
+      const res = await call({ type: 'send', chain: chainValue, to: toValue, amount: amountValue });
+      if (!res.ok) { fail(status, res.error); submit.disabled = false; return; }
+      const sent = 'sent' in res ? res.sent : null;
+      status.className = 'ok small';
+      status.textContent = sent?.txHash ? `Sent — ${sent.txHash}` : 'Sent.';
+      to.input.value = '';
+      amount.input.value = '';
+    } catch (err) {
+      fail(status, err instanceof Error ? err.message : String(err));
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  return el('div', { class: 'send' }, [
+    el('label', { class: 'lbl', text: 'Chain' }),
+    chain,
+    to.row,
+    amount.row,
+    submit,
+    status,
+  ]);
+}
+
+function settingsPanel(): HTMLElement {
+  const container = el('div', { class: 'settings' }, [note('Loading…', 'muted small')]);
+
+  void (async () => {
+    const [settingsRes, connRes] = await Promise.all([
+      call({ type: 'getSettings' }),
+      call({ type: 'listConnections' }),
+    ]);
+    const minutes = 'settings' in settingsRes ? settingsRes.settings.autoLockMinutes : 15;
+    const conns = 'connections' in connRes ? connRes.connections : [];
+
+    const lockAfter = field('Auto-lock after (minutes)', { value: String(minutes), inputmode: 'numeric' });
+    const status = note('', 'muted small');
+
+    const sites = conns.length
+      ? conns.map((c) =>
+          el('div', { class: 'account' }, [
+            el('code', { class: 'addr', text: c.origin }),
+            button('Disconnect', async () => {
+              await call({ type: 'disconnectSite', origin: c.origin });
+              void renderWallet();
+            }, 'btn small'),
+          ]),
+        )
+      : [note('No sites connected.', 'muted small')];
+
+    container.replaceChildren(
+      el('h2', { class: 'lbl', text: 'Security' }),
+      lockAfter.row,
+      button('Save', async () => {
+        const value = Number(lockAfter.input.value);
+        if (!Number.isFinite(value) || value < 1) { fail(status, 'Enter a number of minutes (1 or more).'); return; }
+        const res = await call({ type: 'setAutoLockMinutes', minutes: value });
+        status.className = res.ok ? 'ok small' : 'error small';
+        status.textContent = res.ok ? 'Saved.' : res.error;
+      }),
+      status,
+      el('h2', { class: 'lbl', text: 'Connected sites' }),
+      ...sites,
+    );
+  })();
+
+  return container;
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

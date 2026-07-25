@@ -65,6 +65,18 @@
       .chain { font-weight: 600; font-size: 13px; }
       .tokens { color: var(--muted); font-size: 11px; }
       .addr { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; word-break: break-all; }
+
+      /* ── tabs, accounts, send, settings ── */
+      .tabs { display: flex; gap: 6px; margin: 10px 0 12px; }
+      .btn.tab { flex: 1; background: transparent; border: 1px solid #2a3444; color: #9fb0c7; font-weight: 600; }
+      .btn.tab.active { background: #1a2432; color: #e8eef7; border-color: #3a4a63; }
+      .acct-bar { display: flex; gap: 6px; align-items: center; margin-top: 10px; }
+      .acct-select { flex: 1; background: #0f1723; color: #e8eef7; border: 1px solid #2a3444; border-radius: 8px; padding: 7px 9px; font: inherit; }
+      .lbl { display: block; font-size: 12px; color: #9fb0c7; font-weight: 600; margin: 12px 0 6px; }
+      .send, .settings { display: block; }
+      .ok { color: #5ad19b; }
+      .error { color: #ff8f8f; }
+      .account .btn.small { margin-top: 6px; }
     </style>
   </head>
   <body>
