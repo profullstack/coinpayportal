@@ -15,6 +15,7 @@ import { pickIndices, makeChoices } from '../core/backup.js';
 import { call } from './rpc.js';
 import { el, mount, button, field, note } from './dom.js';
 import { PAY_CHAINS, signingChain, payChainLabel } from '../core/pay-chains.js';
+import { dialogConfirm, dialogPrompt, dialogAlert } from './dialog.js';
 
 interface CreateFlow {
   mnemonic: string;
@@ -252,17 +253,27 @@ function accountSwitcher(accounts: { index: number; label: string }[], active: n
   return el('div', { class: 'acct-bar' }, [
     select,
     button('+ Add', async () => {
-      const label = prompt('Name for the new account?')?.trim();
+      const label = await dialogPrompt({
+        title: 'Add account',
+        label: 'Name',
+        placeholder: `Account ${accounts.length + 1}`,
+        confirmLabel: 'Add',
+      });
       const res = await call({ type: 'addAccount', ...(label ? { label } : {}) });
-      if (!res.ok) { alert(res.error); return; }
+      if (!res.ok) { await dialogAlert({ title: "Couldn't add account", message: res.error, tone: 'error' }); return; }
       void renderWallet();
     }, 'btn small'),
     button('Rename', async () => {
       const current = accounts.find((a) => a.index === active);
-      const label = prompt('Rename account', current?.label ?? '')?.trim();
+      const label = await dialogPrompt({
+        title: 'Rename account',
+        label: 'Name',
+        value: current?.label ?? '',
+        confirmLabel: 'Rename',
+      });
       if (!label) return;
       const res = await call({ type: 'renameAccount', index: active, label });
-      if (!res.ok) { alert(res.error); return; }
+      if (!res.ok) { await dialogAlert({ title: "Couldn't rename", message: res.error, tone: 'error' }); return; }
       void renderWallet();
     }, 'btn small'),
   ]);
@@ -312,7 +323,17 @@ function sendForm(addresses: DerivedAddress[]): HTMLElement {
       fail(status, 'Chain, recipient and amount are all required.');
       return;
     }
-    if (!confirm(`Send ${amountValue} ${chainValue.toUpperCase()} to\n${toValue}?\n\nThis cannot be undone.`)) return;
+    const confirmed = await dialogConfirm({
+      title: 'Confirm payment',
+      message: 'On-chain transfers cannot be undone. Check the recipient carefully.',
+      details: [
+        { label: 'Amount', value: `${amountValue} ${payChainLabel(chainValue as never)}` },
+        { label: 'To', value: toValue },
+      ],
+      confirmLabel: 'Send',
+      danger: true,
+    });
+    if (!confirmed) return;
 
     submit.disabled = true;
     status.textContent = 'Sending…';
