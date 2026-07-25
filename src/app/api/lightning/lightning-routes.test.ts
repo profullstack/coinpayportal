@@ -351,6 +351,27 @@ describe('Lightning Route Handlers', () => {
   });
 
   describe('POST /api/lightning/payments', () => {
+    it.each([123, {}, [], true, '   '])(
+      'should reject invalid bolt12 value %j before loading wallet keys',
+      async (bolt12) => {
+        const { POST } = await import('./payments/route');
+        const req = makeRequest('http://localhost:3000/api/lightning/payments', {
+          method: 'POST',
+          body: JSON.stringify({ wallet_id: 'w-1', bolt12 }),
+          headers: { 'content-type': 'application/json' },
+        });
+
+        const res = await POST(req);
+        const body = await res.json();
+
+        expect(res.status).toBe(400);
+        expect(body.error.code).toBe('VALIDATION_ERROR');
+        expect(mockAuthenticateWalletRequest).not.toHaveBeenCalled();
+        expect(mockChain.select).not.toHaveBeenCalled();
+        expect(mockPayInvoice).not.toHaveBeenCalled();
+      }
+    );
+
     it('should reject unauthenticated payment requests before loading wallet keys', async () => {
       const { POST } = await import('./payments/route');
       mockAuthenticateWalletRequest.mockResolvedValue({

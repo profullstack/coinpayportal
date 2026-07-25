@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     if (!wallet_id) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'wallet_id is required');
     }
-    if (!bolt12) {
+    if (typeof bolt12 !== 'string' || !bolt12.trim()) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'bolt12 (invoice or lightning address) is required');
     }
 
