@@ -1,0 +1,6 @@
+{
+  "name": "CoinPay Wallet",
+  "summary": "Non-custodial multi-chain wallet with one-click x402 payments and bulk payouts.",
+  "description": "CoinPay Wallet is a non-custodial, cross-browser (MV3) wallet for the CoinPay multi-chain platform.\n\n- Create or import a BIP-39 wallet. The seed is encrypted at rest (WebCrypto AES-256-GCM + PBKDF2) and never leaves your device; signing happens inside the extension's background worker, so private keys are never exposed to a web page.\n- Derives addresses for BTC, BCH, ETH, POL and SOL (with USDC on ETH/POL/SOL), matching the CoinPay web wallet.\n- Backup-confirmation gate before the wallet is usable, plus a configurable idle auto-lock.\n- One-click x402 (HTTP 402) payment approval for sites that request payment.\n- Bulk payouts: a site can request many payments at once via window.coinpay.payBatch and you approve the whole run once, with per-payment progress — built for payables queues like ugig.net's accepted-invoice list.\n- Sites connect per-origin and only after you approve the prompt.\n\nSource: https://github.com/profullstack/coinpayportal/tree/master/packages/extension",
+  "homepageUrl": "https://coinpayportal.com"
+}
