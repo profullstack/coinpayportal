@@ -259,6 +259,37 @@ describe('CoinPayApi', () => {
     await expect(new CoinPayApi().getRate('BTC', 'USD')).rejects.toMatchObject({ status: 429 });
   });
 
+  it('unwraps the balances envelope rather than reading data as an array', async () => {
+    // The route answers `data: { balances: [...] }`. Treating `data` as the
+    // array throws on the first .filter, which the popup shows as no balances.
+    fetchMock.mockResolvedValue(
+      ok({ balances: [{ chain: 'ETH', address: '0xabc', balance: '0.0113' }] }),
+    );
+
+    const balances = await new CoinPayApi().getBalances('w', PRIVATE_KEY);
+
+    expect(Array.isArray(balances)).toBe(true);
+    expect(balances[0]).toMatchObject({ chain: 'ETH', balance: '0.0113' });
+  });
+
+  it('returns an empty list when the wallet has no balances', async () => {
+    fetchMock.mockResolvedValue(ok({ balances: [] }));
+    await expect(new CoinPayApi().getBalances('w', PRIVATE_KEY)).resolves.toEqual([]);
+  });
+
+  it('authenticates the balances request', async () => {
+    fetchMock.mockResolvedValue(ok({ balances: [] }));
+    await new CoinPayApi().getBalances('wallet-9', PRIVATE_KEY);
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://coinpayportal.com/api/web-wallet/wallet-9/balances');
+    const auth: string = init.headers.Authorization;
+    const [, signature, timestamp] = auth.replace('Wallet ', '').split(':');
+    // Server rebuilds `METHOD:path:timestamp:` with an empty body for GET.
+    const message = `GET:/api/web-wallet/wallet-9/balances:${timestamp}:`;
+    expect(serverVerify(signature!, message, compressedPublicKey(PRIVATE_KEY))).toBe(true);
+  });
+
   it('trims a trailing slash so signed paths stay canonical', async () => {
     fetchMock.mockResolvedValue(ok({}));
     await new CoinPayApi('https://coinpayportal.com/api/').broadcast('w', PRIVATE_KEY, {
