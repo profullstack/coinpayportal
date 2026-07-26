@@ -234,10 +234,12 @@ export class CoinPayApi {
     walletId: string,
     privateKey: Uint8Array,
   ): Promise<{ chain: string; address: string; balance: string; updatedAt?: string }[]> {
-    const balances = await this.#request<
-      { chain: string; address: string; balance: string; updatedAt?: string }[]
-    >('GET', `/web-wallet/${walletId}/balances`, { walletId, privateKey });
-    return balances ?? [];
+    // The route answers `data: { balances: [...] }`, not a bare array — reading
+    // it as one throws on the first .filter and the popup renders blank.
+    const payload = await this.#request<{
+      balances?: { chain: string; address: string; balance: string; updatedAt?: string }[];
+    }>('GET', `/web-wallet/${walletId}/balances`, { walletId, privateKey });
+    return payload?.balances ?? [];
   }
 
   async prepareTx(

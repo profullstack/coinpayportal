@@ -323,17 +323,20 @@ function addressList(addresses: DerivedAddress[]): HTMLElement {
   // Balances come from the portal's cached view of the chain, so they arrive
   // after the addresses do. Render the addresses immediately and fill the
   // numbers in — an address you can copy is useful even if the balance is slow.
+  // Keyed by address, not chain: an EVM address carries ETH plus every token on
+  // it (USDC_ETH, USDT_POL, …), and those are exactly the balances a user is
+  // looking for. Keying by native chain alone threw them away.
   const slots = new Map<string, HTMLElement>();
 
   const rows = addresses.map((a) => {
-    const balance = el('span', { class: 'tokens', text: '…' });
-    slots.set(a.chain, balance);
+    const balances = el('div', { class: 'balances' }, [note('…', 'muted small')]);
+    slots.set(a.address.toLowerCase(), balances);
     return el('div', { class: 'account' }, [
       el('div', { class: 'acct-head' }, [
         el('span', { class: 'chain', text: a.chain }),
-        balance,
+        a.tokens.length ? el('span', { class: 'tokens', text: '+ ' + a.tokens.join(', ') }) : el('span', {}),
       ]),
-      a.tokens.length ? el('span', { class: 'tokens', text: '+ ' + a.tokens.join(', ') }) : el('span', {}),
+      balances,
       el('code', { class: 'addr', text: a.address }),
       button('Copy', () => { void navigator.clipboard.writeText(a.address); }, 'btn small'),
     ]);
@@ -346,34 +349,50 @@ function addressList(addresses: DerivedAddress[]): HTMLElement {
 
 /** Fetch balances, then price each one in the user's display currency. */
 async function fillBalances(slots: Map<string, HTMLElement>): Promise<void> {
-  let balances: { chain: string; balance: string }[];
+  let balances: { chain: string; address: string; balance: string }[];
   try {
     const res = await call({ type: 'getBalances' });
     balances = 'balances' in res ? res.balances : [];
   } catch {
     // Offline, locked, or not registered yet — leave the addresses usable and
     // say nothing rather than showing a wrong or alarming zero.
-    for (const slot of slots.values()) slot.textContent = '';
+    for (const slot of slots.values()) slot.replaceChildren();
     return;
   }
 
-  const byChain = new Map(balances.map((b) => [b.chain, b.balance]));
-  for (const [chain, slot] of slots) {
-    const raw = byChain.get(chain);
-    const amount = Number(raw ?? '0');
-    slot.textContent = Number.isFinite(amount) ? `${formatCrypto(amount)} ${chain}` : '';
-    if (!Number.isFinite(amount) || amount <= 0) continue;
+  const byAddress = new Map<string, typeof balances>();
+  for (const b of balances) {
+    const key = b.address?.toLowerCase() ?? '';
+    byAddress.set(key, [...(byAddress.get(key) ?? []), b]);
+  }
 
-    // Priced separately so a missing rate costs the fiat line, not the balance.
-    try {
-      const quote = await call({ type: 'getRate', coin: chain });
-      if (!('quote' in quote)) continue;
-      const value = cryptoToFiat(amount, quote.quote.rate);
-      if (value === null) continue;
-      slot.textContent = `${formatCrypto(amount)} ${chain} · ${formatFiat(value, quote.quote.fiat)}`;
-    } catch {
-      /* keep the crypto amount */
+  for (const [address, slot] of slots) {
+    // Zero balances are noise on a wallet with a dozen token rows; the address
+    // is still shown, so an empty list reads as "nothing here yet".
+    const held = (byAddress.get(address) ?? []).filter((b) => Number(b.balance) > 0);
+    if (!held.length) {
+      slot.replaceChildren(note('No balance', 'muted small'));
+      continue;
     }
+
+    const lines = held.map((b) => note(`${formatCrypto(Number(b.balance))} ${b.chain}`, 'bal'));
+    slot.replaceChildren(...lines);
+
+    // Priced one at a time so a missing rate costs that fiat line only.
+    await Promise.all(
+      held.map(async (b, i) => {
+        try {
+          const quote = await call({ type: 'getRate', coin: b.chain });
+          if (!('quote' in quote)) return;
+          const value = cryptoToFiat(Number(b.balance), quote.quote.rate);
+          if (value === null) return;
+          lines[i]!.textContent =
+            `${formatCrypto(Number(b.balance))} ${b.chain} · ${formatFiat(value, quote.quote.fiat)}`;
+        } catch {
+          /* keep the crypto amount */
+        }
+      }),
+    );
   }
 }
 
