@@ -18,6 +18,7 @@ import { PAY_CHAINS, signingChain, payChainLabel, payChainTicker, isPayChain, ty
 import { dialogConfirm, dialogPrompt, dialogAlert } from './dialog.js';
 import type { RateQuote } from '../core/rates.js';
 import { aggregateAssets, isFunded, totalFiat, rateSymbolFor, type AssetRow } from '../core/assets.js';
+import { explorerTxUrl } from '../core/explorers.js';
 import {
   FIAT_CURRENCIES,
   DEFAULT_FIAT,
@@ -472,6 +473,22 @@ function historyPanel(addresses: DerivedAddress[]): HTMLElement {
   ]);
 }
 
+/** Transaction hash, as a link to its block explorer when one exists. */
+function explorerLink(chain: string, txHash: string, label: string): HTMLElement {
+  const url = explorerTxUrl(chain, txHash);
+  if (!url) return el('code', { class: 'addr', text: label });
+  return el('a', {
+    class: 'addr link',
+    href: url,
+    // Opens a real tab: the popup closes the moment it loses focus, so
+    // navigating in place would just make the window vanish.
+    target: '_blank',
+    rel: 'noopener noreferrer',
+    title: txHash,
+    text: label,
+  });
+}
+
 async function loadHistory(list: HTMLElement): Promise<void> {
   let transactions: {
     chain: string; tx_hash: string; direction: string; status: string;
@@ -513,7 +530,9 @@ async function loadHistory(list: HTMLElement): Promise<void> {
           class: 'tokens',
           text: `${incoming ? 'from' : 'to'} ${short(incoming ? tx.from_address : tx.to_address)}`,
         }),
-        el('code', { class: 'addr', text: short(tx.tx_hash) }),
+        // The hash links out where a public explorer exists; Lightning has
+        // none, so it stays plain text rather than a dead link.
+        explorerLink(tx.chain, tx.tx_hash, short(tx.tx_hash)),
         el('span', {
           class: 'tokens',
           text: tx.block_timestamp ? new Date(tx.block_timestamp).toLocaleString() : 'pending',
@@ -694,7 +713,12 @@ function sendForm(addresses: DerivedAddress[]): HTMLElement {
       if (!res.ok) { fail(status, res.error); submit.disabled = false; return; }
       const sent = 'sent' in res ? res.sent : null;
       status.className = 'ok small';
-      status.textContent = sent?.txHash ? `Sent — ${sent.txHash}` : 'Sent.';
+      status.replaceChildren('Sent.');
+      if (sent?.txHash) {
+        // Same link as the History tab, so a fresh payment can be checked on
+        // chain without hunting for the hash.
+        status.replaceChildren('Sent — ', explorerLink(chainValue, sent.txHash, sent.txHash.slice(0, 18) + '…'));
+      }
       to.input.value = '';
       amount.input.value = '';
       renderPricing();
