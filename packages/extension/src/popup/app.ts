@@ -17,6 +17,7 @@ import { el, mount, button, field, note, brand, logo } from './dom.js';
 import { PAY_CHAINS, signingChain, payChainLabel, payChainTicker, isPayChain, type PayChain } from '../core/pay-chains.js';
 import { dialogConfirm, dialogPrompt, dialogAlert } from './dialog.js';
 import type { RateQuote } from '../core/rates.js';
+import { aggregateAssets, isFunded, totalFiat, type AssetRow } from '../core/assets.js';
 import {
   FIAT_CURRENCIES,
   DEFAULT_FIAT,
@@ -336,15 +337,6 @@ function addressList(addresses: DerivedAddress[]): HTMLElement {
   return container;
 }
 
-interface AssetRow {
-  /** Chain or token code, e.g. ETH or USDC_ETH. */
-  asset: string;
-  address: string;
-  balance?: string;
-  /** False for addresses known only from the portal's wallet record. */
-  derived: boolean;
-}
-
 async function renderAssets(container: HTMLElement, addresses: DerivedAddress[]): Promise<void> {
   let balances: { chain: string; address: string; balance: string; derived?: boolean }[] = [];
   try {
@@ -354,35 +346,8 @@ async function renderAssets(container: HTMLElement, addresses: DerivedAddress[])
     // Locked, offline, or unregistered — the addresses are still worth showing.
   }
 
-  const byAsset = new Map<string, AssetRow>();
-  // Every locally derived chain, so an empty wallet still shows where to receive.
-  for (const derived of addresses) {
-    byAsset.set(derived.chain, { asset: derived.chain, address: derived.address, derived: true });
-  }
-  // Plus everything else on the wallet: tokens like USDC on Base, and chains
-  // this extension cannot derive yet (DOGE, XRP, ADA, LN).
-  for (const b of balances) {
-    const existing = byAsset.get(b.chain);
-    // SUM across addresses. A chain holds one row per derivation index, and the
-    // web wallet hands out a fresh receiving address each time — so funds pile
-    // up across indexes. Overwriting here showed only the last one and
-    // understated the wallet (SOL at index 0 and 1 became just index 1).
-    const total = Number(existing?.balance ?? '0') + (Number(b.balance) || 0);
-    byAsset.set(b.chain, {
-      asset: b.chain,
-      // Keep the locally derived address as the one to receive on.
-      address: existing?.address ?? b.address,
-      balance: String(total),
-      derived: existing?.derived ?? b.derived ?? false,
-    });
-  }
-
-  const held = (row: AssetRow) => Number(row.balance ?? '0') > 0;
-  const rows = [...byAsset.values()].sort((a, b) => {
-    // Funded assets first — that is what someone opens the wallet to see.
-    if (held(a) !== held(b)) return held(a) ? -1 : 1;
-    return a.asset.localeCompare(b.asset);
-  });
+  const rows = aggregateAssets(addresses, balances);
+  const held = isFunded;
 
   if (!rows.length) {
     container.replaceChildren(note('No accounts yet.'));
@@ -432,19 +397,17 @@ async function renderAssets(container: HTMLElement, addresses: DerivedAddress[])
   );
 
   // Fiat second: a missing rate costs the value line, never the balance.
-  let sum = 0;
+  const quotes = new Map<string, number>();
   let fiat: FiatCurrency = DEFAULT_FIAT;
-  let priceable = 0;
   await Promise.all(
     priced.map(async ({ row, amount }) => {
       try {
         const quote = await call({ type: 'getRate', coin: row.asset });
         if (!('quote' in quote)) return;
+        quotes.set(row.asset, quote.quote.rate);
+        fiat = quote.quote.fiat;
         const value = cryptoToFiat(Number(row.balance), quote.quote.rate);
         if (value === null) return;
-        fiat = quote.quote.fiat;
-        sum += value;
-        priceable++;
         amount.textContent =
           `${formatCrypto(Number(row.balance))} ${row.asset} · ${formatFiat(value, quote.quote.fiat)}`;
       } catch {
@@ -453,16 +416,20 @@ async function renderAssets(container: HTMLElement, addresses: DerivedAddress[])
     }),
   );
 
+  // Same arithmetic the real-wallet test pins, rather than a second copy of it.
+  const { total: sum, priced: pricedCount, unpriced } = totalFiat(
+    rows,
+    (asset) => quotes.get(asset) ?? null,
+  );
+
   const value = total.querySelector('.total-value')!;
   // An unpriced asset would silently understate the total, so say so rather
   // than presenting a number that looks complete when it isn't.
-  value.textContent = priceable
-    ? formatFiat(sum, fiat) + (priceable < priced.length ? ' +' : '')
-    : '—';
+  value.textContent = pricedCount ? formatFiat(sum, fiat) + (unpriced ? ' +' : '') : '—';
   value.setAttribute(
     'title',
-    priceable < priced.length
-      ? `${priced.length - priceable} asset(s) could not be priced and are not included`
+    unpriced
+      ? `${unpriced} asset(s) could not be priced and are not included`
       : 'Sum of every priced balance in this account',
   );
 }
