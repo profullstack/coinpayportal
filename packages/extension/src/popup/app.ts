@@ -14,7 +14,7 @@ import type { DerivedAddress } from '../core/derivation.js';
 import { pickIndices, makeChoices } from '../core/backup.js';
 import { call } from './rpc.js';
 import { el, mount, button, field, note, brand, logo } from './dom.js';
-import { PAY_CHAINS, signingChain, payChainLabel, payChainTicker, type PayChain } from '../core/pay-chains.js';
+import { PAY_CHAINS, signingChain, payChainLabel, payChainTicker, isPayChain, type PayChain } from '../core/pay-chains.js';
 import { dialogConfirm, dialogPrompt, dialogAlert } from './dialog.js';
 import type { RateQuote } from '../core/rates.js';
 import {
@@ -218,6 +218,8 @@ function renderUnlock(): void {
 
 type Tab = 'wallet' | 'send' | 'settings';
 let activeTab: Tab = 'wallet';
+/** Asset chosen on the Wallet tab, consumed by the next Send render. */
+let pendingSendChain: PayChain | null = null;
 
 async function renderWallet(): Promise<void> {
   try {
@@ -319,81 +321,111 @@ function tabs(): HTMLElement {
   return el('div', { class: 'tabs' }, [mk('wallet', 'Wallet'), mk('send', 'Send'), mk('settings', 'Settings')]);
 }
 
+/**
+ * One row per ASSET, not per address.
+ *
+ * ETH, POL and every ERC-20 share a single EVM address, so listing by address
+ * stacked unrelated assets under whichever chain headed the row — "POL" with an
+ * ETH balance under it reads as nonsense. The web wallet lists assets; so does
+ * this. Each row carries its own balance, its receive address, and a Send
+ * button when the wallet can actually spend it.
+ */
 function addressList(addresses: DerivedAddress[]): HTMLElement {
-  // Balances come from the portal's cached view of the chain, so they arrive
-  // after the addresses do. Render the addresses immediately and fill the
-  // numbers in — an address you can copy is useful even if the balance is slow.
-  // Keyed by address, not chain: an EVM address carries ETH plus every token on
-  // it (USDC_ETH, USDT_POL, …), and those are exactly the balances a user is
-  // looking for. Keying by native chain alone threw them away.
-  const slots = new Map<string, HTMLElement>();
-
-  const rows = addresses.map((a) => {
-    const balances = el('div', { class: 'balances' }, [note('…', 'muted small')]);
-    slots.set(a.address.toLowerCase(), balances);
-    return el('div', { class: 'account' }, [
-      el('div', { class: 'acct-head' }, [
-        el('span', { class: 'chain', text: a.chain }),
-        a.tokens.length ? el('span', { class: 'tokens', text: '+ ' + a.tokens.join(', ') }) : el('span', {}),
-      ]),
-      balances,
-      el('code', { class: 'addr', text: a.address }),
-      button('Copy', () => { void navigator.clipboard.writeText(a.address); }, 'btn small'),
-    ]);
-  });
-
-  if (rows.length) void fillBalances(slots);
-
-  return el('div', { class: 'accounts' }, rows.length ? rows : [note('No accounts yet.')]);
+  const container = el('div', { class: 'accounts' }, [note('Loading balances…', 'muted small')]);
+  void renderAssets(container, addresses);
+  return container;
 }
 
-/** Fetch balances, then price each one in the user's display currency. */
-async function fillBalances(slots: Map<string, HTMLElement>): Promise<void> {
-  let balances: { chain: string; address: string; balance: string }[];
+interface AssetRow {
+  /** Chain or token code, e.g. ETH or USDC_ETH. */
+  asset: string;
+  address: string;
+  balance?: string;
+}
+
+async function renderAssets(container: HTMLElement, addresses: DerivedAddress[]): Promise<void> {
+  let balances: { chain: string; address: string; balance: string }[] = [];
   try {
     const res = await call({ type: 'getBalances' });
     balances = 'balances' in res ? res.balances : [];
   } catch {
-    // Offline, locked, or not registered yet — leave the addresses usable and
-    // say nothing rather than showing a wrong or alarming zero.
-    for (const slot of slots.values()) slot.replaceChildren();
+    // Locked, offline, or unregistered — the addresses are still worth showing.
+  }
+
+  const byAsset = new Map<string, AssetRow>();
+  // Every derived chain, so an empty wallet still shows where to receive.
+  for (const derived of addresses) {
+    byAsset.set(derived.chain, { asset: derived.chain, address: derived.address });
+  }
+  // Plus anything the portal holds a balance for — including tokens the
+  // extension does not derive itself, like USDC on Base.
+  for (const b of balances) {
+    const existing = byAsset.get(b.chain);
+    byAsset.set(b.chain, {
+      asset: b.chain,
+      address: existing?.address ?? b.address,
+      balance: b.balance,
+    });
+  }
+
+  const held = (row: AssetRow) => Number(row.balance ?? '0') > 0;
+  const rows = [...byAsset.values()].sort((a, b) => {
+    // Funded assets first — that is what someone opens the wallet to see.
+    if (held(a) !== held(b)) return held(a) ? -1 : 1;
+    return a.asset.localeCompare(b.asset);
+  });
+
+  if (!rows.length) {
+    container.replaceChildren(note('No accounts yet.'));
     return;
   }
 
-  const byAddress = new Map<string, typeof balances>();
-  for (const b of balances) {
-    const key = b.address?.toLowerCase() ?? '';
-    byAddress.set(key, [...(byAddress.get(key) ?? []), b]);
-  }
+  const priced: { row: AssetRow; amount: HTMLElement }[] = [];
+  container.replaceChildren(
+    ...rows.map((row) => {
+      const amount = el('span', {
+        class: held(row) ? 'bal' : 'tokens',
+        text: held(row) ? `${formatCrypto(Number(row.balance))} ${row.asset}` : '0',
+      });
+      if (held(row)) priced.push({ row, amount });
 
-  for (const [address, slot] of slots) {
-    // Zero balances are noise on a wallet with a dozen token rows; the address
-    // is still shown, so an empty list reads as "nothing here yet".
-    const held = (byAddress.get(address) ?? []).filter((b) => Number(b.balance) > 0);
-    if (!held.length) {
-      slot.replaceChildren(note('No balance', 'muted small'));
-      continue;
-    }
+      return el('div', { class: 'account' }, [
+        el('div', { class: 'acct-head' }, [
+          el('span', { class: 'chain', text: row.asset }),
+          amount,
+        ]),
+        el('code', { class: 'addr', text: row.address }),
+        el('div', { class: 'row asset-actions' }, [
+          button('Copy', () => { void navigator.clipboard.writeText(row.address); }, 'btn small'),
+          // Jumps to Send with this asset already chosen — otherwise the user
+          // has to work out which dropdown entry matches this row.
+          ...(isPayChain(row.asset)
+            ? [button('Send', () => {
+                pendingSendChain = row.asset as PayChain;
+                activeTab = 'send';
+                void renderWallet();
+              }, 'btn small')]
+            : []),
+        ]),
+      ]);
+    }),
+  );
 
-    const lines = held.map((b) => note(`${formatCrypto(Number(b.balance))} ${b.chain}`, 'bal'));
-    slot.replaceChildren(...lines);
-
-    // Priced one at a time so a missing rate costs that fiat line only.
-    await Promise.all(
-      held.map(async (b, i) => {
-        try {
-          const quote = await call({ type: 'getRate', coin: b.chain });
-          if (!('quote' in quote)) return;
-          const value = cryptoToFiat(Number(b.balance), quote.quote.rate);
-          if (value === null) return;
-          lines[i]!.textContent =
-            `${formatCrypto(Number(b.balance))} ${b.chain} · ${formatFiat(value, quote.quote.fiat)}`;
-        } catch {
-          /* keep the crypto amount */
-        }
-      }),
-    );
-  }
+  // Fiat second: a missing rate costs the value line, never the balance.
+  await Promise.all(
+    priced.map(async ({ row, amount }) => {
+      try {
+        const quote = await call({ type: 'getRate', coin: row.asset });
+        if (!('quote' in quote)) return;
+        const value = cryptoToFiat(Number(row.balance), quote.quote.rate);
+        if (value === null) return;
+        amount.textContent =
+          `${formatCrypto(Number(row.balance))} ${row.asset} · ${formatFiat(value, quote.quote.fiat)}`;
+      } catch {
+        /* keep the crypto amount */
+      }
+    }),
+  );
 }
 
 /**
@@ -409,8 +441,12 @@ function sendForm(addresses: DerivedAddress[]): HTMLElement {
     // Only offer chains this account actually holds an address for — a token
     // like USDC_POL signs with, and is listed under, its native chain.
     if (!addresses.some((a) => a.chain === signingChain(c))) continue;
-    chain.append(el('option', { text: payChainLabel(c), value: c }) as HTMLOptionElement);
+    const option = el('option', { text: payChainLabel(c), value: c }) as HTMLOptionElement;
+    // Arriving from a Send button on the Wallet tab: honour that choice once.
+    if (pendingSendChain === c) option.selected = true;
+    chain.append(option);
   }
+  pendingSendChain = null;
 
   const to = field('Recipient address', { placeholder: 'Paste an address' });
   const amount = field('Amount', { placeholder: '0.00', inputmode: 'decimal' });
