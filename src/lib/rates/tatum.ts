@@ -8,6 +8,8 @@
  * Note: Tatum returns NaN for POL/MATIC, so Kraken is used for Polygon
  */
 
+import { getUsdFxRate } from './fx';
+
 const TATUM_API_BASE = 'https://api.tatum.io';
 const KRAKEN_API_BASE = 'https://api.kraken.com/0/public';
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
@@ -188,6 +190,20 @@ async function getExchangeRateFromTatum(
 }
 
 /**
+ * Kraken price, in any supported fiat.
+ *
+ * Kraken quotes our pairs in USD only, so a non-USD target is priced by
+ * crossing the USD quote with an ECB FX rate rather than failing — otherwise
+ * every display currency except USD is unusable (the web wallet and the
+ * extension both let the user pick one).
+ */
+async function getRateViaKraken(symbol: string, to: string): Promise<number> {
+  const usdRate = await getExchangeRateFromKraken(symbol, 'USD');
+  if (to.toUpperCase() === 'USD') return usdRate;
+  return usdRate * (await getUsdFxRate(to));
+}
+
+/**
  * Fetch exchange rate with automatic provider selection
  *
  * Provider selection:
@@ -218,7 +234,7 @@ export async function getExchangeRate(
     if (USE_KRAKEN.includes(upperFrom)) {
       // For USDC on Polygon, get USDC rate
       const symbol = upperFrom.startsWith('USDC_') ? 'USDC' : upperFrom.startsWith('USDT_') ? 'USDT' : from;
-      rate = await getExchangeRateFromKraken(symbol, to);
+      rate = await getRateViaKraken(symbol, to);
     } else {
       // Try Tatum first, fall back to Kraken on error
       try {
@@ -226,7 +242,7 @@ export async function getExchangeRate(
       } catch (tatumError) {
         console.warn(`Tatum API failed for ${from}/${to}, falling back to Kraken:`,
           tatumError instanceof Error ? tatumError.message : tatumError);
-        rate = await getExchangeRateFromKraken(from, to);
+        rate = await getRateViaKraken(from, to);
       }
     }
 

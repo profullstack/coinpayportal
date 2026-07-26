@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { getExchangeRate, getMultipleRates, getCryptoPrice, clearCache } from './tatum';
+import { clearFxCache } from './fx';
 
 // Mock fetch
 global.fetch = vi.fn();
@@ -11,6 +12,14 @@ function mockKrakenResponse(pair: string, price: string) {
   vi.mocked(fetch).mockResolvedValueOnce({
     ok: true,
     json: async () => ({ error: [], result: { [pair]: { c: [price, '1.0'] } } }),
+  } as Response);
+}
+
+/** Helper: mock the ECB (Frankfurter) USD-base FX response. */
+function mockFxResponse(rates: Record<string, number>) {
+  vi.mocked(fetch).mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({ amount: 1, base: 'USD', rates }),
   } as Response);
 }
 
@@ -112,6 +121,54 @@ describe('Tatum Exchange Rate Service', () => {
       const rate = await getExchangeRate('BTC', 'USD');
       expect(rate).toBe(45000);
       expect(fetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // Kraken quotes our pairs in USD only. Non-USD display currencies (the
+  // wallet's `display_currency`, the extension's fiat setting) are priced by
+  // crossing that USD quote with an ECB FX rate.
+  describe('non-USD fiat via FX cross-rate', () => {
+    beforeEach(() => {
+      clearFxCache();
+    });
+
+    it('prices BTC in EUR as BTC/USD × USD/EUR', async () => {
+      mockKrakenResponse('XBTUSD', '45000');
+      mockFxResponse({ EUR: 0.9 });
+
+      expect(await getExchangeRate('BTC', 'EUR')).toBeCloseTo(40500, 6);
+    });
+
+    it('reuses the FX snapshot across coins', async () => {
+      mockKrakenResponse('XBTUSD', '45000');
+      mockFxResponse({ EUR: 0.9 });
+      await getExchangeRate('BTC', 'EUR');
+
+      mockKrakenResponse('ETHUSD', '3000');
+      expect(await getExchangeRate('ETH', 'EUR')).toBeCloseTo(2700, 6);
+      // Kraken twice, FX once — the FX leg is not re-fetched per coin.
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('prices a stablecoin chain in fiat', async () => {
+      mockKrakenResponse('USDCUSD', '1.0');
+      mockFxResponse({ GBP: 0.75 });
+
+      expect(await getExchangeRate('USDC_POL', 'GBP')).toBeCloseTo(0.75, 6);
+    });
+
+    it('does not fetch FX for USD', async () => {
+      mockKrakenResponse('XBTUSD', '45000');
+      expect(await getExchangeRate('BTC', 'USD')).toBe(45000);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails rather than quoting the USD number when FX is unavailable', async () => {
+      mockKrakenResponse('XBTUSD', '45000');
+      vi.mocked(fetch).mockRejectedValueOnce(new Error('offline')); // Frankfurter
+      vi.mocked(fetch).mockRejectedValueOnce(new Error('offline')); // er-api
+
+      await expect(getExchangeRate('BTC', 'EUR')).rejects.toThrow();
     });
   });
 
