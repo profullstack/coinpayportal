@@ -29,7 +29,13 @@ function stubWallet() {
       case 'getState':
         return { ok: true, state: { initialized: true, unlocked: true } };
       case 'getAccounts':
-        return { ok: true, accounts: [{ chain: 'ETH', address: '0xabc', tokens: [] }] };
+        return {
+          ok: true,
+          accounts: [
+            { chain: 'ETH', address: '0xabc', tokens: ['USDC'] },
+            { chain: 'BTC', address: '1abc', tokens: [] },
+          ],
+        };
       case 'listAccounts':
         return {
           ok: true,
@@ -44,7 +50,17 @@ function stubWallet() {
       case 'listConnections':
         return { ok: true, connections: [] };
       case 'getRate':
-        return { ok: true, quote: { coin: 'ETH', fiat: 'USD', rate: 3000, fetchedAt: 0 } };
+        return { ok: true, quote: { coin: req.coin, fiat: 'USD', rate: 2, fetchedAt: 0 } };
+      case 'getBalances':
+        return {
+          ok: true,
+          balances: [
+            { chain: 'ETH', address: '0xabc', balance: '0.0113' },
+            { chain: 'USDC_ETH', address: '0xabc', balance: '20' },
+            { chain: 'USDC_BASE', address: '0xabc', balance: '20' },
+            { chain: 'BTC', address: '1abc', balance: '0' },
+          ],
+        };
       default:
         return { ok: true };
     }
@@ -124,5 +140,62 @@ describe('remove account', () => {
     const [opts] = dialogConfirm.mock.calls[0]!;
     expect(opts.message).toMatch(/recovery phrase/i);
     expect(opts.message).toMatch(/does not delete/i);
+  });
+});
+
+describe('wallet tab asset list', () => {
+  const assetRows = () =>
+    [...document.querySelectorAll('.account')].map((row) => ({
+      asset: row.querySelector('.chain')!.textContent,
+      amount: row.querySelector('.bal, .tokens')?.textContent ?? '',
+      address: row.querySelector('.addr')!.textContent,
+      buttons: [...row.querySelectorAll('button')].map((b) => b.textContent),
+    }));
+
+  it('lists one row per asset, not per address', async () => {
+    await settle();
+    const rows = assetRows();
+
+    // ETH and its tokens share 0xabc but are separate assets — the old
+    // address-grouped view stacked them under one heading.
+    expect(rows.map((r) => r.asset)).toEqual(
+      expect.arrayContaining(['ETH', 'USDC_ETH', 'USDC_BASE', 'BTC']),
+    );
+    const eth = rows.find((r) => r.asset === 'ETH')!;
+    const usdc = rows.find((r) => r.asset === 'USDC_ETH')!;
+    expect(eth.address).toBe('0xabc');
+    expect(usdc.address).toBe('0xabc');
+    expect(eth.amount).toContain('0.0113');
+    expect(usdc.amount).toContain('20');
+  });
+
+  it('puts funded assets first', async () => {
+    await settle();
+    // Funded rows carry .bal, empty ones .tokens — "0.0113" starts with a zero,
+    // so the text is no guide.
+    const funded = [...document.querySelectorAll('.account')].map(
+      (row) => row.querySelector('.bal') !== null,
+    );
+
+    expect(funded).toEqual([...funded].sort((a, b) => Number(b) - Number(a)));
+    expect(funded.filter(Boolean)).toHaveLength(3); // ETH, USDC_ETH, USDC_BASE
+  });
+
+  it('prices balances in the display currency', async () => {
+    await settle();
+    await settle();
+    const eth = assetRows().find((r) => r.asset === 'ETH')!;
+
+    expect(eth.amount).toMatch(/\$0\.02|\$0\.0226/);
+  });
+
+  it('offers Send only for assets the wallet can spend', async () => {
+    await settle();
+    const rows = assetRows();
+
+    expect(rows.find((r) => r.asset === 'ETH')!.buttons).toContain('Send');
+    // Base is not a pay-chain: showing Send would promise something the
+    // wallet cannot do.
+    expect(rows.find((r) => r.asset === 'USDC_BASE')!.buttons).not.toContain('Send');
   });
 });
