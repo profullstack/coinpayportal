@@ -173,10 +173,10 @@ describe('portal registration on account creation', () => {
     expect(body.proof_of_ownership.signature).toMatch(/^[0-9a-f]{128}$/);
   });
 
-  it('registers a new account under the same wallet, at its own index', async () => {
+  it('registers a new address under the same wallet, at its own index', async () => {
     await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
     await settle();
-    await h.send({ type: 'addAccount', label: 'Payouts' });
+    await h.send({ type: 'addAddress', chain: 'SOL' });
     await settle();
 
     const [first, second] = h.registrations();
@@ -186,9 +186,10 @@ describe('portal registration on account creation', () => {
     // instead created a second wallet row whose addresses then collided with
     // the first's and were dropped.
     expect(second.public_key_secp256k1).toBe(first.public_key_secp256k1);
-    // The addresses are the new account's, though, at its own index.
-    expect(second.addresses[0].address).not.toBe(first.addresses[0].address);
-    expect(second.addresses.some((a: any) => a.derivation_path.includes('/1'))).toBe(true);
+    // The registration now carries more addresses than before.
+    expect(second.addresses.length).toBeGreaterThan(first.addresses.length);
+    // The new SOL address is registered at ITS index, on its own path.
+    expect(second.addresses.some((a: any) => a.derivation_path.includes("501'/1'"))).toBe(true);
   });
 
   it('registers the BIP-44 account node, not an address key', async () => {
@@ -202,15 +203,17 @@ describe('portal registration on account creation', () => {
     expect(body.addresses.every((a: any) => a.derivation_path.startsWith('m/44'))).toBe(true);
   });
 
-  it('caches one wallet for the seed, tracking which accounts it holds', async () => {
+  it('caches one wallet for the seed, tracking which addresses it holds', async () => {
     await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
     await settle();
-    await h.send({ type: 'addAccount' });
+    await h.send({ type: 'addAddress', chain: 'SOL' });
     await settle();
 
-    const stored = scoped(h, 'portalWallet') as { id: string; accounts: number[] };
+    const stored = scoped(h, 'portalWallet') as { id: string; fingerprint: string };
     expect(stored.id).toMatch(/^wallet-for-/);
-    expect(stored.accounts.sort()).toEqual([0, 1]);
+    // The fingerprint lists every registered address, so a newly derived one
+    // forces a re-register rather than going unknown to the portal.
+    expect(stored.fingerprint).toContain('SOL:1');
   });
 
   it('does not re-register an account it already knows', async () => {
@@ -243,16 +246,16 @@ describe('portal registration on account creation', () => {
     expect(stored?.id).not.toBe('stale');
   });
 
-  it('drops a removed account from the registered set, keeping the wallet', async () => {
+  it('derives a second address for a chain at that chain own next index', async () => {
     await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
     await settle();
-    await h.send({ type: 'addAccount' });
-    await settle();
 
-    await h.send({ type: 'removeAccount', index: 1 });
-    const stored = scoped(h, 'portalWallet') as { id: string; accounts: number[] };
-    expect(stored.accounts).toEqual([0]);
-    expect(stored.id).toMatch(/^wallet-for-/);
+    const res = await h.send({ type: 'addAddress', chain: 'SOL' });
+    expect('address' in res && res.address.index).toBe(1);
+    // Each chain advances on its own: BTC must be untouched.
+    const list = 'addresses' in res ? res.addresses : [];
+    expect(list.filter((a) => a.chain === 'SOL')).toHaveLength(2);
+    expect(list.filter((a) => a.chain === 'BTC')).toHaveLength(1);
   });
 });
 
@@ -262,11 +265,11 @@ describe('registration failures never block the user', () => {
     await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
     await settle();
 
-    const res = await h.send({ type: 'addAccount', label: 'Offline' });
+    const res = await h.send({ type: 'addAddress', chain: 'SOL' });
     await settle();
 
     expect(res.ok).toBe(true);
-    expect('walletAccounts' in res && res.walletAccounts).toHaveLength(2);
+    expect('address' in res && res.address.index).toBe(1);
     // Nothing cached, so the send path will register on demand instead.
     expect(scoped(h, 'portalWallet')).toBeUndefined();
   });
@@ -281,48 +284,12 @@ describe('registration failures never block the user', () => {
   });
 });
 
-describe('account switching', () => {
-  let h: Harness;
-  beforeEach(async () => {
-    h = await boot();
-    await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
-    await settle();
-  });
-
-  it('serves the active account addresses', async () => {
-    const before = await h.send({ type: 'getAccounts' });
-    await h.send({ type: 'addAccount' });
-    await settle();
-    const after = await h.send({ type: 'getAccounts' });
-
-    const addressOf = (r: WalletResponse) => ('accounts' in r ? r.accounts[0]!.address : '');
-    expect(addressOf(after)).not.toBe(addressOf(before));
-
-    await h.send({ type: 'selectAccount', index: 0 });
-    expect(addressOf(await h.send({ type: 'getAccounts' }))).toBe(addressOf(before));
-  });
-
-  it('refuses to remove the only account', async () => {
-    const res = await h.send({ type: 'removeAccount', index: 0 });
-    expect(res.ok).toBe(false);
-    expect('error' in res && res.error).toMatch(/only account/i);
-  });
-
-  it('falls back to a remaining account when the active one is removed', async () => {
-    await h.send({ type: 'addAccount' });
-    await settle();
-
-    const res = await h.send({ type: 'removeAccount', index: 1 });
-    expect('activeAccount' in res && res.activeAccount).toBe(0);
-    expect('walletAccounts' in res && res.walletAccounts.map((a) => a.index)).toEqual([0]);
-  });
-});
 
 /**
  * The bug that shipped in 0.4.0: the popup sent from the ACTIVE account while
  * the key and the portal wallet came from account 0. Every piece has to agree.
  */
-describe('sending pays from the active account', () => {
+describe('sending pays from the chosen address', () => {
   let h: Harness;
   beforeEach(async () => {
     h = await boot();
@@ -335,93 +302,57 @@ describe('sending pays from the active account', () => {
       .filter(([url]) => String(url).includes('/prepare-tx'))
       .map(([url, init]) => ({ url: String(url), body: JSON.parse((init as any).body) }));
 
-  it('spends from the active account address, under that account wallet id', async () => {
-    const first = await h.send({ type: 'getAccounts' });
-    const firstEth = 'accounts' in first ? first.accounts.find((a) => a.chain === 'ETH')!.address : '';
-
-    await h.send({ type: 'addAccount' }); // index 1, now active
-    await settle();
-    const second = await h.send({ type: 'getAccounts' });
-    const secondEth = 'accounts' in second ? second.accounts.find((a) => a.chain === 'ETH')!.address : '';
-
-    const res = await h.send({ type: 'send', chain: 'ETH', to: '0xrecipient', amount: '0.01' });
-    expect(res.ok).toBe(true);
-
-    const [call] = prepareCalls(h);
-    expect(call!.body.from_address).toBe(secondEth);
-    expect(call!.body.from_address).not.toBe(firstEth);
-
-    // ...against the one wallet this seed owns, which now holds both accounts.
-    const stored = scoped(h, 'portalWallet') as { id: string; accounts: number[] };
-    expect(call!.url).toContain(stored.id);
-    expect(stored.accounts.sort()).toEqual([0, 1]);
-  });
-
-  it('follows the user back to the first account', async () => {
-    const first = await h.send({ type: 'getAccounts' });
-    const firstEth = 'accounts' in first ? first.accounts.find((a) => a.chain === 'ETH')!.address : '';
-
-    await h.send({ type: 'addAccount' });
-    await settle();
-    await h.send({ type: 'selectAccount', index: 0 });
+  it('spends from a chain first address by default', async () => {
+    const list = await h.send({ type: 'listAddresses' });
+    const eth = ('addresses' in list ? list.addresses : []).find((a) => a.chain === 'ETH')!;
 
     await h.send({ type: 'send', chain: 'ETH', to: '0xrecipient', amount: '0.01' });
-    expect(prepareCalls(h)[0]!.body.from_address).toBe(firstEth);
+    expect(prepareCalls(h)[0]!.body.from_address).toBe(eth.address);
   });
 
-  it('registers on demand when creation-time registration failed', async () => {
-    const offline = await boot({ registerFails: true });
-    await offline.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+  it('spends from the address the user picked, signing at ITS index', async () => {
+    const added = await h.send({ type: 'addAddress', chain: 'ETH' });
     await settle();
-    expect(scoped(offline, 'portalWallet')).toBeUndefined();
+    const second = 'address' in added ? added.address : null;
 
-    // The portal is reachable again by the time the user actually pays.
-    offline.fetchMock.mockImplementation(async (url: string, init: any) => {
-      if (String(url).endsWith('/web-wallet/import')) {
-        const body = JSON.parse(init.body);
-        return {
-          ok: true,
-          status: 201,
-          json: async () => ({ success: true, data: { wallet_id: `w-${body.public_key_secp256k1.slice(0, 8)}` } }),
-        };
-      }
-      if (String(url).includes('/prepare-tx')) {
-        const body = JSON.parse(init.body);
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            success: true,
-            data: {
-              tx_id: 'tx-1', chain: body.chain, from_address: body.from_address, to_address: body.to_address,
-              amount: body.amount, fee: {}, expires_at: new Date(Date.now() + 60_000).toISOString(),
-              unsigned_tx: { chain: body.chain },
-            },
-          }),
-        };
-      }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ success: true, data: { tx_hash: '0xh', chain: 'ETH', status: 'pending', explorer_url: 'x' } }),
-      };
+    const res = await h.send({
+      type: 'send',
+      chain: 'ETH',
+      to: '0xrecipient',
+      amount: '0.01',
+      from: second!.address,
     });
 
-    const res = await offline.send({ type: 'send', chain: 'ETH', to: '0xrecipient', amount: '0.01' });
     expect(res.ok).toBe(true);
-    expect((scoped(offline, 'portalWallet') as { id: string }).id).toBeDefined();
+    expect(prepareCalls(h)[0]!.body.from_address).toBe(second!.address);
+  });
+
+  it('leaves other chains on their own index when one advances', async () => {
+    // ETH on index 1, BTC still on 0 — a shared index would sign BTC with the
+    // wrong key here.
+    const added = await h.send({ type: 'addAddress', chain: 'ETH' });
+    await settle();
+    const ethSecond = 'address' in added ? added.address.address : '';
+
+    await h.send({ type: 'send', chain: 'BTC', to: '1recipient', amount: '0.001' });
+    const list = await h.send({ type: 'listAddresses' });
+    const btc = ('addresses' in list ? list.addresses : []).find((a) => a.chain === 'BTC')!;
+
+    expect(prepareCalls(h)[0]!.body.from_address).toBe(btc.address);
+    expect(btc.address).not.toBe(ethSecond);
   });
 });
 
 describe('portal status and reset', () => {
-  it('reports which accounts the portal knows about', async () => {
+  it('reports whether the portal knows this wallet', async () => {
     const h = await boot({ registerFails: true });
     await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
     await settle();
 
     const before = await h.send({ type: 'getPortalStatus' });
+    // Registration is per WALLET now — every address goes up together.
     expect('portal' in before && before.portal).toEqual([
-      { index: 0, label: 'Account 1', walletId: null },
+      { index: 0, label: 'This wallet', walletId: null },
     ]);
   });
 

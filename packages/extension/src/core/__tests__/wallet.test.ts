@@ -96,148 +96,90 @@ describe('WalletService lifecycle', () => {
   });
 });
 
-describe('multiple accounts (one seed, many BIP-44 indexes)', () => {
+describe('addresses per chain (the web wallet model)', () => {
   let ctx: ReturnType<typeof newService>;
   beforeEach(async () => {
     ctx = newService();
     await ctx.svc.import(TEST_MNEMONIC, 'password123');
   });
 
-  it('starts with a single account at index 0', async () => {
-    expect(await ctx.svc.listAccounts()).toEqual([{ index: 0, label: 'Account 1' }]);
-    expect(await ctx.svc.getActiveAccount()).toBe(0);
-  });
-
-  it('derives a new account with different addresses from the same phrase', async () => {
-    const first = await ctx.svc.getAccounts();
-    const added = await ctx.svc.addAccount();
-
-    expect(added).toEqual({ index: 1, label: 'Account 2' });
-    const second = await ctx.svc.getAccounts();
-    expect(second).toHaveLength(first.length);
-    // Same chains, different addresses — a genuinely separate account.
-    expect(second.map((a) => a.chain)).toEqual(first.map((a) => a.chain));
-    for (const chain of first.map((a) => a.chain)) {
-      const a = first.find((x) => x.chain === chain)!.address;
-      const b = second.find((x) => x.chain === chain)!.address;
-      expect(b).not.toBe(a);
+  it('starts with one address per chain, at index 0', async () => {
+    const book = await ctx.svc.addresses();
+    for (const entries of Object.values(book)) {
+      expect(entries).toHaveLength(1);
+      expect(entries[0]!.index).toBe(0);
     }
   });
 
-  it('makes the new account active, and switching back restores the old addresses', async () => {
-    const first = await ctx.svc.getAccounts();
-    await ctx.svc.addAccount();
-    expect(await ctx.svc.getActiveAccount()).toBe(1);
+  it('advances one chain without touching the others', async () => {
+    // The web wallet issues a fresh address per chain on request, and each
+    // chain advances on its own — BTC can be on 2 while POL is still on 0.
+    const added = await ctx.svc.addAddress('SOL');
+    expect(added.index).toBe(1);
 
-    const restored = await ctx.svc.selectAccount(0);
-    expect(await ctx.svc.getActiveAccount()).toBe(0);
-    expect(restored).toEqual(first);
+    const book = await ctx.svc.addresses();
+    expect(book.SOL).toHaveLength(2);
+    expect(book.BTC).toHaveLength(1);
   });
 
-  it('accepts a custom label and can rename afterwards', async () => {
-    await ctx.svc.addAccount('  Payouts  ');
-    expect((await ctx.svc.listAccounts())[1].label).toBe('Payouts');
+  it('derives a genuinely different address, deterministically', async () => {
+    const first = (await ctx.svc.primaryAddress('SOL'))!;
+    const second = await ctx.svc.addAddress('SOL');
+    expect(second.address).not.toBe(first.address);
 
-    const renamed = await ctx.svc.renameAccount(1, 'Treasury');
-    expect(renamed[1].label).toBe('Treasury');
-    await expect(ctx.svc.renameAccount(1, '   ')).rejects.toThrow(/cannot be empty/);
+    // Same phrase, same index, same address — always.
+    const other = newService();
+    await other.svc.import(TEST_MNEMONIC, 'password123');
+    await other.svc.addAddress('SOL');
+    expect((await other.svc.addresses()).SOL![1]!.address).toBe(second.address);
   });
 
-  it('refuses to select an account that does not exist', async () => {
-    await expect(ctx.svc.selectAccount(7)).rejects.toThrow(/No such account/);
+  it('never reuses an index', async () => {
+    await ctx.svc.addAddress('ETH');
+    const third = await ctx.svc.addAddress('ETH');
+    expect(third.index).toBe(2);
   });
 
-  it('cannot add an account while locked — addresses need the seed', async () => {
+  it('reports the index behind an address, for signing', async () => {
+    const second = await ctx.svc.addAddress('ETH');
+    expect(await ctx.svc.indexOf('ETH', second.address)).toBe(1);
+    // EIP-55 casing must not change the answer.
+    expect(await ctx.svc.indexOf('ETH', second.address.toUpperCase())).toBe(1);
+    expect(await ctx.svc.indexOf('ETH', '0xnot-mine')).toBeUndefined();
+  });
+
+  it('cannot derive another address while locked', async () => {
     await ctx.svc.lock();
-    await expect(ctx.svc.addAccount()).rejects.toThrow(/locked/i);
+    await expect(ctx.svc.addAddress('BTC')).rejects.toThrow(/locked/i);
   });
 
-  it('is deterministic: the same index always yields the same addresses', async () => {
-    await ctx.svc.addAccount();
-    const before = await ctx.svc.getAccounts();
-
-    const fresh = newService();
-    await fresh.svc.import(TEST_MNEMONIC, 'password123');
-    await fresh.svc.addAccount();
-    expect(await fresh.svc.getAccounts()).toEqual(before);
-  });
-
-  describe('removeAccount', () => {
-    it('hides the account from the list', async () => {
-      await ctx.svc.addAccount('Payouts');
-      const { accounts } = await ctx.svc.removeAccount(1);
-
-      expect(accounts.map((a) => a.index)).toEqual([0]);
-      expect(await ctx.svc.listAccounts()).toHaveLength(1);
-    });
-
-    it('never reissues a removed index', async () => {
-      // Otherwise a "new" account would silently inherit the old one's
-      // addresses — including anything sent there after removal.
-      await ctx.svc.addAccount('Payouts'); // index 1
-      await ctx.svc.removeAccount(1);
-      const next = await ctx.svc.addAccount('Fresh');
-
-      expect(next.index).toBe(2);
-    });
-
-    it('moves off the removed account when it was active', async () => {
-      await ctx.svc.addAccount('Payouts'); // becomes active
-      expect(await ctx.svc.getActiveAccount()).toBe(1);
-
-      const { activeAccount } = await ctx.svc.removeAccount(1);
-      expect(activeAccount).toBe(0);
-      expect(await ctx.svc.getActiveAccount()).toBe(0);
-      expect(await ctx.svc.getAccounts()).toEqual(await ctx.svc.addressesFor(0));
-    });
-
-    it('leaves the active account alone when another one is removed', async () => {
-      await ctx.svc.addAccount('Payouts'); // index 1, active
-      await ctx.svc.addAccount('Third'); // index 2, active
-      await ctx.svc.removeAccount(1);
-
-      expect(await ctx.svc.getActiveAccount()).toBe(2);
-    });
-
-    it('refuses to remove the only account', async () => {
-      await expect(ctx.svc.removeAccount(0)).rejects.toThrow(/only account/i);
-      expect(await ctx.svc.listAccounts()).toHaveLength(1);
-    });
-
-    it('refuses an unknown or already-removed account', async () => {
-      await ctx.svc.addAccount('Payouts');
-      await ctx.svc.removeAccount(1);
-
-      await expect(ctx.svc.removeAccount(1)).rejects.toThrow(/No such account/);
-      await expect(ctx.svc.removeAccount(7)).rejects.toThrow(/No such account/);
-    });
-
-    it('cannot select or rename a removed account', async () => {
-      await ctx.svc.addAccount('Payouts');
-      await ctx.svc.removeAccount(1);
-
-      await expect(ctx.svc.selectAccount(1)).rejects.toThrow(/No such account/);
-      await expect(ctx.svc.renameAccount(1, 'Back')).rejects.toThrow(/No such account/);
-    });
-
-    it('drops the removed account cached addresses', async () => {
-      await ctx.svc.addAccount('Payouts');
-      await ctx.svc.removeAccount(1);
-
-      const book = ctx.local.snapshot().accounts as Record<string, unknown>;
-      expect(book[1]).toBeUndefined();
-      expect(book[0]).toBeDefined();
-    });
-  });
-
-  it('keeps addresses from wallets created before multi-account existed', async () => {
-    // Pre-migration installs stored a bare array under `accounts`.
+  it('migrates an account-shaped book into per-chain lists', async () => {
+    // "Account 2" held index 1 of every chain; each becomes that chain's
+    // index-1 address, so nothing that holds funds is lost.
     const legacy = newService();
-    const addresses = [{ chain: 'ETH', address: '0xlegacy', tokens: [] }];
-    await legacy.local.set('accounts', addresses);
     await legacy.local.set('vault', { v: 1 });
+    await legacy.local.set('accounts', {
+      0: [{ chain: 'ETH', address: '0xzero', tokens: [] }],
+      1: [{ chain: 'ETH', address: '0xone', tokens: [] }],
+    });
+    await legacy.local.set('accountList', [{ index: 0, label: 'Account 1' }]);
 
-    expect(await legacy.svc.getAccounts()).toEqual(addresses);
-    expect(await legacy.svc.listAccounts()).toEqual([{ index: 0, label: 'Account 1' }]);
+    const book = await legacy.svc.addresses();
+    expect(book.ETH).toEqual([
+      { index: 0, address: '0xzero', tokens: [] },
+      { index: 1, address: '0xone', tokens: [] },
+    ]);
+    // The old keys are cleared so nothing reads them again.
+    expect(legacy.local.snapshot().accounts).toBeUndefined();
+    expect(legacy.local.snapshot().accountList).toBeUndefined();
+  });
+
+  it('migrates the oldest layout, a bare array', async () => {
+    const legacy = newService();
+    await legacy.local.set('vault', { v: 1 });
+    await legacy.local.set('accounts', [{ chain: 'ETH', address: '0xlegacy', tokens: [] }]);
+
+    const book = await legacy.svc.addresses();
+    expect(book.ETH).toEqual([{ index: 0, address: '0xlegacy', tokens: [] }]);
   });
 });

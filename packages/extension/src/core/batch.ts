@@ -90,15 +90,15 @@ export interface BatchRunnerOptions {
   /** Signs API auth headers — the secp256k1 key registered with the portal. */
   authKey: Uint8Array;
   /**
-   * BIP-44 account the payment is sent FROM. Must be the account `addresses`
-   * came from: the signing key is derived at this index, so a mismatch signs
-   * with one account's key for another account's address and the transfer is
-   * rejected. Not defaulted on purpose — a silent 0 here is what made every
-   * send from a non-first account fail.
+   * Sender per signing chain: the address to spend from AND the derivation
+   * index behind it.
+   *
+   * Index travels WITH the address because each chain advances independently —
+   * BTC can be on index 2 while POL is still on 0. A single shared index signs
+   * one chain's transaction with another chain's key, which the network
+   * rejects; that shipped once already.
    */
-  accountIndex: number;
-  /** Sender address per signing chain, from the unlocked wallet's accounts. */
-  addresses: Partial<Record<NativeChain, string>>;
+  senders: Partial<Record<NativeChain, { address: string; index: number }>>;
   onProgress?: (progress: BatchProgress) => void;
   signal?: AbortSignal;
   /** Overridable for tests, which would otherwise wait out the real delays. */
@@ -158,8 +158,7 @@ export async function runBatchPayments(
     walletId,
     seed,
     authKey,
-    accountIndex,
-    addresses,
+    senders,
     onProgress,
     signal,
     sleep = defaultSleep,
@@ -200,21 +199,21 @@ export async function runBatchPayments(
   /** prepare → sign → broadcast for one payment. Throws on failure. */
   const payOnce = async (request: BatchPaymentRequest): Promise<BatchItemResult> => {
     const signer = signingChain(request.chain);
-    const from = addresses[signer];
-    if (!from) {
+    const sender = senders[signer];
+    if (!sender) {
       throw new Error(`Wallet has no ${signer} address to send from`);
     }
 
     report(request, 'preparing');
     const prepared = await api.prepareTx(walletId, authKey, {
-      from_address: from,
+      from_address: sender.address,
       to_address: request.to,
       chain: request.chain,
       amount: request.amount,
     });
 
     report(request, 'signing');
-    const privateKey = derivePrivateKey(seed, signer, accountIndex);
+    const privateKey = derivePrivateKey(seed, signer, sender.index);
     let signed: string;
     try {
       const result = await signTransaction({

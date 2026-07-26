@@ -17,7 +17,7 @@ import { el, mount, button, field, note, brand, logo } from './dom.js';
 import { PAY_CHAINS, signingChain, payChainLabel, payChainTicker, isPayChain, type PayChain } from '../core/pay-chains.js';
 import { dialogConfirm, dialogPrompt, dialogAlert } from './dialog.js';
 import type { RateQuote } from '../core/rates.js';
-import type { WalletResponse } from '../messages.js';
+import type { WalletResponse, WalletAddress } from '../messages.js';
 import { aggregateAssets, isFunded, totalFiat, rateSymbolFor, type AssetRow } from '../core/assets.js';
 import { explorerTxUrl } from '../core/explorers.js';
 import {
@@ -263,14 +263,11 @@ let historyChain: string | null = null;
 
 async function renderWallet(): Promise<void> {
   try {
-    const [accountsRes, listRes, walletsRes] = await Promise.all([
-      call({ type: 'getAccounts' }),
-      call({ type: 'listAccounts' }),
+    const [addrRes, walletsRes] = await Promise.all([
+      call({ type: 'listAddresses' }),
       call({ type: 'listWallets' }),
     ]);
-    const addresses = 'accounts' in accountsRes ? accountsRes.accounts : [];
-    const walletAccounts = 'walletAccounts' in listRes ? listRes.walletAccounts : [{ index: 0, label: 'Account 1' }];
-    const active = 'activeAccount' in listRes ? listRes.activeAccount : 0;
+    const addresses = 'addresses' in addrRes ? addrRes.addresses : [];
 
     mount(
       el('div', { class: 'topbar' }, [
@@ -281,7 +278,6 @@ async function renderWallet(): Promise<void> {
         }, 'btn small'),
       ]),
       walletSwitcher(walletsRes),
-      accountSwitcher(walletAccounts, active),
       tabs(),
       activeTab === 'wallet' ? addressList(addresses)
         : activeTab === 'send' ? sendForm(addresses)
@@ -366,71 +362,6 @@ async function beginAddWallet(): Promise<void> {
   renderImport('wallets' in res ? res.wallets.find((w) => w.id === res.activeWallet)?.label : undefined);
 }
 
-/** MetaMask-style account picker: one seed, many derived accounts. */
-function accountSwitcher(accounts: { index: number; label: string }[], active: number): HTMLElement {
-  const select = el('select', { class: 'acct-select' }) as HTMLSelectElement;
-  for (const a of accounts) {
-    const opt = el('option', { text: a.label, value: String(a.index) }) as HTMLOptionElement;
-    if (a.index === active) opt.selected = true;
-    select.append(opt);
-  }
-  select.addEventListener('change', async () => {
-    await call({ type: 'selectAccount', index: Number(select.value) });
-    void renderWallet();
-  });
-
-  return el('div', { class: 'acct-bar' }, [
-    select,
-    button('+ Add', async () => {
-      const label = await dialogPrompt({
-        title: 'Add account',
-        label: 'Name',
-        placeholder: `Account ${accounts.length + 1}`,
-        confirmLabel: 'Add',
-      });
-      // Cancel means cancel. Without this, dismissing the prompt still created
-      // an account — which is where mystery "Account 2" entries came from.
-      // An empty name is not a cancel: it just takes the default label.
-      if (label === null) return;
-      const res = await call({ type: 'addAccount', ...(label ? { label } : {}) });
-      if (!res.ok) { await dialogAlert({ title: "Couldn't add account", message: res.error, tone: 'error' }); return; }
-      void renderWallet();
-    }, 'btn small'),
-    button('Rename', async () => {
-      const current = accounts.find((a) => a.index === active);
-      const label = await dialogPrompt({
-        title: 'Rename account',
-        label: 'Name',
-        value: current?.label ?? '',
-        confirmLabel: 'Rename',
-      });
-      if (!label) return;
-      const res = await call({ type: 'renameAccount', index: active, label });
-      if (!res.ok) { await dialogAlert({ title: "Couldn't rename", message: res.error, tone: 'error' }); return; }
-      void renderWallet();
-    }, 'btn small'),
-    // Only offered when there is another account to fall back to; removing the
-    // last one would leave the wallet with nothing to show.
-    ...(accounts.length > 1
-      ? [button('Remove', async () => {
-          const current = accounts.find((a) => a.index === active);
-          const confirmed = await dialogConfirm({
-            title: `Remove ${current?.label ?? 'this account'}?`,
-            message:
-              'This hides the account from your wallet. It does not delete anything: the addresses come from your recovery phrase, so any funds there stay recoverable with that phrase. Check the balance before removing.',
-            details: [{ label: 'Account', value: current?.label ?? String(active) }],
-            confirmLabel: 'Remove',
-            danger: true,
-          });
-          if (!confirmed) return;
-          const res = await call({ type: 'removeAccount', index: active });
-          if (!res.ok) { await dialogAlert({ title: "Couldn't remove", message: res.error, tone: 'error' }); return; }
-          void renderWallet();
-        }, 'btn small')]
-      : []),
-  ]);
-}
-
 function tabs(): HTMLElement {
   const mk = (id: Tab, label: string) =>
     button(label, () => { activeTab = id; void renderWallet(); }, `btn tab${activeTab === id ? ' active' : ''}`);
@@ -451,13 +382,29 @@ function tabs(): HTMLElement {
  * this. Each row carries its own balance, its receive address, and a Send
  * button when the wallet can actually spend it.
  */
-function addressList(addresses: DerivedAddress[]): HTMLElement {
+function addressList(addresses: WalletAddress[]): HTMLElement {
   const container = el('div', { class: 'accounts' }, [note('Loading balances…', 'muted small')]);
   void renderAssets(container, addresses);
   return container;
 }
 
-async function renderAssets(container: HTMLElement, addresses: DerivedAddress[]): Promise<void> {
+/** The chain whose key signs for this asset — tokens ride on their host. */
+function hostChainOf(row: AssetRow, chainOf: Map<string, string>): string | undefined {
+  return chainOf.get(row.address.toLowerCase());
+}
+
+/** Every derived address an asset can receive on, in derivation order. */
+function addressesFor(
+  row: AssetRow,
+  addresses: WalletAddress[],
+  chainOf: Map<string, string>,
+): WalletAddress[] {
+  const host = hostChainOf(row, chainOf);
+  if (!host) return [{ chain: row.asset, index: 0, address: row.address, tokens: [] }];
+  return addresses.filter((a) => a.chain === host).sort((a, b) => a.index - b.index);
+}
+
+async function renderAssets(container: HTMLElement, addresses: WalletAddress[]): Promise<void> {
   let balances: { chain: string; address: string; balance: string; derived?: boolean }[] = [];
   try {
     const res = await call({ type: 'getBalances' });
@@ -466,7 +413,11 @@ async function renderAssets(container: HTMLElement, addresses: DerivedAddress[])
     // Locked, offline, or unregistered — the addresses are still worth showing.
   }
 
-  const rows = aggregateAssets(addresses, balances);
+  // One entry per chain seeds the asset list; the extra addresses are listed
+  // under their asset below.
+  const firstPerChain = [...new Map(addresses.map((a) => [a.chain, a])).values()];
+  const rows = aggregateAssets(firstPerChain, balances);
+  const chainOf = new Map(addresses.map((a) => [a.address.toLowerCase(), a.chain]));
   const held = isFunded;
 
   if (!rows.length) {
@@ -499,9 +450,27 @@ async function renderAssets(container: HTMLElement, addresses: DerivedAddress[])
         ...(row.derived
           ? []
           : [note('From your CoinPay wallet — not derived in this extension', 'muted small')]),
-        el('code', { class: 'addr', text: row.address }),
+        // Every address this asset can receive on. The web wallet issues a
+        // fresh one on request, so a chain routinely has several and funds sit
+        // across them — listing only the first hides money.
+        ...addressesFor(row, addresses, chainOf).map((entry) =>
+          el('div', { class: 'addr-row' }, [
+            el('code', { class: 'addr', text: entry.address }),
+            el('span', { class: 'tokens', text: `#${entry.index + 1}` }),
+            button('Copy', () => { void navigator.clipboard.writeText(entry.address); }, 'btn small'),
+          ]),
+        ),
         el('div', { class: 'row asset-actions' }, [
-          button('Copy', () => { void navigator.clipboard.writeText(row.address); }, 'btn small'),
+          ...(hostChainOf(row, chainOf)
+            ? [button('+ Address', async () => {
+                const res = await call({ type: 'addAddress', chain: hostChainOf(row, chainOf)! });
+                if (!res.ok) {
+                  await dialogAlert({ title: "Couldn't add address", message: res.error, tone: 'error' });
+                  return;
+                }
+                void renderWallet();
+              }, 'btn small')]
+            : []),
           // Jumps to Send with this asset already chosen — otherwise the user
           // has to work out which dropdown entry matches this row.
           ...(isPayChain(row.asset)
@@ -560,7 +529,7 @@ async function renderAssets(container: HTMLElement, addresses: DerivedAddress[])
  * Per-asset matters because an EVM address carries several assets: "what
  * happened on this address" is ambiguous, "what happened to my USDC" is not.
  */
-function historyPanel(addresses: DerivedAddress[]): HTMLElement {
+function historyPanel(addresses: WalletAddress[]): HTMLElement {
   const filter = el('select', { class: 'acct-select' }) as HTMLSelectElement;
   filter.append(el('option', { text: 'All assets', value: '' }) as HTMLOptionElement);
   for (const c of PAY_CHAINS) {
@@ -660,7 +629,7 @@ async function loadHistory(list: HTMLElement): Promise<void> {
  * chain always moves crypto, so a fiat entry is converted at the live rate and
  * BOTH numbers are shown on the confirmation before anything is signed.
  */
-function sendForm(addresses: DerivedAddress[]): HTMLElement {
+function sendForm(addresses: WalletAddress[]): HTMLElement {
   const chain = el('select', { class: 'acct-select' }) as HTMLSelectElement;
   for (const c of PAY_CHAINS) {
     // Only offer chains this account actually holds an address for — a token
@@ -672,6 +641,32 @@ function sendForm(addresses: DerivedAddress[]): HTMLElement {
     chain.append(option);
   }
   pendingSendChain = null;
+
+  // Which of this chain's addresses pays. A wallet routinely holds several and
+  // the balance can sit on any of them, so the choice has to be explicit.
+  const fromSelect = el('select', { class: 'acct-select' }) as HTMLSelectElement;
+  const fromRow = el('div', { class: 'field' }, [
+    el('span', { class: 'label', text: 'Send from' }),
+    fromSelect,
+  ]);
+
+  const refreshFrom = () => {
+    const value = chain.value;
+    const host = value ? signingChain(value as PayChain) : null;
+    const options = host ? addresses.filter((a) => a.chain === host) : [];
+    fromSelect.replaceChildren(
+      ...options
+        .sort((a, b) => a.index - b.index)
+        .map((entry) =>
+          el('option', {
+            text: `#${entry.index + 1} · ${entry.address.slice(0, 10)}…${entry.address.slice(-6)}`,
+            value: entry.address,
+          }) as HTMLOptionElement,
+        ),
+    );
+    // One address is not a choice; hide the row rather than pad the form.
+    fromRow.style.display = options.length > 1 ? 'block' : 'none';
+  };
 
   const to = field('Recipient address', { placeholder: 'Paste an address' });
   const amount = field('Amount', { placeholder: '0.00', inputmode: 'decimal' });
@@ -785,7 +780,11 @@ function sendForm(addresses: DerivedAddress[]): HTMLElement {
     renderPricing();
   }
 
-  chain.addEventListener('change', () => void refreshQuote());
+  chain.addEventListener('change', () => {
+    refreshFrom();
+    void refreshQuote();
+  });
+  refreshFrom();
   amount.input.addEventListener('input', () => renderPricing());
   void refreshQuote();
 
@@ -810,6 +809,9 @@ function sendForm(addresses: DerivedAddress[]): HTMLElement {
           ? []
           : [{ label: `Value (${fiat})`, value: `≈ ${formatFiat(fiatValue, fiat)}` }]),
         { label: 'Chain', value: payChainLabel(chainValue as PayChain) },
+        ...(fromSelect.options.length > 1 && fromSelect.value
+          ? [{ label: 'From', value: fromSelect.value }]
+          : []),
         { label: 'To', value: toValue },
       ],
       confirmLabel: 'Send',
@@ -820,7 +822,13 @@ function sendForm(addresses: DerivedAddress[]): HTMLElement {
     submit.disabled = true;
     status.textContent = 'Sending…';
     try {
-      const res = await call({ type: 'send', chain: chainValue, to: toValue, amount: amountValue });
+      const res = await call({
+        type: 'send',
+        chain: chainValue,
+        to: toValue,
+        amount: amountValue,
+        ...(fromSelect.value ? { from: fromSelect.value } : {}),
+      });
       if (!res.ok) { fail(status, res.error); submit.disabled = false; return; }
       const sent = 'sent' in res ? res.sent : null;
       status.className = 'ok small';
@@ -841,8 +849,9 @@ function sendForm(addresses: DerivedAddress[]): HTMLElement {
   });
 
   return el('div', { class: 'send' }, [
-    el('label', { class: 'lbl', text: 'Chain' }),
+    el('label', { class: 'lbl', text: 'Asset' }),
     chain,
+    fromRow,
     to.row,
     amount.row,
     el('div', { class: 'rate-row' }, [estimate, toggle]),

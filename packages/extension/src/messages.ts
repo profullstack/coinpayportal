@@ -39,14 +39,12 @@ export type WalletRequest =
   | { type: 'removeWallet'; id: string }
   /** Begin a second wallet: the next create/import lands in a fresh vault. */
   | { type: 'addWallet'; label?: string }
-  // ── popup: accounts (one seed, many BIP-44 indexes) ──
-  | { type: 'listAccounts' }
-  | { type: 'addAccount'; label?: string }
-  | { type: 'selectAccount'; index: number }
-  | { type: 'renameAccount'; index: number; label: string }
-  | { type: 'removeAccount'; index: number }
+  // ── popup: addresses (per chain, each at its own derivation index) ──
+  | { type: 'listAddresses' }
+  | { type: 'addAddress'; chain: string }
   // ── popup: user-initiated send ──
-  | { type: 'send'; chain: string; to: string; amount: string }
+  /** `from` picks which of a chain's addresses pays; omit for its first. */
+  | { type: 'send'; chain: string; to: string; amount: string; from?: string }
   // Which accounts the portal knows about, and registering one on demand.
   | { type: 'getPortalStatus' }
   /** Balances for the active account, from the portal's cached view. */
@@ -75,9 +73,6 @@ export type WalletRequest =
 export interface WalletState {
   initialized: boolean;
   unlocked: boolean;
-  /** Active BIP-44 account index, and every account the user has added. */
-  activeAccount?: number;
-  accountList?: WalletAccountSummary[];
 }
 
 /** One wallet — a distinct recovery phrase held by this extension. */
@@ -88,9 +83,13 @@ export interface WalletSummary {
   initialized: boolean;
 }
 
-export interface WalletAccountSummary {
+/** One derived address: which chain, which index, and where. */
+export interface WalletAddress {
+  /** Native chain the address belongs to (its key signs for it). */
+  chain: string;
   index: number;
-  label: string;
+  address: string;
+  tokens: readonly string[];
 }
 
 /** A confirmed on-chain balance for one of the wallet's addresses. */
@@ -141,8 +140,6 @@ export type PendingApproval =
       requestId: string;
       origin: string;
       needsUnlock: boolean;
-      /** BIP-44 account that will pay, pinned when the request was made. */
-      accountIndex: number;
       payments: BatchPaymentRequest[];
       summary: { chain: string; count: number; total: string; totalUsd: number }[];
     };
@@ -155,7 +152,8 @@ export type WalletResponse =
   | { ok: true; connections: SiteConnection[] }
   | { ok: true; approval: PendingApproval }
   | { ok: true; results: BatchItemResult[] }
-  | { ok: true; walletAccounts: WalletAccountSummary[]; activeAccount: number }
+  | { ok: true; addresses: WalletAddress[] }
+  | { ok: true; address: WalletAddress; addresses: WalletAddress[] }
   | { ok: true; wallets: WalletSummary[]; activeWallet: string }
   | { ok: true; sent: BatchItemResult }
   | { ok: true; settings: WalletSettings }

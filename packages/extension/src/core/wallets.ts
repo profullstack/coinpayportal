@@ -42,7 +42,7 @@ const LOCAL_WALLET_SEQ = 'walletSeq';
 export const FIRST_WALLET_ID = 'w1';
 
 /** Keys `WalletService` owns, which the migration relocates. */
-const MIGRATED_KEYS = ['vault', 'accounts', 'meta', 'accountList', 'activeAccount'] as const;
+const MIGRATED_KEYS = ['vault', 'accounts', 'chainAddresses', 'meta', 'accountList', 'activeAccount'] as const;
 
 /** Wallet-scoped keys owned by the background worker. */
 const BACKGROUND_KEYS = ['portalWallet', 'portalWalletId', 'portalWalletIds'] as const;

@@ -24,6 +24,7 @@ const SEED = seedFromMnemonic(
 );
 const AUTH_KEY = new Uint8Array(32).fill(9);
 
+/** Sender per chain, each at its own index — the shape the runner takes. */
 const ADDRESSES = {
   BTC: '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2',
   BCH: 'bitcoincash:qp3wjpa3tjlj042z2wv7hahsldgwhwy0rq9sywjpyy',
@@ -31,6 +32,16 @@ const ADDRESSES = {
   POL: '0x1111111111111111111111111111111111111111',
   SOL: '11111111111111111111111111111112',
 };
+
+/** Sender per chain, each at its own derivation index. */
+const senderMap = (indexes: Record<string, number> = {}) =>
+  Object.fromEntries(
+    Object.entries(ADDRESSES).map(([chain, address]) => [
+      chain,
+      { address, index: indexes[chain] ?? 0 },
+    ]),
+  );
+const SENDERS = senderMap();
 
 interface FakeApiOptions {
   /** Per-request-id list of errors to throw before succeeding. */
@@ -114,8 +125,7 @@ function run(requests: BatchPaymentRequest[], api: CoinPayApi, extra: Record<str
     walletId: 'wallet-1',
     seed: SEED,
     authKey: AUTH_KEY,
-    accountIndex: 0,
-    addresses: ADDRESSES,
+    senders: SENDERS,
     sleep: noSleep,
     ...extra,
   } as any);
@@ -134,18 +144,18 @@ describe('signing key follows the paying account', () => {
     return Array.from(key, (b) => b.toString(16).padStart(2, '0')).join('');
   }
 
-  it('signs with the key derived at the given account index', async () => {
+  it('signs with the key derived at that chain own index', async () => {
     vi.mocked(signTransaction).mockClear();
-    await run([request({ id: 'a' })], fakeApi(), { accountIndex: 2 });
+    await run([request({ id: 'a' })], fakeApi(), { senders: senderMap({ ETH: 2 }) });
 
     const { privateKey } = vi.mocked(signTransaction).mock.calls[0]![0] as { privateKey: string };
     expect(privateKey).toBe(keyHex('ETH', 2));
     expect(privateKey).not.toBe(keyHex('ETH', 0));
   });
 
-  it('still signs with account 0 for the first account', async () => {
+  it('still signs with index 0 for a chain first address', async () => {
     vi.mocked(signTransaction).mockClear();
-    await run([request({ id: 'a' })], fakeApi(), { accountIndex: 0 });
+    await run([request({ id: 'a' })], fakeApi(), { senders: senderMap() });
 
     const { privateKey } = vi.mocked(signTransaction).mock.calls[0]![0] as { privateKey: string };
     expect(privateKey).toBe(keyHex('ETH', 0));
@@ -153,10 +163,26 @@ describe('signing key follows the paying account', () => {
 
   it('applies the index per signing chain, not just EVM', async () => {
     vi.mocked(signTransaction).mockClear();
-    await run([request({ id: 'a', chain: 'BTC' })], fakeApi(), { accountIndex: 3 });
+    await run([request({ id: 'a', chain: 'BTC' })], fakeApi(), { senders: senderMap({ BTC: 3 }) });
 
     const { privateKey } = vi.mocked(signTransaction).mock.calls[0]![0] as { privateKey: string };
     expect(privateKey).toBe(keyHex('BTC', 3));
+  });
+
+  it('lets each chain sit on a different index', async () => {
+    // BTC on 2 while ETH is on 0 — the web wallet advances chains separately,
+    // and a single shared index would sign one with the other chain's key.
+    vi.mocked(signTransaction).mockClear();
+    const senders = senderMap({ BTC: 2 });
+    await run([request({ id: 'a', chain: 'BTC' }), request({ id: 'b', chain: 'ETH' })], fakeApi(), {
+      senders,
+    });
+
+    const keys = vi.mocked(signTransaction).mock.calls.map(
+      ([arg]) => (arg as { privateKey: string }).privateKey,
+    );
+    expect(keys).toContain(keyHex('BTC', 2));
+    expect(keys).toContain(keyHex('ETH', 0));
   });
 });
 
@@ -277,8 +303,7 @@ describe('runBatchPayments', () => {
       walletId: 'wallet-1',
       seed: SEED,
       authKey: AUTH_KEY,
-      accountIndex: 0,
-      addresses: { ETH: ADDRESSES.ETH }, // no BTC account
+      senders: { ETH: { address: ADDRESSES.ETH, index: 0 } }, // no BTC address
       sleep: noSleep,
     } as any);
 
