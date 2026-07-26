@@ -89,6 +89,14 @@ export interface BatchRunnerOptions {
   seed: Uint8Array;
   /** Signs API auth headers — the secp256k1 key registered with the portal. */
   authKey: Uint8Array;
+  /**
+   * BIP-44 account the payment is sent FROM. Must be the account `addresses`
+   * came from: the signing key is derived at this index, so a mismatch signs
+   * with one account's key for another account's address and the transfer is
+   * rejected. Not defaulted on purpose — a silent 0 here is what made every
+   * send from a non-first account fail.
+   */
+  accountIndex: number;
   /** Sender address per signing chain, from the unlocked wallet's accounts. */
   addresses: Partial<Record<NativeChain, string>>;
   onProgress?: (progress: BatchProgress) => void;
@@ -150,6 +158,7 @@ export async function runBatchPayments(
     walletId,
     seed,
     authKey,
+    accountIndex,
     addresses,
     onProgress,
     signal,
@@ -205,7 +214,7 @@ export async function runBatchPayments(
     });
 
     report(request, 'signing');
-    const privateKey = derivePrivateKey(seed, signer, 0);
+    const privateKey = derivePrivateKey(seed, signer, accountIndex);
     let signed: string;
     try {
       const result = await signTransaction({
