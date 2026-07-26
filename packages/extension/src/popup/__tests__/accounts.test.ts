@@ -258,3 +258,58 @@ describe('balances across derivation indexes', () => {
     expect(document.querySelector('.total-value')!.textContent).toMatch(/\$90\.67/);
   });
 });
+
+describe('importing a second wallet', () => {
+  it('creates a new vault and takes you to import, not to the existing wallet', async () => {
+    dialogPrompt.mockResolvedValue('Second');
+    [...document.querySelectorAll('button')]
+      .find((b) => b.textContent === '+ Import another wallet')!
+      .click();
+    await settle();
+
+    // A NEW wallet must be registered before the phrase is entered, or the
+    // import overwrites the wallet already there.
+    expect(call).toHaveBeenCalledWith({ type: 'addWallet', label: 'Second' });
+
+    // And the user must land on the import screen.
+    const phrase = document.querySelector('textarea') as HTMLTextAreaElement;
+    expect(phrase).not.toBeNull();
+    expect(phrase.getAttribute('placeholder')).toMatch(/12 or 24 words/);
+  });
+
+  it('imports the phrase into the wallet just created', async () => {
+    dialogPrompt.mockResolvedValue('Second');
+    [...document.querySelectorAll('button')]
+      .find((b) => b.textContent === '+ Import another wallet')!
+      .click();
+    await settle();
+
+    const phrase = document.querySelector('textarea') as HTMLTextAreaElement;
+    phrase.value = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
+    const inputs = [...document.querySelectorAll('input[type=password]')] as HTMLInputElement[];
+    inputs[0]!.value = 'password123';
+    inputs[1]!.value = 'password123';
+
+    [...document.querySelectorAll('button')].find((b) => b.textContent === 'Import')!.click();
+    await settle();
+
+    expect(call).toHaveBeenCalledWith({
+      type: 'import',
+      mnemonic: 'legal winner thank year wave sausage worth useful legal winner thank yellow',
+      password: 'password123',
+    });
+    // addWallet must come first: importing before it lands in the old vault.
+    const types = call.mock.calls.map(([r]) => r.type);
+    expect(types.indexOf('addWallet')).toBeLessThan(types.indexOf('import'));
+  });
+
+  it('does not create a wallet when the name prompt is dismissed', async () => {
+    dialogPrompt.mockResolvedValue(null);
+    [...document.querySelectorAll('button')]
+      .find((b) => b.textContent === '+ Import another wallet')!
+      .click();
+    await settle();
+
+    expect(call.mock.calls.map(([r]) => r.type)).not.toContain('addWallet');
+  });
+});
