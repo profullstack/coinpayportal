@@ -14,6 +14,8 @@
 import type { DerivedAddress } from './core/derivation.js';
 import type { BatchPaymentRequest, BatchItemResult, BatchProgress } from './core/batch.js';
 import type { SiteConnection } from './core/connections.js';
+import type { FiatCurrency } from './core/fiat.js';
+import type { RateQuote } from './core/rates.js';
 
 export type WalletRequest =
   // ── popup: wallet lifecycle ──
@@ -36,6 +38,9 @@ export type WalletRequest =
   | { type: 'send'; chain: string; to: string; amount: string }
   | { type: 'getSettings' }
   | { type: 'setAutoLockMinutes'; minutes: number }
+  | { type: 'setFiatCurrency'; currency: string }
+  // Quote a coin in fiat. `fiat` defaults to the user's display currency.
+  | { type: 'getRate'; coin: string; fiat?: string }
   // ── page (via content script) ──
   | { type: 'site:getState' }
   | { type: 'site:connect' }
@@ -62,6 +67,8 @@ export interface WalletAccountSummary {
 
 export interface WalletSettings {
   autoLockMinutes: number;
+  /** Fiat the wallet prices amounts in. Defaults to USD. */
+  fiatCurrency: FiatCurrency;
 }
 
 /** What a page may learn about the wallet before connecting. */
@@ -98,6 +105,7 @@ export type WalletResponse =
   | { ok: true; walletAccounts: WalletAccountSummary[]; activeAccount: number }
   | { ok: true; sent: BatchItemResult }
   | { ok: true; settings: WalletSettings }
+  | { ok: true; quote: RateQuote }
   | { ok: true }
   | { ok: false; error: string };
 

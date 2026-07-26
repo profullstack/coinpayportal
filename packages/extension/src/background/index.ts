@@ -27,6 +27,8 @@ import { WalletService } from '../core/wallet.js';
 import { WebExtStorage, type WebExtStorageArea } from '../core/storage.js';
 import { ConnectionStore, normalizeOrigin } from '../core/connections.js';
 import { CoinPayApi, compressedPublicKey } from '../core/api.js';
+import { RateCache } from '../core/rates.js';
+import { toFiatCurrency, type FiatCurrency } from '../core/fiat.js';
 import { derivePrivateKey, derivationPath } from '../core/private-keys.js';
 import { runBatchPayments, summarizeBatch, parseBatchRequests, type BatchItemResult } from '../core/batch.js';
 import { PAY_CHAINS, signingChain, toPayChain } from '../core/pay-chains.js';
@@ -46,12 +48,19 @@ const session = new WebExtStorage(chrome.storage.session as unknown as WebExtSto
 const wallet = new WalletService(local, session);
 const connections = new ConnectionStore(local);
 const api = new CoinPayApi();
+const rates = new RateCache(api);
 
 const LOCAL_AUTO_LOCK_MINUTES = 'autoLockMinutes';
+const LOCAL_FIAT_CURRENCY = 'fiatCurrency';
 
 async function autoLockMinutes(): Promise<number> {
   const stored = await local.get<number>(LOCAL_AUTO_LOCK_MINUTES);
   return typeof stored === 'number' && stored > 0 ? stored : DEFAULT_IDLE_MINUTES;
+}
+
+/** The user's display currency; USD until they choose otherwise. */
+async function fiatCurrency(): Promise<FiatCurrency> {
+  return toFiatCurrency(await local.get<string>(LOCAL_FIAT_CURRENCY));
 }
 
 function scheduleAutoLock(minutes?: number): void {
@@ -463,12 +472,31 @@ async function handle(
       }
 
       case 'getSettings':
-        return { ok: true, settings: { autoLockMinutes: await autoLockMinutes() } };
+        return {
+          ok: true,
+          settings: { autoLockMinutes: await autoLockMinutes(), fiatCurrency: await fiatCurrency() },
+        };
       case 'setAutoLockMinutes': {
         const minutes = Math.min(Math.max(Math.round(req.minutes), 1), 60 * 24);
         await local.set(LOCAL_AUTO_LOCK_MINUTES, minutes);
         scheduleAutoLock(minutes);
-        return { ok: true, settings: { autoLockMinutes: minutes } };
+        return { ok: true, settings: { autoLockMinutes: minutes, fiatCurrency: await fiatCurrency() } };
+      }
+      case 'setFiatCurrency': {
+        // Coerced rather than rejected: an unsupported code can only come from
+        // a stale UI, and USD is a safe, clearly-labelled fallback.
+        const currency = toFiatCurrency(req.currency);
+        await local.set(LOCAL_FIAT_CURRENCY, currency);
+        return {
+          ok: true,
+          settings: { autoLockMinutes: await autoLockMinutes(), fiatCurrency: currency },
+        };
+      }
+      case 'getRate': {
+        // Quoting a price is not wallet activity, so it deliberately does not
+        // push back the auto-lock timer.
+        const fiat = req.fiat ? toFiatCurrency(req.fiat) : await fiatCurrency();
+        return { ok: true, quote: await rates.get(req.coin, fiat) };
       }
 
       case 'listConnections':

@@ -112,6 +112,16 @@ export function toPayChain(value: string | null | undefined): PayChain | null {
   }
 }
 
+/**
+ * The coin ticker a chain actually moves — `USDC_POL` sends USDC, not POL.
+ * Used for amount labels and as the `coin` parameter to `GET /api/rates`,
+ * which resolves tokens to their own (stablecoin) rate rather than the base
+ * chain's.
+ */
+export function payChainTicker(chain: PayChain): string {
+  return chain.split('_')[0] ?? chain;
+}
+
 /** Display label for the approval screen. */
 export function payChainLabel(chain: PayChain): string {
   switch (chain) {
