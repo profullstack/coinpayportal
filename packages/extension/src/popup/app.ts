@@ -17,6 +17,7 @@ import { el, mount, button, field, note, brand, logo } from './dom.js';
 import { PAY_CHAINS, signingChain, payChainLabel, payChainTicker, isPayChain, type PayChain } from '../core/pay-chains.js';
 import { dialogConfirm, dialogPrompt, dialogAlert } from './dialog.js';
 import type { RateQuote } from '../core/rates.js';
+import type { WalletResponse } from '../messages.js';
 import { aggregateAssets, isFunded, totalFiat, rateSymbolFor, type AssetRow } from '../core/assets.js';
 import { explorerTxUrl } from '../core/explorers.js';
 import {
@@ -227,9 +228,10 @@ let historyChain: string | null = null;
 
 async function renderWallet(): Promise<void> {
   try {
-    const [accountsRes, listRes] = await Promise.all([
+    const [accountsRes, listRes, walletsRes] = await Promise.all([
       call({ type: 'getAccounts' }),
       call({ type: 'listAccounts' }),
+      call({ type: 'listWallets' }),
     ]);
     const addresses = 'accounts' in accountsRes ? accountsRes.accounts : [];
     const walletAccounts = 'walletAccounts' in listRes ? listRes.walletAccounts : [{ index: 0, label: 'Account 1' }];
@@ -243,6 +245,7 @@ async function renderWallet(): Promise<void> {
           renderUnlock();
         }, 'btn small'),
       ]),
+      walletSwitcher(walletsRes),
       accountSwitcher(walletAccounts, active),
       tabs(),
       activeTab === 'wallet' ? addressList(addresses)
@@ -253,6 +256,78 @@ async function renderWallet(): Promise<void> {
   } catch (err) {
     renderError(err);
   }
+}
+
+/**
+ * Wallet picker: separate recovery phrases, not accounts of one.
+ *
+ * Rendered above the account switcher because the hierarchy matters — an
+ * account belongs to a wallet, and confusing the two is how someone ends up
+ * looking for funds under the wrong phrase.
+ */
+function walletSwitcher(res: WalletResponse): HTMLElement {
+  const wallets = 'wallets' in res ? res.wallets : [];
+  const activeWallet = 'activeWallet' in res ? res.activeWallet : '';
+  // With a single wallet the row is noise; it appears once there is a choice.
+  if (wallets.length < 2) {
+    return el('div', { class: 'wallet-bar' }, [
+      button('+ Import another wallet', () => void beginAddWallet(), 'btn small'),
+    ]);
+  }
+
+  const select = el('select', { class: 'acct-select' }) as HTMLSelectElement;
+  for (const w of wallets) {
+    const opt = el('option', {
+      text: w.initialized ? w.label : `${w.label} (empty)`,
+      value: w.id,
+    }) as HTMLOptionElement;
+    if (w.id === activeWallet) opt.selected = true;
+    select.append(opt);
+  }
+  select.addEventListener('change', async () => {
+    await call({ type: 'selectWallet', id: select.value });
+    void start();
+  });
+
+  return el('div', { class: 'wallet-bar' }, [
+    el('span', { class: 'label', text: 'Wallet' }),
+    select,
+    button('+', () => void beginAddWallet(), 'btn small'),
+    button('Remove', async () => {
+      const current = wallets.find((w) => w.id === activeWallet);
+      const confirmed = await dialogConfirm({
+        title: `Remove ${current?.label ?? 'this wallet'}?`,
+        message:
+          'This forgets the wallet and its accounts on this device. Nothing on-chain is affected, and it can be restored with its recovery phrase — make sure you have that first.',
+        confirmLabel: 'Remove wallet',
+        danger: true,
+      });
+      if (!confirmed) return;
+      const res = await call({ type: 'removeWallet', id: activeWallet });
+      if (!res.ok) { await dialogAlert({ title: "Couldn't remove", message: res.error, tone: 'error' }); return; }
+      void start();
+    }, 'btn small'),
+  ]);
+}
+
+/**
+ * Add an empty wallet and go straight to import. The new vault is active from
+ * here on, so create/import lands in it rather than overwriting the old one.
+ */
+async function beginAddWallet(): Promise<void> {
+  const label = await dialogPrompt({
+    title: 'Import another wallet',
+    label: 'Name',
+    placeholder: 'Wallet 2',
+    confirmLabel: 'Continue',
+  });
+  if (label === null) return;
+  const res = await call({ type: 'addWallet', ...(label ? { label } : {}) });
+  if (!res.ok) {
+    await dialogAlert({ title: "Couldn't add wallet", message: res.error, tone: 'error' });
+    return;
+  }
+  renderImport();
 }
 
 /** MetaMask-style account picker: one seed, many derived accounts. */

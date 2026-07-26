@@ -24,6 +24,7 @@
  */
 
 import { WalletService } from '../core/wallet.js';
+import { WalletRegistry, PrefixedStore, walletPrefix } from '../core/wallets.js';
 import { WebExtStorage, type WebExtStorageArea } from '../core/storage.js';
 import { ConnectionStore, normalizeOrigin } from '../core/connections.js';
 import { CoinPayApi, compressedPublicKey } from '../core/api.js';
@@ -56,8 +57,29 @@ const MAX_BATCH_SIZE = 500;
 // chrome.storage promise API — cast to our minimal area interface.
 const local = new WebExtStorage(chrome.storage.local as unknown as WebExtStorageArea);
 const session = new WebExtStorage(chrome.storage.session as unknown as WebExtStorageArea);
-const wallet = new WalletService(local, session);
+const registry = new WalletRegistry(local);
 const connections = new ConnectionStore(local);
+
+/**
+ * Storage for the ACTIVE wallet. Each wallet keeps its own vault, addresses and
+ * portal registration under its own prefix, so switching swaps the whole view
+ * rather than merging two seeds' state.
+ *
+ * Rebuilt on switch and cached, because every request pays for this lookup.
+ */
+let activeWalletId: string | null = null;
+let walletLocal: PrefixedStore;
+let walletSession: PrefixedStore;
+let wallet: WalletService;
+
+async function useActiveWallet(): Promise<void> {
+  const id = await registry.activeId();
+  if (id === activeWalletId) return;
+  activeWalletId = id;
+  walletLocal = new PrefixedStore(local, walletPrefix(id));
+  walletSession = new PrefixedStore(session, walletPrefix(id));
+  wallet = new WalletService(walletLocal, walletSession);
+}
 const api = new CoinPayApi();
 const rates = new RateCache(api);
 
@@ -87,8 +109,16 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === AUTO_LOCK_ALARM) void wallet.lock();
 });
 
-// Runs on every worker start; cheap, and idempotent once the key is gone.
-void migrateLegacyPortalWallet();
+/**
+ * Boot: move a pre-multi-wallet install into its namespace, bind the active
+ * wallet, then clean up the stale portal ids. Order matters — the portal
+ * cleanup reads the per-wallet store.
+ */
+const ready = (async () => {
+  await registry.migrateLegacy();
+  await useActiveWallet();
+  await migrateLegacyPortalWallet();
+})();
 
 // ── Pending approvals ────────────────────────────────────────────────────────
 
@@ -225,7 +255,7 @@ chrome.windows.onRemoved.addListener((windowId) => {
  * row even though it reuses the EVM address.
  */
 async function ensurePortalWallet(seed: Uint8Array, accountIndex: number): Promise<string> {
-  const stored = await local.get<PortalWallet>(LOCAL_PORTAL_WALLET);
+  const stored = await walletLocal.get<PortalWallet>(LOCAL_PORTAL_WALLET);
   if (stored?.id && stored.accounts.includes(accountIndex)) return stored.id;
 
   const accounts = await wallet.addressesFor(accountIndex);
@@ -254,11 +284,34 @@ async function ensurePortalWallet(seed: Uint8Array, accountIndex: number): Promi
     });
     const registered = new Set(stored?.id === wallet_id ? stored.accounts : []);
     registered.add(accountIndex);
-    await local.set(LOCAL_PORTAL_WALLET, { id: wallet_id, accounts: [...registered] });
+    await walletLocal.set(LOCAL_PORTAL_WALLET, { id: wallet_id, accounts: [...registered] });
     return wallet_id;
   } finally {
     identity.fill(0);
   }
+}
+
+/**
+ * Wallet list for the switcher, with whether each holds a phrase yet.
+ *
+ * `initialized` matters: a wallet added but not yet imported into is a real
+ * entry with an empty vault, and the popup must send the user to the
+ * create/import screen rather than an empty account list.
+ */
+async function walletSummaries(): Promise<{
+  wallets: { id: string; label: string; initialized: boolean }[];
+  activeWallet: string;
+}> {
+  const entries = await registry.list();
+  const wallets = [];
+  for (const entry of entries) {
+    const scoped = new WalletService(
+      new PrefixedStore(local, walletPrefix(entry.id)),
+      new PrefixedStore(session, walletPrefix(entry.id)),
+    );
+    wallets.push({ ...entry, initialized: await scoped.isInitialized() });
+  }
+  return { wallets, activeWallet: await registry.activeId() };
 }
 
 /** Per-account registration view for the Settings screen. */
@@ -274,7 +327,7 @@ async function portalStatus(): Promise<{ index: number; label: string; walletId:
 
 /** The wallet id if this seed has been registered, without registering it. */
 async function portalWallet(): Promise<PortalWallet | undefined> {
-  return local.get<PortalWallet>(LOCAL_PORTAL_WALLET);
+  return walletLocal.get<PortalWallet>(LOCAL_PORTAL_WALLET);
 }
 
 /**
@@ -308,14 +361,14 @@ function registerAccountSoon(accountIndex: number): void {
  * same wallet id for the same key and backfills the correct addresses.
  */
 async function migrateLegacyPortalWallet(): Promise<void> {
-  if (await local.get<string>(LOCAL_PORTAL_WALLET_ID)) {
-    await local.remove(LOCAL_PORTAL_WALLET_ID);
+  if (await walletLocal.get<string>(LOCAL_PORTAL_WALLET_ID)) {
+    await walletLocal.remove(LOCAL_PORTAL_WALLET_ID);
   }
   // Registered with an address-level key, so its wallet row holds no addresses
   // (they collided with the real wallet's on the unique (address, chain) index).
   // Dropping it makes the next use register properly under the identity key.
-  if (await local.get<Record<string, string>>(LOCAL_PORTAL_WALLET_IDS)) {
-    await local.remove(LOCAL_PORTAL_WALLET_IDS);
+  if (await walletLocal.get<Record<string, string>>(LOCAL_PORTAL_WALLET_IDS)) {
+    await walletLocal.remove(LOCAL_PORTAL_WALLET_IDS);
   }
 }
 
@@ -493,6 +546,8 @@ async function handle(
   sender: chrome.runtime.MessageSender,
 ): Promise<WalletResponse> {
   try {
+    await ready;
+    await useActiveWallet();
     switch (req.type) {
       case 'getState':
         return {
@@ -521,9 +576,9 @@ async function handle(
         // wallet id belongs to the OLD wallet. Keeping them would authenticate
         // as the previous seed's wallet and prepare transactions from addresses
         // this wallet cannot sign for.
-        await local.remove(LOCAL_PORTAL_WALLET_ID);
-        await local.remove(LOCAL_PORTAL_WALLET_IDS);
-        await local.remove(LOCAL_PORTAL_WALLET);
+        await walletLocal.remove(LOCAL_PORTAL_WALLET_ID);
+        await walletLocal.remove(LOCAL_PORTAL_WALLET_IDS);
+        await walletLocal.remove(LOCAL_PORTAL_WALLET);
         registerAccountSoon(await wallet.getActiveAccount());
         scheduleAutoLock();
         return { ok: true, accounts };
@@ -540,6 +595,30 @@ async function handle(
         return { ok: true, accounts: await wallet.getAccounts() };
 
       // ── accounts: one seed, many BIP-44 indexes ──
+      // ── wallets ──
+      case 'listWallets':
+        return { ok: true, ...(await walletSummaries()) };
+      case 'selectWallet': {
+        await registry.select(req.id);
+        await useActiveWallet();
+        return { ok: true, ...(await walletSummaries()) };
+      }
+      case 'renameWallet': {
+        await registry.rename(req.id, req.label);
+        return { ok: true, ...(await walletSummaries()) };
+      }
+      case 'addWallet': {
+        // Only registers the wallet; the popup then runs create or import,
+        // which lands in this new (empty) vault.
+        await registry.add(req.label);
+        await useActiveWallet();
+        return { ok: true, ...(await walletSummaries()) };
+      }
+      case 'removeWallet': {
+        await registry.remove(req.id);
+        await useActiveWallet();
+        return { ok: true, ...(await walletSummaries()) };
+      }
       case 'listAccounts':
         return {
           ok: true,
@@ -571,7 +650,7 @@ async function handle(
         // show, so drop it from the registered set.
         const stored = await portalWallet();
         if (stored?.accounts.includes(req.index)) {
-          await local.set(LOCAL_PORTAL_WALLET, {
+          await walletLocal.set(LOCAL_PORTAL_WALLET, {
             id: stored.id,
             accounts: stored.accounts.filter((i) => i !== req.index),
           });

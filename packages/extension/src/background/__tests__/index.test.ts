@@ -53,8 +53,11 @@ interface Harness {
   registrations: () => any[];
 }
 
-async function boot(options: { registerFails?: boolean } = {}): Promise<Harness> {
+async function boot(
+  options: { registerFails?: boolean; storage?: Map<string, unknown> } = {},
+): Promise<Harness> {
   const local = fakeArea();
+  if (options.storage) for (const [k, v] of options.storage) local.map.set(k, v);
   const session = fakeArea();
   let listener: ((req: any, sender: any, respond: (r: any) => void) => boolean) | null = null;
 
@@ -139,6 +142,12 @@ async function boot(options: { registerFails?: boolean } = {}): Promise<Harness>
   };
 }
 
+/**
+ * Per-wallet keys live under `w:<id>:`. The first wallet is `w1`, so a
+ * single-wallet install reads through this helper.
+ */
+const scoped = (h: Harness, key: string) => h.local.map.get(`w:w1:${key}`);
+
 /** Registration is fire-and-forget; let its promise chain settle. */
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
@@ -199,7 +208,7 @@ describe('portal registration on account creation', () => {
     await h.send({ type: 'addAccount' });
     await settle();
 
-    const stored = h.local.map.get('portalWallet') as { id: string; accounts: number[] };
+    const stored = scoped(h, 'portalWallet') as { id: string; accounts: number[] };
     expect(stored.id).toMatch(/^wallet-for-/);
     expect(stored.accounts.sort()).toEqual([0, 1]);
   });
@@ -219,15 +228,18 @@ describe('portal registration on account creation', () => {
     await settle();
     // Stale ids from an earlier wallet: authenticating as them would prepare
     // transactions from addresses this seed cannot sign for.
-    await h.local.set({ portalWalletId: 'legacy-id', portalWalletIds: { 0: 'stale', 5: 'stale' } });
+    await h.local.set({
+      'w:w1:portalWalletId': 'legacy-id',
+      'w:w1:portalWalletIds': { 0: 'stale', 5: 'stale' },
+    });
 
     const other = 'zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong';
     await h.send({ type: 'import', mnemonic: other, password: PASSWORD });
     await settle();
 
-    expect(h.local.map.get('portalWalletId')).toBeUndefined();
-    expect(h.local.map.get('portalWalletIds')).toBeUndefined();
-    const stored = h.local.map.get('portalWallet') as { id: string } | undefined;
+    expect(scoped(h, 'portalWalletId')).toBeUndefined();
+    expect(scoped(h, 'portalWalletIds')).toBeUndefined();
+    const stored = scoped(h, 'portalWallet') as { id: string } | undefined;
     expect(stored?.id).not.toBe('stale');
   });
 
@@ -238,7 +250,7 @@ describe('portal registration on account creation', () => {
     await settle();
 
     await h.send({ type: 'removeAccount', index: 1 });
-    const stored = h.local.map.get('portalWallet') as { id: string; accounts: number[] };
+    const stored = scoped(h, 'portalWallet') as { id: string; accounts: number[] };
     expect(stored.accounts).toEqual([0]);
     expect(stored.id).toMatch(/^wallet-for-/);
   });
@@ -256,7 +268,7 @@ describe('registration failures never block the user', () => {
     expect(res.ok).toBe(true);
     expect('walletAccounts' in res && res.walletAccounts).toHaveLength(2);
     // Nothing cached, so the send path will register on demand instead.
-    expect(h.local.map.get('portalWallet')).toBeUndefined();
+    expect(scoped(h, 'portalWallet')).toBeUndefined();
   });
 
   it('reports the wallet as usable even though registration failed', async () => {
@@ -340,7 +352,7 @@ describe('sending pays from the active account', () => {
     expect(call!.body.from_address).not.toBe(firstEth);
 
     // ...against the one wallet this seed owns, which now holds both accounts.
-    const stored = h.local.map.get('portalWallet') as { id: string; accounts: number[] };
+    const stored = scoped(h, 'portalWallet') as { id: string; accounts: number[] };
     expect(call!.url).toContain(stored.id);
     expect(stored.accounts.sort()).toEqual([0, 1]);
   });
@@ -361,7 +373,7 @@ describe('sending pays from the active account', () => {
     const offline = await boot({ registerFails: true });
     await offline.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
     await settle();
-    expect(offline.local.map.get('portalWallet')).toBeUndefined();
+    expect(scoped(offline, 'portalWallet')).toBeUndefined();
 
     // The portal is reachable again by the time the user actually pays.
     offline.fetchMock.mockImplementation(async (url: string, init: any) => {
@@ -397,7 +409,7 @@ describe('sending pays from the active account', () => {
 
     const res = await offline.send({ type: 'send', chain: 'ETH', to: '0xrecipient', amount: '0.01' });
     expect(res.ok).toBe(true);
-    expect((offline.local.map.get('portalWallet') as { id: string }).id).toBeDefined();
+    expect((scoped(offline, 'portalWallet') as { id: string }).id).toBeDefined();
   });
 });
 
@@ -437,12 +449,15 @@ describe('portal status and reset', () => {
     const h = await boot();
     await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
     await settle();
-    expect(h.local.map.get('vault')).toBeDefined();
+    expect(scoped(h, 'vault')).toBeDefined();
 
     const res = await h.send({ type: 'resetWallet' });
     expect('state' in res && res.state).toEqual({ initialized: false, unlocked: false });
-    // Nothing of the old wallet may survive into the next one.
-    expect(h.local.map.size).toBe(0);
+    // Nothing of the old wallet may survive into the next one — but the wallet
+    // list itself is global and stays.
+    expect(scoped(h, 'vault')).toBeUndefined();
+    expect(scoped(h, 'accountList')).toBeUndefined();
+    expect(scoped(h, 'portalWallet')).toBeUndefined();
 
     const other = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
     const reimported = await h.send({ type: 'import', mnemonic: other, password: PASSWORD });
@@ -470,5 +485,127 @@ describe('settings round-trip', () => {
     await h.send({ type: 'setFiatCurrency', currency: 'DOGE' });
     const after = await h.send({ type: 'getSettings' });
     expect('settings' in after && after.settings.fiatCurrency).toBe('USD');
+  });
+});
+
+describe('several wallets, each with its own phrase', () => {
+  const OTHER = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
+
+  it('starts with one wallet', async () => {
+    const h = await boot();
+    const res = await h.send({ type: 'listWallets' });
+
+    expect('wallets' in res && res.wallets).toEqual([
+      { id: 'w1', label: 'Wallet 1', initialized: false },
+    ]);
+    expect('activeWallet' in res && res.activeWallet).toBe('w1');
+  });
+
+  it('keeps two phrases side by side, each with its own addresses', async () => {
+    const h = await boot();
+    await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+    await settle();
+    const first = await h.send({ type: 'getAccounts' });
+
+    await h.send({ type: 'addWallet', label: 'Second' });
+    await h.send({ type: 'import', mnemonic: OTHER, password: PASSWORD });
+    await settle();
+    const second = await h.send({ type: 'getAccounts' });
+
+    const address = (r: WalletResponse) => ('accounts' in r ? r.accounts[0]!.address : '');
+    expect(address(second)).not.toBe(address(first));
+
+    // Switching back must restore the first wallet exactly, not a merge.
+    await h.send({ type: 'selectWallet', id: 'w1' });
+    expect(address(await h.send({ type: 'getAccounts' }))).toBe(address(first));
+  });
+
+  it('registers each wallet with the portal separately', async () => {
+    const h = await boot();
+    await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+    await settle();
+    await h.send({ type: 'addWallet' });
+    await h.send({ type: 'import', mnemonic: OTHER, password: PASSWORD });
+    await settle();
+
+    const [first, second] = h.registrations();
+    // Different seed, different identity key, different portal wallet.
+    expect(second.public_key_secp256k1).not.toBe(first.public_key_secp256k1);
+    expect(scoped(h, 'portalWallet')).not.toEqual(h.local.map.get('w:w2:portalWallet'));
+  });
+
+  it('does not let one wallet see another wallet vault', async () => {
+    const h = await boot();
+    await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+    await h.send({ type: 'addWallet' });
+
+    // The new wallet is empty until something is imported into it.
+    const state = await h.send({ type: 'getState' });
+    expect('state' in state && state.state.initialized).toBe(false);
+    expect(h.local.map.get('w:w2:vault')).toBeUndefined();
+    expect(scoped(h, 'vault')).toBeDefined();
+  });
+
+  it('removing a wallet leaves the other intact', async () => {
+    const h = await boot();
+    await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+    await settle();
+    await h.send({ type: 'addWallet' });
+    await h.send({ type: 'import', mnemonic: OTHER, password: PASSWORD });
+    await settle();
+
+    const res = await h.send({ type: 'removeWallet', id: 'w2' });
+    expect('wallets' in res && res.wallets.map((w) => w.id)).toEqual(['w1']);
+    expect(h.local.map.get('w:w2:vault')).toBeUndefined();
+    expect(scoped(h, 'vault')).toBeDefined();
+  });
+
+  it('refuses to remove the only wallet', async () => {
+    const h = await boot();
+    await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+
+    const res = await h.send({ type: 'removeWallet', id: 'w1' });
+    expect(res.ok).toBe(false);
+    expect('error' in res && res.error).toMatch(/only wallet/i);
+  });
+
+  it('never reissues a removed wallet key space', async () => {
+    const h = await boot();
+    await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+    await h.send({ type: 'addWallet' }); // w2
+    await h.send({ type: 'removeWallet', id: 'w2' });
+    await h.send({ type: 'addWallet' }); // must be w3, not w2
+
+    const res = await h.send({ type: 'listWallets' });
+    expect('wallets' in res && res.wallets.map((w) => w.id)).toEqual(['w1', 'w3']);
+  });
+});
+
+describe('upgrading an existing single-wallet install', () => {
+  it('moves the old keys under w1 and keeps the wallet usable', async () => {
+    // Import on the pre-multi-wallet layout, then reboot into this version.
+    const first = await boot();
+    await first.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+    await settle();
+    const before = await first.send({ type: 'getAccounts' });
+
+    // Simulate the old layout: unprefixed keys, no wallet list.
+    const legacy = new Map(first.local.map);
+    for (const [key, value] of legacy) {
+      if (key.startsWith('w:w1:')) {
+        first.local.map.set(key.slice('w:w1:'.length), value);
+        first.local.map.delete(key);
+      }
+    }
+    first.local.map.delete('walletList');
+    first.local.map.delete('activeWallet');
+
+    const rebooted = await boot({ storage: first.local.map });
+    const after = await rebooted.send({ type: 'getAccounts' });
+
+    const address = (r: WalletResponse) => ('accounts' in r ? r.accounts[0]!.address : '');
+    expect(address(after)).toBe(address(before));
+    expect(rebooted.local.map.get('vault')).toBeUndefined();
+    expect(rebooted.local.map.get('w:w1:vault')).toBeDefined();
   });
 });
