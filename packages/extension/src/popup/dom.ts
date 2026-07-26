@@ -42,3 +42,26 @@ export function field(label: string, attrs: Props = {}): { row: HTMLElement; inp
 export function note(text: string, cls = 'muted'): HTMLElement {
   return el('p', { class: cls, text });
 }
+
+/**
+ * The wallet's mark, from the icon the browser already shows in the toolbar.
+ *
+ * Packaged, never remote: MV3 blocks remote images here, and a wallet should
+ * not phone home for its own branding. Both the popup and the approval window
+ * live one directory below the bundle root, so the path is the same for each.
+ */
+export function logo(size = 24): HTMLImageElement {
+  // 128px source, downscaled by the browser, so it stays sharp on hi-dpi.
+  return el('img', {
+    class: 'logo',
+    src: '../icons/icon-128.png',
+    alt: '',
+    width: String(size),
+    height: String(size),
+  });
+}
+
+/** Logo + title, the standard heading for every screen in the extension. */
+export function brand(title: string, cls = 'title'): HTMLElement {
+  return el('div', { class: 'brand' }, [logo(), el('h1', { class: cls, text: title })]);
+}

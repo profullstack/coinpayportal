@@ -74,6 +74,13 @@
       .acct-select { flex: 1; background: #0f1723; color: #e8eef7; border: 1px solid #2a3444; border-radius: 8px; padding: 7px 9px; font: inherit; }
       .lbl { display: block; font-size: 12px; color: #9fb0c7; font-weight: 600; margin: 12px 0 6px; }
       .send, .settings { display: block; }
+      .brand { display: flex; align-items: center; gap: 8px; }
+      .brand .logo { width: 24px; height: 24px; flex: none; border-radius: 6px; }
+      .topbar .brand .logo { width: 20px; height: 20px; }
+      .footer {
+        margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border);
+        color: var(--muted); font-size: 11px; text-align: center;
+      }
       .rate-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin: 6px 0 10px; }
       .rate-row p { margin: 0; }
       .rate-row .btn { flex: none; white-space: nowrap; }
@@ -98,6 +105,9 @@
   </head>
   <body>
     <div id="app"><p class="muted">Loading…</p></div>
+    <!-- Outside #app: every render replaces #app's children, and the footer
+         must survive all of them. Filled in by the popup controller. -->
+    <footer id="footer" class="footer"></footer>
     <script type="module" src="./main.js"></script>
   </body>
 </html>

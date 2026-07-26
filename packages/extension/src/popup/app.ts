@@ -13,7 +13,7 @@ import { wordlist } from '@scure/bip39/wordlists/english';
 import type { DerivedAddress } from '../core/derivation.js';
 import { pickIndices, makeChoices } from '../core/backup.js';
 import { call } from './rpc.js';
-import { el, mount, button, field, note } from './dom.js';
+import { el, mount, button, field, note, brand, logo } from './dom.js';
 import { PAY_CHAINS, signingChain, payChainLabel, payChainTicker, type PayChain } from '../core/pay-chains.js';
 import { dialogConfirm, dialogPrompt, dialogAlert } from './dialog.js';
 import type { RateQuote } from '../core/rates.js';
@@ -37,6 +37,7 @@ let flow: CreateFlow | null = null;
 
 /** Entry point — decide the initial view from wallet state. */
 export async function start(): Promise<void> {
+  renderFooter();
   try {
     const res = await call({ type: 'getState' });
     const state = 'state' in res ? res.state : { initialized: false, unlocked: false };
@@ -230,7 +231,7 @@ async function renderWallet(): Promise<void> {
 
     mount(
       el('div', { class: 'topbar' }, [
-        el('h1', { class: 'title', text: 'CoinPay' }),
+        el('div', { class: 'brand' }, [logo(20), el('h1', { class: 'title', text: 'CoinPay' })]),
         button('Lock', async () => {
           await call({ type: 'lock' });
           renderUnlock();
@@ -584,7 +585,26 @@ function settingsPanel(): HTMLElement {
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function header(title: string): HTMLElement {
-  return el('h1', { class: 'title', text: title });
+  return brand(title);
+}
+
+/**
+ * Version of the extension actually running, straight from the manifest — the
+ * quickest way for a user (or us) to tell whether a browser picked up an update.
+ */
+export function installedVersion(): string {
+  try {
+    return chrome.runtime.getManifest().version;
+  } catch {
+    return '';
+  }
+}
+
+export function renderFooter(): void {
+  const footer = document.getElementById('footer');
+  if (!footer) return;
+  const version = installedVersion();
+  footer.textContent = version ? `CoinPay Wallet v${version}` : 'CoinPay Wallet';
 }
 
 function fail(status: HTMLElement, msg: string): void {
