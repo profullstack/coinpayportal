@@ -16,7 +16,9 @@ import { createRequire } from 'node:module';
 import { describe, it, expect, beforeAll } from 'vitest';
 
 import { deriveAllAddresses, seedFromMnemonic } from '../derivation.js';
-import { deriveKeyForChain } from '../../../../../src/lib/web-wallet/keys.ts';
+import { deriveIdentityKey } from '../private-keys.js';
+import { compressedPublicKey } from '../api.js';
+import { deriveKeyForChain, deriveWalletBundle } from '../../../../../src/lib/web-wallet/keys.ts';
 
 beforeAll(() => {
   (globalThis as any).require ??= createRequire(import.meta.url);
@@ -55,6 +57,21 @@ describe('extension and web wallet derive the same addresses', () => {
         const reference = await deriveKeyForChain(mnemonic, derived.chain as any, 1);
         expect(derived.address, `${derived.chain} account 1 disagrees`).toBe(reference.address);
       }
+    });
+  }
+
+  /**
+   * Identity, not just addresses. The portal looks a wallet up by
+   * `public_key_secp256k1`, so if these disagree the same seed becomes two
+   * wallet rows — and the second one's addresses collide with the first's on
+   * the unique (address, chain) index and vanish.
+   */
+  for (const mnemonic of PHRASES) {
+    it(`registers the same public key as the web wallet for "${mnemonic.split(' ')[0]}…"`, async () => {
+      const extension = compressedPublicKey(deriveIdentityKey(seedFromMnemonic(mnemonic)));
+      const bundle = await deriveWalletBundle(mnemonic, ['ETH']);
+
+      expect(extension).toBe(bundle.publicKeySecp256k1);
     });
   }
 

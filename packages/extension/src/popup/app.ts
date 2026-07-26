@@ -320,17 +320,61 @@ function tabs(): HTMLElement {
 }
 
 function addressList(addresses: DerivedAddress[]): HTMLElement {
-  const rows = addresses.map((a) =>
-    el('div', { class: 'account' }, [
+  // Balances come from the portal's cached view of the chain, so they arrive
+  // after the addresses do. Render the addresses immediately and fill the
+  // numbers in — an address you can copy is useful even if the balance is slow.
+  const slots = new Map<string, HTMLElement>();
+
+  const rows = addresses.map((a) => {
+    const balance = el('span', { class: 'tokens', text: '…' });
+    slots.set(a.chain, balance);
+    return el('div', { class: 'account' }, [
       el('div', { class: 'acct-head' }, [
         el('span', { class: 'chain', text: a.chain }),
-        a.tokens.length ? el('span', { class: 'tokens', text: '+ ' + a.tokens.join(', ') }) : el('span', {}),
+        balance,
       ]),
+      a.tokens.length ? el('span', { class: 'tokens', text: '+ ' + a.tokens.join(', ') }) : el('span', {}),
       el('code', { class: 'addr', text: a.address }),
       button('Copy', () => { void navigator.clipboard.writeText(a.address); }, 'btn small'),
-    ]),
-  );
+    ]);
+  });
+
+  if (rows.length) void fillBalances(slots);
+
   return el('div', { class: 'accounts' }, rows.length ? rows : [note('No accounts yet.')]);
+}
+
+/** Fetch balances, then price each one in the user's display currency. */
+async function fillBalances(slots: Map<string, HTMLElement>): Promise<void> {
+  let balances: { chain: string; balance: string }[];
+  try {
+    const res = await call({ type: 'getBalances' });
+    balances = 'balances' in res ? res.balances : [];
+  } catch {
+    // Offline, locked, or not registered yet — leave the addresses usable and
+    // say nothing rather than showing a wrong or alarming zero.
+    for (const slot of slots.values()) slot.textContent = '';
+    return;
+  }
+
+  const byChain = new Map(balances.map((b) => [b.chain, b.balance]));
+  for (const [chain, slot] of slots) {
+    const raw = byChain.get(chain);
+    const amount = Number(raw ?? '0');
+    slot.textContent = Number.isFinite(amount) ? `${formatCrypto(amount)} ${chain}` : '';
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+
+    // Priced separately so a missing rate costs the fiat line, not the balance.
+    try {
+      const quote = await call({ type: 'getRate', coin: chain });
+      if (!('quote' in quote)) continue;
+      const value = cryptoToFiat(amount, quote.quote.rate);
+      if (value === null) continue;
+      slot.textContent = `${formatCrypto(amount)} ${chain} · ${formatFiat(value, quote.quote.fiat)}`;
+    } catch {
+      /* keep the crypto amount */
+    }
+  }
 }
 
 /**
