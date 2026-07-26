@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getExchangeRate, getMultipleRates } from '@/lib/rates/tatum';
+import { getUsdFxRate } from '@/lib/rates/fx';
 import { SUPPORTED_FIAT_CURRENCIES, type FiatCurrency } from '@/lib/web-wallet/settings';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { getClientIp } from '@/lib/web-wallet/client-ip';
@@ -49,14 +50,12 @@ export async function GET(request: NextRequest) {
       
       // Handle stablecoins (pegged to USD)
       if (coin.startsWith('USDT') || coin.startsWith('USDC')) {
-        // For non-USD fiats, convert stablecoin rate
+        // A USD-pegged coin is worth 1 USD, so its price in another currency is
+        // just the FX rate — no crypto quote needed.
         let rate = 1.0;
         if (fiat !== 'USD') {
           try {
-            // Get USD to target fiat rate (via BTC as intermediary)
-            const btcUsd = await getExchangeRate('BTC', 'USD');
-            const btcFiat = await getExchangeRate('BTC', fiat);
-            rate = btcFiat / btcUsd;
+            rate = await getUsdFxRate(fiat);
           } catch {
             rate = 1.0; // Fallback to 1:1 if conversion fails
           }
@@ -110,9 +109,7 @@ export async function GET(request: NextRequest) {
       // Pre-calculate stablecoin rate for non-USD fiats
       if (fiat !== 'USD') {
         try {
-          const btcUsd = await getExchangeRate('BTC', 'USD');
-          const btcFiat = await getExchangeRate('BTC', fiat);
-          stablecoinRate = btcFiat / btcUsd;
+          stablecoinRate = await getUsdFxRate(fiat);
         } catch {
           // Keep default 1.0
         }
