@@ -162,6 +162,74 @@ describe('multiple accounts (one seed, many BIP-44 indexes)', () => {
     expect(await fresh.svc.getAccounts()).toEqual(before);
   });
 
+  describe('removeAccount', () => {
+    it('hides the account from the list', async () => {
+      await ctx.svc.addAccount('Payouts');
+      const { accounts } = await ctx.svc.removeAccount(1);
+
+      expect(accounts.map((a) => a.index)).toEqual([0]);
+      expect(await ctx.svc.listAccounts()).toHaveLength(1);
+    });
+
+    it('never reissues a removed index', async () => {
+      // Otherwise a "new" account would silently inherit the old one's
+      // addresses — including anything sent there after removal.
+      await ctx.svc.addAccount('Payouts'); // index 1
+      await ctx.svc.removeAccount(1);
+      const next = await ctx.svc.addAccount('Fresh');
+
+      expect(next.index).toBe(2);
+    });
+
+    it('moves off the removed account when it was active', async () => {
+      await ctx.svc.addAccount('Payouts'); // becomes active
+      expect(await ctx.svc.getActiveAccount()).toBe(1);
+
+      const { activeAccount } = await ctx.svc.removeAccount(1);
+      expect(activeAccount).toBe(0);
+      expect(await ctx.svc.getActiveAccount()).toBe(0);
+      expect(await ctx.svc.getAccounts()).toEqual(await ctx.svc.addressesFor(0));
+    });
+
+    it('leaves the active account alone when another one is removed', async () => {
+      await ctx.svc.addAccount('Payouts'); // index 1, active
+      await ctx.svc.addAccount('Third'); // index 2, active
+      await ctx.svc.removeAccount(1);
+
+      expect(await ctx.svc.getActiveAccount()).toBe(2);
+    });
+
+    it('refuses to remove the only account', async () => {
+      await expect(ctx.svc.removeAccount(0)).rejects.toThrow(/only account/i);
+      expect(await ctx.svc.listAccounts()).toHaveLength(1);
+    });
+
+    it('refuses an unknown or already-removed account', async () => {
+      await ctx.svc.addAccount('Payouts');
+      await ctx.svc.removeAccount(1);
+
+      await expect(ctx.svc.removeAccount(1)).rejects.toThrow(/No such account/);
+      await expect(ctx.svc.removeAccount(7)).rejects.toThrow(/No such account/);
+    });
+
+    it('cannot select or rename a removed account', async () => {
+      await ctx.svc.addAccount('Payouts');
+      await ctx.svc.removeAccount(1);
+
+      await expect(ctx.svc.selectAccount(1)).rejects.toThrow(/No such account/);
+      await expect(ctx.svc.renameAccount(1, 'Back')).rejects.toThrow(/No such account/);
+    });
+
+    it('drops the removed account cached addresses', async () => {
+      await ctx.svc.addAccount('Payouts');
+      await ctx.svc.removeAccount(1);
+
+      const book = ctx.local.snapshot().accounts as Record<string, unknown>;
+      expect(book[1]).toBeUndefined();
+      expect(book[0]).toBeDefined();
+    });
+  });
+
   it('keeps addresses from wallets created before multi-account existed', async () => {
     // Pre-migration installs stored a bare array under `accounts`.
     const legacy = newService();
