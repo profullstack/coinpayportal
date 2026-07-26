@@ -91,6 +91,30 @@ export function derivePrivateKey(seed: Uint8Array, chain: NativeChain, index = 0
   return Uint8Array.from(derived.privateKey);
 }
 
+/**
+ * The wallet's IDENTITY key: BIP-44 account node `m/44'/60'/0'`.
+ *
+ * This is what the CoinPay web wallet registers as its `public_key_secp256k1`
+ * (`deriveWalletBundle` in src/lib/web-wallet/keys.ts), and the portal looks a
+ * wallet up by exactly that value. Registering an address-level key instead —
+ * which the extension used to do — created a SECOND wallet row for the same
+ * seed, whose addresses then collided with the first one's on the unique
+ * (address, chain) index and were silently dropped, leaving a registered wallet
+ * with no addresses and no way to send.
+ *
+ * It is the account node, so it does not vary with the account index: one seed
+ * is one portal wallet, holding every account's addresses. That matches how the
+ * web wallet models it.
+ */
+export function deriveIdentityKey(seed: Uint8Array): Uint8Array {
+  const derived = HDKey.fromMasterSeed(seed).derive(IDENTITY_PATH);
+  if (!derived.privateKey) throw new Error('Failed to derive wallet identity key');
+  return Uint8Array.from(derived.privateKey);
+}
+
+/** Path of the identity key above — kept next to it so they cannot drift. */
+export const IDENTITY_PATH = "m/44'/60'/0'";
+
 /** Hex form expected by `signTransaction({ privateKey })`. */
 export function derivePrivateKeyHex(seed: Uint8Array, chain: NativeChain, index = 0): string {
   const key = derivePrivateKey(seed, chain, index);

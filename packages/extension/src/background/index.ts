@@ -29,7 +29,7 @@ import { ConnectionStore, normalizeOrigin } from '../core/connections.js';
 import { CoinPayApi, compressedPublicKey } from '../core/api.js';
 import { RateCache } from '../core/rates.js';
 import { toFiatCurrency, type FiatCurrency } from '../core/fiat.js';
-import { derivePrivateKey, derivationPath } from '../core/private-keys.js';
+import { derivePrivateKey, derivationPath, deriveIdentityKey } from '../core/private-keys.js';
 import { runBatchPayments, summarizeBatch, parseBatchRequests, type BatchItemResult } from '../core/batch.js';
 import { PAY_CHAINS, signingChain, toPayChain } from '../core/pay-chains.js';
 import type { NativeChain } from '../core/chains.js';
@@ -39,8 +39,16 @@ const AUTO_LOCK_ALARM = 'coinpay-auto-lock';
 const DEFAULT_IDLE_MINUTES = 15;
 /** Pre-multi-account: one id for the whole install. Migrated away from below. */
 const LOCAL_PORTAL_WALLET_ID = 'portalWalletId';
-/** `{ [accountIndex]: walletId }` — one portal wallet per BIP-44 account. */
+/** Superseded: one portal wallet per account, registered with the wrong key. */
 const LOCAL_PORTAL_WALLET_IDS = 'portalWalletIds';
+/** `{ id, accounts }` — one portal wallet per SEED, and which accounts it holds. */
+const LOCAL_PORTAL_WALLET = 'portalWallet';
+
+interface PortalWallet {
+  id: string;
+  /** Account indexes whose addresses have been registered. */
+  accounts: number[];
+}
 const SESSION_APPROVALS = 'pendingApprovals';
 /** A batch of 62 payments takes minutes; cap the whole run, not each payment. */
 const MAX_BATCH_SIZE = 500;
@@ -217,9 +225,8 @@ chrome.windows.onRemoved.addListener((windowId) => {
  * row even though it reuses the EVM address.
  */
 async function ensurePortalWallet(seed: Uint8Array, accountIndex: number): Promise<string> {
-  const ids = (await local.get<Record<string, string>>(LOCAL_PORTAL_WALLET_IDS)) ?? {};
-  const cached = ids[accountIndex];
-  if (cached) return cached;
+  const stored = await local.get<PortalWallet>(LOCAL_PORTAL_WALLET);
+  if (stored?.id && stored.accounts.includes(accountIndex)) return stored.id;
 
   const accounts = await wallet.addressesFor(accountIndex);
   const byChain = new Map<NativeChain, string>(accounts.map((a) => [a.chain, a.address]));
@@ -231,21 +238,43 @@ async function ensurePortalWallet(seed: Uint8Array, accountIndex: number): Promi
     return [{ chain, address, derivation_path: derivationPath(signer, accountIndex) }];
   });
 
-  const authKey = derivePrivateKey(seed, 'ETH', accountIndex);
-  const solAddress = byChain.get('SOL');
+  // Identity is the BIP-44 account node, so the same seed always resolves to
+  // the same portal wallet — including one created by the CoinPay web wallet.
+  // Registering again just backfills whatever addresses are missing.
+  const identity = deriveIdentityKey(seed);
+  // The web wallet registers its account-0 Solana address as the ed25519
+  // identity; match it so both clients describe one wallet identically.
+  const solAddress = (await wallet.addressesFor(0)).find((a) => a.chain === 'SOL')?.address;
   try {
     const { wallet_id } = await api.registerWallet({
-      publicKeySecp256k1: compressedPublicKey(authKey),
+      publicKeySecp256k1: compressedPublicKey(identity),
       publicKeyEd25519: solAddress, // Solana addresses ARE base58 ed25519 pubkeys
       addresses,
-      privateKey: authKey,
+      privateKey: identity,
     });
-    ids[accountIndex] = wallet_id;
-    await local.set(LOCAL_PORTAL_WALLET_IDS, ids);
+    const registered = new Set(stored?.id === wallet_id ? stored.accounts : []);
+    registered.add(accountIndex);
+    await local.set(LOCAL_PORTAL_WALLET, { id: wallet_id, accounts: [...registered] });
     return wallet_id;
   } finally {
-    authKey.fill(0);
+    identity.fill(0);
   }
+}
+
+/** Per-account registration view for the Settings screen. */
+async function portalStatus(): Promise<{ index: number; label: string; walletId: string | null }[]> {
+  const stored = await portalWallet();
+  const accounts = await wallet.listAccounts();
+  return accounts.map((a) => ({
+    index: a.index,
+    label: a.label,
+    walletId: stored && stored.accounts.includes(a.index) ? stored.id : null,
+  }));
+}
+
+/** The wallet id if this seed has been registered, without registering it. */
+async function portalWallet(): Promise<PortalWallet | undefined> {
+  return local.get<PortalWallet>(LOCAL_PORTAL_WALLET);
 }
 
 /**
@@ -279,8 +308,15 @@ function registerAccountSoon(accountIndex: number): void {
  * same wallet id for the same key and backfills the correct addresses.
  */
 async function migrateLegacyPortalWallet(): Promise<void> {
-  const legacy = await local.get<string>(LOCAL_PORTAL_WALLET_ID);
-  if (legacy) await local.remove(LOCAL_PORTAL_WALLET_ID);
+  if (await local.get<string>(LOCAL_PORTAL_WALLET_ID)) {
+    await local.remove(LOCAL_PORTAL_WALLET_ID);
+  }
+  // Registered with an address-level key, so its wallet row holds no addresses
+  // (they collided with the real wallet's on the unique (address, chain) index).
+  // Dropping it makes the next use register properly under the identity key.
+  if (await local.get<Record<string, string>>(LOCAL_PORTAL_WALLET_IDS)) {
+    await local.remove(LOCAL_PORTAL_WALLET_IDS);
+  }
 }
 
 // ── Site request handling ────────────────────────────────────────────────────
@@ -332,7 +368,7 @@ async function handleSitePayBatch(
     const addresses: Partial<Record<NativeChain, string>> = {};
     for (const account of accounts) addresses[account.chain] = account.address;
 
-    const authKey = derivePrivateKey(seed, 'ETH', accountIndex);
+    const authKey = deriveIdentityKey(seed);
     try {
       const results = await runBatchPayments(payments, {
         api,
@@ -394,7 +430,7 @@ async function handleSend(chain: string, to: string, amount: string): Promise<Ba
   const addresses: Partial<Record<NativeChain, string>> = {};
   for (const account of accounts) addresses[account.chain] = account.address;
 
-  const authKey = derivePrivateKey(seed, 'ETH', accountIndex);
+  const authKey = deriveIdentityKey(seed);
   try {
     const [result] = await runBatchPayments(
       [{ id: `popup-${Date.now()}`, chain: payChain, to: recipient, amount: amount.trim() }],
@@ -487,6 +523,7 @@ async function handle(
         // this wallet cannot sign for.
         await local.remove(LOCAL_PORTAL_WALLET_ID);
         await local.remove(LOCAL_PORTAL_WALLET_IDS);
+        await local.remove(LOCAL_PORTAL_WALLET);
         registerAccountSoon(await wallet.getActiveAccount());
         scheduleAutoLock();
         return { ok: true, accounts };
@@ -529,12 +566,15 @@ async function handle(
       }
       case 'removeAccount': {
         const { accounts, activeAccount } = await wallet.removeAccount(req.index);
-        // The account can no longer pay, so its portal registration is dead
-        // local state. The index is retired, so nothing can inherit this entry.
-        const ids = (await local.get<Record<string, string>>(LOCAL_PORTAL_WALLET_IDS)) ?? {};
-        if (ids[req.index]) {
-          delete ids[req.index];
-          await local.set(LOCAL_PORTAL_WALLET_IDS, ids);
+        // The wallet itself stays — one portal wallet per seed, shared with the
+        // other accounts — but this account's addresses are no longer ours to
+        // show, so drop it from the registered set.
+        const stored = await portalWallet();
+        if (stored?.accounts.includes(req.index)) {
+          await local.set(LOCAL_PORTAL_WALLET, {
+            id: stored.id,
+            accounts: stored.accounts.filter((i) => i !== req.index),
+          });
         }
         return { ok: true, walletAccounts: accounts, activeAccount };
       }
@@ -546,33 +586,31 @@ async function handle(
         return { ok: true, sent };
       }
 
-      case 'getPortalStatus': {
-        const ids = (await local.get<Record<string, string>>(LOCAL_PORTAL_WALLET_IDS)) ?? {};
-        const accounts = await wallet.listAccounts();
-        return {
-          ok: true,
-          portal: accounts.map((a) => ({
-            index: a.index,
-            label: a.label,
-            walletId: ids[a.index] ?? null,
-          })),
-        };
-      }
+      case 'getPortalStatus':
+        return { ok: true, portal: await portalStatus() };
       case 'registerAccount': {
         // Explicit retry for an account whose background registration failed
         // (offline, portal down, rate limited). Needs the seed, so unlocked.
         const seed = await wallet.requireSeed();
         await ensurePortalWallet(seed, req.index);
-        const ids = (await local.get<Record<string, string>>(LOCAL_PORTAL_WALLET_IDS)) ?? {};
-        const accounts = await wallet.listAccounts();
-        return {
-          ok: true,
-          portal: accounts.map((a) => ({
-            index: a.index,
-            label: a.label,
-            walletId: ids[a.index] ?? null,
-          })),
-        };
+        return { ok: true, portal: await portalStatus() };
+      }
+      case 'getBalances': {
+        const seed = await wallet.requireSeed();
+        const accountIndex = await wallet.getActiveAccount();
+        const walletId = await ensurePortalWallet(seed, accountIndex);
+        const authKey = deriveIdentityKey(seed);
+        try {
+          // Only this account's addresses: one seed is one portal wallet, so the
+          // response covers every account and the rest are not ours to show here.
+          const mine = new Set((await wallet.addressesFor(accountIndex)).map((a) => a.address));
+          const balances = (await api.getBalances(walletId, authKey)).filter((b) =>
+            mine.has(b.address),
+          );
+          return { ok: true, balances };
+        } finally {
+          authKey.fill(0);
+        }
       }
       case 'resetWallet': {
         await wallet.reset();

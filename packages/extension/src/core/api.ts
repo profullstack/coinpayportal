@@ -226,6 +226,20 @@ export class CoinPayApi {
     });
   }
 
+  /**
+   * Balances for every address registered to this wallet. Server-side cached,
+   * so this is cheap enough to call on popup open.
+   */
+  async getBalances(
+    walletId: string,
+    privateKey: Uint8Array,
+  ): Promise<{ chain: string; address: string; balance: string; updatedAt?: string }[]> {
+    const balances = await this.#request<
+      { chain: string; address: string; balance: string; updatedAt?: string }[]
+    >('GET', `/web-wallet/${walletId}/balances`, { walletId, privateKey });
+    return balances ?? [];
+  }
+
   async prepareTx(
     walletId: string,
     privateKey: Uint8Array,

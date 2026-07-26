@@ -39,6 +39,8 @@ export type WalletRequest =
   | { type: 'send'; chain: string; to: string; amount: string }
   // Which accounts the portal knows about, and registering one on demand.
   | { type: 'getPortalStatus' }
+  /** Balances for the active account, from the portal's cached view. */
+  | { type: 'getBalances' }
   | { type: 'registerAccount'; index: number }
   /** Wipe this device's wallet so a different phrase can be imported. */
   | { type: 'resetWallet' }
@@ -69,6 +71,15 @@ export interface WalletState {
 export interface WalletAccountSummary {
   index: number;
   label: string;
+}
+
+/** A confirmed on-chain balance for one of the wallet's addresses. */
+export interface AddressBalance {
+  chain: string;
+  address: string;
+  /** Decimal string in the chain's display units. */
+  balance: string;
+  updatedAt?: string;
 }
 
 /** What the portal knows about one account. */
@@ -123,6 +134,7 @@ export type WalletResponse =
   | { ok: true; settings: WalletSettings }
   | { ok: true; quote: RateQuote }
   | { ok: true; portal: PortalAccountStatus[] }
+  | { ok: true; balances: AddressBalance[] }
   | { ok: true }
   | { ok: false; error: string };
 

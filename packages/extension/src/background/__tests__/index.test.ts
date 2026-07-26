@@ -164,7 +164,7 @@ describe('portal registration on account creation', () => {
     expect(body.proof_of_ownership.signature).toMatch(/^[0-9a-f]{128}$/);
   });
 
-  it('registers a newly added account under its own index', async () => {
+  it('registers a new account under the same wallet, at its own index', async () => {
     await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
     await settle();
     await h.send({ type: 'addAccount', label: 'Payouts' });
@@ -172,22 +172,36 @@ describe('portal registration on account creation', () => {
 
     const [first, second] = h.registrations();
     expect(h.registrations()).toHaveLength(2);
-    // A separate account is a separate portal wallet: different key, different
-    // addresses, and derivation paths that say so.
-    expect(second.public_key_secp256k1).not.toBe(first.public_key_secp256k1);
+    // One seed is ONE portal wallet: the identity key is the BIP-44 account
+    // node, so it does not change per account. Registering an address-level key
+    // instead created a second wallet row whose addresses then collided with
+    // the first's and were dropped.
+    expect(second.public_key_secp256k1).toBe(first.public_key_secp256k1);
+    // The addresses are the new account's, though, at its own index.
     expect(second.addresses[0].address).not.toBe(first.addresses[0].address);
     expect(second.addresses.some((a: any) => a.derivation_path.includes('/1'))).toBe(true);
   });
 
-  it('caches one portal wallet id per account', async () => {
+  it('registers the BIP-44 account node, not an address key', async () => {
+    await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+    await settle();
+
+    const [body] = h.registrations();
+    // Same value the CoinPay web wallet registers for this phrase, so both
+    // clients resolve to one wallet. derivation.diff.test.ts pins the equality.
+    expect(body.public_key_secp256k1).toMatch(/^0[23][0-9a-f]{64}$/);
+    expect(body.addresses.every((a: any) => a.derivation_path.startsWith('m/44'))).toBe(true);
+  });
+
+  it('caches one wallet for the seed, tracking which accounts it holds', async () => {
     await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
     await settle();
     await h.send({ type: 'addAccount' });
     await settle();
 
-    const ids = h.local.map.get('portalWalletIds') as Record<string, string>;
-    expect(Object.keys(ids).sort()).toEqual(['0', '1']);
-    expect(ids['0']).not.toBe(ids['1']);
+    const stored = h.local.map.get('portalWallet') as { id: string; accounts: number[] };
+    expect(stored.id).toMatch(/^wallet-for-/);
+    expect(stored.accounts.sort()).toEqual([0, 1]);
   });
 
   it('does not re-register an account it already knows', async () => {
@@ -212,20 +226,21 @@ describe('portal registration on account creation', () => {
     await settle();
 
     expect(h.local.map.get('portalWalletId')).toBeUndefined();
-    const ids = h.local.map.get('portalWalletIds') as Record<string, string>;
-    expect(Object.values(ids ?? {})).not.toContain('stale');
+    expect(h.local.map.get('portalWalletIds')).toBeUndefined();
+    const stored = h.local.map.get('portalWallet') as { id: string } | undefined;
+    expect(stored?.id).not.toBe('stale');
   });
 
-  it('drops the portal wallet id when an account is removed', async () => {
+  it('drops a removed account from the registered set, keeping the wallet', async () => {
     await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
     await settle();
     await h.send({ type: 'addAccount' });
     await settle();
 
     await h.send({ type: 'removeAccount', index: 1 });
-    const ids = h.local.map.get('portalWalletIds') as Record<string, string>;
-    expect(ids['1']).toBeUndefined();
-    expect(ids['0']).toBeDefined();
+    const stored = h.local.map.get('portalWallet') as { id: string; accounts: number[] };
+    expect(stored.accounts).toEqual([0]);
+    expect(stored.id).toMatch(/^wallet-for-/);
   });
 });
 
@@ -241,7 +256,7 @@ describe('registration failures never block the user', () => {
     expect(res.ok).toBe(true);
     expect('walletAccounts' in res && res.walletAccounts).toHaveLength(2);
     // Nothing cached, so the send path will register on demand instead.
-    expect(h.local.map.get('portalWalletIds') ?? {}).toEqual({});
+    expect(h.local.map.get('portalWallet')).toBeUndefined();
   });
 
   it('reports the wallet as usable even though registration failed', async () => {
@@ -324,10 +339,10 @@ describe('sending pays from the active account', () => {
     expect(call!.body.from_address).toBe(secondEth);
     expect(call!.body.from_address).not.toBe(firstEth);
 
-    // ...and authenticated as the wallet registered for account 1, not 0.
-    const ids = h.local.map.get('portalWalletIds') as Record<string, string>;
-    expect(call!.url).toContain(ids['1']!);
-    expect(call!.url).not.toContain(ids['0']!);
+    // ...against the one wallet this seed owns, which now holds both accounts.
+    const stored = h.local.map.get('portalWallet') as { id: string; accounts: number[] };
+    expect(call!.url).toContain(stored.id);
+    expect(stored.accounts.sort()).toEqual([0, 1]);
   });
 
   it('follows the user back to the first account', async () => {
@@ -346,7 +361,7 @@ describe('sending pays from the active account', () => {
     const offline = await boot({ registerFails: true });
     await offline.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
     await settle();
-    expect(offline.local.map.get('portalWalletIds') ?? {}).toEqual({});
+    expect(offline.local.map.get('portalWallet')).toBeUndefined();
 
     // The portal is reachable again by the time the user actually pays.
     offline.fetchMock.mockImplementation(async (url: string, init: any) => {
@@ -382,7 +397,7 @@ describe('sending pays from the active account', () => {
 
     const res = await offline.send({ type: 'send', chain: 'ETH', to: '0xrecipient', amount: '0.01' });
     expect(res.ok).toBe(true);
-    expect((offline.local.map.get('portalWalletIds') as Record<string, string>)['0']).toBeDefined();
+    expect((offline.local.map.get('portalWallet') as { id: string }).id).toBeDefined();
   });
 });
 
