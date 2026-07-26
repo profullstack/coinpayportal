@@ -34,6 +34,7 @@ export type WalletRequest =
   | { type: 'addAccount'; label?: string }
   | { type: 'selectAccount'; index: number }
   | { type: 'renameAccount'; index: number; label: string }
+  | { type: 'removeAccount'; index: number }
   // ── popup: user-initiated send ──
   | { type: 'send'; chain: string; to: string; amount: string }
   | { type: 'getSettings' }
@@ -90,6 +91,8 @@ export type PendingApproval =
       requestId: string;
       origin: string;
       needsUnlock: boolean;
+      /** BIP-44 account that will pay, pinned when the request was made. */
+      accountIndex: number;
       payments: BatchPaymentRequest[];
       summary: { chain: string; count: number; total: string; totalUsd: number }[];
     };

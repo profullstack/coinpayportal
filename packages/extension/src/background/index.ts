@@ -37,7 +37,10 @@ import type { WalletRequest, WalletResponse, PendingApproval, WalletEvent } from
 
 const AUTO_LOCK_ALARM = 'coinpay-auto-lock';
 const DEFAULT_IDLE_MINUTES = 15;
+/** Pre-multi-account: one id for the whole install. Migrated away from below. */
 const LOCAL_PORTAL_WALLET_ID = 'portalWalletId';
+/** `{ [accountIndex]: walletId }` — one portal wallet per BIP-44 account. */
+const LOCAL_PORTAL_WALLET_IDS = 'portalWalletIds';
 const SESSION_APPROVALS = 'pendingApprovals';
 /** A batch of 62 payments takes minutes; cap the whole run, not each payment. */
 const MAX_BATCH_SIZE = 500;
@@ -75,6 +78,9 @@ function scheduleAutoLock(minutes?: number): void {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === AUTO_LOCK_ALARM) void wallet.lock();
 });
+
+// Runs on every worker start; cheap, and idempotent once the key is gone.
+void migrateLegacyPortalWallet();
 
 // ── Pending approvals ────────────────────────────────────────────────────────
 
@@ -199,27 +205,33 @@ chrome.windows.onRemoved.addListener((windowId) => {
 /**
  * The portal's prepare-tx/broadcast endpoints work against a registered wallet.
  * Registration is non-custodial — public keys, addresses, and a signature
- * proving we hold the key. Done once, then cached.
+ * proving we hold the key. Done once PER ACCOUNT, then cached.
+ *
+ * Per account, not per install: the portal keys a wallet by its secp256k1
+ * public key, and each BIP-44 account has its own. Registering account 2's
+ * addresses under account 0's key (what this did before) left the portal with
+ * addresses that do not belong to the key authorizing them.
  *
  * Every chain we might pay on is registered, including token chains: prepare-tx
  * verifies `from_address` against the exact chain, so USDC_POL needs its own
  * row even though it reuses the EVM address.
  */
-async function ensurePortalWallet(seed: Uint8Array): Promise<string> {
-  const cached = await local.get<string>(LOCAL_PORTAL_WALLET_ID);
+async function ensurePortalWallet(seed: Uint8Array, accountIndex: number): Promise<string> {
+  const ids = (await local.get<Record<string, string>>(LOCAL_PORTAL_WALLET_IDS)) ?? {};
+  const cached = ids[accountIndex];
   if (cached) return cached;
 
-  const accounts = await wallet.getAccounts();
+  const accounts = await wallet.addressesFor(accountIndex);
   const byChain = new Map<NativeChain, string>(accounts.map((a) => [a.chain, a.address]));
 
   const addresses = PAY_CHAINS.flatMap((chain) => {
     const signer = signingChain(chain);
     const address = byChain.get(signer);
     if (!address) return [];
-    return [{ chain, address, derivation_path: derivationPath(signer, 0) }];
+    return [{ chain, address, derivation_path: derivationPath(signer, accountIndex) }];
   });
 
-  const authKey = derivePrivateKey(seed, 'ETH', 0);
+  const authKey = derivePrivateKey(seed, 'ETH', accountIndex);
   const solAddress = byChain.get('SOL');
   try {
     const { wallet_id } = await api.registerWallet({
@@ -228,11 +240,23 @@ async function ensurePortalWallet(seed: Uint8Array): Promise<string> {
       addresses,
       privateKey: authKey,
     });
-    await local.set(LOCAL_PORTAL_WALLET_ID, wallet_id);
+    ids[accountIndex] = wallet_id;
+    await local.set(LOCAL_PORTAL_WALLET_IDS, ids);
     return wallet_id;
   } finally {
     authKey.fill(0);
   }
+}
+
+/**
+ * Drop the pre-multi-account cache. That single id was registered with the
+ * ACTIVE account's addresses but account 0's key, so its server-side address
+ * set cannot be trusted. Re-registering is idempotent — the portal returns the
+ * same wallet id for the same key and backfills the correct addresses.
+ */
+async function migrateLegacyPortalWallet(): Promise<void> {
+  const legacy = await local.get<string>(LOCAL_PORTAL_WALLET_ID);
+  if (legacy) await local.remove(LOCAL_PORTAL_WALLET_ID);
 }
 
 // ── Site request handling ────────────────────────────────────────────────────
@@ -261,6 +285,9 @@ async function handleSitePayBatch(
     requestId,
     origin,
     needsUnlock: !(await wallet.isUnlocked()),
+    // Pinned at request time: the user approves a specific account paying, so
+    // switching accounts while the prompt is open must not repoint the payer.
+    accountIndex: await wallet.getActiveAccount(),
     payments,
     summary: summarizeBatch(payments),
   };
@@ -275,18 +302,20 @@ async function handleSitePayBatch(
   try {
     // Approving requires unlocking, so by here the seed is available.
     const seed = await wallet.requireSeed();
-    const walletId = await ensurePortalWallet(seed);
-    const accounts = await wallet.getAccounts();
+    const { accountIndex } = approval;
+    const walletId = await ensurePortalWallet(seed, accountIndex);
+    const accounts = await wallet.addressesFor(accountIndex);
     const addresses: Partial<Record<NativeChain, string>> = {};
     for (const account of accounts) addresses[account.chain] = account.address;
 
-    const authKey = derivePrivateKey(seed, 'ETH', 0);
+    const authKey = derivePrivateKey(seed, 'ETH', accountIndex);
     try {
       const results = await runBatchPayments(payments, {
         api,
         walletId,
         seed,
         authKey,
+        accountIndex,
         addresses,
         signal: entry?.abort.signal,
         onProgress: (progress) => {
@@ -332,16 +361,20 @@ async function handleSend(chain: string, to: string, amount: string): Promise<Ba
   }
 
   const seed = await wallet.requireSeed();
-  const walletId = await ensurePortalWallet(seed);
-  const accounts = await wallet.getAccounts();
+  // Everything below must agree on ONE account: the addresses we send from, the
+  // portal wallet those addresses are registered under, the auth key, and the
+  // signing key.
+  const accountIndex = await wallet.getActiveAccount();
+  const walletId = await ensurePortalWallet(seed, accountIndex);
+  const accounts = await wallet.addressesFor(accountIndex);
   const addresses: Partial<Record<NativeChain, string>> = {};
   for (const account of accounts) addresses[account.chain] = account.address;
 
-  const authKey = derivePrivateKey(seed, 'ETH', 0);
+  const authKey = derivePrivateKey(seed, 'ETH', accountIndex);
   try {
     const [result] = await runBatchPayments(
       [{ id: `popup-${Date.now()}`, chain: payChain, to: recipient, amount: amount.trim() }],
-      { api, walletId, seed, authKey, addresses },
+      { api, walletId, seed, authKey, accountIndex, addresses },
     );
     if (!result) throw new Error('Send produced no result');
     if (result.status === 'failed') throw new Error(result.error || 'Send failed');
@@ -462,6 +495,17 @@ async function handle(
       case 'renameAccount': {
         const walletAccounts = await wallet.renameAccount(req.index, req.label);
         return { ok: true, walletAccounts, activeAccount: await wallet.getActiveAccount() };
+      }
+      case 'removeAccount': {
+        const { accounts, activeAccount } = await wallet.removeAccount(req.index);
+        // The account can no longer pay, so its portal registration is dead
+        // local state. The index is retired, so nothing can inherit this entry.
+        const ids = (await local.get<Record<string, string>>(LOCAL_PORTAL_WALLET_IDS)) ?? {};
+        if (ids[req.index]) {
+          delete ids[req.index];
+          await local.set(LOCAL_PORTAL_WALLET_IDS, ids);
+        }
+        return { ok: true, walletAccounts: accounts, activeAccount };
       }
 
       // ── user-initiated send (the popup's own payment, not a site's) ──

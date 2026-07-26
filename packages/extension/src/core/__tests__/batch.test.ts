@@ -16,6 +16,8 @@ import {
 } from '../batch.js';
 import type { CoinPayApi } from '../api.js';
 import { seedFromMnemonic } from '../derivation.js';
+import { derivePrivateKey } from '../private-keys.js';
+import { signTransaction } from '../signing.js';
 
 const SEED = seedFromMnemonic(
   'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
@@ -112,11 +114,51 @@ function run(requests: BatchPaymentRequest[], api: CoinPayApi, extra: Record<str
     walletId: 'wallet-1',
     seed: SEED,
     authKey: AUTH_KEY,
+    accountIndex: 0,
     addresses: ADDRESSES,
     sleep: noSleep,
     ...extra,
   } as any);
 }
+
+/**
+ * The account paying and the key signing must be the same one.
+ *
+ * This was broken in 0.4.0 and earlier: the from-address came from the ACTIVE
+ * account while the signing key was hardcoded to index 0, so every send from a
+ * second account signed with the first account's key and could not be valid.
+ */
+describe('signing key follows the paying account', () => {
+  function keyHex(chain: 'ETH' | 'BTC', index: number): string {
+    const key = derivePrivateKey(SEED, chain, index);
+    return Array.from(key, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  it('signs with the key derived at the given account index', async () => {
+    vi.mocked(signTransaction).mockClear();
+    await run([request({ id: 'a' })], fakeApi(), { accountIndex: 2 });
+
+    const { privateKey } = vi.mocked(signTransaction).mock.calls[0]![0] as { privateKey: string };
+    expect(privateKey).toBe(keyHex('ETH', 2));
+    expect(privateKey).not.toBe(keyHex('ETH', 0));
+  });
+
+  it('still signs with account 0 for the first account', async () => {
+    vi.mocked(signTransaction).mockClear();
+    await run([request({ id: 'a' })], fakeApi(), { accountIndex: 0 });
+
+    const { privateKey } = vi.mocked(signTransaction).mock.calls[0]![0] as { privateKey: string };
+    expect(privateKey).toBe(keyHex('ETH', 0));
+  });
+
+  it('applies the index per signing chain, not just EVM', async () => {
+    vi.mocked(signTransaction).mockClear();
+    await run([request({ id: 'a', chain: 'BTC' })], fakeApi(), { accountIndex: 3 });
+
+    const { privateKey } = vi.mocked(signTransaction).mock.calls[0]![0] as { privateKey: string };
+    expect(privateKey).toBe(keyHex('BTC', 3));
+  });
+});
 
 describe('runBatchPayments', () => {
   it('pays every item and returns results in the requested order', async () => {
@@ -235,6 +277,7 @@ describe('runBatchPayments', () => {
       walletId: 'wallet-1',
       seed: SEED,
       authKey: AUTH_KEY,
+      accountIndex: 0,
       addresses: { ETH: ADDRESSES.ETH }, // no BTC account
       sleep: noSleep,
     } as any);
