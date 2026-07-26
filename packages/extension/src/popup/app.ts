@@ -270,6 +270,10 @@ function accountSwitcher(accounts: { index: number; label: string }[], active: n
         placeholder: `Account ${accounts.length + 1}`,
         confirmLabel: 'Add',
       });
+      // Cancel means cancel. Without this, dismissing the prompt still created
+      // an account — which is where mystery "Account 2" entries came from.
+      // An empty name is not a cancel: it just takes the default label.
+      if (label === null) return;
       const res = await call({ type: 'addAccount', ...(label ? { label } : {}) });
       if (!res.ok) { await dialogAlert({ title: "Couldn't add account", message: res.error, tone: 'error' }); return; }
       void renderWallet();
