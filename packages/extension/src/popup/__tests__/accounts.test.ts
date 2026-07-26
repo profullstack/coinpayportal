@@ -313,3 +313,60 @@ describe('importing a second wallet', () => {
     expect(call.mock.calls.map(([r]) => r.type)).not.toContain('addWallet');
   });
 });
+
+describe('an empty second wallet is never mistaken for a fresh install', () => {
+  /** Two wallets, the second one empty and active — the state after adding. */
+  function stubTwoWallets(initializedActive: boolean) {
+    call.mockImplementation(async (req: any) => {
+      switch (req.type) {
+        case 'getState':
+          return { ok: true, state: { initialized: initializedActive, unlocked: false } };
+        case 'listWallets':
+          return {
+            ok: true,
+            wallets: [
+              { id: 'w1', label: 'Wallet 1', initialized: true },
+              { id: 'w2', label: 'Second', initialized: initializedActive },
+            ],
+            activeWallet: 'w2',
+          };
+        default:
+          return { ok: true };
+      }
+    });
+  }
+
+  it('offers a way back to the other wallet from the setup screen', async () => {
+    stubTwoWallets(false);
+    await start();
+    await settle();
+
+    // Without this the first wallet looks deleted, and importing again from
+    // here is how a duplicate of the same phrase gets created.
+    const select = document.querySelector('.wallet-slot select') as HTMLSelectElement;
+    expect(select).not.toBeNull();
+    expect([...select.options].map((o) => o.value)).toEqual(['w1', 'w2']);
+    expect(select.value).toBe('w2');
+  });
+
+  it('lets the user switch back, which reloads that wallet', async () => {
+    stubTwoWallets(false);
+    await start();
+    await settle();
+
+    const select = document.querySelector('.wallet-slot select') as HTMLSelectElement;
+    select.value = 'w1';
+    select.dispatchEvent(new Event('change'));
+    await settle();
+
+    expect(call).toHaveBeenCalledWith({ type: 'selectWallet', id: 'w1' });
+  });
+
+  it('shows the switcher on the unlock screen too', async () => {
+    stubTwoWallets(true);
+    await start();
+    await settle();
+
+    expect(document.querySelector('.wallet-slot select')).not.toBeNull();
+  });
+});

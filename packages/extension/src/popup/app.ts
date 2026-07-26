@@ -55,14 +55,39 @@ export async function start(): Promise<void> {
 // ── Welcome ────────────────────────────────────────────────────────────────
 
 function renderWelcome(): void {
+  const bar = walletBarPlaceholder();
   mount(
     header('CoinPay Wallet'),
+    bar,
     note('Non-custodial. Your keys never leave this device.'),
     el('div', { class: 'stack' }, [
       button('Create new wallet', () => void beginCreate(), 'btn primary'),
       button('Import existing wallet', () => renderImport(), 'btn'),
     ]),
   );
+}
+
+/**
+ * A slot for the wallet switcher, filled once the list arrives.
+ *
+ * Every screen that can appear while a wallet is EMPTY needs this. Without it,
+ * adding a second wallet dropped the popup to a bare setup screen with no way
+ * back — the first wallet looked deleted, and importing again from there is how
+ * someone ends up with two copies of the same phrase.
+ */
+function walletBarPlaceholder(): HTMLElement {
+  const slot = el('div', { class: 'wallet-slot' });
+  void (async () => {
+    try {
+      const res = await call({ type: 'listWallets' });
+      const wallets = 'wallets' in res ? res.wallets : [];
+      if (wallets.length < 2) return;
+      slot.replaceChildren(walletSwitcher(res));
+    } catch {
+      /* the switcher is an aid, never a blocker */
+    }
+  })();
+  return slot;
 }
 
 // ── Create: backup ───────────────────────────────────────────────────────────
@@ -169,7 +194,10 @@ function renderSetPassword(): void {
 
 // ── Import ───────────────────────────────────────────────────────────────────
 
-function renderImport(): void {
+function renderImport(intoWallet?: string): void {
+  const target = intoWallet
+    ? note(`Importing into ${intoWallet}. Your other wallets are untouched.`, 'warn')
+    : walletBarPlaceholder();
   const phrase = el('textarea', { class: 'input textarea', rows: '3', placeholder: '12 or 24 words separated by spaces', autocomplete: 'off', spellcheck: 'false' });
   const pw = field('Password', { type: 'password', autocomplete: 'new-password' });
   const pw2 = field('Confirm password', { type: 'password', autocomplete: 'new-password' });
@@ -177,6 +205,7 @@ function renderImport(): void {
 
   mount(
     header('Import wallet'),
+    target,
     el('label', { class: 'field' }, [el('span', { class: 'label', text: 'Recovery phrase' }), phrase]),
     pw.row,
     pw2.row,
@@ -214,7 +243,13 @@ function renderUnlock(): void {
   pw.input.addEventListener('keydown', (e) => {
     if ((e as KeyboardEvent).key === 'Enter') void submit();
   });
-  mount(header('Unlock'), pw.row, status, el('div', { class: 'row' }, [button('Unlock', () => void submit(), 'btn primary')]));
+  mount(
+    header('Unlock'),
+    walletBarPlaceholder(),
+    pw.row,
+    status,
+    el('div', { class: 'row' }, [button('Unlock', () => void submit(), 'btn primary')]),
+  );
 }
 
 // ── Wallet ───────────────────────────────────────────────────────────────────
@@ -327,7 +362,8 @@ async function beginAddWallet(): Promise<void> {
     await dialogAlert({ title: "Couldn't add wallet", message: res.error, tone: 'error' });
     return;
   }
-  renderImport();
+  // Name the destination so the screen cannot be mistaken for a fresh setup.
+  renderImport('wallets' in res ? res.wallets.find((w) => w.id === res.activeWallet)?.label : undefined);
 }
 
 /** MetaMask-style account picker: one seed, many derived accounts. */
