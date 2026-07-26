@@ -249,6 +249,30 @@ async function ensurePortalWallet(seed: Uint8Array, accountIndex: number): Promi
 }
 
 /**
+ * Register a just-created account with the portal, without making the user wait
+ * for it.
+ *
+ * Deliberately fire-and-forget: adding an account is pure local derivation and
+ * must keep working offline, rate-limited (10 imports/hour per IP), or with the
+ * portal down. Registration is idempotent and the send path calls
+ * `ensurePortalWallet` anyway, so a failure here costs nothing — the account is
+ * simply registered later, on first use.
+ */
+function registerAccountSoon(accountIndex: number): void {
+  void (async () => {
+    try {
+      const seed = await wallet.requireSeed();
+      await ensurePortalWallet(seed, accountIndex);
+    } catch (err) {
+      console.warn(
+        `[CoinPay] deferred portal registration for account ${accountIndex}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  })();
+}
+
+/**
  * Drop the pre-multi-account cache. That single id was registered with the
  * ACTIVE account's addresses but account 0's key, so its server-side address
  * set cannot be trusted. Re-registering is idempotent — the portal returns the
@@ -445,6 +469,7 @@ async function handle(
       }
       case 'confirmCreate': {
         const accounts = await wallet.confirmCreate(req.password);
+        registerAccountSoon(await wallet.getActiveAccount());
         scheduleAutoLock();
         return { ok: true, accounts };
       }
@@ -456,8 +481,13 @@ async function handle(
         };
       case 'import': {
         const accounts = await wallet.import(req.mnemonic, req.password);
-        // A different seed means a different portal wallet; drop the cached id.
+        // A different seed derives different keys, so every cached portal
+        // wallet id belongs to the OLD wallet. Keeping them would authenticate
+        // as the previous seed's wallet and prepare transactions from addresses
+        // this wallet cannot sign for.
         await local.remove(LOCAL_PORTAL_WALLET_ID);
+        await local.remove(LOCAL_PORTAL_WALLET_IDS);
+        registerAccountSoon(await wallet.getActiveAccount());
         scheduleAutoLock();
         return { ok: true, accounts };
       }
@@ -480,7 +510,8 @@ async function handle(
           activeAccount: await wallet.getActiveAccount(),
         };
       case 'addAccount': {
-        await wallet.addAccount(req.label);
+        const added = await wallet.addAccount(req.label);
+        registerAccountSoon(added.index);
         scheduleAutoLock();
         return {
           ok: true,
