@@ -15,7 +15,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { aggregateAssets, totalFiat, isFunded } from '../assets.js';
+import { aggregateAssets, totalFiat, isFunded, rateSymbolFor } from '../assets.js';
 
 /** chain, derivation index, cached balance — as the portal returns them. */
 const PRODUCTION_ROWS: [string, number, string][] = [
@@ -25,7 +25,7 @@ const PRODUCTION_ROWS: [string, number, string][] = [
   ['BTC', 0, '0'], ['BTC', 1, '0'], ['BTC', 2, '0'],
   ['DOGE', 0, '0'], ['DOGE', 1, '0'],
   ['ETH', 0, '0.011328888001978534'], ['ETH', 1, '0'],
-  ['LN', 0, '0'],
+  ['LN', 0, '0.00088512'],
   ['POL', 0, '74.829829482167570000'],
   ['SOL', 0, '0.148801694000000000'], ['SOL', 1, '0.175745690000000000'],
   ['USDC_BASE', 0, '20'],
@@ -51,6 +51,7 @@ const derived = ['BTC', 'BCH', 'ETH', 'POL', 'SOL'].map((chain) => ({
 
 /** Live rates at capture time. */
 const RATES: Record<string, number> = {
+  BTC: 64488.0,
   ETH: 1884.31,
   POL: 0.07653,
   SOL: 75.1,
@@ -61,6 +62,18 @@ const RATES: Record<string, number> = {
 
 describe('aggregateAssets over a real wallet', () => {
   const rows = aggregateAssets(derived, balances);
+
+  it('prices Lightning as bitcoin', () => {
+    // The wallet held 88,512 sats. With no LN pair on the rates endpoint it came
+    // back unpriced and vanished from the total — the entire gap between the
+    // extension ($92.45) and the web wallet ($149.55).
+    expect(rateSymbolFor('LN')).toBe('BTC');
+    expect(rateSymbolFor('ETH')).toBe('ETH');
+
+    const rows = aggregateAssets(derived, balances);
+    const { total } = totalFiat(rows, (asset) => RATES[rateSymbolFor(asset)] ?? null);
+    expect(total).toBeCloseTo(149.53, 1);
+  });
 
   it('lists every asset the wallet holds, once each', () => {
     expect(rows).toHaveLength(17);
@@ -95,10 +108,10 @@ describe('aggregateAssets over a real wallet', () => {
     expect(rows.find((r) => r.asset === 'ETH')!.address).toBe('eth-derived');
   });
 
-  it('puts the six funded assets first', () => {
+  it('puts the funded assets first', () => {
     const funded = rows.filter(isFunded).map((r) => r.asset);
-    expect(funded).toEqual(['ETH', 'POL', 'SOL', 'USDC_BASE', 'USDC_ETH', 'USDC_SOL']);
-    expect(rows.slice(0, 6).map((r) => r.asset)).toEqual(funded);
+    expect(funded).toEqual(['ETH', 'LN', 'POL', 'SOL', 'USDC_BASE', 'USDC_ETH', 'USDC_SOL']);
+    expect(rows.slice(0, 7).map((r) => r.asset)).toEqual(funded);
   });
 });
 
@@ -106,12 +119,14 @@ describe('wallet total over a real wallet', () => {
   const rows = aggregateAssets(derived, balances);
 
   it('matches the value computed from the raw balances and live rates', () => {
+    // Without an LN rate — what the extension did before the fix.
     const { total, priced, unpriced } = totalFiat(rows, (asset) => RATES[asset] ?? null);
 
     // 21.35 + 5.73 + 24.37 + 20 + 20 + 1.00
     expect(total).toBeCloseTo(92.45, 2);
     expect(priced).toBe(6);
-    expect(unpriced).toBe(0);
+    // LN is funded but unpriceable here, and is reported rather than zeroed.
+    expect(unpriced).toBe(1);
   });
 
   it('would have understated the total before the fix', () => {
@@ -127,7 +142,7 @@ describe('wallet total over a real wallet', () => {
       asset === 'SOL' ? null : (RATES[asset] ?? null),
     );
 
-    expect(unpriced).toBe(1);
+    expect(unpriced).toBe(2); // SOL (forced) and LN
     expect(priced).toBe(5);
     // SOL's $24.37 is excluded rather than silently treated as nothing.
     expect(total).toBeCloseTo(92.45 - 24.373, 2);

@@ -17,7 +17,7 @@ import { el, mount, button, field, note, brand, logo } from './dom.js';
 import { PAY_CHAINS, signingChain, payChainLabel, payChainTicker, isPayChain, type PayChain } from '../core/pay-chains.js';
 import { dialogConfirm, dialogPrompt, dialogAlert } from './dialog.js';
 import type { RateQuote } from '../core/rates.js';
-import { aggregateAssets, isFunded, totalFiat, type AssetRow } from '../core/assets.js';
+import { aggregateAssets, isFunded, totalFiat, rateSymbolFor, type AssetRow } from '../core/assets.js';
 import {
   FIAT_CURRENCIES,
   DEFAULT_FIAT,
@@ -217,10 +217,12 @@ function renderUnlock(): void {
 
 // ── Wallet ───────────────────────────────────────────────────────────────────
 
-type Tab = 'wallet' | 'send' | 'settings';
+type Tab = 'wallet' | 'send' | 'history' | 'settings';
 let activeTab: Tab = 'wallet';
 /** Asset chosen on the Wallet tab, consumed by the next Send render. */
 let pendingSendChain: PayChain | null = null;
+/** Asset the History tab is filtered to; null means the whole wallet. */
+let historyChain: string | null = null;
 
 async function renderWallet(): Promise<void> {
   try {
@@ -244,6 +246,7 @@ async function renderWallet(): Promise<void> {
       tabs(),
       activeTab === 'wallet' ? addressList(addresses)
         : activeTab === 'send' ? sendForm(addresses)
+        : activeTab === 'history' ? historyPanel(addresses)
         : settingsPanel(),
     );
   } catch (err) {
@@ -319,7 +322,12 @@ function accountSwitcher(accounts: { index: number; label: string }[], active: n
 function tabs(): HTMLElement {
   const mk = (id: Tab, label: string) =>
     button(label, () => { activeTab = id; void renderWallet(); }, `btn tab${activeTab === id ? ' active' : ''}`);
-  return el('div', { class: 'tabs' }, [mk('wallet', 'Wallet'), mk('send', 'Send'), mk('settings', 'Settings')]);
+  return el('div', { class: 'tabs' }, [
+    mk('wallet', 'Wallet'),
+    mk('send', 'Send'),
+    mk('history', 'History'),
+    mk('settings', 'Settings'),
+  ]);
 }
 
 /**
@@ -402,7 +410,7 @@ async function renderAssets(container: HTMLElement, addresses: DerivedAddress[])
   await Promise.all(
     priced.map(async ({ row, amount }) => {
       try {
-        const quote = await call({ type: 'getRate', coin: row.asset });
+        const quote = await call({ type: 'getRate', coin: rateSymbolFor(row.asset) });
         if (!('quote' in quote)) return;
         quotes.set(row.asset, quote.quote.rate);
         fiat = quote.quote.fiat;
@@ -431,6 +439,87 @@ async function renderAssets(container: HTMLElement, addresses: DerivedAddress[])
     unpriced
       ? `${unpriced} asset(s) could not be priced and are not included`
       : 'Sum of every priced balance in this account',
+  );
+}
+
+/**
+ * Transaction history — the whole wallet, or one asset.
+ *
+ * Per-asset matters because an EVM address carries several assets: "what
+ * happened on this address" is ambiguous, "what happened to my USDC" is not.
+ */
+function historyPanel(addresses: DerivedAddress[]): HTMLElement {
+  const filter = el('select', { class: 'acct-select' }) as HTMLSelectElement;
+  filter.append(el('option', { text: 'All assets', value: '' }) as HTMLOptionElement);
+  for (const c of PAY_CHAINS) {
+    if (!addresses.some((a) => a.chain === signingChain(c))) continue;
+    const option = el('option', { text: payChainLabel(c), value: c }) as HTMLOptionElement;
+    if (historyChain === c) option.selected = true;
+    filter.append(option);
+  }
+
+  const list = el('div', { class: 'accounts' }, [note('Loading…', 'muted small')]);
+  filter.addEventListener('change', () => {
+    historyChain = filter.value || null;
+    void loadHistory(list);
+  });
+  void loadHistory(list);
+
+  return el('div', { class: 'history' }, [
+    el('label', { class: 'lbl', text: 'Asset' }),
+    filter,
+    list,
+  ]);
+}
+
+async function loadHistory(list: HTMLElement): Promise<void> {
+  let transactions: {
+    chain: string; tx_hash: string; direction: string; status: string;
+    amount: string; from_address: string; to_address: string; block_timestamp: string | null;
+  }[];
+  try {
+    const res = await call({
+      type: 'getTransactions',
+      ...(historyChain ? { chain: historyChain } : {}),
+    });
+    transactions = 'transactions' in res ? res.transactions : [];
+  } catch (err) {
+    list.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
+    return;
+  }
+
+  if (!transactions.length) {
+    list.replaceChildren(note('No transactions yet.', 'muted small'));
+    return;
+  }
+
+  const short = (value: string) => (value.length > 18 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value);
+  list.replaceChildren(
+    ...transactions.map((tx) => {
+      const incoming = tx.direction === 'incoming';
+      return el('div', { class: 'account' }, [
+        el('div', { class: 'acct-head' }, [
+          el('span', {
+            class: incoming ? 'chain ok' : 'chain',
+            text: `${incoming ? '↓' : '↑'} ${formatCrypto(Number(tx.amount))} ${tx.chain}`,
+          }),
+          el('span', {
+            // Anything not confirmed is worth flagging: the funds are not final.
+            class: tx.status === 'confirmed' ? 'tokens' : 'tokens warnish',
+            text: tx.status,
+          }),
+        ]),
+        el('span', {
+          class: 'tokens',
+          text: `${incoming ? 'from' : 'to'} ${short(incoming ? tx.from_address : tx.to_address)}`,
+        }),
+        el('code', { class: 'addr', text: short(tx.tx_hash) }),
+        el('span', {
+          class: 'tokens',
+          text: tx.block_timestamp ? new Date(tx.block_timestamp).toLocaleString() : 'pending',
+        }),
+      ]);
+    }),
   );
 }
 

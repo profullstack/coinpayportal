@@ -16,6 +16,9 @@ import type { BatchPaymentRequest, BatchItemResult, BatchProgress } from './core
 import type { SiteConnection } from './core/connections.js';
 import type { FiatCurrency } from './core/fiat.js';
 import type { RateQuote } from './core/rates.js';
+import type { WalletTransaction } from './core/api.js';
+
+export type { WalletTransaction };
 
 export type WalletRequest =
   // ── popup: wallet lifecycle ──
@@ -41,6 +44,8 @@ export type WalletRequest =
   | { type: 'getPortalStatus' }
   /** Balances for the active account, from the portal's cached view. */
   | { type: 'getBalances' }
+  /** Recent transactions — whole wallet, or one asset when `chain` is given. */
+  | { type: 'getTransactions'; chain?: string }
   | { type: 'registerAccount'; index: number }
   /** Wipe this device's wallet so a different phrase can be imported. */
   | { type: 'resetWallet' }
@@ -141,6 +146,7 @@ export type WalletResponse =
   | { ok: true; quote: RateQuote }
   | { ok: true; portal: PortalAccountStatus[] }
   | { ok: true; balances: AddressBalance[] }
+  | { ok: true; transactions: WalletTransaction[] }
   | { ok: true }
   | { ok: false; error: string };
 

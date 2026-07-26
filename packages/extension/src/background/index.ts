@@ -595,6 +595,22 @@ async function handle(
         await ensurePortalWallet(seed, req.index);
         return { ok: true, portal: await portalStatus() };
       }
+      case 'getTransactions': {
+        const seed = await wallet.requireSeed();
+        const accountIndex = await wallet.getActiveAccount();
+        const walletId = await ensurePortalWallet(seed, accountIndex);
+        const authKey = deriveIdentityKey(seed);
+        try {
+          return {
+            ok: true,
+            transactions: await api.getTransactions(walletId, authKey, {
+              ...(req.chain ? { chain: req.chain } : {}),
+            }),
+          };
+        } finally {
+          authKey.fill(0);
+        }
+      }
       case 'getBalances': {
         const seed = await wallet.requireSeed();
         const accountIndex = await wallet.getActiveAccount();
