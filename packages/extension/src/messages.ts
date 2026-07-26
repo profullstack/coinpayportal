@@ -32,6 +32,13 @@ export type WalletRequest =
   | { type: 'getAccounts' }
   | { type: 'listConnections' }
   | { type: 'disconnectSite'; origin: string }
+  // ── popup: wallets (each its own recovery phrase) ──
+  | { type: 'listWallets' }
+  | { type: 'selectWallet'; id: string }
+  | { type: 'renameWallet'; id: string; label: string }
+  | { type: 'removeWallet'; id: string }
+  /** Begin a second wallet: the next create/import lands in a fresh vault. */
+  | { type: 'addWallet'; label?: string }
   // ── popup: accounts (one seed, many BIP-44 indexes) ──
   | { type: 'listAccounts' }
   | { type: 'addAccount'; label?: string }
@@ -71,6 +78,14 @@ export interface WalletState {
   /** Active BIP-44 account index, and every account the user has added. */
   activeAccount?: number;
   accountList?: WalletAccountSummary[];
+}
+
+/** One wallet — a distinct recovery phrase held by this extension. */
+export interface WalletSummary {
+  id: string;
+  label: string;
+  /** False until a phrase has been created or imported into it. */
+  initialized: boolean;
 }
 
 export interface WalletAccountSummary {
@@ -141,6 +156,7 @@ export type WalletResponse =
   | { ok: true; approval: PendingApproval }
   | { ok: true; results: BatchItemResult[] }
   | { ok: true; walletAccounts: WalletAccountSummary[]; activeAccount: number }
+  | { ok: true; wallets: WalletSummary[]; activeWallet: string }
   | { ok: true; sent: BatchItemResult }
   | { ok: true; settings: WalletSettings }
   | { ok: true; quote: RateQuote }
