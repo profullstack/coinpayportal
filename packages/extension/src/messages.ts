@@ -37,6 +37,11 @@ export type WalletRequest =
   | { type: 'removeAccount'; index: number }
   // ── popup: user-initiated send ──
   | { type: 'send'; chain: string; to: string; amount: string }
+  // Which accounts the portal knows about, and registering one on demand.
+  | { type: 'getPortalStatus' }
+  | { type: 'registerAccount'; index: number }
+  /** Wipe this device's wallet so a different phrase can be imported. */
+  | { type: 'resetWallet' }
   | { type: 'getSettings' }
   | { type: 'setAutoLockMinutes'; minutes: number }
   | { type: 'setFiatCurrency'; currency: string }
@@ -64,6 +69,14 @@ export interface WalletState {
 export interface WalletAccountSummary {
   index: number;
   label: string;
+}
+
+/** What the portal knows about one account. */
+export interface PortalAccountStatus {
+  index: number;
+  label: string;
+  /** Portal wallet id, or null when this account has not been registered. */
+  walletId: string | null;
 }
 
 export interface WalletSettings {
@@ -109,6 +122,7 @@ export type WalletResponse =
   | { ok: true; sent: BatchItemResult }
   | { ok: true; settings: WalletSettings }
   | { ok: true; quote: RateQuote }
+  | { ok: true; portal: PortalAccountStatus[] }
   | { ok: true }
   | { ok: false; error: string };
 

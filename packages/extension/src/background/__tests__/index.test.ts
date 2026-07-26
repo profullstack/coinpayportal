@@ -386,6 +386,55 @@ describe('sending pays from the active account', () => {
   });
 });
 
+describe('portal status and reset', () => {
+  it('reports which accounts the portal knows about', async () => {
+    const h = await boot({ registerFails: true });
+    await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+    await settle();
+
+    const before = await h.send({ type: 'getPortalStatus' });
+    expect('portal' in before && before.portal).toEqual([
+      { index: 0, label: 'Account 1', walletId: null },
+    ]);
+  });
+
+  it('registers on demand and then reports the wallet id', async () => {
+    const h = await boot();
+    await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+    await settle();
+
+    const res = await h.send({ type: 'registerAccount', index: 0 });
+    expect('portal' in res && res.portal[0]!.walletId).toMatch(/^wallet-for-/);
+  });
+
+  it('cannot register while locked', async () => {
+    const h = await boot({ registerFails: true });
+    await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+    await settle();
+    await h.send({ type: 'lock' });
+
+    const res = await h.send({ type: 'registerAccount', index: 0 });
+    expect(res.ok).toBe(false);
+    expect('error' in res && res.error).toMatch(/locked/i);
+  });
+
+  it('reset erases the wallet so another phrase can be imported', async () => {
+    const h = await boot();
+    await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+    await settle();
+    expect(h.local.map.get('vault')).toBeDefined();
+
+    const res = await h.send({ type: 'resetWallet' });
+    expect('state' in res && res.state).toEqual({ initialized: false, unlocked: false });
+    // Nothing of the old wallet may survive into the next one.
+    expect(h.local.map.size).toBe(0);
+
+    const other = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
+    const reimported = await h.send({ type: 'import', mnemonic: other, password: PASSWORD });
+    expect(reimported.ok).toBe(true);
+  });
+});
+
 describe('settings round-trip', () => {
   it('defaults to USD and persists a chosen currency', async () => {
     const h = await boot();

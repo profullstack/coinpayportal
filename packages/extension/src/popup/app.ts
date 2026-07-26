@@ -526,9 +526,10 @@ function settingsPanel(): HTMLElement {
   const container = el('div', { class: 'settings' }, [note('Loading…', 'muted small')]);
 
   void (async () => {
-    const [settingsRes, connRes] = await Promise.all([
+    const [settingsRes, connRes, portalRes] = await Promise.all([
       call({ type: 'getSettings' }),
       call({ type: 'listConnections' }),
+      call({ type: 'getPortalStatus' }),
     ]);
     const minutes = 'settings' in settingsRes ? settingsRes.settings.autoLockMinutes : 15;
     const currency = 'settings' in settingsRes ? settingsRes.settings.fiatCurrency : DEFAULT_FIAT;
@@ -544,6 +545,36 @@ function settingsPanel(): HTMLElement {
       if (c.code === currency) opt.selected = true;
       fiatSelect.append(opt);
     }
+
+    // CoinPay registration — otherwise the extension silently registers
+    // addresses with the portal and the user has no way to see that it
+    // happened, or to retry when it didn't.
+    const portal = 'portal' in portalRes ? portalRes.portal : [];
+    const portalRows = portal.map((account) =>
+      el('div', { class: 'account' }, [
+        el('div', { class: 'acct-head' }, [
+          el('span', { class: 'chain', text: account.label }),
+          el('span', {
+            class: account.walletId ? 'tokens ok' : 'tokens',
+            text: account.walletId ? 'Registered' : 'Not registered',
+          }),
+        ]),
+        account.walletId
+          ? el('code', { class: 'addr', text: account.walletId })
+          : button('Register now', async () => {
+              try {
+                await call({ type: 'registerAccount', index: account.index });
+                void renderWallet();
+              } catch (err) {
+                await dialogAlert({
+                  title: "Couldn't register",
+                  message: err instanceof Error ? err.message : String(err),
+                  tone: 'error',
+                });
+              }
+            }, 'btn small'),
+      ]),
+    );
 
     const sites = conns.length
       ? conns.map((c) =>
@@ -578,8 +609,41 @@ function settingsPanel(): HTMLElement {
         }
       }),
       status,
+      el('h2', { class: 'lbl', text: 'CoinPay' }),
+      note(
+        'Your public addresses are registered with coinpayportal.com so it can prepare and broadcast transactions. Public keys and addresses only — your recovery phrase never leaves this device, and no CoinPay account is involved.',
+        'muted small',
+      ),
+      ...portalRows,
       el('h2', { class: 'lbl', text: 'Connected sites' }),
       ...sites,
+      // Re-importing a different phrase was impossible from the UI: the import
+      // screen is only reachable before a wallet exists.
+      el('h2', { class: 'lbl', text: 'Recovery phrase' }),
+      note(
+        'Replace this wallet with a different recovery phrase — for example the one your CoinPay web wallet uses.',
+        'muted small',
+      ),
+      button('Reset wallet & import another', async () => {
+        const confirmed = await dialogConfirm({
+          title: 'Reset this wallet?',
+          message:
+            'This erases the wallet from this device — accounts, settings and connected sites. Anything here is only recoverable with its recovery phrase, so make sure you have that written down before continuing. Funds on-chain are not affected.',
+          confirmLabel: 'Erase and start over',
+          danger: true,
+        });
+        if (!confirmed) return;
+        try {
+          await call({ type: 'resetWallet' });
+          renderWelcome();
+        } catch (err) {
+          await dialogAlert({
+            title: "Couldn't reset",
+            message: err instanceof Error ? err.message : String(err),
+            tone: 'error',
+          });
+        }
+      }, 'btn danger'),
     );
   })();
 
