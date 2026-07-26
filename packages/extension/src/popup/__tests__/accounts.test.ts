@@ -59,6 +59,8 @@ function stubWallet() {
             { chain: 'USDC_ETH', address: '0xabc', balance: '20' },
             { chain: 'USDC_BASE', address: '0xabc', balance: '20' },
             { chain: 'BTC', address: '1abc', balance: '0' },
+            // On the wallet but not derivable by this extension yet.
+            { chain: 'DOGE', address: 'DPsNhvo', balance: '5', derived: false },
           ],
         };
       default:
@@ -178,7 +180,7 @@ describe('wallet tab asset list', () => {
     );
 
     expect(funded).toEqual([...funded].sort((a, b) => Number(b) - Number(a)));
-    expect(funded.filter(Boolean)).toHaveLength(3); // ETH, USDC_ETH, USDC_BASE
+    expect(funded.filter(Boolean)).toHaveLength(4); // ETH, USDC_ETH, USDC_BASE, DOGE
   });
 
   it('prices balances in the display currency', async () => {
@@ -197,5 +199,37 @@ describe('wallet tab asset list', () => {
     // Base is not a pay-chain: showing Send would promise something the
     // wallet cannot do.
     expect(rows.find((r) => r.asset === 'USDC_BASE')!.buttons).not.toContain('Send');
+  });
+});
+
+describe('wallet total and unverified assets', () => {
+  const rowFor = (asset: string) =>
+    [...document.querySelectorAll('.account')].find(
+      (row) => row.querySelector('.chain')!.textContent === asset,
+    )!;
+
+  it('totals every priced balance', async () => {
+    await settle();
+    await settle();
+
+    // rate 2 for everything: 0.0113 + 20 + 20 + 5 = 45.0113 -> $90.02
+    const total = document.querySelector('.total-value')!.textContent!;
+    expect(total).toMatch(/\$90\.02/);
+  });
+
+  it('shows chains the extension cannot derive, marked as such', async () => {
+    await settle();
+    const doge = rowFor('DOGE');
+
+    expect(doge.textContent).toContain('5 DOGE');
+    // Honest about provenance: shown for visibility, not verified locally.
+    expect(doge.textContent).toMatch(/not derived in this extension/i);
+    // And never offered for sending, since it cannot be signed or prepared.
+    expect([...doge.querySelectorAll('button')].map((b) => b.textContent)).not.toContain('Send');
+  });
+
+  it('does not mark locally derived addresses', async () => {
+    await settle();
+    expect(rowFor('ETH').textContent).not.toMatch(/not derived/i);
   });
 });

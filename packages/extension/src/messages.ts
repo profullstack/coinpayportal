@@ -80,6 +80,12 @@ export interface AddressBalance {
   /** Decimal string in the chain's display units. */
   balance: string;
   updatedAt?: string;
+  /**
+   * True when this extension derived the address from the seed itself. False
+   * for addresses known only from the portal's wallet record — shown so the
+   * user sees their whole wallet, but not presented as verified.
+   */
+  derived?: boolean;
 }
 
 /** What the portal knows about one account. */
