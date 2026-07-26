@@ -83,6 +83,18 @@ export function isFunded(row: AssetRow): boolean {
   return Number(row.balance) > 0;
 }
 
+/**
+ * The symbol to price an asset with.
+ *
+ * Lightning has no market of its own — a sat is a bitcoin sat — and the rates
+ * endpoint has no LN pair, so an LN balance came back unpriced and was silently
+ * left out of the wallet total. The portal prices it as BTC (CHAIN_TO_RATE_SYMBOL
+ * in balances/total-usd); do the same so the two agree.
+ */
+export function rateSymbolFor(asset: string): string {
+  return asset === 'LN' ? 'BTC' : asset;
+}
+
 export interface WalletTotal {
   total: number;
   /** Assets that had a balance and a usable rate. */

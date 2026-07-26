@@ -30,6 +30,17 @@ export interface RegisteredAddress {
   derivation_path: string;
 }
 
+export interface WalletTransaction {
+  chain: string;
+  tx_hash: string;
+  direction: 'incoming' | 'outgoing';
+  status: 'pending' | 'confirming' | 'confirmed' | 'failed';
+  amount: string;
+  from_address: string;
+  to_address: string;
+  block_timestamp: string | null;
+}
+
 export interface PreparedTx {
   tx_id: string;
   chain: PayChain;
@@ -240,6 +251,26 @@ export class CoinPayApi {
       balances?: { chain: string; address: string; balance: string; updatedAt?: string }[];
     }>('GET', `/web-wallet/${walletId}/balances`, { walletId, privateKey });
     return payload?.balances ?? [];
+  }
+
+  /**
+   * Recent transactions for this wallet, newest first. `chain` narrows to one
+   * asset; omit it for the whole wallet.
+   */
+  async getTransactions(
+    walletId: string,
+    privateKey: Uint8Array,
+    options: { chain?: string; limit?: number } = {},
+  ): Promise<WalletTransaction[]> {
+    const params = new URLSearchParams();
+    if (options.chain) params.set('chain', options.chain);
+    params.set('limit', String(options.limit ?? 25));
+    const payload = await this.#request<{ transactions?: WalletTransaction[] }>(
+      'GET',
+      `/web-wallet/${walletId}/transactions?${params}`,
+      { walletId, privateKey },
+    );
+    return payload?.transactions ?? [];
   }
 
   async prepareTx(
