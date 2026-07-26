@@ -280,6 +280,21 @@ export class WalletService {
     return b64ToBytes(b64);
   }
 
+  /**
+   * Forget this device's wallet entirely, so a different recovery phrase can be
+   * imported.
+   *
+   * Irreversible here and unrecoverable without the phrase: the vault is the
+   * only copy of the seed on this machine. Everything goes — vault, addresses,
+   * account list, settings, site connections, portal wallet ids — because a
+   * wallet from a different seed must not inherit any of the previous one's
+   * state.
+   */
+  async reset(): Promise<void> {
+    await this.session.clear();
+    await this.local.clear();
+  }
+
   async #persistNewWallet(mnemonic: string, password: string): Promise<DerivedAddress[]> {
     const seed = seedFromMnemonic(mnemonic);
     const accounts = deriveAllAddresses(seed, this.chains, 0);

@@ -546,6 +546,38 @@ async function handle(
         return { ok: true, sent };
       }
 
+      case 'getPortalStatus': {
+        const ids = (await local.get<Record<string, string>>(LOCAL_PORTAL_WALLET_IDS)) ?? {};
+        const accounts = await wallet.listAccounts();
+        return {
+          ok: true,
+          portal: accounts.map((a) => ({
+            index: a.index,
+            label: a.label,
+            walletId: ids[a.index] ?? null,
+          })),
+        };
+      }
+      case 'registerAccount': {
+        // Explicit retry for an account whose background registration failed
+        // (offline, portal down, rate limited). Needs the seed, so unlocked.
+        const seed = await wallet.requireSeed();
+        await ensurePortalWallet(seed, req.index);
+        const ids = (await local.get<Record<string, string>>(LOCAL_PORTAL_WALLET_IDS)) ?? {};
+        const accounts = await wallet.listAccounts();
+        return {
+          ok: true,
+          portal: accounts.map((a) => ({
+            index: a.index,
+            label: a.label,
+            walletId: ids[a.index] ?? null,
+          })),
+        };
+      }
+      case 'resetWallet': {
+        await wallet.reset();
+        return { ok: true, state: { initialized: false, unlocked: false } };
+      }
       case 'getSettings':
         return {
           ok: true,
