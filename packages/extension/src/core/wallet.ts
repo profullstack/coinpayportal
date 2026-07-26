@@ -20,7 +20,10 @@ import { bytesToB64, b64ToBytes } from './b64.js';
 import type { KeyValueStore } from './storage.js';
 
 const LOCAL_VAULT = 'vault';
+/** Superseded by the per-chain book; read once by the migration. */
 const LOCAL_ACCOUNTS = 'accounts';
+/** `{ [chain]: [{ index, address }] }` — the web wallet's model. */
+const LOCAL_CHAIN_ADDRESSES = 'chainAddresses';
 const LOCAL_META = 'meta';
 const LOCAL_ACCOUNT_LIST = 'accountList';
 const LOCAL_ACTIVE_ACCOUNT = 'activeAccount';
@@ -32,17 +35,13 @@ export interface WalletMeta {
   chains: NativeChain[];
 }
 
-/** A derived account: an index into the seed, plus a name the user chose. */
-export interface WalletAccount {
+/** One derived address of one chain. */
+export interface ChainAddress {
+  /** BIP-44 index within its chain. */
   index: number;
-  label: string;
-  /**
-   * Removed from the wallet UI. The record is kept rather than deleted so the
-   * index is never handed out again — reusing it would silently resurrect an
-   * address the user believed they were done with, and any funds sent there in
-   * the meantime would appear in a "new" account.
-   */
-  hidden?: boolean;
+  address: string;
+  /** Tokens that ride on this address (e.g. USDC on ETH). */
+  tokens: readonly string[];
 }
 
 export interface CreateResult {
@@ -132,138 +131,117 @@ export class WalletService {
     await this.session.remove(SESSION_SEED);
   }
 
-  /** Addresses for the active account. */
+  /**
+   * One address per chain — each chain's first — for callers that just need
+   * somewhere to receive or a sender to sign with (site connections, previews).
+   */
   async getAccounts(): Promise<DerivedAddress[]> {
-    const byIndex = await this.#addressBook();
-    return byIndex[await this.getActiveAccount()] ?? byIndex[0] ?? [];
+    const book = await this.addresses();
+    return Object.entries(book).flatMap(([chain, entries]) => {
+      const first = entries[0];
+      return first
+        ? [{ chain: chain as NativeChain, address: first.address, tokens: first.tokens }]
+        : [];
+    });
   }
 
-  /* ---------- multiple accounts ----------
-     One recovery phrase backs an unlimited number of BIP-44 accounts, so
-     "add account" is derivation, not a second wallet — the same phrase still
-     restores everything. */
+  /* ---------- addresses ----------
+     The CoinPay web wallet has no notion of "accounts": a wallet holds one or
+     more ADDRESSES PER CHAIN, each at its own derivation index, and each chain
+     advances independently (BTC can be at index 2 while POL is still at 0).
 
-  /** Every account the user has added and not removed, in creation order. */
-  async listAccounts(): Promise<WalletAccount[]> {
-    return (await this.#allAccounts()).filter((a) => !a.hidden);
-  }
+     The old model here grouped index N of every chain into "Account N+1",
+     which described nothing the portal actually has and hid funds behind a
+     switcher. Same derivation, same keys — only the grouping changed. */
 
-  /**
-   * Including removed ones. Used for index allocation and validation — a
-   * removed account still owns its index forever.
-   */
-  async #allAccounts(): Promise<WalletAccount[]> {
-    const stored = await this.local.get<WalletAccount[]>(LOCAL_ACCOUNT_LIST);
-    if (stored?.length) return stored;
-    // Wallets created before multi-account have exactly one, at index 0.
-    return [{ index: 0, label: 'Account 1' }];
-  }
+  /** Every derived address, grouped by chain, in derivation order. */
+  async addresses(): Promise<Record<string, ChainAddress[]>> {
+    await this.#migrateAccountsToChains();
+    const stored = await this.local.get<Record<string, ChainAddress[]>>(LOCAL_CHAIN_ADDRESSES);
+    if (stored && Object.keys(stored).length) return stored;
 
-  async getActiveAccount(): Promise<number> {
-    return (await this.local.get<number>(LOCAL_ACTIVE_ACCOUNT)) ?? 0;
-  }
-
-  /** Switch which account the popup and site-facing APIs act as. */
-  async selectAccount(index: number): Promise<DerivedAddress[]> {
-    const accounts = await this.listAccounts();
-    if (!accounts.some((a) => a.index === index)) {
-      throw new Error(`No such account: ${index}`);
-    }
-    await this.local.set(LOCAL_ACTIVE_ACCOUNT, index);
-    return this.getAccounts();
-  }
-
-  /**
-   * Derive the next account from the same seed and make it active. Requires an
-   * unlocked wallet — the addresses can only come from the seed.
-   */
-  async addAccount(label?: string): Promise<WalletAccount> {
+    // A wallet from before this layout, or one whose book was never written.
     const seed = await this.requireSeed();
-    // Allocate above every index ever issued, removed ones included.
-    const accounts = await this.#allAccounts();
-    const index = accounts.reduce((max, a) => Math.max(max, a.index), -1) + 1;
-    const account: WalletAccount = { index, label: label?.trim() || `Account ${index + 1}` };
-
-    const book = await this.#addressBook();
-    book[index] = deriveAllAddresses(seed, this.chains, index);
-
-    await this.local.set(LOCAL_ACCOUNTS, book);
-    await this.local.set(LOCAL_ACCOUNT_LIST, [...accounts, account]);
-    await this.local.set(LOCAL_ACTIVE_ACCOUNT, index);
-    return account;
+    const book: Record<string, ChainAddress[]> = {};
+    for (const derived of deriveAllAddresses(seed, this.chains, 0)) {
+      book[derived.chain] = [{ index: 0, address: derived.address, tokens: derived.tokens }];
+    }
+    await this.local.set(LOCAL_CHAIN_ADDRESSES, book);
+    return book;
   }
 
-  /** Rename an account. Cosmetic only — the index is what derives addresses. */
-  async renameAccount(index: number, label: string): Promise<WalletAccount[]> {
-    const trimmed = label.trim();
-    if (!trimmed) throw new Error('Account name cannot be empty');
-    const accounts = await this.#allAccounts();
-    if (!accounts.some((a) => a.index === index && !a.hidden)) {
-      throw new Error(`No such account: ${index}`);
-    }
-    const next = accounts.map((a) => (a.index === index ? { ...a, label: trimmed } : a));
-    await this.local.set(LOCAL_ACCOUNT_LIST, next);
-    return next.filter((a) => !a.hidden);
+  /** Flattened view: one entry per derived address. */
+  async addressList(): Promise<(ChainAddress & { chain: NativeChain })[]> {
+    const book = await this.addresses();
+    return Object.entries(book).flatMap(([chain, entries]) =>
+      entries.map((entry) => ({ ...entry, chain: chain as NativeChain })),
+    );
+  }
+
+  /** The address a chain receives on by default — its first derived one. */
+  async primaryAddress(chain: NativeChain): Promise<ChainAddress | undefined> {
+    return (await this.addresses())[chain]?.[0];
   }
 
   /**
-   * Remove an account from the wallet.
-   *
-   * This hides it; it does not destroy anything. The account is a derivation of
-   * the recovery phrase, so any funds at its addresses remain spendable by
-   * anyone holding that phrase — removing it here only stops this wallet from
-   * showing or using it. The index is retired, never reissued.
-   *
-   * Refuses to remove the last remaining account: a wallet with no account has
-   * no addresses to show and no way back except re-import.
+   * Derive one more address for a chain, at the next unused index for THAT
+   * chain — matching how the web wallet hands out receiving addresses.
    */
-  async removeAccount(index: number): Promise<{ accounts: WalletAccount[]; activeAccount: number }> {
-    const all = await this.#allAccounts();
-    if (!all.some((a) => a.index === index && !a.hidden)) {
-      throw new Error(`No such account: ${index}`);
-    }
-    const remaining = all.filter((a) => !a.hidden && a.index !== index);
-    if (!remaining.length) throw new Error('Cannot remove your only account');
-
-    const next = all.map((a) => (a.index === index ? { ...a, hidden: true } : a));
-    await this.local.set(LOCAL_ACCOUNT_LIST, next);
-
-    // Drop the cached addresses; they are re-derivable and keeping them would
-    // leave a removed account's addresses sitting in storage.
-    const book = await this.#addressBook();
-    if (book[index]) {
-      delete book[index];
-      await this.local.set(LOCAL_ACCOUNTS, book);
-    }
-
-    // Never leave the wallet pointing at an account it no longer shows.
-    let active = await this.getActiveAccount();
-    if (active === index) {
-      active = remaining[0]!.index;
-      await this.local.set(LOCAL_ACTIVE_ACCOUNT, active);
-    }
-
-    return { accounts: remaining, activeAccount: active };
-  }
-
-  /** Addresses for a specific account index (derives on demand when unlocked). */
-  async addressesFor(index: number): Promise<DerivedAddress[]> {
-    const book = await this.#addressBook();
-    if (book[index]) return book[index];
+  async addAddress(chain: NativeChain): Promise<ChainAddress> {
     const seed = await this.requireSeed();
-    book[index] = deriveAllAddresses(seed, this.chains, index);
-    await this.local.set(LOCAL_ACCOUNTS, book);
-    return book[index];
+    const book = await this.addresses();
+    const existing = book[chain] ?? [];
+    // Never reuse an index: a returning address would collect funds the user
+    // believes are going somewhere new.
+    const index = existing.reduce((max, entry) => Math.max(max, entry.index), -1) + 1;
+    const [derived] = deriveAllAddresses(seed, [chain], index);
+    if (!derived) throw new Error(`Cannot derive an address for ${chain}`);
+
+    const entry: ChainAddress = { index, address: derived.address, tokens: derived.tokens };
+    book[chain] = [...existing, entry];
+    await this.local.set(LOCAL_CHAIN_ADDRESSES, book);
+    return entry;
+  }
+
+  /** The derivation index behind an address, for signing. */
+  async indexOf(chain: NativeChain, address: string): Promise<number | undefined> {
+    const entries = (await this.addresses())[chain] ?? [];
+    return entries.find((e) => e.address.toLowerCase() === address.toLowerCase())?.index;
   }
 
   /**
-   * Addresses keyed by account index. Pre-multi-account installs stored a bare
-   * array for index 0, so coerce that shape rather than losing their addresses.
+   * Fold the old `{ accountIndex: DerivedAddress[] }` book into per-chain
+   * lists. Account 2 held index 1 of every chain, so each of those becomes
+   * that chain's index-1 address — nothing is derived differently and nothing
+   * is lost, including addresses that already hold funds.
    */
-  async #addressBook(): Promise<Record<number, DerivedAddress[]>> {
-    const stored = await this.local.get<DerivedAddress[] | Record<number, DerivedAddress[]>>(LOCAL_ACCOUNTS);
-    if (!stored) return {};
-    return Array.isArray(stored) ? { 0: stored } : { ...stored };
+  async #migrateAccountsToChains(): Promise<void> {
+    const stored = await this.local.get<DerivedAddress[] | Record<string, DerivedAddress[]>>(
+      LOCAL_ACCOUNTS,
+    );
+    if (!stored) return;
+    // The very first layout stored a bare array — index 0 of every chain.
+    const legacy: Record<string, DerivedAddress[]> = Array.isArray(stored) ? { 0: stored } : stored;
+
+    const book = (await this.local.get<Record<string, ChainAddress[]>>(LOCAL_CHAIN_ADDRESSES)) ?? {};
+    for (const [rawIndex, derived] of Object.entries(legacy)) {
+      const index = Number(rawIndex);
+      if (!Number.isFinite(index) || !Array.isArray(derived)) continue;
+      for (const entry of derived) {
+        const list = book[entry.chain] ?? [];
+        if (list.some((e) => e.index === index)) continue;
+        list.push({ index, address: entry.address, tokens: entry.tokens });
+        book[entry.chain] = list;
+      }
+    }
+    for (const chain of Object.keys(book)) {
+      book[chain]!.sort((a, b) => a.index - b.index);
+    }
+
+    await this.local.set(LOCAL_CHAIN_ADDRESSES, book);
+    await this.local.remove(LOCAL_ACCOUNTS);
+    await this.local.remove(LOCAL_ACCOUNT_LIST);
+    await this.local.remove(LOCAL_ACTIVE_ACCOUNT);
   }
 
   async getMeta(): Promise<WalletMeta | undefined> {
@@ -300,9 +278,12 @@ export class WalletService {
     const accounts = deriveAllAddresses(seed, this.chains, 0);
     const vault = await encryptSeed(seed, password);
     await this.local.set(LOCAL_VAULT, vault);
-    await this.local.set(LOCAL_ACCOUNTS, { 0: accounts });
-    await this.local.set(LOCAL_ACCOUNT_LIST, [{ index: 0, label: 'Account 1' }]);
-    await this.local.set(LOCAL_ACTIVE_ACCOUNT, 0);
+    await this.local.set(
+      LOCAL_CHAIN_ADDRESSES,
+      Object.fromEntries(
+        accounts.map((a) => [a.chain, [{ index: 0, address: a.address, tokens: a.tokens }]]),
+      ),
+    );
     await this.local.set(LOCAL_META, { createdAt: Date.now(), chains: [...this.chains] } satisfies WalletMeta);
     // Newly created/imported wallet starts unlocked for the session.
     await this.session.set(SESSION_SEED, bytesToB64(seed));

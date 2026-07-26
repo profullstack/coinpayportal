@@ -47,8 +47,8 @@ const LOCAL_PORTAL_WALLET = 'portalWallet';
 
 interface PortalWallet {
   id: string;
-  /** Account indexes whose addresses have been registered. */
-  accounts: number[];
+  /** Which addresses were registered, so a newly derived one triggers a resend. */
+  fingerprint: string;
 }
 const SESSION_APPROVALS = 'pendingApprovals';
 /** A batch of 62 payments takes minutes; cap the whole run, not each payment. */
@@ -254,18 +254,24 @@ chrome.windows.onRemoved.addListener((windowId) => {
  * verifies `from_address` against the exact chain, so USDC_POL needs its own
  * row even though it reuses the EVM address.
  */
-async function ensurePortalWallet(seed: Uint8Array, accountIndex: number): Promise<string> {
+async function ensurePortalWallet(seed: Uint8Array): Promise<string> {
+  const derived = await wallet.addressList();
+  const fingerprint = derived.map((a) => `${a.chain}:${a.index}`).sort().join(',');
   const stored = await walletLocal.get<PortalWallet>(LOCAL_PORTAL_WALLET);
-  if (stored?.id && stored.accounts.includes(accountIndex)) return stored.id;
+  // Re-register whenever a new address appears, so the portal can see it.
+  if (stored?.id && stored.fingerprint === fingerprint) return stored.id;
 
-  const accounts = await wallet.addressesFor(accountIndex);
-  const byChain = new Map<NativeChain, string>(accounts.map((a) => [a.chain, a.address]));
-
+  // Every derived address of every payable chain, at its own index — tokens
+  // ride on their signing chain's address, so each gets a row of its own.
   const addresses = PAY_CHAINS.flatMap((chain) => {
     const signer = signingChain(chain);
-    const address = byChain.get(signer);
-    if (!address) return [];
-    return [{ chain, address, derivation_path: derivationPath(signer, accountIndex) }];
+    return derived
+      .filter((a) => a.chain === signer)
+      .map((a) => ({
+        chain,
+        address: a.address,
+        derivation_path: derivationPath(signer, a.index),
+      }));
   });
 
   // Identity is the BIP-44 account node, so the same seed always resolves to
@@ -274,7 +280,7 @@ async function ensurePortalWallet(seed: Uint8Array, accountIndex: number): Promi
   const identity = deriveIdentityKey(seed);
   // The web wallet registers its account-0 Solana address as the ed25519
   // identity; match it so both clients describe one wallet identically.
-  const solAddress = (await wallet.addressesFor(0)).find((a) => a.chain === 'SOL')?.address;
+  const solAddress = (await wallet.primaryAddress('SOL'))?.address;
   try {
     const { wallet_id } = await api.registerWallet({
       publicKeySecp256k1: compressedPublicKey(identity),
@@ -282,9 +288,7 @@ async function ensurePortalWallet(seed: Uint8Array, accountIndex: number): Promi
       addresses,
       privateKey: identity,
     });
-    const registered = new Set(stored?.id === wallet_id ? stored.accounts : []);
-    registered.add(accountIndex);
-    await walletLocal.set(LOCAL_PORTAL_WALLET, { id: wallet_id, accounts: [...registered] });
+    await walletLocal.set(LOCAL_PORTAL_WALLET, { id: wallet_id, fingerprint });
     return wallet_id;
   } finally {
     identity.fill(0);
@@ -317,12 +321,8 @@ async function walletSummaries(): Promise<{
 /** Per-account registration view for the Settings screen. */
 async function portalStatus(): Promise<{ index: number; label: string; walletId: string | null }[]> {
   const stored = await portalWallet();
-  const accounts = await wallet.listAccounts();
-  return accounts.map((a) => ({
-    index: a.index,
-    label: a.label,
-    walletId: stored && stored.accounts.includes(a.index) ? stored.id : null,
-  }));
+  // One row: a wallet is registered as a whole, with all its addresses.
+  return [{ index: 0, label: 'This wallet', walletId: stored?.id ?? null }];
 }
 
 /** The wallet id if this seed has been registered, without registering it. */
@@ -340,14 +340,14 @@ async function portalWallet(): Promise<PortalWallet | undefined> {
  * `ensurePortalWallet` anyway, so a failure here costs nothing — the account is
  * simply registered later, on first use.
  */
-function registerAccountSoon(accountIndex: number): void {
+function registerAddressesSoon(): void {
   void (async () => {
     try {
       const seed = await wallet.requireSeed();
-      await ensurePortalWallet(seed, accountIndex);
+      await ensurePortalWallet(seed);
     } catch (err) {
       console.warn(
-        `[CoinPay] deferred portal registration for account ${accountIndex}:`,
+        '[CoinPay] deferred portal registration:',
         err instanceof Error ? err.message : err,
       );
     }
@@ -398,9 +398,6 @@ async function handleSitePayBatch(
     requestId,
     origin,
     needsUnlock: !(await wallet.isUnlocked()),
-    // Pinned at request time: the user approves a specific account paying, so
-    // switching accounts while the prompt is open must not repoint the payer.
-    accountIndex: await wallet.getActiveAccount(),
     payments,
     summary: summarizeBatch(payments),
   };
@@ -415,11 +412,8 @@ async function handleSitePayBatch(
   try {
     // Approving requires unlocking, so by here the seed is available.
     const seed = await wallet.requireSeed();
-    const { accountIndex } = approval;
-    const walletId = await ensurePortalWallet(seed, accountIndex);
-    const accounts = await wallet.addressesFor(accountIndex);
-    const addresses: Partial<Record<NativeChain, string>> = {};
-    for (const account of accounts) addresses[account.chain] = account.address;
+    const walletId = await ensurePortalWallet(seed);
+    const senders = await sendersFor();
 
     const authKey = deriveIdentityKey(seed);
     try {
@@ -428,8 +422,7 @@ async function handleSitePayBatch(
         walletId,
         seed,
         authKey,
-        accountIndex,
-        addresses,
+        senders,
         signal: entry?.abort.signal,
         onProgress: (progress) => {
           // Keep the wallet awake for the duration of a long run.
@@ -461,7 +454,29 @@ async function handleSitePayBatch(
  * runs through the same executor as a site batch (a batch of one), so nonce
  * handling, retries and the prepare/sign/broadcast split stay in one place.
  */
-async function handleSend(chain: string, to: string, amount: string): Promise<BatchItemResult> {
+/**
+ * Sender per signing chain. `from` picks a specific address for its chain —
+ * a wallet can hold several — and every other chain falls back to its first.
+ */
+async function sendersFor(from?: string): Promise<
+  Partial<Record<NativeChain, { address: string; index: number }>>
+> {
+  const senders: Partial<Record<NativeChain, { address: string; index: number }>> = {};
+  for (const entry of await wallet.addressList()) {
+    const chosen = from && entry.address.toLowerCase() === from.toLowerCase();
+    if (!senders[entry.chain] || chosen) {
+      senders[entry.chain] = { address: entry.address, index: entry.index };
+    }
+  }
+  return senders;
+}
+
+async function handleSend(
+  chain: string,
+  to: string,
+  amount: string,
+  from?: string,
+): Promise<BatchItemResult> {
   if (!(await wallet.isInitialized())) throw new Error('No wallet has been set up yet');
   if (!(await wallet.isUnlocked())) throw new Error('Wallet is locked');
 
@@ -474,20 +489,14 @@ async function handleSend(chain: string, to: string, amount: string): Promise<Ba
   }
 
   const seed = await wallet.requireSeed();
-  // Everything below must agree on ONE account: the addresses we send from, the
-  // portal wallet those addresses are registered under, the auth key, and the
-  // signing key.
-  const accountIndex = await wallet.getActiveAccount();
-  const walletId = await ensurePortalWallet(seed, accountIndex);
-  const accounts = await wallet.addressesFor(accountIndex);
-  const addresses: Partial<Record<NativeChain, string>> = {};
-  for (const account of accounts) addresses[account.chain] = account.address;
+  const walletId = await ensurePortalWallet(seed);
+  const senders = await sendersFor(from);
 
   const authKey = deriveIdentityKey(seed);
   try {
     const [result] = await runBatchPayments(
       [{ id: `popup-${Date.now()}`, chain: payChain, to: recipient, amount: amount.trim() }],
-      { api, walletId, seed, authKey, accountIndex, addresses },
+      { api, walletId, seed, authKey, senders },
     );
     if (!result) throw new Error('Send produced no result');
     if (result.status === 'failed') throw new Error(result.error || 'Send failed');
@@ -560,7 +569,7 @@ async function handle(
       }
       case 'confirmCreate': {
         const accounts = await wallet.confirmCreate(req.password);
-        registerAccountSoon(await wallet.getActiveAccount());
+        registerAddressesSoon();
         scheduleAutoLock();
         return { ok: true, accounts };
       }
@@ -579,7 +588,7 @@ async function handle(
         await walletLocal.remove(LOCAL_PORTAL_WALLET_ID);
         await walletLocal.remove(LOCAL_PORTAL_WALLET_IDS);
         await walletLocal.remove(LOCAL_PORTAL_WALLET);
-        registerAccountSoon(await wallet.getActiveAccount());
+        registerAddressesSoon();
         scheduleAutoLock();
         return { ok: true, accounts };
       }
@@ -619,48 +628,25 @@ async function handle(
         await useActiveWallet();
         return { ok: true, ...(await walletSummaries()) };
       }
-      case 'listAccounts':
-        return {
-          ok: true,
-          walletAccounts: await wallet.listAccounts(),
-          activeAccount: await wallet.getActiveAccount(),
-        };
-      case 'addAccount': {
-        const added = await wallet.addAccount(req.label);
-        registerAccountSoon(added.index);
+      // ── addresses (per chain, as the web wallet models them) ──
+      case 'listAddresses':
+        return { ok: true, addresses: await wallet.addressList() };
+      case 'addAddress': {
+        const added = await wallet.addAddress(req.chain as NativeChain);
+        // A brand-new address must reach the portal, or nothing can be
+        // prepared from it and incoming funds go unnoticed.
+        registerAddressesSoon();
         scheduleAutoLock();
         return {
           ok: true,
-          walletAccounts: await wallet.listAccounts(),
-          activeAccount: await wallet.getActiveAccount(),
+          address: { ...added, chain: req.chain },
+          addresses: await wallet.addressList(),
         };
-      }
-      case 'selectAccount': {
-        await wallet.selectAccount(req.index);
-        return { ok: true, accounts: await wallet.getAccounts() };
-      }
-      case 'renameAccount': {
-        const walletAccounts = await wallet.renameAccount(req.index, req.label);
-        return { ok: true, walletAccounts, activeAccount: await wallet.getActiveAccount() };
-      }
-      case 'removeAccount': {
-        const { accounts, activeAccount } = await wallet.removeAccount(req.index);
-        // The wallet itself stays — one portal wallet per seed, shared with the
-        // other accounts — but this account's addresses are no longer ours to
-        // show, so drop it from the registered set.
-        const stored = await portalWallet();
-        if (stored?.accounts.includes(req.index)) {
-          await walletLocal.set(LOCAL_PORTAL_WALLET, {
-            id: stored.id,
-            accounts: stored.accounts.filter((i) => i !== req.index),
-          });
-        }
-        return { ok: true, walletAccounts: accounts, activeAccount };
       }
 
       // ── user-initiated send (the popup's own payment, not a site's) ──
       case 'send': {
-        const sent = await handleSend(req.chain, req.to, req.amount);
+        const sent = await handleSend(req.chain, req.to, req.amount, req.from);
         scheduleAutoLock();
         return { ok: true, sent };
       }
@@ -671,13 +657,12 @@ async function handle(
         // Explicit retry for an account whose background registration failed
         // (offline, portal down, rate limited). Needs the seed, so unlocked.
         const seed = await wallet.requireSeed();
-        await ensurePortalWallet(seed, req.index);
+        await ensurePortalWallet(seed);
         return { ok: true, portal: await portalStatus() };
       }
       case 'getTransactions': {
         const seed = await wallet.requireSeed();
-        const accountIndex = await wallet.getActiveAccount();
-        const walletId = await ensurePortalWallet(seed, accountIndex);
+        const walletId = await ensurePortalWallet(seed);
         const authKey = deriveIdentityKey(seed);
         try {
           return {
@@ -692,8 +677,7 @@ async function handle(
       }
       case 'getBalances': {
         const seed = await wallet.requireSeed();
-        const accountIndex = await wallet.getActiveAccount();
-        const walletId = await ensurePortalWallet(seed, accountIndex);
+        const walletId = await ensurePortalWallet(seed);
         const authKey = deriveIdentityKey(seed);
         try {
           // Only this account's addresses: one seed is one portal wallet, so the
@@ -710,7 +694,7 @@ async function handle(
           // not change an address, and a mismatch would silently drop every
           // token riding on it.
           const mine = new Set(
-            (await wallet.addressesFor(accountIndex)).map((a) => a.address.toLowerCase()),
+            (await wallet.addressList()).map((a) => a.address.toLowerCase()),
           );
           const balances = (await api.getBalances(walletId, authKey)).map((b) => ({
             ...b,
