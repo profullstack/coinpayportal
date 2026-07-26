@@ -56,6 +56,10 @@ function stubWallet() {
           ok: true,
           balances: [
             { chain: 'ETH', address: '0xabc', balance: '0.0113' },
+            // Same chain, a later derivation index — the web wallet hands out a
+            // fresh receiving address each time, so funds sit across indexes.
+            { chain: 'SOL', address: 'sol0', balance: '0.1488' },
+            { chain: 'SOL', address: 'sol1', balance: '0.1757' },
             { chain: 'USDC_ETH', address: '0xabc', balance: '20' },
             { chain: 'USDC_BASE', address: '0xabc', balance: '20' },
             { chain: 'BTC', address: '1abc', balance: '0' },
@@ -180,7 +184,7 @@ describe('wallet tab asset list', () => {
     );
 
     expect(funded).toEqual([...funded].sort((a, b) => Number(b) - Number(a)));
-    expect(funded.filter(Boolean)).toHaveLength(4); // ETH, USDC_ETH, USDC_BASE, DOGE
+    expect(funded.filter(Boolean)).toHaveLength(5); // ETH, SOL, USDC_ETH, USDC_BASE, DOGE
   });
 
   it('prices balances in the display currency', async () => {
@@ -212,9 +216,10 @@ describe('wallet total and unverified assets', () => {
     await settle();
     await settle();
 
-    // rate 2 for everything: 0.0113 + 20 + 20 + 5 = 45.0113 -> $90.02
+    // rate 2 for everything, SOL summed across both indexes:
+    // (0.0113 + 0.3245 + 20 + 20 + 5) * 2 = $90.67
     const total = document.querySelector('.total-value')!.textContent!;
-    expect(total).toMatch(/\$90\.02/);
+    expect(total).toMatch(/\$90\.67/);
   });
 
   it('shows chains the extension cannot derive, marked as such', async () => {
@@ -231,5 +236,25 @@ describe('wallet total and unverified assets', () => {
   it('does not mark locally derived addresses', async () => {
     await settle();
     expect(rowFor('ETH').textContent).not.toMatch(/not derived/i);
+  });
+});
+
+describe('balances across derivation indexes', () => {
+  it('sums a chain held at several indexes instead of showing the last', async () => {
+    await settle();
+    const sol = [...document.querySelectorAll('.account')].find(
+      (row) => row.querySelector('.chain')!.textContent === 'SOL',
+    )!;
+
+    // 0.1488 + 0.1757 — showing either alone understates the wallet.
+    expect(sol.textContent).toContain('0.3245');
+  });
+
+  it('counts every index in the total', async () => {
+    await settle();
+    await settle();
+
+    // rate 2: (0.0113 + 20 + 20 + 5 + 0.3245) * 2 = $90.67
+    expect(document.querySelector('.total-value')!.textContent).toMatch(/\$90\.67/);
   });
 });
