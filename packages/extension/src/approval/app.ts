@@ -11,7 +11,7 @@
  * takes minutes and closing it cancels the remainder.
  */
 
-import { el, mount, button, note } from '../popup/dom.js';
+import { el, mount, button, note, brand } from '../popup/dom.js';
 import { call } from '../popup/rpc.js';
 import type { PendingApproval } from '../messages.js';
 import type { BatchProgress } from '../core/batch.js';
@@ -50,7 +50,7 @@ function renderConnect(request: Extract<PendingApproval, { kind: 'connect' }>): 
   const status = note('Connecting lets this site see your wallet addresses and request payments. Every payment still needs your approval.');
 
   mount(
-    el('h1', { class: 'title', text: 'Connect wallet' }),
+    brand('Connect wallet'),
     el('span', { class: 'origin', text: request.origin }),
     status,
     ...(password ? [password.row] : []),
@@ -90,7 +90,7 @@ function renderBatch(request: Extract<PendingApproval, { kind: 'payBatch' }>): v
   ]);
 
   mount(
-    el('h1', { class: 'title', text: 'Confirm bulk payment' }),
+    brand('Confirm bulk payment'),
     el('span', { class: 'origin', text: request.origin }),
     el('p', {
       class: 'warn',
@@ -184,7 +184,7 @@ function renderProgress(request: Extract<PendingApproval, { kind: 'payBatch' }>)
   );
 
   mount(
-    el('h1', { class: 'title', text: 'Sending payments' }),
+    brand('Sending payments'),
     el('span', { class: 'origin', text: request.origin }),
     el('p', { class: 'muted small', text: 'Keep this window open until it finishes. Closing it cancels the payments that have not been sent yet.' }),
     el('div', { class: 'progress-bar' }, [bar]),
@@ -281,7 +281,7 @@ function passwordField(needed: boolean): { row: HTMLElement; input: HTMLInputEle
 
 function renderMessage(title: string, message: string): void {
   mount(
-    el('h1', { class: 'title', text: title }),
+    brand(title),
     note(message),
     el('div', { class: 'row' }, [button('Close', () => window.close(), 'btn')]),
   );
