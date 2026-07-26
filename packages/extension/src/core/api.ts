@@ -84,6 +84,65 @@ export class CoinPayApi {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
 
+  /**
+   * Unauthenticated GET. `/rates` is public and returns its payload flat
+   * (`{ success, rate, fiat }`) rather than wrapped in `data`, so it can't go
+   * through `#request`, which unwraps.
+   */
+  async #publicGet<T>(path: string): Promise<T> {
+    let response: Response;
+    try {
+      response = await fetch(this.baseUrl + path, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+    } catch (err) {
+      throw new CoinPayApiError(
+        err instanceof Error ? err.message : 'Network request failed',
+        'NETWORK_ERROR',
+        0,
+      );
+    }
+
+    let payload: any = null;
+    try {
+      payload = await response.json();
+    } catch {
+      // Non-JSON body — the status below carries the failure.
+    }
+
+    if (!response.ok || payload?.success === false) {
+      // `/rates` reports `error` as a plain string; the wallet routes nest it.
+      const message =
+        typeof payload?.error === 'string'
+          ? payload.error
+          : payload?.error?.message || `Request failed with status ${response.status}`;
+      throw new CoinPayApiError(message, payload?.error?.code || 'HTTP_ERROR', response.status);
+    }
+
+    return payload as T;
+  }
+
+  /**
+   * Live exchange rate: one unit of `coin` priced in `fiat`.
+   *
+   * `coin` may be a PayChain (`USDC_POL`) or a bare ticker (`BTC`) — the portal
+   * resolves tokens itself. The endpoint is IP rate-limited, so callers should
+   * go through `RateCache` rather than fetching per keystroke.
+   */
+  async getRate(coin: string, fiat: string): Promise<number> {
+    const payload = await this.#publicGet<{ rate?: number | null }>(
+      `/rates?coin=${encodeURIComponent(coin)}&fiat=${encodeURIComponent(fiat)}`,
+    );
+    const rate = Number(payload?.rate);
+    // A 200 with `rate: null` means the upstream price feed had nothing for
+    // this pair — surface it as an error, never as a zero-value quote.
+    if (!Number.isFinite(rate) || rate <= 0) {
+      throw new CoinPayApiError(`No ${fiat} rate available for ${coin}`, 'NO_RATE', 200);
+    }
+    return rate;
+  }
+
   /** Path as the server sees it, for signature reconstruction. */
   #signedPath(path: string): string {
     const url = new URL(this.baseUrl + path);

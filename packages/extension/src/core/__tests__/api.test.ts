@@ -203,6 +203,62 @@ describe('CoinPayApi', () => {
     ).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
   });
 
+  // ── /rates ──────────────────────────────────────────────────────────────
+  // Unlike the wallet routes this one answers flat (no `data` envelope) and
+  // reports errors as a bare string, so it has its own request path.
+
+  it('quotes a coin in a fiat currency without wallet auth', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, coin: 'BTC', rate: 61234.5, fiat: 'EUR' }),
+    });
+
+    const rate = await new CoinPayApi().getRate('BTC', 'EUR');
+
+    expect(rate).toBe(61234.5);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://coinpayportal.com/api/rates?coin=BTC&fiat=EUR');
+    expect(init.method).toBe('GET');
+    expect(init.headers.Authorization).toBeUndefined();
+  });
+
+  it('passes a token chain through verbatim for the portal to resolve', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, coin: 'USDC_POL', rate: 1, fiat: 'USD' }),
+    });
+
+    await new CoinPayApi().getRate('USDC_POL', 'USD');
+    expect(fetchMock.mock.calls[0]![0]).toContain('coin=USDC_POL');
+  });
+
+  it('rejects a null rate instead of quoting zero', async () => {
+    // The route answers 200 with `rate: null` when the feed has no price —
+    // treating that as 0 would price a payment at nothing.
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: false, coin: 'BTC', rate: null, error: 'upstream down' }),
+    });
+
+    await expect(new CoinPayApi().getRate('BTC', 'USD')).rejects.toMatchObject({
+      name: 'CoinPayApiError',
+      message: 'upstream down',
+    });
+  });
+
+  it('surfaces the rate-limit response', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: async () => ({ success: false, error: 'Rate limit exceeded. Please try again later.' }),
+    });
+
+    await expect(new CoinPayApi().getRate('BTC', 'USD')).rejects.toMatchObject({ status: 429 });
+  });
+
   it('trims a trailing slash so signed paths stay canonical', async () => {
     fetchMock.mockResolvedValue(ok({}));
     await new CoinPayApi('https://coinpayportal.com/api/').broadcast('w', PRIVATE_KEY, {

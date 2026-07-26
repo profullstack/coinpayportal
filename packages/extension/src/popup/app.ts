@@ -14,8 +14,18 @@ import type { DerivedAddress } from '../core/derivation.js';
 import { pickIndices, makeChoices } from '../core/backup.js';
 import { call } from './rpc.js';
 import { el, mount, button, field, note } from './dom.js';
-import { PAY_CHAINS, signingChain, payChainLabel } from '../core/pay-chains.js';
+import { PAY_CHAINS, signingChain, payChainLabel, payChainTicker, type PayChain } from '../core/pay-chains.js';
 import { dialogConfirm, dialogPrompt, dialogAlert } from './dialog.js';
+import type { RateQuote } from '../core/rates.js';
+import {
+  FIAT_CURRENCIES,
+  DEFAULT_FIAT,
+  cryptoToFiat,
+  fiatToCrypto,
+  formatFiat,
+  formatCrypto,
+  type FiatCurrency,
+} from '../core/fiat.js';
 
 interface CreateFlow {
   mnemonic: string;
@@ -299,7 +309,13 @@ function addressList(addresses: DerivedAddress[]): HTMLElement {
   return el('div', { class: 'accounts' }, rows.length ? rows : [note('No accounts yet.')]);
 }
 
-/** User-initiated send — the wallet paying out, not a site asking it to. */
+/**
+ * User-initiated send — the wallet paying out, not a site asking it to.
+ *
+ * The amount can be entered in the coin or in the user's display currency; the
+ * chain always moves crypto, so a fiat entry is converted at the live rate and
+ * BOTH numbers are shown on the confirmation before anything is signed.
+ */
 function sendForm(addresses: DerivedAddress[]): HTMLElement {
   const chain = el('select', { class: 'acct-select' }) as HTMLSelectElement;
   for (const c of PAY_CHAINS) {
@@ -311,23 +327,141 @@ function sendForm(addresses: DerivedAddress[]): HTMLElement {
 
   const to = field('Recipient address', { placeholder: 'Paste an address' });
   const amount = field('Amount', { placeholder: '0.00', inputmode: 'decimal' });
+  const amountLabel = amount.row.querySelector('.label') as HTMLElement;
   const status = note('', 'muted small');
+
+  // ── live pricing ────────────────────────────────────────────────────────
+  let fiat: FiatCurrency = DEFAULT_FIAT;
+  let quote: RateQuote | null = null;
+  let unit: 'crypto' | 'fiat' = 'crypto';
+  /** Bumped on every chain/currency change so a stale response can't land. */
+  let quoteToken = 0;
+
+  const estimate = note('Loading rate…', 'muted small');
+  const toggle = button('', () => {
+    unit = unit === 'crypto' ? 'fiat' : 'crypto';
+    // Carry the value across the switch rather than clearing it — the user
+    // typed an amount, not a unit.
+    const entered = Number(amount.input.value.trim());
+    if (quote && Number.isFinite(entered) && entered > 0) {
+      const converted =
+        unit === 'fiat' ? cryptoToFiat(entered, quote.rate) : fiatToCrypto(entered, quote.rate);
+      if (converted !== null) {
+        amount.input.value = unit === 'fiat' ? converted.toFixed(2) : formatCrypto(converted);
+      }
+    }
+    renderPricing();
+  }, 'btn small');
+
+  const ticker = () => (chain.value ? payChainTicker(chain.value as PayChain) : '');
+
+  /** Amount to actually send, in coin units — null when it can't be resolved. */
+  function cryptoAmount(): string | null {
+    const raw = amount.input.value.trim();
+    if (!raw) return null;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) return null;
+    if (unit === 'crypto') return raw;
+    if (!quote) return null;
+    const converted = fiatToCrypto(value, quote.rate);
+    return converted === null ? null : formatCrypto(converted);
+  }
+
+  function renderPricing(): void {
+    const coin = ticker();
+    amountLabel.textContent = `Amount (${unit === 'crypto' ? coin : fiat})`;
+    toggle.textContent = unit === 'crypto' ? `Enter in ${fiat}` : `Enter in ${coin}`;
+    toggle.disabled = !quote;
+
+    if (!quote) {
+      // Without a rate the fiat path would be a guess, so it stays closed.
+      estimate.className = 'muted small';
+      return;
+    }
+
+    const entered = Number(amount.input.value.trim());
+    const hasAmount = Number.isFinite(entered) && entered > 0;
+    estimate.className = 'muted small';
+
+    if (!hasAmount) {
+      estimate.textContent = `1 ${coin} ≈ ${formatFiat(quote.rate, fiat)} ${fiat}`;
+      return;
+    }
+    if (unit === 'crypto') {
+      const value = cryptoToFiat(entered, quote.rate);
+      estimate.textContent = value === null ? '' : `≈ ${formatFiat(value, fiat)} ${fiat}`;
+    } else {
+      const coins = fiatToCrypto(entered, quote.rate);
+      estimate.textContent = coins === null ? '' : `≈ ${formatCrypto(coins)} ${coin}`;
+    }
+  }
+
+  async function refreshQuote(): Promise<void> {
+    const token = ++quoteToken;
+    const coin = chain.value;
+    if (!coin) {
+      // No sendable chain for this account — nothing to price.
+      quote = null;
+      estimate.textContent = '';
+      return;
+    }
+    quote = null;
+    estimate.textContent = 'Loading rate…';
+    renderPricing();
+
+    // Read the display currency separately from the rate: it comes from local
+    // storage, so the labels stay correct even when the price feed is down.
+    try {
+      const res = await call({ type: 'getSettings' });
+      if (token !== quoteToken) return;
+      if ('settings' in res) fiat = res.settings.fiatCurrency;
+    } catch {
+      /* keep the default */
+    }
+
+    try {
+      const res = await call({ type: 'getRate', coin, fiat });
+      if (token !== quoteToken) return; // chain/currency changed under us
+      if ('quote' in res) quote = res.quote;
+    } catch {
+      if (token !== quoteToken) return;
+    }
+
+    if (!quote) {
+      // Without a rate the fiat entry mode would be guesswork, so drop out of it.
+      if (unit === 'fiat') unit = 'crypto';
+      renderPricing();
+      estimate.textContent = `Live ${fiat} rate unavailable — enter the amount in ${ticker()}.`;
+      return;
+    }
+    renderPricing();
+  }
+
+  chain.addEventListener('change', () => void refreshQuote());
+  amount.input.addEventListener('input', () => renderPricing());
+  void refreshQuote();
 
   const submit = button('Review & send', async () => {
     status.className = 'muted small';
     status.textContent = '';
     const chainValue = chain.value;
     const toValue = to.input.value.trim();
-    const amountValue = amount.input.value.trim();
+    const amountValue = cryptoAmount();
     if (!chainValue || !toValue || !amountValue) {
-      fail(status, 'Chain, recipient and amount are all required.');
+      fail(status, 'Chain, recipient and a valid amount are all required.');
       return;
     }
+    const coin = payChainTicker(chainValue as PayChain);
+    const fiatValue = quote ? cryptoToFiat(amountValue, quote.rate) : null;
     const confirmed = await dialogConfirm({
       title: 'Confirm payment',
       message: 'On-chain transfers cannot be undone. Check the recipient carefully.',
       details: [
-        { label: 'Amount', value: `${amountValue} ${payChainLabel(chainValue as never)}` },
+        { label: 'Amount', value: `${amountValue} ${coin}` },
+        ...(fiatValue === null
+          ? []
+          : [{ label: `Value (${fiat})`, value: `≈ ${formatFiat(fiatValue, fiat)}` }]),
+        { label: 'Chain', value: payChainLabel(chainValue as PayChain) },
         { label: 'To', value: toValue },
       ],
       confirmLabel: 'Send',
@@ -345,6 +479,7 @@ function sendForm(addresses: DerivedAddress[]): HTMLElement {
       status.textContent = sent?.txHash ? `Sent — ${sent.txHash}` : 'Sent.';
       to.input.value = '';
       amount.input.value = '';
+      renderPricing();
     } catch (err) {
       fail(status, err instanceof Error ? err.message : String(err));
     } finally {
@@ -357,6 +492,7 @@ function sendForm(addresses: DerivedAddress[]): HTMLElement {
     chain,
     to.row,
     amount.row,
+    el('div', { class: 'rate-row' }, [estimate, toggle]),
     submit,
     status,
   ]);
@@ -371,10 +507,19 @@ function settingsPanel(): HTMLElement {
       call({ type: 'listConnections' }),
     ]);
     const minutes = 'settings' in settingsRes ? settingsRes.settings.autoLockMinutes : 15;
+    const currency = 'settings' in settingsRes ? settingsRes.settings.fiatCurrency : DEFAULT_FIAT;
     const conns = 'connections' in connRes ? connRes.connections : [];
 
     const lockAfter = field('Auto-lock after (minutes)', { value: String(minutes), inputmode: 'numeric' });
     const status = note('', 'muted small');
+
+    // Display currency — every fiat amount in the wallet is quoted in this.
+    const fiatSelect = el('select', { class: 'acct-select' }) as HTMLSelectElement;
+    for (const c of FIAT_CURRENCIES) {
+      const opt = el('option', { text: `${c.code} — ${c.name}`, value: c.code }) as HTMLOptionElement;
+      if (c.code === currency) opt.selected = true;
+      fiatSelect.append(opt);
+    }
 
     const sites = conns.length
       ? conns.map((c) =>
@@ -391,12 +536,22 @@ function settingsPanel(): HTMLElement {
     container.replaceChildren(
       el('h2', { class: 'lbl', text: 'Security' }),
       lockAfter.row,
+      el('h2', { class: 'lbl', text: 'Display currency' }),
+      fiatSelect,
+      note('Amounts are priced in this currency. Transfers always move crypto.', 'muted small'),
       button('Save', async () => {
         const value = Number(lockAfter.input.value);
         if (!Number.isFinite(value) || value < 1) { fail(status, 'Enter a number of minutes (1 or more).'); return; }
-        const res = await call({ type: 'setAutoLockMinutes', minutes: value });
-        status.className = res.ok ? 'ok small' : 'error small';
-        status.textContent = res.ok ? 'Saved.' : res.error;
+        try {
+          await call({ type: 'setAutoLockMinutes', minutes: value });
+          await call({ type: 'setFiatCurrency', currency: fiatSelect.value });
+          status.className = 'ok small';
+          status.textContent = 'Saved.';
+        } catch (err) {
+          // `call` throws on `{ ok: false }`, so a rejected save lands here.
+          status.className = 'error small';
+          status.textContent = err instanceof Error ? err.message : String(err);
+        }
       }),
       status,
       el('h2', { class: 'lbl', text: 'Connected sites' }),
