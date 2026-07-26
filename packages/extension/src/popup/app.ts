@@ -363,10 +363,16 @@ async function renderAssets(container: HTMLElement, addresses: DerivedAddress[])
   // this extension cannot derive yet (DOGE, XRP, ADA, LN).
   for (const b of balances) {
     const existing = byAsset.get(b.chain);
+    // SUM across addresses. A chain holds one row per derivation index, and the
+    // web wallet hands out a fresh receiving address each time — so funds pile
+    // up across indexes. Overwriting here showed only the last one and
+    // understated the wallet (SOL at index 0 and 1 became just index 1).
+    const total = Number(existing?.balance ?? '0') + (Number(b.balance) || 0);
     byAsset.set(b.chain, {
       asset: b.chain,
+      // Keep the locally derived address as the one to receive on.
       address: existing?.address ?? b.address,
-      balance: b.balance,
+      balance: String(total),
       derived: existing?.derived ?? b.derived ?? false,
     });
   }
