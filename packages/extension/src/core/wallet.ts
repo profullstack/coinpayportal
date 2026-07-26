@@ -36,6 +36,13 @@ export interface WalletMeta {
 export interface WalletAccount {
   index: number;
   label: string;
+  /**
+   * Removed from the wallet UI. The record is kept rather than deleted so the
+   * index is never handed out again — reusing it would silently resurrect an
+   * address the user believed they were done with, and any funds sent there in
+   * the meantime would appear in a "new" account.
+   */
+  hidden?: boolean;
 }
 
 export interface CreateResult {
@@ -136,8 +143,16 @@ export class WalletService {
      "add account" is derivation, not a second wallet — the same phrase still
      restores everything. */
 
-  /** Every account the user has added, in creation order. */
+  /** Every account the user has added and not removed, in creation order. */
   async listAccounts(): Promise<WalletAccount[]> {
+    return (await this.#allAccounts()).filter((a) => !a.hidden);
+  }
+
+  /**
+   * Including removed ones. Used for index allocation and validation — a
+   * removed account still owns its index forever.
+   */
+  async #allAccounts(): Promise<WalletAccount[]> {
     const stored = await this.local.get<WalletAccount[]>(LOCAL_ACCOUNT_LIST);
     if (stored?.length) return stored;
     // Wallets created before multi-account have exactly one, at index 0.
@@ -164,7 +179,8 @@ export class WalletService {
    */
   async addAccount(label?: string): Promise<WalletAccount> {
     const seed = await this.requireSeed();
-    const accounts = await this.listAccounts();
+    // Allocate above every index ever issued, removed ones included.
+    const accounts = await this.#allAccounts();
     const index = accounts.reduce((max, a) => Math.max(max, a.index), -1) + 1;
     const account: WalletAccount = { index, label: label?.trim() || `Account ${index + 1}` };
 
@@ -181,11 +197,53 @@ export class WalletService {
   async renameAccount(index: number, label: string): Promise<WalletAccount[]> {
     const trimmed = label.trim();
     if (!trimmed) throw new Error('Account name cannot be empty');
-    const accounts = await this.listAccounts();
-    if (!accounts.some((a) => a.index === index)) throw new Error(`No such account: ${index}`);
+    const accounts = await this.#allAccounts();
+    if (!accounts.some((a) => a.index === index && !a.hidden)) {
+      throw new Error(`No such account: ${index}`);
+    }
     const next = accounts.map((a) => (a.index === index ? { ...a, label: trimmed } : a));
     await this.local.set(LOCAL_ACCOUNT_LIST, next);
-    return next;
+    return next.filter((a) => !a.hidden);
+  }
+
+  /**
+   * Remove an account from the wallet.
+   *
+   * This hides it; it does not destroy anything. The account is a derivation of
+   * the recovery phrase, so any funds at its addresses remain spendable by
+   * anyone holding that phrase — removing it here only stops this wallet from
+   * showing or using it. The index is retired, never reissued.
+   *
+   * Refuses to remove the last remaining account: a wallet with no account has
+   * no addresses to show and no way back except re-import.
+   */
+  async removeAccount(index: number): Promise<{ accounts: WalletAccount[]; activeAccount: number }> {
+    const all = await this.#allAccounts();
+    if (!all.some((a) => a.index === index && !a.hidden)) {
+      throw new Error(`No such account: ${index}`);
+    }
+    const remaining = all.filter((a) => !a.hidden && a.index !== index);
+    if (!remaining.length) throw new Error('Cannot remove your only account');
+
+    const next = all.map((a) => (a.index === index ? { ...a, hidden: true } : a));
+    await this.local.set(LOCAL_ACCOUNT_LIST, next);
+
+    // Drop the cached addresses; they are re-derivable and keeping them would
+    // leave a removed account's addresses sitting in storage.
+    const book = await this.#addressBook();
+    if (book[index]) {
+      delete book[index];
+      await this.local.set(LOCAL_ACCOUNTS, book);
+    }
+
+    // Never leave the wallet pointing at an account it no longer shows.
+    let active = await this.getActiveAccount();
+    if (active === index) {
+      active = remaining[0]!.index;
+      await this.local.set(LOCAL_ACTIVE_ACCOUNT, active);
+    }
+
+    return { accounts: remaining, activeAccount: active };
   }
 
   /** Addresses for a specific account index (derives on demand when unlocked). */

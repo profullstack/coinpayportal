@@ -286,6 +286,25 @@ function accountSwitcher(accounts: { index: number; label: string }[], active: n
       if (!res.ok) { await dialogAlert({ title: "Couldn't rename", message: res.error, tone: 'error' }); return; }
       void renderWallet();
     }, 'btn small'),
+    // Only offered when there is another account to fall back to; removing the
+    // last one would leave the wallet with nothing to show.
+    ...(accounts.length > 1
+      ? [button('Remove', async () => {
+          const current = accounts.find((a) => a.index === active);
+          const confirmed = await dialogConfirm({
+            title: `Remove ${current?.label ?? 'this account'}?`,
+            message:
+              'This hides the account from your wallet. It does not delete anything: the addresses come from your recovery phrase, so any funds there stay recoverable with that phrase. Check the balance before removing.',
+            details: [{ label: 'Account', value: current?.label ?? String(active) }],
+            confirmLabel: 'Remove',
+            danger: true,
+          });
+          if (!confirmed) return;
+          const res = await call({ type: 'removeAccount', index: active });
+          if (!res.ok) { await dialogAlert({ title: "Couldn't remove", message: res.error, tone: 'error' }); return; }
+          void renderWallet();
+        }, 'btn small')]
+      : []),
   ]);
 }
 
