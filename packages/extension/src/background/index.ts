@@ -603,15 +603,24 @@ async function handle(
         try {
           // Only this account's addresses: one seed is one portal wallet, so the
           // response covers every account and the rest are not ours to show here.
-          // Compared case-insensitively: EVM addresses are the same address
-          // whatever their EIP-55 casing, and a mismatch here silently drops
-          // every token balance riding on that address.
+          // Every address on the wallet, not just the ones this extension
+          // derives. The wallet holds chains the extension cannot derive yet
+          // (DOGE, XRP, ADA) and hiding them made the extension look like it had
+          // lost funds that were plainly there in the web wallet.
+          //
+          // `derived` marks the difference honestly: true means this extension
+          // computed the address from the seed and can prove it; false means it
+          // came from the portal's record of this wallet and is shown for
+          // visibility only. Compared case-insensitively — EIP-55 casing does
+          // not change an address, and a mismatch would silently drop every
+          // token riding on it.
           const mine = new Set(
             (await wallet.addressesFor(accountIndex)).map((a) => a.address.toLowerCase()),
           );
-          const balances = (await api.getBalances(walletId, authKey)).filter((b) =>
-            mine.has(b.address?.toLowerCase()),
-          );
+          const balances = (await api.getBalances(walletId, authKey)).map((b) => ({
+            ...b,
+            derived: mine.has(b.address?.toLowerCase()),
+          }));
           return { ok: true, balances };
         } finally {
           authKey.fill(0);

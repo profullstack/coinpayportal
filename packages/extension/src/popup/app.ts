@@ -341,10 +341,12 @@ interface AssetRow {
   asset: string;
   address: string;
   balance?: string;
+  /** False for addresses known only from the portal's wallet record. */
+  derived: boolean;
 }
 
 async function renderAssets(container: HTMLElement, addresses: DerivedAddress[]): Promise<void> {
-  let balances: { chain: string; address: string; balance: string }[] = [];
+  let balances: { chain: string; address: string; balance: string; derived?: boolean }[] = [];
   try {
     const res = await call({ type: 'getBalances' });
     balances = 'balances' in res ? res.balances : [];
@@ -353,18 +355,19 @@ async function renderAssets(container: HTMLElement, addresses: DerivedAddress[])
   }
 
   const byAsset = new Map<string, AssetRow>();
-  // Every derived chain, so an empty wallet still shows where to receive.
+  // Every locally derived chain, so an empty wallet still shows where to receive.
   for (const derived of addresses) {
-    byAsset.set(derived.chain, { asset: derived.chain, address: derived.address });
+    byAsset.set(derived.chain, { asset: derived.chain, address: derived.address, derived: true });
   }
-  // Plus anything the portal holds a balance for — including tokens the
-  // extension does not derive itself, like USDC on Base.
+  // Plus everything else on the wallet: tokens like USDC on Base, and chains
+  // this extension cannot derive yet (DOGE, XRP, ADA, LN).
   for (const b of balances) {
     const existing = byAsset.get(b.chain);
     byAsset.set(b.chain, {
       asset: b.chain,
       address: existing?.address ?? b.address,
       balance: b.balance,
+      derived: existing?.derived ?? b.derived ?? false,
     });
   }
 
@@ -381,7 +384,13 @@ async function renderAssets(container: HTMLElement, addresses: DerivedAddress[])
   }
 
   const priced: { row: AssetRow; amount: HTMLElement }[] = [];
+  // Total across everything priced, so the first thing seen is what it is worth.
+  const total = el('div', { class: 'total' }, [
+    el('span', { class: 'total-label', text: 'Total' }),
+    el('span', { class: 'total-value', text: '…' }),
+  ]);
   container.replaceChildren(
+    total,
     ...rows.map((row) => {
       const amount = el('span', {
         class: held(row) ? 'bal' : 'tokens',
@@ -394,6 +403,11 @@ async function renderAssets(container: HTMLElement, addresses: DerivedAddress[])
           el('span', { class: 'chain', text: row.asset }),
           amount,
         ]),
+        // Say plainly which addresses this extension can vouch for. A portal
+        // address is fine to look at; it is not something we verified locally.
+        ...(row.derived
+          ? []
+          : [note('From your CoinPay wallet — not derived in this extension', 'muted small')]),
         el('code', { class: 'addr', text: row.address }),
         el('div', { class: 'row asset-actions' }, [
           button('Copy', () => { void navigator.clipboard.writeText(row.address); }, 'btn small'),
@@ -412,6 +426,9 @@ async function renderAssets(container: HTMLElement, addresses: DerivedAddress[])
   );
 
   // Fiat second: a missing rate costs the value line, never the balance.
+  let sum = 0;
+  let fiat: FiatCurrency = DEFAULT_FIAT;
+  let priceable = 0;
   await Promise.all(
     priced.map(async ({ row, amount }) => {
       try {
@@ -419,12 +436,28 @@ async function renderAssets(container: HTMLElement, addresses: DerivedAddress[])
         if (!('quote' in quote)) return;
         const value = cryptoToFiat(Number(row.balance), quote.quote.rate);
         if (value === null) return;
+        fiat = quote.quote.fiat;
+        sum += value;
+        priceable++;
         amount.textContent =
           `${formatCrypto(Number(row.balance))} ${row.asset} · ${formatFiat(value, quote.quote.fiat)}`;
       } catch {
         /* keep the crypto amount */
       }
     }),
+  );
+
+  const value = total.querySelector('.total-value')!;
+  // An unpriced asset would silently understate the total, so say so rather
+  // than presenting a number that looks complete when it isn't.
+  value.textContent = priceable
+    ? formatFiat(sum, fiat) + (priceable < priced.length ? ' +' : '')
+    : '—';
+  value.setAttribute(
+    'title',
+    priceable < priced.length
+      ? `${priced.length - priceable} asset(s) could not be priced and are not included`
+      : 'Sum of every priced balance in this account',
   );
 }
 
