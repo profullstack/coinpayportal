@@ -891,6 +891,78 @@ describe('Webhook Service', () => {
     });
   });
 
+  describe('settled amount in webhook payload', () => {
+    // Regression: the payload only ever carried `amount_usd`. Billing
+    // integrations (WHMCS's addInvoicePayment, FossBilling, WooCommerce)
+    // read a generic `amount`, so they booked a 0.00 payment — Stripe
+    // captured the card, the merchant returned 200, and the invoice stayed
+    // unpaid with no error anywhere.
+    const arrange = () => {
+      const mockChain = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({
+          data: {
+            webhook_url: 'https://example.com/webhook',
+            webhook_secret: 'test-webhook-secret',
+          },
+          error: null,
+        }),
+        insert: vi.fn().mockResolvedValue({ error: null }),
+      };
+      const mockSupabase = {
+        from: vi.fn().mockReturnValue(mockChain),
+      } as unknown as SupabaseClient;
+      global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, statusText: 'OK' });
+      return mockSupabase;
+    };
+
+    const sentBody = () => JSON.parse((global.fetch as any).mock.calls[0][1].body);
+
+    it('mirrors amount_usd into data.amount', async () => {
+      const mockSupabase = arrange();
+
+      await sendPaymentWebhook(mockSupabase, 'business-123', 'payment-123', 'payment.confirmed', {
+        status: 'confirmed',
+        amount_usd: 140,
+        currency: 'usd',
+      });
+
+      const body = sentBody();
+      expect(body.data.amount).toBe(140);
+      expect(body.data.amount_usd).toBe(140);
+    });
+
+    it('resolves to a non-zero amount for a WHMCS-style `data.amount ?? 0` reader', async () => {
+      const mockSupabase = arrange();
+
+      await sendPaymentWebhook(mockSupabase, 'business-123', 'payment-123', 'payment.confirmed', {
+        status: 'confirmed',
+        amount_usd: 140,
+        currency: 'usd',
+        metadata: { invoice_id: '42445', platform: 'whmcs' },
+      });
+
+      const data = sentBody().data;
+      const whmcsAmount = Number(data.amount ?? 0);
+      expect(whmcsAmount).toBe(140);
+      expect(whmcsAmount).toBeGreaterThan(0);
+    });
+
+    it('prefers an explicit amount over amount_usd when the caller supplies one', async () => {
+      const mockSupabase = arrange();
+
+      await sendPaymentWebhook(mockSupabase, 'business-123', 'payment-123', 'payment.confirmed', {
+        status: 'confirmed',
+        amount: 139.5,
+        amount_usd: 140,
+        currency: 'usd',
+      });
+
+      expect(sentBody().data.amount).toBe(139.5);
+    });
+  });
+
   describe('metadata in webhook payload', () => {
     it('should include metadata in webhook payload when provided', async () => {
       const mockChain = {

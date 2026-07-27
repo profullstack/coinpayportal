@@ -96,11 +96,30 @@ if ($eventId) {
 $rawStatus = isset($payment['status']) ? (string) $payment['status'] : null;
 $class     = StatusMap::classifyEvent($eventType, $rawStatus);
 
-$amount   = isset($payment['amount']) ? (float) $payment['amount'] : (float) ($data['amount'] ?? 0);
+// Settled fiat amount. CoinPay payment webhooks have always carried
+// `amount_usd`; the generic `amount` alias was added later. Reading only
+// `amount` made this fall through to 0.0, so a charged card produced a
+// 0.00 WHMCS payment and the invoice silently stayed unpaid.
+$amountRaw = $payment['amount']
+    ?? $data['amount']
+    ?? $payment['amount_usd']
+    ?? $data['amount_usd']
+    ?? null;
+$amount   = $amountRaw === null ? null : (float) $amountRaw;
 $currency = (string) ($payment['currency'] ?? $data['currency'] ?? '');
 
 switch ($class) {
     case StatusMap::CLASS_PAID:
+        // Never book a zero-value payment — WHMCS would leave the invoice
+        // unpaid with no obvious cause. Fail loudly instead so the delivery
+        // is retried and recorded in CoinPay's webhook log.
+        if ($amount === null || $amount <= 0.0) {
+            logModuleCall($moduleName, 'webhook.no_amount', $event, 'paid event carried no usable amount');
+            http_response_code(400);
+            echo json_encode(['error' => 'missing payment amount']);
+            exit;
+        }
+
         // The CoinPay response carries no fee by default; fee = 0 unless the
         // merchant dashboard later exposes one. WHMCS addInvoicePayment is
         // idempotent by transid so this is safe on replays.

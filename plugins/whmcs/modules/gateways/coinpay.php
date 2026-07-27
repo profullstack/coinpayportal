@@ -156,7 +156,7 @@ function coinpay_link($params)
 
     $metadata = [
         'platform'       => 'whmcs',
-        'plugin_version' => '0.6.12',
+        'plugin_version' => '0.6.13',
         'system_url'     => $systemUrl,
         'invoice_id'     => (string) $invoiceId,
         'client_id'      => (string) ($params['clientdetails']['id'] ?? $params['userid'] ?? ''),
