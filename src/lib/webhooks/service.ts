@@ -504,12 +504,21 @@ export async function sendPaymentWebhook(
 
     // Build SDK-compliant nested payload format (matches test webhook)
     // This format is expected by verifyWebhookSignature() and parseWebhookPayload() in SDK
+    //
+    // `amount` is a deliberate alias of `amount_usd` (the settled fiat amount).
+    // Billing integrations read a generic `amount` — the WHMCS gateway does
+    // `$data['amount'] ?? 0` — and because we only ever sent `amount_usd`, they
+    // booked a 0.00 payment against the invoice: Stripe captured the card, the
+    // merchant returned HTTP 200, and the invoice silently stayed unpaid.
+    // Do not remove this field; it is part of the published wire contract.
+    const settledAmount = paymentData.amount ?? paymentData.amount_usd;
     const payload = {
       id: `evt_${paymentId}_${timestamp}`,
       type: event,
       data: {
         payment_id: paymentId,
         status: paymentData.status,
+        amount: settledAmount,
         amount_crypto: paymentData.amount_crypto,
         amount_usd: paymentData.amount_usd,
         currency: paymentData.currency,
