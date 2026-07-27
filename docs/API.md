@@ -1054,6 +1054,7 @@ The `X-CoinPay-Signature` header contains:
   "type": "payment.confirmed",
   "data": {
     "payment_id": "pay_xyz789",
+    "amount": "100.00",
     "amount_crypto": "0.0456",
     "amount_usd": "100.00",
     "currency": "ETH",
@@ -1088,6 +1089,7 @@ All webhooks include these base fields:
 | `type` | string | Alias for `event` (for compatibility) |
 | `payment_id` | string | Unique payment identifier |
 | `business_id` | string | Your business identifier |
+| `amount` | string | Settled fiat amount — alias of `amount_usd`. Use this to credit an order/invoice. |
 | `amount_crypto` | string | Amount in cryptocurrency |
 | `amount_usd` | string | Amount in USD |
 | `currency` | string | Blockchain/currency code (e.g., `ETH`, `BTC`) |

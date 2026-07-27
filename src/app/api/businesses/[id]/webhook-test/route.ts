@@ -103,6 +103,11 @@ export async function POST(
       type: 'test.webhook',
       data: {
         payment_id: `test_${Date.now()}`,
+        // `amount` mirrors `amount_usd` — keep it here so the test webhook is
+        // shaped exactly like a real one and merchants can wire up their
+        // amount handling against it. See sendPaymentWebhook in
+        // src/lib/webhooks/service.ts.
+        amount: '50.00',
         amount_crypto: '0.001',
         amount_usd: '50.00',
         currency: 'BTC',
