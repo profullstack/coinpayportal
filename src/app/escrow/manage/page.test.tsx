@@ -146,6 +146,7 @@ describe('EscrowManagePage', () => {
     
     expect(screen.getByText('depositor')).toBeInTheDocument();
     expect(screen.getByText('100 USDC_POL')).toBeInTheDocument();
+    expect(global.fetch).toHaveBeenCalledWith('/api/escrow/esc_123/events?token=valid_token');
   });
 
   it('should show error for invalid credentials', async () => {
