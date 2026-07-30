@@ -674,7 +674,7 @@ businesses.forEach(biz => {
         <div id="escrow">
           <DocSection title="Escrow API">
             <p className="text-gray-300 mb-6">
-              Create and manage trustless crypto escrows. No accounts required — authentication uses unique tokens returned at creation.
+              Create trustless crypto escrows with an authenticated SDK client, then use the unique tokens returned at creation to authorize each party&apos;s actions.
             </p>
 
             <h3 className="text-xl font-semibold text-white mb-4">Create Escrow</h3>
