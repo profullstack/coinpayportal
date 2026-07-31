@@ -49,8 +49,17 @@ describe('CreateEscrowPage - Copy Button Feature', () => {
       configurable: true,
     });
 
-    // Mock auth fetch to return null (not logged in, triggers anonymous fallback)
-    vi.mocked(authFetch).mockResolvedValue(null);
+    // Escrow creation goes through authFetch, not bare fetch. Delegate to the
+    // mockFetch stubs each test already defines and wrap the result in the
+    // { response, data } shape authFetch returns, so those stubs keep working.
+    // `/api/businesses` still resolves null — these tests exercise the
+    // logged-out path, where the page skips business association.
+    vi.mocked(authFetch).mockImplementation(async (url: string, options?: RequestInit) => {
+      if (url.includes('/api/businesses')) return null;
+      const response = await mockFetch(url, options);
+      if (!response) return null;
+      return { response, data: await response.json() } as any;
+    });
 
     // Mock rates API response
     mockFetch.mockImplementation((url: string) => {

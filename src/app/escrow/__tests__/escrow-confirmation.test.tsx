@@ -25,8 +25,15 @@ import CreateEscrowPage from '../create/page';
 describe('Escrow Confirmation Screens', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: not logged in
-    mockAuthFetch.mockResolvedValue(null);
+    // Escrow creation goes through authFetch, not bare fetch. Delegate to the
+    // mockFetch stubs each test defines, wrapped in authFetch's shape.
+    // `/api/businesses` stays null — these tests cover the logged-out path.
+    mockAuthFetch.mockImplementation(async (url: string, options?: RequestInit) => {
+      if (typeof url === 'string' && url.includes('/api/businesses')) return null;
+      const response = await mockFetch(url, options);
+      if (!response) return null;
+      return { response, data: await response.json() };
+    });
     // Rate API mock (default for all fetch calls)
     mockFetch.mockResolvedValue({
       ok: true,
@@ -75,8 +82,6 @@ describe('Escrow Confirmation Screens', () => {
     };
 
     it('shows confirmation with all expected fields', async () => {
-      // authFetch: businesses (null=not logged in), then escrow create (null=fallback to fetch)
-      mockAuthFetch.mockResolvedValue(null);
       // global fetch: rate API calls, then escrow creation fallback
       mockFetch.mockImplementation((url: string) => {
         if (typeof url === 'string' && url.includes('/api/escrow')) {
@@ -159,8 +164,6 @@ describe('Escrow Confirmation Screens', () => {
     };
 
     it('shows recurring confirmation with deposit address and tokens (same as single escrow)', async () => {
-      // authFetch: businesses (null), then series create (null=fallback to fetch)
-      mockAuthFetch.mockResolvedValue(null);
       // global fetch: rate API calls, wallet lookup, then series creation fallback
       mockFetch.mockImplementation((url: string) => {
         if (typeof url === 'string' && url.includes('/api/escrow/series')) {

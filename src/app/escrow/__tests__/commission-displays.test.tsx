@@ -44,8 +44,16 @@ describe('Escrow Commission Displays', () => {
     vi.clearAllMocks();
     mockClipboardWriteText.mockResolvedValue(undefined);
     
-    // Mock auth fetch to return null (not logged in, triggers anonymous fallback)
-    vi.mocked(authFetch).mockResolvedValue(null);
+    // Escrow creation goes through authFetch, not bare fetch. Delegate to the
+    // mockFetch stubs each test defines and wrap the result in authFetch's
+    // { response, data } shape. Tests that stub authFetch directly with
+    // mockResolvedValueOnce (the escrow-listing cases) still take precedence.
+    vi.mocked(authFetch).mockImplementation(async (url: string, options?: RequestInit) => {
+      if (url.includes('/api/businesses')) return null;
+      const response = await mockFetch(url, options);
+      if (!response) return null;
+      return { response, data: await response.json() } as any;
+    });
   });
 
   afterEach(() => {
@@ -245,7 +253,9 @@ describe('Escrow Commission Displays', () => {
       });
 
       // Check info box shows 1% fee for anonymous users
-      expect(screen.getByText(/Platform fee: 1% \(0\.5% for logged-in merchants\)/)).toBeInTheDocument();
+      // Copy changed: the discount is tied to having a paid business, not merely
+      // being logged in.
+      expect(screen.getByText(/Platform fee: 1% \(0\.5% with a paid business\)/)).toBeInTheDocument();
     });
 
     it('should display commission estimate for logged-in merchants (0.5%)', async () => {

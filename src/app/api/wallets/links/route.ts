@@ -135,24 +135,43 @@ export async function POST(request: NextRequest) {
       await (business_id ? clear.eq('business_id', business_id) : clear.is('business_id', null));
     }
 
-    const { data: link, error } = await supabase
+    // Deliberately not an upsert. Uniqueness here is enforced by PARTIAL indexes
+    // (`WHERE business_id IS NULL` / `IS NOT NULL`), and Postgres will not match
+    // `ON CONFLICT (cols)` to a partial index unless the predicate is restated —
+    // which PostgREST's on_conflict cannot express. So resolve the existing row
+    // by scope first, then update or insert.
+    const scopeQuery = supabase
       .from('wallet_account_links')
-      .upsert(
-        {
-          wallet_id,
-          merchant_id: auth.merchantId,
-          business_id: business_id || null,
-          label: label || null,
-          is_default: !!is_default,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: business_id ? 'wallet_id,business_id' : 'wallet_id,merchant_id',
-          ignoreDuplicates: false,
-        },
-      )
-      .select('*')
-      .single();
+      .select('id')
+      .eq('wallet_id', wallet_id)
+      .eq('merchant_id', auth.merchantId);
+
+    const { data: existing } = await (business_id
+      ? scopeQuery.eq('business_id', business_id)
+      : scopeQuery.is('business_id', null)
+    ).maybeSingle();
+
+    const row = {
+      wallet_id,
+      merchant_id: auth.merchantId,
+      business_id: business_id || null,
+      label: label || null,
+      is_default: !!is_default,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data: link, error } = existing?.id
+      ? await supabase
+          .from('wallet_account_links')
+          .update(row)
+          .eq('id', existing.id)
+          .select('*')
+          .single()
+      : await supabase
+          .from('wallet_account_links')
+          .insert(row)
+          .select('*')
+          .single();
 
     if (error || !link) {
       console.error('Link wallet error:', error);
