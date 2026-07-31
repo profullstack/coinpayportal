@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authorizeProposal } from '@/lib/auth/proposal-access';
 import { rejectProposal } from '@/lib/proposals/service';
+import { notifyDecided } from '@/lib/proposals/notify';
 
 /**
  * POST /api/proposals/[id]/reject
@@ -25,6 +26,14 @@ export async function POST(
 
     const body = await request.json().catch(() => ({}));
 
+    // Read the standing offer before rejecting it, so the notification can
+    // quote the terms that were declined.
+    const { data: revision } = await supabase
+      .from('proposal_revisions')
+      .select('*')
+      .eq('id', access.proposal.current_revision_id ?? '')
+      .maybeSingle();
+
     const result = await rejectProposal(supabase, {
       proposal: access.proposal,
       party: 'merchant',
@@ -38,6 +47,14 @@ export async function POST(
         { status: result.status },
       );
     }
+
+    await notifyDecided(supabase, {
+      proposal: result.proposal,
+      revision: revision ?? null,
+      by: 'merchant',
+      decision: 'rejected',
+      message: body.message,
+    });
 
     return NextResponse.json({ success: true, proposal: result.proposal });
   } catch (error) {
