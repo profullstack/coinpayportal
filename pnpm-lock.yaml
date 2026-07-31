@@ -81,8 +81,8 @@ importers:
         specifier: ^0.218.0
         version: 0.218.0(@opentelemetry/api@1.9.1)
       '@profullstack/autoblog':
-        specifier: github:profullstack/autoblog#75e54af
-        version: https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af
+        specifier: ^0.4.0
+        version: 0.4.0
       '@profullstack/coinpay':
         specifier: workspace:*
         version: link:packages/sdk
@@ -1893,9 +1893,8 @@ packages:
   '@posthog/types@1.381.0':
     resolution: {integrity: sha512-AW68BovKFCNbPdq3VjOzfQeSQRYMvQVv+46LDywWFXO/oOTXFKwjY92FaJQSTXWgTNgDpqigCw3yUFDinK3hZA==}
 
-  '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af':
-    resolution: {integrity: sha512-l89xQL+HvaFU8jTu6fqPYAJ/B1SUAl1zLGWRiq18YOEweFLcCRcv3y4falko8cmz1jLCGAE2KrEDiCn7SeGN1A==, tarball: https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af}
-    version: 0.4.0
+  '@profullstack/autoblog@0.4.0':
+    resolution: {integrity: sha512-Lrc6pqfAO0A11bmkaVCHi/YPUdJSLXy3E6fy7NEMjUM2LE/mC+zEW1PRmzKfaYF7HWh6Lmaq7VaHpZiCW05Rvw==}
     engines: {node: '>=18'}
 
   '@profullstack/emailer@1.0.1':
@@ -9577,7 +9576,7 @@ snapshots:
 
   '@posthog/types@1.381.0': {}
 
-  '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af': {}
+  '@profullstack/autoblog@0.4.0': {}
 
   '@profullstack/emailer@1.0.1': {}
 
