@@ -1,6 +1,56 @@
 packages:
   - 'packages/*'
   - '!packages/coinpay-php'
+
+# Security overrides for transitive dependencies.
+#
+# These previously lived in package.json under `pnpm.overrides`. pnpm 11 stopped
+# reading that field, which silently un-pinned every entry below and let the
+# known-vulnerable versions back into the tree — the cause of the open Dependabot
+# alerts. `pnpm-workspace.yaml` is where pnpm 10+ expects them.
+#
+# If you ever see "The 'pnpm' field in package.json is no longer read by pnpm",
+# overrides have gone missing again. Do not ignore that warning.
+overrides:
+  axios: '>=1.14.0'
+  lodash-es: '>=4.18.0'
+  brace-expansion: '>=5.0.6'
+  picomatch: '>=4.0.4'
+  flatted: '>=3.4.2'
+  h3: '>=1.15.11'
+  socket.io-parser: '>=4.2.6'
+  minimatch: '>=9.0.9'
+  rollup: '>=4.60.1'
+  bn.js: '>=5.2.3'
+  ajv: '6.14.0'
+  lodash: '>=4.18.0'
+  jws: '>=4.0.1'
+  esbuild: '>=0.25.0'
+  protobufjs: '>=8.2.0'
+  postcss: '>=8.5.10'
+  follow-redirects: '>=1.16.0'
+  uuid: '>=14.0.0'
+  ip-address: '>=10.1.1'
+  'ws@>=8.0.0': '>=8.20.1'
+  # Added while re-homing the block — these had open alerts but no prior pin.
+  # Kept within the current major of each package so nothing has to change at
+  # the call sites; the alerts are all fixed in patch releases.
+  dompurify: '>=3.4.12'
+  'js-yaml@>=4.0.0': '>=4.1.1'
+  'ws@>=7.0.0 <8.0.0': '>=7.5.10'
+  'ws@<7.0.0': '>=6.2.3'
+  tar: '>=7.5.22'
+  form-data: '>=4.0.6'
+  ua-parser-js: '>=2.0.10'
+  valibot: '>=1.4.2'
+  # Deliberately NOT pinned:
+  #   js-yaml 3.x  — the fix is in 4.x, a breaking major used only by build
+  #                  tooling. Not worth forcing across a major boundary.
+  #   sharp        — patched in 0.35.x; sharp is pre-1.0 so that minor is a
+  #                  breaking change, and it backs Next.js image optimisation.
+  #                  Needs its own upgrade with image rendering verified.
+  #   elliptic     — 6.6.1 is already the latest published; no fix upstream yet.
+
 allowBuilds:
   blake-hash: set this to true or false
   bufferutil: set this to true or false
