@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
 import { SUPPORTED_FIAT_CURRENCIES, type FiatCurrency } from '@/lib/web-wallet/settings';
@@ -109,7 +108,6 @@ function multisigSignerPlaceholder(role: 'Depositor' | 'Beneficiary' | 'Arbiter'
 }
 
 export default function CreateEscrowPage() {
-  const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const [createdEscrow, setCreatedEscrow] = useState<CreatedEscrow | null>(null);
@@ -166,7 +164,7 @@ export default function CreateEscrowPage() {
         }
       }
     } catch {
-      // Not logged in — that's fine, escrow works anonymously
+      // Not logged in
     } finally {
       setLoadingAuth(false);
     }
@@ -386,21 +384,7 @@ export default function CreateEscrowPage() {
         } else if (result) {
           setError(result.data?.error || 'Failed to create recurring escrow series');
         } else {
-          const res = await fetch('/api/escrow/series', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(seriesBody),
-          });
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            setError(errData?.error || `Failed to create series (${res.status})`);
-          } else {
-            const data = await res.json();
-            setCreatedSeries(data.series || data);
-            if (data.escrow) {
-              setCreatedEscrow(data.escrow);
-            }
-          }
+          setError('Authentication is required to create a recurring escrow. Please log in and try again.');
         }
       } else {
         // Use authFetch to include credentials (for logged-in merchants)
@@ -417,23 +401,7 @@ export default function CreateEscrowPage() {
         } else if (result) {
           setError(result.data?.error || 'Failed to create escrow');
         } else {
-          if (isMultisig) {
-            setError('Multisig escrow creation requires authentication. Please log in and try again.');
-            return;
-          }
-
-          // authFetch returned null (redirect to login) — try anonymous for custodial only
-          const res = await fetch(createEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            setError(errData?.error || `Failed to create escrow (${res.status})`);
-          } else {
-            setCreatedEscrow(await res.json());
-          }
+          setError('Authentication is required to create an escrow. Please log in and try again.');
         }
       }
     } catch (err) {
@@ -853,7 +821,7 @@ export default function CreateEscrowPage() {
                 onChange={(e) => setFormData({ ...formData, business_id: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
               >
-                <option value="">No business (anonymous)</option>
+                <option value="">Personal escrow</option>
                 {businesses.map((b) => (
                   <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
@@ -866,7 +834,7 @@ export default function CreateEscrowPage() {
 
           {!loadingAuth && !isLoggedIn && (
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-sm text-blue-700 dark:text-blue-300">
-              <Link href="/login" className="font-medium underline hover:text-blue-900">Log in</Link> to associate this escrow with your business and get reduced fees (0.5% vs 1%).
+              <Link href="/login?redirect=%2Fescrow%2Fcreate" className="font-medium underline hover:text-blue-900">Log in</Link> to create an escrow. Authentication is required for both personal and business escrows.
             </div>
           )}
 
@@ -1323,7 +1291,7 @@ export default function CreateEscrowPage() {
               )}
             </ol>
             <p className="text-xs text-blue-600 dark:text-blue-500 mt-2">
-              Platform fee: {isLoggedIn && formData.business_id ? '0.5% (paid tier)' : '1% (0.5% for logged-in merchants)'}. No fee on refunds.
+              Platform fee: {isLoggedIn && formData.business_id ? '0.5% (paid tier)' : '1% (0.5% with a paid business)'}. No fee on refunds.
             </p>
           </div>
 

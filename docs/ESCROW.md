@@ -2,10 +2,10 @@
 
 ## Overview
 
-Anonymous, non-custodial-style escrow for crypto payments. Both humans and AI agents can use it to hold funds in escrow during jobs/gigs. Funds are held in platform-generated HD wallet addresses (same system wallet infrastructure as payments) and released based on escrow conditions.
+Authenticated, non-custodial-style escrow for crypto payments. Both humans and AI agents can use it to hold funds in escrow during jobs/gigs. Funds are held in platform-generated HD wallet addresses (same system wallet infrastructure as payments) and released based on escrow conditions.
 
 **Key properties:**
-- No KYC — anonymous by default
+- Authenticated creation — merchant JWT or API key required
 - API-first — agents can create/fund/release/dispute via API keys
 - Multi-chain — supports all chains CoinPayPortal already supports (BTC, BCH, ETH, POL, SOL, USDC_*)
 - Platform fee — same 0.5-1% fee structure as payments
@@ -168,13 +168,13 @@ CREATE INDEX idx_escrow_events_type ON escrow_events(event_type);
 
 ## API Endpoints
 
-### Public (no auth required — anonymous escrow creation)
+### Authenticated endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/escrow` | Create new escrow |
-| `GET` | `/api/escrow/:id` | Get escrow status (public view) |
-| `GET` | `/api/escrow/:id/events` | Get escrow event log |
+| `POST` | `/api/escrow` | Create new escrow (merchant JWT or API key required) |
+| `GET` | `/api/escrow/:id` | Get escrow status (party token, merchant JWT, or API key required) |
+| `GET` | `/api/escrow/:id/events` | Get escrow event log (party token, merchant JWT, or API key required) |
 
 ### Depositor Actions (auth via release_token or API key)
 
@@ -205,14 +205,14 @@ CREATE INDEX idx_escrow_events_type ON escrow_events(event_type);
 
 ## Auth Model
 
-Escrows are **anonymous by default**:
+Escrow creation requires a standard merchant JWT or API key. After creation, party actions use scoped credentials:
 - `release_token` — random secret returned on creation, used by depositor to release/refund
 - `beneficiary_api_key` — optional, for agents to poll status
 - Wallet signature — alternative auth by signing a challenge with the party's wallet key
 
 For merchants with CoinPayPortal accounts:
-- Standard JWT/API key auth works
-- Escrow tied to their `business_id`
+- Standard JWT/API key auth is required for creation
+- Escrow can be tied to their `business_id`
 
 ## SDK Integration
 
@@ -255,6 +255,7 @@ Agents create escrows via the REST API or SDK:
 ```bash
 # Create escrow for a gig
 curl -X POST https://coinpayportal.com/api/escrow \
+  -H "Authorization: Bearer $COINPAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "chain": "SOL",

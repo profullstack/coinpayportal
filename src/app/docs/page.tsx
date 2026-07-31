@@ -96,7 +96,7 @@ export default function DocsPage() {
             <div>
               <h2 className="text-xl font-bold text-white mb-2">🔐 Escrow Service</h2>
               <p className="text-gray-300 text-sm">
-                Trustless crypto escrow — hold funds until both sides are satisfied. Token-based auth, no accounts needed.
+                Trustless crypto escrow — authenticate to create, then manage release and disputes with role-specific tokens.
               </p>
             </div>
             <a
@@ -661,8 +661,8 @@ curl -H "X-Payment: $(echo -n '{"scheme":"exact","network":"bitcoin","asset":"BT
         <div id="escrow">
           <DocSection title="Escrow Service">
             <p className="text-gray-300 mb-6">
-              Anonymous, trustless escrow for crypto transactions. Hold funds until both parties are satisfied. 
-              No accounts required — authentication is handled via unique tokens returned at creation time.
+              Trustless escrow for crypto transactions. Creation requires a merchant session or API key;
+              unique tokens returned at creation authorize each party&apos;s later actions.
             </p>
 
             <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
@@ -712,7 +712,7 @@ curl -H "X-Payment: $(echo -n '{"scheme":"exact","network":"bitcoin","asset":"BT
               ))}
             </div>
 
-            <ApiEndpoint method="POST" path="/api/escrow" description="Create a new escrow. No authentication required (anonymous). Optionally authenticate to associate with a business and get paid-tier fees.">
+            <ApiEndpoint method="POST" path="/api/escrow" description="Create a new escrow. Requires a merchant JWT or API key. Include business_id to associate it with a business and apply eligible paid-tier fees.">
               <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                 <p className="text-blue-300 text-sm">
                   <strong>Fiat Support:</strong> While this API accepts crypto amounts directly, you can now specify amounts in fiat when using the SDK/CLI, which will auto-convert via the rates API before creating the escrow.
@@ -733,6 +733,7 @@ curl -H "X-Payment: $(echo -n '{"scheme":"exact","network":"bitcoin","asset":"BT
 
               <CodeBlock title="cURL Example" language="curl">
 {`curl -X POST https://coinpayportal.com/api/escrow \\
+  -H "Authorization: Bearer $COINPAY_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "chain": "ETH",
@@ -806,9 +807,9 @@ offset       — Pagination offset`}
               </CodeBlock>
             </ApiEndpoint>
 
-            <ApiEndpoint method="GET" path="/api/escrow/:id" description="Get escrow details by ID. Public endpoint — no auth required.">
+            <ApiEndpoint method="GET" path="/api/escrow/:id" description="Get escrow details by ID. Requires a party token query parameter, merchant JWT, or API key.">
               <CodeBlock title="cURL Example" language="curl">
-{`curl https://coinpayportal.com/api/escrow/a1b2c3d4-...`}
+{`curl "https://coinpayportal.com/api/escrow/a1b2c3d4-...?token=esc_abc123..."`}
               </CodeBlock>
             </ApiEndpoint>
 
@@ -892,7 +893,7 @@ offset       — Pagination offset`}
               </p>
             </ApiEndpoint>
 
-            <ApiEndpoint method="GET" path="/api/escrow/:id/events" description="Get the audit log for an escrow — all status changes, deposits, releases, disputes, and settlements.">
+            <ApiEndpoint method="GET" path="/api/escrow/:id/events" description="Get the authenticated audit log for an escrow — all status changes, deposits, releases, disputes, and settlements. Requires a party token, merchant JWT, or API key.">
               <CodeBlock title="Response">
 {`{
   "success": true,
