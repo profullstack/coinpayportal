@@ -139,7 +139,7 @@ function EscrowManagePage() {
 
       const data = await response.json();
       setAuthenticatedData(data);
-      fetchEvents(currentId);
+      fetchEvents(currentId, currentToken);
 
       // Update URL without triggering a page reload
       const url = new URL(window.location.href);
@@ -154,10 +154,11 @@ function EscrowManagePage() {
     }
   };
 
-  const fetchEvents = async (escrowId: string) => {
+  const fetchEvents = async (escrowId: string, authToken: string) => {
     try {
       setEventsLoading(true);
-      const response = await fetch(`/api/escrow/${escrowId}/events`);
+      const params = new URLSearchParams({ token: authToken });
+      const response = await fetch(`/api/escrow/${escrowId}/events?${params.toString()}`);
       if (response.ok) {
         const data = await response.json();
         setEvents(data.events || []);
@@ -195,7 +196,7 @@ function EscrowManagePage() {
         ...authenticatedData,
         escrow: updatedEscrow,
       });
-      fetchEvents(authenticatedData.escrow.id);
+      fetchEvents(authenticatedData.escrow.id, actionToken || token);
     } catch (err) {
       setError(`Failed to ${action} escrow. Please try again.`);
       console.error(err);
@@ -236,7 +237,7 @@ function EscrowManagePage() {
         ...authenticatedData,
         escrow: updatedEscrow,
       });
-      fetchEvents(authenticatedData.escrow.id);
+      fetchEvents(authenticatedData.escrow.id, token);
       setShowDispute(false);
       setDisputeReason('');
     } catch (err) {
@@ -273,7 +274,7 @@ function EscrowManagePage() {
         ...authenticatedData,
         escrow: data,
       });
-      fetchEvents(authenticatedData.escrow.id);
+      fetchEvents(authenticatedData.escrow.id, token);
     } catch (err) {
       setError('Failed to update auto-release. Please try again.');
       console.error(err);
