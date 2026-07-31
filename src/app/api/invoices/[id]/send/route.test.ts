@@ -95,7 +95,7 @@ const baseInvoice = {
   crypto_currency: 'SOL',
   fee_rate: '0.01',
   business_id: 'biz-1',
-  merchant_wallet_address: 'wallet123',
+  merchant_wallet_address: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',
   clients: { id: 'c1', name: 'Alice', email: 'alice@example.com', company_name: null },
   businesses: { id: 'biz-1', name: 'Acme', merchant_id: 'merch-1' },
   notes: null,
@@ -174,7 +174,7 @@ describe('POST /api/invoices/[id]/send', () => {
       business_id: 'biz-1',
       amount: 100,
       blockchain: 'SOL',
-      merchant_wallet_address: 'wallet123',
+      merchant_wallet_address: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',
       metadata: expect.objectContaining({
         source: 'invoice',
         invoice_id: 'inv-1',

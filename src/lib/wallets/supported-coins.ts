@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { authorizeBusiness } from '@/lib/auth/authz';
 import type { Capability } from '@/lib/auth/permissions';
+import { getLinkedWebWalletAddress } from '@/lib/wallets/linked-web-wallets';
 
 export const CRYPTO_NAMES: Record<string, string> = {
   BTC: 'Bitcoin',
@@ -30,7 +31,7 @@ const TOKEN_CHAIN_NAMES: Record<string, string> = {
   BSC: 'BNB Chain',
 };
 
-export type WalletSource = 'business' | 'merchant_global';
+export type WalletSource = 'business' | 'merchant_global' | 'web_wallet';
 
 export interface WalletRecord {
   cryptocurrency: string;
@@ -213,5 +214,21 @@ export async function getPaymentReceivingWallet(
     return { error: globalError.message };
   }
 
-  return { error: `No ${input.cryptocurrency} wallet configured for this business or merchant global wallet.` };
+  // Last resort: a non-custodial web wallet the account holder has linked. This
+  // is what lets a wallet-first user get paid without ever configuring a
+  // business or merchant-global wallet.
+  const linked = await getLinkedWebWalletAddress(supabase, {
+    merchantId: input.merchantId,
+    businessId: input.businessId,
+    cryptocurrency: input.cryptocurrency,
+  });
+
+  if (linked.error) {
+    return { error: linked.error };
+  }
+  if (linked.address?.address) {
+    return { walletAddress: linked.address.address, source: 'web_wallet' };
+  }
+
+  return { error: `No ${input.cryptocurrency} wallet configured for this business, merchant global wallet, or linked web wallet.` };
 }

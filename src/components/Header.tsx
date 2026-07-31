@@ -76,6 +76,7 @@ export default function Header() {
 
   const loggedInNavigation = [
     { name: 'Dashboard', href: '/dashboard' },
+    { name: 'Proposals', href: '/proposals' },
     { name: 'Invoices', href: '/invoices' },
     { name: 'Escrow', href: '/escrow' },
     { name: 'Wallet', href: '/web-wallet' },

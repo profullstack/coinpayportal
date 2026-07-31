@@ -122,10 +122,17 @@ describe('CreateInvoicePage', () => {
     const cryptoSelect = screen.getAllByRole('combobox')[3];
     const optionValues = Array.from(cryptoSelect.querySelectorAll('option')).map((option) => option.getAttribute('value'));
 
-    // Configured wallets are offered, generic fallback list is not used.
+    // Every supported coin is offered, not just the ones with a stored wallet:
+    // a business may invoice in any coin as long as a payee address is entered.
+    // Coins without a wallet on file are labelled so the difference is visible.
     expect(optionValues).toContain('BTC');
     expect(optionValues).toContain('SOL');
-    expect(optionValues).not.toContain('DOGE');
+    expect(optionValues).toContain('DOGE');
+
+    const optionLabels = Array.from(cryptoSelect.querySelectorAll('option')).map((o) => o.textContent);
+    expect(optionLabels).toContain('BTC');
+    expect(optionLabels.find((l) => l?.startsWith('DOGE'))).toMatch(/no wallet on file/);
+
     expect(screen.queryByText(/No wallets configured for this business/)).not.toBeInTheDocument();
 
     // Card is shown as an enabled method.

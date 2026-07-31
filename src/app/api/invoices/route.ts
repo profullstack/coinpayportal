@@ -4,6 +4,7 @@ import { getFeePercentage } from '@/lib/payments/fees';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { resolveMerchant } from '@/lib/auth/merchant';
 import { authorizeBusiness, listAccessibleBusinessIds } from '@/lib/auth/authz';
+import { resolvePayee } from '@/lib/payments/payee';
 
 /**
  * GET /api/invoices
@@ -141,6 +142,35 @@ export async function POST(request: NextRequest) {
     }
     const invoiceOwnerId = business.merchant_id ?? merchantId;
 
+    // An invoice must always name the address its net settles to. When a coin is
+    // chosen we resolve one now (explicit > business wallet > account-global >
+    // linked web wallet) and refuse the create if nothing is determinable, so the
+    // caller is told to supply one manually rather than ending up with a
+    // payee-less invoice. Coin choice may still be deferred to send time; the
+    // send route runs the same check.
+    let payeeAddress: string | null = null;
+    let payeeSource: string | null = null;
+    if (crypto_currency) {
+      const payee = await resolvePayee(supabase, {
+        businessId: resolvedBusinessId,
+        merchantId: invoiceOwnerId,
+        cryptocurrency: crypto_currency,
+        requestedAddress: merchant_wallet_address,
+      });
+      if (!payee.ok) {
+        return NextResponse.json(
+          { success: false, error: payee.error, code: payee.code },
+          { status: payee.status }
+        );
+      }
+      payeeAddress = payee.address;
+      payeeSource = payee.source;
+    } else if (merchant_wallet_address) {
+      // No coin yet, but the caller named a payee — keep it for send time.
+      payeeAddress = String(merchant_wallet_address).trim() || null;
+      payeeSource = payeeAddress ? 'manual' : null;
+    }
+
     // Generate invoice number
     const { data: maxInvoice } = await supabase
       .from('invoices')
@@ -172,11 +202,12 @@ export async function POST(request: NextRequest) {
         currency: currency || 'USD',
         amount,
         crypto_currency: crypto_currency || null,
-        merchant_wallet_address: merchant_wallet_address || null,
+        merchant_wallet_address: payeeAddress,
         wallet_id: wallet_id || null,
         fee_rate: feeRate,
         due_date: due_date || null,
         notes: notes || null,
+        metadata: payeeSource ? { payee_source: payeeSource } : {},
       })
       .select(`
         *,
