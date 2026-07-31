@@ -23,6 +23,17 @@ interface Wallet {
   wallet_address: string;
 }
 
+/**
+ * Every coin an invoice can be denominated in. The picker always offers the full
+ * list — a business is allowed to invoice in a coin it has no stored wallet for,
+ * as long as the payee address is typed in by hand.
+ */
+const ALL_CRYPTOS = [
+  'BTC', 'BCH', 'ETH', 'POL', 'SOL', 'DOGE', 'XRP', 'ADA', 'BNB',
+  'USDT', 'USDT_ETH', 'USDT_POL', 'USDT_SOL',
+  'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+];
+
 export default function CreateInvoicePage() {
   const router = useRouter();
   const [businesses, setBusinesses] = useState<Business[]>([]);
@@ -109,9 +120,22 @@ export default function CreateInvoicePage() {
     }
   };
 
+  const walletFor = (crypto: string) => wallets.find(w => w.cryptocurrency === crypto);
+  // The wallet the account can supply for the chosen coin, if any. Drives whether
+  // the payee field reads as "your saved wallet" or "type one in".
+  const resolvedWallet = form.crypto_currency ? walletFor(form.crypto_currency) : undefined;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    // Mirror the server rule client-side so the failure is inline rather than a
+    // round-trip: a coin without a payee is never a valid invoice.
+    if (form.crypto_currency && !form.merchant_wallet_address.trim()) {
+      setError(`Enter the ${form.crypto_currency} payee address this invoice should be paid to.`);
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -138,9 +162,6 @@ export default function CreateInvoicePage() {
         clientId = clientResult.data.client.id;
       }
 
-      // Find wallet address for selected crypto
-      const selectedWallet = wallets.find(w => w.cryptocurrency === form.crypto_currency);
-
       const invoiceData: Record<string, unknown> = {
         business_id: form.business_id,
         client_id: clientId || undefined,
@@ -149,7 +170,9 @@ export default function CreateInvoicePage() {
         crypto_currency: form.crypto_currency || undefined,
         due_date: form.due_date || undefined,
         notes: form.notes || undefined,
-        merchant_wallet_address: selectedWallet?.wallet_address || form.merchant_wallet_address || undefined,
+        // Whatever is in the field wins — it is prefilled from the saved wallet
+        // but the user may have replaced it to pay a third party.
+        merchant_wallet_address: form.merchant_wallet_address.trim() || undefined,
       };
 
       if (form.recurring) {
@@ -315,16 +338,50 @@ export default function CreateInvoicePage() {
                 className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
               >
                 <option value="">Select crypto (set before sending)</option>
-                {wallets.length > 0
-                  ? wallets.map(w => <option key={w.id} value={w.cryptocurrency}>{w.cryptocurrency}</option>)
-                  : ['BTC', 'BCH', 'ETH', 'POL', 'SOL', 'DOGE', 'XRP', 'ADA', 'BNB', 'USDT', 'USDT_ETH', 'USDT_POL', 'USDT_SOL', 'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL']
-                      .map(c => <option key={c} value={c}>{c}</option>)
-                }
+                {ALL_CRYPTOS.map(c => (
+                  <option key={c} value={c}>
+                    {c}
+                    {walletFor(c) ? '' : ' — no wallet on file'}
+                  </option>
+                ))}
               </select>
               {wallets.length === 0 && form.business_id && (
                 <p className="text-xs text-yellow-400 mt-1">No wallets configured for this business. Add wallets in business settings.</p>
               )}
             </div>
+
+            {/* Payee — where the money actually lands. Always shown once a coin
+                is picked: prefilled and read-only when the account already knows
+                a wallet, required manual entry when it does not. */}
+            {form.crypto_currency && (
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">
+                  Payee wallet address * <span className="text-gray-500">({form.crypto_currency})</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={form.merchant_wallet_address}
+                  onChange={e => setForm({ ...form, merchant_wallet_address: e.target.value })}
+                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white font-mono text-sm"
+                  placeholder={`Enter the ${form.crypto_currency} address to be paid`}
+                />
+                {resolvedWallet ? (
+                  <p className="text-xs text-green-400 mt-1">
+                    Using your saved {form.crypto_currency} wallet. Edit it to pay someone else on this invoice.
+                  </p>
+                ) : (
+                  <p className="text-xs text-yellow-400 mt-1">
+                    No {form.crypto_currency} wallet could be determined from your account — enter the recipient address
+                    manually, or{' '}
+                    <Link href="/settings/wallets" className="underline hover:text-yellow-300">
+                      connect a wallet
+                    </Link>
+                    .
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Credit card via Stripe Connect */}
             <div>

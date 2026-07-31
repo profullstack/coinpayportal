@@ -34,8 +34,10 @@ describe('GlobalWalletsPage', () => {
     const user = userEvent.setup();
     render(<GlobalWalletsPage />);
 
+    // The page now covers connected web wallets as well as manually-entered
+    // addresses, so the h1 is just "Wallets".
     await waitFor(() => {
-      expect(screen.getByText('Global Wallet Addresses')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'Wallets' })).toBeInTheDocument();
     });
 
     await user.click(screen.getByText('Add Wallet'));

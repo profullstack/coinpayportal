@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authorizeInvoice } from '@/lib/auth/invoice-access';
+import { resolvePayee } from '@/lib/payments/payee';
 
 /**
  * GET /api/invoices/[id]
@@ -47,11 +48,23 @@ export async function PUT(
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     const body = await request.json();
 
-    const access = await authorizeInvoice(supabase, request, id, 'invoice.write', 'id, status, business_id');
+    const access = await authorizeInvoice(
+      supabase,
+      request,
+      id,
+      'invoice.write',
+      'id, status, business_id, user_id, crypto_currency, merchant_wallet_address',
+    );
     if (!access.ok) {
       return NextResponse.json({ success: false, error: access.error }, { status: access.status });
     }
-    const existing = access.invoice as { status: string };
+    const existing = access.invoice as {
+      status: string;
+      business_id: string;
+      user_id: string;
+      crypto_currency: string | null;
+      merchant_wallet_address: string | null;
+    };
 
     const allowedFields: Record<string, unknown> = {};
     const editableFields = ['client_id', 'currency', 'amount', 'crypto_currency', 'due_date', 'notes', 'merchant_wallet_address', 'wallet_id'];
@@ -61,6 +74,44 @@ export async function PUT(
     if (existing.status === 'draft') {
       for (const field of editableFields) {
         if (body[field] !== undefined) allowedFields[field] = body[field];
+      }
+
+      // Re-resolve the payee whenever the coin or the address itself is touched.
+      // Switching coins invalidates the old address, and an edit must never be a
+      // way to blank out a payee that creation insisted on.
+      const touchesPayee =
+        body.crypto_currency !== undefined || body.merchant_wallet_address !== undefined;
+
+      if (touchesPayee) {
+        const nextCrypto =
+          body.crypto_currency !== undefined ? body.crypto_currency : existing.crypto_currency;
+        const cryptoChanged =
+          body.crypto_currency !== undefined && body.crypto_currency !== existing.crypto_currency;
+
+        if (nextCrypto) {
+          // On a coin switch, ignore the stale stored address unless the caller
+          // supplied a fresh one in this same request.
+          const requested =
+            body.merchant_wallet_address !== undefined
+              ? body.merchant_wallet_address
+              : cryptoChanged
+                ? null
+                : existing.merchant_wallet_address;
+
+          const payee = await resolvePayee(supabase, {
+            businessId: existing.business_id,
+            merchantId: existing.user_id,
+            cryptocurrency: nextCrypto,
+            requestedAddress: requested,
+          });
+          if (!payee.ok) {
+            return NextResponse.json(
+              { success: false, error: payee.error, code: payee.code },
+              { status: payee.status }
+            );
+          }
+          allowedFields.merchant_wallet_address = payee.address;
+        }
       }
     }
 

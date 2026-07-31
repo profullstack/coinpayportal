@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
 import { formatWalletAddressCopyText } from '@/lib/wallets/copy';
 import { parseWalletPasteText } from '@/lib/wallets/paste';
+import ConnectedWebWallets from './ConnectedWebWallets';
 
 interface MerchantWallet {
   id: string;
@@ -54,9 +55,23 @@ export default function GlobalWalletsPage() {
   const [pastedWalletText, setPastedWalletText] = useState('');
   const [bulkImporting, setBulkImporting] = useState(false);
 
+  // Why the user is here, when they were sent by the post-login check.
+  const [landingReason, setLandingReason] = useState<string | null>(null);
+
   useEffect(() => {
     fetchWallets();
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('from') !== 'login') return;
+
+    setLandingReason(params.get('reason'));
+
+    // Stamp the review so a lapsed login does not keep redirecting here on every
+    // sign-in. Best-effort: failing to record it just means one extra prompt.
+    void authFetch('/api/auth/landing', { method: 'POST' }, router).catch(() => {});
+  }, [router]);
 
   const fetchWallets = async () => {
     try {
@@ -270,11 +285,38 @@ export default function GlobalWalletsPage() {
             <span>/</span>
             <span className="text-gray-900 dark:text-white">Global Wallets</span>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Global Wallet Addresses</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Wallets</h1>
           <p className="mt-2 text-gray-600 dark:text-gray-300">
-            Define wallet addresses once and import them into any of your businesses.
+            Connect a web wallet or define addresses once, and CoinPay will use them as the payee on
+            your invoices and proposals.
           </p>
         </div>
+
+        {landingReason && (
+          <div className="mb-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200 px-4 py-3 rounded-lg">
+            {landingReason === 'no_wallets' ? (
+              <>
+                <p className="font-medium">Set up a payee wallet to start invoicing</p>
+                <p className="mt-1 text-sm">
+                  Your account has no wallet on file yet, so every invoice would need an address
+                  typed in by hand. Connect a web wallet or add an address below.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="font-medium">Welcome back — worth a quick check</p>
+                <p className="mt-1 text-sm">
+                  It has been a while. Confirm these are still the addresses you want to be paid at
+                  before sending new invoices.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Connecting a web wallet is the fastest way to get a payee on file, so
+            it leads. Manually-entered global wallets follow below. */}
+        <ConnectedWebWallets onImported={fetchWallets} />
 
         {/* Error Message */}
         {error && (

@@ -4,6 +4,7 @@ import { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getSafeLoginRedirect } from '@/lib/auth/login-redirect';
+import { resolveLandingPath } from '@/lib/auth/landing-client';
 
 function LoginContent() {
   const router = useRouter();
@@ -46,7 +47,9 @@ function LoginContent() {
       } else if (data.merchant?.is_admin) {
         window.location.href = '/admin';
       } else {
-        window.location.href = '/dashboard';
+        // Sends users with no payee wallet — or who have been away long enough
+        // that theirs may be stale — to wallet settings instead of the dashboard.
+        window.location.href = await resolveLandingPath(data.token);
       }
     } catch {
       setError('An error occurred. Please try again.');
@@ -94,7 +97,7 @@ function LoginContent() {
       if (redirectTo) {
         window.location.href = redirectTo;
       } else {
-        router.push('/dashboard');
+        router.push(await resolveLandingPath(verifyData.token));
       }
     } catch (err: any) {
       if (err.name === 'NotAllowedError') {

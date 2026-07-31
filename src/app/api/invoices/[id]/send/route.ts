@@ -8,6 +8,7 @@ import { invoiceSentTemplate } from '@/lib/email/invoice-templates';
 import { createInvoiceStripeCheckout } from '@/lib/payments/invoice-stripe';
 import { businessHasPaypal } from '@/lib/paypal/accounts';
 import { getEnabledManualMethods } from '@/lib/payment-methods/manual';
+import { resolvePayee, assertPayee } from '@/lib/payments/payee';
 
 /**
  * POST /api/invoices/[id]/send
@@ -49,6 +50,36 @@ export async function POST(
       return NextResponse.json({ success: false, error: 'Crypto currency must be set before sending' }, { status: 400 });
     }
 
+    // An invoice never goes out without a payee. Drafts created before the coin
+    // was picked (or before this rule existed) get one last resolution attempt
+    // here; if the account still yields nothing the caller is told to enter one
+    // manually instead of the net silently settling to the platform wallet,
+    // which is what `merchant_wallet_address || ''` used to cause.
+    let payeeAddress = (invoice.merchant_wallet_address || '').trim();
+    if (!payeeAddress) {
+      const resolved = await resolvePayee(supabase, {
+        businessId: invoice.business_id,
+        merchantId: invoice.businesses?.merchant_id ?? invoice.user_id,
+        cryptocurrency: invoice.crypto_currency,
+      });
+      if (!resolved.ok) {
+        return NextResponse.json(
+          { success: false, error: resolved.error, code: resolved.code },
+          { status: resolved.status }
+        );
+      }
+      payeeAddress = resolved.address;
+    } else {
+      const check = assertPayee(payeeAddress, invoice.crypto_currency);
+      if (!check.ok) {
+        return NextResponse.json(
+          { success: false, error: check.error, code: check.code },
+          { status: check.status }
+        );
+      }
+      payeeAddress = check.address;
+    }
+
     const clientEmail = invoice.clients?.email;
     if (!clientEmail) {
       return NextResponse.json({ success: false, error: 'Client email is required to send invoice' }, { status: 400 });
@@ -63,7 +94,7 @@ export async function POST(
       amount: parseFloat(invoice.amount),
       currency: invoice.currency || 'USD',
       blockchain: invoice.crypto_currency as Blockchain,
-      merchant_wallet_address: invoice.merchant_wallet_address || '',
+      merchant_wallet_address: payeeAddress,
       metadata: {
         ...(invoice.metadata && typeof invoice.metadata === 'object' ? invoice.metadata : {}),
         source: 'invoice',
@@ -126,6 +157,9 @@ export async function POST(
         status: 'sent',
         crypto_amount: cryptoAmount.toFixed(8),
         payment_address: coinpayPayment.payment_address,
+        // Persist whatever we settled on, so the stored invoice matches the
+        // payment that was actually created.
+        merchant_wallet_address: payeeAddress,
         fee_amount: feeAmount,
         metadata: {
           ...(invoice.metadata && typeof invoice.metadata === 'object' ? invoice.metadata : {}),
