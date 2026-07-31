@@ -43,12 +43,17 @@ overrides:
   form-data: '>=4.0.6'
   ua-parser-js: '>=2.0.10'
   valibot: '>=1.4.2'
+  # Fixes the inherited libvips CVEs (CVE-2026-33327/33328/35590/35591).
+  #
+  # Next pins `sharp: ^0.34.5` as an optional dependency, and a caret on a 0.x
+  # version locks the minor — so ^0.34.5 can never reach 0.35.x on its own. This
+  # override is the only way off the vulnerable line without waiting for Next.
+  # sharp is pre-1.0, so 0.34 -> 0.35 is a breaking change and it ships prebuilt
+  # native binaries; image rendering was verified after the bump, not assumed.
+  sharp: '>=0.35.3'
   # Deliberately NOT pinned:
   #   js-yaml 3.x  — the fix is in 4.x, a breaking major used only by build
   #                  tooling. Not worth forcing across a major boundary.
-  #   sharp        — patched in 0.35.x; sharp is pre-1.0 so that minor is a
-  #                  breaking change, and it backs Next.js image optimisation.
-  #                  Needs its own upgrade with image rendering verified.
   #   elliptic     — 6.6.1 is already the latest published; no fix upstream yet.
 
 allowBuilds:
