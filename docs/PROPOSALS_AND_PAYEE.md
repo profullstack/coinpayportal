@@ -148,6 +148,14 @@ link (`/proposals/respond/<token>`). Withdrawing rotates the token so the old
 link genuinely stops working rather than just flipping a status the client never
 sees. Draft proposals are unreachable by token.
 
+### Notifications
+
+Every change that hands the ball over emails the *other* side
+(`src/lib/proposals/notify.ts`): the client gets the token link, the merchant
+gets the dashboard link. Delivery is best-effort — the state change is already
+committed by then, so a bounced email is logged and swallowed rather than
+failing the request or rolling anything back.
+
 ### Endpoints
 
 | Method | Path | Actor |

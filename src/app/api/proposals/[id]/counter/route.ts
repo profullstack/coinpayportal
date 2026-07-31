@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authorizeProposal } from '@/lib/auth/proposal-access';
 import { addRevision, assertCounterable } from '@/lib/proposals/service';
+import { notifyCountered } from '@/lib/proposals/notify';
 
 /**
  * POST /api/proposals/[id]/counter
@@ -61,6 +62,16 @@ export async function POST(
         { success: false, error: result.error, code: result.code },
         { status: result.status },
       );
+    }
+
+    // Only tell the client once the proposal is actually with them; countering
+    // your own unsent draft is just editing it.
+    if (proposal.status !== 'draft') {
+      await notifyCountered(supabase, {
+        proposal: result.proposal,
+        revision: result.revision,
+        by: 'merchant',
+      });
     }
 
     return NextResponse.json({

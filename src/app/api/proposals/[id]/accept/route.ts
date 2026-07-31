@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authorizeProposal } from '@/lib/auth/proposal-access';
 import { acceptProposal } from '@/lib/proposals/service';
+import { notifyDecided } from '@/lib/proposals/notify';
 
 /**
  * POST /api/proposals/[id]/accept
@@ -44,6 +45,14 @@ export async function POST(
         { status: result.status },
       );
     }
+
+    await notifyDecided(supabase, {
+      proposal: result.proposal,
+      revision: result.revision,
+      by: 'merchant',
+      decision: 'accepted',
+      message: body.message,
+    });
 
     return NextResponse.json({
       success: true,

@@ -8,6 +8,7 @@ import {
   recordEvent,
   rejectProposal,
 } from '@/lib/proposals/service';
+import { notifyCountered, notifyDecided } from '@/lib/proposals/notify';
 
 function client() {
   return createClient(
@@ -136,10 +137,25 @@ export async function POST(
           { status: result.status },
         );
       }
+      await notifyDecided(supabase, {
+        proposal: result.proposal,
+        revision: result.revision,
+        by: 'client',
+        decision: 'accepted',
+        message: body.message,
+      });
+
       return NextResponse.json({ success: true, status: result.proposal.status });
     }
 
     if (action === 'reject') {
+      // Captured before the reject marks it, so the email can quote the terms.
+      const { data: declined } = await supabase
+        .from('proposal_revisions')
+        .select('*')
+        .eq('id', proposal.current_revision_id ?? '')
+        .maybeSingle();
+
       const result = await rejectProposal(supabase, {
         proposal,
         party: 'client',
@@ -151,6 +167,15 @@ export async function POST(
           { status: result.status },
         );
       }
+
+      await notifyDecided(supabase, {
+        proposal: result.proposal,
+        revision: declined ?? null,
+        by: 'client',
+        decision: 'rejected',
+        message: body.message,
+      });
+
       return NextResponse.json({ success: true, status: result.proposal.status });
     }
 
@@ -187,6 +212,12 @@ export async function POST(
           { status: result.status },
         );
       }
+      await notifyCountered(supabase, {
+        proposal: result.proposal,
+        revision: result.revision,
+        by: 'client',
+      });
+
       return NextResponse.json({ success: true, status: result.proposal.status });
     }
 
