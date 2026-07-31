@@ -180,7 +180,7 @@ export default function Home() {
                   </svg>
                 ),
                 title: 'Trustless Escrow',
-                description: 'Hold funds until both parties are satisfied. Token-based auth — no accounts, no KYC. Dispute resolution built in.',
+                description: 'Hold funds until both parties are satisfied. Authenticated creation and role-specific action tokens. Dispute resolution built in.',
               },
               {
                 icon: (
@@ -326,7 +326,7 @@ export default function Home() {
               Trustless Escrow for Any Deal
             </h2>
             <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-              Hold crypto in escrow until both sides are happy. No accounts needed — just tokens. Perfect for freelance gigs, agent-to-agent trades, and marketplace transactions.
+              Hold crypto in escrow until both sides are happy. Authenticate to create, then manage it with role-specific tokens. Perfect for freelance gigs, agent-to-agent trades, and marketplace transactions.
             </p>
           </div>
 
@@ -353,7 +353,7 @@ export default function Home() {
 
               <div className="grid grid-cols-2 gap-4 pt-2">
                 {[
-                  { label: 'Anonymous', desc: 'Token-based auth, no KYC' },
+                  { label: 'Secure Access', desc: 'Authenticated creation + party tokens' },
                   { label: 'Multi-Chain', desc: 'BTC, ETH, SOL, POL + more' },
                   { label: 'Auto-Detect', desc: 'Deposits confirmed on-chain' },
                   { label: 'Dispute Flow', desc: 'Built-in arbiter support' },
@@ -379,6 +379,7 @@ export default function Home() {
                 <pre className="p-4 text-sm overflow-x-auto">
                   <code className="text-gray-300">
 {`curl -X POST https://coinpayportal.com/api/escrow \\
+  -H "Authorization: Bearer $COINPAY_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "chain": "ETH",

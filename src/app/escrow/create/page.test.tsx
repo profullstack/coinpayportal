@@ -34,7 +34,7 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     
-    // Mock auth fetch to return null (not logged in, triggers anonymous fallback)
+    // Mock auth fetch to return null (not logged in)
     vi.mocked(authFetch).mockResolvedValue(null);
     
     // Mock rates API response with a typical exchange rate
@@ -384,6 +384,38 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
 
   it('should submit form with crypto amount regardless of input mode', async () => {
     const user = userEvent.setup();
+    const createdEscrow = {
+      id: 'test-escrow-id',
+      escrow_address: 'test-address',
+      depositor_address: 'test-depositor',
+      beneficiary_address: 'test-beneficiary',
+      chain: 'USDC_POL',
+      amount: 100,
+      amount_usd: 100,
+      fee_amount: 1,
+      deposited_amount: 0,
+      status: 'pending',
+      release_token: 'test-release-token',
+      beneficiary_token: 'test-beneficiary-token',
+      expires_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      metadata: {},
+      business_id: null,
+    };
+
+    vi.mocked(authFetch).mockImplementation(async (url) => {
+      if (url === '/api/businesses') {
+        return {
+          response: { ok: true } as Response,
+          data: { success: true, businesses: [] },
+        };
+      }
+
+      return {
+        response: { ok: true } as Response,
+        data: createdEscrow,
+      };
+    });
     
     // Mock successful escrow creation
     mockFetch.mockImplementation((url: string) => {
@@ -393,25 +425,6 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
           json: () => Promise.resolve({
             success: true,
             rate: 1.0
-          })
-        });
-      }
-      if (url.includes('/api/escrow') && url !== '/api/escrow') {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({
-            id: 'test-escrow-id',
-            escrow_address: 'test-address',
-            depositor_address: 'test-depositor',
-            beneficiary_address: 'test-beneficiary',
-            chain: 'USDC_POL',
-            amount: 100,
-            status: 'pending',
-            release_token: 'test-release-token',
-            beneficiary_token: 'test-beneficiary-token',
-            expires_at: new Date().toISOString(),
-            created_at: new Date().toISOString(),
-            metadata: {}
           })
         });
       }
@@ -442,14 +455,38 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
     const submitButton = screen.getByRole('button', { name: 'Create Escrow' });
     await user.click(submitButton);
     
-    // Check that the API was called with crypto amount (100)
+    // Check that the authenticated API call includes the crypto amount (100)
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith('/api/escrow', {
+      expect(authFetch).toHaveBeenCalledWith('/api/escrow', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: expect.stringContaining('"amount":100')
       });
     });
+  });
+
+  it('should not retry escrow creation without authentication', async () => {
+    const user = userEvent.setup();
+
+    render(<CreateEscrowPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Create Escrow' })).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 USDC_POL = \$1/)).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByPlaceholderText(/0\.00 USD/), '100');
+    await user.type(screen.getByPlaceholderText('Your wallet address (sender)'), 'test-depositor-address');
+    await user.type(screen.getByPlaceholderText('Recipient wallet address'), 'test-beneficiary-address');
+    await user.click(screen.getByRole('button', { name: 'Create Escrow' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Authentication is required to create an escrow. Please log in and try again.')).toBeInTheDocument();
+    });
+    expect(mockFetch).not.toHaveBeenCalledWith('/api/escrow', expect.anything());
   });
 
   it('should handle empty inputs gracefully', async () => {
@@ -633,7 +670,7 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
     expect(screen.getByText(/Platform fee: 0\.5% \(paid tier\)/)).toBeInTheDocument();
   });
 
-  it('should show anonymous user commission rate (1%)', async () => {
+  it('should show personal escrow commission rate (1%)', async () => {
     mockFetch.mockImplementation((url: string) => {
       if (url.includes('/api/rates')) {
         return Promise.resolve({
@@ -653,8 +690,7 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
       expect(screen.getByRole('heading', { name: 'Create Escrow' })).toBeInTheDocument();
     });
 
-    // Should show 1% for anonymous users
-    expect(screen.getByText(/Platform fee: 1% \(0\.5% for logged-in merchants\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Platform fee: 1% \(0\.5% with a paid business\)/)).toBeInTheDocument();
   });
 
   it('should show correct commission estimate for different user types', async () => {
@@ -679,8 +715,7 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
       expect(screen.getByRole('heading', { name: 'Create Escrow' })).toBeInTheDocument();
     });
 
-    // Check initial state shows anonymous rate (1%)
-    expect(screen.getByText(/Platform fee: 1% \(0\.5% for logged-in merchants\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Platform fee: 1% \(0\.5% with a paid business\)/)).toBeInTheDocument();
   });
 
   it('should skip wallet email lookup on blur in multisig mode', async () => {
@@ -803,7 +838,7 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
     await user.click(screen.getByRole('button', { name: 'Create Escrow' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Multisig escrow creation requires authentication. Please log in and try again.')).toBeInTheDocument();
+      expect(screen.getByText('Authentication is required to create an escrow. Please log in and try again.')).toBeInTheDocument();
     });
 
     const anonymousMultisigCalls = mockFetch.mock.calls.filter((call: any[]) =>
