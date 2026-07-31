@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
@@ -12,7 +12,14 @@ export default function SignupPage() {
     confirmPassword: '',
     name: '',
   });
-  const formLoadedAt = useRef(Date.now());
+  // Stamped on mount rather than during render. Calling Date.now() in the render
+  // body is impure — it would produce a different value on every re-render and,
+  // being a client component, a different one on the server than in the browser.
+  // The bot check wants "when did this form appear to the user" anyway.
+  const formLoadedAt = useRef(0);
+  useEffect(() => {
+    formLoadedAt.current = Date.now();
+  }, []);
   const [honeypot, setHoneypot] = useState('');
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});

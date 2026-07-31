@@ -14,7 +14,12 @@ packages:
 overrides:
   axios: '>=1.14.0'
   lodash-es: '>=4.18.0'
-  brace-expansion: '>=5.0.6'
+  # Pinned to 2.1.4 exactly, NOT '>=5.0.6' as before. v5 dropped the CommonJS
+  # default export, so minimatch@9 calls `brace_expansion_1.default(...)` and
+  # dies with "is not a function", taking eslint down with it. A range like
+  # '>=2.1.4' does not help — pnpm resolves it to the highest match, which is v5
+  # again. 2.1.4 carries the DoS fix and keeps the export shape consumers expect.
+  brace-expansion: '2.1.4'
   picomatch: '>=4.0.4'
   flatted: '>=3.4.2'
   h3: '>=1.15.11'
@@ -36,7 +41,11 @@ overrides:
   # Kept within the current major of each package so nothing has to change at
   # the call sites; the alerts are all fixed in patch releases.
   dompurify: '>=3.4.12'
-  'js-yaml@>=4.0.0': '>=4.1.1'
+  # All versions, not just 4.x. The remaining 3.15.0 copy came in via
+  # @istanbuljs/load-nyc-config -> babel-plugin-istanbul, i.e. coverage tooling
+  # that never runs in production. Forcing it to 4.x crosses a major, so the
+  # test suite and build were run to confirm nothing depends on the 3.x API.
+  js-yaml: '>=4.3.1'
   'ws@>=7.0.0 <8.0.0': '>=7.5.10'
   'ws@<7.0.0': '>=6.2.3'
   tar: '>=7.5.22'
@@ -51,10 +60,12 @@ overrides:
   # sharp is pre-1.0, so 0.34 -> 0.35 is a breaking change and it ships prebuilt
   # native binaries; image rendering was verified after the bump, not assumed.
   sharp: '>=0.35.3'
+  # Build-time only, but pinned so the alert list stays at zero and a real one
+  # is not lost in the noise.
+  '@opentelemetry/core': '>=2.10.0'
+  '@babel/core': '>=7.29.2'
   # Deliberately NOT pinned:
-  #   js-yaml 3.x  — the fix is in 4.x, a breaking major used only by build
-  #                  tooling. Not worth forcing across a major boundary.
-  #   elliptic     — 6.6.1 is already the latest published; no fix upstream yet.
+  #   elliptic — 6.6.1 is already the latest published; no fix upstream yet.
 
 allowBuilds:
   blake-hash: set this to true or false
