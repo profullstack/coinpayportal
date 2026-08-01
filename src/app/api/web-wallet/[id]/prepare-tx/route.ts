@@ -12,7 +12,8 @@ import { isValidChain } from '@/lib/web-wallet/identity';
  * POST /api/web-wallet/:id/prepare-tx
  * Prepare an unsigned transaction for client-side signing.
  * Requires authentication.
- * Rate limited: 20 requests/minute per IP.
+ * Rate limited: 60 requests/minute per IP, then 1000/hour per authenticated
+ * wallet — sized so the extension's bulk payouts can run to completion.
  *
  * Body:
  *   from_address - Sender address (must belong to wallet)
@@ -65,6 +66,15 @@ export async function POST(
 
     if (auth.walletId !== id) {
       return WalletErrors.forbidden('Cannot access another wallet');
+    }
+
+    // The per-wallet budget is the one that actually bounds abuse: the IP above
+    // is shared by everyone behind a NAT, so it has to stay loose enough for a
+    // legitimate batch. Checked here because it needs a verified wallet id.
+    const walletRateCheck = checkRateLimit(id, 'prepare_tx_wallet');
+    if (!walletRateCheck.allowed) {
+      console.log(`[PrepareTx] POST /prepare-tx rate limited for wallet ${id}`);
+      return WalletErrors.rateLimited(walletRateCheck.resetAt - Math.floor(Date.now() / 1000));
     }
 
     // Parse body
