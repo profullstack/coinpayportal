@@ -118,8 +118,13 @@ export function presentedCredential(
 ): string | null {
   const authorization = headers.get('authorization');
   if (authorization) {
-    const match = /^bearer\s+(\S+)/i.exec(authorization.trim());
-    if (match) return match[1];
+    // Any auth scheme, not just Bearer. The wallet extension signs with
+    // `Authorization: Wallet <walletId>:<signature>:<timestamp>` (see
+    // packages/extension/src/core/api.ts), and matching Bearer alone dropped it
+    // into the anonymous per-IP bucket — which a bulk payout exhausts in
+    // seconds, since every payment costs a prepare-tx plus a broadcast.
+    const match = /^(\S+)\s+(\S+)/.exec(authorization.trim());
+    if (match) return match[2];
   }
   const apiKey = headers.get('x-api-key')?.trim();
   return apiKey ? apiKey : null;
