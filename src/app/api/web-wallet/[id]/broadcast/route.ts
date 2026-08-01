@@ -9,7 +9,8 @@ import { checkRateLimit } from '@/lib/web-wallet/rate-limit';
  * POST /api/web-wallet/:id/broadcast
  * Broadcast a signed transaction to the network.
  * Requires authentication.
- * Rate limited: 10 requests/minute per IP.
+ * Rate limited: 60 requests/minute per IP, then 1000/hour per authenticated
+ * wallet — sized so the extension's bulk payouts can run to completion.
  *
  * Body:
  *   tx_id     - ID of the prepared transaction
@@ -60,6 +61,15 @@ export async function POST(
 
     if (auth.walletId !== id) {
       return WalletErrors.forbidden('Cannot access another wallet');
+    }
+
+    // The per-wallet budget is the one that actually bounds abuse: the IP above
+    // is shared by everyone behind a NAT, so it has to stay loose enough for a
+    // legitimate batch. Checked here because it needs a verified wallet id.
+    const walletRateCheck = checkRateLimit(id, 'broadcast_tx_wallet');
+    if (!walletRateCheck.allowed) {
+      console.log(`[Broadcast] POST /broadcast rate limited for wallet ${id}`);
+      return WalletErrors.rateLimited(walletRateCheck.resetAt - Math.floor(Date.now() / 1000));
     }
 
     // Parse body

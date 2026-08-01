@@ -99,6 +99,53 @@ describe('rate-limit', () => {
       expect(result.limit).toBe(RATE_LIMITS['broadcast_tx'].limit);
     });
 
+    // The extension's payBatch sends up to MAX_BATCH_SIZE payments behind one
+    // approval (packages/extension/src/background/index.ts), and each payment
+    // costs one prepare-tx plus one broadcast. Limits below that silently kill
+    // a bulk run partway through, which reads to the payer as "some invoices
+    // just didn't pay" — so the budget is asserted against the batch size.
+    describe('bulk payouts', () => {
+      const MAX_BATCH_SIZE = 500;
+      /** Payments/minute the batch runner tops out at (~4s settle on EVM/SOL). */
+      const RUNNER_PACE_PER_MIN = 15;
+
+      it('lets one wallet prepare and broadcast a full batch', () => {
+        for (let i = 0; i < MAX_BATCH_SIZE; i++) {
+          expect(checkRateLimit('wallet-1', 'prepare_tx_wallet').allowed).toBe(true);
+          expect(checkRateLimit('wallet-1', 'broadcast_tx_wallet').allowed).toBe(true);
+        }
+      });
+
+      it('leaves per-wallet headroom for the runner retries', () => {
+        expect(RATE_LIMITS['prepare_tx_wallet'].limit).toBeGreaterThan(MAX_BATCH_SIZE);
+        expect(RATE_LIMITS['broadcast_tx_wallet'].limit).toBeGreaterThan(MAX_BATCH_SIZE);
+      });
+
+      it('does not trip the per-IP cap at the runner pace', () => {
+        for (let i = 0; i < RUNNER_PACE_PER_MIN; i++) {
+          expect(checkRateLimit('1.2.3.4', 'prepare_tx').allowed).toBe(true);
+          expect(checkRateLimit('1.2.3.4', 'broadcast_tx').allowed).toBe(true);
+        }
+      });
+
+      it('still bounds a wallet that blows past a full batch', () => {
+        const limit = RATE_LIMITS['broadcast_tx_wallet'].limit;
+        for (let i = 0; i < limit; i++) {
+          checkRateLimit('wallet-2', 'broadcast_tx_wallet');
+        }
+        expect(checkRateLimit('wallet-2', 'broadcast_tx_wallet').allowed).toBe(false);
+      });
+
+      it('budgets each wallet separately', () => {
+        const limit = RATE_LIMITS['prepare_tx_wallet'].limit;
+        for (let i = 0; i < limit; i++) {
+          checkRateLimit('wallet-3', 'prepare_tx_wallet');
+        }
+        expect(checkRateLimit('wallet-3', 'prepare_tx_wallet').allowed).toBe(false);
+        expect(checkRateLimit('wallet-4', 'prepare_tx_wallet').allowed).toBe(true);
+      });
+    });
+
     it('should reset properly', () => {
       const limit = RATE_LIMITS['wallet_creation'].limit;
 
@@ -179,10 +226,20 @@ describe('rate-limit', () => {
       expect(RATE_LIMITS['auth_verify'].windowSeconds).toBe(60);
     });
 
-    it('should have broadcast_tx limits (strictest)', () => {
+    // Was 10/min, which was below the batch runner's pace and cut bulk payouts
+    // off after ~10 payments. The per-IP cap is now a shared-NAT-safe shield;
+    // broadcast_tx_wallet is what actually bounds a single wallet.
+    it('should have broadcast_tx limits', () => {
       expect(RATE_LIMITS['broadcast_tx']).toBeDefined();
-      expect(RATE_LIMITS['broadcast_tx'].limit).toBe(10);
+      expect(RATE_LIMITS['broadcast_tx'].limit).toBe(60);
       expect(RATE_LIMITS['broadcast_tx'].windowSeconds).toBe(60);
+    });
+
+    it('should have per-wallet transaction limits', () => {
+      expect(RATE_LIMITS['prepare_tx_wallet']).toBeDefined();
+      expect(RATE_LIMITS['prepare_tx_wallet'].windowSeconds).toBe(3600);
+      expect(RATE_LIMITS['broadcast_tx_wallet']).toBeDefined();
+      expect(RATE_LIMITS['broadcast_tx_wallet'].windowSeconds).toBe(3600);
     });
 
     it('should have all expected categories defined', () => {

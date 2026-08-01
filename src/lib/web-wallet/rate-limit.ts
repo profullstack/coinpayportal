@@ -62,8 +62,20 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'auth_verify': { limit: 30, windowSeconds: 60 },            // 30/min (wallet switches trigger auth)
   'balance_query': { limit: 60, windowSeconds: 60 },          // 60/min
   'tx_history': { limit: 30, windowSeconds: 60 },             // 30/min
-  'prepare_tx': { limit: 20, windowSeconds: 60 },             // 20/min
-  'broadcast_tx': { limit: 10, windowSeconds: 60 },           // 10/min
+  // Sized for the extension's bulk runs, not for one human clicking Send.
+  // `payBatch` sends up to MAX_BATCH_SIZE (500) payments as one approval, and
+  // each payment costs one prepare-tx plus one broadcast. The runner serializes
+  // per account with a settle delay, so it tops out around 15 payments/minute —
+  // the old 20/min and 10/min caps stopped a batch dead after ~10 payments, and
+  // the runner treats a 429 as transient and burns its retries inside the same
+  // window. These are the pre-auth per-IP shield; the real budget is per wallet.
+  'prepare_tx': { limit: 60, windowSeconds: 60 },             // 60/min per IP
+  'broadcast_tx': { limit: 60, windowSeconds: 60 },           // 60/min per IP
+  // Per authenticated wallet, checked after the signature verifies. One full
+  // 500-payment batch costs 500 of each; the 2x headroom absorbs the runner's
+  // retries without letting a single wallet run batches back to back forever.
+  'prepare_tx_wallet': { limit: 1000, windowSeconds: 3600 },   // 1000/hour per wallet
+  'broadcast_tx_wallet': { limit: 1000, windowSeconds: 3600 }, // 1000/hour per wallet
   'estimate_fee': { limit: 60, windowSeconds: 60 },           // 60/min
   'settings': { limit: 30, windowSeconds: 60 },               // 30/min
   'sync_history': { limit: 10, windowSeconds: 60 },           // 10/min
