@@ -12,7 +12,12 @@
  */
 
 import type { DerivedAddress } from './core/derivation.js';
-import type { BatchPaymentRequest, BatchItemResult, BatchProgress } from './core/batch.js';
+import type {
+  BatchPaymentRequest,
+  BatchItemResult,
+  BatchProgress,
+  BatchFunding,
+} from './core/batch.js';
 import type { SiteConnection } from './core/connections.js';
 import type { FiatCurrency } from './core/fiat.js';
 import type { RateQuote } from './core/rates.js';
@@ -143,6 +148,12 @@ export type PendingApproval =
       needsUnlock: boolean;
       payments: BatchPaymentRequest[];
       summary: { chain: string; count: number; total: string; totalUsd: number }[];
+      /**
+       * Per-chain balance of the address that will actually pay, against what
+       * the run needs. Absent when the wallet is locked — reading balances needs
+       * the seed, and this window is what asks for the password.
+       */
+      funding?: BatchFunding[];
     };
 
 export type WalletResponse =
