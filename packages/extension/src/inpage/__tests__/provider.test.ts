@@ -12,7 +12,7 @@
  * per-test reload would be impossible, which is the property being defended.
  */
 
-import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
 
 const CHANNEL_REQUEST = 'coinpay:page-request';
 const CHANNEL_RESPONSE = 'coinpay:page-response';
@@ -265,5 +265,54 @@ describe('onProgress subscription', () => {
     off();
     emitProgress({ id: 'a', stage: 'sent', completed: 1, total: 1 });
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The provider is injected into the page's world, so it outlives the content
+ * script that put it there. Installing or updating the extension orphans that
+ * content script in already-open tabs while `window.coinpay` stays behind —
+ * every call then posts into the void. Hanging forever is the worst possible
+ * answer: the site cannot tell it apart from a user who is slow to approve.
+ */
+describe('unresponsive content script', () => {
+  const CHANNEL_ACK = 'coinpay:page-ack';
+
+  function ack(requestId: string): void {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { channel: CHANNEL_ACK, requestId },
+        source: window,
+      }),
+    );
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('rejects with a reload hint when nothing acknowledges', async () => {
+    const promise = coinpay.getState();
+    const rejection = expect(promise).rejects.toThrow(/not responding|reload the page/i);
+
+    await vi.advanceTimersByTimeAsync(3000);
+    await rejection;
+  });
+
+  it('does not time out a long batch once the content script acknowledges', async () => {
+    const promise = coinpay.payBatch([
+      { id: 'a', chain: 'SOL', to: 'addr', amount: '1' },
+    ]);
+    ack(posted.at(-1).requestId);
+
+    // A real approval plus 30 payments can take far longer than the ack window.
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    respondTo(posted.at(-1).requestId, { results: [{ id: 'a', status: 'sent' }] });
+    await expect(promise).resolves.toEqual({ results: [{ id: 'a', status: 'sent' }] });
   });
 });
