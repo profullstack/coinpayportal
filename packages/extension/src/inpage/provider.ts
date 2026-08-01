@@ -168,11 +168,20 @@ const provider = {
    */
   async payBatch(
     payments: CoinPayPayment[],
-    options: { onProgress?: (progress: CoinPayProgress) => void } = {},
+    options: {
+      onProgress?: (progress: CoinPayProgress) => void;
+      /**
+       * Which of the wallet's addresses funds the run. A wallet can hold
+       * several per chain, and without this the batch always spent the first —
+       * so a site had no way to pay from the account that actually holds the
+       * money. Omit to keep that first-address default.
+       */
+      from?: string;
+    } = {},
   ): Promise<{ results: CoinPayPaymentResult[] }> {
     if (options.onProgress) progressListeners.add(options.onProgress);
     try {
-      return await send({ type: 'site:payBatch', payments });
+      return await send({ type: 'site:payBatch', payments, from: options.from });
     } finally {
       if (options.onProgress) progressListeners.delete(options.onProgress);
     }

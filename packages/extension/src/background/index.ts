@@ -383,6 +383,7 @@ async function handleSitePayBatch(
   origin: string,
   rawPayments: unknown,
   sender: chrome.runtime.MessageSender,
+  from?: string,
 ): Promise<WalletResponse> {
   if (!(await connections.isConnected(origin))) {
     return { ok: false, error: 'Site is not connected to this wallet' };
@@ -413,7 +414,7 @@ async function handleSitePayBatch(
     // Approving requires unlocking, so by here the seed is available.
     const seed = await wallet.requireSeed();
     const walletId = await ensurePortalWallet(seed);
-    const senders = await sendersFor();
+    const senders = await sendersFor(from);
 
     const authKey = deriveIdentityKey(seed);
     try {
@@ -770,7 +771,7 @@ async function handle(
       case 'site:payBatch': {
         const origin = senderOrigin(sender);
         if (!origin) return { ok: false, error: 'Unknown origin' };
-        return handleSitePayBatch(origin, req.payments, sender);
+        return handleSitePayBatch(origin, req.payments, sender, req.from);
       }
 
       // ── approval window ──

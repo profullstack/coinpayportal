@@ -178,12 +178,33 @@ describe('payBatch', () => {
   it('sends the payments through and resolves with per-item results', async () => {
     const promise = coinpay.payBatch(payments);
 
-    expect(posted.at(-1).payload).toEqual({ type: 'site:payBatch', payments });
+    expect(posted.at(-1).payload).toEqual({
+      type: 'site:payBatch',
+      payments,
+      from: undefined,
+    });
 
     respond({ results: [{ id: 'inv-1', status: 'sent', txHash: '0xhash' }] });
     await expect(promise).resolves.toEqual({
       results: [{ id: 'inv-1', status: 'sent', txHash: '0xhash' }],
     });
+  });
+
+  it('passes the chosen source account through to the wallet', async () => {
+    // A wallet can hold several addresses per chain. Without `from` the batch
+    // always spent the first one, so a site could not pay from the account
+    // that actually holds the money — which silently failed whole runs with
+    // "not enough SOL" while the funds sat one address over.
+    const promise = coinpay.payBatch(payments, { from: 'B3zn7yeoL6NP8JCpis9ikGX8U4uCbrybCu5QeFyqkKpr' });
+
+    expect(posted.at(-1).payload).toEqual({
+      type: 'site:payBatch',
+      payments,
+      from: 'B3zn7yeoL6NP8JCpis9ikGX8U4uCbrybCu5QeFyqkKpr',
+    });
+
+    respond({ results: [] });
+    await promise;
   });
 
   it('resolves — not rejects — when some payments failed', async () => {

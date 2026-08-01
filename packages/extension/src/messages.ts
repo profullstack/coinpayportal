@@ -63,7 +63,8 @@ export type WalletRequest =
   | { type: 'site:getState' }
   | { type: 'site:connect' }
   | { type: 'site:getAccounts' }
-  | { type: 'site:payBatch'; payments: BatchPaymentRequest[] }
+  /** `from` picks which of a chain's addresses pays, as for `send`. */
+  | { type: 'site:payBatch'; payments: BatchPaymentRequest[]; from?: string }
   // ── approval window ──
   | { type: 'approval:get'; requestId: string }
   | { type: 'approval:approve'; requestId: string; password?: string }
