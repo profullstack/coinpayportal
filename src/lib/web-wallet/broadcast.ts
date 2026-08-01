@@ -96,6 +96,15 @@ async function withRetry<T>(
         msg.includes('insufficient funds') ||
         msg.includes('TATUM_API_KEY required') ||
         msg.includes('Invalid transaction') ||
+        // A rejected simulation is the chain's deterministic verdict on this
+        // exact signed transaction: an empty wallet, an aged-out blockhash, a
+        // failing instruction. Re-sending the identical bytes cannot change the
+        // answer, so retrying only costs the payer ~7s of backoff and spends
+        // four RPC calls where one would do — across a large batch, enough to
+        // help exhaust the endpoint we are already rationing.
+        msg.includes('simulation failed') ||
+        msg.includes('enough SOL') ||
+        msg.includes('blockhash expired') ||
         attempt === retries
       ) {
         throw err;
@@ -210,10 +219,52 @@ async function broadcastSOL(signedTxBase64: string, rpcUrl: string): Promise<str
 
   const data = await resp.json();
   if (data.error) {
-    throw new Error(`SOL broadcast error: ${data.error.message}`);
+    throw new Error(`SOL broadcast error: ${describeSolError(data.error)}`);
   }
 
   return data.result; // Returns signature
+}
+
+/**
+ * Turn a Solana RPC error into something a payer can act on.
+ *
+ * `error.message` for a rejected transaction is always the same sentence —
+ * "Transaction simulation failed" — regardless of whether the wallet is short
+ * on SOL, the blockhash aged out, or the account does not exist. The reason is
+ * in `error.data`, which we used to discard, so every distinct cause reached
+ * the payer as one indistinguishable failure they could do nothing about.
+ */
+function describeSolError(error: {
+  message?: string;
+  data?: { err?: unknown; logs?: string[] };
+}): string {
+  const base = error.message || 'unknown error';
+  const err = error.data?.err;
+  const logs = error.data?.logs ?? [];
+
+  // The common causes are worth naming outright rather than making someone
+  // read program logs to discover their wallet is empty.
+  const haystack = `${JSON.stringify(err ?? '')} ${logs.join(' ')}`;
+  if (/InsufficientFundsForRent|insufficient lamports|InsufficientFunds/i.test(haystack)) {
+    return `${base}: the sending wallet does not have enough SOL to cover this transfer plus fees`;
+  }
+  if (/BlockhashNotFound/i.test(haystack)) {
+    return `${base}: the transaction's blockhash expired before it was broadcast — try again`;
+  }
+  if (/AccountNotFound|could not find account/i.test(haystack)) {
+    return `${base}: the sending account does not exist on chain yet`;
+  }
+
+  // Anything else: pass through what the chain actually said, so an unfamiliar
+  // failure is still diagnosable from the payer's screen and the server log.
+  const detail = [
+    err !== undefined && err !== null ? JSON.stringify(err) : null,
+    logs.length > 0 ? logs.slice(-3).join(' | ') : null,
+  ]
+    .filter(Boolean)
+    .join(' — ');
+
+  return detail ? `${base}: ${detail}` : base;
 }
 
 // ──────────────────────────────────────────────

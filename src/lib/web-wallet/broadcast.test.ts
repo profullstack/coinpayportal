@@ -357,6 +357,75 @@ describe('broadcastTransaction', () => {
       expect(result.success).toBe(false);
       if (!result.success) expect(result.error).toContain('insufficient funds for rent');
     });
+
+    /**
+     * Every rejected Solana transaction carries the same `message` —
+     * "Transaction simulation failed" — so a payer used to get one
+     * indistinguishable error whether their wallet was empty, their blockhash
+     * had aged out, or something else entirely. The cause lives in
+     * `error.data`, which was being thrown away.
+     */
+    async function solError(data: unknown) {
+      const supabase = createMockSupabase({
+        txRecord: {
+          id: 'tx-123',
+          wallet_id: 'w1',
+          chain: 'SOL',
+          status: 'pending',
+          metadata: { expires_at: new Date(Date.now() + 300_000).toISOString() },
+        },
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          jsonrpc: '2.0',
+          error: { code: -32002, message: 'Transaction simulation failed', data },
+          id: 1,
+        }),
+      });
+      const result = await broadcastTransaction(supabase, 'w1', {
+        tx_id: 'tx-123',
+        signed_tx: 'base64encodedtx',
+        chain: 'SOL',
+      });
+      expect(result.success).toBe(false);
+      return result.success ? '' : result.error;
+    }
+
+    it('names an empty wallet instead of "simulation failed"', async () => {
+      const error = await solError({
+        err: { InstructionError: [0, { Custom: 1 }] },
+        logs: ['Program 11111111111111111111111111111111 failed: insufficient lamports 1000, need 5000'],
+      });
+      expect(error).toMatch(/enough SOL/i);
+    });
+
+    it('names an expired blockhash, which is worth retrying', async () => {
+      const error = await solError({ err: 'BlockhashNotFound', logs: [] });
+      expect(error).toMatch(/blockhash expired/i);
+    });
+
+    it('passes through an unfamiliar chain error rather than hiding it', async () => {
+      const error = await solError({
+        err: { InstructionError: [0, 'ProgramFailedToComplete'] },
+        logs: ['Program log: something specific and unexpected'],
+      });
+      expect(error).toContain('ProgramFailedToComplete');
+      expect(error).toContain('something specific and unexpected');
+    });
+
+    it('still reports something useful when the chain sends no detail', async () => {
+      const error = await solError(undefined);
+      expect(error).toContain('Transaction simulation failed');
+    });
+
+    it('does not retry a rejected simulation', async () => {
+      // The chain has already decided about these exact bytes. Re-sending them
+      // cannot change the verdict — it just costs the payer seconds of backoff
+      // and four RPC calls on an endpoint we are rationing.
+      await solError({ err: 'BlockhashNotFound', logs: [] });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
   });
 
   // ──────────────────────────────────────────────
