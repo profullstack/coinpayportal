@@ -14,7 +14,7 @@
 import { el, mount, button, note, brand } from '../popup/dom.js';
 import { call } from '../popup/rpc.js';
 import type { PendingApproval } from '../messages.js';
-import type { BatchProgress } from '../core/batch.js';
+import type { BatchProgress, BatchFunding } from '../core/batch.js';
 
 const params = new URLSearchParams(window.location.search);
 const requestId = params.get('requestId') ?? '';
@@ -97,6 +97,7 @@ function renderBatch(request: Extract<PendingApproval, { kind: 'payBatch' }>): v
       text: `This sends ${request.payments.length} separate transactions. They cannot be reversed.`,
     }),
     totals,
+    ...(request.funding?.length ? [buildFunding(request.funding)] : []),
     buildList(request),
     ...(password ? [password.row] : []),
     status,
@@ -109,6 +110,48 @@ function renderBatch(request: Extract<PendingApproval, { kind: 'payBatch' }>): v
       ),
     ]),
   );
+}
+
+/**
+ * What each funding address holds, against what the run needs.
+ *
+ * A short balance does not announce itself: the run starts, and each payment
+ * fails with a chain-level message ("No UTXOs available", "simulation failed")
+ * that never mentions money. Showing it here turns that into something the user
+ * can see before approving 80 transactions.
+ */
+function buildFunding(funding: BatchFunding[]): HTMLElement {
+  const short = funding.filter((f) => !f.sufficient);
+  return el('div', { class: 'funding' }, [
+    el('div', { class: 'funding-head', text: 'Paying from' }),
+    ...funding.map((f) =>
+      el('div', { class: f.sufficient ? 'funding-row' : 'funding-row short' }, [
+        el('span', { class: 'who' }, [
+          el('span', { class: 'chain', text: f.chain }),
+          ...(f.address ? [el('span', { class: 'addr', text: shortenAddress(f.address) })] : []),
+        ]),
+        el('span', {
+          class: 'amt',
+          text: `need ${f.required} · have ${f.available}`,
+        }),
+      ]),
+    ),
+    ...(short.length
+      ? [
+          el('p', {
+            class: 'warn',
+            text:
+              short.length === funding.length
+                ? 'This address cannot cover the run. Fund it, or pick the address that holds the money, before approving.'
+                : `Not enough ${short.map((f) => f.chain).join(', ')} to cover every payment — those will fail.`,
+          }),
+        ]
+      : []),
+    el('p', {
+      class: 'muted',
+      text: 'Balances exclude network fees, so a run can still come up short.',
+    }),
+  ]);
 }
 
 function buildList(request: Extract<PendingApproval, { kind: 'payBatch' }>): HTMLElement {

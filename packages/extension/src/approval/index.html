@@ -48,6 +48,16 @@
       .total-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; padding: 3px 0; }
       .total-row .chain { font-weight: 600; }
       .grand { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 8px; font-size: 15px; font-weight: 700; }
+      /* What the paying address holds. A short balance otherwise only shows up
+         as per-payment chain errors that never mention money. */
+      .funding { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; display: grid; gap: 6px; }
+      .funding-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+      .funding-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; }
+      .funding-row .who { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+      .funding-row .chain { font-weight: 600; }
+      .funding-row .addr { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+      .funding-row .amt { white-space: nowrap; }
+      .funding-row.short .amt { color: var(--err); font-weight: 700; }
       /* The payment list is the part that scrolls; header and buttons stay put
          so "Approve" is always reachable even with 62 rows. */
       .list { flex: 1; min-height: 80px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }

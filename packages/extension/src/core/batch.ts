@@ -379,3 +379,69 @@ export function summarizeBatch(
     totalUsd: group.totalUsd,
   }));
 }
+
+/** What the approval screen shows about whether a run can actually be paid. */
+export interface BatchFunding {
+  chain: PayChain;
+  /** The address that will fund this chain's payments, if one is derived. */
+  address?: string;
+  /** Sum of this chain's payments, in display units. */
+  required: string;
+  /** What that address holds, in display units. */
+  available: string;
+  /** False when the balance cannot cover the total. Fees are NOT included. */
+  sufficient: boolean;
+}
+
+/**
+ * Compare what a batch needs against what the funding addresses hold.
+ *
+ * A wallet can hold several addresses per chain, and a batch spends exactly one
+ * of them — so "the wallet has enough" is not the question. The question is
+ * whether *the address that will pay* has enough, which is what this answers
+ * and what the approval screen shows. A run that is short fails one payment at
+ * a time with chain-level errors ("No UTXOs available", "simulation failed")
+ * that never say the word "balance".
+ *
+ * `sufficient` deliberately ignores transaction fees: the exact cost is not
+ * known until each transaction is built, and quietly padding it would report a
+ * shortfall that is not real. Treat it as necessary, not sufficient.
+ */
+export function computeFunding(
+  payments: BatchPaymentRequest[],
+  senders: Partial<Record<NativeChain, { address: string; index: number }>>,
+  balances: { chain?: string; address?: string; balance?: string }[],
+): BatchFunding[] {
+  const required = new Map<PayChain, number>();
+  for (const payment of payments) {
+    const amount = Number(payment.amount);
+    required.set(
+      payment.chain,
+      (required.get(payment.chain) ?? 0) + (Number.isFinite(amount) ? amount : 0),
+    );
+  }
+
+  return [...required.entries()].map(([chain, amount]) => {
+    const address = senders[signingChain(chain)]?.address;
+    // Only the funding address counts. Summing every address on the chain is
+    // what makes an empty sender look funded.
+    const available = balances
+      .filter(
+        (b) =>
+          (b.chain ?? '').toUpperCase() === chain &&
+          (!address || (b.address ?? '').toLowerCase() === address.toLowerCase()),
+      )
+      .reduce((sum, b) => {
+        const value = Number(b.balance);
+        return sum + (Number.isFinite(value) ? value : 0);
+      }, 0);
+
+    return {
+      chain,
+      address,
+      required: String(amount),
+      available: String(available),
+      sufficient: available >= amount,
+    };
+  });
+}
