@@ -239,11 +239,110 @@ async function checkEVMTokenBalance(
   }
 }
 
+// ──────────────────────────────────────────────
+// Batched SOL balance lookups
+// ──────────────────────────────────────────────
+
+/**
+ * The monitor checks pending payments one at a time, and each SOL payment used
+ * to cost its own `getBalance` call. A cycle with 48 pending payments therefore
+ * made 48 sequential RPC requests, every cycle, forever — enough to sit on
+ * Solana's public-endpoint limit permanently and answer nearly every call with
+ * "Connection rate limits exceeded".
+ *
+ * `getMultipleAccounts` returns up to 100 accounts in a single request, so a
+ * whole cycle's worth of addresses costs one call instead of N. The cycle primes
+ * this cache up front and the per-address checks read from it.
+ *
+ * The TTL is short on purpose. This cache exists to collapse one cycle's lookups,
+ * not to remember balances between cycles — the monitor's entire job is noticing
+ * when a balance changes, and stale data here delays exactly that.
+ */
+const SOL_BALANCE_TTL_MS = 20_000;
+const SOL_ACCOUNTS_PER_CALL = 100;
+
+const solBalanceCache = new Map<string, { lamports: number; at: number }>();
+
+/** Test seam: forget any primed balances. */
+export function resetSolBalanceCache(): void {
+  solBalanceCache.clear();
+}
+
+/**
+ * Fetch every given address's lamport balance in as few RPC calls as possible
+ * and cache the results for the current cycle. Failures are swallowed: a primed
+ * cache is an optimisation, and any address left unprimed simply falls back to
+ * its own `getBalance` call.
+ */
+export async function primeSolanaBalances(
+  addresses: string[],
+  rpcUrl: string = RPC_ENDPOINTS.SOL
+): Promise<void> {
+  const unique = [...new Set(addresses.filter(Boolean))];
+  if (unique.length === 0) return;
+
+  for (let i = 0; i < unique.length; i += SOL_ACCOUNTS_PER_CALL) {
+    const chunk = unique.slice(i, i + SOL_ACCOUNTS_PER_CALL);
+    try {
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'getMultipleAccounts',
+          params: [chunk, { encoding: 'base64', commitment: 'confirmed' }],
+          id: 1,
+        }),
+      });
+
+      if (!response.ok) {
+        await drainResponse(response);
+        console.warn(`[Monitor] Batch SOL balance prime failed: ${response.status}`);
+        continue;
+      }
+
+      const data = await response.json();
+      if (data.error) {
+        console.warn('[Monitor] Batch SOL balance RPC error:', data.error);
+        continue;
+      }
+
+      const values = data.result?.value;
+      if (!Array.isArray(values)) continue;
+
+      const at = Date.now();
+      chunk.forEach((address, index) => {
+        // A null entry means the account does not exist on chain, which for a
+        // payment address is simply "nothing has arrived yet".
+        const lamports = values[index]?.lamports ?? 0;
+        solBalanceCache.set(address, { lamports, at });
+      });
+    } catch (error) {
+      console.warn('[Monitor] Batch SOL balance prime threw:', error);
+    }
+  }
+}
+
+function cachedSolLamports(address: string): number | null {
+  const hit = solBalanceCache.get(address);
+  if (!hit) return null;
+  if (Date.now() - hit.at >= SOL_BALANCE_TTL_MS) {
+    solBalanceCache.delete(address);
+    return null;
+  }
+  return hit.lamports;
+}
+
 /**
  * Check balance for a Solana address
  */
 async function checkSolanaBalance(address: string, rpcUrl: string): Promise<BalanceResult> {
   try {
+    const primed = cachedSolLamports(address);
+    if (primed !== null) {
+      return solanaBalanceResult(address, primed, rpcUrl);
+    }
+
     const response = await fetch(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -254,54 +353,68 @@ async function checkSolanaBalance(address: string, rpcUrl: string): Promise<Bala
         id: 1,
       }),
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`[Monitor] Failed to fetch SOL balance for ${address}: ${response.status} - ${errorText}`);
       return { balance: 0 };
     }
-    
+
     const data = await response.json();
     if (data.error) {
       console.error(`[Monitor] RPC error for ${address}:`, data.error);
       return { balance: 0 };
     }
     
-    const balanceLamports = data.result?.value || 0;
-    const balance = balanceLamports / 1e9;
-    
-    // Get the latest transaction signature if there's a balance
-    let txHash: string | undefined;
-    if (balance > 0) {
-      try {
-        const sigResponse = await fetch(rpcUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            method: 'getSignaturesForAddress',
-            params: [address, { limit: 1 }],
-            id: 1,
-          }),
-        });
-        
-        if (sigResponse.ok) {
-          const sigData = await sigResponse.json();
-          if (sigData.result && sigData.result.length > 0) {
-            txHash = sigData.result[0].signature;
-            console.log(`[Monitor] SOL tx hash for ${address}: ${txHash}`);
-          }
-        }
-      } catch (txError) {
-        console.error(`[Monitor] Error fetching SOL transactions for ${address}:`, txError);
-      }
-    }
-    
-    return { balance, txHash };
+    return solanaBalanceResult(address, data.result?.value || 0, rpcUrl);
   } catch (error) {
     console.error(`[Monitor] Error checking SOL balance for ${address}:`, error);
     return { balance: 0 };
   }
+}
+
+/**
+ * Turn a lamport balance into a `BalanceResult`, looking up the funding
+ * signature only when there is actually something there. Shared by the primed
+ * and unprimed paths so both report identically.
+ */
+async function solanaBalanceResult(
+  address: string,
+  balanceLamports: number,
+  rpcUrl: string
+): Promise<BalanceResult> {
+  const balance = balanceLamports / 1e9;
+  if (balance <= 0) return { balance };
+
+  // Only funded addresses cost this extra call, which is a small fraction of
+  // the pending set — the rest are still waiting for money to arrive.
+  let txHash: string | undefined;
+  try {
+    const sigResponse = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'getSignaturesForAddress',
+        params: [address, { limit: 1 }],
+        id: 1,
+      }),
+    });
+
+    if (sigResponse.ok) {
+      const sigData = await sigResponse.json();
+      if (sigData.result && sigData.result.length > 0) {
+        txHash = sigData.result[0].signature;
+        console.log(`[Monitor] SOL tx hash for ${address}: ${txHash}`);
+      }
+    } else {
+      await drainResponse(sigResponse);
+    }
+  } catch (txError) {
+    console.error(`[Monitor] Error fetching SOL transactions for ${address}:`, txError);
+  }
+
+  return { balance, txHash };
 }
 
 async function checkSolanaTokenBalance(

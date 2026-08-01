@@ -10,7 +10,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { runWalletTxCycle } from '../web-wallet/tx-finalize';
-import { processPayment, type Payment } from './monitor-balance';
+import { primeSolanaBalances, processPayment, type Payment } from './monitor-balance';
 import { runEscrowCycle, runRecurringEscrowCycle } from './monitor-escrow';
 import { runInvoiceMonitorCycle, runInvoiceSchedulerCycle } from './monitor-invoices';
 
@@ -77,7 +77,17 @@ async function runMonitorCycle(): Promise<{ checked: number; confirmed: number; 
       console.error('[Monitor] Failed to fetch pending payments:', fetchError);
     } else if (pendingPayments && pendingPayments.length > 0) {
       // Only log when there are payments to process
-      
+
+      // One batched lookup for every native-SOL address in this cycle, instead
+      // of one RPC call per payment inside the loop below. At ~50 pending
+      // payments that is the difference between 1 request and 50, which is what
+      // was keeping us permanently at the public endpoint's connection limit.
+      await primeSolanaBalances(
+        (pendingPayments as any[])
+          .filter((p) => p.blockchain === 'SOL')
+          .map((p) => p.payment_address)
+      );
+
       for (const payment of pendingPayments as any[]) {
         stats.checked++;
         try {
