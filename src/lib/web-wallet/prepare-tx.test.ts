@@ -5,6 +5,7 @@ import {
   CHAIN_IDS,
   USDC_CONTRACTS,
   fetchUTXOs,
+  resetBlockhashCache,
 } from './prepare-tx';
 
 // ──────────────────────────────────────────────
@@ -92,6 +93,9 @@ function createMockSupabase(overrides: {
 describe('prepareTransaction', () => {
   beforeEach(() => {
     mockFetch.mockReset();
+    // The blockhash cache is deliberately shared across calls, so it has to be
+    // cleared or one test's blockhash satisfies the next test's request.
+    resetBlockhashCache();
   });
 
   // ──────────────────────────────────────────────
@@ -386,12 +390,73 @@ describe('prepareTransaction', () => {
       }
     });
 
+    it('reuses one blockhash across a batch instead of one RPC call each', async () => {
+      // The failure this guards: preparing 80 payments fired 80 back-to-back
+      // getLatestBlockhash calls, and the public RPC answered 429 and then
+      // stopped answering at all — every payment in the batch failed.
+      const supabase = createMockSupabase({
+        addressResult: { id: 'addr-1', address: '7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV', chain: 'SOL' },
+      });
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          jsonrpc: '2.0',
+          result: { value: { blockhash: 'EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N', lastValidBlockHeight: 1 } },
+          id: 1,
+        }),
+      });
+
+      const batch = await Promise.all(
+        Array.from({ length: 25 }, () =>
+          prepareTransaction(supabase, 'w1', {
+            from_address: '7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV',
+            to_address: 'FxkPpN3Nt1NHFxJ2ECE3dwXeGujhzVJAqwnMBKwfpump',
+            chain: 'SOL',
+            amount: '0.01',
+          })
+        )
+      );
+
+      expect(batch.every((r) => r.success)).toBe(true);
+      // 25 concurrent preparations, one RPC call — misses collapse onto a
+      // single in-flight request rather than stampeding the endpoint.
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries a rate-limited blockhash instead of failing the payment', async () => {
+      const supabase = createMockSupabase({
+        addressResult: { id: 'addr-1', address: '7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV', chain: 'SOL' },
+      });
+      mockFetch
+        .mockResolvedValueOnce({ ok: false, status: 429, headers: { get: () => '0' } })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jsonrpc: '2.0',
+            result: { value: { blockhash: 'EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N', lastValidBlockHeight: 1 } },
+            id: 1,
+          }),
+        });
+
+      const result = await prepareTransaction(supabase, 'w1', {
+        from_address: '7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV',
+        to_address: 'FxkPpN3Nt1NHFxJ2ECE3dwXeGujhzVJAqwnMBKwfpump',
+        chain: 'SOL',
+        amount: '0.01',
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
     it('should handle blockhash fetch failure', async () => {
       const supabase = createMockSupabase({
         addressResult: { id: 'addr-1', address: 'SOLaddr', chain: 'SOL' },
       });
 
-      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+      mockFetch.mockResolvedValue({ ok: false, status: 400 });
 
       const result = await prepareTransaction(supabase, 'w1', {
         from_address: 'SOLaddr',
