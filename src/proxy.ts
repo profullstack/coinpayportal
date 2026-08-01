@@ -48,6 +48,21 @@ const rateLimitMap = new Map<string, RateLimitEntry>();
 
 const GENERAL_LIMIT = 60;
 const AUTH_LIMIT = 10;
+/**
+ * Server-to-server integrations arrive from one host, so an IP bucket sized for
+ * a single browser throttles a whole merchant. ugig.net minting payment
+ * requests for its accepted-invoice queue sends ~80 creates in a burst and got
+ * "Too many requests" partway through, which surfaced to the payer as invoices
+ * that silently would not prepare. Credentialed callers get their own bucket.
+ */
+const API_KEY_LIMIT = 600;
+/**
+ * The credential above is unverified at this layer — the route handler is what
+ * actually authenticates it. So a caller could mint buckets by rotating junk
+ * keys; this ceiling bounds that per host while staying far above any real
+ * integration's burst.
+ */
+const API_KEY_IP_CEILING = 1200;
 const WINDOW_MS = 60_000; // 1 minute
 
 // Cleanup stale entries every 5 minutes
@@ -62,13 +77,14 @@ if (typeof globalThis !== 'undefined') {
   }, 5 * 60_000);
 }
 
-function checkRateLimit(
-  ip: string,
-  isAuth: boolean
-): { allowed: boolean; limit: number; remaining: number; resetAt: number } {
-  const key = isAuth ? `auth:${ip}` : `api:${ip}`;
-  const limit = isAuth ? AUTH_LIMIT : GENERAL_LIMIT;
-  const now = Date.now();
+interface RateLimitResult {
+  allowed: boolean;
+  limit: number;
+  remaining: number;
+  resetAt: number;
+}
+
+function bump(key: string, limit: number, now: number): RateLimitResult {
   let entry = rateLimitMap.get(key);
 
   if (!entry || entry.resetAt <= now) {
@@ -77,14 +93,57 @@ function checkRateLimit(
   }
 
   entry.count++;
-  const remaining = Math.max(0, limit - entry.count);
 
   return {
     allowed: entry.count <= limit,
     limit,
-    remaining,
+    remaining: Math.max(0, limit - entry.count),
     resetAt: entry.resetAt,
   };
+}
+
+/** FNV-1a, so a raw API key never becomes a map key we might dump or log. */
+function fingerprint(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/** The credential presented, if any. Unverified here — the route handler authenticates. */
+export function presentedCredential(
+  headers: { get(name: string): string | null }
+): string | null {
+  const authorization = headers.get('authorization');
+  if (authorization) {
+    const match = /^bearer\s+(\S+)/i.exec(authorization.trim());
+    if (match) return match[1];
+  }
+  const apiKey = headers.get('x-api-key')?.trim();
+  return apiKey ? apiKey : null;
+}
+
+function checkRateLimit(
+  ip: string,
+  isAuth: boolean,
+  credential: string | null
+): RateLimitResult {
+  const now = Date.now();
+
+  // Auth endpoints stay IP-bucketed whatever headers accompany them, or a
+  // brute-force attempt would just bolt on an Authorization header to buy a
+  // bigger budget.
+  if (isAuth) return bump(`auth:${ip}`, AUTH_LIMIT, now);
+
+  if (!credential) return bump(`api:${ip}`, GENERAL_LIMIT, now);
+
+  // Both buckets are charged; the host ceiling is what a key-rotating caller
+  // cannot escape, so a denial there wins over a healthy per-key budget.
+  const ceiling = bump(`apikey-ip:${ip}`, API_KEY_IP_CEILING, now);
+  const perKey = bump(`apikey:${fingerprint(credential)}`, API_KEY_LIMIT, now);
+  return ceiling.allowed ? perKey : ceiling;
 }
 
 // ── Proxy ───────────────────────────────────────────────────
@@ -135,7 +194,11 @@ export function proxy(request: NextRequest) {
       return response;
     }
 
-    const rl = checkRateLimit(clientIp, isAuthEndpoint);
+    const rl = checkRateLimit(
+      clientIp,
+      isAuthEndpoint,
+      presentedCredential(request.headers)
+    );
     const corsHeaders = getCorsHeaders(requestOrigin);
 
     if (!rl.allowed) {
