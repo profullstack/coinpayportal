@@ -15,6 +15,7 @@
 const CHANNEL_REQUEST = 'coinpay:page-request';
 const CHANNEL_RESPONSE = 'coinpay:page-response';
 const CHANNEL_EVENT = 'coinpay:page-event';
+const CHANNEL_ACK = 'coinpay:page-ack';
 
 function injectProvider(): void {
   const script = document.createElement('script');
@@ -37,6 +38,12 @@ window.addEventListener('message', (event: MessageEvent) => {
   // Only the page-facing surface is reachable from here; popup and approval
   // messages must never be invocable by a web page.
   if (!payload.type.startsWith('site:')) return;
+
+  // Tell the page we exist before doing anything slow. The provider object
+  // outlives this content script — an extension update orphans us while
+  // `window.coinpay` stays in the page — so silence has to be distinguishable
+  // from a user taking their time at the approval window.
+  window.postMessage({ channel: CHANNEL_ACK, requestId }, window.location.origin);
 
   const reply = (result: unknown, error?: string): void => {
     window.postMessage(

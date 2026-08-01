@@ -17,6 +17,26 @@
 const CHANNEL_REQUEST = 'coinpay:page-request';
 const CHANNEL_RESPONSE = 'coinpay:page-response';
 const CHANNEL_EVENT = 'coinpay:page-event';
+const CHANNEL_ACK = 'coinpay:page-ack';
+
+/**
+ * How long to wait for the content script to acknowledge a request.
+ *
+ * This provider object lives in the page's world, so it outlives the content
+ * script that injected it: installing, updating or reloading the extension
+ * orphans the content script in tabs that are already open, while
+ * `window.coinpay` stays put. Every call then posts into the void. Without this
+ * timeout the promise simply never settles — a site sits on "waiting for your
+ * wallet" forever with no error to show, which is indistinguishable from the
+ * user being slow to approve.
+ *
+ * It bounds only the acknowledgement. Once the content script answers, the
+ * request runs untimed, because a legitimate `payBatch` can take many minutes.
+ */
+const ACK_TIMEOUT_MS = 3000;
+
+const RELOAD_HINT =
+  'The CoinPay extension is not responding. This usually means it was updated or reloaded while this page was open — reload the page and try again.';
 
 export interface CoinPayPayment {
   /** Your correlation id — echoed back on the matching result. */
@@ -51,16 +71,33 @@ export interface CoinPayProgress {
   total: number;
 }
 
-type Pending = { resolve: (value: any) => void; reject: (error: Error) => void };
+type Pending = {
+  resolve: (value: any) => void;
+  reject: (error: Error) => void;
+  ackTimer?: ReturnType<typeof setTimeout>;
+};
 
 const pending = new Map<string, Pending>();
 const progressListeners = new Set<(progress: CoinPayProgress) => void>();
 let counter = 0;
 
+/** Stop waiting for an acknowledgement — it arrived, or the request is over. */
+function clearAck(entry: Pending): void {
+  if (entry.ackTimer === undefined) return;
+  clearTimeout(entry.ackTimer);
+  entry.ackTimer = undefined;
+}
+
 function send<T>(payload: Record<string, unknown>): Promise<T> {
   const requestId = `cp-${Date.now()}-${++counter}`;
   return new Promise<T>((resolve, reject) => {
-    pending.set(requestId, { resolve, reject });
+    const entry: Pending = { resolve, reject };
+    entry.ackTimer = setTimeout(() => {
+      // Nothing on the other end. Fail loudly rather than hanging forever.
+      if (!pending.delete(requestId)) return;
+      reject(new Error(RELOAD_HINT));
+    }, ACK_TIMEOUT_MS);
+    pending.set(requestId, entry);
     window.postMessage({ channel: CHANNEL_REQUEST, requestId, payload }, window.location.origin);
   });
 }
@@ -72,9 +109,18 @@ window.addEventListener('message', (event: MessageEvent) => {
   const data = event.data as Record<string, any> | null;
   if (!data) return;
 
+  // The content script is alive and has taken the request. Everything past
+  // this point is the user's own pace, so stop timing it.
+  if (data.channel === CHANNEL_ACK) {
+    const entry = pending.get(data.requestId);
+    if (entry) clearAck(entry);
+    return;
+  }
+
   if (data.channel === CHANNEL_RESPONSE) {
     const entry = pending.get(data.requestId);
     if (!entry) return;
+    clearAck(entry);
     pending.delete(data.requestId);
     if (data.error) entry.reject(new Error(String(data.error)));
     else entry.resolve(data.result);

@@ -217,3 +217,39 @@ describe('background → page events', () => {
     expect(posted).toHaveLength(0);
   });
 });
+
+/**
+ * The page cannot tell "the wallet is busy" from "the content script is gone"
+ * without an early signal, so the bridge acknowledges every request it accepts
+ * before it starts relaying. See ACK_TIMEOUT_MS in inpage/provider.ts.
+ */
+describe('request acknowledgement', () => {
+  const CHANNEL_ACK = 'coinpay:page-ack';
+
+  it('acknowledges a site: request before the background answers', async () => {
+    const posted = capturePosts();
+    // Never resolves — the ack must not be waiting on the background worker.
+    sendMessage.mockReturnValue(new Promise(() => {}));
+
+    await postFromPage({
+      channel: CHANNEL_REQUEST,
+      requestId: 'r-ack',
+      payload: { type: 'site:getState' },
+    });
+
+    expect(posted).toContainEqual({ channel: CHANNEL_ACK, requestId: 'r-ack' });
+  });
+
+  it('does not acknowledge a request it refuses to relay', async () => {
+    const posted = capturePosts();
+
+    await postFromPage({
+      channel: CHANNEL_REQUEST,
+      requestId: 'r-nope',
+      payload: { type: 'approval:approve' },
+    });
+
+    expect(posted).not.toContainEqual({ channel: CHANNEL_ACK, requestId: 'r-nope' });
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+});
