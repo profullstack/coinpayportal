@@ -31,7 +31,15 @@ import { CoinPayApi, compressedPublicKey } from '../core/api.js';
 import { RateCache } from '../core/rates.js';
 import { toFiatCurrency, type FiatCurrency } from '../core/fiat.js';
 import { derivePrivateKey, derivationPath, deriveIdentityKey } from '../core/private-keys.js';
-import { runBatchPayments, summarizeBatch, parseBatchRequests, type BatchItemResult } from '../core/batch.js';
+import {
+  runBatchPayments,
+  summarizeBatch,
+  parseBatchRequests,
+  computeFunding,
+  type BatchItemResult,
+  type BatchPaymentRequest,
+  type BatchFunding,
+} from '../core/batch.js';
 import { PAY_CHAINS, signingChain, toPayChain } from '../core/pay-chains.js';
 import type { NativeChain } from '../core/chains.js';
 import type { WalletRequest, WalletResponse, PendingApproval, WalletEvent } from '../messages.js';
@@ -379,6 +387,35 @@ function senderOrigin(sender: chrome.runtime.MessageSender): string | null {
   return normalizeOrigin(sender.origin ?? sender.url ?? null);
 }
 
+/**
+ * What the funding addresses hold, for the approval screen to show alongside
+ * what the run needs.
+ *
+ * Advisory only: a failure here must never block a payment the user asked for,
+ * so everything is swallowed and the screen simply omits the section. Returns
+ * undefined while locked, since balances need the seed and the approval window
+ * is what collects the password.
+ */
+async function fundingFor(
+  payments: BatchPaymentRequest[],
+  from?: string,
+): Promise<BatchFunding[] | undefined> {
+  if (!(await wallet.isUnlocked())) return undefined;
+
+  let authKey: Uint8Array | undefined;
+  try {
+    const seed = await wallet.requireSeed();
+    const walletId = await ensurePortalWallet(seed);
+    authKey = deriveIdentityKey(seed);
+    const balances = await api.getBalances(walletId, authKey);
+    return computeFunding(payments, await sendersFor(from), balances);
+  } catch {
+    return undefined;
+  } finally {
+    authKey?.fill(0);
+  }
+}
+
 async function handleSitePayBatch(
   origin: string,
   rawPayments: unknown,
@@ -401,6 +438,7 @@ async function handleSitePayBatch(
     needsUnlock: !(await wallet.isUnlocked()),
     payments,
     summary: summarizeBatch(payments),
+    funding: await fundingFor(payments, from),
   };
 
   const approved = await requestApproval(approval);
