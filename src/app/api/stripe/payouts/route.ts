@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { amount, currency = 'usd', description, metadata } = body;
 
-    if (!amount || typeof amount !== 'number' || amount <= 0) {
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
       return NextResponse.json(
         { success: false, error: 'amount is required and must be a positive integer (in cents)' },
         { status: 400 }
