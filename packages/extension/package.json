@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/coinpay-extension",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "private": true,
   "type": "module",
   "description": "CoinPay cross-browser (MV3) wallet + x402 payment extension with bulk payouts. See docs/BROWSER_EXTENSION_PRD.md and docs/BULK_PAYMENTS.md.",
