@@ -144,6 +144,26 @@ describe('POST /api/stripe/payouts', () => {
     expect(response.status).toBe(400);
   });
 
+  it.each([12.5, Number.MAX_SAFE_INTEGER + 1])(
+    'should reject non-integer payout amount %s',
+    async (amount) => {
+      (verifyToken as any).mockReturnValue({ userId: 'merchant-1' });
+      const request = new NextRequest('http://localhost:3000/api/stripe/payouts', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer valid',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ amount }),
+      });
+
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      expect(mockFrom).not.toHaveBeenCalled();
+    }
+  );
+
   it('should create a payout successfully', async () => {
     (verifyToken as any).mockReturnValue({ userId: 'merchant-1' });
     

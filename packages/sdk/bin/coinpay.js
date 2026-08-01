@@ -181,6 +181,15 @@ function parseArgs(args) {
   return result;
 }
 
+function parsePositiveInteger(value) {
+  if (typeof value !== 'string' || !/^\d+$/.test(value.trim())) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 /**
  * Show help
  */
@@ -2398,9 +2407,9 @@ async function handlePayout(subcommand, args, flags) {
 
   switch (subcommand) {
     case 'create': {
-      const amount = parseInt(flags.amount);
-      if (!amount || amount <= 0) {
-        print.error('--amount is required (in cents, e.g., 5000 for $50.00)');
+      const amount = parsePositiveInteger(flags.amount);
+      if (amount === null) {
+        print.error('--amount must be a positive integer in cents (e.g., 5000 for $50.00)');
         print.info('Example: coinpay payout create --amount 5000 --description "Weekly payout"');
         process.exit(1);
       }
