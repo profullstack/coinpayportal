@@ -52,6 +52,19 @@ describe('presentedCredential', () => {
     expect(presentedCredential(headersOf({ 'x-api-key': 'sk_live_xyz' }))).toBe('sk_live_xyz');
   });
 
+  it('reads the wallet extension\'s Wallet scheme, not just Bearer', () => {
+    // packages/extension/src/core/api.ts signs with this exact shape.
+    expect(
+      presentedCredential(headersOf({ authorization: 'Wallet wid-1:sig-abc:1234567890' }))
+    ).toBe('wid-1:sig-abc:1234567890');
+  });
+
+  it('distinguishes two wallets using the same scheme', () => {
+    const a = presentedCredential(headersOf({ authorization: 'Wallet wid-1:sig:1' }));
+    const b = presentedCredential(headersOf({ authorization: 'Wallet wid-2:sig:1' }));
+    expect(a).not.toBe(b);
+  });
+
   it('is null when no credential is presented', () => {
     expect(presentedCredential(headersOf({}))).toBeNull();
   });
@@ -73,6 +86,15 @@ describe('proxy rate limiting', () => {
   it('lets a credentialed integration burst well past the anonymous limit', () => {
     const allowed = countUntilLimited('/api/payments/create', '10.1.0.2', 200, {
       authorization: 'Bearer sk_live_ugig',
+    });
+    expect(allowed).toBe(200);
+  });
+
+  // The extension uses the `Wallet` scheme; a batch spends two API calls per
+  // payment, so treating it as anonymous capped a payout at ~30 payments.
+  it('gives the wallet extension the credentialed budget', () => {
+    const allowed = countUntilLimited('/api/web-wallet/w1/broadcast', '10.1.0.6', 200, {
+      authorization: 'Wallet wid-1:sig-abc:1234567890',
     });
     expect(allowed).toBe(200);
   });
