@@ -319,6 +319,122 @@ async function fetchUTXOs(address: string, chain: WalletChain): Promise<UTXOInpu
 // SOL Transaction Preparation
 // ──────────────────────────────────────────────
 
+/**
+ * Shared recent-blockhash fetch.
+ *
+ * Preparing a batch of payments used to call `getLatestBlockhash` once per
+ * transaction. An 80-payment run therefore fired 80 back-to-back RPC requests,
+ * which public Solana endpoints answer with 429 and then refuse outright — the
+ * whole batch failed with "Failed to get blockhash: 429" followed by "Failed to
+ * fetch".
+ *
+ * A blockhash stays valid for ~150 slots (about a minute), so one is good for
+ * every transaction in a batch. Two things make that safe under concurrency:
+ *
+ *   - a short TTL cache, so a batch costs one RPC call rather than N, and
+ *   - an in-flight promise, so N *simultaneous* misses collapse into a single
+ *     request instead of all stampeding the endpoint at once.
+ *
+ * The TTL is deliberately far below the real expiry: a slightly stale blockhash
+ * still confirms, but one that has aged out makes the transaction silently
+ * un-landable, which is much worse than an extra RPC call.
+ */
+const BLOCKHASH_TTL_MS = 20_000;
+const BLOCKHASH_RETRIES = 3;
+
+interface CachedBlockhash {
+  value: string;
+  fetchedAt: number;
+}
+
+const blockhashCache = new Map<string, CachedBlockhash>();
+const blockhashInFlight = new Map<string, Promise<string>>();
+
+/** Test seam: forget any cached blockhash. */
+export function resetBlockhashCache(): void {
+  blockhashCache.clear();
+  blockhashInFlight.clear();
+}
+
+async function fetchBlockhash(rpcUrl: string): Promise<string> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= BLOCKHASH_RETRIES; attempt++) {
+    try {
+      const resp = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'getLatestBlockhash',
+          params: [{ commitment: 'finalized' }],
+          id: 1,
+        }),
+      });
+
+      if (resp.status === 429 || resp.status >= 500) {
+        // Transient by definition — the endpoint is busy, not the request bad.
+        const retryAfter = Number(resp.headers?.get?.('retry-after'));
+        const wait = Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : 250 * 2 ** (attempt - 1);
+        lastError = new Error(`Failed to get blockhash: ${resp.status}`);
+        if (attempt < BLOCKHASH_RETRIES) {
+          await new Promise((r) => setTimeout(r, Math.min(wait, 4000)));
+          continue;
+        }
+        throw lastError;
+      }
+
+      if (!resp.ok) {
+        throw new Error(`Failed to get blockhash: ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      if (data.error) {
+        throw new Error(`Blockhash RPC error: ${data.error.message}`);
+      }
+
+      const blockhash = data.result?.value?.blockhash;
+      if (!blockhash) {
+        throw new Error('Failed to get recent blockhash');
+      }
+      return blockhash;
+    } catch (err: any) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      // A dropped connection mid-batch is as transient as a 429.
+      const isLast = attempt >= BLOCKHASH_RETRIES;
+      if (isLast) throw lastError;
+      await new Promise((r) => setTimeout(r, 250 * 2 ** (attempt - 1)));
+    }
+  }
+
+  throw lastError ?? new Error('Failed to get recent blockhash');
+}
+
+async function getRecentBlockhash(rpcUrl: string): Promise<string> {
+  const cached = blockhashCache.get(rpcUrl);
+  if (cached && Date.now() - cached.fetchedAt < BLOCKHASH_TTL_MS) {
+    return cached.value;
+  }
+
+  // Collapse concurrent misses onto one request.
+  const existing = blockhashInFlight.get(rpcUrl);
+  if (existing) return existing;
+
+  const pending = fetchBlockhash(rpcUrl)
+    .then((value) => {
+      blockhashCache.set(rpcUrl, { value, fetchedAt: Date.now() });
+      return value;
+    })
+    .finally(() => {
+      blockhashInFlight.delete(rpcUrl);
+    });
+
+  blockhashInFlight.set(rpcUrl, pending);
+  return pending;
+}
+
 async function prepareSOLTransaction(
   from: string,
   to: string,
@@ -326,31 +442,7 @@ async function prepareSOLTransaction(
   chain: WalletChain,
   rpcUrl: string
 ): Promise<SOLUnsignedTx> {
-  // Get recent blockhash
-  const resp = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'getLatestBlockhash',
-      params: [{ commitment: 'finalized' }],
-      id: 1,
-    }),
-  });
-
-  if (!resp.ok) {
-    throw new Error(`Failed to get blockhash: ${resp.status}`);
-  }
-
-  const data = await resp.json();
-  if (data.error) {
-    throw new Error(`Blockhash RPC error: ${data.error.message}`);
-  }
-
-  const recentBlockhash = data.result?.value?.blockhash;
-  if (!recentBlockhash) {
-    throw new Error('Failed to get recent blockhash');
-  }
+  const recentBlockhash = await getRecentBlockhash(rpcUrl);
 
   if (chain === 'USDC_SOL' || chain === 'USDT_SOL') {
     // SPL token transfer — client needs to build the full instruction
