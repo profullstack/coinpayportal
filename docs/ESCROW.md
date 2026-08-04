@@ -2,7 +2,9 @@
 
 ## Overview
 
-Authenticated, non-custodial-style escrow for crypto payments. Both humans and AI agents can use it to hold funds in escrow during jobs/gigs. Funds are held in platform-generated HD wallet addresses (same system wallet infrastructure as payments) and released based on escrow conditions.
+Authenticated escrow for crypto payments. Both humans and AI agents can use it to hold funds in escrow during jobs/gigs.
+
+**Custody: the default model is custodial. Say so.** Funds are held in platform-generated HD wallet addresses derived from `SYSTEM_MNEMONIC_*` (the same system wallet infrastructure as payments), so during the escrow window CoinPay can technically move the funds and the depositor is trusting the operator, not the chain. Do not describe this model as "non-custodial" or "non-custodial-style" in docs, UI, or marketing — the only non-custodial escrow model here is `multisig_2of3`, where CoinPay holds one key of three. See `/custody` (`src/app/custody/page.tsx`) for the user-facing disclosure that must stay in sync with this file.
 
 **Key properties:**
 - Authenticated creation — merchant JWT or API key required

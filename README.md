@@ -1,6 +1,6 @@
 # CoinPay ⚡
 
-The multi-chain payment infrastructure for humans and AI agents. Non-custodial crypto payments, escrow, web wallet, Lightning, x402 protocol, and Stripe — all in one platform.
+The multi-chain payment infrastructure for humans and AI agents. Crypto payments, escrow, a non-custodial web wallet, Lightning, x402 protocol, and Stripe — all in one platform.
 
 **[coinpayportal.com](https://coinpayportal.com)** · [Docs](https://coinpayportal.com/docs) · [SDK](https://coinpayportal.com/docs/sdk) · [Discord](https://discord.gg/U7dEXfBA3s)
 
@@ -8,14 +8,16 @@ The multi-chain payment infrastructure for humans and AI agents. Non-custodial c
 
 ## What is CoinPay?
 
-CoinPay is a non-custodial payment gateway that lets merchants accept crypto, Lightning, and card payments. It's designed for both traditional e-commerce and the agent economy — AI agents can create wallets, send payments, manage escrows, and pay for APIs autonomously.
+CoinPay is a payment gateway that lets merchants accept crypto, Lightning, and card payments. It's designed for both traditional e-commerce and the agent economy — AI agents can create wallets, send payments, manage escrows, and pay for APIs autonomously.
+
+**Custody, up front:** CoinPay is not non-custodial as a whole, and we don't market it that way. The web wallet is genuinely non-custodial (keys are generated client-side and never reach the server). On-chain payments land at a CoinPay-derived address and are forwarded to the merchant, so we hold the key for that window. Default escrow is custodial for the whole escrow window; `multisig_2of3` escrow is not (we hold one key of three). Lightning is custodial until withdrawal. Full breakdown — including shutdown and dispute handling — lives at [`/custody`](src/app/custody/page.tsx), and `docs/ESCROW.md` covers the escrow model in depth. **If you change custody behaviour, update those in the same commit.**
 
 ## 🌟 Features
 
 ### 💰 Multi-Chain Payments
 - **7 blockchains**: Bitcoin, Bitcoin Cash, Ethereum, Polygon, Solana, USDC (ETH/POL/SOL/Base)
-- **Non-custodial**: Funds go directly to merchant wallets — no intermediaries
-- **Real-time processing**: Instant payment detection and forwarding
+- **Forwarded to merchant wallets**: Payments are received at a CoinPay-derived address and forwarded to the merchant's own wallet; CoinPay holds that key until the forward confirms
+- **Real-time processing**: Instant payment detection, with forwarding attempted every minute
 - **0.5% platform fee**: Automatically deducted during forwarding
 - **QR codes**: BIP21/EIP-681/Solana Pay URIs for one-tap wallet opens
 - **Webhook notifications**: Real-time payment callbacks

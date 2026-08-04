@@ -1,8 +1,15 @@
 /**
  * Escrow Service
  *
- * Anonymous, non-custodial escrow using platform HD wallet addresses.
+ * Anonymous CUSTODIAL escrow using platform HD wallet addresses.
  * Both humans and AI agents can create/fund/release/dispute escrows.
+ *
+ * Custody note: the escrow address is derived from the platform's own seed
+ * (`SYSTEM_MNEMONIC_*` via generatePaymentAddress), so for the whole escrow
+ * window CoinPay holds the key and could move the funds. That is custodial —
+ * this file used to call itself "non-custodial", which was wrong. The
+ * non-custodial path is `src/lib/multisig/engine.ts` (2-of-3, CoinPay holds
+ * one key). Keep `/custody` and `docs/ESCROW.md` in sync with any change here.
  *
  * Flow:
  * 1. Create escrow → generates HD wallet address for deposit

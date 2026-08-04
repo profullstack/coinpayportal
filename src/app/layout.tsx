@@ -9,9 +9,9 @@ import './globals.css';
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com'),
-  title: 'CoinPay - Non-Custodial Crypto Payment Gateway',
+  title: 'CoinPay - Crypto Payment Gateway, Escrow & Wallets',
   description: 'Accept cryptocurrency payments in your e-commerce store with automatic fee handling and real-time processing',
-  keywords: ['cryptocurrency', 'payment gateway', 'crypto payments', 'non-custodial', 'blockchain', 'bitcoin', 'ethereum'],
+  keywords: ['cryptocurrency', 'payment gateway', 'crypto payments', 'escrow', 'multisig', 'blockchain', 'bitcoin', 'ethereum'],
   authors: [{ name: 'CoinPay' }],
   creator: 'CoinPay',
   publisher: 'CoinPay',
@@ -73,7 +73,7 @@ const organizationJsonLd = {
   url: SITE_URL,
   logo: `${SITE_URL}/logo.png`,
   description:
-    'Non-custodial cryptocurrency payment gateway with multi-chain support, Lightning, and built-in escrow. Accept BTC, ETH, stablecoins; funds settle directly to merchant wallets.',
+    'Cryptocurrency payment gateway with multi-chain support, Lightning, escrow, and a non-custodial browser wallet. Accept BTC, ETH, and stablecoins; payments forward to merchant wallets after confirmation.',
   email: 'hello@coinpayportal.com',
   sameAs: [
     'https://github.com/profullstack/coinpay',
