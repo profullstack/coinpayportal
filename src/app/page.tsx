@@ -1,11 +1,22 @@
 import Link from 'next/link';
 import { PaymentDemo } from '@/components/demo/PaymentDemo';
 import { Partners } from '@/components/Partners';
-import { SUPPORTED_CHAINS, STABLECOIN_RAILS, SETTLEMENT_ASSET_COUNT } from '@/lib/wallets/supported-chains';
+import { SUPPORTED_CHAINS, STABLECOIN_RAILS } from '@/lib/wallets/supported-chains';
+import { getPublicStats } from '@/lib/stats/public-stats';
+import { HeroStats } from '@/components/HeroStats';
 
 const GITHUB_REPO_URL = 'https://github.com/profullstack/coinpayportal';
 
-export default function Home() {
+/**
+ * Hourly. The hero counters move slowly enough that anything tighter would be
+ * spending database round trips to render the same number, and slowly enough
+ * that a stale hour is invisible.
+ */
+export const revalidate = 3600;
+
+export default async function Home() {
+  const stats = await getPublicStats();
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       {/* Hero Section */}
@@ -123,32 +134,18 @@ export default function Home() {
             </Link>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 max-w-4xl mx-auto mb-12">
-            {[
-              { label: 'Transactions Processed', value: '47K+' },
-              { label: 'Active Merchants', value: '1,200+' },
-              { label: 'Total Volume', value: '$8.2M+' },
-              { label: 'Countries', value: '45+' },
-            ].map((stat, index) => (
-              <div key={index} className="text-center p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
-                <div className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 mb-2">
-                  {stat.value}
-                </div>
-                <div className="text-sm text-gray-400">{stat.label}</div>
-              </div>
-            ))}
-          </div>
+          {/* Read from the database at revalidation rather than typed in, and
+              omitted entirely when that read fails. */}
+          <HeroStats stats={stats} />
 
-          {/* Secondary Stats */}
+          {/* Claims that hold without a query — pricing, licence, custody model.
+              "Avg. Processing <1 min" and "Uptime 99.9%" used to sit here; both
+              are gone because nothing in the system measures either. */}
           <div className="flex flex-wrap justify-center gap-8 text-center">
             {[
               { label: 'Transaction Fee', value: '0.5–1%', subtext: 'Pro 0.5% · Starter 1%' },
-              // The chain strip above names the networks, so this counts assets
-              // instead of repeating a vaguer version of the same claim.
-              { label: 'Settlement Assets', value: `${SETTLEMENT_ASSET_COUNT}` },
-              { label: 'Avg. Processing', value: '<1 min' },
-              { label: 'Uptime', value: '99.9%' },
+              { label: 'Licensed, open source', value: 'MIT' },
+              { label: 'Funds never touch us', value: 'Non-custodial' },
             ].map((stat, index) => (
               <div key={index} className="flex items-center gap-2">
                 <span className="text-purple-400 font-semibold">{stat.value}</span>
