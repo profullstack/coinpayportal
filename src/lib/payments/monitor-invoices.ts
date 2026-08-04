@@ -5,6 +5,8 @@
 import { sendEmail } from '../email';
 import { invoicePaidMerchantTemplate, invoiceOverdueTemplate } from '../email/invoice-templates';
 import { checkBalance } from './monitor-balance';
+import { resolvePayee } from './payee';
+import { getPaymentReceivingWallet } from '../wallets/supported-coins';
 
 // Invoice Payment Monitoring
 // ────────────────────────────────────────────────────────────
@@ -214,6 +216,24 @@ interface InvoiceSchedulerStats {
   errors: number;
 }
 
+/**
+ * Template statuses that stop a series dead.
+ *
+ * A schedule is standing authority to mint invoices inside someone's business,
+ * granted once when the template was created and never re-checked afterwards —
+ * this job runs under the service role with no caller to authorize. That makes
+ * the template invoice the merchant's revocation handle, so cancelling it has
+ * to stop the series. Until this guard existed a cancelled template kept
+ * minting monthly: INV-012 was generated a month after its source, INV-003, was
+ * cancelled ten minutes into its life.
+ */
+const REVOKED_TEMPLATE_STATUSES = new Set(['cancelled']);
+
+async function deactivateSchedule(supabase: any, scheduleId: string, reason: string): Promise<void> {
+  await supabase.from('invoice_schedules').update({ active: false }).eq('id', scheduleId);
+  console.log(`[Monitor] Deactivated invoice schedule ${scheduleId}: ${reason}`);
+}
+
 function calculateNextInvoiceDueDate(current: Date, recurrence: string, customDays?: number): Date {
   const next = new Date(current);
   switch (recurrence) {
@@ -252,12 +272,21 @@ export async function runInvoiceSchedulerCycle(supabase: any, now: Date): Promis
 
         // Check limits
         if (schedule.max_occurrences && schedule.occurrences_count >= schedule.max_occurrences) {
-          await supabase.from('invoice_schedules').update({ active: false }).eq('id', schedule.id);
+          await deactivateSchedule(supabase, schedule.id, 'max_occurrences reached');
           stats.deactivated++;
           continue;
         }
         if (schedule.end_date && new Date(schedule.end_date) < now) {
-          await supabase.from('invoice_schedules').update({ active: false }).eq('id', schedule.id);
+          await deactivateSchedule(supabase, schedule.id, 'end_date passed');
+          stats.deactivated++;
+          continue;
+        }
+        if (REVOKED_TEMPLATE_STATUSES.has(templateInvoice.status)) {
+          await deactivateSchedule(
+            supabase,
+            schedule.id,
+            `template invoice ${templateInvoice.invoice_number} is ${templateInvoice.status}`,
+          );
           stats.deactivated++;
           continue;
         }
@@ -284,6 +313,48 @@ export async function runInvoiceSchedulerCycle(supabase: any, now: Date): Promis
           schedule.custom_interval_days
         );
 
+        // Re-resolve the payee every cycle rather than copying the template's
+        // address through untouched. The address was authorized once, by
+        // whoever created the template — they may since have been removed from
+        // the business or had their API key rotated, and nothing else in this
+        // job would notice. Running the same resolution the interactive paths
+        // use keeps unattended invoices under the same payee rule as manual
+        // ones, instead of exempting them from it.
+        const payee = await resolvePayee(supabase, {
+          businessId: templateInvoice.business_id,
+          merchantId: templateInvoice.user_id,
+          cryptocurrency: templateInvoice.crypto_currency,
+          requestedAddress: templateInvoice.merchant_wallet_address,
+          inherited: true,
+        });
+
+        if (!payee.ok) {
+          // Every invoice this series would mint is unpayable — or worse, would
+          // settle to the platform wallet. Stop and let the merchant re-point
+          // the schedule instead of emitting a stream of broken invoices.
+          await deactivateSchedule(supabase, schedule.id, `payee unresolvable (${payee.code})`);
+          stats.deactivated++;
+          continue;
+        }
+
+        // A payee the account can no longer derive from its own wallet config is
+        // not necessarily wrong — merchants do enter external addresses by hand.
+        // But an unattended job cannot tell that apart from an address left
+        // behind by someone who has since lost access, so flag it and let the
+        // human decide at send time rather than silently vouching for it.
+        const configured = await getPaymentReceivingWallet(supabase, {
+          businessId: templateInvoice.business_id,
+          merchantId: templateInvoice.user_id,
+          cryptocurrency: templateInvoice.crypto_currency,
+        });
+        const payeeUnverified =
+          !configured.walletAddress ||
+          configured.walletAddress.toLowerCase() !== payee.address.toLowerCase();
+
+        // The stored wallet_id only describes the template's address; if
+        // resolution landed somewhere else it no longer refers to anything.
+        const payeeMoved = payee.address !== templateInvoice.merchant_wallet_address;
+
         const { error: createError } = await supabase
           .from('invoices')
           .insert({
@@ -295,12 +366,18 @@ export async function runInvoiceSchedulerCycle(supabase: any, now: Date): Promis
             currency: templateInvoice.currency,
             amount: templateInvoice.amount,
             crypto_currency: templateInvoice.crypto_currency,
-            merchant_wallet_address: templateInvoice.merchant_wallet_address,
-            wallet_id: templateInvoice.wallet_id,
+            merchant_wallet_address: payee.address,
+            wallet_id: payeeMoved ? null : templateInvoice.wallet_id,
             fee_rate: templateInvoice.fee_rate,
             due_date: nextDueDate.toISOString(),
             notes: templateInvoice.notes,
-            metadata: { recurring: true, schedule_id: schedule.id, template_invoice_id: templateInvoice.id },
+            metadata: {
+              recurring: true,
+              schedule_id: schedule.id,
+              template_invoice_id: templateInvoice.id,
+              payee_source: payee.source,
+              ...(payeeUnverified ? { payee_unverified: true } : {}),
+            },
           });
 
         if (createError) {

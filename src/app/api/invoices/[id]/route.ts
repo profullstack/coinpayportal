@@ -150,6 +150,21 @@ export async function PUT(
       return NextResponse.json({ success: false, error: 'Update failed' }, { status: 400 });
     }
 
+    // Cancelling an invoice revokes the series it seeds. The scheduler used to
+    // stop only on max_occurrences/end_date — neither of which can be set after
+    // creation — so a cancelled template kept minting invoices into the
+    // merchant's dashboard with no way to stop it short of database access.
+    if (allowedFields.status === 'cancelled') {
+      const { error: schedError } = await supabase
+        .from('invoice_schedules')
+        .update({ active: false })
+        .eq('invoice_id', id);
+
+      if (schedError) {
+        console.error(`Failed to deactivate schedules for cancelled invoice ${id}:`, schedError);
+      }
+    }
+
     return NextResponse.json({ success: true, invoice });
   } catch (error) {
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
