@@ -1,5 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { isMultisigEnabled } from '@/lib/multisig';
+
+// Rendered per-request: the multisig claims below are only true when the feature
+// flag is on, and a statically cached page would keep asserting them after it
+// changed in either direction.
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Who Holds Your Money | CoinPay',
@@ -22,13 +28,13 @@ export const metadata: Metadata = {
  *   - web wallet key handling .... src/lib/web-wallet/keys.ts (keys never sent to server)
  */
 
-type Custody = 'none' | 'window' | 'full';
+type Custody = 'none' | 'window' | 'full' | 'unavailable';
 
-const CUSTODY_ROWS: Array<{
+const custodyRows = (multisigEnabled: boolean): Array<{
   product: string;
   who: string;
   custody: Custody;
-}> = [
+}> => [
   {
     product: 'Web wallet',
     who: 'You, and only you. The seed is generated and encrypted in your browser and is never sent to our servers.',
@@ -46,8 +52,10 @@ const CUSTODY_ROWS: Array<{
   },
   {
     product: 'Escrow — 2-of-3 multisig',
-    who: 'Any two of depositor, beneficiary, and CoinPay. We hold one key of three, so we cannot move your funds alone.',
-    custody: 'none',
+    who: multisigEnabled
+      ? 'Any two of depositor, beneficiary, and CoinPay. We hold one key of three, so we cannot move your funds alone.'
+      : 'Not currently enabled. The 2-of-3 model is built and in the codebase, but it is switched off on this deployment, so you cannot create one today. Every escrow created right now is custodial.',
+    custody: multisigEnabled ? 'none' : 'unavailable',
   },
   {
     product: 'Lightning wallet',
@@ -69,9 +77,16 @@ const CUSTODY_LABEL: Record<Custody, { text: string; className: string }> = {
     text: 'We hold it',
     className: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
   },
+  unavailable: {
+    text: 'Not available yet',
+    className: 'bg-gray-500/10 text-gray-400 border-gray-500/30',
+  },
 };
 
 export default function CustodyPage() {
+  const multisigEnabled = isMultisigEnabled();
+  const rows = custodyRows(multisigEnabled);
+
   return (
     <div className="container mx-auto px-4 py-16 max-w-4xl">
       <h1 className="text-4xl font-bold mb-4 text-white">Who holds your money</h1>
@@ -100,7 +115,7 @@ export default function CustodyPage() {
               </tr>
             </thead>
             <tbody>
-              {CUSTODY_ROWS.map((row) => (
+              {rows.map((row) => (
                 <tr key={row.product} className="border-b border-white/10 align-top">
                   <td className="py-4 pr-4 text-white font-medium">{row.product}</td>
                   <td className="py-4 pr-4 text-gray-300">{row.who}</td>
@@ -142,10 +157,23 @@ export default function CustodyPage() {
 
         <p className="text-gray-300 mt-4">
           Default escrow is the same trust, held for longer and on purpose. Money sits at our
-          address for the length of the job. If that is not a trade you want to make, create the
-          escrow as{' '}
-          <span className="text-white font-medium">2-of-3 multisig</span> instead: we hold one key
-          of three, which is enough to break a tie and not enough to take anything.
+          address for the length of the job.{' '}
+          {multisigEnabled ? (
+            <>
+              If that is not a trade you want to make, create the escrow as{' '}
+              <span className="text-white font-medium">2-of-3 multisig</span> instead: we hold one
+              key of three, which is enough to break a tie and not enough to take anything.
+            </>
+          ) : (
+            <>
+              The 2-of-3 multisig model that would avoid this is built but not switched on here, so
+              there is currently no way to create an escrow that CoinPay cannot unilaterally move.{' '}
+              <span className="text-white font-medium">
+                If that is not an acceptable trade, do not use escrow for that money.
+              </span>{' '}
+              We would rather say that than let you assume an option exists.
+            </>
+          )}
         </p>
       </section>
 
@@ -172,13 +200,30 @@ export default function CustodyPage() {
             <strong className="text-white">Money already forwarded.</strong> Once a payment reaches
             your wallet it is yours, in your custody, with no ongoing dependency on CoinPay.
           </li>
-          <li>
-            <strong className="text-white">2-of-3 multisig escrow.</strong> The depositor and the
-            beneficiary together are two of three signers. They can settle the escrow between
-            themselves without CoinPay ever signing. This is the only product here where a dispute
-            about our absence has a purely mechanical answer.
-          </li>
+          {multisigEnabled && (
+            <li>
+              <strong className="text-white">2-of-3 multisig escrow.</strong> The depositor and the
+              beneficiary together are two of three signers. They can settle the escrow between
+              themselves without CoinPay ever signing. This is the only product here where a dispute
+              about our absence has a purely mechanical answer.
+            </li>
+          )}
         </ul>
+
+        {!multisigEnabled && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 mb-6">
+            <p className="text-gray-300">
+              <strong className="text-white">
+                The escape hatch is not currently open.
+              </strong>{' '}
+              2-of-3 multisig escrow — where the depositor and beneficiary could settle without us —
+              is implemented but switched off on this deployment. Until it is enabled, every escrow
+              is custodial, and the answer to &ldquo;what if you disappear&rdquo; for escrowed funds
+              is that you would be depending on us entirely. That is a real limitation and we are
+              not going to bury it under a feature that is not turned on.
+            </p>
+          </div>
+        )}
 
         <h3 className="text-lg font-semibold text-white mt-6 mb-2">You are depending on us</h3>
         <ul className="list-disc list-inside text-gray-300 space-y-2 mb-6">
@@ -209,9 +254,18 @@ export default function CustodyPage() {
 
         <p className="text-gray-300 mt-6">
           The practical advice, which is against our interest to give and true anyway: keep working
-          balances small, withdraw Lightning to on-chain for anything you would miss, and use
-          multisig escrow for amounts where our continued existence is not something you want to
-          bet on.
+          balances small, withdraw Lightning to on-chain for anything you would miss, and{' '}
+          {multisigEnabled ? (
+            <>
+              use multisig escrow for amounts where our continued existence is not something you
+              want to bet on.
+            </>
+          ) : (
+            <>
+              do not put anything into escrow that you could not absorb losing if this company
+              stopped existing tomorrow.
+            </>
+          )}
         </p>
       </section>
 
@@ -262,11 +316,21 @@ export default function CustodyPage() {
         </ul>
 
         <p className="text-gray-300 mb-4">
-          Two things do work in your favour. On a{' '}
-          <strong className="text-white">2-of-3 multisig escrow the arbiter cannot simply take the
-          money</strong> — they can only propose an outcome, which still needs a second signature
-          from the depositor or the beneficiary. And a funded escrow cannot sit forever: at expiry
-          it settles automatically. By default it{' '}
+          {multisigEnabled ? (
+            <>
+              Two things do work in your favour. On a{' '}
+              <strong className="text-white">
+                2-of-3 multisig escrow the arbiter cannot simply take the money
+              </strong>{' '}
+              — they can only propose an outcome, which still needs a second signature from the
+              depositor or the beneficiary. And a funded escrow cannot sit forever:
+            </>
+          ) : (
+            <>
+              One thing does work in your favour. A funded escrow cannot sit forever:
+            </>
+          )}{' '}
+          at expiry it settles automatically. By default it{' '}
           <strong className="text-white">refunds the depositor</strong>; if the escrow was created
           with auto-release enabled, it pays the beneficiary instead. Either way the funds move
           without anyone needing us to intervene.
@@ -274,9 +338,21 @@ export default function CustodyPage() {
 
         <p className="text-gray-300">
           If a dispute is significant enough that &ldquo;the company decides, with no appeal&rdquo;
-          is not an acceptable answer, name a mutually trusted arbiter at creation time and use the
-          multisig model. Those options exist precisely because our default answer to this question
-          is weaker than it should be.
+          is not an acceptable answer,{' '}
+          {multisigEnabled ? (
+            <>
+              name a mutually trusted arbiter at creation time and use the multisig model. Those
+              options exist precisely because our default answer to this question is weaker than it
+              should be.
+            </>
+          ) : (
+            <>
+              name a mutually trusted arbiter at creation time — that is the only lever currently
+              available, since the multisig model that would also stop the arbiter moving funds
+              alone is not enabled here. Our default answer to this question is weaker than it
+              should be, and we would rather you knew that before depositing than after.
+            </>
+          )}
         </p>
       </section>
 

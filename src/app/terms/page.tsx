@@ -35,8 +35,10 @@ export default function TermsPage() {
               release, refund, expiry, or dispute resolution.
             </li>
             <li>
-              <strong className="text-white">Escrow (2-of-3 multisig) — non-custodial.</strong>{' '}
-              CoinPay holds one of three keys and cannot move funds unilaterally.
+              <strong className="text-white">Escrow (2-of-3 multisig) — non-custodial,</strong> where
+              offered. CoinPay holds one of three keys and cannot move funds unilaterally. This
+              model is subject to a feature flag and may not be available; when it is unavailable,
+              all escrows are custodial as described above.
             </li>
             <li>
               <strong className="text-white">Lightning wallet — custodial.</strong> See section 3.

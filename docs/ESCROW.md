@@ -4,6 +4,20 @@
 
 Authenticated escrow for crypto payments. Both humans and AI agents can use it to hold funds in escrow during jobs/gigs.
 
+### Model selection & feature flags
+
+| Env var | Effect | Default |
+|---------|--------|---------|
+| `MULTISIG_ESCROW_ENABLED` | Multisig escrow works at all. When unset, `POST /api/escrow/multisig` returns **503** and the UI hides the option. | off |
+| `MULTISIG_DEFAULT` | When multisig is enabled, new escrows prefer `multisig_2of3` where it is viable. | off |
+
+Resolution lives in `src/lib/escrow/model-selection.ts` (`selectEscrowModel`). Two rules:
+
+1. **Prefer multisig when it can actually work** — it only supports native coins (no USDC/USDT), needs pubkeys rather than addresses, and can't express recurring series or auto-release. Where it can't do the job the default falls back to custodial, and the caller is told which model they got and why.
+2. **Never silently downgrade an explicit request.** An explicit `multisig_2of3` that can't be honoured is an error, never a quiet swap to custody. `POST /api/escrow` rejects `escrow_model: multisig_2of3` outright and points at `/api/escrow/multisig`.
+
+Clients discover what's available via `GET /api/escrow/model-availability`. The server env vars are the single source of truth — do not mirror them into `NEXT_PUBLIC_*`, which would be a second copy free to drift from the flag the API enforces.
+
 **Custody: the default model is custodial. Say so.** Funds are held in platform-generated HD wallet addresses derived from `SYSTEM_MNEMONIC_*` (the same system wallet infrastructure as payments), so during the escrow window CoinPay can technically move the funds and the depositor is trusting the operator, not the chain. Do not describe this model as "non-custodial" or "non-custodial-style" in docs, UI, or marketing — the only non-custodial escrow model here is `multisig_2of3`, where CoinPay holds one key of three. See `/custody` (`src/app/custody/page.tsx`) for the user-facing disclosure that must stay in sync with this file.
 
 **Key properties:**
