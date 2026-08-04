@@ -74,18 +74,10 @@ export default function Home() {
             <p className="text-xl sm:text-2xl text-gray-300 mb-4 max-w-3xl mx-auto">
               Payments, Escrow &amp; Wallets for Humans and AI Agents
             </p>
-            <p className="text-lg text-gray-400 mb-6 max-w-2xl mx-auto">
+            {/* Custody is disclosed per product on /custody, linked from the
+                footer, Terms, and the help FAQ — not from the hero. */}
+            <p className="text-lg text-gray-400 mb-10 max-w-2xl mx-auto">
               Get paid in crypto. Escrow, wallets, and one API — no KYC.
-            </p>
-            {/* Custody in one line, not a paragraph. The detail belongs on
-                /custody; the hero only owes a visitor an honest summary and a
-                door to walk through. */}
-            <p className="text-sm text-gray-500 mb-10 max-w-2xl mx-auto">
-              Non-custodial wallet, custodial escrow —{' '}
-              <Link href="/custody" className="text-purple-400 hover:text-purple-300 underline">
-                we say exactly which is which
-              </Link>
-              .
             </p>
           </div>
 
