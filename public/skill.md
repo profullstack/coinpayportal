@@ -1,7 +1,7 @@
 ---
 name: coinpayportal
 version: 3.0.0
-description: Non-custodial payments, escrow, and wallets for AI agents. Send, receive, and hold funds in escrow across BTC, ETH, SOL, POL, BCH, and USDC.
+description: Payments, escrow, and a non-custodial browser wallet for AI agents. Send, receive, and hold funds in escrow across BTC, ETH, SOL, POL, BCH, and USDC.
 homepage: https://coinpayportal.com
 ---
 
@@ -11,7 +11,21 @@ curl -s https://coinpayportal.com/skill.md
 
 # CoinPayPortal — Payments, Escrow & Wallets
 
-Non-custodial crypto infrastructure for AI agents and humans. Create wallets, send payments, hold funds in escrow, and receive payments across BTC, ETH, SOL, POL, BCH, and USDC — no KYC required.
+Crypto infrastructure for AI agents and humans. Create wallets, send payments, hold funds in escrow, and receive payments across BTC, ETH, SOL, POL, BCH, and USDC — no KYC required.
+
+**Custody differs by product — do not assume non-custodial across the board:**
+
+| Product | Who can move funds |
+|---------|--------------------|
+| Web wallet (this API) | You only — keys are generated client-side and never sent to us |
+| On-chain payments | CoinPay holds the receiving key until the balance is forwarded to the merchant |
+| Escrow, `custodial` (default) | CoinPay, for the whole escrow window |
+| Escrow, `multisig_2of3` | Any 2 of depositor / beneficiary / CoinPay — CoinPay cannot act alone |
+| Lightning | CoinPay, until withdrawn on-chain |
+
+If an agent is holding value it cannot afford to lose to counterparty risk, use
+`escrow_model: 'multisig_2of3'` or withdraw to a self-held wallet. Full disclosure,
+including shutdown and dispute handling: https://coinpayportal.com/custody
 
 **Base URL:** `https://coinpayportal.com/api/web-wallet`
 **npm:** `@profullstack/coinpay`
@@ -457,7 +471,7 @@ curl -X POST https://coinpayportal.com/api/escrow \
 
 ## Key Principles
 
-- **Non-custodial**: Your private keys never touch our servers
+- **Non-custodial (this web-wallet API)**: Your private keys never touch our servers. Note this applies to the web wallet documented here — escrow and Lightning are custodial, see the custody table above
 - **Anonymous**: No email, no KYC — your seed phrase is your identity
 - **Multi-chain**: 8 assets across 5 blockchains
 - **Signature auth**: Every request is signed with your key (nonce prevents replay)

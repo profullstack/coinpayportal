@@ -236,7 +236,12 @@ export default function Footer() {
                 </a>
               )}
               <p className="text-xs text-gray-400">
-                Non-custodial crypto payment gateway • 0.5% transaction fee
+                Crypto payments, escrow &amp; wallets • 0.5% transaction fee
+              </p>
+              <p className="text-xs text-gray-400">
+                <Link href="/custody" className="hover:text-gray-300 underline">
+                  Who holds your money
+                </Link>
               </p>
               <Link href="/escrow">
                 <img

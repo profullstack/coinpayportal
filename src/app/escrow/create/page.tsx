@@ -863,6 +863,29 @@ export default function CreateEscrowPage() {
               <option value="custodial">Custodial (token-based release/refund)</option>
               <option value="multisig_2of3">2-of-3 Multisig (depositor + beneficiary + arbiter)</option>
             </select>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              {formData.escrow_model === 'multisig_2of3' ? (
+                <>
+                  Funds are locked on-chain and need <strong>2 of 3</strong> signatures to move.
+                  CoinPay holds one key, so we can&apos;t move your funds alone — and if CoinPay
+                  goes away, the depositor and beneficiary can settle without us.
+                </>
+              ) : (
+                <>
+                  Funds are held at an address <strong>CoinPay controls</strong> for the length of
+                  the escrow. You&apos;re trusting us to release correctly and to still be here at
+                  the end. For amounts where that isn&apos;t acceptable, choose 2-of-3 multisig.
+                </>
+              )}{' '}
+              <a
+                href="/custody"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-500 dark:text-blue-400 underline"
+              >
+                Who holds your money
+              </a>
+            </p>
           </div>
 
           {/* Chain */}
