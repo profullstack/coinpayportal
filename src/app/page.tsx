@@ -2,21 +2,15 @@ import Link from 'next/link';
 import { PaymentDemo } from '@/components/demo/PaymentDemo';
 import { Partners } from '@/components/Partners';
 import { SUPPORTED_CHAINS, STABLECOIN_RAILS } from '@/lib/wallets/supported-chains';
-import { getPublicStats } from '@/lib/stats/public-stats';
 import { HeroStats } from '@/components/HeroStats';
 
 const GITHUB_REPO_URL = 'https://github.com/profullstack/coinpayportal';
 
-/**
- * Hourly. The hero counters move slowly enough that anything tighter would be
- * spending database round trips to render the same number, and slowly enough
- * that a stale hour is invisible.
- */
-export const revalidate = 3600;
-
-export default async function Home() {
-  const stats = await getPublicStats();
-
+// Stays statically prerendered. The hero counters cannot be read at build time
+// — the service-role key is deliberately not a Docker build arg — so HeroStats
+// fetches them from /api/public-stats at request time instead of forcing this
+// whole page to render per request for the sake of three integers.
+export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       {/* Hero Section */}
@@ -136,7 +130,7 @@ export default async function Home() {
 
           {/* Read from the database at revalidation rather than typed in, and
               omitted entirely when that read fails. */}
-          <HeroStats stats={stats} />
+          <HeroStats />
 
           {/* Claims that hold without a query — pricing, licence, custody model.
               "Avg. Processing <1 min" and "Uptime 99.9%" used to sit here; both
