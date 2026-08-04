@@ -128,7 +128,8 @@ export default async function BlogPostPage({ params }: RouteParams) {
         <div className="rounded-lg border border-purple-500/30 bg-purple-600/5 p-6">
           <h3 className="text-lg font-semibold text-white">Try CoinPay</h3>
           <p className="mt-2 text-sm text-gray-300">
-            Non-custodial crypto payments — multi-chain, Lightning-ready, and fast to integrate.
+            Crypto payments, escrow, and wallets — multi-chain, Lightning-ready, and fast to
+            integrate.
           </p>
           <Link
             href="/register"

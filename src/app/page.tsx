@@ -74,8 +74,19 @@ export default function Home() {
             <p className="text-xl sm:text-2xl text-gray-300 mb-4 max-w-3xl mx-auto">
               Payments, Escrow &amp; Wallets for Humans and AI Agents
             </p>
-            <p className="text-lg text-gray-400 mb-12 max-w-2xl mx-auto">
-              Non-custodial crypto infrastructure — accept payments, hold funds in escrow, and manage wallets. API-first, no KYC, built for the agent economy.
+            <p className="text-lg text-gray-400 mb-8 max-w-2xl mx-auto">
+              Accept crypto payments, hold funds in escrow, and manage wallets. API-first, no KYC,
+              built for the agent economy.
+            </p>
+            <p className="text-base text-gray-400 mb-12 max-w-2xl mx-auto">
+              Wallet keys stay in your browser. Payments pass through an address we control for
+              about a minute before forwarding to you. Escrow and Lightning are opt-in, and we hold
+              those funds until they settle — unless you pick 2-of-3 multisig, where we can&apos;t
+              move them alone.{' '}
+              <Link href="/custody" className="text-purple-300 hover:text-purple-200 underline">
+                Who holds your money, product by product
+              </Link>
+              .
             </p>
           </div>
 
@@ -207,8 +218,9 @@ export default function Home() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
                 ),
-                title: 'Non-Custodial',
-                description: 'You control your private keys. Funds go directly to your wallet with no intermediaries.',
+                title: 'Clear About Custody',
+                description:
+                  'Web wallet keys never leave your browser. Payments sit at an address we control until forwarding completes. Escrow can be 2-of-3 multisig so we cannot move funds alone.',
               },
               {
                 icon: (

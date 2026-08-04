@@ -15,8 +15,42 @@ export default function TermsPage() {
         <section className="mb-8">
           <h2 className="text-2xl font-bold mb-4 text-white">2. Service Description</h2>
           <p className="text-gray-300 mb-4">
-            CoinPay provides a non-custodial cryptocurrency payment gateway service. We facilitate 
-            the acceptance of cryptocurrency payments but do not hold, custody, or control your funds.
+            CoinPay provides a cryptocurrency payment gateway, escrow, and wallet service. Custody
+            differs by product, and we do not describe the service as non-custodial as a whole:
+          </p>
+          <ul className="list-disc list-inside text-gray-300 space-y-2 mb-4">
+            <li>
+              <strong className="text-white">Web wallet — non-custodial.</strong> Keys are generated
+              and held in your browser and are never transmitted to us.
+            </li>
+            <li>
+              <strong className="text-white">On-chain payments — custodial for a short window.</strong>{' '}
+              Payments are received at an address CoinPay derives and are then forwarded to your
+              wallet less applicable fees. CoinPay controls the key to that address until forwarding
+              completes.
+            </li>
+            <li>
+              <strong className="text-white">Escrow (default) — custodial.</strong> Funds are held at
+              a CoinPay-derived address for the duration of the escrow and are moved by CoinPay on
+              release, refund, expiry, or dispute resolution.
+            </li>
+            <li>
+              <strong className="text-white">Escrow (2-of-3 multisig) — non-custodial.</strong>{' '}
+              CoinPay holds one of three keys and cannot move funds unilaterally.
+            </li>
+            <li>
+              <strong className="text-white">Lightning wallet — custodial.</strong> See section 3.
+            </li>
+          </ul>
+          <p className="text-gray-300 mb-4">
+            Where CoinPay holds funds, it does so as a service provider and not as a bank, trustee,
+            or fiduciary. Such balances are not insured, not held in segregated trust accounts, and
+            not protected by any deposit guarantee scheme. A full plain-language breakdown — including
+            what happens to funds if CoinPay ceases operating and how disputes are decided — is at{' '}
+            <a href="/custody" className="text-purple-400 hover:text-purple-300">
+              coinpayportal.com/custody
+            </a>
+            .
           </p>
         </section>
 
