@@ -28,6 +28,7 @@ interface Invoice {
   clients: { id: string; name: string; email: string; company_name: string; phone?: string; address?: string } | null;
   businesses: { id: string; name: string } | null;
   invoice_schedules: Array<{ id: string; recurrence: string; active: boolean; occurrences_count: number }> | null;
+  metadata: { recurring?: boolean; payee_unverified?: boolean; template_invoice_id?: string } | null;
 }
 
 const statusColors: Record<string, string> = {
@@ -128,9 +129,28 @@ export default function InvoiceDetailPage() {
       body: JSON.stringify({ status: 'cancelled' }),
     }, router);
     if (result?.data.success) {
-      setInvoice(result.data.invoice);
+      // Refetch rather than trusting the PUT payload: cancelling also stops any
+      // attached schedule, and the update response does not carry them.
+      await fetchInvoice();
     } else {
       setError(result?.data.error || 'Failed to cancel invoice');
+    }
+    setActionLoading('');
+  };
+
+  const handleToggleSchedule = async (scheduleId: string, active: boolean) => {
+    if (active && !confirm('Resume this recurring schedule? New invoices will be generated automatically.')) return;
+    if (!active && !confirm('Pause this recurring schedule? No further invoices will be generated.')) return;
+    setActionLoading(`schedule-${scheduleId}`);
+    const result = await authFetch(`/api/invoices/${invoiceId}/schedule`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schedule_id: scheduleId, active }),
+    }, router);
+    if (result?.data.success) {
+      await fetchInvoice();
+    } else {
+      setError(result?.data.error || 'Failed to update schedule');
     }
     setActionLoading('');
   };
@@ -187,6 +207,24 @@ export default function InvoiceDetailPage() {
 
         {error && (
           <div className="mb-6 bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-lg">{error}</div>
+        )}
+
+        {/* An auto-generated invoice whose payee is not one of the account's own
+            configured wallets. Legitimate when the merchant entered an external
+            address by hand, but it is also what a payee left behind by someone
+            who has since lost access looks like — so it gets checked by a human
+            before this invoice is sent, not silently trusted. */}
+        {invoice.metadata?.payee_unverified && (
+          <div className="mb-6 bg-amber-500/10 border border-amber-500/30 text-amber-300 px-4 py-3 rounded-lg">
+            <p className="font-semibold text-sm">Verify the payee before sending</p>
+            <p className="text-sm mt-1">
+              This invoice was generated automatically from a recurring schedule, and its payee
+              address is not one of this account&apos;s configured {invoice.crypto_currency} wallets.
+              Confirm{' '}
+              <span className="font-mono break-all">{invoice.merchant_wallet_address}</span>{' '}
+              is correct before sending.
+            </p>
+          </div>
         )}
 
         {/* Header */}
@@ -286,10 +324,17 @@ export default function InvoiceDetailPage() {
                 {invoice.invoice_schedules.map(s => (
                   <div key={s.id} className="flex items-center gap-3">
                     <span className={`px-2 py-1 rounded text-xs ${s.active ? 'bg-green-500/20 text-green-300' : 'bg-gray-500/20 text-gray-400'}`}>
-                      {s.active ? 'Active' : 'Inactive'}
+                      {s.active ? 'Active' : 'Paused'}
                     </span>
                     <span className="text-gray-300 text-sm capitalize">{s.recurrence}</span>
                     <span className="text-gray-500 text-xs">({s.occurrences_count} sent)</span>
+                    <button
+                      onClick={() => handleToggleSchedule(s.id, !s.active)}
+                      disabled={actionLoading === `schedule-${s.id}`}
+                      className="ml-auto px-3 py-1 rounded text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 disabled:opacity-50"
+                    >
+                      {actionLoading === `schedule-${s.id}` ? '...' : s.active ? 'Pause' : 'Resume'}
+                    </button>
                   </div>
                 ))}
               </div>
