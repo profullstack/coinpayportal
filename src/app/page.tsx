@@ -74,17 +74,16 @@ export default function Home() {
             <p className="text-xl sm:text-2xl text-gray-300 mb-4 max-w-3xl mx-auto">
               Payments, Escrow &amp; Wallets for Humans and AI Agents
             </p>
-            <p className="text-lg text-gray-400 mb-8 max-w-2xl mx-auto">
-              Accept crypto payments, hold funds in escrow, and manage wallets. API-first, no KYC,
-              built for the agent economy.
+            <p className="text-lg text-gray-400 mb-6 max-w-2xl mx-auto">
+              Get paid in crypto. Escrow, wallets, and one API — no KYC.
             </p>
-            <p className="text-base text-gray-400 mb-12 max-w-2xl mx-auto">
-              Wallet keys stay in your browser. Payments pass through an address we control for
-              about a minute before forwarding to you. Escrow and Lightning are opt-in, and we hold
-              those funds until they settle — unless you pick 2-of-3 multisig, where we can&apos;t
-              move them alone.{' '}
-              <Link href="/custody" className="text-purple-300 hover:text-purple-200 underline">
-                Who holds your money, product by product
+            {/* Custody in one line, not a paragraph. The detail belongs on
+                /custody; the hero only owes a visitor an honest summary and a
+                door to walk through. */}
+            <p className="text-sm text-gray-500 mb-10 max-w-2xl mx-auto">
+              Non-custodial wallet, custodial escrow —{' '}
+              <Link href="/custody" className="text-purple-400 hover:text-purple-300 underline">
+                we say exactly which is which
               </Link>
               .
             </p>
@@ -98,11 +97,21 @@ export default function Home() {
             >
               Get Started Free
             </Link>
+            {/* The demo is the most persuasive thing on the page and used to
+                sit a full screen below the fold, so only visitors who kept
+                scrolling ever saw it. Promoted to a hero CTA; docs drop to a
+                text link, which is where a developer looks for them anyway. */}
             <Link
-              href="/docs"
-              className="w-full sm:w-auto px-8 py-4 bg-white/10 backdrop-blur-sm text-white font-semibold rounded-xl border border-white/20 hover:bg-white/20 hover:scale-105 transition-all duration-200 text-center"
+              href="#demo"
+              className="w-full sm:w-auto px-8 py-4 bg-white/10 backdrop-blur-sm text-white font-semibold rounded-xl border border-white/20 hover:bg-white/20 hover:scale-105 transition-all duration-200 text-center inline-flex items-center justify-center gap-2"
             >
-              View Documentation
+              <span aria-hidden="true">▶</span> Try the live demo
+            </Link>
+          </div>
+
+          <div className="mb-12">
+            <Link href="/docs" className="text-sm text-gray-400 hover:text-gray-300 underline">
+              Or read the docs →
             </Link>
           </div>
 
@@ -150,7 +159,10 @@ export default function Home() {
             {[
               { label: 'Transaction Fee', value: '0.5–1%', subtext: 'Pro 0.5% · Starter 1%' },
               { label: 'Licensed, open source', value: 'MIT' },
-              { label: 'Funds never touch us', value: 'Non-custodial' },
+              // Was "Funds never touch us / Non-custodial", which is false:
+              // every payment lands at a CoinPay-derived address before being
+              // forwarded. The wallet claim below is the one that survives.
+              { label: 'Wallet keys never leave your browser', value: 'Self-custody' },
             ].map((stat, index) => (
               <div key={index} className="flex items-center gap-2">
                 <span className="text-purple-400 font-semibold">{stat.value}</span>
