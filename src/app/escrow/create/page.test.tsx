@@ -48,6 +48,19 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
           })
         });
       }
+      // The form hides the multisig option unless the server says it works.
+      // Enabled-but-not-default keeps the custodial defaults these tests assume
+      // while still letting them select multisig.
+      if (url.includes('/api/escrow/model-availability')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            multisig_enabled: true,
+            multisig_default: false,
+            multisig_chains: ['ETH', 'POL', 'BTC', 'SOL'],
+          })
+        });
+      }
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({ success: true })
@@ -716,6 +729,69 @@ describe('CreateEscrowPage - Dual Input Feature', () => {
     });
 
     expect(screen.getByText(/Platform fee: 1% \(0\.5% with a paid business\)/)).toBeInTheDocument();
+  });
+
+  it('should hide the multisig option when the server reports it is disabled', async () => {
+    // Production today: MULTISIG_ESCROW_ENABLED is unset, so POST
+    // /api/escrow/multisig 503s. Offering the option anyway would let someone
+    // pick a non-custodial escrow and get an error on submit.
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes('/api/rates')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, rate: 1.0 }),
+        });
+      }
+      if (url.includes('/api/escrow/model-availability')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            multisig_enabled: false,
+            multisig_default: false,
+            multisig_chains: [],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
+    });
+
+    render(<CreateEscrowPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Create Escrow' })).toBeInTheDocument();
+    });
+
+    const select = screen.getByLabelText('Escrow Model *') as HTMLSelectElement;
+    await waitFor(() => {
+      expect(
+        Array.from(select.options).some((o) => o.value === 'multisig_2of3'),
+      ).toBe(false);
+    });
+
+    // ...and the reason is stated rather than the option just vanishing.
+    expect(
+      screen.getByText(/Multisig escrow is not enabled on this deployment/i),
+    ).toBeInTheDocument();
+  });
+
+  it('should offer the multisig option when the server reports it is enabled', async () => {
+    const user = userEvent.setup();
+
+    render(<CreateEscrowPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Create Escrow' })).toBeInTheDocument();
+    });
+
+    const select = screen.getByLabelText('Escrow Model *') as HTMLSelectElement;
+    await waitFor(() => {
+      expect(
+        Array.from(select.options).some((o) => o.value === 'multisig_2of3'),
+      ).toBe(true);
+    });
+
+    await user.selectOptions(select, 'multisig_2of3');
+    expect(screen.getByText(/CoinPay holds one key/i)).toBeInTheDocument();
   });
 
   it('should skip wallet email lookup on blur in multisig mode', async () => {

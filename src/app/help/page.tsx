@@ -60,12 +60,17 @@ export default function HelpPage() {
               </h3>
               <p className="text-gray-300">
                 Anything already in your own wallet is unaffected — we never had those keys, and
-                your web wallet seed lives in your browser (export it before you need it). A 2-of-3
-                multisig escrow can be settled by the depositor and beneficiary together without us
-                signing at all. But funds in default custodial escrow, in Lightning, or mid-forward
-                are held at addresses derived from our seed: there is no third-party backup and no
-                on-chain mechanism that releases them without us. Keep working balances small and
-                use multisig escrow for amounts you can&apos;t afford to have depend on us.
+                your web wallet seed lives in your browser (export it before you need it). But
+                funds in escrow, in Lightning, or mid-forward are held at addresses derived from
+                our seed: there is no third-party backup and no on-chain mechanism that releases
+                them without us. The 2-of-3 multisig model, where the depositor and beneficiary
+                could settle without us signing, is built but not currently enabled — so it
+                isn&apos;t an answer you can rely on today.{' '}
+                <a href="/custody" className="text-purple-600 hover:text-purple-700 font-medium">
+                  Current status is always shown here
+                </a>
+                . Keep working balances small, and don&apos;t escrow anything you couldn&apos;t
+                absorb losing if we stopped existing.
               </p>
             </div>
 
@@ -79,10 +84,10 @@ export default function HelpPage() {
                 decides</strong> — the same company operating the escrow. The evidence is what&apos;s
                 attached to the escrow: the job description and deliverables in its metadata, the
                 stated dispute reason, and the timestamped event log. There&apos;s no published
-                response time and no appeal. On a multisig escrow the arbiter can only propose an
-                outcome — it still needs a second signature. A funded escrow also can&apos;t hang
-                forever: at expiry it auto-refunds the depositor, or auto-releases to the
-                beneficiary if that was enabled at creation.
+                response time and no appeal. Naming your own arbiter at creation is the only lever
+                currently available. A funded escrow also can&apos;t hang forever: at expiry it
+                auto-refunds the depositor, or auto-releases to the beneficiary if that was enabled
+                at creation.
               </p>
             </div>
           </div>
