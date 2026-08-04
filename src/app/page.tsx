@@ -1,8 +1,22 @@
 import Link from 'next/link';
 import { PaymentDemo } from '@/components/demo/PaymentDemo';
 import { Partners } from '@/components/Partners';
+import { SUPPORTED_CHAINS, STABLECOIN_RAILS } from '@/lib/wallets/supported-chains';
+import { getPublicStats } from '@/lib/stats/public-stats';
+import { HeroStats } from '@/components/HeroStats';
 
-export default function Home() {
+const GITHUB_REPO_URL = 'https://github.com/profullstack/coinpayportal';
+
+/**
+ * Hourly. The hero counters move slowly enough that anything tighter would be
+ * spending database round trips to render the same number, and slowly enough
+ * that a stale hour is invisible.
+ */
+export const revalidate = 3600;
+
+export default async function Home() {
+  const stats = await getPublicStats();
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       {/* Hero Section */}
@@ -25,6 +39,32 @@ export default function Home() {
               <span className="whitespace-nowrap">⌨️ Install CLI?</span>
               <code className="bg-slate-800/80 px-2 py-1 rounded font-mono text-emerald-400 break-all">curl -fsSL https://coinpayportal.com/install.sh | sh</code>
             </div>
+          </div>
+
+          {/* The two things a developer skimming this needs before they decide
+              to keep reading: that the code is public, and that escrow is built
+              in rather than bolted on. Both used to be findable only by
+              scrolling — the first GitHub link on the page was a `git clone`
+              near the bottom, and escrow had a section but no signal above the
+              fold that an open-source gateway was offering it. */}
+          <div className="flex flex-wrap items-center justify-center gap-3 mb-8">
+            <a
+              href={GITHUB_REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-sm font-medium text-white hover:bg-white/20 transition-colors"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+              </svg>
+              Open source · MIT · Read the code
+            </a>
+            <Link
+              href="#escrow"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/10 backdrop-blur-sm border border-amber-500/30 text-sm font-medium text-amber-300 hover:bg-amber-500/20 transition-colors"
+            >
+              ⚖️ Built-in trustless escrow
+            </Link>
           </div>
 
           {/* Logo/Brand */}
@@ -61,30 +101,51 @@ export default function Home() {
             </Link>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 max-w-4xl mx-auto mb-12">
-            {[
-              { label: 'Transactions Processed', value: '47K+' },
-              { label: 'Active Merchants', value: '1,200+' },
-              { label: 'Total Volume', value: '$8.2M+' },
-              { label: 'Countries', value: '45+' },
-            ].map((stat, index) => (
-              <div key={index} className="text-center p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
-                <div className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 mb-2">
-                  {stat.value}
-                </div>
-                <div className="text-sm text-gray-400">{stat.label}</div>
-              </div>
-            ))}
+          {/* Which chains, by name, above the fold. This used to appear nowhere
+              on the homepage — only a "Supported Chains 15+" counter, which
+              reads as EVM-only and sends anyone evaluating processors into the
+              docs to find out. Naming Bitcoin, Solana and XRP alongside the EVM
+              networks answers that in one glance. */}
+          <div className="max-w-4xl mx-auto mb-16 text-center">
+            <p className="text-xs uppercase tracking-widest text-gray-500 mb-4">
+              Settles natively on
+            </p>
+            <div className="flex flex-wrap justify-center gap-2 mb-4">
+              {SUPPORTED_CHAINS.map((chain) => (
+                <span
+                  key={chain.symbol}
+                  className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-sm text-gray-200"
+                >
+                  {chain.name}
+                </span>
+              ))}
+              {/* Lightning is a rail rather than a settlement symbol, so it is
+                  not in SUPPORTED_CHAINS — but a visitor counting networks
+                  expects to see it. */}
+              <span className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-sm text-gray-200">
+                Lightning
+              </span>
+            </div>
+            <p className="text-sm text-gray-400">
+              {STABLECOIN_RAILS.map((rail) => `${rail.asset} on ${rail.chains.join(', ')}`).join('  ·  ')}
+            </p>
+            <Link href="/docs" className="inline-block mt-3 text-sm text-purple-400 hover:text-purple-300">
+              See every supported asset →
+            </Link>
           </div>
 
-          {/* Secondary Stats */}
+          {/* Read from the database at revalidation rather than typed in, and
+              omitted entirely when that read fails. */}
+          <HeroStats stats={stats} />
+
+          {/* Claims that hold without a query — pricing, licence, custody model.
+              "Avg. Processing <1 min" and "Uptime 99.9%" used to sit here; both
+              are gone because nothing in the system measures either. */}
           <div className="flex flex-wrap justify-center gap-8 text-center">
             {[
               { label: 'Transaction Fee', value: '0.5–1%', subtext: 'Pro 0.5% · Starter 1%' },
-              { label: 'Supported Chains', value: '15+' },
-              { label: 'Avg. Processing', value: '<1 min' },
-              { label: 'Uptime', value: '99.9%' },
+              { label: 'Licensed, open source', value: 'MIT' },
+              { label: 'Funds never touch us', value: 'Non-custodial' },
             ].map((stat, index) => (
               <div key={index} className="flex items-center gap-2">
                 <span className="text-purple-400 font-semibold">{stat.value}</span>
@@ -327,6 +388,22 @@ export default function Home() {
             </h2>
             <p className="text-xl text-gray-400 max-w-2xl mx-auto">
               Hold crypto in escrow until both sides are happy. Authenticate to create, then manage it with role-specific tokens. Perfect for freelance gigs, agent-to-agent trades, and marketplace transactions.
+            </p>
+            {/* The differentiator, said plainly: escrow is rare in open-source
+                gateways, and the reason to mention the licence here is that a
+                reader can go verify the settlement logic themselves. */}
+            <p className="text-base text-gray-500 max-w-2xl mx-auto mt-4">
+              Built into the gateway, not a third-party add-on — and like the rest of CoinPay, the
+              settlement logic is{' '}
+              <a
+                href={GITHUB_REPO_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-amber-300/90 hover:text-amber-200 underline underline-offset-2"
+              >
+                open source under MIT
+              </a>
+              , so you can audit exactly how funds are held and released.
             </p>
           </div>
 
