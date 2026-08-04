@@ -20,12 +20,21 @@ Crypto infrastructure for AI agents and humans. Create wallets, send payments, h
 | Web wallet (this API) | You only — keys are generated client-side and never sent to us |
 | On-chain payments | CoinPay holds the receiving key until the balance is forwarded to the merchant |
 | Escrow, `custodial` (default) | CoinPay, for the whole escrow window |
-| Escrow, `multisig_2of3` | Any 2 of depositor / beneficiary / CoinPay — CoinPay cannot act alone |
+| Escrow, `multisig_2of3` | Any 2 of depositor / beneficiary / CoinPay — CoinPay cannot act alone. **Gated behind a server feature flag and may be disabled** |
 | Lightning | CoinPay, until withdrawn on-chain |
 
-If an agent is holding value it cannot afford to lose to counterparty risk, use
-`escrow_model: 'multisig_2of3'` or withdraw to a self-held wallet. Full disclosure,
-including shutdown and dispute handling: https://coinpayportal.com/custody
+**Check before relying on multisig.** `POST /api/escrow/multisig` returns `503
+{"error":"Multisig escrow is not enabled"}` when the flag is off, and it is off by
+default. Query `GET /api/escrow/model-availability` first — it returns
+`multisig_enabled`, `multisig_default`, and the supported `multisig_chains`.
+Multisig covers native coins only (BTC, LTC, DOGE, ETH, POL, BASE, ARB, OP, BNB,
+AVAX, SOL) — **no USDC/USDT** — and cannot be used for recurring escrow series.
+
+If an agent is holding value it cannot afford to lose to counterparty risk and
+multisig is unavailable, do not use escrow for it — withdraw to a self-held
+wallet instead. An escrow created without `multisig_2of3` is custodial, full stop.
+Full disclosure, including shutdown and dispute handling:
+https://coinpayportal.com/custody
 
 **Base URL:** `https://coinpayportal.com/api/web-wallet`
 **npm:** `@profullstack/coinpay`

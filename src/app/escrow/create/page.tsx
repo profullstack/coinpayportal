@@ -132,6 +132,39 @@ export default function CreateEscrowPage() {
     allow_auto_release: false,
   });
 
+  // Which escrow models this deployment can actually create. Multisig is behind
+  // MULTISIG_ESCROW_ENABLED; offering it when that is off produces a 503 on
+  // submit, so the option stays hidden until the server says it works.
+  const [multisigEnabled, setMultisigEnabled] = useState(false);
+  const [multisigDefault, setMultisigDefault] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/escrow/model-availability')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setMultisigEnabled(Boolean(data.multisig_enabled));
+        setMultisigDefault(Boolean(data.multisig_default));
+        // Prefer multisig when it is the configured default. Chains that have no
+        // multisig support (stablecoins) keep the custodial default below.
+        if (data.multisig_default) {
+          setFormData((prev) => ({
+            ...prev,
+            escrow_model: 'multisig_2of3',
+            chain: 'ETH',
+            allow_auto_release: false,
+          }));
+        }
+      })
+      .catch(() => {
+        /* availability is advisory — the API is still authoritative on submit */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Recurring escrow state
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringInterval, setRecurringInterval] = useState<'weekly' | 'biweekly' | 'monthly'>('monthly');
@@ -861,20 +894,32 @@ export default function CreateEscrowPage() {
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
             >
               <option value="custodial">Custodial (token-based release/refund)</option>
-              <option value="multisig_2of3">2-of-3 Multisig (depositor + beneficiary + arbiter)</option>
+              {multisigEnabled && (
+                <option value="multisig_2of3">2-of-3 Multisig (depositor + beneficiary + arbiter)</option>
+              )}
             </select>
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
               {formData.escrow_model === 'multisig_2of3' ? (
                 <>
                   Funds are locked on-chain and need <strong>2 of 3</strong> signatures to move.
                   CoinPay holds one key, so we can&apos;t move your funds alone — and if CoinPay
-                  goes away, the depositor and beneficiary can settle without us.
+                  goes away, the depositor and beneficiary can settle without us. Native coins only
+                  — no USDC/USDT, and not available for recurring series.
                 </>
               ) : (
                 <>
                   Funds are held at an address <strong>CoinPay controls</strong> for the length of
                   the escrow. You&apos;re trusting us to release correctly and to still be here at
-                  the end. For amounts where that isn&apos;t acceptable, choose 2-of-3 multisig.
+                  the end.
+                  {multisigEnabled ? (
+                    <> For amounts where that isn&apos;t acceptable, choose 2-of-3 multisig.</>
+                  ) : (
+                    <>
+                      {' '}
+                      <strong>Multisig escrow is not enabled on this deployment</strong>, so
+                      custodial is currently the only model available.
+                    </>
+                  )}
                 </>
               )}{' '}
               <a
@@ -886,6 +931,14 @@ export default function CreateEscrowPage() {
                 Who holds your money
               </a>
             </p>
+            {multisigDefault && formData.escrow_model === 'custodial' && (
+              <p className="mt-2 text-sm text-amber-700 dark:text-amber-400">
+                This escrow is custodial even though multisig is the default here — multisig
+                doesn&apos;t support{' '}
+                {isRecurring ? 'recurring series' : `${formData.chain}`}. CoinPay will hold these
+                funds.
+              </p>
+            )}
           </div>
 
           {/* Chain */}

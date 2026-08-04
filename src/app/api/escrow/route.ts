@@ -68,6 +68,31 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
+    // This endpoint only creates custodial escrows. `escrow_model` used to be
+    // accepted and then dropped by validation, so a caller asking for multisig
+    // silently received a custodial escrow — the one failure mode that matters
+    // most here, since it hands someone custody they explicitly declined.
+    // Refuse instead, and point at the endpoint that can do it.
+    if (body.escrow_model && body.escrow_model !== 'custodial') {
+      if (body.escrow_model !== 'multisig_2of3') {
+        return NextResponse.json(
+          { error: `Unknown escrow_model: ${body.escrow_model}` },
+          { status: 400 },
+        );
+      }
+      return NextResponse.json(
+        {
+          error:
+            'This endpoint creates custodial escrows only. Multisig escrows are created via ' +
+            'POST /api/escrow/multisig, which requires depositor_pubkey, beneficiary_pubkey, and ' +
+            'arbiter_pubkey. Check GET /api/escrow/model-availability first — multisig is behind ' +
+            'a feature flag and is not always enabled.',
+          code: 'MULTISIG_WRONG_ENDPOINT',
+        },
+        { status: 400 },
+      );
+    }
+
     if (authContext && isMerchantAuth(authContext)) {
       if (body.business_id) {
         isPaidTier = await isBusinessPaidTier(supabase, body.business_id);
