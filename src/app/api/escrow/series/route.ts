@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authenticateRequest, isMerchantAuth } from '@/lib/auth/middleware';
+import { authorizeBusiness, listAccessibleBusinessIds } from '@/lib/auth/authz';
 import { createEscrow } from '@/lib/escrow';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 
@@ -64,6 +65,16 @@ export async function POST(request: NextRequest) {
     const authResult = await authenticateRequest(supabase, authHeader || apiKeyHeader);
     if (!authResult.success || !authResult.context || !isMerchantAuth(authResult.context)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const authz = await authorizeBusiness(
+      supabase,
+      authResult.context.merchantId,
+      business_id,
+      'invoice.write'
+    );
+    if (!authz.ok) {
+      return NextResponse.json({ error: authz.error }, { status: authz.status });
     }
 
     // Calculate next charge based on interval
@@ -175,19 +186,25 @@ export async function GET(request: NextRequest) {
     // If business_id specified (and not 'all'), filter by it
     // Otherwise list all series for the merchant's businesses
     if (businessId && businessId !== 'all') {
+      const authz = await authorizeBusiness(
+        supabase,
+        authResult.context.merchantId,
+        businessId,
+        'business.read'
+      );
+      if (!authz.ok) {
+        return NextResponse.json({ error: authz.error }, { status: authz.status });
+      }
       query = query.eq('merchant_id', businessId);
     } else {
-      // Get all businesses for this merchant
-      const merchantId = (authResult.context as any).merchantId;
-      if (merchantId) {
-        const { data: businesses } = await supabase
-          .from('businesses')
-          .select('id')
-          .eq('merchant_id', merchantId);
-        if (businesses && businesses.length > 0) {
-          query = query.in('merchant_id', businesses.map((b: { id: string }) => b.id));
-        }
+      const businessIds = await listAccessibleBusinessIds(
+        supabase,
+        authResult.context.merchantId
+      );
+      if (businessIds.length === 0) {
+        return NextResponse.json({ series: [] });
       }
+      query = query.in('merchant_id', businessIds);
     }
 
     const status = searchParams.get('status');

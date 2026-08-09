@@ -12,6 +12,9 @@ const mockAuthResult = vi.hoisted(() => ({
   current: { success: true, context: { type: 'merchant', merchantId: 'merch_1' } } as any,
 }));
 
+const mockAuthorizeBusiness = vi.hoisted(() => vi.fn());
+const mockListAccessibleBusinessIds = vi.hoisted(() => vi.fn());
+
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn().mockReturnValue(mockSupabase),
 }));
@@ -19,6 +22,11 @@ vi.mock('@supabase/supabase-js', () => ({
 vi.mock('@/lib/auth/middleware', () => ({
   authenticateRequest: vi.fn().mockImplementation(() => Promise.resolve(mockAuthResult.current)),
   isMerchantAuth: vi.fn().mockImplementation((ctx: any) => ctx?.type === 'merchant'),
+}));
+
+vi.mock('@/lib/auth/authz', () => ({
+  authorizeBusiness: mockAuthorizeBusiness,
+  listAccessibleBusinessIds: mockListAccessibleBusinessIds,
 }));
 
 // Mock createEscrow + isBusinessPaidTier (used in POST)
@@ -57,7 +65,9 @@ function setupSelectChained(data: any[] = [], error: any = null) {
     };
     return q;
   };
-  mockSupabase.from.mockReturnValue(makeQuery(data, error));
+  const query = makeQuery(data, error);
+  mockSupabase.from.mockReturnValue(query);
+  return query;
 }
 
 describe('POST /api/escrow/series', () => {
@@ -66,6 +76,8 @@ describe('POST /api/escrow/series', () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     mockAuthResult.current = { success: true, context: { type: 'merchant', merchantId: 'merch_1' } };
+    mockAuthorizeBusiness.mockResolvedValue({ ok: true, role: 'owner' });
+    mockListAccessibleBusinessIds.mockResolvedValue(['biz_1']);
     setupInsert();
   });
 
@@ -120,6 +132,25 @@ describe('POST /api/escrow/series', () => {
     expect(res.status).toBe(401);
   });
 
+  it('returns 404 when the merchant cannot access the business', async () => {
+    mockAuthorizeBusiness.mockResolvedValue({
+      ok: false,
+      status: 404,
+      error: 'Business not found',
+    });
+
+    const res = await POST(makeReq(validBody));
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'Business not found' });
+    expect(mockAuthorizeBusiness).toHaveBeenCalledWith(
+      mockSupabase,
+      'merch_1',
+      'biz_1',
+      'invoice.write',
+    );
+  });
+
   it('returns 201 with series data on success', async () => {
     const seriesData = { id: 'series_1', amount: 100, coin: 'BTC', interval: 'monthly', status: 'active' };
     setupInsert(seriesData);
@@ -137,28 +168,12 @@ describe('GET /api/escrow/series', () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     mockAuthResult.current = { success: true, context: { type: 'merchant', merchantId: 'merch_1' } };
+    mockAuthorizeBusiness.mockResolvedValue({ ok: true, role: 'owner' });
+    mockListAccessibleBusinessIds.mockResolvedValue(['biz_1']);
   });
 
   it('returns series scoped to merchant businesses when no business_id', async () => {
-    mockSupabase.from.mockImplementation((table: string) => {
-      if (table === 'businesses') {
-        return {
-          select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockResolvedValue({ data: [{ id: 'biz_1' }], error: null }),
-          }),
-        };
-      }
-      // escrow_series — needs thenable query object
-      const q: any = {};
-      q.select = vi.fn().mockReturnValue(q);
-      q.eq = vi.fn().mockReturnValue(q);
-      q.in = vi.fn().mockReturnValue(q);
-      q.order = vi.fn().mockReturnValue(q);
-      q.then = (resolve: any, reject?: any) => {
-        return Promise.resolve({ data: [{ id: 's1' }], error: null }).then(resolve, reject);
-      };
-      return q;
-    });
+    const query = setupSelectChained([{ id: 's1' }]);
 
     const req = new NextRequest('http://localhost:3000/api/escrow/series', {
       headers: { authorization: 'Bearer test' },
@@ -167,6 +182,8 @@ describe('GET /api/escrow/series', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.series).toEqual([{ id: 's1' }]);
+    expect(mockListAccessibleBusinessIds).toHaveBeenCalledWith(mockSupabase, 'merch_1');
+    expect(query.in).toHaveBeenCalledWith('merchant_id', ['biz_1']);
   });
 
   it('returns series list filtered by business_id', async () => {
@@ -178,5 +195,41 @@ describe('GET /api/escrow/series', () => {
     const res = await GET(req);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ series: seriesList });
+    expect(mockAuthorizeBusiness).toHaveBeenCalledWith(
+      mockSupabase,
+      'merch_1',
+      'biz_1',
+      'business.read',
+    );
+  });
+
+  it('returns 404 instead of listing another business series', async () => {
+    mockAuthorizeBusiness.mockResolvedValue({
+      ok: false,
+      status: 404,
+      error: 'Business not found',
+    });
+    setupSelectChained([{ id: 'other-series' }]);
+    const req = new NextRequest('http://localhost:3000/api/escrow/series?business_id=other', {
+      headers: { authorization: 'Bearer test' },
+    });
+
+    const res = await GET(req);
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'Business not found' });
+  });
+
+  it('returns an empty list when the merchant has no accessible businesses', async () => {
+    mockListAccessibleBusinessIds.mockResolvedValue([]);
+    setupSelectChained([{ id: 'should-not-leak' }]);
+    const req = new NextRequest('http://localhost:3000/api/escrow/series', {
+      headers: { authorization: 'Bearer test' },
+    });
+
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ series: [] });
   });
 });
