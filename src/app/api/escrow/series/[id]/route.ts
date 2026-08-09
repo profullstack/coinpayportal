@@ -7,12 +7,47 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authenticateRequest, isMerchantAuth } from '@/lib/auth/middleware';
+import { authorizeBusiness } from '@/lib/auth/authz';
+import type { Capability } from '@/lib/auth/permissions';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error('Supabase not configured');
   return createClient(url, key);
+}
+
+async function loadAuthorizedSeries(
+  supabase: ReturnType<typeof getSupabase>,
+  id: string,
+  merchantId: string,
+  capability: Capability
+) {
+  const { data: series, error } = await supabase
+    .from('escrow_series')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error || !series) {
+    return {
+      response: NextResponse.json({ error: 'Series not found' }, { status: 404 }),
+    };
+  }
+
+  const authz = await authorizeBusiness(
+    supabase,
+    merchantId,
+    series.merchant_id,
+    capability
+  );
+  if (!authz.ok) {
+    return {
+      response: NextResponse.json({ error: authz.error }, { status: authz.status }),
+    };
+  }
+
+  return { series };
 }
 
 export async function GET(
@@ -30,15 +65,14 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: series, error } = await supabase
-      .from('escrow_series')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error || !series) {
-      return NextResponse.json({ error: 'Series not found' }, { status: 404 });
-    }
+    const authorized = await loadAuthorizedSeries(
+      supabase,
+      id,
+      authResult.context.merchantId,
+      'business.read'
+    );
+    if ('response' in authorized) return authorized.response;
+    const { series } = authorized;
 
     // Fetch linked crypto escrows
     const { data: cryptoEscrows } = await supabase
@@ -72,6 +106,14 @@ export async function PATCH(
     if (!authResult.success || !authResult.context || !isMerchantAuth(authResult.context)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const authorized = await loadAuthorizedSeries(
+      supabase,
+      id,
+      authResult.context.merchantId,
+      'invoice.write'
+    );
+    if ('response' in authorized) return authorized.response;
 
     const updates: Record<string, any> = { updated_at: new Date().toISOString() };
 
@@ -122,6 +164,14 @@ export async function DELETE(
     if (!authResult.success || !authResult.context || !isMerchantAuth(authResult.context)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const authorized = await loadAuthorizedSeries(
+      supabase,
+      id,
+      authResult.context.merchantId,
+      'invoice.write'
+    );
+    if ('response' in authorized) return authorized.response;
 
     const { data, error } = await supabase
       .from('escrow_series')
