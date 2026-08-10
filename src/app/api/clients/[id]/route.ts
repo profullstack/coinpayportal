@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
+import { authorizeBusiness, type AuthzResult } from '@/lib/auth/authz';
 import { getJwtSecret } from '@/lib/secrets';
 
 function getAuth(request: NextRequest) {
@@ -9,7 +10,22 @@ function getAuth(request: NextRequest) {
   const token = authHeader.substring(7);
   const jwtSecret = getJwtSecret();
   if (!jwtSecret) return null;
-  return verifyToken(token, jwtSecret);
+  try {
+    return verifyToken(token, jwtSecret);
+  } catch {
+    return null;
+  }
+}
+
+function clientAuthzError(authz: AuthzResult) {
+  if (authz.ok) return null;
+  return NextResponse.json(
+    {
+      success: false,
+      error: authz.status === 404 ? 'Client not found' : authz.error,
+    },
+    { status: authz.status }
+  );
 }
 
 /**
@@ -29,15 +45,18 @@ export async function GET(
       .from('clients')
       .select('*')
       .eq('id', id)
-      .eq('user_id', decoded.userId)
       .single();
 
     if (error || !client) {
       return NextResponse.json({ success: false, error: 'Client not found' }, { status: 404 });
     }
 
+    const authz = await authorizeBusiness(supabase, decoded.userId, client.business_id, 'business.read');
+    const authzError = clientAuthzError(authz);
+    if (authzError) return authzError;
+
     return NextResponse.json({ success: true, client });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -55,6 +74,25 @@ export async function PUT(
     if (!decoded) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const { data: existingClient, error: lookupError } = await supabase
+      .from('clients')
+      .select('id, business_id')
+      .eq('id', id)
+      .single();
+
+    if (lookupError || !existingClient) {
+      return NextResponse.json({ success: false, error: 'Client not found' }, { status: 404 });
+    }
+
+    const authz = await authorizeBusiness(
+      supabase,
+      decoded.userId,
+      existingClient.business_id,
+      'customer.write'
+    );
+    const authzError = clientAuthzError(authz);
+    if (authzError) return authzError;
+
     const body = await request.json();
     const { name, email, phone, address, website, company_name } = body;
 
@@ -62,7 +100,7 @@ export async function PUT(
       .from('clients')
       .update({ name, email, phone, address, website, company_name, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .eq('user_id', decoded.userId)
+      .eq('business_id', existingClient.business_id)
       .select()
       .single();
 
@@ -71,7 +109,7 @@ export async function PUT(
     }
 
     return NextResponse.json({ success: true, client });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -89,18 +127,37 @@ export async function DELETE(
     if (!decoded) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const { data: existingClient, error: lookupError } = await supabase
+      .from('clients')
+      .select('id, business_id')
+      .eq('id', id)
+      .single();
+
+    if (lookupError || !existingClient) {
+      return NextResponse.json({ success: false, error: 'Client not found' }, { status: 404 });
+    }
+
+    const authz = await authorizeBusiness(
+      supabase,
+      decoded.userId,
+      existingClient.business_id,
+      'customer.write'
+    );
+    const authzError = clientAuthzError(authz);
+    if (authzError) return authzError;
+
     const { error } = await supabase
       .from('clients')
       .delete()
       .eq('id', id)
-      .eq('user_id', decoded.userId);
+      .eq('business_id', existingClient.business_id);
 
     if (error) {
       return NextResponse.json({ success: false, error: 'Failed to delete client' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }
