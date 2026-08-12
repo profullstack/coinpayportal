@@ -139,6 +139,7 @@ describe('CLI Invoice Commands', () => {
       amount: 125.5,
       currency: 'USD',
       status: 'draft',
+      shareUrl: new URL('/now/inv_123', baseUrl).toString(),
     });
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
@@ -174,11 +175,40 @@ describe('CLI Invoice Commands', () => {
       },
     });
 
-    const result = await runCLI(['invoice', 'create', '--amount', '10', '--json'], baseUrl);
+    const result = await runCLI(['invoice', 'create', '--amount', '10'], baseUrl);
 
     expect(result.status).toBe(0);
+    expect(result.stdout).toContain(new URL('/now/inv_scoped', baseUrl).toString());
     expect(requests[0].body).not.toHaveProperty('business_id');
     expect(requests[0].body).toMatchObject({ amount: 10, currency: 'USD' });
+  });
+
+  it('builds the share link from the configured web origin', async () => {
+    respond = () => ({
+      status: 201,
+      body: {
+        success: true,
+        invoice: {
+          id: 'inv_custom',
+          invoice_number: 'INV-003',
+          currency: 'USD',
+          amount: 15,
+          status: 'draft',
+        },
+      },
+    });
+    const customBaseUrl = new URL('/coinpay/api/', baseUrl).toString();
+
+    const result = await runCLI(
+      ['invoice', 'create', '--amount', '15', '--json'],
+      customBaseUrl
+    );
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).shareUrl).toBe(
+      new URL('/now/inv_custom', customBaseUrl).toString()
+    );
+    expect(requests[0].url).toBe('/coinpay/api/invoices');
   });
 
   it.each(['0', '-1', 'NaN', 'Infinity', '12usd', '0x1A', '1e3', '10.005'])(
