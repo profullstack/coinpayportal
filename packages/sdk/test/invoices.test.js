@@ -32,6 +32,7 @@ describe('Invoice SDK', () => {
     it('should create invoice with required fields', async () => {
       const mockResponse = {
         id: 'inv_123',
+        invoice_number: 'INV-001',
         business_id: 'biz_456',
         currency: 'USD',
         amount: 250,
@@ -40,7 +41,7 @@ describe('Invoice SDK', () => {
         updated_at: '2026-03-22T12:00:00Z',
       };
 
-      mockClient.request.mockResolvedValue(mockResponse);
+      mockClient.request.mockResolvedValue({ success: true, invoice: mockResponse });
 
       const result = await createInvoice(mockClient, {
         businessId: 'biz_456',
@@ -59,6 +60,7 @@ describe('Invoice SDK', () => {
 
       expect(result).toEqual({
         id: 'inv_123',
+        invoiceNumber: 'INV-001',
         businessId: 'biz_456',
         clientId: undefined,
         currency: 'USD',
@@ -96,7 +98,7 @@ describe('Invoice SDK', () => {
         updated_at: '2026-03-22T12:00:00Z',
       };
 
-      mockClient.request.mockResolvedValue(mockResponse);
+      mockClient.request.mockResolvedValue({ success: true, invoice: mockResponse });
 
       const result = await createInvoice(mockClient, {
         businessId: 'biz_456',
@@ -136,8 +138,22 @@ describe('Invoice SDK', () => {
     it('should list invoices without filters', async () => {
       const mockResponse = {
         invoices: [
-          { id: 'inv_1', business_id: 'biz_456', currency: 'USD', amount: 100, status: 'draft', created_at: '2026-03-20T12:00:00Z' },
-          { id: 'inv_2', business_id: 'biz_456', currency: 'USD', amount: 200, status: 'sent', created_at: '2026-03-21T12:00:00Z' },
+          {
+            id: 'inv_1',
+            business_id: 'biz_456',
+            currency: 'USD',
+            amount: 100,
+            status: 'draft',
+            created_at: '2026-03-20T12:00:00Z',
+          },
+          {
+            id: 'inv_2',
+            business_id: 'biz_456',
+            currency: 'USD',
+            amount: 200,
+            status: 'sent',
+            created_at: '2026-03-21T12:00:00Z',
+          },
         ],
         total: 2,
       };
@@ -156,7 +172,14 @@ describe('Invoice SDK', () => {
     it('should list invoices with filters', async () => {
       const mockResponse = {
         invoices: [
-          { id: 'inv_3', business_id: 'biz_456', currency: 'USD', amount: 300, status: 'paid', created_at: '2026-03-22T12:00:00Z' },
+          {
+            id: 'inv_3',
+            business_id: 'biz_456',
+            currency: 'USD',
+            amount: 300,
+            status: 'paid',
+            created_at: '2026-03-22T12:00:00Z',
+          },
         ],
         total: 1,
       };
@@ -193,6 +216,7 @@ describe('Invoice SDK', () => {
     it('should get invoice by ID', async () => {
       const mockResponse = {
         id: 'inv_123',
+        invoice_number: 'INV-009',
         business_id: 'biz_456',
         currency: 'USD',
         amount: 250,
@@ -203,14 +227,26 @@ describe('Invoice SDK', () => {
         updated_at: '2026-03-22T14:00:00Z',
       };
 
-      mockClient.request.mockResolvedValue(mockResponse);
+      mockClient.request.mockResolvedValue({ success: true, invoice: mockResponse });
 
       const result = await getInvoice(mockClient, 'inv_123');
 
       expect(mockClient.request).toHaveBeenCalledWith('/invoices/inv_123');
       expect(result.id).toBe('inv_123');
+      expect(result.invoiceNumber).toBe('INV-009');
       expect(result.status).toBe('sent');
       expect(result.paymentAddress).toBe('0xdef456');
+    });
+
+    it('should encode invoice IDs in request paths', async () => {
+      mockClient.request.mockResolvedValue({
+        success: true,
+        invoice: { id: 'inv#1/../payments', status: 'draft' },
+      });
+
+      await getInvoice(mockClient, 'inv#1/../payments');
+
+      expect(mockClient.request).toHaveBeenCalledWith('/invoices/inv%231%2F..%2Fpayments');
     });
   });
 
@@ -227,7 +263,7 @@ describe('Invoice SDK', () => {
         updated_at: '2026-03-22T15:00:00Z',
       };
 
-      mockClient.request.mockResolvedValue(mockResponse);
+      mockClient.request.mockResolvedValue({ success: true, invoice: mockResponse });
 
       const result = await updateInvoice(mockClient, 'inv_123', {
         amount: 300,

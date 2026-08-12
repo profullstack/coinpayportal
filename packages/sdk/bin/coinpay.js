@@ -15,6 +15,7 @@ import {
   DEFAULT_CHAINS,
 } from '../src/wallet.js';
 import { SwapClient, SwapCoins } from '../src/swap.js';
+import { createInvoice, getInvoice, listInvoices, InvoiceStatus } from '../src/invoices.js';
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 import { createInterface } from 'readline';
@@ -190,6 +191,43 @@ function parsePositiveInteger(value) {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+function parsePositiveAmount(value) {
+  if (typeof value !== 'string') return null;
+
+  const normalized = value.trim();
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(normalized);
+  if (!match) return null;
+
+  const cents = BigInt(match[1]) * 100n + BigInt((match[2] || '').padEnd(2, '0'));
+  if (cents <= 0n || cents > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+
+  return Number(cents) / 100;
+}
+
+function isValidDate(value) {
+  if (typeof value !== 'string') return false;
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+
+  const [, year, month, day] = match.map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+function requireFlagValues(flags, names) {
+  for (const name of names) {
+    if (flags[name] === true) {
+      print.error('--' + name + ' requires a value');
+      process.exit(1);
+    }
+  }
+}
+
 /**
  * Show help
  */
@@ -216,6 +254,14 @@ ${colors.cyan}Commands:${colors.reset}
     get <id>              Get payment details
     list                  List payments
     qr <id>               Get payment QR code
+
+  ${colors.bright}invoice${colors.reset}
+    create                Create a draft invoice (--amount required)
+      --wallet-id <id>    Route settlement through a saved wallet
+      --merchant-wallet-address <address>
+                            Route settlement to a direct address
+    get <id>              Get invoice details
+    list                  List invoices with optional filters
 
   ${colors.bright}tokens${colors.reset}
     list                  List checkout tokens (--business-id, --active-only)
@@ -678,6 +724,165 @@ async function handlePayment(subcommand, args, flags) {
     default:
       print.error(`Unknown payment command: ${subcommand}`);
       showHelp();
+  }
+}
+
+function printInvoiceDetails(invoice) {
+  const label = invoice.invoiceNumber || invoice.id;
+  console.log('\n' + colors.bright + label + colors.reset);
+  print.info('ID: ' + invoice.id);
+  print.info('Status: ' + (invoice.status || 'unknown'));
+  print.info('Amount: ' + invoice.amount + ' ' + (invoice.currency || ''));
+  if (invoice.businessId) print.info('Business: ' + invoice.businessId);
+  if (invoice.clientId) print.info('Client: ' + invoice.clientId);
+  if (invoice.cryptoCurrency) print.info('Crypto: ' + invoice.cryptoCurrency);
+  if (invoice.dueDate) print.info('Due: ' + invoice.dueDate);
+  if (invoice.notes) print.info('Notes: ' + invoice.notes);
+  console.log();
+}
+
+/**
+ * Invoice commands
+ */
+async function handleInvoice(subcommand, args, flags) {
+  const client = createClient();
+
+  switch (subcommand) {
+    case 'create': {
+      requireFlagValues(flags, [
+        'amount',
+        'business-id',
+        'client-id',
+        'currency',
+        'crypto-currency',
+        'due-date',
+        'notes',
+        'wallet-id',
+        'merchant-wallet-address',
+      ]);
+
+      const amount = parsePositiveAmount(flags.amount);
+      if (amount === null) {
+        print.error('--amount must be a positive decimal with at most two decimal places');
+        print.info('Example: coinpay invoice create --amount 125 --currency USD --notes "Consulting"');
+        process.exit(1);
+      }
+
+      const currency = flags.currency || 'USD';
+      if (!/^[A-Za-z]{3}$/.test(currency)) {
+        print.error('--currency must be a three-letter currency code');
+        process.exit(1);
+      }
+
+      const dueDate = flags['due-date'];
+      if (dueDate !== undefined && !isValidDate(dueDate)) {
+        print.error('--due-date must be a valid date in YYYY-MM-DD format');
+        process.exit(1);
+      }
+
+      const cryptoCurrency = flags['crypto-currency'];
+      const invoice = await createInvoice(client, {
+        businessId: flags['business-id'],
+        clientId: flags['client-id'],
+        currency: currency.toUpperCase(),
+        amount,
+        cryptoCurrency: cryptoCurrency?.toUpperCase(),
+        dueDate,
+        notes: flags.notes,
+        walletId: flags['wallet-id'],
+        merchantWalletAddress: flags['merchant-wallet-address'],
+      });
+
+      if (flags.json) {
+        print.json(invoice);
+        break;
+      }
+
+      print.success('Draft invoice created');
+      printInvoiceDetails(invoice);
+      break;
+    }
+
+    case 'list': {
+      requireFlagValues(flags, ['business-id', 'status', 'client-id', 'date-from', 'date-to']);
+
+      const status = flags.status?.toLowerCase();
+      const validStatuses = new Set(Object.values(InvoiceStatus));
+      if (status !== undefined && !validStatuses.has(status)) {
+        print.error('--status must be one of: ' + [...validStatuses].join(', '));
+        process.exit(1);
+      }
+
+      const dateFrom = flags['date-from'];
+      const dateTo = flags['date-to'];
+      if (dateFrom !== undefined && !isValidDate(dateFrom)) {
+        print.error('--date-from must be a valid date in YYYY-MM-DD format');
+        process.exit(1);
+      }
+      if (dateTo !== undefined && !isValidDate(dateTo)) {
+        print.error('--date-to must be a valid date in YYYY-MM-DD format');
+        process.exit(1);
+      }
+      if (dateFrom && dateTo && dateFrom > dateTo) {
+        print.error('--date-from must not be later than --date-to');
+        process.exit(1);
+      }
+
+      const result = await listInvoices(client, {
+        businessId: flags['business-id'],
+        status,
+        clientId: flags['client-id'],
+        dateFrom,
+        dateTo,
+      });
+
+      if (flags.json) {
+        print.json(result);
+        break;
+      }
+
+      if (result.invoices.length === 0) {
+        print.info('No invoices found');
+        break;
+      }
+
+      console.log('\n' + colors.bright + 'Invoices' + colors.reset + ' (' + (result.total ?? result.invoices.length) + ')\n');
+      for (const invoice of result.invoices) {
+        const label = invoice.invoiceNumber || invoice.id;
+        const created = invoice.createdAt ? invoice.createdAt.slice(0, 10) : '-';
+        console.log(
+          '  ' + colors.bright + label + colors.reset +
+          '  ' + (invoice.status || 'unknown') +
+          '  ' + invoice.amount + ' ' + (invoice.currency || '') +
+          '  ' + created
+        );
+        if (invoice.invoiceNumber && invoice.id) console.log('    ' + invoice.id);
+      }
+      console.log();
+      break;
+    }
+
+    case 'get': {
+      const id = args[0];
+      if (!id) {
+        print.error('Usage: coinpay invoice get <id>');
+        process.exit(1);
+      }
+
+      const invoice = await getInvoice(client, id);
+      if (flags.json) {
+        print.json(invoice);
+        break;
+      }
+
+      printInvoiceDetails(invoice);
+      break;
+    }
+
+    default:
+      print.error('Unknown invoice command: ' + subcommand);
+      print.info('Available: create, list, get');
+      process.exit(1);
   }
 }
 
@@ -3225,6 +3430,10 @@ async function handleLightning(subcommand, args, flags) {
         
       case 'payment':
         await handlePayment(subcommand, args, flags);
+        break;
+
+      case 'invoice':
+        await handleInvoice(subcommand, args, flags);
         break;
 
       case 'tokens':
