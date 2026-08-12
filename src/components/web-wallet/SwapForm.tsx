@@ -254,11 +254,8 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
       }
       
       // Save the tx hash to the database
-      fetch(`/api/swap/${createdSwap.id}/deposit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ txHash: result.txHash }),
-      }).catch(err => console.error('Failed to save deposit tx hash:', err));
+      wallet.saveSwapDeposit(createdSwap.id, result.txHash)
+        .catch(err => console.error('Failed to save deposit tx hash:', err));
       
       setDepositTxHash(result.txHash);
       setPassword('');
