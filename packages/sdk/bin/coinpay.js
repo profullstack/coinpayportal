@@ -125,6 +125,10 @@ function getBaseUrl() {
   return process.env.COINPAY_BASE_URL || config.baseUrl || 'https://coinpayportal.com/api';
 }
 
+function getInvoiceShareUrl(invoiceId) {
+  return new URL(`/now/${encodeURIComponent(invoiceId)}`, getBaseUrl()).toString();
+}
+
 /**
  * Create client instance
  */
@@ -727,7 +731,7 @@ async function handlePayment(subcommand, args, flags) {
   }
 }
 
-function printInvoiceDetails(invoice) {
+function printInvoiceDetails(invoice, { shareUrl } = {}) {
   const label = invoice.invoiceNumber || invoice.id;
   console.log('\n' + colors.bright + label + colors.reset);
   print.info('ID: ' + invoice.id);
@@ -738,6 +742,7 @@ function printInvoiceDetails(invoice) {
   if (invoice.cryptoCurrency) print.info('Crypto: ' + invoice.cryptoCurrency);
   if (invoice.dueDate) print.info('Due: ' + invoice.dueDate);
   if (invoice.notes) print.info('Notes: ' + invoice.notes);
+  if (shareUrl) print.info('Share link (opens after send): ' + shareUrl);
   console.log();
 }
 
@@ -792,14 +797,15 @@ async function handleInvoice(subcommand, args, flags) {
         walletId: flags['wallet-id'],
         merchantWalletAddress: flags['merchant-wallet-address'],
       });
+      const shareUrl = invoice.id ? getInvoiceShareUrl(invoice.id) : undefined;
 
       if (flags.json) {
-        print.json(invoice);
+        print.json(shareUrl ? { ...invoice, shareUrl } : invoice);
         break;
       }
 
       print.success('Draft invoice created');
-      printInvoiceDetails(invoice);
+      printInvoiceDetails(invoice, { shareUrl });
       break;
     }
 

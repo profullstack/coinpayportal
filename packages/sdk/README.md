@@ -596,6 +596,9 @@ coinpay payment qr pay_abc123
 ### Invoices
 
 Invoice creation is draft-only. It does not send the invoice or move funds.
+The create command prints the public `/now/{invoiceId}` payment link so it can be
+copied into chat. The payment page becomes available after the invoice is sent.
+Create's JSON output includes the same link as `shareUrl`.
 When using a business-scoped API key, --business-id may be omitted.
 
 ```bash
