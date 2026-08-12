@@ -728,6 +728,7 @@ export class Wallet {
   createSwap(params: SwapCreateParams) { return this.swap.createSwap(params); }
   getSwapStatus(swapId: string) { return this.swap.getSwapStatus(swapId); }
   getSwapHistory(options?: SwapHistoryOptions) { return this.swap.getSwapHistory(options); }
+  saveSwapDeposit(swapId: string, txHash: string) { return this.swap.saveSwapDeposit(swapId, txHash); }
   getSwapCoins() { return this.swap.getSwapCoins(); }
 
   // ── Events ──
