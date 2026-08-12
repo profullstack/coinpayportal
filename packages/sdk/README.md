@@ -593,6 +593,40 @@ coinpay tokens list --business-id biz_123 --active-only
 coinpay payment qr pay_abc123
 ```
 
+### Invoices
+
+Invoice creation is draft-only. It does not send the invoice or move funds.
+When using a business-scoped API key, --business-id may be omitted.
+
+```bash
+# Create a draft invoice
+coinpay invoice create \
+  --amount 250 \
+  --currency USD \
+  --client-id cli_001 \
+  --crypto-currency USDC \
+  --due-date 2026-09-01 \
+  --notes "August development"
+
+# Route eventual settlement through a saved wallet or a direct address
+coinpay invoice create --amount 250 --wallet-id wal_001
+coinpay invoice create --amount 250 --merchant-wallet-address 0xabc123
+
+# Get invoice details
+coinpay invoice get inv_abc123
+
+# List invoices. Date filters apply to created_at and --date-to includes that day.
+coinpay invoice list \
+  --business-id biz_123 \
+  --status sent \
+  --client-id cli_001 \
+  --date-from 2026-08-01 \
+  --date-to 2026-08-31
+
+# Use --json with any invoice command for machine-readable output
+coinpay invoice list --status paid --json
+```
+
 ### Businesses
 
 ```bash

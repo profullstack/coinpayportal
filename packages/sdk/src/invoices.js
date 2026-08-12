@@ -32,7 +32,7 @@
  * Create a new invoice
  * @param {CoinPayClient} client - API client instance
  * @param {Object} options - Invoice parameters
- * @param {string} options.businessId - Business ID
+ * @param {string} [options.businessId] - Business ID (optional for business-scoped API keys)
  * @param {string} [options.clientId] - Client ID (optional)
  * @param {string} options.currency - Fiat currency code (USD, EUR, etc.)
  * @param {number} options.amount - Invoice amount
@@ -115,7 +115,7 @@ export async function listInvoices(client, filters = {}) {
  * @returns {Promise<Object>} Invoice details
  */
 export async function getInvoice(client, id) {
-  const data = await client.request(`/invoices/${id}`);
+  const data = await client.request(`/invoices/${encodeURIComponent(id)}`);
   return normalizeInvoice(data);
 }
 
@@ -145,7 +145,7 @@ export async function updateInvoice(client, id, updates) {
   if (updates.walletId !== undefined) body.wallet_id = updates.walletId;
   if (updates.merchantWalletAddress !== undefined) body.merchant_wallet_address = updates.merchantWalletAddress;
 
-  const data = await client.request(`/invoices/${id}`, {
+  const data = await client.request(`/invoices/${encodeURIComponent(id)}`, {
     method: 'PUT',
     body: JSON.stringify(body),
   });
@@ -160,7 +160,7 @@ export async function updateInvoice(client, id, updates) {
  * @returns {Promise<Object>} Deletion confirmation
  */
 export async function deleteInvoice(client, id) {
-  return client.request(`/invoices/${id}`, {
+  return client.request(`/invoices/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
 }
@@ -173,7 +173,7 @@ export async function deleteInvoice(client, id) {
  * @returns {Promise<Object>} Send result with payment details
  */
 export async function sendInvoice(client, id) {
-  const data = await client.request(`/invoices/${id}/send`, {
+  const data = await client.request(`/invoices/${encodeURIComponent(id)}/send`, {
     method: 'POST',
   });
   return data;
@@ -187,7 +187,7 @@ export async function sendInvoice(client, id) {
  * @returns {Promise<Object>} Payment data (address, amount, status, etc.)
  */
 export async function getInvoicePaymentData(client, id) {
-  const data = await client.requestUnauthenticated(`/invoices/${id}/pay`);
+  const data = await client.requestUnauthenticated(`/invoices/${encodeURIComponent(id)}/pay`);
   return data;
 }
 
@@ -208,24 +208,30 @@ export const InvoiceStatus = {
 
 function normalizeInvoice(data) {
   if (!data) return data;
+
+  // Single-invoice API responses are wrapped, while older SDK callers and
+  // tests may still supply the invoice object directly.
+  const invoice = data.invoice ?? data;
+
   return {
-    id: data.id,
-    businessId: data.business_id,
-    clientId: data.client_id,
-    currency: data.currency,
-    amount: data.amount,
-    cryptoCurrency: data.crypto_currency,
-    cryptoAmount: data.crypto_amount,
-    status: data.status,
-    dueDate: data.due_date,
-    notes: data.notes,
-    walletId: data.wallet_id,
-    merchantWalletAddress: data.merchant_wallet_address,
-    paymentAddress: data.payment_address,
-    stripeCheckoutUrl: data.stripe_checkout_url,
-    paidAt: data.paid_at,
-    sentAt: data.sent_at,
-    createdAt: data.created_at,
-    updatedAt: data.updated_at,
+    id: invoice.id,
+    invoiceNumber: invoice.invoice_number,
+    businessId: invoice.business_id,
+    clientId: invoice.client_id,
+    currency: invoice.currency,
+    amount: invoice.amount,
+    cryptoCurrency: invoice.crypto_currency,
+    cryptoAmount: invoice.crypto_amount,
+    status: invoice.status,
+    dueDate: invoice.due_date,
+    notes: invoice.notes,
+    walletId: invoice.wallet_id,
+    merchantWalletAddress: invoice.merchant_wallet_address,
+    paymentAddress: invoice.payment_address,
+    stripeCheckoutUrl: invoice.stripe_checkout_url,
+    paidAt: invoice.paid_at,
+    sentAt: invoice.sent_at,
+    createdAt: invoice.created_at,
+    updatedAt: invoice.updated_at,
   };
 }
