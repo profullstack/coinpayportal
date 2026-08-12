@@ -83,6 +83,15 @@ export function createSwapMethods(client: WalletAPIClient, walletId: string) {
       return (data.swaps || []).map(mapSwap);
     },
 
+    async saveSwapDeposit(swapId: string, txHash: string): Promise<void> {
+      await client.request<void>({
+        method: 'POST',
+        path: `/api/swap/${swapId}/deposit`,
+        body: { txHash },
+        authenticated: true,
+      });
+    },
+
     async getSwapCoins(): Promise<SwapCoin[]> {
       const data = await client.request<any>({
         method: 'GET',
