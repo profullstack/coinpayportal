@@ -88,10 +88,11 @@ export async function POST(request: NextRequest) {
     });
 
     if (screening.decision === 'block') {
-      console.warn(
-        `[Fraud] Blocked checkout for business ${businessId} (score ${screening.score}):`,
-        screening.findings.map((f) => f.code).join(', ')
-      );
+      console.warn('[Fraud] Blocked checkout', {
+        businessId,
+        score: screening.score,
+        findings: screening.findings.map((f) => f.code).join(', '),
+      });
       return NextResponse.json({ error: screening.buyerMessage }, { status: 403 });
     }
 
@@ -99,10 +100,11 @@ export async function POST(request: NextRequest) {
     // liability for a stolen card back to the issuer.
     const requiresVerification = screening.decision === 'verify';
     if (requiresVerification) {
-      console.warn(
-        `[Fraud] Forcing 3DS for business ${businessId} (score ${screening.score}):`,
-        screening.findings.map((f) => f.code).join(', ')
-      );
+      console.warn('[Fraud] Forcing 3DS', {
+        businessId,
+        score: screening.score,
+        findings: screening.findings.map((f) => f.code).join(', '),
+      });
     }
 
     // Calculate platform fee (0.5% default)
