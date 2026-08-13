@@ -6,6 +6,14 @@ import { z } from 'zod';
 import { resolveWebhookSecret } from '../webhooks/secret';
 import { getAccessibleBusinessRoles } from '../auth/authz';
 import { can } from '../auth/permissions';
+import {
+  classifyBusiness,
+  isValidCategory,
+  normalizeTags,
+  type Classification,
+  type RiskFlag,
+  type RiskLevel,
+} from './taxonomy';
 
 /**
  * Generate a secure webhook secret
@@ -108,11 +116,58 @@ const webhookUrlSchema = z.string().url('Invalid webhook URL').optional();
 const descriptionSchema = z.string().max(500).optional();
 
 /**
+ * Categorization is required on create so no business goes live unclassified.
+ * The slug must exist in the taxonomy — see src/lib/business/taxonomy.ts.
+ */
+function validateCategory(category: unknown): string | undefined {
+  if (!isValidCategory(category)) {
+    return 'Select a valid business category';
+  }
+  return undefined;
+}
+
+/**
+ * Run the classifier and turn it into the derived columns. Merchants never set
+ * these directly — a merchant-supplied risk_level would be worthless.
+ */
+function classificationColumns(input: {
+  name?: string | null;
+  description?: string | null;
+  category?: string | null;
+  tags?: string[] | null;
+}): {
+  classification: Classification;
+  columns: {
+    category: string | null;
+    tags: string[];
+    risk_level: RiskLevel;
+    risk_flags: RiskFlag[];
+    review_status: string;
+    classified_at: string;
+  };
+} {
+  const classification = classifyBusiness(input);
+  return {
+    classification,
+    columns: {
+      category: classification.category,
+      tags: classification.tags,
+      risk_level: classification.riskLevel,
+      risk_flags: classification.flags,
+      review_status: classification.reviewRequired ? 'pending' : 'not_required',
+      classified_at: new Date().toISOString(),
+    },
+  };
+}
+
+/**
  * Types
  */
 export interface CreateBusinessInput {
   name: string;
   description?: string;
+  category?: string;
+  tags?: string[];
   webhook_url?: string;
   webhook_secret?: string;
   webhook_events?: string[];
@@ -121,6 +176,8 @@ export interface CreateBusinessInput {
 export interface UpdateBusinessInput {
   name?: string;
   description?: string;
+  category?: string;
+  tags?: string[];
   webhook_url?: string;
   webhook_secret?: string;
   webhook_events?: string[];
@@ -132,6 +189,12 @@ export interface Business {
   merchant_id: string;
   name: string;
   description?: string;
+  category?: string | null;
+  tags?: string[];
+  risk_level?: RiskLevel | null;
+  risk_flags?: RiskFlag[];
+  review_status?: string;
+  classified_at?: string | null;
   webhook_url?: string;
   webhook_secret?: string;
   webhook_events?: string[];
@@ -145,6 +208,8 @@ export interface Business {
 export interface BusinessResult {
   success: boolean;
   business?: Business;
+  /** Present when this call (re)classified the business. */
+  classification?: Classification;
   error?: string;
 }
 
@@ -152,6 +217,47 @@ export interface BusinessListResult {
   success: boolean;
   businesses?: Business[];
   error?: string;
+}
+
+export interface BusinessFilters {
+  /** Free text matched against name and description. */
+  search?: string | null;
+  /** Every one of these tags must be present. */
+  tags?: string[] | null;
+  category?: string | null;
+  riskLevel?: string | null;
+  reviewStatus?: string | null;
+}
+
+/** PostgREST treats these as operators inside `or(...)`, so they must go. */
+function escapeForOr(value: string): string {
+  return value.replace(/[,()]/g, ' ').trim();
+}
+
+/**
+ * Apply search and facet filters to a `businesses` query. Shared by the merchant
+ * list and the admin console so both understand the same query string.
+ */
+export function applyBusinessFilters<T>(query: T, filters: BusinessFilters): T {
+  let q = query as any;
+
+  const search = typeof filters.search === 'string' ? escapeForOr(filters.search) : '';
+  if (search) {
+    q = q.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
+  }
+
+  const tags = normalizeTags(filters.tags ?? []);
+  if (tags.length > 0) {
+    // `contains` is an AND across the array — narrowing, which is what a tag
+    // filter should do.
+    q = q.contains('tags', tags);
+  }
+
+  if (filters.category) q = q.eq('category', filters.category);
+  if (filters.riskLevel) q = q.eq('risk_level', filters.riskLevel);
+  if (filters.reviewStatus) q = q.eq('review_status', filters.reviewStatus);
+
+  return q as T;
 }
 
 /**
@@ -205,6 +311,23 @@ export async function createBusiness(
       }
     }
 
+    // Categorize before anything else — an unclassified business should never
+    // reach the point of collecting money.
+    const categoryError = validateCategory(input.category);
+    if (categoryError) {
+      return {
+        success: false,
+        error: categoryError,
+      };
+    }
+
+    const { classification, columns: classificationData } = classificationColumns({
+      name: input.name,
+      description: input.description,
+      category: input.category,
+      tags: input.tags,
+    });
+
     // Generate and encrypt webhook secret if webhook URL is provided
     let encryptedSecret: string | undefined;
     if (input.webhook_url) {
@@ -235,6 +358,7 @@ export async function createBusiness(
         organization_id: merchant?.default_org_id ?? null,
         name: input.name,
         description: input.description,
+        ...classificationData,
         webhook_url: input.webhook_url,
         webhook_secret: encryptedSecret,
         webhook_events: input.webhook_events || ['payment.confirmed', 'payment.forwarded'],
@@ -255,6 +379,7 @@ export async function createBusiness(
     return {
       success: true,
       business: business as Business,
+      classification,
     };
   } catch (error) {
     return {
@@ -303,7 +428,8 @@ export async function listBusinesses(
  */
 export async function listAccessibleBusinesses(
   supabase: SupabaseClient,
-  merchantId: string
+  merchantId: string,
+  filters: BusinessFilters = {}
 ): Promise<BusinessListResult> {
   try {
     const roleMap = await getAccessibleBusinessRoles(supabase, merchantId);
@@ -312,10 +438,10 @@ export async function listAccessibleBusinesses(
       return { success: true, businesses: [] };
     }
 
-    const { data: businesses, error } = await supabase
-      .from('businesses')
-      .select('*')
-      .in('id', ids);
+    let query = supabase.from('businesses').select('*').in('id', ids);
+    query = applyBusinessFilters(query, filters);
+
+    const { data: businesses, error } = await query;
 
     if (error) {
       return { success: false, error: error.message };
@@ -415,10 +541,21 @@ export async function updateBusiness(
       }
     }
 
-    // Fetch current business to check if webhook URL has changed
+    if (input.category !== undefined) {
+      const categoryError = validateCategory(input.category);
+      if (categoryError) {
+        return {
+          success: false,
+          error: categoryError,
+        };
+      }
+    }
+
+    // Fetch current business to check if webhook URL has changed, and to
+    // reclassify against the merged record rather than the partial patch.
     const { data: currentBusiness, error: fetchError } = await supabase
       .from('businesses')
-      .select('webhook_url, webhook_secret')
+      .select('webhook_url, webhook_secret, name, description, category, tags')
       .eq('id', businessId)
       .eq('merchant_id', merchantId)
       .single();
@@ -436,6 +573,26 @@ export async function updateBusiness(
     if (input.name !== undefined) updateData.name = input.name;
     if (input.description !== undefined) updateData.description = input.description;
     if (input.webhook_url !== undefined) updateData.webhook_url = input.webhook_url;
+
+    // Anything the classifier reads changing means the verdict is stale.
+    let classification: Classification | undefined;
+    const reclassify =
+      input.name !== undefined ||
+      input.description !== undefined ||
+      input.category !== undefined ||
+      input.tags !== undefined;
+
+    if (reclassify) {
+      const merged = classificationColumns({
+        name: input.name ?? currentBusiness.name,
+        description: input.description ?? currentBusiness.description,
+        category: input.category ?? currentBusiness.category,
+        tags: input.tags ?? currentBusiness.tags,
+      });
+      classification = merged.classification;
+      Object.assign(updateData, merged.columns);
+    }
+
     if (input.webhook_events !== undefined) updateData.webhook_events = input.webhook_events;
     if (input.active !== undefined) updateData.active = input.active;
 
@@ -477,11 +634,111 @@ export async function updateBusiness(
     return {
       success: true,
       business: business as Business,
+      classification,
     };
   } catch (error) {
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Business update failed',
+    };
+  }
+}
+
+export type TagOperation = 'replace' | 'add' | 'remove';
+
+export interface TagsResult {
+  success: boolean;
+  tags?: string[];
+  classification?: Classification;
+  error?: string;
+}
+
+/**
+ * Read the keyword tags on a business.
+ */
+export async function getBusinessTags(
+  supabase: SupabaseClient,
+  businessId: string
+): Promise<TagsResult> {
+  try {
+    const { data, error } = await supabase
+      .from('businesses')
+      .select('tags')
+      .eq('id', businessId)
+      .maybeSingle();
+
+    if (error || !data) {
+      return { success: false, error: error?.message || 'Business not found' };
+    }
+    return { success: true, tags: (data.tags as string[]) ?? [] };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to read tags',
+    };
+  }
+}
+
+/**
+ * Add, remove or replace keyword tags, then reclassify.
+ *
+ * Tags feed the risk classifier, so every write here re-derives risk_level and
+ * review_status — a business cannot quietly drop the "iptv" tag to shed its
+ * rating, because the name and description still carry the signal.
+ */
+export async function mutateBusinessTags(
+  supabase: SupabaseClient,
+  businessId: string,
+  operation: TagOperation,
+  tags: string[]
+): Promise<TagsResult> {
+  try {
+    const { data: current, error: fetchError } = await supabase
+      .from('businesses')
+      .select('name, description, category, tags')
+      .eq('id', businessId)
+      .maybeSingle();
+
+    if (fetchError || !current) {
+      return { success: false, error: fetchError?.message || 'Business not found' };
+    }
+
+    const incoming = normalizeTags(tags);
+    const existing = normalizeTags((current.tags as string[]) ?? []);
+
+    let nextTags: string[];
+    if (operation === 'replace') {
+      nextTags = incoming;
+    } else if (operation === 'add') {
+      nextTags = normalizeTags([...existing, ...incoming]);
+    } else {
+      const drop = new Set(incoming);
+      nextTags = existing.filter((tag) => !drop.has(tag));
+    }
+
+    const { classification, columns } = classificationColumns({
+      name: current.name,
+      description: current.description,
+      category: current.category,
+      tags: nextTags,
+    });
+
+    const { data: updated, error } = await supabase
+      .from('businesses')
+      .update(columns)
+      .eq('id', businessId)
+      .select('tags')
+      .single();
+
+    if (error || !updated) {
+      return { success: false, error: error?.message || 'Failed to update tags' };
+    }
+
+    return { success: true, tags: (updated.tags as string[]) ?? [], classification };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to update tags',
     };
   }
 }

@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { authFetch } from '@/lib/auth/client';
+import { ClassificationFields, CategoryBadge } from '@/components/business/ClassificationFields';
+import { getCategory, type RiskLevel } from '@/lib/business/taxonomy';
 
 interface Business {
   id: string;
@@ -10,6 +12,10 @@ interface Business {
   description: string | null;
   webhook_url: string | null;
   organization_id: string | null;
+  category: string | null;
+  tags: string[] | null;
+  risk_level: RiskLevel | null;
+  review_status: string | null;
   created_at: string;
 }
 
@@ -30,8 +36,12 @@ export default function BusinessesPage() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
+    category: '',
+    tags: [] as string[],
   });
   const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState('');
+  const [activeTags, setActiveTags] = useState<string[]>([]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -79,14 +89,45 @@ export default function BusinessesPage() {
   };
 
   // Filter by the selected organization (empty = all).
-  const visibleBusinesses = activeOrg
+  const orgBusinesses = activeOrg
     ? businesses.filter((b) => b.organization_id === activeOrg)
     : businesses;
+
+  // Every tag in play, so they can be offered as one-click filters.
+  const allTags = [...new Set(orgBusinesses.flatMap((b) => b.tags ?? []))].sort();
+
+  // Search runs client-side: a merchant has few businesses, and filtering what
+  // is already loaded keeps it instant. The API supports ?search= and ?tag= for
+  // consumers with more.
+  const needle = query.trim().toLowerCase();
+  const visibleBusinesses = orgBusinesses.filter((b) => {
+    if (activeTags.length > 0 && !activeTags.every((t) => (b.tags ?? []).includes(t))) {
+      return false;
+    }
+    if (!needle) return true;
+    const haystack = [
+      b.name,
+      b.description ?? '',
+      (b.tags ?? []).join(' '),
+      getCategory(b.category)?.label ?? '',
+    ]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(needle);
+  });
+
+  const toggleTag = (tag: string) => {
+    setActiveTags((current) =>
+      current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag]
+    );
+  };
 
   const handleCreate = () => {
     setFormData({
       name: '',
       description: '',
+      category: '',
+      tags: [],
     });
     setEditingBusiness(null);
     setShowCreateModal(true);
@@ -96,6 +137,8 @@ export default function BusinessesPage() {
     setFormData({
       name: business.name,
       description: business.description || '',
+      category: business.category || '',
+      tags: business.tags || [],
     });
     setEditingBusiness(business);
     setShowCreateModal(true);
@@ -218,6 +261,51 @@ export default function BusinessesPage() {
           </div>
         </div>
 
+        {/* Search + tag filters */}
+        {businesses.length > 0 && (
+          <div className="mb-6 space-y-3">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by name, description, keyword or category"
+              aria-label="Search businesses"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 dark:text-white dark:bg-gray-700"
+            />
+            {allTags.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {allTags.map((tag) => {
+                  const active = activeTags.includes(tag);
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => toggleTag(tag)}
+                      aria-pressed={active}
+                      className={`px-2 py-1 rounded-full text-xs border ${
+                        active
+                          ? 'bg-purple-600 text-white border-purple-600'
+                          : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  );
+                })}
+                {activeTags.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTags([])}
+                    className="text-xs text-purple-600 hover:text-purple-500"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Error Message */}
         {error && (
           <div className="mb-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg">
@@ -276,10 +364,33 @@ export default function BusinessesPage() {
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
                     {business.name}
                   </h3>
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <CategoryBadge
+                      category={business.category}
+                      riskLevel={business.risk_level}
+                    />
+                    {business.review_status === 'pending' && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 text-orange-800 dark:text-orange-400 text-xs">
+                        Pending review
+                      </span>
+                    )}
+                  </div>
                   {business.description && (
                     <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
                       {business.description}
                     </p>
+                  )}
+                  {business.tags && business.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-4">
+                      {business.tags.slice(0, 5).map((tag) => (
+                        <span
+                          key={tag}
+                          className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
                   )}
                   <div className="space-y-2 text-sm">
                     <div className="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">
@@ -358,10 +469,19 @@ export default function BusinessesPage() {
                       setFormData({ ...formData, description: e.target.value })
                     }
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 dark:text-white dark:bg-gray-700"
-                    placeholder="Optional description"
+                    placeholder="What does this business sell?"
                     rows={3}
                   />
                 </div>
+
+                <ClassificationFields
+                  value={{ category: formData.category, tags: formData.tags }}
+                  onChange={(v) =>
+                    setFormData({ ...formData, category: v.category, tags: v.tags })
+                  }
+                  name={formData.name}
+                  description={formData.description}
+                />
 
                 <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
                   💡 After creating your business, you can configure wallet addresses and webhooks in the business management page.
