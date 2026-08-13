@@ -44,6 +44,26 @@ export type {
   ListPaymentsFnParams 
 } from './payments.js';
 
+// Invoice exports
+export {
+  createInvoice,
+  getInvoice,
+  listInvoices,
+  updateInvoice,
+  deleteInvoice,
+  sendInvoice,
+  getInvoicePaymentData,
+  InvoiceStatus,
+} from './invoices.js';
+export type {
+  Invoice,
+  InvoiceStatusType,
+  CreateInvoiceParams,
+  ListInvoicesParams,
+  UpdateInvoiceParams,
+  ListInvoicesResult,
+} from './invoices.js';
+
 // Webhook exports
 export {
   verifyWebhookSignature,
