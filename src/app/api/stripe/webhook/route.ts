@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/server/optional-deps';
 import { sendPaymentWebhook } from '@/lib/webhooks/service';
+import { recordFraudEvent } from '@/lib/fraud/store';
+import { emailDomain, normalizeEmail } from '@/lib/fraud/signals';
 
 // Background-dispatch wrapper for merchant webhooks. sendPaymentWebhook
 // retries up to 3 times with a 30s timeout each — awaiting it inline could
@@ -370,6 +372,23 @@ async function recordCardFailure(supabase: ReturnType<typeof getSupabase>, strip
         .from('stripe_transactions')
         .upsert({ ...failFields, stripe_checkout_session_id: sessionId ?? null }, { onConflict: 'stripe_payment_intent_id' });
     }
+
+    // Feed the decline back into fraud screening. A run of these on one
+    // merchant or one network is what card testing looks like from our side.
+    const declineEmail = failFields.customer_email ?? session?.customer_details?.email ?? null;
+    await recordFraudEvent(supabase, {
+      businessId: businessId ?? null,
+      merchantId: merchantId ?? null,
+      kind: 'card_declined',
+      signals: {
+        email: declineEmail,
+        emailDomain: emailDomain(declineEmail),
+        emailNormalized: normalizeEmail(declineEmail),
+        amount: paymentIntent.amount ?? null,
+        currency: paymentIntent.currency || 'usd',
+      },
+      stripePaymentIntentId: paymentIntent.id,
+    });
   } catch (e) {
     console.error('[Stripe Webhook] recordCardFailure error:', e);
   }
@@ -575,11 +594,27 @@ async function handleDisputeCreated(dispute: any) {
     // Get merchant info from payment intent
     const { data: transaction } = await supabase
       .from('stripe_transactions')
-      .select('merchant_id')
+      .select('merchant_id, business_id, customer_email')
       .eq('stripe_payment_intent_id', paymentIntent)
       .single();
 
     if (!transaction) return;
+
+    // A dispute is the strongest confirmation that a card was not the buyer's.
+    await recordFraudEvent(supabase, {
+      businessId: transaction.business_id ?? null,
+      merchantId: transaction.merchant_id ?? null,
+      kind: 'dispute',
+      signals: {
+        email: transaction.customer_email ?? null,
+        emailDomain: emailDomain(transaction.customer_email),
+        emailNormalized: normalizeEmail(transaction.customer_email),
+        amount: dispute.amount ?? null,
+        currency: dispute.currency ?? null,
+        description: dispute.reason ? `dispute:${dispute.reason}` : null,
+      },
+      stripePaymentIntentId: paymentIntent,
+    });
 
     // Create dispute record
     await supabase

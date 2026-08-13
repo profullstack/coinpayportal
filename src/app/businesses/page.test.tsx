@@ -205,10 +205,13 @@ describe('BusinessesPage', () => {
         screen.getByLabelText(/business name/i);
       });
 
-      // Fill form - now only name and description are required
+      // Fill form - name and category are required, description optional
       const nameInput = screen.getByLabelText(/business name/i);
 
       fireEvent.change(nameInput, { target: { value: 'New Business' } });
+      fireEvent.change(screen.getByLabelText(/^category/i), {
+        target: { value: 'saas' },
+      });
 
       // Mock create request
       vi.mocked(fetch).mockResolvedValueOnce({

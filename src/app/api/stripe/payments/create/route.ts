@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/server/optional-deps';
+import { screenCheckout } from '@/lib/fraud/screen';
+import { authorizePaymentCreation } from '@/lib/auth/payment-auth';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
 
 function getSupabase() {
   return createClient(
@@ -30,6 +33,13 @@ export async function POST(request: NextRequest) {
         { error: 'businessId, amount, and currency are required' },
         { status: 400 }
       );
+    }
+
+    // Only the merchant being charged for (or the platform) may open a session
+    // against their Stripe account.
+    const auth = await authorizePaymentCreation(supabase, request, businessId);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
     // Stable invoice number returned to the caller now, so an integration can
@@ -66,6 +76,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Screen before the session exists — this is the last point at which we
+    // can stop a payment without Stripe ever seeing it.
+    const screening = await screenCheckout(supabase, {
+      businessId,
+      email: customerEmailValue,
+      ip: getClientIp(request),
+      amount,
+      currency,
+      description,
+    });
+
+    if (screening.decision === 'block') {
+      console.warn('[Fraud] Blocked checkout', {
+        businessId,
+        score: screening.score,
+        findings: screening.findings.map((f) => f.code).join(', '),
+      });
+      return NextResponse.json({ error: screening.buyerMessage }, { status: 403 });
+    }
+
+    // Elevated risk: let the payment through but force 3-D Secure, which moves
+    // liability for a stolen card back to the issuer.
+    const requiresVerification = screening.decision === 'verify';
+    if (requiresVerification) {
+      console.warn('[Fraud] Forcing 3DS', {
+        businessId,
+        score: screening.score,
+        findings: screening.findings.map((f) => f.code).join(', '),
+      });
+    }
+
     // Calculate platform fee (0.5% default)
     const platformFeeRate = 0.005;
     const platformFeeAmount = Math.round(amount * platformFeeRate);
@@ -94,6 +135,9 @@ export async function POST(request: NextRequest) {
         // Prefill the buyer's email on Stripe Checkout when the integration
         // already knows it (also captured on our side below, up front).
         ...(customerEmailValue ? { customer_email: customerEmailValue } : {}),
+        ...(requiresVerification
+          ? { payment_method_options: { card: { request_three_d_secure: 'any' as const } } }
+          : {}),
         payment_intent_data: {
           application_fee_amount: platformFeeAmount,
           on_behalf_of: stripeAccount.stripe_account_id,

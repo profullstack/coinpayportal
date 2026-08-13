@@ -171,6 +171,12 @@ export default function AdminContent() {
             User stats →
           </Link>
           <Link
+            href="/admin/businesses"
+            className="rounded bg-purple-600/20 px-4 py-2 text-sm text-purple-300 hover:bg-purple-600/30 border border-purple-500/20"
+          >
+            Businesses →
+          </Link>
+          <Link
             href="/admin/email-broadcast"
             className="rounded bg-purple-600/20 px-4 py-2 text-sm text-purple-300 hover:bg-purple-600/30 border border-purple-500/20"
           >

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Business } from './types';
+import { ClassificationFields, CategoryBadge } from './ClassificationFields';
 
 interface GeneralTabProps {
   business: Business;
@@ -14,6 +15,8 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
   const [formData, setFormData] = useState({
     name: business.name,
     description: business.description || '',
+    category: business.category || '',
+    tags: business.tags || [],
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -116,6 +119,13 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
             />
           </div>
 
+          <ClassificationFields
+            value={{ category: formData.category, tags: formData.tags }}
+            onChange={(v) => setFormData({ ...formData, category: v.category, tags: v.tags })}
+            name={formData.name}
+            description={formData.description}
+          />
+
           <div className="flex items-center space-x-3 pt-4">
             <button
               type="submit"
@@ -131,6 +141,8 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
                 setFormData({
                   name: business.name,
                   description: business.description || '',
+                  category: business.category || '',
+                  tags: business.tags || [],
                 });
                 setError('');
               }}
@@ -172,6 +184,44 @@ export function GeneralTab({ business, onUpdate, onCopy }: GeneralTabProps) {
                 Description
               </label>
               <p className="text-gray-900 dark:text-white">{business.description}</p>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+              Category
+            </label>
+            {business.category ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <CategoryBadge category={business.category} riskLevel={business.risk_level} />
+                {business.review_status === 'pending' && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 text-orange-800 dark:text-orange-400 text-xs">
+                    Pending review
+                  </span>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Not categorized yet — edit to add one.
+              </p>
+            )}
+          </div>
+
+          {business.tags && business.tags.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                Keywords
+              </label>
+              <div className="flex flex-wrap gap-1">
+                {business.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
 

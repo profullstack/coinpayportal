@@ -95,6 +95,7 @@ describe('Business Service', () => {
       const result = await createBusiness(mockSupabase, 'merchant-123', {
         name: 'Test Business',
         description: 'Test Description',
+        category: 'saas',
         webhook_url: 'https://example.com/webhook',
         webhook_secret: 'my-secret',
       });
@@ -138,6 +139,7 @@ describe('Business Service', () => {
 
       const result = await createBusiness(mockSupabase, 'merchant-123', {
         name: 'Test Business',
+        category: 'saas',
       });
 
       if (!result.success) {

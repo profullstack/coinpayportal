@@ -1,3 +1,5 @@
+import type { RiskLevel } from '@/lib/business/taxonomy';
+
 export interface Business {
   id: string;
   name: string;
@@ -5,6 +7,10 @@ export interface Business {
   webhook_url: string | null;
   webhook_secret: string | null;
   api_key: string | null;
+  category: string | null;
+  tags: string[] | null;
+  risk_level: RiskLevel | null;
+  review_status: string | null;
   created_at: string;
 }
 
