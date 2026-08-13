@@ -142,7 +142,7 @@ const CSV_COLUMNS: { header: string; value: (u: UserRow) => string | number }[] 
   { header: 'total_volume_usd', value: (u) => u.totalVolumeUsd },
 ];
 
-function toCsv(rows: UserRow[]): string {
+export function toCsv(rows: UserRow[]): string {
   const escape = (v: string | number): string => {
     const s = String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
