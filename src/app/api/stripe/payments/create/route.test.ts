@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { mockStripe, mockSupabase } = vi.hoisted(() => {
+const { mockStripe, mockSupabase, mockAuthorize } = vi.hoisted(() => {
+  const mockAuthorize = vi.fn();
   const mockStripe = {
     checkout: {
       sessions: {
@@ -17,8 +18,14 @@ const { mockStripe, mockSupabase } = vi.hoisted(() => {
     from: vi.fn(),
   };
 
-  return { mockStripe, mockSupabase };
+  return { mockStripe, mockSupabase, mockAuthorize };
 });
+
+// The gate itself is unit-tested in src/lib/auth/payment-auth.test.ts; here we
+// only care that the route refuses to act when it says no.
+vi.mock('@/lib/auth/payment-auth', () => ({
+  authorizePaymentCreation: mockAuthorize,
+}));
 
 vi.mock('stripe', () => ({
   default: vi.fn().mockImplementation(() => mockStripe),
@@ -72,6 +79,7 @@ describe('POST /api/stripe/payments/create', () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     process.env.NEXT_PUBLIC_APP_URL = 'https://coinpayportal.com';
+    mockAuthorize.mockResolvedValue({ ok: true, via: 'api_key', merchantId: 'merchant_123' });
     mockFromChain();
   });
 
@@ -127,5 +135,45 @@ describe('POST /api/stripe/payments/create', () => {
 
     const response = await POST(request);
     expect(response.status).toBe(404);
+  });
+
+  it('rejects an unauthenticated request before touching Stripe', async () => {
+    mockAuthorize.mockResolvedValue({ ok: false, status: 401, error: 'Missing API key' });
+
+    const request = new NextRequest('http://localhost:3000/api/stripe/payments/create', {
+      method: 'POST',
+      body: JSON.stringify({ businessId: 'biz_123', amount: 10000, currency: 'usd' }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(401);
+    expect(mockStripe.checkout.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a key belonging to a different business', async () => {
+    mockAuthorize.mockResolvedValue({
+      ok: false,
+      status: 403,
+      error: 'API key does not belong to this business',
+    });
+
+    const request = new NextRequest('http://localhost:3000/api/stripe/payments/create', {
+      method: 'POST',
+      body: JSON.stringify({ businessId: 'biz_someone_else', amount: 10000, currency: 'usd' }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(403);
+    expect(mockStripe.checkout.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it('checks authorization against the business being charged', async () => {
+    const request = new NextRequest('http://localhost:3000/api/stripe/payments/create', {
+      method: 'POST',
+      body: JSON.stringify({ businessId: 'biz_123', amount: 10000, currency: 'usd' }),
+    });
+
+    await POST(request);
+    expect(mockAuthorize).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'biz_123');
   });
 });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/server/optional-deps';
 import { screenCheckout } from '@/lib/fraud/screen';
+import { authorizePaymentCreation } from '@/lib/auth/payment-auth';
 import { getClientIp } from '@/lib/web-wallet/client-ip';
 
 function getSupabase() {
@@ -32,6 +33,13 @@ export async function POST(request: NextRequest) {
         { error: 'businessId, amount, and currency are required' },
         { status: 400 }
       );
+    }
+
+    // Only the merchant being charged for (or the platform) may open a session
+    // against their Stripe account.
+    const auth = await authorizePaymentCreation(supabase, request, businessId);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
     // Stable invoice number returned to the caller now, so an integration can
