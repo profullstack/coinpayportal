@@ -9,7 +9,6 @@ import { can } from '../auth/permissions';
 import {
   classifyBusiness,
   isValidCategory,
-  normalizeTags,
   type Classification,
   type RiskFlag,
   type RiskLevel,
