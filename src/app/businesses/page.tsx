@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { authFetch } from '@/lib/auth/client';
 import { ClassificationFields, CategoryBadge } from '@/components/business/ClassificationFields';
-import type { RiskLevel } from '@/lib/business/taxonomy';
+import { getCategory, type RiskLevel } from '@/lib/business/taxonomy';
 
 interface Business {
   id: string;
@@ -40,6 +40,8 @@ export default function BusinessesPage() {
     tags: [] as string[],
   });
   const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState('');
+  const [activeTags, setActiveTags] = useState<string[]>([]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -87,9 +89,38 @@ export default function BusinessesPage() {
   };
 
   // Filter by the selected organization (empty = all).
-  const visibleBusinesses = activeOrg
+  const orgBusinesses = activeOrg
     ? businesses.filter((b) => b.organization_id === activeOrg)
     : businesses;
+
+  // Every tag in play, so they can be offered as one-click filters.
+  const allTags = [...new Set(orgBusinesses.flatMap((b) => b.tags ?? []))].sort();
+
+  // Search runs client-side: a merchant has few businesses, and filtering what
+  // is already loaded keeps it instant. The API supports ?search= and ?tag= for
+  // consumers with more.
+  const needle = query.trim().toLowerCase();
+  const visibleBusinesses = orgBusinesses.filter((b) => {
+    if (activeTags.length > 0 && !activeTags.every((t) => (b.tags ?? []).includes(t))) {
+      return false;
+    }
+    if (!needle) return true;
+    const haystack = [
+      b.name,
+      b.description ?? '',
+      (b.tags ?? []).join(' '),
+      getCategory(b.category)?.label ?? '',
+    ]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(needle);
+  });
+
+  const toggleTag = (tag: string) => {
+    setActiveTags((current) =>
+      current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag]
+    );
+  };
 
   const handleCreate = () => {
     setFormData({
@@ -229,6 +260,51 @@ export default function BusinessesPage() {
             </button>
           </div>
         </div>
+
+        {/* Search + tag filters */}
+        {businesses.length > 0 && (
+          <div className="mb-6 space-y-3">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by name, description, keyword or category"
+              aria-label="Search businesses"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 dark:text-white dark:bg-gray-700"
+            />
+            {allTags.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {allTags.map((tag) => {
+                  const active = activeTags.includes(tag);
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => toggleTag(tag)}
+                      aria-pressed={active}
+                      className={`px-2 py-1 rounded-full text-xs border ${
+                        active
+                          ? 'bg-purple-600 text-white border-purple-600'
+                          : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  );
+                })}
+                {activeTags.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTags([])}
+                    className="text-xs text-purple-600 hover:text-purple-500"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Error Message */}
         {error && (

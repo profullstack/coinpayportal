@@ -84,7 +84,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const result = await listAccessibleBusinesses(supabase, merchantId);
+    // Search and facets: ?search=&tag=iptv&tag=streaming&category=&risk=&review=
+    const params = request.nextUrl.searchParams;
+    const result = await listAccessibleBusinesses(supabase, merchantId, {
+      search: params.get('search'),
+      tags: params.getAll('tag'),
+      category: params.get('category'),
+      riskLevel: params.get('risk'),
+      reviewStatus: params.get('review'),
+    });
 
     if (!result.success) {
       return NextResponse.json(

@@ -9,6 +9,7 @@ import { can } from '../auth/permissions';
 import {
   classifyBusiness,
   isValidCategory,
+  normalizeTags,
   type Classification,
   type RiskFlag,
   type RiskLevel,
@@ -218,6 +219,47 @@ export interface BusinessListResult {
   error?: string;
 }
 
+export interface BusinessFilters {
+  /** Free text matched against name and description. */
+  search?: string | null;
+  /** Every one of these tags must be present. */
+  tags?: string[] | null;
+  category?: string | null;
+  riskLevel?: string | null;
+  reviewStatus?: string | null;
+}
+
+/** PostgREST treats these as operators inside `or(...)`, so they must go. */
+function escapeForOr(value: string): string {
+  return value.replace(/[,()]/g, ' ').trim();
+}
+
+/**
+ * Apply search and facet filters to a `businesses` query. Shared by the merchant
+ * list and the admin console so both understand the same query string.
+ */
+export function applyBusinessFilters<T>(query: T, filters: BusinessFilters): T {
+  let q = query as any;
+
+  const search = typeof filters.search === 'string' ? escapeForOr(filters.search) : '';
+  if (search) {
+    q = q.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
+  }
+
+  const tags = normalizeTags(filters.tags ?? []);
+  if (tags.length > 0) {
+    // `contains` is an AND across the array — narrowing, which is what a tag
+    // filter should do.
+    q = q.contains('tags', tags);
+  }
+
+  if (filters.category) q = q.eq('category', filters.category);
+  if (filters.riskLevel) q = q.eq('risk_level', filters.riskLevel);
+  if (filters.reviewStatus) q = q.eq('review_status', filters.reviewStatus);
+
+  return q as T;
+}
+
 /**
  * Get encryption key for business data
  */
@@ -386,7 +428,8 @@ export async function listBusinesses(
  */
 export async function listAccessibleBusinesses(
   supabase: SupabaseClient,
-  merchantId: string
+  merchantId: string,
+  filters: BusinessFilters = {}
 ): Promise<BusinessListResult> {
   try {
     const roleMap = await getAccessibleBusinessRoles(supabase, merchantId);
@@ -395,10 +438,10 @@ export async function listAccessibleBusinesses(
       return { success: true, businesses: [] };
     }
 
-    const { data: businesses, error } = await supabase
-      .from('businesses')
-      .select('*')
-      .in('id', ids);
+    let query = supabase.from('businesses').select('*').in('id', ids);
+    query = applyBusinessFilters(query, filters);
+
+    const { data: businesses, error } = await query;
 
     if (error) {
       return { success: false, error: error.message };
@@ -597,6 +640,105 @@ export async function updateBusiness(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Business update failed',
+    };
+  }
+}
+
+export type TagOperation = 'replace' | 'add' | 'remove';
+
+export interface TagsResult {
+  success: boolean;
+  tags?: string[];
+  classification?: Classification;
+  error?: string;
+}
+
+/**
+ * Read the keyword tags on a business.
+ */
+export async function getBusinessTags(
+  supabase: SupabaseClient,
+  businessId: string
+): Promise<TagsResult> {
+  try {
+    const { data, error } = await supabase
+      .from('businesses')
+      .select('tags')
+      .eq('id', businessId)
+      .maybeSingle();
+
+    if (error || !data) {
+      return { success: false, error: error?.message || 'Business not found' };
+    }
+    return { success: true, tags: (data.tags as string[]) ?? [] };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to read tags',
+    };
+  }
+}
+
+/**
+ * Add, remove or replace keyword tags, then reclassify.
+ *
+ * Tags feed the risk classifier, so every write here re-derives risk_level and
+ * review_status — a business cannot quietly drop the "iptv" tag to shed its
+ * rating, because the name and description still carry the signal.
+ */
+export async function mutateBusinessTags(
+  supabase: SupabaseClient,
+  businessId: string,
+  operation: TagOperation,
+  tags: string[]
+): Promise<TagsResult> {
+  try {
+    const { data: current, error: fetchError } = await supabase
+      .from('businesses')
+      .select('name, description, category, tags')
+      .eq('id', businessId)
+      .maybeSingle();
+
+    if (fetchError || !current) {
+      return { success: false, error: fetchError?.message || 'Business not found' };
+    }
+
+    const incoming = normalizeTags(tags);
+    const existing = normalizeTags((current.tags as string[]) ?? []);
+
+    let nextTags: string[];
+    if (operation === 'replace') {
+      nextTags = incoming;
+    } else if (operation === 'add') {
+      nextTags = normalizeTags([...existing, ...incoming]);
+    } else {
+      const drop = new Set(incoming);
+      nextTags = existing.filter((tag) => !drop.has(tag));
+    }
+
+    const { classification, columns } = classificationColumns({
+      name: current.name,
+      description: current.description,
+      category: current.category,
+      tags: nextTags,
+    });
+
+    const { data: updated, error } = await supabase
+      .from('businesses')
+      .update(columns)
+      .eq('id', businessId)
+      .select('tags')
+      .single();
+
+    if (error || !updated) {
+      return { success: false, error: error?.message || 'Failed to update tags' };
+    }
+
+    return { success: true, tags: (updated.tags as string[]) ?? [], classification };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to update tags',
     };
   }
 }
