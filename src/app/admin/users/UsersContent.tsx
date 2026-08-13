@@ -144,8 +144,9 @@ const CSV_COLUMNS: { header: string; value: (u: UserRow) => string | number }[] 
 
 export function toCsv(rows: UserRow[]): string {
   const escape = (v: string | number): string => {
-    const s = String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    const raw = String(v);
+    const safe = typeof v === 'string' && /^[\u0000-\u0020]*[=+\-@]/.test(raw) ? `'${raw}` : raw;
+    return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
   };
   const lines = [CSV_COLUMNS.map((c) => c.header).join(',')];
   for (const row of rows) {
