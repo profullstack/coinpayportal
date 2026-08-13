@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { success: true, business: result.business },
+      { success: true, business: result.business, classification: result.classification },
       { status: 201 }
     );
   } catch (error) {

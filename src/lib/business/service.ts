@@ -6,6 +6,14 @@ import { z } from 'zod';
 import { resolveWebhookSecret } from '../webhooks/secret';
 import { getAccessibleBusinessRoles } from '../auth/authz';
 import { can } from '../auth/permissions';
+import {
+  classifyBusiness,
+  isValidCategory,
+  normalizeTags,
+  type Classification,
+  type RiskFlag,
+  type RiskLevel,
+} from './taxonomy';
 
 /**
  * Generate a secure webhook secret
@@ -108,11 +116,58 @@ const webhookUrlSchema = z.string().url('Invalid webhook URL').optional();
 const descriptionSchema = z.string().max(500).optional();
 
 /**
+ * Categorization is required on create so no business goes live unclassified.
+ * The slug must exist in the taxonomy — see src/lib/business/taxonomy.ts.
+ */
+function validateCategory(category: unknown): string | undefined {
+  if (!isValidCategory(category)) {
+    return 'Select a valid business category';
+  }
+  return undefined;
+}
+
+/**
+ * Run the classifier and turn it into the derived columns. Merchants never set
+ * these directly — a merchant-supplied risk_level would be worthless.
+ */
+function classificationColumns(input: {
+  name?: string | null;
+  description?: string | null;
+  category?: string | null;
+  tags?: string[] | null;
+}): {
+  classification: Classification;
+  columns: {
+    category: string | null;
+    tags: string[];
+    risk_level: RiskLevel;
+    risk_flags: RiskFlag[];
+    review_status: string;
+    classified_at: string;
+  };
+} {
+  const classification = classifyBusiness(input);
+  return {
+    classification,
+    columns: {
+      category: classification.category,
+      tags: classification.tags,
+      risk_level: classification.riskLevel,
+      risk_flags: classification.flags,
+      review_status: classification.reviewRequired ? 'pending' : 'not_required',
+      classified_at: new Date().toISOString(),
+    },
+  };
+}
+
+/**
  * Types
  */
 export interface CreateBusinessInput {
   name: string;
   description?: string;
+  category?: string;
+  tags?: string[];
   webhook_url?: string;
   webhook_secret?: string;
   webhook_events?: string[];
@@ -121,6 +176,8 @@ export interface CreateBusinessInput {
 export interface UpdateBusinessInput {
   name?: string;
   description?: string;
+  category?: string;
+  tags?: string[];
   webhook_url?: string;
   webhook_secret?: string;
   webhook_events?: string[];
@@ -132,6 +189,12 @@ export interface Business {
   merchant_id: string;
   name: string;
   description?: string;
+  category?: string | null;
+  tags?: string[];
+  risk_level?: RiskLevel | null;
+  risk_flags?: RiskFlag[];
+  review_status?: string;
+  classified_at?: string | null;
   webhook_url?: string;
   webhook_secret?: string;
   webhook_events?: string[];
@@ -145,6 +208,8 @@ export interface Business {
 export interface BusinessResult {
   success: boolean;
   business?: Business;
+  /** Present when this call (re)classified the business. */
+  classification?: Classification;
   error?: string;
 }
 
@@ -205,6 +270,23 @@ export async function createBusiness(
       }
     }
 
+    // Categorize before anything else — an unclassified business should never
+    // reach the point of collecting money.
+    const categoryError = validateCategory(input.category);
+    if (categoryError) {
+      return {
+        success: false,
+        error: categoryError,
+      };
+    }
+
+    const { classification, columns: classificationData } = classificationColumns({
+      name: input.name,
+      description: input.description,
+      category: input.category,
+      tags: input.tags,
+    });
+
     // Generate and encrypt webhook secret if webhook URL is provided
     let encryptedSecret: string | undefined;
     if (input.webhook_url) {
@@ -235,6 +317,7 @@ export async function createBusiness(
         organization_id: merchant?.default_org_id ?? null,
         name: input.name,
         description: input.description,
+        ...classificationData,
         webhook_url: input.webhook_url,
         webhook_secret: encryptedSecret,
         webhook_events: input.webhook_events || ['payment.confirmed', 'payment.forwarded'],
@@ -255,6 +338,7 @@ export async function createBusiness(
     return {
       success: true,
       business: business as Business,
+      classification,
     };
   } catch (error) {
     return {
@@ -415,10 +499,21 @@ export async function updateBusiness(
       }
     }
 
-    // Fetch current business to check if webhook URL has changed
+    if (input.category !== undefined) {
+      const categoryError = validateCategory(input.category);
+      if (categoryError) {
+        return {
+          success: false,
+          error: categoryError,
+        };
+      }
+    }
+
+    // Fetch current business to check if webhook URL has changed, and to
+    // reclassify against the merged record rather than the partial patch.
     const { data: currentBusiness, error: fetchError } = await supabase
       .from('businesses')
-      .select('webhook_url, webhook_secret')
+      .select('webhook_url, webhook_secret, name, description, category, tags')
       .eq('id', businessId)
       .eq('merchant_id', merchantId)
       .single();
@@ -436,6 +531,26 @@ export async function updateBusiness(
     if (input.name !== undefined) updateData.name = input.name;
     if (input.description !== undefined) updateData.description = input.description;
     if (input.webhook_url !== undefined) updateData.webhook_url = input.webhook_url;
+
+    // Anything the classifier reads changing means the verdict is stale.
+    let classification: Classification | undefined;
+    const reclassify =
+      input.name !== undefined ||
+      input.description !== undefined ||
+      input.category !== undefined ||
+      input.tags !== undefined;
+
+    if (reclassify) {
+      const merged = classificationColumns({
+        name: input.name ?? currentBusiness.name,
+        description: input.description ?? currentBusiness.description,
+        category: input.category ?? currentBusiness.category,
+        tags: input.tags ?? currentBusiness.tags,
+      });
+      classification = merged.classification;
+      Object.assign(updateData, merged.columns);
+    }
+
     if (input.webhook_events !== undefined) updateData.webhook_events = input.webhook_events;
     if (input.active !== undefined) updateData.active = input.active;
 
@@ -477,6 +592,7 @@ export async function updateBusiness(
     return {
       success: true,
       business: business as Business,
+      classification,
     };
   } catch (error) {
     return {

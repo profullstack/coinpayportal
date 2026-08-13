@@ -158,7 +158,7 @@ export async function PATCH(
     }
 
     return NextResponse.json(
-      { success: true, business: result.business },
+      { success: true, business: result.business, classification: result.classification },
       { status: 200 }
     );
   } catch (error) {
