@@ -37,7 +37,13 @@ const EVM_NETWORKS = new Set(['ethereum', 'polygon', 'base']);
 /** UTXO networks (use transaction proof verification) */
 const UTXO_NETWORKS = new Set(['bitcoin', 'bitcoin-cash']);
 
-/** EIP-712 type for EVM payment signatures */
+/**
+ * EIP-712 type for EVM payment signatures.
+ *
+ * `resource` binds the proof to the URL it buys. Without it a proof minted for
+ * a $0.01 endpoint verifies just as happily against a $5.00 one, because the
+ * signature says nothing about what was being purchased.
+ */
 const PAYMENT_TYPES = {
   Payment: [
     { name: 'from', type: 'address' },
@@ -46,15 +52,25 @@ const PAYMENT_TYPES = {
     { name: 'nonce', type: 'uint256' },
     { name: 'expiresAt', type: 'uint256' },
     { name: 'asset', type: 'address' },
+    { name: 'resource', type: 'string' },
   ],
 };
+
+/**
+ * Domain version. Bumped to '2' with the addition of `resource`: a v1 proof
+ * cannot satisfy the v2 struct, so old unbound proofs fail closed rather than
+ * being reinterpreted under the new rules.
+ */
+const EIP712_DOMAIN_VERSION = '2';
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 /**
  * Verify an EVM payment (ETH, POL, USDC on any EVM chain).
  */
 async function verifyEvmPayment(payment: any) {
   const { signature, payload } = payment;
-  const { from, to, amount, nonce, expiresAt, network, asset } = payload;
+  const { from, to, amount, nonce, expiresAt, network, asset, resource } = payload;
 
   const chainId = CHAIN_IDS[network];
   if (!chainId) return { valid: false, error: `Unknown EVM network: ${network}` };
@@ -67,15 +83,23 @@ async function verifyEvmPayment(payment: any) {
   // Verify EIP-712 typed data signature
   const domain = {
     name: 'x402',
-    version: '1',
+    version: EIP712_DOMAIN_VERSION,
     chainId,
-    verifyingContract: asset || '0x0000000000000000000000000000000000000000',
+    verifyingContract: asset || ZERO_ADDRESS,
   };
 
   const recoveredAddress = ethers.verifyTypedData(
     domain,
     PAYMENT_TYPES,
-    { from, to, amount, nonce, expiresAt, asset: asset || '0x0000000000000000000000000000000000000000' },
+    {
+      from,
+      to,
+      amount,
+      nonce,
+      expiresAt,
+      asset: asset || ZERO_ADDRESS,
+      resource: resource || '',
+    },
     signature
   );
 
@@ -169,6 +193,69 @@ async function verifyStripePayment(payment: any) {
   }
 }
 
+/**
+ * Networks whose proofs are authenticated by the payer's signature, so the
+ * `amount` in the payload cannot be altered without invalidating the proof.
+ *
+ * For every other network the payload is self-reported until settlement
+ * confirms it on-chain, which is why those verifications come back
+ * `pendingConfirmation` and must not be treated as final.
+ */
+const SIGNATURE_BOUND_NETWORKS = EVM_NETWORKS;
+
+/**
+ * Enforce that the proof pays at least the asking price, for the resource it
+ * was minted for.
+ *
+ * The merchant's middleware holds the API key, so what it says is owed is
+ * authoritative. Previously nothing compared the two: any well-formed proof
+ * unlocked any priced route.
+ */
+function enforcePriceBinding(payment: any, expected: any) {
+  if (!expected || typeof expected !== 'object') {
+    return {
+      ok: false,
+      error:
+        'Missing `expected` — verification requires the asking price and resource. ' +
+        'Upgrade to an SDK that sends them; see docs/X402_INTEGRATION.md.',
+    };
+  }
+
+  const { amount: expectedAmount, resource: expectedResource } = expected;
+
+  if (expectedAmount === undefined || expectedAmount === null || expectedAmount === '') {
+    return { ok: false, error: 'Missing `expected.amount` — cannot verify the proof covers the price' };
+  }
+  if (!expectedResource) {
+    return { ok: false, error: 'Missing `expected.resource` — cannot verify the proof buys this resource' };
+  }
+
+  // Compare in the asset's smallest unit. BigInt, not Number: wei overflows
+  // float64 and silently compares equal well below the asking price.
+  let paid: bigint;
+  let owed: bigint;
+  try {
+    paid = BigInt(String(payment.payload.amount ?? ''));
+    owed = BigInt(String(expectedAmount));
+  } catch {
+    return { ok: false, error: 'Invalid amount: expected an integer in the asset smallest unit' };
+  }
+
+  if (paid < owed) {
+    return { ok: false, error: `Underpayment: proof pays ${paid}, resource costs ${owed}` };
+  }
+
+  const paidFor = payment.payload.resource;
+  if (paidFor !== expectedResource) {
+    return {
+      ok: false,
+      error: `Resource mismatch: proof was minted for ${paidFor || '(none)'}, not ${expectedResource}`,
+    };
+  }
+
+  return { ok: true as const };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const apiKey = request.headers.get('x-api-key');
@@ -190,13 +277,20 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { payment } = body;
+    const { payment, expected } = body;
 
     if (!payment || !payment.payload) {
       return NextResponse.json(
         { error: 'Invalid payment proof: missing payload' },
         { status: 400 }
       );
+    }
+
+    // What the merchant is charging, and for what. Checked before the proof is
+    // trusted so an underpaying or misdirected proof never reaches the ledger.
+    const binding = enforcePriceBinding(payment, expected);
+    if (!binding.ok) {
+      return NextResponse.json({ error: binding.error }, { status: 400 });
     }
 
     const { network, scheme } = payment.payload;
@@ -226,35 +320,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
 
-    // Check for replay (nonce/txId already used).
-    // Stripe proofs carry no nonce/txId/txSignature/preimage — their unique
-    // identifier is the PaymentIntent id, so include it here. Without it the
-    // replay check below is skipped for Stripe and a single succeeded
-    // PaymentIntent can be redeemed unlimited times.
+    // Replay identity. Stripe proofs carry no nonce/txId/txSignature/preimage —
+    // their unique identifier is the PaymentIntent id, so include it here.
     const uniqueKey =
       payment.payload.nonce ||
       payment.payload.txId ||
       payment.payload.txSignature ||
       payment.payload.preimage ||
       payment.payload.paymentIntentId;
-    if (uniqueKey) {
-      const { data: existingPayment } = await supabase
-        .from('x402_payments')
-        .select('id')
-        .eq('unique_key', uniqueKey)
-        .eq('network', network)
-        .single();
 
-      if (existingPayment) {
-        return NextResponse.json(
-          { error: 'Payment proof already used (replay detected)' },
-          { status: 400 }
-        );
-      }
+    if (!uniqueKey) {
+      return NextResponse.json(
+        { error: 'Proof carries no nonce, txId, txSignature, preimage or paymentIntentId — cannot be replay-checked' },
+        { status: 400 }
+      );
     }
 
-    // Record the verified payment
-    await supabase.from('x402_payments').insert({
+    // Record the verified payment. The unique index on (unique_key, network)
+    // is what rejects replays: a read-then-write check lets two concurrent
+    // verifies of the same proof both pass, and silently degrades to "allow"
+    // if the table is unreachable. Let the INSERT decide.
+    const { error: insertError } = await supabase.from('x402_payments').insert({
       business_id: keyData.business_id,
       from_address: (payment.payload.from || '').toLowerCase(),
       to_address: (payment.payload.to || '').toLowerCase(),
@@ -264,10 +350,30 @@ export async function POST(request: NextRequest) {
       scheme: scheme || 'exact',
       asset: payment.payload.asset || payment.payload.extra?.assetSymbol || network,
       method_key: methodKey,
+      resource: expected.resource,
       raw_proof: JSON.stringify(payment),
       status: 'verified',
       pending_confirmation: result.pendingConfirmation || false,
     });
+
+    if (insertError) {
+      // 23505 = unique_violation: this proof has already been redeemed.
+      if (insertError.code === '23505') {
+        return NextResponse.json(
+          { error: 'Payment proof already used (replay detected)' },
+          { status: 400 }
+        );
+      }
+
+      // Anything else (table missing, RLS, connectivity) must fail closed.
+      // Reporting `valid: true` on an unrecorded payment is how a proof
+      // becomes infinitely reusable.
+      console.error('x402 verify: could not record payment', insertError);
+      return NextResponse.json(
+        { error: 'Could not record payment — verification refused' },
+        { status: 503 }
+      );
+    }
 
     return NextResponse.json({
       valid: true,
@@ -275,10 +381,15 @@ export async function POST(request: NextRequest) {
         from: payment.payload.from,
         to: payment.payload.to,
         amount: payment.payload.amount,
+        resource: expected.resource,
         network,
         asset: payment.payload.asset || payment.payload.extra?.assetSymbol,
         method: methodKey,
+        // True when the amount is self-reported and only settlement can confirm
+        // it. Callers must not serve paid content on an unconfirmed proof
+        // unless they have accepted that risk.
         pendingConfirmation: result.pendingConfirmation || false,
+        amountAuthenticated: SIGNATURE_BOUND_NETWORKS.has(network),
       },
     });
   } catch (error) {

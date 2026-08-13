@@ -293,7 +293,15 @@ describe('x402 Module', () => {
       const mockPayment = {
         scheme: 'exact',
         signature: '0xsig',
-        payload: { from: '0x1', to: '0x2', amount: '1000000' },
+        payload: {
+          from: '0x1',
+          to: '0x2',
+          amount: '1000000',
+          // A proof must say which method it pays with, or there is no
+          // advertised price to hold it to.
+          network: 'ethereum',
+          methodKey: 'usdc_eth',
+        },
       };
       const paymentHeader = Buffer.from(JSON.stringify(mockPayment)).toString('base64');
 
@@ -485,7 +493,10 @@ describe('x402 Module', () => {
         }),
       });
 
-      const result = await verifyX402Payment(header, { apiKey: 'cp_live_test' });
+      const result = await verifyX402Payment(header, {
+        apiKey: 'cp_live_test',
+        expected: { amount: '1', resource: 'https://example.com/premium' },
+      });
 
       expect(result.valid).toBe(true);
       expect(result.payment).toBeDefined();
@@ -505,7 +516,10 @@ describe('x402 Module', () => {
         json: () => Promise.resolve({ error: 'Invalid signature' }),
       });
 
-      const result = await verifyX402Payment(header, { apiKey: 'cp_live_test' });
+      const result = await verifyX402Payment(header, {
+        apiKey: 'cp_live_test',
+        expected: { amount: '1', resource: 'https://example.com/premium' },
+      });
       expect(result.valid).toBe(false);
       expect(result.reason).toBe('Invalid signature');
     });
@@ -520,7 +534,10 @@ describe('x402 Module', () => {
 
       mockFetch.mockRejectedValue(new Error('Connection refused'));
 
-      const result = await verifyX402Payment(header, { apiKey: 'cp_live_test' });
+      const result = await verifyX402Payment(header, {
+        apiKey: 'cp_live_test',
+        expected: { amount: '1', resource: 'https://example.com/premium' },
+      });
       expect(result.valid).toBe(false);
       expect(result.reason).toContain('Facilitator error');
       expect(result.reason).toContain('Connection refused');
@@ -539,7 +556,10 @@ describe('x402 Module', () => {
         json: () => Promise.resolve({ valid: true, payment: {} }),
       });
 
-      await verifyX402Payment(header, { apiKey: 'cp_live_mykey' });
+      await verifyX402Payment(header, {
+        apiKey: 'cp_live_mykey',
+        expected: { amount: '1', resource: 'https://example.com/premium' },
+      });
 
       expect(mockFetch).toHaveBeenCalledWith(
         expect.any(String),
@@ -565,6 +585,7 @@ describe('x402 Module', () => {
       await verifyX402Payment(header, {
         apiKey: 'cp_live_test',
         apiBaseUrl: 'https://custom.example.com',
+        expected: { amount: '1', resource: 'https://example.com/premium' },
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
