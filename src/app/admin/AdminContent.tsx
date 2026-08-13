@@ -165,6 +165,12 @@ export default function AdminContent() {
         <h2 className="text-lg font-semibold text-white mb-3">Tools</h2>
         <div className="flex flex-wrap gap-3">
           <Link
+            href="/admin/users"
+            className="rounded bg-purple-600/20 px-4 py-2 text-sm text-purple-300 hover:bg-purple-600/30 border border-purple-500/20"
+          >
+            User stats →
+          </Link>
+          <Link
             href="/admin/email-broadcast"
             className="rounded bg-purple-600/20 px-4 py-2 text-sm text-purple-300 hover:bg-purple-600/30 border border-purple-500/20"
           >
