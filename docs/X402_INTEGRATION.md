@@ -229,26 +229,44 @@ app.get('/api/data', x402({ amount: '1000', network: 'bitcoin' }), handler);
 #### Next.js App Router
 
 ```javascript
-import { buildPaymentRequired, verifyX402Payment } from '@profullstack/coinpay';
+import {
+  buildPaymentRequired,
+  verifyX402Payment,
+  expectedForProof,
+} from '@profullstack/coinpay';
 
 export async function GET(request) {
   const paymentHeader = request.headers.get('x-payment');
+  const resource = request.url;
+
+  // Build the offer up front. It is the 402 body when the caller has not
+  // paid, and the price their proof must cover when they have.
+  const offer = buildPaymentRequired({
+    payTo: {
+      bitcoin: 'bc1q...',
+      ethereum: '0x...',
+      solana: 'So1...',
+      lightning: 'lno1...',
+    },
+    amountUsd: 5.00,
+    rates: { BTC: 65000, ETH: 3500, SOL: 150 },
+    resource,
+  });
 
   if (!paymentHeader) {
-    const body = buildPaymentRequired({
-      payTo: {
-        bitcoin: 'bc1q...',
-        ethereum: '0x...',
-        solana: 'So1...',
-        lightning: 'lno1...',
-      },
-      amountUsd: 5.00,
-      rates: { BTC: 65000, ETH: 3500, SOL: 150 },
-    });
-    return Response.json(body, { status: 402 });
+    return Response.json(offer, { status: 402 });
   }
 
-  const result = await verifyX402Payment(paymentHeader, { apiKey: 'cp_live_xxxxx' });
+  // Required. Without it the facilitator has no price to hold the proof to.
+  const expected = expectedForProof(paymentHeader, offer, resource);
+  if (!expected) {
+    return Response.json({ error: 'Unrecognised payment method' }, { status: 402 });
+  }
+
+  const result = await verifyX402Payment(paymentHeader, {
+    apiKey: 'cp_live_xxxxx',
+    expected,
+  });
   if (!result.valid) {
     return Response.json({ error: result.reason }, { status: 402 });
   }
@@ -337,9 +355,64 @@ Log into CoinPayPortal and navigate to the **x402** section to:
 - Solana payments verified via RPC transaction lookup
 - Lightning payments use cryptographic preimage verification
 - Stripe payments verified via Stripe API
-- Replay protection via unique keys (nonce, txId, txSignature, preimage)
+- Replay protection via a unique index on (unique_key, network) in
+  `x402_payments`, where unique_key is the nonce, txId, txSignature, preimage
+  or Stripe PaymentIntent id. The database rejects the second use, so two
+  concurrent verifications of one proof cannot both succeed.
 - Non-custodial: funds settle directly to the merchant's wallet(s)
 - API key required for facilitator access (rate-limited)
+
+### Price and resource binding
+
+A proof is only meaningful against a price. `/api/x402/verify` therefore
+**requires** an `expected` object alongside the proof:
+
+```json
+{
+  "payment": { "...": "the proof" },
+  "expected": { "amount": "5000000", "resource": "https://api.example.com/premium" }
+}
+```
+
+- `amount` is the asking price in the asset's smallest unit. The facilitator
+  rejects any proof paying less. Comparison is integer-exact (BigInt), because
+  wei-scale values silently collapse to equal as float64.
+- `resource` is the URL being bought. The facilitator rejects a proof minted
+  for anything else.
+
+The merchant's SDK holds the API key, so what it declares owed is
+authoritative. `expectedForProof()` derives both fields from the offer the
+server just built — never from the proof, which is the payer's own claim
+about what they owe.
+
+**EVM payers must sign the resource.** As of domain version `2` the EIP-712
+`Payment` struct is:
+
+```
+from (address), to (address), amount (uint256), nonce (uint256),
+expiresAt (uint256), asset (address), resource (string)
+```
+
+Domain: `{ name: 'x402', version: '2', chainId, verifyingContract: asset }`.
+
+Version `1` proofs — which omit `resource` — no longer verify. This is
+deliberate: an unbound proof cannot be safely reinterpreted under rules it was
+never signed against.
+
+### What the facilitator cannot vouch for
+
+Only EVM proofs carry a payer signature over the amount. On Bitcoin, Bitcoin
+Cash and Solana the amount in the payload is self-reported until settlement
+confirms it on-chain, so `/api/x402/verify` returns those with
+`pendingConfirmation: true` and `amountAuthenticated: false`.
+
+The SDK middleware refuses to serve content on an unconfirmed proof. Merchants
+who would rather serve immediately and accept the risk of a forged or
+underfunded transaction can opt in:
+
+```javascript
+createX402Middleware({ /* ... */, allowPendingConfirmation: true });
+```
 
 ## Resources
 

@@ -359,29 +359,41 @@ app.get('/api/premium', x402({ amountUsd: 5.00 }), (req, res) => {
 });`}</CodeBlock>
 
             <h4 className="text-md font-semibold text-white mt-6 mb-3">Next.js (App Router)</h4>
-            <CodeBlock language="typescript">{`import { buildPaymentRequired, verifyX402Payment } from '@profullstack/coinpay';
+            <CodeBlock language="typescript">{`import { buildPaymentRequired, verifyX402Payment, expectedForProof } from '@profullstack/coinpay';
 
 export async function GET(request: Request) {
   const paymentHeader = request.headers.get('x-payment');
+  const resource = request.url;
+
+  // Build the offer up front: it is the 402 body when unpaid, and the price
+  // the proof must actually cover when paid.
+  const offer = buildPaymentRequired({
+    payTo: {
+      bitcoin: 'bc1q...',
+      ethereum: '0x...',
+      solana: 'So1...',
+      lightning: 'alice@coinpayportal.com',
+    },
+    amountUsd: 5.00,
+    rates: { BTC: 65000, ETH: 3500, SOL: 150 },
+    resource,
+  });
 
   if (!paymentHeader) {
     // No payment — return 402 with all accepted methods
-    const body = buildPaymentRequired({
-      payTo: {
-        bitcoin: 'bc1q...',
-        ethereum: '0x...',
-        solana: 'So1...',
-        lightning: 'alice@coinpayportal.com',
-      },
-      amountUsd: 5.00,
-      rates: { BTC: 65000, ETH: 3500, SOL: 150 },
-    });
-    return Response.json(body, { status: 402 });
+    return Response.json(offer, { status: 402 });
   }
 
-  // Verify payment proof via CoinPayPortal facilitator
+  // \`expected\` is required: it pins the proof to this price and this URL,
+  // so a proof bought for a cheap route cannot unlock this one.
+  const expected = expectedForProof(paymentHeader, offer, resource);
+  if (!expected) {
+    return Response.json({ error: 'Unrecognised payment method' }, { status: 402 });
+  }
+
   const result = await verifyX402Payment(paymentHeader, {
     apiKey: 'cp_live_xxxxx',
+    expected,
   });
 
   if (!result.valid) {

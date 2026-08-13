@@ -31,27 +31,38 @@ const x402 = createX402Middleware({
 app.get('/api/premium', x402({ amountUsd: 5.00 }), (req, res) => {
   res.json({ data: 'premium content', paidWith: req.x402Payment });
 });`,
-  nextjs: `import { buildPaymentRequired, verifyX402Payment } from '@profullstack/coinpay';
+  nextjs: `import { buildPaymentRequired, verifyX402Payment, expectedForProof } from '@profullstack/coinpay';
 
 export async function GET(request: Request) {
   const paymentHeader = request.headers.get('x-payment');
+  const resource = request.url;
+
+  // The offer is both the 402 body and the price a proof has to cover.
+  const offer = buildPaymentRequired({
+    payTo: {
+      bitcoin: 'bc1q...',
+      ethereum: '0x...',
+      solana: 'So1...',
+      lightning: 'lno1...',
+    },
+    amountUsd: 5.00,
+    rates: { BTC: 65000, ETH: 3500, SOL: 150 },
+    resource,
+  });
 
   if (!paymentHeader) {
-    const body = buildPaymentRequired({
-      payTo: {
-        bitcoin: 'bc1q...',
-        ethereum: '0x...',
-        solana: 'So1...',
-        lightning: 'lno1...',
-      },
-      amountUsd: 5.00,
-      rates: { BTC: 65000, ETH: 3500, SOL: 150 },
-    });
-    return Response.json(body, { status: 402 });
+    return Response.json(offer, { status: 402 });
+  }
+
+  // \`expected\` pins the proof to this price and this URL.
+  const expected = expectedForProof(paymentHeader, offer, resource);
+  if (!expected) {
+    return Response.json({ error: 'Unrecognised payment method' }, { status: 402 });
   }
 
   const result = await verifyX402Payment(paymentHeader, {
     apiKey: 'YOUR_API_KEY',
+    expected,
   });
 
   if (!result.valid) {
