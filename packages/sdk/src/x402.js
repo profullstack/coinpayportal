@@ -332,6 +332,57 @@ function _networkToMethodKey(network) {
 }
 
 /**
+ * Decode an X-PAYMENT header without verifying it.
+ *
+ * Returns null on anything malformed — the caller treats that as "no usable
+ * proof", and the facilitator remains the only thing that decides validity.
+ */
+function decodePaymentHeader(paymentHeader) {
+  try {
+    return JSON.parse(Buffer.from(paymentHeader, 'base64').toString('utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Work out what this proof was supposed to pay, by finding the offer entry for
+ * the method the payer chose.
+ *
+ * The price comes from the offer the server just built — never from the proof
+ * itself, which is the payer's word for what they owe.
+ *
+ * @returns {{amount: string, resource: string}|null} null if the proof matches
+ *   no advertised method, in which case there is no price to hold it to.
+ */
+export function expectedForProof(paymentHeader, offer, resource) {
+  const payment = decodePaymentHeader(paymentHeader);
+  if (!payment?.payload) return null;
+
+  const { network, asset } = payment.payload;
+  const methodKey = payment.payload.methodKey || payment.payload.extra?.methodKey;
+
+  const entries = offer?.accepts || [];
+
+  // Prefer an exact method match: a network alone is ambiguous, since e.g.
+  // ethereum offers both ETH and USDC at very different smallest-unit prices.
+  let match = methodKey
+    ? entries.find((e) => e.extra?.methodKey === methodKey)
+    : undefined;
+
+  if (!match && network) {
+    const sameNetwork = entries.filter((e) => e.network === network);
+    match =
+      sameNetwork.find((e) => e.asset === asset) ||
+      (sameNetwork.length === 1 ? sameNetwork[0] : undefined);
+  }
+
+  if (!match) return null;
+
+  return { amount: match.maxAmountRequired, resource };
+}
+
+/**
  * Create Express/Next.js middleware that gates routes behind x402 payments.
  * 
  * Returns a function that accepts per-route options and returns middleware.
@@ -373,6 +424,7 @@ export function createX402Middleware(globalOptions) {
     description = 'Payment required',
     facilitatorUrl = DEFAULT_FACILITATOR_URL,
     apiBaseUrl = 'https://coinpayportal.com',
+    allowPendingConfirmation: globalAllowPendingConfirmation = false,
   } = globalOptions;
 
   if (!apiKey) throw new Error('x402 middleware requires an apiKey');
@@ -408,6 +460,8 @@ export function createX402Middleware(globalOptions) {
     const routeAmount = routeOptions.amount;
     const routeDescription = routeOptions.description || description;
     const routeMethods = routeOptions.methods || methods;
+    const allowPendingConfirmation =
+      routeOptions.allowPendingConfirmation ?? globalAllowPendingConfirmation;
 
     if (!routeAmountUsd && !routeAmount) {
       throw new Error('x402 route requires amountUsd or amount');
@@ -415,38 +469,65 @@ export function createX402Middleware(globalOptions) {
 
     return async function x402Middleware(req, res, next) {
       const paymentHeader = req.headers['x-payment'] || req.headers['X-Payment'];
+      const resource = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+
+      // Build the offer regardless of branch: on a 402 it is the response body,
+      // and on a paid request it is the price the proof has to actually cover.
+      let offer;
+      try {
+        offer = buildPaymentRequired({
+          payTo,
+          amountUsd: routeAmountUsd,
+          amount: routeAmount,
+          network: routeOptions.network,
+          rates: currentRates,
+          methods: routeMethods,
+          resource,
+          description: routeDescription,
+          facilitatorUrl,
+        });
+      } catch (err) {
+        return res.status(500).json({ error: 'Failed to build payment options', details: err.message });
+      }
 
       if (!paymentHeader) {
-        const resource = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
-        try {
-          const body = buildPaymentRequired({
-            payTo,
-            amountUsd: routeAmountUsd,
-            amount: routeAmount,
-            network: routeOptions.network,
-            rates: currentRates,
-            methods: routeMethods,
-            resource,
-            description: routeDescription,
-            facilitatorUrl,
-          });
-          return res.status(402).json(body);
-        } catch (err) {
-          return res.status(500).json({ error: 'Failed to build payment options', details: err.message });
-        }
+        return res.status(402).json(offer);
       }
 
       // Verify the payment
       try {
+        // Find the advertised price for the method the payer actually used.
+        // Without this the facilitator has nothing to compare the proof
+        // against, and any proof unlocks any priced route.
+        const expected = expectedForProof(paymentHeader, offer, resource);
+        if (!expected) {
+          return res.status(402).json({
+            error: 'Invalid payment proof',
+            details: 'Proof does not correspond to any offered payment method',
+          });
+        }
+
         const result = await verifyX402Payment(paymentHeader, {
           apiKey,
           apiBaseUrl,
+          expected,
         });
 
         if (!result.valid) {
           return res.status(402).json({
             error: 'Invalid payment proof',
             details: result.reason,
+          });
+        }
+
+        // On non-EVM rails the paid amount is self-reported until settlement
+        // confirms it on-chain, so serving now means serving on trust.
+        if (result.payment?.pendingConfirmation && !allowPendingConfirmation) {
+          return res.status(402).json({
+            error: 'Payment not confirmed',
+            details:
+              'This payment cannot be confirmed until it settles on-chain. ' +
+              'Set allowPendingConfirmation: true to serve on unconfirmed proofs.',
           });
         }
 
@@ -472,10 +553,13 @@ export function createX402Middleware(globalOptions) {
  * @param {Object} options
  * @param {string} options.apiKey - CoinPayPortal API key
  * @param {string} [options.apiBaseUrl='https://coinpayportal.com'] - API base URL
+ * @param {{amount: string, resource: string}} options.expected - What this
+ *   request is charging, and for what. Required: the facilitator refuses to
+ *   verify a proof it cannot hold to a price.
  * @returns {Promise<{valid: boolean, payment?: Object, reason?: string}>}
  */
 export async function verifyX402Payment(paymentHeader, options = {}) {
-  const { apiKey, apiBaseUrl = 'https://coinpayportal.com' } = options;
+  const { apiKey, apiBaseUrl = 'https://coinpayportal.com', expected } = options;
 
   if (!paymentHeader) {
     return { valid: false, reason: 'Missing payment header' };
@@ -495,6 +579,7 @@ export async function verifyX402Payment(paymentHeader, options = {}) {
     return { valid: false, reason: 'Missing scheme, signature, or payload in payment proof' };
   }
 
+
   // Check expiry if present
   if (payment.payload?.expiresAt) {
     const expiresAt = typeof payment.payload.expiresAt === 'number'
@@ -505,6 +590,16 @@ export async function verifyX402Payment(paymentHeader, options = {}) {
     }
   }
 
+  // A proof is only meaningful against a price. Without one there is nothing
+  // to check it covers, which is exactly how a $0.01 proof used to unlock a
+  // $5.00 resource.
+  if (!expected?.amount || !expected?.resource) {
+    return {
+      valid: false,
+      reason: 'Missing expected amount/resource — refusing to verify a proof with no price to check it against',
+    };
+  }
+
   // Call CoinPayPortal facilitator to verify
   try {
     const response = await fetch(`${apiBaseUrl}/api/x402/verify`, {
@@ -513,7 +608,7 @@ export async function verifyX402Payment(paymentHeader, options = {}) {
         'Content-Type': 'application/json',
         ...(apiKey ? { 'X-API-Key': apiKey } : {}),
       },
-      body: JSON.stringify({ payment }),
+      body: JSON.stringify({ payment, expected }),
     });
 
     const data = await response.json();
