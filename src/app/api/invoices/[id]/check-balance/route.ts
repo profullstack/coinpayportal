@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { checkBalance } from '@/lib/payments/monitor-balance';
 import { sendEmail } from '@/lib/email';
 import { invoicePaidMerchantTemplate } from '@/lib/email/invoice-templates';
+import { confirmAndForwardPayment } from '@/app/api/cron/monitor-payments/payment-monitor';
+import type { Payment } from '@/app/api/cron/monitor-payments/types';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -57,7 +59,45 @@ export async function POST(
     console.log(`[Invoice Check] ${id}: balance=${balanceResult.balance}, expected=${expectedAmount}, currency=${invoice.crypto_currency}`);
 
     if (expectedAmount > 0 && balanceResult.balance >= expectedAmount * 0.99) {
-      const now = new Date().toISOString();
+      const nowDate = new Date();
+      const now = nowDate.toISOString();
+
+      // Settling the invoice is only half the job. This endpoint used to mark
+      // the invoice paid and email the merchant their net without ever putting
+      // the underlying payment on the forwarding path — so the money stayed at
+      // the intermediary address while every surface said it had arrived.
+      // Confirm and forward first; the invoice is only "paid" once the funds
+      // are actually on their way.
+      const linkedPaymentId = (invoice.metadata && typeof invoice.metadata === 'object')
+        ? (invoice.metadata as Record<string, any>).coinpay_payment_id
+        : null;
+
+      if (linkedPaymentId) {
+        const { data: linkedPayment } = await supabase
+          .from('payments')
+          .select('id, business_id, blockchain, crypto_amount, status, payment_address, created_at, expires_at, merchant_wallet_address')
+          .eq('id', linkedPaymentId)
+          .maybeSingle();
+
+        if (linkedPayment && !['forwarding', 'forwarded'].includes(linkedPayment.status)) {
+          try {
+            await confirmAndForwardPayment(
+              supabase,
+              linkedPayment as Payment,
+              balanceResult.balance,
+              nowDate,
+            );
+          } catch (fwdErr) {
+            // Don't strand the invoice in 'sent' on a forwarding hiccup — the
+            // retry queue owns recovery from here. Log loudly instead.
+            console.error(`[Invoice Check] Forwarding failed for ${invoice.invoice_number}:`, fwdErr);
+          }
+        }
+      } else {
+        console.warn(
+          `[Invoice Check] Invoice ${invoice.invoice_number} has funds at ${invoice.payment_address} but no linked payment — cannot auto-forward.`,
+        );
+      }
 
       // Mark as paid
       await supabase

@@ -87,6 +87,21 @@ export async function POST(
 
     const isPaidTier = await isBusinessPaidTier(supabase, invoice.business_id);
 
+    // An invoice's payer is not standing at a checkout page — they pay when the
+    // invoice falls due, which is usually days out. The default 15-minute
+    // window would mark this payment expired long before then, and a deposit
+    // arriving afterwards used to strand at the intermediary address. Size the
+    // window to the due date with a week of slack for late payers.
+    const INVOICE_GRACE_MINUTES = 60 * 24 * 7;
+    const MIN_INVOICE_WINDOW_MINUTES = 60 * 24;
+    const minutesUntilDue = invoice.due_date
+      ? Math.ceil((new Date(invoice.due_date).getTime() - Date.now()) / 60000)
+      : 0;
+    const expiresInMinutes = Math.max(
+      MIN_INVOICE_WINDOW_MINUTES,
+      minutesUntilDue + INVOICE_GRACE_MINUTES,
+    );
+
     // Create a normal CoinPay payment so invoices use the same intermediary
     // payment address, tiered commission, and secure forwarding path as /payments.
     const paymentResult = await createPayment(supabase, {
@@ -95,6 +110,7 @@ export async function POST(
       currency: invoice.currency || 'USD',
       blockchain: invoice.crypto_currency as Blockchain,
       merchant_wallet_address: payeeAddress,
+      expires_in_minutes: expiresInMinutes,
       metadata: {
         ...(invoice.metadata && typeof invoice.metadata === 'object' ? invoice.metadata : {}),
         source: 'invoice',
