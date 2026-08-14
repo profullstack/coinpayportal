@@ -113,8 +113,7 @@ export async function runInvoiceMonitorCycle(supabase: any, now: Date): Promise<
             } else {
               console.error(
                 `[Monitor] Invoice ${invoice.invoice_number}: ${balanceResult.balance} ${invoice.crypto_currency} received at ` +
-                  `${invoice.payment_address} but no payment record owns that address — funds need manual recovery ` +
-                  `(scripts/diagnose-stranded-address.ts ${invoice.payment_address}).`,
+                  `${invoice.payment_address} but no payment record owns that address — funds need manual recovery.`,
               );
             }
 
