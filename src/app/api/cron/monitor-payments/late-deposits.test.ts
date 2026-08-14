@@ -43,14 +43,17 @@ function mockSupabase(expiredRows: any[], opts: { isEscrow?: boolean } = {}) {
   const paymentsUpdate = vi.fn().mockReturnValue({ eq: paymentsUpdateEq });
   const queueDeleteEq = vi.fn().mockResolvedValue({ data: null, error: null });
 
+  const statusFilter = vi.fn();
   const rescanChain = {
     select: vi.fn().mockReturnValue({
-      eq: vi.fn().mockReturnValue({
+      in: statusFilter.mockReturnValue({
         not: vi.fn().mockReturnValue({
           neq: vi.fn().mockReturnValue({
             gte: vi.fn().mockReturnValue({
-              order: vi.fn().mockReturnValue({
-                limit: vi.fn().mockResolvedValue({ data: expiredRows, error: null }),
+              lte: vi.fn().mockReturnValue({
+                order: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue({ data: expiredRows, error: null }),
+                }),
               }),
             }),
           }),
@@ -85,7 +88,7 @@ function mockSupabase(expiredRows: any[], opts: { isEscrow?: boolean } = {}) {
     }),
   };
 
-  return { supabase, paymentsUpdate, paymentsUpdateEq };
+  return { supabase, paymentsUpdate, paymentsUpdateEq, statusFilter };
 }
 
 describe('rescanLateDeposits', () => {
@@ -159,6 +162,41 @@ describe('rescanLateDeposits', () => {
 
     expect(stats.confirmed).toBe(1); // still confirmed…
     expect(fetch).not.toHaveBeenCalled(); // …but settlement stays manual
+  });
+
+  it('scans every state that can strand funds, not just expired', async () => {
+    vi.mocked(checkBalance).mockResolvedValue(0 as any);
+    const { supabase, statusFilter } = mockSupabase([]);
+
+    await rescanLateDeposits(supabase, now, stats);
+
+    // An on-chain audit put most stranded value in forwarding_failed, so
+    // scanning only 'expired' would miss the bulk of it.
+    const [, statuses] = statusFilter.mock.calls[0];
+    expect(statuses).toEqual(
+      expect.arrayContaining(['expired', 'confirmed', 'forwarding_failed', 'forwarding']),
+    );
+  });
+
+  it('re-drives a forwarding_failed payment whose funds are still present', async () => {
+    vi.mocked(checkBalance).mockResolvedValue(1.35938662 as any);
+    const { supabase } = mockSupabase([expiredPayment({ status: 'forwarding_failed' })]);
+
+    await rescanLateDeposits(supabase, now, stats);
+
+    expect(stats.confirmed).toBe(1);
+    expect(fetch).toHaveBeenCalled();
+  });
+
+  it('will not re-drive a stuck forward once the funds have left', async () => {
+    // Balance gone ⇒ an earlier forward did land; re-driving would double-send.
+    vi.mocked(checkBalance).mockResolvedValue(0 as any);
+    const { supabase } = mockSupabase([expiredPayment({ status: 'forwarding' })]);
+
+    await rescanLateDeposits(supabase, now, stats);
+
+    expect(stats.confirmed).toBe(0);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('keeps going when one address fails to check', async () => {
