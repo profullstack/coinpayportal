@@ -31,6 +31,12 @@ import { getProvider, getRpcUrl, type BlockchainType, SolanaProvider, BitcoinPro
 import { splitTieredPayment } from '../payments/fees';
 import { sendPaymentWebhook } from '../webhooks/service';
 import { isBusinessPaidTier } from '../entitlements/service';
+import {
+  computeGasReserve,
+  ensureGasForTransfers,
+  forwardTokenViaRelayer,
+} from './evm-gas';
+import type { SystemBlockchain } from './system-wallet';
 
 const EVM_TOKEN_CONFIG = {
   USDT: { contractAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6 },
@@ -180,15 +186,59 @@ async function forwardEVMTokenSplit(
 ): Promise<{ merchantTxHash?: string; platformTxHash?: string }> {
   const config = EVM_TOKEN_CONFIG[chain as keyof typeof EVM_TOKEN_CONFIG];
   const provider = new ethers.JsonRpcProvider(rpcUrl);
+
+  const payouts = recipients
+    .map((r) => ({ address: r.address, amount: toTokenUnits(r.amount, config.decimals) }))
+    .filter((r) => r.amount > 0n);
+
+  if (payouts.length === 0) {
+    return { merchantTxHash: undefined, platformTxHash: undefined };
+  }
+
+  // Preferred: the relayer pulls the funds with permit + transferFrom, so the
+  // derived address never needs native currency and no dust is left behind.
+  try {
+    const relayed = await forwardTokenViaRelayer({
+      cryptocurrency: chain as SystemBlockchain,
+      provider,
+      ownerPrivateKey: privateKey,
+      tokenAddress: config.contractAddress,
+      recipients: payouts,
+    });
+
+    if (relayed) {
+      console.log(
+        `[SECURE] Forwarded ${chain} via relayer ${relayed.relayerAddress} ` +
+          `(gas ${ethers.formatEther(relayed.gasSpentWei)})`,
+      );
+      return {
+        merchantTxHash: relayed.txHashes[0],
+        platformTxHash: relayed.txHashes[1] || relayed.txHashes[0],
+      };
+    }
+  } catch (relayError) {
+    // A broke relayer is an operational problem and the fallback needs the same
+    // float, so there is nothing to gain by retrying the other path — surface it.
+    const msg = relayError instanceof Error ? relayError.message : String(relayError);
+    if (msg.includes('Top up the relayer')) throw relayError;
+    console.error(`[SECURE] Relayer path failed for ${chain}, falling back to gas top-up: ${msg}`);
+  }
+
+  // Fallback for tokens without permit (USDT on Ethereum predates EIP-2612):
+  // fund the address, then let it send for itself.
+  await ensureGasForTransfers({
+    cryptocurrency: chain as SystemBlockchain,
+    provider,
+    address: new ethers.Wallet(privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`).address,
+    transferCount: payouts.length,
+  });
+
   const wallet = new ethers.Wallet(privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`, provider);
   const token = new ethers.Contract(config.contractAddress, ERC20_TRANSFER_ABI, wallet);
 
   const txHashes: string[] = [];
-  for (const recipient of recipients) {
-    const amountUnits = toTokenUnits(recipient.amount, config.decimals);
-    if (amountUnits <= 0n) continue;
-
-    const tx = await token.transfer(recipient.address, amountUnits);
+  for (const recipient of payouts) {
+    const tx = await token.transfer(recipient.address, recipient.amount);
     await tx.wait();
     txHashes.push(tx.hash);
   }
@@ -408,10 +458,27 @@ export async function forwardPaymentSecurely(
     // Paid tier (Professional) = 0.5% commission, Free tier (Starter) = 1% commission
     const isPaidTier = await isBusinessPaidTier(supabase, payment.business_id);
 
-    // Calculate split amounts based on subscription tier
-    const { merchantAmount, platformFee, feePercentage } = splitTieredPayment(payment.crypto_amount, isPaidTier);
+    // Withhold the gas reserve before splitting — token payments only.
+    //
+    // Every quote already adds an estimated network fee on top of the invoice
+    // amount. On chains where the fee and the funds are the same asset it is
+    // consumed by the sweep itself, so there is nothing to withhold. For tokens
+    // it arrives as more *token*, which cannot pay gas, so the platform has to
+    // advance native currency and recover it here. Splitting the surcharge 99/1
+    // like the rest of the payment — which is what used to happen — handed 99%
+    // of the gas money to the merchant and left the float permanently short.
+    const gasReserve = isEVMToken(addressData.cryptocurrency)
+      ? computeGasReserve(payment.crypto_amount, payment.metadata)
+      : 0;
+
+    const split = splitTieredPayment(payment.crypto_amount - gasReserve, isPaidTier);
+    const { merchantAmount, feePercentage } = split;
+    const platformFee = split.platformFee + gasReserve;
 
     console.log(`[SECURE] Commission rate for business ${payment.business_id}: ${feePercentage * 100}% (${isPaidTier ? 'paid' : 'free'} tier)`);
+    if (gasReserve > 0) {
+      console.log(`[SECURE] Withholding ${gasReserve} ${addressData.cryptocurrency} as gas reserve`);
+    }
 
     // Get blockchain provider
     const rpcUrl = getRpcUrl(addressData.cryptocurrency);

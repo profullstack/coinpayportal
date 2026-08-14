@@ -669,6 +669,43 @@ async function deriveCardanoWallet(
 /**
  * Derive a unique payment address from the system's HD wallet
  */
+/**
+ * BIP44 account 1 is reserved for the gas relayer.
+ *
+ * Payment addresses live at `m/44'/60'/0'/0/{index}` with the index handed out
+ * by the family counter, so the relayer must not sit anywhere in that account —
+ * a counter that ever reached the relayer's index would hand a customer the
+ * wallet holding the platform's gas float. Account 1 is a space the counter
+ * can never enter.
+ */
+export const GAS_RELAYER_DERIVATION_PATH = "m/44'/60'/1'/0/0";
+
+/**
+ * Derive the EVM gas relayer for a chain.
+ *
+ * Same mnemonic as the chain's payment addresses (so there is no extra secret
+ * to provision or rotate), different BIP44 account. This is the wallet that
+ * pays gas on behalf of derived addresses that hold only tokens.
+ */
+export function deriveGasRelayerWallet(
+  cryptocurrency: SystemBlockchain,
+): { address: string; privateKey: string } {
+  const mnemonic = getSystemMnemonic(cryptocurrency);
+  const seed = mnemonicToSeedSync(mnemonic);
+  const hdKey = HDKey.fromMasterSeed(seed);
+  const child = hdKey.derive(GAS_RELAYER_DERIVATION_PATH);
+
+  if (!child.privateKey) {
+    throw new Error(`Failed to derive gas relayer for ${cryptocurrency}`);
+  }
+
+  const privateKeyHex = Buffer.from(child.privateKey).toString('hex');
+  return {
+    address: new ethers.Wallet(`0x${privateKeyHex}`).address,
+    privateKey: privateKeyHex,
+  };
+}
+
 export async function deriveSystemPaymentAddress(
   cryptocurrency: SystemBlockchain,
   index: number
