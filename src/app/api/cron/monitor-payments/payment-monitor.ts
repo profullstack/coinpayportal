@@ -168,30 +168,49 @@ export async function confirmAndForwardPayment(
 }
 
 /**
- * Deposits that land after the payment window closed.
+ * Payments that still hold funds but that nothing will ever look at again.
  *
- * The 15-minute window is a quote-validity window, not a promise that nothing
- * will ever arrive afterwards — customers routinely pay an invoice hours or
- * days later, and the deposit address stays spendable regardless. Because the
- * main loop only queries `status = 'pending'`, an expired row was previously
- * never looked at again: the funds arrived, the address kept them, and no job
- * existed that would ever notice. This pass re-checks recently-expired
- * addressed payments so a late deposit still reaches the merchant.
+ * The main loop only queries `status = 'pending'`, so the moment a row leaves
+ * that state it stops being monitored. Four states can leave money sitting at
+ * an intermediary address:
  *
- * Bounded deliberately — each check is a chain RPC call, so this walks the
- * most recently expired rows rather than the entire history.
+ *   expired           — the window closed before the deposit landed. The window
+ *                       is a quote-validity window, not a promise that nothing
+ *                       will arrive later; customers pay invoices days late.
+ *   confirmed         — the deposit was seen but forwarding never ran.
+ *   forwarding_failed — forwarding threw. The retry queue is supposed to catch
+ *                       these, but anything that exhausted its attempts (or was
+ *                       never enqueued) is orphaned permanently.
+ *   forwarding        — a forward started and never completed.
+ *
+ * An on-chain audit found the great majority of stranded value in
+ * `forwarding_failed`, not `expired` — so scanning only expired rows would
+ * leave most of it stuck.
+ *
+ * Two guards keep this safe:
+ *   - the funds must still be at the address, which proves no earlier forward
+ *     succeeded (important for `forwarding`, where a transaction could
+ *     otherwise be in flight and get double-sent);
+ *   - rows must be older than STUCK_MIN_AGE_MINUTES, so this never races the
+ *     normal path on a payment that is being handled right now.
+ *
+ * Bounded deliberately — each check is a chain RPC call, so this walks the most
+ * recent rows rather than the entire history.
  */
-const LATE_DEPOSIT_LOOKBACK_DAYS = 30;
-const LATE_DEPOSIT_SCAN_LIMIT = 50;
+const STUCK_STATUSES = ['expired', 'confirmed', 'forwarding_failed', 'forwarding'];
+const STUCK_LOOKBACK_DAYS = 30;
+const STUCK_MIN_AGE_MINUTES = 30;
+const STUCK_SCAN_LIMIT = 50;
 
 export async function rescanLateDeposits(
   supabase: SupabaseClient,
   now: Date,
   stats: MonitorStats,
 ): Promise<void> {
-  const since = new Date(now.getTime() - LATE_DEPOSIT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const since = new Date(now.getTime() - STUCK_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const until = new Date(now.getTime() - STUCK_MIN_AGE_MINUTES * 60 * 1000);
 
-  const { data: expiredPayments, error } = await supabase
+  const { data: stuckPayments, error } = await supabase
     .from('payments')
     .select(`
       id,
@@ -204,33 +223,36 @@ export async function rescanLateDeposits(
       expires_at,
       merchant_wallet_address
     `)
-    .eq('status', 'expired')
+    .in('status', STUCK_STATUSES)
     .not('payment_address', 'is', null)
     .neq('payment_address', '')
     .gte('expires_at', since.toISOString())
+    .lte('expires_at', until.toISOString())
     .order('expires_at', { ascending: false })
-    .limit(LATE_DEPOSIT_SCAN_LIMIT);
+    .limit(STUCK_SCAN_LIMIT);
 
   if (error) {
-    console.error('Failed to fetch expired payments for late-deposit rescan:', error.message);
+    console.error('Failed to fetch stuck payments for rescan:', error.message);
     stats.errors++;
     return;
   }
 
-  for (const payment of expiredPayments || []) {
+  for (const payment of stuckPayments || []) {
     stats.checked++;
     try {
       const balance = await checkBalance(payment.payment_address, payment.blockchain);
       const tolerance = payment.crypto_amount * 0.01;
+      // Funds still present ⇒ no earlier forward succeeded, so re-driving this
+      // payment cannot double-send.
       if (balance < payment.crypto_amount - tolerance) continue;
 
       console.log(
-        `Payment ${payment.id} was funded after its payment window (expired ${payment.expires_at}); processing instead of leaving it stranded`,
+        `Payment ${payment.id} is stuck in '${payment.status}' with ${balance} ${payment.blockchain} still at ${payment.payment_address}; re-driving it`,
       );
       await confirmAndForwardPayment(supabase, payment as Payment, balance, now);
       stats.confirmed++;
     } catch (err) {
-      console.error(`Error rescanning expired payment ${payment.id}:`, err);
+      console.error(`Error rescanning stuck payment ${payment.id}:`, err);
       stats.errors++;
     }
   }
