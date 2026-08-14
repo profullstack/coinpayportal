@@ -73,6 +73,51 @@ export async function runInvoiceMonitorCycle(supabase: any, now: Date): Promise<
           const expectedAmount = parseFloat(invoice.crypto_amount || '0');
 
           if (expectedAmount > 0 && balanceResult.balance >= expectedAmount * 0.99) {
+            // Put the money on its way before declaring the invoice settled.
+            //
+            // This branch handles invoices with no linked CoinPay payment. It
+            // used to compute the split and then only console.log it — the
+            // funds were never forwarded, yet the invoice was marked paid and
+            // the merchant emailed a confirmation. Recover the owning payment
+            // from the address itself so the normal secure-forwarding path can
+            // run; if there genuinely isn't one, say so loudly rather than
+            // implying a transfer happened.
+            const { data: addrRow } = await supabase
+              .from('payment_addresses')
+              .select('payment_id, merchant_wallet')
+              .eq('address', invoice.payment_address)
+              .maybeSingle();
+
+            const internalApiKey = process.env.INTERNAL_API_KEY;
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
+
+            if (addrRow?.payment_id && internalApiKey) {
+              try {
+                const res = await fetch(`${appUrl}/api/payments/${addrRow.payment_id}/forward`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${internalApiKey}`,
+                  },
+                });
+                if (!res.ok) {
+                  console.error(
+                    `[Monitor] Invoice ${invoice.invoice_number}: forwarding returned ${res.status} - ${await res.text()}`,
+                  );
+                } else {
+                  console.log(`[Monitor] Invoice ${invoice.invoice_number}: forwarding triggered for payment ${addrRow.payment_id}`);
+                }
+              } catch (fwdErr) {
+                console.error(`[Monitor] Invoice ${invoice.invoice_number} forwarding error:`, fwdErr);
+              }
+            } else {
+              console.error(
+                `[Monitor] Invoice ${invoice.invoice_number}: ${balanceResult.balance} ${invoice.crypto_currency} received at ` +
+                  `${invoice.payment_address} but no payment record owns that address — funds need manual recovery ` +
+                  `(scripts/diagnose-stranded-address.ts ${invoice.payment_address}).`,
+              );
+            }
+
             // Payment received — mark as paid
             await supabase
               .from('invoices')
@@ -86,23 +131,6 @@ export async function runInvoiceMonitorCycle(supabase: any, now: Date): Promise<
 
             stats.paid++;
             console.log(`[Monitor] Invoice ${invoice.invoice_number} PAID (${balanceResult.balance} ${invoice.crypto_currency})`);
-
-            // Forward to merchant minus fee
-            const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
-            const internalApiKey = process.env.INTERNAL_API_KEY;
-            if (internalApiKey && invoice.merchant_wallet_address) {
-              try {
-                // Create a temporary payment record for forwarding
-                const feeRate = parseFloat(invoice.fee_rate) || 0.01;
-                const cryptoAmount = parseFloat(invoice.crypto_amount || '0');
-                const feeAmount = cryptoAmount * feeRate;
-
-                // Use existing forwarding infrastructure via internal API
-                console.log(`[Monitor] Invoice ${invoice.invoice_number}: forwarding ${cryptoAmount - feeAmount} ${invoice.crypto_currency} to ${invoice.merchant_wallet_address} (fee: ${feeAmount})`);
-              } catch (fwdErr) {
-                console.error(`[Monitor] Invoice ${invoice.invoice_number} forwarding error:`, fwdErr);
-              }
-            }
 
             // Email merchant confirmation
             const { data: merchant } = await supabase

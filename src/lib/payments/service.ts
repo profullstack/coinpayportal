@@ -25,6 +25,16 @@ export type Blockchain =
 export const PAYMENT_EXPIRATION_MINUTES = 15;
 
 /**
+ * Upper bound on a caller-supplied payment window (90 days).
+ *
+ * The window is how long the quoted crypto amount stands, so a longer one is
+ * price risk the merchant carries. Invoices legitimately need days — a 15
+ * minute checkout window on an invoice due next Friday guarantees the payment
+ * is marked expired long before the customer pays.
+ */
+export const MAX_PAYMENT_EXPIRATION_MINUTES = 60 * 24 * 90;
+
+/**
  * Validation schemas
  */
 const blockchainSchema = z.enum([
@@ -47,6 +57,12 @@ export interface CreatePaymentInput {
   blockchain: Blockchain;
   merchant_wallet_address?: string; // Optional - will use platform wallet if not provided
   metadata?: Record<string, any>;
+  /**
+   * Payment window in minutes. Defaults to the 15-minute checkout window.
+   * Callers whose payer is not standing at a checkout page (invoices, in
+   * particular) must widen this or the payment expires before it can be paid.
+   */
+  expires_in_minutes?: number;
 }
 
 export interface Payment {
@@ -162,10 +178,15 @@ export async function createPayment(
     
     console.log(`[Payment] Amount: $${input.amount}, Network fee: $${networkFeeUsd}, Total: $${totalAmountUsd}, Crypto: ${cryptoAmount} ${cryptoCurrency}`);
 
-    // Calculate expiration (15 minutes from now)
-    // Users must complete payment within this window
+    // Calculate expiration. Defaults to the 15-minute checkout window; callers
+    // with a longer-lived payer (invoices) pass their own, clamped so a bad
+    // value can't create an effectively immortal quote.
+    const requestedWindow = Number(input.expires_in_minutes);
+    const windowMinutes = Number.isFinite(requestedWindow) && requestedWindow > 0
+      ? Math.min(requestedWindow, MAX_PAYMENT_EXPIRATION_MINUTES)
+      : PAYMENT_EXPIRATION_MINUTES;
     const expiresAt = new Date();
-    expiresAt.setMinutes(expiresAt.getMinutes() + PAYMENT_EXPIRATION_MINUTES);
+    expiresAt.setMinutes(expiresAt.getMinutes() + windowMinutes);
 
     // Build payment data - merchant_wallet_address is optional
     const paymentData: Record<string, any> = {

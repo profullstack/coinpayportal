@@ -69,6 +69,174 @@ async function activateSubscriptionFromPayment(
 }
 
 /**
+ * Ask the forwarding endpoint to move a confirmed payment out to the merchant,
+ * retrying once inline before handing off to the retry queue.
+ */
+async function triggerForwarding(supabase: SupabaseClient, paymentId: string): Promise<void> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
+  const internalApiKey = process.env.INTERNAL_API_KEY;
+  if (!internalApiKey) return;
+
+  const post = (retry: boolean) =>
+    fetch(`${appUrl}/api/payments/${paymentId}/forward`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${internalApiKey}`,
+      },
+      ...(retry ? { body: JSON.stringify({ retry: true }) } : {}),
+    });
+
+  try {
+    const forwardResponse = await post(false);
+
+    if (forwardResponse.ok) {
+      console.log(`Forwarding triggered for payment ${paymentId}`);
+      await supabase.from('payment_forwarding_queue').delete().eq('payment_id', paymentId);
+      return;
+    }
+
+    const errorText = await forwardResponse.text();
+    console.error(`Failed to trigger forwarding for ${paymentId}: ${forwardResponse.status} - ${errorText}`);
+
+    // Immediate auto-retry once before queueing
+    const retryResponse = await post(true);
+    if (retryResponse.ok) {
+      console.log(`Forwarding retry succeeded for payment ${paymentId}`);
+      await supabase.from('payment_forwarding_queue').delete().eq('payment_id', paymentId);
+      return;
+    }
+
+    const retryErrorText = await retryResponse.text();
+    console.error(`Immediate retry failed for ${paymentId}: ${retryResponse.status} - ${retryErrorText}`);
+    await enqueueForwardingRetry(
+      supabase,
+      paymentId,
+      `initial=${forwardResponse.status}; retry=${retryResponse.status}; ${retryErrorText}`,
+      1
+    );
+  } catch (forwardError) {
+    const errMsg = forwardError instanceof Error ? forwardError.message : String(forwardError);
+    console.error(`Error triggering forwarding for ${paymentId}:`, forwardError);
+    await enqueueForwardingRetry(supabase, paymentId, errMsg, 1);
+  }
+}
+
+/**
+ * Mark a funded payment confirmed and push it out to the merchant.
+ *
+ * Confirmation and forwarding belong together: a payment that is marked settled
+ * without the forwarding leg being attempted is exactly how funds end up
+ * stranded at an intermediary address while the customer, the merchant and the
+ * invoice all believe the money has landed.
+ */
+export async function confirmAndForwardPayment(
+  supabase: SupabaseClient,
+  payment: Payment,
+  balance: number,
+  now: Date,
+): Promise<void> {
+  await supabase
+    .from('payments')
+    .update({
+      status: 'confirmed',
+      confirmed_at: now.toISOString(),
+      updated_at: now.toISOString(),
+    })
+    .eq('id', payment.id);
+
+  await sendWebhook(supabase, { ...payment, status: 'confirmed' } as Payment, 'payment.confirmed', {
+    received_amount: balance,
+    confirmed_at: now.toISOString(),
+  });
+
+  console.log(`Payment ${payment.id} confirmed with balance ${balance}`);
+
+  // Skip forwarding for escrow-held addresses
+  const { data: addrCheck } = await supabase
+    .from('payment_addresses')
+    .select('is_escrow')
+    .eq('address', payment.payment_address)
+    .single();
+
+  if (addrCheck?.is_escrow) {
+    console.log(`Payment ${payment.id} is escrow-held — skipping auto-forward`);
+    return;
+  }
+
+  await triggerForwarding(supabase, payment.id);
+}
+
+/**
+ * Deposits that land after the payment window closed.
+ *
+ * The 15-minute window is a quote-validity window, not a promise that nothing
+ * will ever arrive afterwards — customers routinely pay an invoice hours or
+ * days later, and the deposit address stays spendable regardless. Because the
+ * main loop only queries `status = 'pending'`, an expired row was previously
+ * never looked at again: the funds arrived, the address kept them, and no job
+ * existed that would ever notice. This pass re-checks recently-expired
+ * addressed payments so a late deposit still reaches the merchant.
+ *
+ * Bounded deliberately — each check is a chain RPC call, so this walks the
+ * most recently expired rows rather than the entire history.
+ */
+const LATE_DEPOSIT_LOOKBACK_DAYS = 30;
+const LATE_DEPOSIT_SCAN_LIMIT = 50;
+
+export async function rescanLateDeposits(
+  supabase: SupabaseClient,
+  now: Date,
+  stats: MonitorStats,
+): Promise<void> {
+  const since = new Date(now.getTime() - LATE_DEPOSIT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+
+  const { data: expiredPayments, error } = await supabase
+    .from('payments')
+    .select(`
+      id,
+      business_id,
+      blockchain,
+      crypto_amount,
+      status,
+      payment_address,
+      created_at,
+      expires_at,
+      merchant_wallet_address
+    `)
+    .eq('status', 'expired')
+    .not('payment_address', 'is', null)
+    .neq('payment_address', '')
+    .gte('expires_at', since.toISOString())
+    .order('expires_at', { ascending: false })
+    .limit(LATE_DEPOSIT_SCAN_LIMIT);
+
+  if (error) {
+    console.error('Failed to fetch expired payments for late-deposit rescan:', error.message);
+    stats.errors++;
+    return;
+  }
+
+  for (const payment of expiredPayments || []) {
+    stats.checked++;
+    try {
+      const balance = await checkBalance(payment.payment_address, payment.blockchain);
+      const tolerance = payment.crypto_amount * 0.01;
+      if (balance < payment.crypto_amount - tolerance) continue;
+
+      console.log(
+        `Payment ${payment.id} was funded after its payment window (expired ${payment.expires_at}); processing instead of leaving it stranded`,
+      );
+      await confirmAndForwardPayment(supabase, payment as Payment, balance, now);
+      stats.confirmed++;
+    } catch (err) {
+      console.error(`Error rescanning expired payment ${payment.id}:`, err);
+      stats.errors++;
+    }
+  }
+}
+
+/**
  * Monitor all pending payments
  */
 export async function monitorPayments(
@@ -139,86 +307,11 @@ export async function monitorPayments(
       // Check if sufficient funds received (allow 1% tolerance)
       const tolerance = payment.crypto_amount * 0.01;
       if (balance >= payment.crypto_amount - tolerance) {
-        await supabase
-          .from('payments')
-          .update({
-            status: 'confirmed',
-            confirmed_at: now.toISOString(),
-            updated_at: now.toISOString(),
-          })
-          .eq('id', payment.id);
-
-        await sendWebhook(supabase, { ...payment, status: 'confirmed' } as Payment, 'payment.confirmed', {
-          received_amount: balance,
-          confirmed_at: now.toISOString(),
-        });
-
+        if (isExpired) {
+          console.log(`Payment ${payment.id} was funded near the end of its window; processing instead of expiring`);
+        }
+        await confirmAndForwardPayment(supabase, payment as Payment, balance, now);
         stats.confirmed++;
-        console.log(`Payment ${payment.id} confirmed with balance ${balance}`);
-
-        // Skip forwarding for escrow-held addresses
-        const { data: addrCheck } = await supabase
-          .from('payment_addresses')
-          .select('is_escrow')
-          .eq('address', payment.payment_address)
-          .single();
-
-        if (addrCheck?.is_escrow) {
-          console.log(`Payment ${payment.id} is escrow-held — skipping auto-forward`);
-          continue;
-        }
-
-        // Trigger forwarding
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
-        const internalApiKey = process.env.INTERNAL_API_KEY;
-
-        if (internalApiKey) {
-          try {
-            const forwardResponse = await fetch(`${appUrl}/api/payments/${payment.id}/forward`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${internalApiKey}`,
-              },
-            });
-
-            if (!forwardResponse.ok) {
-              const errorText = await forwardResponse.text();
-              console.error(`Failed to trigger forwarding for ${payment.id}: ${forwardResponse.status} - ${errorText}`);
-
-              // Immediate auto-retry once before queueing
-              const retryResponse = await fetch(`${appUrl}/api/payments/${payment.id}/forward`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${internalApiKey}`,
-                },
-                body: JSON.stringify({ retry: true }),
-              });
-
-              if (!retryResponse.ok) {
-                const retryErrorText = await retryResponse.text();
-                console.error(`Immediate retry failed for ${payment.id}: ${retryResponse.status} - ${retryErrorText}`);
-                await enqueueForwardingRetry(
-                  supabase,
-                  payment.id,
-                  `initial=${forwardResponse.status}; retry=${retryResponse.status}; ${retryErrorText}`,
-                  1
-                );
-              } else {
-                console.log(`Forwarding retry succeeded for payment ${payment.id}`);
-                await supabase.from('payment_forwarding_queue').delete().eq('payment_id', payment.id);
-              }
-            } else {
-              console.log(`Forwarding triggered for payment ${payment.id}`);
-              await supabase.from('payment_forwarding_queue').delete().eq('payment_id', payment.id);
-            }
-          } catch (forwardError) {
-            const errMsg = forwardError instanceof Error ? forwardError.message : String(forwardError);
-            console.error(`Error triggering forwarding for ${payment.id}:`, forwardError);
-            await enqueueForwardingRetry(supabase, payment.id, errMsg, 1);
-          }
-        }
       } else if (isExpired) {
         await supabase
           .from('payments')
@@ -241,6 +334,10 @@ export async function monitorPayments(
       stats.errors++;
     }
   }
+
+  // Expiring a payment closes the quote, not the address — money can still turn
+  // up afterwards. Catch those before they strand.
+  await rescanLateDeposits(supabase, now, stats);
 
   // Process pending business-collection payments (includes subscription checkouts)
   const { data: pendingBusinessCollectionPayments, error: pendingCollectionError } = await supabase
