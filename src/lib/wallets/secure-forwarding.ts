@@ -381,6 +381,23 @@ export async function forwardPaymentSecurely(
       };
     }
 
+    // GUARD: refuse to build a transfer with no payee.
+    //
+    // An empty merchant_wallet reaches the provider as an empty recipient
+    // address, which throws mid-transaction and takes the platform-fee leg down
+    // with it — leaving the payment in forwarding_failed and the funds at the
+    // intermediary address. Failing here instead makes the cause legible
+    // ("no payee") rather than surfacing as an opaque chain error, and keeps a
+    // doomed transaction from being attempted on every retry.
+    if (!addressData.merchant_wallet || addressData.merchant_wallet.trim() === '') {
+      return {
+        success: false,
+        error:
+          `Payment ${paymentId} has no merchant payout address on its payment_addresses row. ` +
+          `Set merchant_wallet to the merchant's ${addressData.cryptocurrency} address before forwarding.`,
+      };
+    }
+
     // Update payment status to forwarding
     await supabase
       .from('payments')
