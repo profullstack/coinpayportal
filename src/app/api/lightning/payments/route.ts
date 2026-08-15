@@ -6,6 +6,7 @@ import { getLightningService } from '@/lib/lightning/lightning-service';
 import { listPayments as listLnbitsPayments, payInvoice } from '@/lib/lightning/lnbits';
 import { authorizeWalletRequest } from '../wallet-auth';
 import { parsePaginationParam } from '@/lib/api/pagination';
+import { safeFetch } from '@/lib/security/ssrf';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -52,15 +53,36 @@ export async function POST(request: NextRequest) {
 
     let bolt11 = bolt12.trim();
 
-    // If it looks like a lightning address (user@domain), resolve via LNURL
+    // If it looks like a lightning address (user@domain), resolve via LNURL.
+    //
+    // Both hops fetch attacker-influenced URLs: the well-known lookup uses a
+    // caller-supplied domain, and the callback URL comes out of that domain's
+    // own JSON response. Neither was validated, so `alice@evil.test` could
+    // return `{"callback":"http://169.254.169.254/latest/meta-data/..."}` and
+    // have the server fetch it. Both now go through safeFetch, which resolves
+    // the host, rejects every blocked range, and re-validates redirects.
     if (bolt11.includes('@') && !bolt11.startsWith('ln')) {
       const [user, domain] = bolt11.split('@');
-      const lnurlRes = await fetch(`https://${domain}/.well-known/lnurlp/${user}`);
+
+      // The local part goes into a path segment and the domain into the
+      // authority, so both need to be constrained before being interpolated.
+      if (!/^[a-z0-9._+-]{1,64}$/i.test(user || '') || !/^[a-z0-9.-]{1,253}$/i.test(domain || '')) {
+        return WalletErrors.badRequest('VALIDATION_ERROR', `Invalid lightning address: ${bolt11}`);
+      }
+
+      const lnurlFetch = await safeFetch(
+        `https://${domain}/.well-known/lnurlp/${encodeURIComponent(user)}`,
+        { timeoutMs: 10_000 }
+      );
+      if (!lnurlFetch.ok) {
+        return WalletErrors.badRequest('VALIDATION_ERROR', `Could not resolve lightning address: ${bolt11}`);
+      }
+      const lnurlRes = lnurlFetch.response;
       if (!lnurlRes.ok) {
         return WalletErrors.badRequest('VALIDATION_ERROR', `Could not resolve lightning address: ${bolt11}`);
       }
       const lnurlData = await lnurlRes.json();
-      if (!lnurlData.callback) {
+      if (!lnurlData.callback || typeof lnurlData.callback !== 'string') {
         return WalletErrors.badRequest('VALIDATION_ERROR', 'Invalid LNURL response from lightning address');
       }
 
@@ -76,7 +98,14 @@ export async function POST(request: NextRequest) {
       }
 
       const sep = lnurlData.callback.includes('?') ? '&' : '?';
-      const callbackRes = await fetch(`${lnurlData.callback}${sep}amount=${sendAmountMsat}`);
+      const callbackFetch = await safeFetch(
+        `${lnurlData.callback}${sep}amount=${sendAmountMsat}`,
+        { timeoutMs: 10_000 }
+      );
+      if (!callbackFetch.ok) {
+        return WalletErrors.badRequest('VALIDATION_ERROR', 'Failed to get invoice from lightning address');
+      }
+      const callbackRes = callbackFetch.response;
       if (!callbackRes.ok) {
         return WalletErrors.badRequest('VALIDATION_ERROR', 'Failed to get invoice from lightning address');
       }

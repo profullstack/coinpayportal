@@ -12,6 +12,19 @@ import {
 } from './service';
 
 // Mock Supabase
+// SSRF validation resolves the hostname and checks every resulting address.
+// The fixtures below use domains that do not exist, so DNS is stubbed: any
+// name resolves to a public address unless a test says otherwise. Literal IPs
+// never reach DNS, so the blocked-range fixtures are unaffected by this.
+vi.mock('dns/promises', () => ({
+  lookup: vi.fn(async (hostname: string) => {
+    if (hostname === 'metadata.google.internal') {
+      return [{ address: '169.254.169.254', family: 4 }];
+    }
+    return [{ address: '93.184.216.34', family: 4 }];
+  }),
+}));
+
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(),
 }));
@@ -1179,27 +1192,29 @@ describe('Webhook Service', () => {
   });
 
   describe('deliverWebhook SSRF protection', () => {
-    it('should reject webhooks to internal URLs', async () => {
-      const result = await deliverWebhook(
-        'http://127.0.0.1:5432/',
-        { event: 'payment.confirmed' as const, payment_id: 'p1', business_id: 'b1' },
-        'secret'
-      );
+    const payload = { event: 'payment.confirmed' as const, payment_id: 'p1', business_id: 'b1' };
+
+    // Every one of these was reachable under the old string-matching check.
+    it.each([
+      ['loopback', 'http://127.0.0.1:5432/'],
+      ['the rest of 127/8', 'http://127.42.7.9/'],
+      ['0.0.0.0', 'http://0.0.0.0/'],
+      ['AWS/Azure/GCP metadata', 'http://169.254.169.254/latest/meta-data/iam/security-credentials/'],
+      ['decimal-encoded metadata', 'http://2852039166/latest/meta-data/'],
+      ['hex-encoded metadata', 'http://0xA9FEA9FE/latest/meta-data/'],
+      ['octal-encoded metadata', 'http://0251.0376.0251.0376/'],
+      ['IPv4-mapped IPv6 metadata', 'http://[::ffff:169.254.169.254]/'],
+      ['IPv6 loopback', 'http://[::1]:5432/'],
+      ['IPv6 unique-local', 'http://[fd00::1]/'],
+      ['RFC1918', 'http://10.1.2.3/'],
+      ['CGNAT', 'http://100.64.1.1/'],
+      ['GCP metadata hostname', 'http://metadata.google.internal/'],
+      ['a .internal name', 'http://vault.svc.internal/'],
+      ['credentials in the URL', 'http://user:pass@127.0.0.1/'],
+    ])('should reject webhooks to %s', async (_label, url) => {
+      const result = await deliverWebhook(url, payload, 'secret');
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('internal or private addresses are blocked');
-      expect(global.fetch).not.toHaveBeenCalled();
-    });
-
-    it('should reject webhooks to AWS metadata', async () => {
-      const result = await deliverWebhook(
-        'http://169.254.169.254/latest/meta-data/iam/security-credentials/',
-        { event: 'payment.confirmed' as const, payment_id: 'p1', business_id: 'b1' },
-        'secret'
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('internal or private addresses are blocked');
       expect(global.fetch).not.toHaveBeenCalled();
     });
 
@@ -1207,16 +1222,36 @@ describe('Webhook Service', () => {
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
         status: 200,
+        headers: new Headers(),
       });
 
       const result = await deliverWebhook(
         'https://api.merchant.com/webhook',
-        { event: 'payment.confirmed' as const, payment_id: 'p1', business_id: 'b1' },
+        payload,
         'secret'
       );
 
       expect(result.success).toBe(true);
       expect(global.fetch).toHaveBeenCalled();
+    });
+
+    it('should not follow a redirect into a blocked range', async () => {
+      // The original check only ever looked at the first URL, so a public host
+      // that 302s to the metadata service defeated it entirely.
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 302,
+        headers: new Headers({ location: 'http://169.254.169.254/latest/meta-data/' }),
+      });
+
+      const result = await deliverWebhook(
+        'https://api.merchant.com/webhook',
+        payload,
+        'secret'
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Redirect target rejected');
     });
   });
 });
