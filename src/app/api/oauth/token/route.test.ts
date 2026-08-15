@@ -2,10 +2,28 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import jwt from 'jsonwebtoken';
 import { createHash } from 'crypto';
 
-// Mock Supabase
+// Mock Supabase.
+//
+// Consuming an authorization code and rotating a refresh token are both
+// compare-and-swaps now: `update(...).eq('id', ...).eq(<flag>, false).select()`
+// returns the rows it actually changed, and the route treats an empty result as
+// "someone else got there first". `setCasResult` models losing that race.
 const mockInsert = vi.fn().mockResolvedValue({ error: null });
-const mockUpdate = vi.fn(() => ({ eq: vi.fn(() => ({ error: null })) }));
 const mockSingle = vi.fn();
+
+let casResult: { data: any; error: any } = { data: [{ id: 'row-1' }], error: null };
+function setCasResult(result: { data: any; error: any }) {
+  casResult = result;
+}
+
+const mockUpdate = vi.fn(() => {
+  const chain: any = {
+    select: vi.fn(() => Promise.resolve(casResult)),
+  };
+  chain.eq = vi.fn(() => chain);
+  chain.then = (resolve: any) => Promise.resolve({ error: null }).then(resolve);
+  return chain;
+});
 const mockEq3 = vi.fn(() => ({ single: mockSingle }));
 const mockEq2 = vi.fn(() => ({ single: mockSingle, eq: mockEq3 }));
 const mockEq1 = vi.fn(() => ({ single: mockSingle, eq: mockEq2 }));
@@ -37,10 +55,11 @@ vi.mock('@supabase/supabase-js', () => ({
 
 vi.mock('@/lib/oauth/client', () => ({
   authenticateClient: vi.fn(),
+  getOAuthClient: vi.fn(),
 }));
 
 import { POST } from './route';
-import { authenticateClient } from '@/lib/oauth/client';
+import { authenticateClient, getOAuthClient } from '@/lib/oauth/client';
 
 const TEST_SECRET = 'test-oidc-signing-secret-for-unit-tests-min-32';
 
@@ -68,6 +87,15 @@ describe('POST /api/oauth/token', () => {
     vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://coinpay.dev');
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co');
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key');
+    setCasResult({ data: [{ id: 'row-1' }], error: null });
+    // Public client by default: no registered secret, so none is demanded.
+    vi.mocked(getOAuthClient).mockResolvedValue({
+      client_id: 'test-client',
+      client_secret: '',
+      is_active: true,
+      scopes: ['openid', 'profile', 'email'],
+      redirect_uris: ['https://client.example.com/callback'],
+    } as any);
   });
 
   it('should reject unsupported grant_type', async () => {
@@ -414,6 +442,66 @@ describe('POST /api/oauth/token', () => {
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.error).toBe('invalid_grant');
+    });
+  });
+
+  describe('single-use and client authentication', () => {
+    it('refuses a code that another exchange consumed first', async () => {
+      // The `used` flag is read before the token is issued and written after,
+      // so without a conditional write two exchanges of the same code both
+      // received a full token set.
+      mockSingle.mockResolvedValue({
+        data: {
+          id: 'code-1',
+          code: 'the-code',
+          client_id: 'test-client',
+          user_id: 'user-1',
+          redirect_uri: 'https://client.example.com/callback',
+          scopes: ['openid'],
+          used: false,
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+          code_challenge: null,
+        },
+        error: null,
+      });
+      vi.mocked(authenticateClient).mockResolvedValue({ valid: true } as any);
+      setCasResult({ data: [], error: null });
+
+      const res = await POST(
+        makeFormRequest({
+          grant_type: 'authorization_code',
+          code: 'the-code',
+          client_id: 'test-client',
+          client_secret: 'shh',
+          redirect_uri: 'https://client.example.com/callback',
+        }),
+      );
+
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('invalid_grant');
+    });
+
+    it('requires client_secret to refresh for a confidential client', async () => {
+      // Omitting client_secret used to skip authentication entirely, so a
+      // stolen refresh token alone could mint access tokens indefinitely.
+      vi.mocked(getOAuthClient).mockResolvedValue({
+        client_id: 'test-client',
+        client_secret: '$2a$10$storedhash',
+        is_active: true,
+        scopes: ['openid'],
+        redirect_uris: ['https://client.example.com/callback'],
+      } as any);
+
+      const res = await POST(
+        makeFormRequest({
+          grant_type: 'refresh_token',
+          refresh_token: 'rt-1',
+          client_id: 'test-client',
+        }),
+      );
+
+      expect(res.status).toBe(401);
+      expect((await res.json()).error).toBe('invalid_client');
     });
   });
 });

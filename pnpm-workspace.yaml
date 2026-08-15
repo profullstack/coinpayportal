@@ -66,6 +66,23 @@ overrides:
   '@babel/core': '>=7.29.2'
   # Deliberately NOT pinned:
   #   elliptic — 6.6.1 is already the latest published; no fix upstream yet.
+  #
+  #   image-size — GHSA-w3rx-r6r6-pgpr (ICNS parser infinite loop) and
+  #   GHSA-5p2g-fcmc-qvqq (JXL/HEIF parser infinite loops). There is NO patched
+  #   release: GitHub lists both as affecting `<= 2.0.2`, which is the newest
+  #   version published, so an override cannot resolve them and pinning to 2.0.2
+  #   would only look like a fix.
+  #
+  #   Reachability, checked rather than assumed: image-size arrives solely
+  #   through metro (the React Native bundler), pulled in by react-native under
+  #   the @solana/wallet-adapter-* packages. metro is build tooling for React
+  #   Native and is never loaded by the Next.js server or shipped to the
+  #   browser, and nothing in this repo imports any @solana/wallet-adapter
+  #   package — they appear only in next.config.mjs `transpilePackages`. No code
+  #   path here hands an ICNS, JXL or HEIF file to this parser.
+  #
+  #   Re-check when image-size publishes a fix, or drop the unused
+  #   @solana/wallet-adapter-* dependencies, which removes the chain outright.
 
 allowBuilds:
   blake-hash: set this to true or false

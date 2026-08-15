@@ -96,3 +96,24 @@ export async function authenticateClient(
 export async function hashClientSecret(secret: string): Promise<string> {
   return bcrypt.hash(secret, 10);
 }
+
+/**
+ * Fetch a client record by client_id, without authenticating it.
+ *
+ * Callers use this to decide whether a client is confidential (registered with
+ * a secret) before demanding one — the refresh grant needs that distinction, so
+ * that omitting client_secret cannot skip authentication for a client that has
+ * one.
+ */
+export async function getOAuthClient(clientId: string): Promise<OAuthClient | null> {
+  const supabase = getSupabase();
+
+  const { data: client, error } = await supabase
+    .from('oauth_clients')
+    .select('*')
+    .eq('client_id', clientId)
+    .single();
+
+  if (error || !client || !client.is_active) return null;
+  return client as OAuthClient;
+}

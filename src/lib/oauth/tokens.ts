@@ -1,7 +1,7 @@
 /**
  * OAuth2/OIDC Token generation and verification
  */
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import jwt from 'jsonwebtoken';
 
 function getSigningSecret(): string {
@@ -120,19 +120,29 @@ export function validatePKCE(
   codeChallenge: string,
   method: string = 'S256'
 ): boolean {
-  if (method === 'S256') {
-    const hash = createHash('sha256').update(codeVerifier).digest();
-    const computed = hash
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-    return computed === codeChallenge;
+  // Only S256 is accepted.
+  //
+  // 'plain' used to be honoured, and it offers no protection at all: the
+  // challenge IS the verifier, so anyone who observes the authorization request
+  // (a redirect through a browser, a proxy log, a referrer header) can complete
+  // the code exchange. RFC 7636 permits 'plain' only for clients that cannot
+  // compute SHA-256 — not a description of anything integrating with this
+  // server — and downgrading to it is the standard way to defeat PKCE.
+  if (method !== 'S256') {
+    return false;
   }
 
-  if (method === 'plain') {
-    return codeVerifier === codeChallenge;
-  }
+  const hash = createHash('sha256').update(codeVerifier).digest();
+  const computed = hash
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
 
-  return false;
+  // Constant-time: the challenge is attacker-supplied and the comparison is
+  // over a value derived from the verifier.
+  const a = Buffer.from(computed);
+  const b = Buffer.from(codeChallenge);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }

@@ -1,3 +1,12 @@
+# Third-party actions are pinned to a commit SHA, not a tag.
+#
+# A tag is a mutable pointer: `@v2` and `@stable` mean "whatever the publisher
+# points them at right now". This workflow holds WordPress.org SVN credentials
+# and a release token, so a repointed tag — whether by a compromised maintainer
+# account or a deliberate change — is arbitrary code with access to both, on
+# the next run, with no diff to review. The `# vX` comment after each SHA is
+# only a human label; the SHA is what is fetched.
+
 name: Plugins Release
 
 # Tag with `plugins-v0.1.0` (etc.) to cut a release. A GitHub Release is created
@@ -33,9 +42,9 @@ jobs:
     outputs:
       version: ${{ steps.meta.outputs.version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: '8.2'
           extensions: curl, hash, json
@@ -66,7 +75,7 @@ jobs:
           COINPAY_PLUGIN_VERSION: ${{ steps.meta.outputs.version }}
         run: ./scripts/build-plugin-zips.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: plugin-zips
           path: dist/coinpay-*.zip
@@ -79,15 +88,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: plugin-zips
           path: dist
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.4.1
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('plugins-v{0}', needs.build.outputs.version) }}
           name: CoinPay Plugins ${{ needs.build.outputs.version }}
@@ -114,7 +123,7 @@ jobs:
     # Repo variable `WP_ORG_DEPLOY_ENABLED=true` gates this even if secrets exist.
     if: vars.WP_ORG_DEPLOY_ENABLED == 'true'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Prepare plugin dir
         run: |
@@ -123,7 +132,7 @@ jobs:
           ls -la _deploy
 
       - name: Deploy to WordPress.org SVN
-        uses: 10up/action-wordpress-plugin-deploy@stable
+        uses: 10up/action-wordpress-plugin-deploy@54bd289b8525fd23a5c365ec369185f2966529c2 # v2.3.0
         env:
           SVN_USERNAME: ${{ secrets.WP_ORG_SVN_USERNAME }}
           SVN_PASSWORD: ${{ secrets.WP_ORG_SVN_PASSWORD }}
