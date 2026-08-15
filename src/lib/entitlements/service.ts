@@ -311,6 +311,68 @@ export async function incrementTransactionCount(
 }
 
 /**
+ * Atomically check the monthly transaction limit and spend one unit of quota.
+ *
+ * This is the enforcement point for the limit. `withTransactionLimit` reads the
+ * count and returns — useful for fast feedback, useless as a gate, because
+ * between that read and the old `incrementTransactionCount` call every
+ * concurrent request saw the same under-the-limit number and all of them
+ * proceeded. The RPC performs a bounded increment in one statement, so exactly
+ * as many requests succeed as there is quota for.
+ *
+ * Call this immediately before creating the transaction, so a request that
+ * fails validation does not burn a merchant's quota.
+ *
+ * @returns allowed=false when the merchant is at or over their limit. Fails
+ *          closed if the quota cannot be read.
+ */
+export async function consumeTransactionQuota(
+  supabase: SupabaseClient,
+  merchantId: string,
+  limit: number | null
+): Promise<{ allowed: boolean; currentUsage: number; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('consume_transaction_quota', {
+      p_merchant_id: merchantId,
+      p_limit: limit,
+    });
+
+    if (error) {
+      return { allowed: false, currentUsage: 0, error: error.message };
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    return {
+      allowed: Boolean(row?.allowed),
+      currentUsage: Number(row?.new_count ?? 0),
+    };
+  } catch (err) {
+    return {
+      allowed: false,
+      currentUsage: 0,
+      error: err instanceof Error ? err.message : 'Failed to consume transaction quota',
+    };
+  }
+}
+
+/**
+ * Return one unit of quota after a transaction was counted but not created.
+ * Used on the failure paths that follow a successful consume, so a merchant is
+ * not billed a transaction they never got.
+ */
+export async function releaseTransactionQuota(
+  supabase: SupabaseClient,
+  merchantId: string
+): Promise<void> {
+  const { error } = await supabase.rpc('release_transaction_quota', {
+    p_merchant_id: merchantId,
+  });
+  if (error) {
+    console.error(`[Entitlements] Failed to release quota for ${merchantId}:`, error.message);
+  }
+}
+
+/**
  * Check if merchant has a specific feature enabled
  */
 export async function hasFeature(

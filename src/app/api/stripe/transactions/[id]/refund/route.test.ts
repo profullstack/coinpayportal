@@ -18,12 +18,31 @@ import { authorizeBusinessOwner } from '@/lib/auth/authz';
 import { getStripe } from '@/lib/server/optional-deps';
 
 // A thenable query chain resolving to `value`; every builder method returns it.
-function makeChain(value: { data: any; error: any }) {
+//
+// Writes resolve differently from reads. The route claims the transaction with
+// a conditional UPDATE ... RETURNING before it calls Stripe — that is what
+// stops two concurrent requests from both refunding — so an update chain has
+// to resolve to the claimed rows, not to the row a read would return.
+// `claimResult` lets a test model losing that race.
+function makeChain(
+  value: { data: any; error: any },
+  claimResult?: { data: any; error: any },
+) {
   const chain: any = {};
-  for (const m of ['select', 'eq', 'in', 'order', 'limit', 'single', 'maybeSingle', 'update', 'not']) {
+  let isWrite = false;
+
+  for (const m of ['select', 'eq', 'in', 'order', 'limit', 'single', 'maybeSingle', 'not']) {
     chain[m] = vi.fn().mockReturnValue(chain);
   }
-  chain.then = (resolve: any) => Promise.resolve(value).then(resolve);
+  chain.update = vi.fn(() => {
+    isWrite = true;
+    return chain;
+  });
+
+  chain.then = (resolve: any) => {
+    const result = isWrite ? (claimResult ?? { data: [{ id: 'txn-1' }], error: null }) : value;
+    return Promise.resolve(result).then(resolve);
+  };
   return chain;
 }
 
@@ -38,8 +57,13 @@ function req() {
 }
 
 // Route by table so each query in the handler gets its own result.
-function wire(tables: Record<string, { data: any; error: any }>) {
-  mockFrom.mockImplementation((table: string) => makeChain(tables[table] ?? { data: null, error: null }));
+function wire(
+  tables: Record<string, { data: any; error: any }>,
+  claims: Record<string, { data: any; error: any }> = {},
+) {
+  mockFrom.mockImplementation((table: string) =>
+    makeChain(tables[table] ?? { data: null, error: null }, claims[table]),
+  );
 }
 
 describe('POST /api/stripe/transactions/[id]/refund', () => {
@@ -76,7 +100,9 @@ describe('POST /api/stripe/transactions/[id]/refund', () => {
     expect(res.status).toBe(200);
     expect(body.success).toBe(true);
     expect(refundCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ payment_intent: 'pi_1', reverse_transfer: true, refund_application_fee: true })
+      expect.objectContaining({ payment_intent: 'pi_1', reverse_transfer: true, refund_application_fee: true }),
+      // Second argument carries the idempotency key; asserted in its own test.
+      expect.anything()
     );
   });
 
@@ -155,5 +181,53 @@ describe('POST /api/stripe/transactions/[id]/refund', () => {
     });
     const res = await POST(req(), { params });
     expect(res.status).toBe(502);
+  });
+
+  it('does not call Stripe when another request already claimed the refund', async () => {
+    // Both requests pass every read-based check; only the one that wins the
+    // conditional UPDATE may refund. Without this the customer is refunded
+    // twice and the money cannot be recovered.
+    wire(
+      {
+        stripe_transactions: {
+          data: {
+            id: 'txn-1',
+            business_id: 'biz-1',
+            status: 'succeeded',
+            stripe_payment_intent_id: 'pi_1',
+            stripe_charge_id: 'ch_1',
+          },
+          error: null,
+        },
+      },
+      { stripe_transactions: { data: [], error: null } },
+    );
+
+    const response = await POST(req(), { params });
+
+    expect(response.status).toBe(409);
+    expect(refundCreate).not.toHaveBeenCalled();
+  });
+
+  it('sends an idempotency key so a retried refund cannot double-refund', async () => {
+    wire({
+      stripe_transactions: {
+        data: {
+          id: 'txn-1',
+          business_id: 'biz-1',
+          status: 'succeeded',
+          stripe_payment_intent_id: 'pi_1',
+          stripe_charge_id: 'ch_1',
+        },
+        error: null,
+      },
+    });
+
+    await POST(req(), { params });
+
+    expect(refundCreate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ idempotencyKey: 'refund:txn-1' }),
+    );
   });
 });

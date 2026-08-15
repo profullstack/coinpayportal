@@ -152,21 +152,70 @@ export async function POST(
       );
     }
 
+    // Claim the transaction before touching Stripe.
+    //
+    // Every check above is a read; two concurrent refund requests both passed
+    // them and both called stripe.refunds.create, refunding the customer
+    // twice. This compare-and-swap moves the row into an in-flight state and
+    // only the request that wins it proceeds. `.in()` on the refundable set
+    // makes the guard atomic with the status check rather than sequential
+    // after it.
+    const { data: claimed, error: claimError } = await supabase
+      .from('stripe_transactions')
+      .update({ status: 'refunding', updated_at: new Date().toISOString() })
+      .eq('id', transaction.id)
+      .in('status', Array.from(REFUNDABLE_STATUSES))
+      .select('id');
+
+    if (claimError) {
+      console.error('Failed to claim transaction for refund:', claimError);
+      return NextResponse.json(
+        { success: false, error: 'Could not start refund' },
+        { status: 500 }
+      );
+    }
+
+    if (!claimed || claimed.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Refund already in progress or completed' },
+        { status: 409 }
+      );
+    }
+
     // Destination charge: refund on the platform PI and reverse the transfer +
     // application fee so the connected account and platform give back their cut.
     let refund;
     try {
-      refund = await stripe.refunds.create({
-        ...(transaction.stripe_payment_intent_id
-          ? { payment_intent: transaction.stripe_payment_intent_id }
-          : { charge: transaction.stripe_charge_id }),
-        reverse_transfer: true,
-        refund_application_fee: true,
-      });
+      refund = await stripe.refunds.create(
+        {
+          ...(transaction.stripe_payment_intent_id
+            ? { payment_intent: transaction.stripe_payment_intent_id }
+            : { charge: transaction.stripe_charge_id }),
+          reverse_transfer: true,
+          refund_application_fee: true,
+        },
+        {
+          // Second layer, on Stripe's side: even if the claim above were
+          // somehow bypassed (a retry after a timeout where we never learned
+          // the outcome, a redeployed instance), Stripe returns the original
+          // refund instead of creating a second one.
+          idempotencyKey: `refund:${transaction.id}`,
+        }
+      );
     } catch (stripeError) {
       const message =
         stripeError instanceof Error ? stripeError.message : 'Stripe refund failed';
       console.error('Stripe refund error:', message);
+
+      // Release the claim so the merchant can retry. Restricted to the
+      // in-flight state so a concurrent webhook that already settled the row
+      // is not overwritten.
+      await supabase
+        .from('stripe_transactions')
+        .update({ status: transaction.status, updated_at: new Date().toISOString() })
+        .eq('id', transaction.id)
+        .eq('status', 'refunding');
+
       return NextResponse.json(
         { success: false, error: message },
         { status: 502 }

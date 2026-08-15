@@ -6,7 +6,7 @@ import {
   withTransactionLimit,
   createEntitlementErrorResponse,
 } from '@/lib/entitlements/middleware';
-import { incrementTransactionCount } from '@/lib/entitlements/service';
+import { consumeTransactionQuota, releaseTransactionQuota } from '@/lib/entitlements/service';
 import { getStripe } from '@/lib/server/optional-deps';
 import {
   getPaymentReceivingWallet,
@@ -409,6 +409,28 @@ export async function POST(request: NextRequest) {
         walletSource = wallet.source ?? 'business';
       }
 
+      // Spend the quota atomically, immediately before creating the payment.
+      //
+      // The advisory check earlier in the request gives fast feedback but is a
+      // plain read — concurrent requests all saw the same under-the-limit count
+      // and all proceeded past it. This RPC does the bounded increment in one
+      // statement, so exactly as many payments are created as there is quota for.
+      // Placed here, after validation, so a malformed request cannot burn a
+      // merchant's monthly allowance.
+      const quota = await consumeTransactionQuota(supabase, merchantId, limitCheck.limit ?? null);
+      if (!quota.allowed) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: quota.error
+              ? `Could not verify transaction limit: ${quota.error}`
+              : 'Monthly transaction limit exceeded',
+            usage: { current: quota.currentUsage, limit: limitCheck.limit },
+          },
+          { status: quota.error ? 500 : 429 }
+        );
+      }
+
       const result = await createPayment(supabase, {
         business_id,
         amount: paymentAmount,
@@ -421,6 +443,8 @@ export async function POST(request: NextRequest) {
       });
 
       if (!result.success) {
+        // Hand the quota back: nothing was created, so nothing should be billed.
+        await releaseTransactionQuota(supabase, merchantId);
         return NextResponse.json(
           { success: false, error: result.error },
           { status: 400 }
@@ -521,8 +545,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Increment transaction count after successful payment creation
-    await incrementTransactionCount(supabase, merchantId);
+    // Quota was spent atomically just before creation; see consumeTransactionQuota.
 
     // Transform payment response to include expected field names
     const payment = cryptoPaymentResult;
