@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authorizeInvoice } from '@/lib/auth/invoice-access';
 import { resolvePayee } from '@/lib/payments/payee';
+import { can } from '@/lib/auth/permissions';
 
 /**
  * GET /api/invoices/[id]
@@ -126,8 +127,43 @@ export async function PUT(
       if (allowed.includes(body.status)) {
         allowedFields.status = body.status;
         if (body.status === 'paid') {
+          // Marking an invoice paid here settles it OUT OF BAND — cash, bank
+          // transfer, an off-platform arrangement. It is a legitimate merchant
+          // action, so it needs the payment.markPaid capability rather than
+          // plain invoice.write.
+          // A business API key is scoped to a single business and carries no
+          // role, so it is allowed; a team member needs the capability.
+          if (!access.apiKeyBusinessId && !can(access.role, 'payment.markPaid')) {
+            return NextResponse.json(
+              { success: false, error: 'Not permitted to mark invoices paid' },
+              { status: 403 }
+            );
+          }
+
+          // A caller-supplied tx_hash is never accepted.
+          //
+          // It used to be written straight through, which let a merchant post
+          // `{"status":"paid","tx_hash":"0xdeadbeef..."}` and produce an
+          // invoice that looks on-chain-settled: the payment rail never ran,
+          // the funds were never forwarded, and the platform fee was never
+          // taken. On-chain settlement is established only by the monitor,
+          // which reads the chain. Manual settlement is recorded as what it is.
+          if (body.tx_hash) {
+            return NextResponse.json(
+              {
+                success: false,
+                error:
+                  'tx_hash cannot be set manually. On-chain settlement is recorded by the payment ' +
+                  'monitor once the deposit is observed. To record an off-platform payment, omit tx_hash.',
+                code: 'TX_HASH_NOT_SETTABLE',
+              },
+              { status: 400 }
+            );
+          }
+
           allowedFields.paid_at = new Date().toISOString();
-          if (body.tx_hash) allowedFields.tx_hash = body.tx_hash;
+          allowedFields.settlement_method = 'manual';
+          allowedFields.marked_paid_by = access.merchantId;
         }
       } else {
         return NextResponse.json(

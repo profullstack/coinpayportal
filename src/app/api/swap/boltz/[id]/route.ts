@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getSwapStatus } from '@/lib/swap/boltz';
+import { authorizeWallet } from '@/lib/swap/auth';
 
 function getSupabase() {
   return createClient(
@@ -24,6 +25,37 @@ const BOLTZ_TO_DB_STATUS: Record<string, string> = {
   'transaction.refunded': 'refunded',
 };
 
+
+/**
+ * Confirm the authenticated wallet owns this swap.
+ *
+ * A swap id is handed to the payer and echoed in URLs, so possession of it is
+ * not authorization to read or mutate the swap.
+ */
+async function requireSwapOwner(
+  supabase: ReturnType<typeof getSupabase>,
+  request: NextRequest,
+  swapId: string,
+  body?: string
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const auth = await authorizeWallet(supabase, request, body);
+  if (!auth.ok) return auth;
+
+  const { data: swap } = await supabase
+    .from('swaps')
+    .select('wallet_id')
+    .eq('id', swapId)
+    .single();
+
+  if (!swap || swap.wallet_id !== auth.walletId) {
+    // Same response for "no such swap" and "not yours", so the endpoint is not
+    // an existence oracle for other wallets' swap ids.
+    return { ok: false, status: 404, error: 'Swap not found' };
+  }
+
+  return { ok: true };
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -31,6 +63,12 @@ export async function GET(
   const supabase = getSupabase();
   try {
     const { id } = await params;
+
+    const owner = await requireSwapOwner(supabase, request, id);
+    if (!owner.ok) {
+      return NextResponse.json({ success: false, error: owner.error }, { status: owner.status });
+    }
+
     const status = await getSwapStatus(id);
 
     // Update DB status

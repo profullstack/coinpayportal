@@ -6,6 +6,8 @@ import {
   createSwapOut,
   estimateSwapFee,
 } from '@/lib/swap/boltz';
+import { authorizeWallet, encryptProviderSecrets } from '@/lib/swap/auth';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 
 function getSupabase() {
   return createClient(
@@ -30,8 +32,31 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const supabase = getSupabase();
   try {
-    const body = await request.json();
-    const { direction, invoice, refundAddress, amountSats, claimAddress, walletId } = body;
+    // Read the raw body once so the signature can be verified over it, then
+    // parse. This endpoint moves real funds and mints refund/claim keys, so it
+    // was never safe to leave unauthenticated.
+    const rawBody = await request.text();
+
+    const auth = await authorizeWallet(supabase, request, rawBody);
+    if (!auth.ok) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    }
+    // The wallet id is the authenticated one; a body-supplied walletId is
+    // ignored so a caller cannot file a swap under someone else's wallet.
+    const walletId = auth.walletId;
+
+    const rateCheck = await checkRateLimitAsync(walletId, 'swap_read');
+    if (!rateCheck.allowed) {
+      return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429 });
+    }
+
+    let body: Record<string, any>;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json({ success: false, error: 'Invalid JSON body' }, { status: 400 });
+    }
+    const { direction, invoice, refundAddress, amountSats, claimAddress } = body;
 
     if (direction === 'in') {
       if (!invoice) {
@@ -40,7 +65,7 @@ export async function POST(request: NextRequest) {
       const swap = await createSwapIn(invoice, refundAddress);
 
       // Save to DB
-      if (walletId) {
+      {
         const { error: dbError } = await supabase.from('swaps').insert({
           id: swap.id,
           wallet_id: walletId,
@@ -51,12 +76,14 @@ export async function POST(request: NextRequest) {
           settle_address: 'Lightning Invoice',
           status: 'pending',
           provider: 'boltz',
-          provider_data: {
+          // Key material is encrypted at rest; a read of the swaps table no
+          // longer yields the key that redeems the swap.
+          provider_data: encryptProviderSecrets({
             direction: 'in',
             bip21: swap.bip21,
             expectedAmount: swap.expectedAmount,
             refundPrivateKey: swap.refundPrivateKey,
-          },
+          }),
         });
         if (dbError) console.error('[Boltz] DB save failed:', dbError);
       }
@@ -69,7 +96,7 @@ export async function POST(request: NextRequest) {
       const swap = await createSwapOut(amountSats, claimAddress);
 
       // Save to DB
-      if (walletId) {
+      {
         const { error: dbError } = await supabase.from('swaps').insert({
           id: swap.id,
           wallet_id: walletId,
@@ -81,13 +108,13 @@ export async function POST(request: NextRequest) {
           settle_address: claimAddress,
           status: 'pending',
           provider: 'boltz',
-          provider_data: {
+          provider_data: encryptProviderSecrets({
             direction: 'out',
             invoice: swap.invoice,
             lockupAddress: swap.lockupAddress,
             onchainAmount: swap.onchainAmount,
             claimPrivateKey: swap.claimPrivateKey,
-          },
+          }),
         });
         if (dbError) console.error('[Boltz] DB save failed:', dbError);
       }
