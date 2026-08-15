@@ -62,11 +62,17 @@ export interface ValidationResult {
 }
 
 /**
- * Calculate forwarding amounts based on subscription tier
+ * Calculate forwarding amounts based on subscription tier.
+ *
+ * `isPaidTier` is required. It used to default to `true`, meaning any caller
+ * that forgot to pass a tier billed the merchant at the discounted 0.5%
+ * professional rate — the same wrong-tier default that made the legacy helpers
+ * in ./fees.ts a revenue leak. There is no safe default here, so there isn't one.
+ *
  * @param totalAmount - Total payment amount
- * @param isPaidTier - Whether merchant has a paid subscription (default: true for backward compatibility)
+ * @param isPaidTier - Whether the merchant has an active, unexpired paid subscription
  */
-export function calculateForwardingAmounts(totalAmount: number, isPaidTier: boolean = true): {
+export function calculateForwardingAmounts(totalAmount: number, isPaidTier: boolean): {
   merchantAmount: number;
   platformFee: number;
   total: number;

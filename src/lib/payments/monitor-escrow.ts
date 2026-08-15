@@ -3,6 +3,7 @@
  */
 
 import { checkBalance, processPayment, type Payment } from './monitor-balance';
+import { isSufficientPayment } from './tolerance';
 
 // ── Retry tracking (in-memory) ──
 // Prevents infinite retry loops that leak memory and cause OOM crashes.
@@ -112,9 +113,8 @@ export async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowSt
 
           const balanceResult = await checkBalance(escrow.escrow_address, escrow.chain);
           const balance = balanceResult.balance;
-          const tolerance = escrow.amount * 0.01;
 
-          if (balance >= escrow.amount - tolerance) {
+          if (isSufficientPayment(balance, escrow.amount)) {
             await supabase
               .from('escrows')
               .update({

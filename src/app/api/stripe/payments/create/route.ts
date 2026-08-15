@@ -4,6 +4,8 @@ import { getStripe } from '@/lib/server/optional-deps';
 import { screenCheckout } from '@/lib/fraud/screen';
 import { authorizePaymentCreation } from '@/lib/auth/payment-auth';
 import { getClientIp } from '@/lib/web-wallet/client-ip';
+import { isBusinessPaidTier } from '@/lib/entitlements/service';
+import { getFeePercentage } from '@/lib/payments/fees';
 
 function getSupabase() {
   return createClient(
@@ -107,8 +109,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Calculate platform fee (0.5% default)
-    const platformFeeRate = 0.005;
+    // Platform fee at the merchant's real tier.
+    //
+    // This rail hardcoded 0.005 for every merchant while the crypto rail used
+    // the tiered rate and the widget used 1%. Free-tier merchants were
+    // therefore billed half the commission they owe across all external Stripe
+    // volume. isBusinessPaidTier is the single source of truth and already
+    // enforces subscription expiry.
+    const isPaidTier = await isBusinessPaidTier(supabase, businessId);
+    const platformFeeRate = getFeePercentage(isPaidTier);
     const platformFeeAmount = Math.round(amount * platformFeeRate);
 
     const sessionMetadata = {

@@ -5,6 +5,7 @@ import * as bitcoin from 'bitcoinjs-lib';
 import { ethers } from 'ethers';
 import { Keypair } from '@solana/web3.js';
 import { encrypt } from '../crypto/encryption';
+import { requireEncryptionKey, requireMasterMnemonic } from '../crypto/require-key';
 import type { BlockchainType } from './providers';
 import { secp256k1 } from '@noble/curves/secp256k1';
 
@@ -172,19 +173,17 @@ export async function generatePaymentAddress(
   businessId: string,
   chain: BlockchainType
 ): Promise<PaymentAddress> {
-  // Generate a deterministic mnemonic from business ID
-  // In production, this should use a master mnemonic stored securely
-  const masterMnemonic = process.env.MASTER_MNEMONIC || generateMnemonic();
-  
+  // Both secrets are fail-closed: an ephemeral mnemonic loses the keys to any
+  // funds received at the derived address, and a fallback encryption key means
+  // a database leak alone decrypts every private key.
+  const masterMnemonic = requireMasterMnemonic();
+
   // Use business ID hash as index for deterministic address generation
   const index = hashStringToNumber(businessId);
-  
+
   const wallet = await generateWalletFromMnemonic(masterMnemonic, chain, index);
-  
-  // Encrypt the private key before storing
-  // Generate a proper 32-byte (64 hex char) key for testing
-  const encryptionKey = process.env.ENCRYPTION_KEY || '0'.repeat(64);
-  const encryptedPrivateKey = await encrypt(wallet.privateKey, encryptionKey);
+
+  const encryptedPrivateKey = await encrypt(wallet.privateKey, requireEncryptionKey('address derivation'));
 
   return {
     address: wallet.address,

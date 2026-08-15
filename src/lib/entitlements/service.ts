@@ -524,10 +524,32 @@ export async function isPaidTier(
     const { subscription } = subscriptionResult;
 
     // Professional plan = paid tier, anything else = free tier
-    const isPaid = subscription.plan.name.toLowerCase() === 'professional' &&
-                   subscription.status === 'active';
+    const isProfessional = subscription.plan?.name?.toLowerCase() === 'professional' &&
+                           subscription.status === 'active';
 
-    return isPaid;
+    if (!isProfessional) return false;
+
+    // The plan must also still be within its paid period.
+    //
+    // This check used to be absent entirely: `plan === 'professional' &&
+    // status === 'active'` stayed true forever, because nothing on the read
+    // path looked at subscription_ends_at and the downgrade sweep is a cron
+    // that can lag, fail, or simply not run. One legitimately paid month
+    // therefore bought the reduced 0.5% commission in perpetuity. Enforcing
+    // the period here makes the entitlement correct regardless of the sweep.
+    if (!subscription.endsAt) {
+      // A Professional subscription with no end date cannot be validated as
+      // current, so it does not earn the paid rate.
+      console.warn(`[Entitlements] Merchant ${merchantId} is 'professional' with no subscription_ends_at; treating as free tier`);
+      return false;
+    }
+
+    const endsAt = new Date(subscription.endsAt);
+    if (Number.isNaN(endsAt.getTime()) || endsAt.getTime() <= Date.now()) {
+      return false;
+    }
+
+    return true;
   } catch (error) {
     console.error(`[Entitlements] Error checking paid tier for merchant ${merchantId}:`, error);
     // Default to free tier on error

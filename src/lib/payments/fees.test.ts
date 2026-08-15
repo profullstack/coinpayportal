@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  calculateFee,
-  calculateMerchantAmount,
-  calculatePlatformFee,
   FEE_PERCENTAGE,
   FEE_PERCENTAGE_FREE,
   FEE_PERCENTAGE_PAID,
@@ -20,10 +17,18 @@ import {
 
 describe('Payment Fee Calculations', () => {
   describe('FEE_PERCENTAGE constant', () => {
-    it('should be 0.5%', () => {
-      expect(FEE_PERCENTAGE).toBe(0.005);
+    it('defaults to the free tier so an unresolved tier never gets the discount', () => {
+      expect(FEE_PERCENTAGE).toBe(0.01);
     });
   });
+
+  // The removed legacy helpers (calculateFee, calculateMerchantAmount,
+  // calculatePlatformFee) hardcoded the paid tier. These shims keep the
+  // original arithmetic assertions below meaningful while making the tier
+  // explicit at every call.
+  const calculateFee = (amount: number) => calculateTieredFee(amount, true);
+  const calculateMerchantAmount = (amount: number) => calculateTieredMerchantAmount(amount, true);
+  const calculatePlatformFee = calculateFee;
 
   describe('calculateFee', () => {
     it('should calculate 0.5% fee correctly', () => {
@@ -251,8 +256,10 @@ describe('Payment Fee Calculations', () => {
         expect(FEE_PERCENTAGE_PAID).toBe(0.005);
       });
 
-      it('should have legacy constant equal to paid tier for backward compatibility', () => {
-        expect(FEE_PERCENTAGE).toBe(FEE_PERCENTAGE_PAID);
+      it('should have the untiered constant default to the free rate, not the discount', () => {
+        // Defaulting to the paid rate meant an unresolved tier silently billed
+        // half the commission owed.
+        expect(FEE_PERCENTAGE).toBe(FEE_PERCENTAGE_FREE);
       });
 
       it('should have free tier fee be exactly 2x paid tier fee', () => {

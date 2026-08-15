@@ -4,6 +4,8 @@
  * Shared balance-checking utilities used by the payment monitor.
  */
 
+import { isSufficientPayment } from './tolerance';
+
 // RPC endpoints for different blockchains
 const RPC_ENDPOINTS: Record<string, string> = {
   BTC: process.env.BITCOIN_RPC_URL || 'https://blockstream.info/api',
@@ -661,9 +663,8 @@ export async function processPayment(supabase: any, payment: Payment): Promise<{
   const balanceResult = await checkBalance(payment.payment_address, payment.blockchain);
   console.log(`[Monitor] Payment ${payment.id}: balance=${balanceResult.balance}, expected=${payment.crypto_amount}, txHash=${balanceResult.txHash || 'none'}`);
   
-  // Check if sufficient funds received (1% tolerance)
-  const tolerance = payment.crypto_amount * 0.01;
-  if (balanceResult.balance >= payment.crypto_amount - tolerance) {
+  // Settlement requires the full amount — see lib/payments/tolerance.ts.
+  if (isSufficientPayment(balanceResult.balance, payment.crypto_amount)) {
     console.log(`[Monitor] Payment ${payment.id} CONFIRMED with balance ${balanceResult.balance}`);
     
     // Mark as confirmed and store tx_hash if available
