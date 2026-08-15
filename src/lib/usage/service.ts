@@ -157,6 +157,10 @@ export async function checkBalance(
   actionType: string,
   quantity: number = 1
 ): Promise<{ sufficient: boolean; cost: number; balance: number; error?: string }> {
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10_000) {
+    return { sufficient: false, cost: 0, balance: 0, error: 'quantity must be an integer between 1 and 10000' };
+  }
+
   // Look up the rate
   const { data: rate, error: rateError } = await supabase
     .from('usage_rates')
@@ -170,6 +174,18 @@ export async function checkBalance(
   }
 
   const totalCost = Number(rate.cost_usd) * quantity;
+
+  // A negative or non-finite rate inverts every comparison downstream, the same
+  // way a negative quantity did — reject it here rather than reporting a
+  // nonsense "sufficient" answer.
+  if (!Number.isFinite(totalCost) || totalCost <= 0) {
+    return {
+      sufficient: false,
+      cost: 0,
+      balance: 0,
+      error: `Invalid rate for action type: ${actionType}`,
+    };
+  }
 
   const balance = await getBalance(supabase, businessId, userEmail);
   const currentBalance = balance ? Number(balance.balance_usd) : 0;
@@ -193,6 +209,36 @@ export async function deductCredits(
   quantity: number = 1,
   metadata: Record<string, unknown> = {}
 ): Promise<DeductResult> {
+  // Quantity must be a positive integer.
+  //
+  // Nothing validated the sign, so `quantity: -1` produced a NEGATIVE
+  // totalCost. Every downstream comparison then inverted: the
+  // `balance_usd >= totalCost` guard passed trivially (any balance is >= a
+  // negative number) and `newBalance = balance - totalCost` ADDED credit.
+  // Repeating the call minted unlimited balance — confirmed live going
+  // 1 -> 11 -> 21 -> 31.
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    return {
+      success: false,
+      remaining_balance: 0,
+      cost: 0,
+      action_type: actionType,
+      error: 'quantity must be a positive integer',
+    };
+  }
+
+  // Bound it as well: a huge quantity is a cheap way to drive a single call
+  // into absurd arithmetic and pollute lifetime_used_usd.
+  if (quantity > 10_000) {
+    return {
+      success: false,
+      remaining_balance: 0,
+      cost: 0,
+      action_type: actionType,
+      error: 'quantity exceeds the maximum of 10000 per call',
+    };
+  }
+
   // Look up the rate
   const { data: rate, error: rateError } = await supabase
     .from('usage_rates')
@@ -212,6 +258,18 @@ export async function deductCredits(
   }
 
   const totalCost = Number(rate.cost_usd) * quantity;
+
+  // A negative or non-finite rate would reintroduce the sign inversion from the
+  // rates table rather than the request body.
+  if (!Number.isFinite(totalCost) || totalCost <= 0) {
+    return {
+      success: false,
+      remaining_balance: 0,
+      cost: 0,
+      action_type: actionType,
+      error: `Invalid rate for action type: ${actionType}`,
+    };
+  }
 
   // Atomic deduction: update only if balance is sufficient
   // Uses a conditional update — balance_usd >= totalCost
@@ -239,6 +297,10 @@ export async function deductCredits(
   const newBalance = Number(credit.balance_usd) - totalCost;
   const newLifetimeUsed = Number(credit.lifetime_used_usd) + totalCost;
 
+  // Compare-and-swap on the balance we read: the SELECT above and this UPDATE
+  // are separate round trips, so without the guard two concurrent deductions
+  // both see the same balance and both write their own newBalance, spending
+  // the same credit twice.
   const { data: updated, error: updateError } = await supabase
     .from('usage_credits')
     .update({
@@ -246,6 +308,7 @@ export async function deductCredits(
       lifetime_used_usd: newLifetimeUsed,
       updated_at: new Date().toISOString(),
     })
+    .eq('balance_usd', credit.balance_usd)
     .eq('id', credit.id)
     .gte('balance_usd', totalCost) // Double-check in the update for atomicity
     .select('balance_usd')
