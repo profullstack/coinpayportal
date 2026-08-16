@@ -247,6 +247,26 @@ export async function POST(request: NextRequest) {
       ? rawPaymentMethod
       : 'crypto';
 
+    // Idempotency.
+    //
+    // Creating a payment allocates an HD address, spends a unit of monthly
+    // quota and quotes a price. A client that retries after a timeout — which
+    // is the normal thing for a client to do, and which the SDK does — used to
+    // get a second payment for the same order every time. Callers may now send
+    // an Idempotency-Key; a repeat with the same key returns the original
+    // payment instead of creating another.
+    const idempotencyKey =
+      request.headers.get('idempotency-key')?.trim() ||
+      (typeof body.idempotency_key === 'string' ? body.idempotency_key.trim() : '') ||
+      null;
+
+    if (idempotencyKey && idempotencyKey.length > 255) {
+      return NextResponse.json(
+        { success: false, error: 'Idempotency-Key must be at most 255 characters' },
+        { status: 400 }
+      );
+    }
+
     let business_id: string;
     if (authBusinessId) {
       if (requestedBusinessId && requestedBusinessId !== authBusinessId) {
@@ -264,6 +284,29 @@ export async function POST(request: NextRequest) {
         );
       }
       business_id = requestedBusinessId;
+    }
+
+    if (idempotencyKey) {
+      const { data: existing } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('business_id', business_id)
+        .eq('metadata->>idempotency_key', idempotencyKey)
+        .maybeSingle();
+
+      if (existing) {
+        console.log(`[Payment] Idempotent replay for key ${idempotencyKey} -> ${existing.id}`);
+        return NextResponse.json({
+          success: true,
+          idempotent_replay: true,
+          payment: {
+            ...existing,
+            amount_usd: existing.amount,
+            amount_crypto: existing.crypto_amount,
+            currency: existing.blockchain?.toLowerCase(),
+          },
+        });
+      }
     }
 
     const access = await verifyBusinessAccess(supabase, business_id, merchantId);
@@ -324,6 +367,9 @@ export async function POST(request: NextRequest) {
     }
     if (redirect_url) {
       paymentMetadata.redirect_url = redirect_url;
+    }
+    if (idempotencyKey) {
+      paymentMetadata.idempotency_key = idempotencyKey;
     }
 
     let cryptoPaymentResult: any = null;

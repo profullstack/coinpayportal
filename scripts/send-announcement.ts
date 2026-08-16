@@ -11,21 +11,69 @@ config({ path: '.env.local' });
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const isDryRun = process.argv.includes('--dry-run');
 
-// All merchants from DB
-const merchants = [
-  { email: 'devpreshy@gmail.com', name: 'Preshy' },
-  { email: 'blackmoderror@gmail.com', name: 'Med Alex' },
-  { email: 'k1escrow@proton.me', name: 'Kay' },
-  { email: 'rarierichards@gmail.com', name: 'there' },
-  { email: 'vpdlny@hotmail.com', name: 'there' },
-  { email: 'rondale.sidbury@gmail.com', name: 'Rondale' },
+// Recipients are read from the database at run time, never hardcoded here.
+//
+// This file used to carry a literal array of real merchant names and email
+// addresses, plus a second list of addresses to skip. That is production PII
+// committed to a public-ish repository: readable by anyone with repo access,
+// copied into every clone, and — because it was committed — permanent in git
+// history regardless of what this file says now. Rotating it out of the working
+// tree is necessary but NOT sufficient; see the note at the bottom.
+//
+// The comment above the old array even said "All merchants from DB", which is
+// where they should have come from in the first place.
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+interface Recipient {
+  email: string;
+  name: string;
+}
+
+/**
+ * Disposable / obviously-fake signup domains. Kept as DOMAIN patterns rather
+ * than as a list of specific people's addresses.
+ */
+const SKIP_DOMAINS = [
+  'dnsclick.com',
+  'emalupe.com',
+  'mailinator.com',
+  'tempmail.com',
+  'guerrillamail.com',
 ];
 
-// Skip obvious spam
-const SKIP = [
-  'n.o.ku.b.o.we.d.e.va44@gmail.com', // random string name
-  'jemivol854@dnsclick.com',            // disposable email
-];
+function isSkippable(email: string): boolean {
+  const domain = email.split('@')[1]?.toLowerCase() ?? '';
+  return SKIP_DOMAINS.some((d) => domain === d || domain.endsWith(`.${d}`));
+}
+
+async function loadRecipients(): Promise<Recipient[]> {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error(
+      'NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set — ' +
+        'recipients are read from the database, not from this file.'
+    );
+  }
+
+  const { createClient } = await import('@supabase/supabase-js');
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+  const { data, error } = await supabase
+    .from('merchants')
+    .select('email, name')
+    .not('email', 'is', null);
+
+  if (error) {
+    throw new Error(`Failed to load merchants: ${error.message}`);
+  }
+
+  return (data ?? [])
+    .filter((m: { email: string | null }) => m.email && !isSkippable(m.email))
+    .map((m: { email: string; name: string | null }) => ({
+      email: m.email,
+      name: m.name?.trim() || 'there',
+    }));
+}
 
 const html = (name: string) => `<!DOCTYPE html>
 <html>
@@ -142,14 +190,15 @@ async function sendEmail(to: string, name: string) {
 }
 
 async function main() {
+  const merchants = await loadRecipients();
   console.log(`${isDryRun ? '[DRY RUN] ' : ''}Sending announcement to ${merchants.length} merchants...\n`);
 
   let sent = 0;
   let errors = 0;
 
   for (const m of merchants) {
-    if (SKIP.includes(m.email)) {
-      console.log(`  SKIP: ${m.email} (spam/disposable)`);
+    if (isSkippable(m.email)) {
+      console.log(`  SKIP: ${m.email} (disposable domain)`);
       continue;
     }
 
@@ -176,7 +225,16 @@ async function main() {
     }
   }
 
-  console.log(`\nDone: ${sent} sent, ${errors} errors, ${SKIP.length} skipped`);
+  console.log(`\nDone: ${sent} sent, ${errors} errors`);
 }
 
 main();
+
+// ---------------------------------------------------------------------------
+// NOTE — removing the list from this file does not remove it from history.
+//
+// The addresses that used to live here remain in every prior commit and in
+// every existing clone. Treat them as disclosed: they cannot be un-published by
+// editing the working tree. Rewriting history on a shared branch is its own
+// hazard and is deliberately not attempted here.
+// ---------------------------------------------------------------------------

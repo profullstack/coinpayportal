@@ -249,3 +249,22 @@ ALTER TABLE public.escrow_events
     'refunded','expired','metadata_updated','multisig_created','proposal_created',
     'signature_added','tx_broadcast','fee_forward_failed'
   )) NOT VALID;
+
+-- =====================================================
+-- N-014 — no idempotency in payment creation
+--
+-- Creating a payment allocates an HD address, spends a unit of monthly quota
+-- and quotes a price, so a client retrying after a timeout used to get a second
+-- payment for the same order every time. The route now honours an
+-- Idempotency-Key, and this index is what makes that safe under concurrency:
+-- the pre-insert lookup is a read-then-write, so two retries arriving together
+-- would both find nothing and both insert.
+--
+-- Partial, so payments without a key pay no cost.
+-- =====================================================
+CREATE UNIQUE INDEX IF NOT EXISTS payments_business_idempotency_key_uidx
+  ON public.payments (business_id, ((metadata ->> 'idempotency_key')))
+  WHERE metadata ->> 'idempotency_key' IS NOT NULL;
+
+COMMENT ON INDEX public.payments_business_idempotency_key_uidx IS
+  'Enforces one payment per (business, Idempotency-Key).';
