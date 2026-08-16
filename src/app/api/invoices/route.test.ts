@@ -69,14 +69,22 @@ describe('POST /api/invoices', () => {
       }),
     };
 
-    const invoiceTable = {
+    // Invoice numbers are now derived from the highest EXISTING number rather
+    // than the most recently created one, so the lookup returns a row set and
+    // is awaited directly instead of via .single().
+    const invoiceTable: any = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
       limit: vi.fn().mockReturnThis(),
+      not: vi.fn().mockReturnThis(),
       single: vi.fn().mockResolvedValue({ data: { invoice_number: 'INV-005' }, error: null }),
       insert: vi.fn().mockReturnValue(invoiceInsert),
     };
+    // Thenable so `await supabase.from('invoices').select(...).eq(...).not(...)`
+    // resolves to the existing invoice numbers.
+    invoiceTable.then = (resolve: any) =>
+      Promise.resolve({ data: [{ invoice_number: 'INV-005' }], error: null }).then(resolve);
 
     const supabase = {
       from: vi.fn((table: string) => {

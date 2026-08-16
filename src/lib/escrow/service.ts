@@ -195,9 +195,22 @@ export async function createEscrow(
       // Price lookup is non-critical
     }
 
-    // Calculate fee
+    // Calculate fee.
+    //
+    // The rate comes from the tier resolved by the caller against the escrow's
+    // OWNING business (verified in the route). The result is bounded here so a
+    // bad rate — or a future caller passing something unexpected — cannot store
+    // a fee that exceeds the escrow itself, which would make the beneficiary
+    // leg negative at settlement.
     const feeRate = getFeePercentage(isPaidTier);
     const feeAmount = data.amount * feeRate;
+
+    if (!Number.isFinite(feeAmount) || feeAmount < 0 || feeAmount >= data.amount) {
+      return {
+        success: false,
+        error: `Refusing to create an escrow with an out-of-range fee (${feeAmount} of ${data.amount}).`,
+      };
+    }
 
     // Calculate expiry
     const expiresInHours = data.expires_in_hours || 24;

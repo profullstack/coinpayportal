@@ -210,3 +210,42 @@ BEGIN
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', fn.sig);
   END LOOP;
 END $$;
+
+-- =====================================================
+-- V-010 — INV-### collision
+--
+-- Invoice numbers are allocated with a read-then-write MAX+1, both in the API
+-- route and in generate_invoice_number(). Neither takes a lock, so two invoices
+-- created at the same moment claim the same number and both are stored. There
+-- is no way to make that atomic from the application, so the guarantee goes
+-- here: a collision becomes an error the route retries, instead of a silent
+-- duplicate. Verified zero existing duplicates before adding it, so it is VALID
+-- rather than NOT VALID.
+-- =====================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'invoices_business_id_invoice_number_key'
+  ) THEN
+    ALTER TABLE public.invoices
+      ADD CONSTRAINT invoices_business_id_invoice_number_key
+      UNIQUE (business_id, invoice_number);
+  END IF;
+END $$;
+
+-- =====================================================
+-- N-015 — a failed escrow fee forward left no trace
+--
+-- The settle route caught the failure, logged it, and marked the escrow settled
+-- with fee_tx_hash NULL. Nothing recorded that the platform was still owed, so
+-- the loss was invisible. It now writes an escrow_events row, which needs the
+-- event type to be permitted.
+-- =====================================================
+ALTER TABLE public.escrow_events DROP CONSTRAINT IF EXISTS escrow_events_event_type_check;
+ALTER TABLE public.escrow_events
+  ADD CONSTRAINT escrow_events_event_type_check
+  CHECK (event_type IN (
+    'created','pending','funded','released','settled','disputed','dispute_resolved',
+    'refunded','expired','metadata_updated','multisig_created','proposal_created',
+    'signature_added','tx_broadcast','fee_forward_failed'
+  )) NOT VALID;

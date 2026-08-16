@@ -36,6 +36,17 @@ export const PAYMENT_EXPIRATION_MINUTES = 15;
 export const MAX_PAYMENT_EXPIRATION_MINUTES = 60 * 24 * 90;
 
 /**
+ * Floor on a caller-supplied payment window.
+ *
+ * Only an upper bound was enforced, so `expires_in_minutes: 0.001` produced a
+ * quote that expired before the payer could load the page — every payment
+ * against it lands late and strands at the intermediary address, which is the
+ * failure mode rescanLateDeposits exists to clean up. One minute is already
+ * below any usable checkout.
+ */
+export const MIN_PAYMENT_EXPIRATION_MINUTES = 1;
+
+/**
  * Validation schemas
  */
 const blockchainSchema = z.enum([
@@ -196,7 +207,10 @@ export async function createPayment(
     // value can't create an effectively immortal quote.
     const requestedWindow = Number(input.expires_in_minutes);
     const windowMinutes = Number.isFinite(requestedWindow) && requestedWindow > 0
-      ? Math.min(requestedWindow, MAX_PAYMENT_EXPIRATION_MINUTES)
+      ? Math.min(
+          Math.max(requestedWindow, MIN_PAYMENT_EXPIRATION_MINUTES),
+          MAX_PAYMENT_EXPIRATION_MINUTES
+        )
       : PAYMENT_EXPIRATION_MINUTES;
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + windowMinutes);
