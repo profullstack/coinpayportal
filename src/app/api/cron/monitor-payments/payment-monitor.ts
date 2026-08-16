@@ -216,6 +216,13 @@ const STUCK_LOOKBACK_DAYS = 30;
 const STUCK_MIN_AGE_MINUTES = 30;
 const STUCK_SCAN_LIMIT = 50;
 
+/**
+ * How long a recorded on-chain broadcast is left alone before the rescan will
+ * consider re-driving it. Well past normal confirmation on every supported
+ * chain, so a slow mempool is never mistaken for a failed send.
+ */
+const BROADCAST_SETTLE_GRACE_MS = 6 * 60 * 60 * 1000;
+
 export async function rescanLateDeposits(
   supabase: SupabaseClient,
   now: Date,
@@ -235,6 +242,8 @@ export async function rescanLateDeposits(
       payment_address,
       created_at,
       expires_at,
+      forward_tx_hash,
+      updated_at,
       merchant_wallet_address
     `)
     .in('status', STUCK_STATUSES)
@@ -254,6 +263,23 @@ export async function rescanLateDeposits(
   for (const payment of stuckPayments || []) {
     stats.checked++;
     try {
+      // A payment already in 'forwarding' WITH a recorded transaction hash has
+      // been broadcast. "Funds still at the address" does not prove that send
+      // failed — it may simply not be mined yet, and on a congested chain that
+      // window is longer than STUCK_MIN_AGE_MINUTES. Re-driving it there is
+      // precisely the double-send this rescan is supposed to avoid, so a known
+      // broadcast is given much longer to settle before being touched.
+      if (payment.status === 'forwarding' && payment.forward_tx_hash) {
+        const lastTouched = new Date(payment.updated_at || payment.created_at).getTime();
+        if (Number.isFinite(lastTouched) && now.getTime() - lastTouched < BROADCAST_SETTLE_GRACE_MS) {
+          console.log(
+            `Payment ${payment.id} has an in-flight forward (${payment.forward_tx_hash}); ` +
+              'leaving it to settle rather than re-broadcasting',
+          );
+          continue;
+        }
+      }
+
       const balance = await checkBalance(payment.payment_address, payment.blockchain);
       // Funds still present ⇒ no earlier forward succeeded, so re-driving this
       // payment cannot double-send.

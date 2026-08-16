@@ -1,56 +1,75 @@
 /**
  * Client IP Detection Utility
- * 
- * Safely extracts client IP from request headers with proxy awareness.
- * 
- * SECURITY NOTES:
- * - X-Forwarded-For can be spoofed if not behind a trusted proxy
- * - Railway/Vercel/Cloudflare overwrite this header with the real client IP
- * - For self-hosted deployments, ensure your reverse proxy (nginx, etc.)
- *   is configured to set X-Forwarded-For correctly and strip any
- *   client-provided values
- * 
- * Header priority:
- * 1. CF-Connecting-IP (Cloudflare - most trusted)
- * 2. X-Real-IP (nginx default)
- * 3. X-Forwarded-For (first IP, set by proxy)
- * 4. 'unknown' fallback
+ *
+ * Extracts the client IP for rate limiting and abuse controls.
+ *
+ * THE SPOOFING PROBLEM, AND WHY THE ORDER MATTERS
+ *
+ * X-Forwarded-For is a list that each proxy APPENDS to. A request that arrives
+ * carrying `X-Forwarded-For: 1.2.3.4` leaves the edge proxy as
+ * `1.2.3.4, <real client ip>`. So the LEFTMOST entry is whatever the client
+ * chose to send, and the RIGHTMOST is the one the closest trusted proxy
+ * observed. Reading `xff.split(',')[0]` — as this file used to — therefore
+ * takes the attacker-controlled value, and every per-IP rate limit becomes
+ * bypassable by rotating a header.
+ *
+ * The same applies to CF-Connecting-IP and X-Real-IP: they are only meaningful
+ * if the request genuinely came through that platform. If the origin is
+ * reachable directly, a client can set them to anything.
+ *
+ * So: parse from the RIGHT, and only trust vendor headers when the deployment
+ * actually sits behind that vendor. TRUSTED_PROXY_HOPS says how many proxies
+ * are in front of this app (default 1); the IP is taken that many entries in
+ * from the right.
  */
 
 import { NextRequest } from 'next/server';
 
 /**
- * Extract client IP from request headers.
- * Uses platform-specific headers when available for better accuracy.
+ * How many trusted proxies sit in front of this app. The client IP is taken
+ * that many entries from the right of X-Forwarded-For. Default 1, matching a
+ * single platform edge (Railway/Vercel).
  */
+function trustedProxyHops(): number {
+  const raw = Number(process.env.TRUSTED_PROXY_HOPS);
+  return Number.isInteger(raw) && raw >= 1 ? raw : 1;
+}
+
+/**
+ * Whether to trust vendor-specific client-IP headers. Only enable when the
+ * origin is genuinely unreachable except through that vendor — otherwise the
+ * header is just another value the client picks.
+ */
+function trustVendorHeaders(): boolean {
+  return process.env.TRUST_VENDOR_IP_HEADERS === 'true';
+}
+
 export function getClientIp(request: NextRequest): string {
-  // Cloudflare sets this reliably
-  const cfIp = request.headers.get('cf-connecting-ip');
-  if (cfIp && isValidIp(cfIp)) {
-    return cfIp.trim();
+  if (trustVendorHeaders()) {
+    const cfIp = request.headers.get('cf-connecting-ip');
+    if (cfIp && isValidIp(cfIp)) return cfIp.trim();
+
+    const realIp = request.headers.get('x-real-ip');
+    if (realIp && isValidIp(realIp)) return realIp.trim();
   }
 
-  // Vercel sets this
-  const vercelIp = request.headers.get('x-vercel-forwarded-for');
-  if (vercelIp) {
-    const ip = vercelIp.split(',')[0]?.trim();
-    if (ip && isValidIp(ip)) {
-      return ip;
-    }
-  }
+  // Vercel appends its own list; treat it the same way as XFF.
+  const forwarded =
+    request.headers.get('x-vercel-forwarded-for') || request.headers.get('x-forwarded-for');
 
-  // Railway/nginx typically use X-Real-IP
-  const realIp = request.headers.get('x-real-ip');
-  if (realIp && isValidIp(realIp)) {
-    return realIp.trim();
-  }
+  if (forwarded) {
+    const hops = forwarded
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
 
-  // Standard X-Forwarded-For (first IP is client when proxy configured correctly)
-  const xff = request.headers.get('x-forwarded-for');
-  if (xff) {
-    const ip = xff.split(',')[0]?.trim();
-    if (ip && isValidIp(ip)) {
-      return ip;
+    // Count in from the RIGHT: the last entry was appended by the closest
+    // proxy and is the only one the client could not choose.
+    const index = hops.length - trustedProxyHops();
+    const candidate = hops[index >= 0 ? index : 0];
+
+    if (candidate && isValidIp(candidate)) {
+      return candidate;
     }
   }
 
@@ -95,7 +114,8 @@ function isValidIp(ip: string): boolean {
  */
 export function getRateLimitKey(request: NextRequest, prefix: string): string {
   const ip = getClientIp(request);
-  // Could add user-agent hash for additional entropy, but might cause
-  // issues with legitimate users changing browsers
+  // 'unknown' means no usable forwarded header. Bucketing every such request
+  // under one key would let one caller exhaust the limit for all of them, so
+  // they share a clearly-labelled bucket that operators can alert on.
   return `${prefix}:${ip}`;
 }

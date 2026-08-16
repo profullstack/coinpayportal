@@ -42,6 +42,10 @@ export type VerifyFailureReason =
   | 'expired'
   | 'not_yet_valid'
   | 'lifetime_too_long'
+  // A signature with no expiry is unbounded, which is a bearer token in
+  // disguise; both timestamps are required so the lifetime cap always applies.
+  | 'missing_expiry'
+  | 'missing_created'
   | 'unknown_key'
   | 'directory_error'
   | 'bad_signature';
@@ -157,10 +161,18 @@ export async function verifyWebBotAuth(
   }
   // An unbounded or very long-lived signature is a bearer token in disguise:
   // anyone who observes it can replay it for as long as it stays valid.
-  if (created !== null && expires !== null) {
-    if (expires - created > MAX_SIGNATURE_LIFETIME_SECONDS) {
-      return { verified: false, reason: 'lifetime_too_long' };
-    }
+  //
+  // The bound used to apply only when BOTH created and expires were present,
+  // so omitting `expires` skipped it entirely — the most permissive case was
+  // the one with no check at all. An expiry is now required.
+  if (expires === null) {
+    return { verified: false, reason: 'missing_expiry' };
+  }
+  if (created === null) {
+    return { verified: false, reason: 'missing_created' };
+  }
+  if (expires - created > MAX_SIGNATURE_LIFETIME_SECONDS) {
+    return { verified: false, reason: 'lifetime_too_long' };
   }
 
   const signatures = parseSignatureHeader(signature);

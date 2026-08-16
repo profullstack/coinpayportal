@@ -4,6 +4,14 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 export type PaymentStatus = 
   | 'pending'
+  // UNREACHABLE as of migration 20260816020000.
+  //
+  // 'detected' was removed from the payments.status CHECK constraint without
+  // the application being updated, so the database can no longer produce it.
+  // Roughly two dozen UI branches still render a "Payment Detected!" stage that
+  // no payment can ever reach. Kept in the union so those branches still
+  // typecheck; removing them is a mechanical sweep across payer-facing pages
+  // and is deliberately NOT bundled with a security change.
   | 'detected'
   | 'confirming'
   | 'completed'

@@ -25,6 +25,8 @@ import { getFeePercentage } from '@/lib/payments/fees';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { createPayment, type Blockchain } from '@/lib/payments/service';
 import { getStripe } from '@/lib/server/optional-deps';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+import { hashApiKey } from '@/lib/auth/scoped-keys';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -55,7 +57,10 @@ const requestSchema = z.object({
     did: z.string().startsWith('did:').optional(),
     name: z.string().optional(),
   }),
-  amount_usd: z.number().positive(),
+  // Bounded, matching the ceiling on POST /api/payments/create. Unbounded, a
+  // single call could mint an invoice for an arbitrary sum against a payee who
+  // never agreed to it.
+  amount_usd: z.number().positive().max(1_000_000),
   crypto_currency: z.string().optional(),
   notes: z.string().optional(),
   due_date: z.string().datetime().optional(),
@@ -68,13 +73,45 @@ async function authenticatePlatform(
   const authHeader = request.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) return null;
   const apiKey = authHeader.slice(7);
-  const { data } = await supabase
+  if (!apiKey) return null;
+
+  // Match on the HASH first.
+  //
+  // The original schema stored api_key_hash; a later migration added a raw
+  // api_key column and the lookup moved to it, which is how the key ended up
+  // readable at rest. Migration 20260816020000 restored the hash column and
+  // removed the anon/authenticated grant; this is the other half — new lookups
+  // go through the hash, and any row still matched by its raw key is upgraded
+  // in place, so the raw column drains without forcing a key rotation on
+  // existing issuers.
+  const keyHash = hashApiKey(apiKey);
+
+  const { data: byHash } = await supabase
     .from('reputation_issuers')
-    .select('did, name')
+    .select('id, did, name')
+    .eq('api_key_hash', keyHash)
+    .eq('active', true)
+    .maybeSingle();
+
+  if (byHash) return { did: byHash.did, name: byHash.name };
+
+  const { data: byRaw } = await supabase
+    .from('reputation_issuers')
+    .select('id, did, name')
     .eq('api_key', apiKey)
     .eq('active', true)
-    .single();
-  return data;
+    .maybeSingle();
+
+  if (!byRaw) return null;
+
+  // Lazy upgrade; never block authentication on it.
+  void supabase
+    .from('reputation_issuers')
+    .update({ api_key_hash: keyHash })
+    .eq('id', byRaw.id)
+    .then(undefined, () => undefined);
+
+  return { did: byRaw.did, name: byRaw.name };
 }
 
 export async function POST(request: NextRequest) {
@@ -84,6 +121,17 @@ export async function POST(request: NextRequest) {
     const platform = await authenticatePlatform(supabase, request);
     if (!platform) {
       return NextResponse.json({ success: false, error: 'Invalid or missing platform API key' }, { status: 401 });
+    }
+
+    // This endpoint provisions a merchant account and a client record for the
+    // named payee, so an unbounded caller can create accounts and invoices in
+    // bulk. Limited per issuing platform.
+    const rate = await checkRateLimitAsync(platform.did, 'p2p_request');
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Rate limit exceeded for this platform' },
+        { status: 429 }
+      );
     }
 
     const body = await request.json();

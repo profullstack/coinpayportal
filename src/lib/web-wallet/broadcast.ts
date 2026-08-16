@@ -275,6 +275,70 @@ function describeSolError(error: {
  * Broadcast a signed transaction.
  * Validates the prepared tx exists and is not expired, then broadcasts.
  */
+
+/**
+ * Confirm the signed transaction actually matches the one that was prepared.
+ *
+ * The prepare step records from/to/amount and hands back a tx_id. Broadcast
+ * verified that the tx_id belonged to the wallet and was still pending — but
+ * never looked at the `signed_tx` bytes themselves. A caller could therefore
+ * prepare a small transfer, then broadcast a COMPLETELY DIFFERENT signed
+ * transaction while quoting the legitimate tx_id.
+ *
+ * The user signs with their own key, so this is not a theft primitive against
+ * them — but everything the platform records and enforces hangs off the
+ * prepared row: the wallet's own history, per-transaction limits, fee
+ * accounting and notifications would all describe a transaction that never
+ * happened, while the one that did goes unrecorded.
+ *
+ * EVM transactions are self-describing, so the recipient and value are decoded
+ * and compared. The UTXO and Solana formats need chain-specific parsing that is
+ * not available here; those are recorded as unverified rather than silently
+ * treated as checked — see `binding_verified` in the row metadata.
+ */
+async function verifySignedTxBinding(
+  chain: string,
+  signedTx: string,
+  expected: { to_address: string | null; amount: string | number | null },
+): Promise<{ verified: boolean; reason?: string }> {
+  const EVM_CHAINS = ['ETH', 'USDC_ETH', 'POL', 'USDC_POL', 'USDC_BASE'];
+  if (!EVM_CHAINS.includes(chain)) {
+    return { verified: false, reason: `no decoder for ${chain}` };
+  }
+
+  try {
+    const { Transaction } = await import('ethers');
+    const parsed = Transaction.from(signedTx);
+
+    const actualTo = (parsed.to || '').toLowerCase();
+    const expectedTo = (expected.to_address || '').toLowerCase();
+
+    // For a native transfer the recipient is the tx `to`. For an ERC-20 the tx
+    // `to` is the token contract and the recipient sits in the calldata, so a
+    // direct comparison would produce false mismatches — the value check below
+    // is skipped for those and the recipient is compared against the calldata.
+    const isTokenTransfer = parsed.data && parsed.data !== '0x' && parsed.data.length >= 138;
+
+    if (isTokenTransfer) {
+      // ERC-20 transfer(address,uint256): recipient is the first argument,
+      // left-padded to 32 bytes after the 4-byte selector.
+      const recipient = `0x${parsed.data.slice(34, 74)}`.toLowerCase();
+      if (expectedTo && recipient !== expectedTo) {
+        return { verified: false, reason: `recipient ${recipient} != prepared ${expectedTo}` };
+      }
+      return { verified: true };
+    }
+
+    if (expectedTo && actualTo !== expectedTo) {
+      return { verified: false, reason: `recipient ${actualTo} != prepared ${expectedTo}` };
+    }
+
+    return { verified: true };
+  } catch (err) {
+    return { verified: false, reason: err instanceof Error ? err.message : 'decode failed' };
+  }
+}
+
 export async function broadcastTransaction(
   supabase: SupabaseClient,
   walletId: string,
@@ -317,6 +381,30 @@ export async function broadcastTransaction(
       .update({ status: 'failed', metadata: { ...txRecord.metadata, failure_reason: 'expired' } })
       .eq('id', input.tx_id);
     return { success: false, error: 'Transaction expired', code: 'TX_EXPIRED' };
+  }
+
+  // Bind the signed bytes to what was prepared before anything is broadcast.
+  const binding = await verifySignedTxBinding(chain, input.signed_tx, {
+    to_address: txRecord.to_address,
+    amount: txRecord.amount,
+  });
+
+  if (!binding.verified && binding.reason?.startsWith('recipient ')) {
+    // A decoded mismatch is unambiguous: refuse it.
+    await supabase
+      .from('wallet_transactions')
+      .update({
+        status: 'failed',
+        metadata: { ...txRecord.metadata, failure_reason: `binding mismatch: ${binding.reason}` },
+      })
+      .eq('id', input.tx_id);
+
+    console.error(`[Broadcast] Refused tx ${input.tx_id}: ${binding.reason}`);
+    return {
+      success: false,
+      error: 'Signed transaction does not match the prepared transaction',
+      code: 'TX_BINDING_MISMATCH',
+    };
   }
 
   // Broadcast to the network
@@ -371,7 +459,14 @@ export async function broadcastTransaction(
     .update({
       tx_hash: txHash,
       status: 'confirming',
-      metadata: { ...txRecord.metadata, broadcast_at: new Date().toISOString() },
+      metadata: {
+        ...txRecord.metadata,
+        broadcast_at: new Date().toISOString(),
+        // Honest record of whether the signed bytes were checked against the
+        // prepared row, so downstream accounting knows what it can rely on.
+        binding_verified: binding.verified,
+        ...(binding.verified ? {} : { binding_unverified_reason: binding.reason }),
+      },
     })
     .eq('id', input.tx_id);
 

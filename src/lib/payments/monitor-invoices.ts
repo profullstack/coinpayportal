@@ -50,7 +50,27 @@ export async function runInvoiceMonitorCycle(supabase: any, now: Date): Promise<
               .eq('id', linkedPaymentId)
               .single();
 
-            if (linkedPayment && ['confirmed', 'forwarding', 'forwarded', 'forwarding_failed'].includes(linkedPayment.status)) {
+            // 'forwarding_failed' is deliberately NOT in this set.
+            //
+            // It used to be, which meant an invoice flipped to 'paid' in the
+            // merchant's dashboard while the forward had actually failed and
+            // the funds were still sitting at the intermediary address. The
+            // merchant saw a settled invoice and no reason to look further.
+            // The customer's payment is real either way, but "paid" here means
+            // the money reached the merchant — so the invoice stays open until
+            // the forward lands. The retry queue and rescanLateDeposits both
+            // re-drive these, so this resolves itself rather than sticking.
+            const SETTLES_INVOICE = ['confirmed', 'forwarding', 'forwarded'];
+
+            if (linkedPayment && linkedPayment.status === 'forwarding_failed') {
+              console.warn(
+                `[Monitor] Invoice ${invoice.invoice_number} has a confirmed payment ` +
+                  `(${linkedPaymentId}) whose forward FAILED — leaving the invoice unpaid ` +
+                  `until the funds reach the merchant.`
+              );
+            }
+
+            if (linkedPayment && SETTLES_INVOICE.includes(linkedPayment.status)) {
               await supabase
                 .from('invoices')
                 .update({

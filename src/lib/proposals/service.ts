@@ -373,15 +373,27 @@ export async function acceptProposal(
     .select(REVISION_SELECT)
     .single();
 
+  // Compare-and-swap on the status observed earlier in this function.
+  //
+  // Acceptance is what binds the payee address and fee for the resulting
+  // invoice, so accepting twice — two clicks, or an accept racing a counter —
+  // could re-accept a proposal that had already moved on, overwriting the
+  // agreed terms. Only the caller that finds it still in the pre-accept state
+  // gets to settle it.
   const { data: updatedProposal, error } = await supabase
     .from('proposals')
     .update({ status: 'accepted', accepted_at: now, updated_at: now })
     .eq('id', proposal.id)
+    .eq('status', proposal.status)
     .select(PROPOSAL_SELECT)
     .single();
 
   if (error || !updatedProposal) {
-    return { ok: false, error: error?.message || 'Failed to accept proposal', status: 400 };
+    return {
+      ok: false,
+      error: 'This proposal was already accepted or changed; reload it and try again.',
+      status: 409,
+    };
   }
 
   await recordEvent(supabase, {

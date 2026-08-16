@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
 
 // Headless CLI login — step 1. `coinpay login` POSTs here (unauthenticated) to
 // create a pending request, and gets back a URL + short user code to show the
@@ -31,6 +33,19 @@ export async function POST(request: NextRequest) {
 
     const supabase = serviceClient();
     if (!supabase) return NextResponse.json({ error: 'server_error' }, { status: 500 });
+
+    // Unauthenticated by design — `coinpay login` has no credential yet — so
+    // this is the only thing standing between one caller and unlimited pending
+    // device codes. Each call burns an 8-character user code from a 32-symbol
+    // alphabet; flooding the table both fills it and raises the odds of a
+    // collision against a code a real user is about to be shown.
+    const rate = await checkRateLimitAsync(getClientIp(request), 'cli_auth_start');
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: 'slow_down', error_description: 'Too many device authorization requests' },
+        { status: 429, headers: { 'Retry-After': String(Math.max(1, rate.resetAt - Math.floor(Date.now() / 1000))) } }
+      );
+    }
 
     const deviceCode = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + EXPIRES_IN * 1000).toISOString();
