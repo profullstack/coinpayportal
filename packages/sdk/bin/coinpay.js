@@ -483,6 +483,51 @@ async function promptYesNo(question, defaultYes = true) {
 }
 
 /**
+ * Run gpg with the passphrase on a dedicated file descriptor and the plaintext
+ * on stdin, so neither ever touches the filesystem.
+ *
+ * This replaces a pair of temporary files in the system temp directory that
+ * held the wallet MNEMONIC and the password in plaintext for the duration of
+ * the gpg call. Three things made that dangerous:
+ *
+ *   1. The names were predictable — built from Date.now() — so another process
+ *      could poll the temp directory for `coinpay-wallet-*`.
+ *   2. Mode 0600 keeps out other OS users. It does not keep out anything
+ *      running AS the same user, which is the realistic threat on a developer
+ *      machine: a malicious npm postinstall, a compromised editor extension.
+ *   3. Overwrite-then-unlink does not reliably erase data on journalling or
+ *      copy-on-write filesystems, or on SSDs that remap blocks.
+ *
+ * The mnemonic derives every private key on every chain, so this window was
+ * worth removing rather than narrowing. Using fd 3 also keeps the passphrase
+ * off the command line, where it would be visible in `ps`.
+ */
+function runGpg(args, { stdinData, passphrase }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('gpg', args, { stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
+
+    const stdout = [];
+    let stderr = '';
+
+    child.stdout.on('data', (d) => stdout.push(d));
+    child.stderr.on('data', (d) => { stderr += d.toString(); });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) resolve(Buffer.concat(stdout));
+      else reject(new Error(stderr.trim() || `gpg exited with code ${code}`));
+    });
+
+    const passFd = child.stdio[3];
+    passFd.on('error', () => {});
+    passFd.end(passphrase);
+
+    child.stdin.on('error', () => {});
+    if (stdinData !== undefined) child.stdin.end(stdinData);
+    else child.stdin.end();
+  });
+}
+
+/**
  * Check if gpg is available
  */
 function hasGpg() {
@@ -509,24 +554,22 @@ async function saveEncryptedWallet(mnemonic, walletId, password, walletFile) {
     createdAt: new Date().toISOString(),
   });
   
-  const tmpFile = join(tmpdir(), `coinpay-wallet-${Date.now()}.json`);
-  const passFile = join(tmpdir(), `coinpay-pass-${Date.now()}`);
-  
-  try {
-    writeFileSync(tmpFile, content, { mode: 0o600 });
-    writeFileSync(passFile, password, { mode: 0o600 });
-    
-    execSync(
-      `gpg --batch --yes --passphrase-file "${passFile}" --pinentry-mode loopback --symmetric --cipher-algo AES256 --output "${walletFile}" "${tmpFile}"`,
-      { stdio: ['pipe', 'pipe', 'pipe'] }
-    );
-    
-    return true;
-  } finally {
-    // Secure cleanup
-    try { writeFileSync(tmpFile, Buffer.alloc(content.length, 0)); unlinkSync(tmpFile); } catch {}
-    try { writeFileSync(passFile, Buffer.alloc(password.length, 0)); unlinkSync(passFile); } catch {}
-  }
+  // The mnemonic goes to gpg on stdin and the passphrase on fd 3. Neither is
+  // written to disk, and neither appears in the process arguments.
+  await runGpg(
+    [
+      '--batch',
+      '--yes',
+      '--passphrase-fd', '3',
+      '--pinentry-mode', 'loopback',
+      '--symmetric',
+      '--cipher-algo', 'AES256',
+      '--output', walletFile,
+    ],
+    { stdinData: content, passphrase: password }
+  );
+
+  return true;
 }
 
 /**
@@ -541,21 +584,18 @@ async function loadEncryptedWallet(password, walletFile) {
     throw new Error(`Wallet file not found: ${walletFile}`);
   }
   
-  const passFile = join(tmpdir(), `coinpay-pass-${Date.now()}`);
-  
-  try {
-    writeFileSync(passFile, password, { mode: 0o600 });
-    
-    const result = execSync(
-      `gpg --batch --yes --passphrase-file "${passFile}" --pinentry-mode loopback --decrypt "${walletFile}"`,
-      { stdio: ['pipe', 'pipe', 'pipe'] }
-    );
-    
-    const data = JSON.parse(result.toString());
-    return data;
-  } finally {
-    try { writeFileSync(passFile, Buffer.alloc(password.length, 0)); unlinkSync(passFile); } catch {}
-  }
+  const result = await runGpg(
+    [
+      '--batch',
+      '--yes',
+      '--passphrase-fd', '3',
+      '--pinentry-mode', 'loopback',
+      '--decrypt', walletFile,
+    ],
+    { passphrase: password }
+  );
+
+  return JSON.parse(result.toString());
 }
 
 /**

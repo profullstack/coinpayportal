@@ -8,6 +8,18 @@ import {
 } from './auth';
 import { secp256k1 } from '@noble/curves/secp256k1';
 
+// Replay prevention now FAILS CLOSED: if the shared store is configured but
+// unreachable, the request is rejected rather than falling back to per-process
+// memory (which is not replay protection across instances). The suite sets
+// Supabase env vars globally, so without this mock the real store is attempted,
+// errors, and every signature is correctly refused. These tests are about
+// signature verification, so the store is stubbed as "fresh".
+vi.mock('./rate-limit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./rate-limit')>()),
+  checkAndRecordSignatureAsync: vi.fn().mockResolvedValue(true),
+  hasSharedReplayStore: vi.fn().mockReturnValue(true),
+}));
+
 // Generate a test keypair for secp256k1
 function generateTestKeypair() {
   const privateKey = secp256k1.utils.randomSecretKey();

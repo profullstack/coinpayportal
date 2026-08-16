@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { checkBalance } from '@/lib/payments/monitor-balance';
 import { sendEmail } from '@/lib/email';
 import { invoicePaidMerchantTemplate } from '@/lib/email/invoice-templates';
 import { confirmAndForwardPayment } from '@/app/api/cron/monitor-payments/payment-monitor';
 import type { Payment } from '@/app/api/cron/monitor-payments/types';
+import { createServiceClient } from '@/lib/supabase/service-client';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 /**
  * POST /api/invoices/[id]/check-balance
@@ -20,7 +18,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createServiceClient();
 
     const { data: invoice, error } = await supabase
       .from('invoices')
