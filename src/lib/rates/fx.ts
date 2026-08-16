@@ -109,3 +109,21 @@ export async function getUsdFxRate(fiat: string): Promise<number> {
   }
   return rate;
 }
+
+/**
+ * Convert a USD amount into `fiat`.
+ *
+ * Several call sites compute a cost in USD (network fees, platform fees) and
+ * then need to add it to an amount denominated in the invoice currency. Adding
+ * the two directly mixes units, so route every such addition through here.
+ *
+ * @throws if the rate is unavailable — never silently treats the amount as USD.
+ */
+export async function convertUsdTo(amountUsd: number, fiat: string): Promise<number> {
+  if (!Number.isFinite(amountUsd)) {
+    throw new Error('convertUsdTo requires a finite USD amount');
+  }
+  if (amountUsd === 0) return 0;
+  const rate = await getUsdFxRate(fiat);
+  return amountUsd * rate;
+}

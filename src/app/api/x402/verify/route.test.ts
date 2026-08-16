@@ -33,6 +33,15 @@ vi.mock('@supabase/supabase-js', () => ({
   }),
 }));
 
+// API keys live in `business_api_keys` and are matched by an HMAC of the raw
+// key; the route delegates that to resolveScopedKey. (It used to query a table
+// called `api_keys` that does not exist, comparing a raw key to a hash column,
+// so the "authentication" was whatever that failed query happened to return.)
+const mockResolveScopedKey = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/auth/scoped-keys', () => ({
+  resolveScopedKey: mockResolveScopedKey,
+}));
+
 // Mock ethers
 vi.mock('ethers', () => ({
   ethers: {
@@ -58,6 +67,11 @@ describe('POST /api/x402/verify', () => {
     vi.clearAllMocks();
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+    mockResolveScopedKey.mockResolvedValue({
+      keyId: 'key1',
+      business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
+      scopes: [],
+    });
   });
 
   it('should return 401 when no API key provided', async () => {
@@ -74,10 +88,8 @@ describe('POST /api/x402/verify', () => {
   });
 
   it('should return 401 for inactive API key', async () => {
-    mockSingle.mockResolvedValueOnce({
-      data: { id: 'key1', business_id: 'biz1', active: false },
-      error: null,
-    });
+    // resolveScopedKey returns null for revoked keys and inactive businesses.
+    mockResolveScopedKey.mockResolvedValue(null);
 
     const req = makeRequest({ proof: 'base64stuff' });
     const res = await POST(req);
@@ -85,11 +97,6 @@ describe('POST /api/x402/verify', () => {
   });
 
   it('should return 400 for missing proof', async () => {
-    mockSingle.mockResolvedValueOnce({
-      data: { id: 'key1', business_id: 'biz1', active: true },
-      error: null,
-    });
-
     const req = makeRequest({});
     const res = await POST(req);
     expect(res.status).toBe(400);
@@ -98,11 +105,6 @@ describe('POST /api/x402/verify', () => {
   });
 
   it('should return 400 for invalid base64 proof', async () => {
-    mockSingle.mockResolvedValueOnce({
-      data: { id: 'key1', business_id: 'biz1', active: true },
-      error: null,
-    });
-
     const req = makeRequest({ proof: '!!!invalid-base64!!!' });
     const res = await POST(req);
     const data = await res.json();
@@ -111,11 +113,6 @@ describe('POST /api/x402/verify', () => {
   });
 
   it('should return 400 for expired payment proof', async () => {
-    mockSingle.mockResolvedValueOnce({
-      data: { id: 'key1', business_id: 'biz1', active: true },
-      error: null,
-    });
-
     const expiredProof = {
       scheme: 'exact',
       network: 'base',
@@ -142,11 +139,6 @@ describe('POST /api/x402/verify', () => {
 
   it('should reject a replayed Stripe PaymentIntent (uniqueKey must include paymentIntentId)', async () => {
     process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
-
-    mockSingle.mockResolvedValueOnce({
-      data: { id: 'key1', business_id: 'biz1', active: true },
-      error: null,
-    });
 
     // Replay is now caught by the unique index on (unique_key, network) rather
     // than a read-then-write check, which two concurrent verifies could both
@@ -191,10 +183,6 @@ describe('POST /api/x402/verify', () => {
      * the proof against nothing.
      */
     function activeKey() {
-      mockSingle.mockResolvedValueOnce({
-        data: { id: 'key1', business_id: 'biz1', active: true },
-        error: null,
-      });
     }
 
     function evmPayment(overrides: any = {}) {

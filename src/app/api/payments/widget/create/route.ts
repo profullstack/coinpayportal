@@ -4,12 +4,48 @@ import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { createPayment, Blockchain } from '@/lib/payments/service';
 import { getStripe } from '@/lib/server/optional-deps';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
+import { isBusinessPaidTier } from '@/lib/entitlements/service';
+import { getFeePercentage } from '@/lib/payments/fees';
 
+/**
+ * This endpoint is a public embed: payments.js runs on the merchant's own site
+ * and identifies the merchant by a UUID that is, by design, visible in page
+ * source. It therefore cannot require a secret. What it can do — and now does —
+ * is refuse to be used as an amplifier:
+ *
+ *   - per-merchant and per-IP rate limits;
+ *   - a ceiling on how many payments a merchant may have pending at once, so
+ *     the HD address pool cannot be drained by a caller looping on create;
+ *   - CORS echoed to the merchant's configured origins when they have set any,
+ *     instead of an unconditional `*`.
+ */
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
+  'Vary': 'Origin',
 };
+
+/**
+ * Build CORS headers for a merchant. When the merchant has registered widget
+ * origins, only those are echoed; otherwise the open policy is preserved so
+ * existing embeds keep working.
+ */
+function corsFor(origin: string | null, allowedOrigins: string[] | null): Record<string, string> {
+  if (!allowedOrigins || allowedOrigins.length === 0) return corsHeaders;
+  const allowed = origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+  return { ...corsHeaders, 'Access-Control-Allow-Origin': allowed };
+}
+
+/**
+ * Maximum payments a single merchant may have pending at one time via the
+ * widget. Each pending payment holds an HD address, so an unbounded count is a
+ * pool-exhaustion primitive; no legitimate embed has thousands of checkouts
+ * open simultaneously.
+ */
+const MAX_PENDING_WIDGET_PAYMENTS = 200;
 
 const CURRENCY_TO_BLOCKCHAIN: Record<string, Blockchain> = {
   btc: 'BTC',
@@ -111,7 +147,7 @@ export async function POST(request: NextRequest) {
 
     const { data: merchant } = await supabase
       .from('merchants')
-      .select('id')
+      .select('id, widget_allowed_origins')
       .eq('id', merchant_id)
       .maybeSingle();
 
@@ -119,6 +155,52 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: 'merchant not found' },
         { status: 404, headers: corsHeaders },
+      );
+    }
+
+    const allowedOrigins: string[] | null = Array.isArray(merchant.widget_allowed_origins)
+      ? merchant.widget_allowed_origins
+      : null;
+    const origin = request.headers.get('origin');
+    const cors = corsFor(origin, allowedOrigins);
+
+    // When a merchant has registered origins, requests from anywhere else are
+    // refused outright rather than merely blocked in the browser — CORS is a
+    // browser policy and does nothing against a direct HTTP client.
+    if (allowedOrigins && allowedOrigins.length > 0 && (!origin || !allowedOrigins.includes(origin))) {
+      return NextResponse.json(
+        { success: false, error: 'origin not allowed for this merchant' },
+        { status: 403, headers: cors },
+      );
+    }
+
+    // Two independent buckets: one merchant cannot be spammed from many IPs,
+    // and one IP cannot walk across many merchants.
+    const clientIp = getClientIp(request);
+    for (const bucketKey of [`m:${merchant_id}`, `ip:${clientIp}`]) {
+      const rate = await checkRateLimitAsync(bucketKey, 'widget_create');
+      if (!rate.allowed) {
+        return NextResponse.json(
+          { success: false, error: 'rate limit exceeded' },
+          { status: 429, headers: cors },
+        );
+      }
+    }
+
+    // Address-pool ceiling. Each pending payment holds an HD index, so without
+    // this a loop on create drains the merchant's pool and every later payer
+    // gets no address.
+    const { count: pendingCount } = await supabase
+      .from('payments')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending')
+      .contains('metadata', { source: 'payments.js' })
+      .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+
+    if ((pendingCount ?? 0) >= MAX_PENDING_WIDGET_PAYMENTS) {
+      return NextResponse.json(
+        { success: false, error: 'too many pending payments; try again later' },
+        { status: 429, headers: cors },
       );
     }
 
@@ -234,7 +316,11 @@ export async function POST(request: NextRequest) {
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com';
     const amountCents = Math.round(amount_usd * 100);
-    const platformFeeAmount = Math.round(amountCents * 0.01);
+    // Tier-aware, matching the crypto rail and the direct Stripe rail. A
+    // hardcoded rate here would over- or under-charge depending on the
+    // merchant's plan.
+    const widgetIsPaidTier = await isBusinessPaidTier(supabase, stripe.business_id);
+    const platformFeeAmount = Math.round(amountCents * getFeePercentage(widgetIsPaidTier));
     const stripeSdk = await getStripe();
     const session = await stripeSdk.checkout.sessions.create({
       line_items: [

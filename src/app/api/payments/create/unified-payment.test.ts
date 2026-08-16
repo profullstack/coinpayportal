@@ -58,7 +58,10 @@ vi.mock('@/lib/entitlements/middleware', () => ({
 }));
 
 vi.mock('@/lib/entitlements/service', () => ({
-  incrementTransactionCount: vi.fn().mockResolvedValue(undefined),
+  // Quota is spent atomically at creation time (consume_transaction_quota),
+  // not read-then-incremented, so the mock mirrors that contract.
+  consumeTransactionQuota: vi.fn().mockResolvedValue({ allowed: true, currentUsage: 1 }),
+  releaseTransactionQuota: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/lib/payments/service', () => ({

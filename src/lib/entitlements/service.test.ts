@@ -497,6 +497,8 @@ describe('Entitlements Service', () => {
                 subscription_plan_id: 'professional',
                 subscription_status: 'active',
                 subscription_started_at: '2025-01-01T00:00:00Z',
+                // A paid tier is only paid while its period is current.
+                subscription_ends_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
                 subscription_plans: {
                   id: 'professional',
                   name: 'Professional',
@@ -519,6 +521,78 @@ describe('Entitlements Service', () => {
 
       const result = await isPaidTier(mockSupabase as any, 'merchant-123');
       expect(result).toBe(true);
+    });
+
+    it('should return false for Professional whose paid period has ended', async () => {
+      // The perpetual-commission bug: plan+status alone stayed true forever,
+      // so one paid month bought the 0.5% rate indefinitely.
+      mockSupabase.from.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: {
+                id: 'merchant-123',
+                subscription_plan_id: 'professional',
+                subscription_status: 'active',
+                subscription_started_at: '2025-01-01T00:00:00Z',
+                subscription_ends_at: '2025-02-01T00:00:00Z',
+                subscription_plans: {
+                  id: 'professional',
+                  name: 'Professional',
+                  price_monthly: 49,
+                  monthly_transaction_limit: null,
+                  all_chains_supported: true,
+                  basic_api_access: true,
+                  advanced_analytics: true,
+                  custom_webhooks: true,
+                  white_label: true,
+                  priority_support: true,
+                  is_active: true,
+                },
+              },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      const result = await isPaidTier(mockSupabase as any, 'merchant-123');
+      expect(result).toBe(false);
+    });
+
+    it('should return false for Professional with no end date at all', async () => {
+      mockSupabase.from.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: {
+                id: 'merchant-123',
+                subscription_plan_id: 'professional',
+                subscription_status: 'active',
+                subscription_started_at: '2025-01-01T00:00:00Z',
+                subscription_ends_at: null,
+                subscription_plans: {
+                  id: 'professional',
+                  name: 'Professional',
+                  price_monthly: 49,
+                  monthly_transaction_limit: null,
+                  all_chains_supported: true,
+                  basic_api_access: true,
+                  advanced_analytics: true,
+                  custom_webhooks: true,
+                  white_label: true,
+                  priority_support: true,
+                  is_active: true,
+                },
+              },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      const result = await isPaidTier(mockSupabase as any, 'merchant-123');
+      expect(result).toBe(false);
     });
 
     it('should return false for Starter subscription', async () => {
@@ -629,6 +703,7 @@ describe('Entitlements Service', () => {
                 id: 'merchant-123',
                 subscription_plan_id: 'professional',
                 subscription_status: 'active',
+                subscription_ends_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
                 subscription_plans: {
                   id: 'professional',
                   name: 'Professional',

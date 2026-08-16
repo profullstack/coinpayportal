@@ -26,7 +26,40 @@ BITCOIN_DIR="/home/${CLN_USER}/.bitcoin"
 LNBITS_DIR="/opt/lnbits"
 LNBITS_DATA="/opt/lnbits-data"
 BITCOIN_RPC_USER="clnrpc"
-BITCOIN_RPC_PASS="clnrpc2026secret"
+
+# Bitcoin Core RPC password.
+#
+# This was hardcoded to a literal string committed to the repository, which
+# meant every droplet ever provisioned by this script shared one password that
+# anyone with read access to the repo knew — and the status output at the end
+# printed it. Bitcoin Core's RPC lets a caller move funds and control the node,
+# so that is a full compromise of any host where the port is reachable.
+#
+# Now: taken from the environment if provided, otherwise generated fresh per
+# host from the kernel CSPRNG. There is no fallback constant, because a
+# predictable default is what created the problem.
+if [ -z "${BITCOIN_RPC_PASS:-}" ]; then
+  if command -v openssl >/dev/null 2>&1; then
+    BITCOIN_RPC_PASS="$(openssl rand -hex 32)"
+  else
+    BITCOIN_RPC_PASS="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  fi
+
+  if [ -z "${BITCOIN_RPC_PASS}" ]; then
+    echo "ERROR: could not generate a Bitcoin RPC password; refusing to continue." >&2
+    exit 1
+  fi
+
+  echo "  Generated a new Bitcoin RPC password for this host."
+fi
+
+# Stored root-only so the operator can retrieve it without it being printed to
+# a terminal, a CI log, or anyone's scrollback.
+BITCOIN_RPC_CRED_FILE="/root/.coinpay-bitcoin-rpc"
+umask 077
+printf 'BITCOIN_RPC_USER=%s\nBITCOIN_RPC_PASS=%s\n' "${BITCOIN_RPC_USER}" "${BITCOIN_RPC_PASS}" \
+  > "${BITCOIN_RPC_CRED_FILE}"
+chmod 600 "${BITCOIN_RPC_CRED_FILE}"
 
 echo "═══════════════════════════════════════════"
 echo "  CoinPay Lightning Droplet Setup"
@@ -345,9 +378,15 @@ CLNREST_PAY_RUNE=${PAY_RUNE}
 # Auth
 AUTH_SECRET_KEY=${AUTH_SECRET}
 AUTH_ALLOWED_METHODS="user-id-only, username-password"
-AUTH_TOKEN_EXPIRE_MINUTES=525600
+# 1 day, not 1 year. A year-long token cannot be rotated in any practical
+# sense: a copy taken from a backup or a browser profile stays valid until
+# after the incident that leaked it is forgotten.
+AUTH_TOKEN_EXPIRE_MINUTES=1440
 
-FORWARDED_ALLOW_IPS="*"
+# Trust forwarded headers only from the local reverse proxy. With "*", LNbits
+# believes X-Forwarded-For from any client, so every IP-based check — rate
+# limits, allow-lists, audit logs — is attacker-controlled.
+FORWARDED_ALLOW_IPS="127.0.0.1"
 EOF
   echo "  LNbits .env written"
 else
@@ -585,7 +624,10 @@ echo "    lnbits      → systemctl status lnbits"
 echo ""
 echo "  LNbits UI:  https://${LNBITS_DOMAIN}"
 echo "  CLN RPC:    sudo -u ${CLN_USER} lightning-cli --network=${CLN_NETWORK} getinfo"
-echo "  Bitcoin:    bitcoin-cli -rpcuser=${BITCOIN_RPC_USER} -rpcpassword=${BITCOIN_RPC_PASS} getblockchaininfo"
+# Never echo the RPC password: this output lands in terminals, CI logs and
+# support tickets. Point at the root-only file instead.
+echo "  Bitcoin:    bitcoin-cli -rpcuser=${BITCOIN_RPC_USER} -rpcpassword=\"\$(. ${BITCOIN_RPC_CRED_FILE}; echo \$BITCOIN_RPC_PASS)\" getblockchaininfo"
+echo "              (RPC credentials: ${BITCOIN_RPC_CRED_FILE}, root only)"
 echo ""
 echo "  Next steps:"
 echo "    1. Wait for bitcoind to finish syncing (12-24h on first run)"

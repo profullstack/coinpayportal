@@ -111,9 +111,14 @@ class Payment_Adapter_CoinPayPortal
     public function getHtml($api_admin, $invoice, $display, $attempts): string
     {
         $isSandbox  = ($this->config['sandbox'] ?? 'no') === 'yes';
+        // Defaults must point at the real API root (`https://coinpayportal.com/api`),
+        // the same one the WooCommerce and WHMCS plugins use. The previous
+        // api.coinpayportal.com / sandbox-api.coinpayportal.com hosts are not
+        // served, so an install that did not override them could never reach
+        // the platform at all.
         $baseUrl    = $isSandbox
-            ? ($this->config['sandbox_api_url'] ?? 'https://sandbox-api.coinpayportal.com')
-            : ($this->config['api_url'] ?? 'https://api.coinpayportal.com');
+            ? ($this->config['sandbox_api_url'] ?? CoinPayPortalClient::DEFAULT_BASE_URL)
+            : ($this->config['api_url'] ?? CoinPayPortalClient::DEFAULT_BASE_URL);
         $apiKey      = $this->config['api_key'] ?? '';
         $merchantId  = $this->config['merchant_id'] ?? '';
         $displayName = $this->config['display_name'] ?? 'CoinPayPortal Crypto Payments';
@@ -203,7 +208,10 @@ class Payment_Adapter_CoinPayPortal
     public function processTransaction($api_admin, $id, $data, $gateway_id): void
     {
         $rawBody  = file_get_contents('php://input');
-        $sigHeader = $_SERVER['HTTP_X_COINPAYPORTAL_SIGNATURE'] ?? '';
+        // The server sends X-CoinPay-Signature (PHP: HTTP_X_COINPAY_SIGNATURE).
+        // This read the non-existent X-COINPAYPORTAL-SIGNATURE, so the header
+        // was always empty and every genuine webhook was rejected.
+        $sigHeader = $_SERVER['HTTP_X_COINPAY_SIGNATURE'] ?? '';
         $secret    = $this->config['webhook_secret'] ?? '';
 
         if (!WebhookVerifier::verify((string)$rawBody, $sigHeader, $secret)) {

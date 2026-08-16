@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { splitTieredPayment } from '@/lib/payments/fees';
+import { resolveScopedKey } from '@/lib/auth/scoped-keys';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -78,49 +79,139 @@ function getPlatformWallet(network: string): string | undefined {
   return envVar ? process.env[envVar] : undefined;
 }
 
+/** ERC-20 Transfer(address,address,uint256) topic. */
+const ERC20_TRANSFER_TOPIC =
+  '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
 /**
- * Verify an EVM transaction landed and return details.
+ * Verify an EVM transaction landed AND that it paid the expected recipient the
+ * expected amount.
+ *
+ * Checking only `receipt.status === 1` established that *some* transaction
+ * succeeded — nothing more. Any confirmed transaction hash on the chain
+ * satisfied that, including a 1 wei transfer between two attacker addresses, so
+ * a payment could be settled without the money ever having moved to the house
+ * wallet.
+ *
+ * @param expectedTo  address the funds must have gone to
+ * @param expectedAmount amount in the asset's smallest unit (wei / token units)
+ * @param asset       ERC-20 contract address, or null/undefined for native
  */
-async function verifyEvmTx(network: string, txHash: string) {
+async function verifyEvmTx(
+  network: string,
+  txHash: string,
+  expectedTo: string,
+  expectedAmount: bigint,
+  asset?: string | null,
+) {
   const rpcUrl = RPC_URLS[network];
   if (!rpcUrl) throw new Error(`No RPC configured for ${network}`);
 
   const { ethers } = await import('ethers');
   const provider = new ethers.JsonRpcProvider(rpcUrl);
-  const receipt = await provider.getTransactionReceipt(txHash);
+
+  const [receipt, tx] = await Promise.all([
+    provider.getTransactionReceipt(txHash),
+    provider.getTransaction(txHash),
+  ]);
 
   if (!receipt || receipt.status !== 1) {
     throw new Error('Transaction not confirmed or failed');
+  }
+  if (!tx) {
+    throw new Error('Transaction not found');
+  }
+
+  const wanted = expectedTo.toLowerCase();
+
+  if (asset && asset !== ZERO_ADDRESS_X402) {
+    // Token payment: the value is in a Transfer log emitted by the token
+    // contract, not in tx.value.
+    const transferred = receipt.logs
+      .filter(
+        (log) =>
+          log.address.toLowerCase() === asset.toLowerCase() &&
+          log.topics[0] === ERC20_TRANSFER_TOPIC &&
+          log.topics.length >= 3 &&
+          // topics[2] is the indexed `to`, left-padded to 32 bytes.
+          `0x${log.topics[2].slice(26)}`.toLowerCase() === wanted,
+      )
+      .reduce((sum, log) => sum + BigInt(log.data === '0x' ? '0x0' : log.data), 0n);
+
+    if (transferred < expectedAmount) {
+      throw new Error(
+        `Transaction did not transfer the expected amount to ${expectedTo} ` +
+          `(got ${transferred}, expected ${expectedAmount})`,
+      );
+    }
+  } else {
+    if ((tx.to || '').toLowerCase() !== wanted) {
+      throw new Error(`Transaction recipient is ${tx.to}, expected ${expectedTo}`);
+    }
+    if (tx.value < expectedAmount) {
+      throw new Error(
+        `Transaction paid ${tx.value}, expected at least ${expectedAmount}`,
+      );
+    }
   }
 
   return { confirmed: true, txHash };
 }
 
+/** Sentinel used by the x402 payloads for "native asset, not a token". */
+const ZERO_ADDRESS_X402 = '0x0000000000000000000000000000000000000000';
+
 /**
  * Verify a Bitcoin/BCH transaction.
  */
-async function verifyUtxoTx(network: string, txId: string) {
+async function verifyUtxoTx(
+  network: string,
+  txId: string,
+  expectedTo: string,
+  expectedAmount: bigint,
+) {
   if (network === 'bitcoin') {
-    try {
-      const res = await fetch(`https://mempool.space/api/tx/${txId}`);
-      const tx = await res.json();
-      return {
-        confirmed: !!tx.status?.confirmed,
-        txHash: txId,
-        confirmations: tx.status?.block_height ? 1 : 0,
-      };
-    } catch {
-      return { confirmed: false, txHash: txId, confirmations: 0, pending: true };
+    const res = await fetch(`https://mempool.space/api/tx/${txId}`);
+    if (!res.ok) {
+      throw new Error(`Could not look up transaction ${txId}`);
     }
+    const tx = await res.json();
+
+    // Sum the outputs paying the expected address. Previously only the
+    // transaction's existence was checked, so any Bitcoin transaction settled
+    // any x402 payment.
+    const paid = (tx.vout || [])
+      .filter((out: { scriptpubkey_address?: string }) => out.scriptpubkey_address === expectedTo)
+      .reduce((sum: bigint, out: { value?: number }) => sum + BigInt(out.value ?? 0), 0n);
+
+    if (paid < expectedAmount) {
+      throw new Error(
+        `Transaction paid ${paid} sats to ${expectedTo}, expected at least ${expectedAmount}`,
+      );
+    }
+
+    return {
+      confirmed: !!tx.status?.confirmed,
+      txHash: txId,
+      confirmations: tx.status?.block_height ? 1 : 0,
+    };
   }
-  // BCH — accept with txId, confirm asynchronously
-  return { confirmed: false, txHash: txId, confirmations: 0, pending: true };
+
+  // BCH has no verified lookup wired up here. Settling on an unverified txId
+  // would credit a payment nobody has checked, so refuse instead.
+  throw new Error(
+    `${network} settlement is not supported: no way to verify the recipient and amount on-chain`,
+  );
 }
 
 /**
  * Verify a Solana transaction.
  */
-async function verifySolanaTx(txSignature: string) {
+async function verifySolanaTx(
+  txSignature: string,
+  expectedTo: string,
+  expectedAmount: bigint,
+) {
   const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
   const res = await fetch(rpcUrl, {
@@ -130,18 +221,70 @@ async function verifySolanaTx(txSignature: string) {
       jsonrpc: '2.0',
       id: 1,
       method: 'getTransaction',
-      params: [txSignature, { encoding: 'json', commitment: 'confirmed' }],
+      params: [
+        txSignature,
+        { encoding: 'jsonParsed', commitment: 'confirmed', maxSupportedTransactionVersion: 0 },
+      ],
     }),
   });
 
   const data = await res.json();
-  if (data.result && !data.result.meta?.err) {
-    return { confirmed: true, txHash: txSignature };
-  }
+
   if (data.result?.meta?.err) {
     throw new Error(`Solana transaction failed: ${JSON.stringify(data.result.meta.err)}`);
   }
-  return { confirmed: false, txHash: txSignature, pending: true };
+  if (!data.result) {
+    return { confirmed: false, txHash: txSignature, pending: true };
+  }
+
+  // Confirm the expected recipient's balance actually increased by the expected
+  // amount. A successful signature on its own proves nothing about who was
+  // paid — any confirmed Solana transaction satisfied the old check.
+  const accountKeys: Array<{ pubkey?: string } | string> =
+    data.result.transaction?.message?.accountKeys ?? [];
+  const index = accountKeys.findIndex((key) =>
+    typeof key === 'string' ? key === expectedTo : key?.pubkey === expectedTo,
+  );
+
+  if (index === -1) {
+    throw new Error(`Transaction does not involve ${expectedTo}`);
+  }
+
+  const pre = BigInt(data.result.meta?.preBalances?.[index] ?? 0);
+  const post = BigInt(data.result.meta?.postBalances?.[index] ?? 0);
+  const gained = post - pre;
+
+  if (gained < expectedAmount) {
+    // Fall back to token balances for SPL transfers, where the lamport
+    // balances do not move.
+    const tokenGain = solanaTokenGain(data.result.meta, expectedTo);
+    if (tokenGain < expectedAmount) {
+      throw new Error(
+        `Transaction credited ${gained > 0n ? gained : tokenGain} to ${expectedTo}, ` +
+          `expected at least ${expectedAmount}`,
+      );
+    }
+  }
+
+  return { confirmed: true, txHash: txSignature };
+}
+
+/** Net SPL token amount credited to `owner` by a parsed transaction's meta. */
+function solanaTokenGain(meta: any, owner: string): bigint {
+  const before = new Map<string, bigint>();
+  for (const entry of meta?.preTokenBalances ?? []) {
+    if (entry.owner === owner) {
+      before.set(String(entry.accountIndex), BigInt(entry.uiTokenAmount?.amount ?? '0'));
+    }
+  }
+
+  let gain = 0n;
+  for (const entry of meta?.postTokenBalances ?? []) {
+    if (entry.owner !== owner) continue;
+    const post = BigInt(entry.uiTokenAmount?.amount ?? '0');
+    gain += post - (before.get(String(entry.accountIndex)) ?? 0n);
+  }
+  return gain;
 }
 
 /**
@@ -183,16 +326,17 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabase();
 
-    // Validate API key
-    const { data: keyData, error: keyError } = await supabase
-      .from('api_keys')
-      .select('id, business_id, active')
-      .eq('key_hash', apiKey)
-      .single();
-
-    if (keyError || !keyData?.active) {
+    // Authenticate the API key.
+    //
+    // This used to query a table called `api_keys` that does not exist, with
+    // `.eq('key_hash', apiKey)` comparing a RAW key against a hash column.
+    // Real key material lives in `business_api_keys`, keyed by an HMAC of the
+    // raw key; resolveScopedKey is the one place that knows how to check it.
+    const resolved = await resolveScopedKey(supabase, apiKey);
+    if (!resolved) {
       return NextResponse.json({ error: 'Invalid or inactive API key' }, { status: 401 });
     }
+    const keyData = { id: resolved.keyId, business_id: resolved.business.id, active: true };
 
     const body = await request.json();
     const { payment } = body;
@@ -243,6 +387,54 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Claim the payment before any on-chain verification or capture. The two
+    // status checks above are reads; without this, concurrent settle calls both
+    // pass them and both capture.
+    const { data: settleClaim } = await supabase
+      .from('x402_payments')
+      .update({ status: 'settling', updated_at: new Date().toISOString() })
+      .eq('id', verifiedPayment.id)
+      .eq('status', 'verified')
+      .select('id');
+
+    if (!settleClaim || settleClaim.length === 0) {
+      return NextResponse.json(
+        { error: 'Payment is already being settled' },
+        { status: 409 }
+      );
+    }
+
+    /** Hand the claim back when settlement fails before anything was captured. */
+    const releaseSettleClaim = async () => {
+      await supabase
+        .from('x402_payments')
+        .update({ status: 'verified', updated_at: new Date().toISOString() })
+        .eq('id', verifiedPayment.id)
+        .eq('status', 'settling');
+    };
+
+    // The recipient and amount the proof was verified against. Settlement must
+    // check the chain against THESE, not merely that some transaction exists.
+    const expectedTo: string | null = verifiedPayment.to_address;
+    const expectedAmount = (() => {
+      try {
+        return BigInt(verifiedPayment.amount);
+      } catch {
+        return null;
+      }
+    })();
+
+    if (!expectedTo || expectedAmount === null || expectedAmount <= 0n) {
+      await releaseSettleClaim();
+      return NextResponse.json(
+        {
+          error:
+            'Verified payment record is missing a recipient or a valid amount; refusing to settle.',
+        },
+        { status: 400 }
+      );
+    }
+
     // Check merchant tier for commission rate
     const isPaidTier = await isBusinessPaidTier(supabase, keyData.business_id);
     const { merchantAmount, platformFee, feePercentage } = splitTieredPayment(
@@ -267,7 +459,13 @@ export async function POST(request: NextRequest) {
         // EVM: verify the tx that paid the house wallet, then forward
         const txHash = payment.payload.txHash || payment.payload.txId;
         if (!txHash) throw new Error('Missing txHash for EVM settlement');
-        result = await verifyEvmTx(network, txHash);
+        result = await verifyEvmTx(
+          network,
+          txHash,
+          expectedTo,
+          expectedAmount,
+          verifiedPayment.asset,
+        );
 
         // TODO: Forward merchantAmount from house wallet to merchant address
         // using SYSTEM_MNEMONIC_ETH / SYSTEM_MNEMONIC_POL
@@ -280,7 +478,7 @@ export async function POST(request: NextRequest) {
         // UTXO: verify tx landed at house wallet
         const txId = payment.payload.txId;
         if (!txId) throw new Error('Missing txId for UTXO settlement');
-        result = await verifyUtxoTx(network, txId);
+        result = await verifyUtxoTx(network, txId, expectedTo, expectedAmount);
 
         // TODO: Forward merchantAmount from house wallet to merchant address
         // using SYSTEM_MNEMONIC_BTC
@@ -288,11 +486,12 @@ export async function POST(request: NextRequest) {
         // Solana: verify tx finality
         const txSig = payment.payload.txSignature;
         if (!txSig) throw new Error('Missing txSignature for Solana settlement');
-        result = await verifySolanaTx(txSig);
+        result = await verifySolanaTx(txSig, expectedTo, expectedAmount);
 
         // TODO: Forward merchantAmount from house wallet to merchant address
         // using SYSTEM_MNEMONIC_SOL
       } else {
+        await releaseSettleClaim();
         return NextResponse.json(
           { error: `Unsupported network for settlement: ${network}` },
           { status: 400 }

@@ -11,6 +11,7 @@ import { sendWebhook } from './webhook';
 import type { Payment, MonitorStats } from './types';
 import { processConfirmedBusinessCollectionPayment } from '@/lib/payments/business-collection';
 import { handleSubscriptionPaymentConfirmed } from '@/lib/subscriptions/service';
+import { isSufficientPayment } from '@/lib/payments/tolerance';
 
 const MAX_FORWARD_RETRY_ATTEMPTS = 5;
 
@@ -129,6 +130,12 @@ async function triggerForwarding(supabase: SupabaseClient, paymentId: string): P
  * without the forwarding leg being attempted is exactly how funds end up
  * stranded at an intermediary address while the customer, the merchant and the
  * invoice all believe the money has landed.
+ *
+ * The status write is a compare-and-swap against the status the caller observed.
+ * Three schedulers run this pipeline concurrently (the in-process monitor, the
+ * HTTP cron, and the edge function) alongside the merchant-facing balance check.
+ * Without the CAS every one of them reads the same row, sees it unsettled, and
+ * each sends the full split on-chain — paying the merchant N times.
  */
 export async function confirmAndForwardPayment(
   supabase: SupabaseClient,
@@ -136,14 +143,21 @@ export async function confirmAndForwardPayment(
   balance: number,
   now: Date,
 ): Promise<void> {
-  await supabase
+  const { data: claimed } = await supabase
     .from('payments')
     .update({
       status: 'confirmed',
       confirmed_at: now.toISOString(),
       updated_at: now.toISOString(),
     })
-    .eq('id', payment.id);
+    .eq('id', payment.id)
+    .eq('status', payment.status)
+    .select('id');
+
+  if (!claimed || claimed.length === 0) {
+    console.log(`Payment ${payment.id} was claimed by another worker; skipping duplicate forward`);
+    return;
+  }
 
   await sendWebhook(supabase, { ...payment, status: 'confirmed' } as Payment, 'payment.confirmed', {
     received_amount: balance,
@@ -241,10 +255,9 @@ export async function rescanLateDeposits(
     stats.checked++;
     try {
       const balance = await checkBalance(payment.payment_address, payment.blockchain);
-      const tolerance = payment.crypto_amount * 0.01;
       // Funds still present ⇒ no earlier forward succeeded, so re-driving this
       // payment cannot double-send.
-      if (balance < payment.crypto_amount - tolerance) continue;
+      if (!isSufficientPayment(balance, payment.crypto_amount)) continue;
 
       console.log(
         `Payment ${payment.id} is stuck in '${payment.status}' with ${balance} ${payment.blockchain} still at ${payment.payment_address}; re-driving it`,
@@ -326,9 +339,8 @@ export async function monitorPayments(
       const balance = await checkBalance(payment.payment_address, payment.blockchain);
       console.log(`Payment ${payment.id}: balance=${balance}, expected=${payment.crypto_amount}`);
 
-      // Check if sufficient funds received (allow 1% tolerance)
-      const tolerance = payment.crypto_amount * 0.01;
-      if (balance >= payment.crypto_amount - tolerance) {
+      // Settlement requires the full amount — see lib/payments/tolerance.ts.
+      if (isSufficientPayment(balance, payment.crypto_amount)) {
         if (isExpired) {
           console.log(`Payment ${payment.id} was funded near the end of its window; processing instead of expiring`);
         }
@@ -387,9 +399,18 @@ export async function monitorPayments(
           continue;
         }
 
+        // A NULL crypto_amount used to make this comparison NaN. `balance < NaN`
+        // is false, so the insufficient-funds guard never fired and the
+        // subscription was confirmed — and activated — at a zero balance.
+        // isSufficientPayment fails closed on NULL/NaN/zero.
         const balance = await checkBalance(payment.payment_address, payment.blockchain);
-        const tolerance = payment.crypto_amount * 0.01;
-        if (balance < payment.crypto_amount - tolerance) {
+        if (!isSufficientPayment(balance, payment.crypto_amount)) {
+          if (payment.crypto_amount === null || payment.crypto_amount === undefined) {
+            console.error(
+              `Business collection payment ${payment.id} has no crypto_amount; refusing to confirm. ` +
+                'This row predates the fix in lib/payments/business-collection.ts and must be re-quoted.'
+            );
+          }
           if (isExpired) {
             await supabase
               .from('business_collection_payments')
@@ -403,10 +424,17 @@ export async function monitorPayments(
           console.log(`Business collection payment ${payment.id} was funded after its payment window; processing instead of expiring`);
         }
 
-        await supabase
+        // CAS so two schedulers cannot both confirm and both activate the plan.
+        const { data: claimedCollection } = await supabase
           .from('business_collection_payments')
           .update({ status: 'confirmed', confirmed_at: now.toISOString(), updated_at: now.toISOString() })
-          .eq('id', payment.id);
+          .eq('id', payment.id)
+          .eq('status', 'pending')
+          .select('id');
+
+        if (!claimedCollection || claimedCollection.length === 0) {
+          continue;
+        }
 
         const metadata = (payment.metadata && typeof payment.metadata === 'object') ? payment.metadata as Record<string, any> : {};
         const isSubscriptionPayment = metadata.type === 'subscription_payment';

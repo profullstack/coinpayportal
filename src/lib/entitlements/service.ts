@@ -311,6 +311,68 @@ export async function incrementTransactionCount(
 }
 
 /**
+ * Atomically check the monthly transaction limit and spend one unit of quota.
+ *
+ * This is the enforcement point for the limit. `withTransactionLimit` reads the
+ * count and returns — useful for fast feedback, useless as a gate, because
+ * between that read and the old `incrementTransactionCount` call every
+ * concurrent request saw the same under-the-limit number and all of them
+ * proceeded. The RPC performs a bounded increment in one statement, so exactly
+ * as many requests succeed as there is quota for.
+ *
+ * Call this immediately before creating the transaction, so a request that
+ * fails validation does not burn a merchant's quota.
+ *
+ * @returns allowed=false when the merchant is at or over their limit. Fails
+ *          closed if the quota cannot be read.
+ */
+export async function consumeTransactionQuota(
+  supabase: SupabaseClient,
+  merchantId: string,
+  limit: number | null
+): Promise<{ allowed: boolean; currentUsage: number; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('consume_transaction_quota', {
+      p_merchant_id: merchantId,
+      p_limit: limit,
+    });
+
+    if (error) {
+      return { allowed: false, currentUsage: 0, error: error.message };
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    return {
+      allowed: Boolean(row?.allowed),
+      currentUsage: Number(row?.new_count ?? 0),
+    };
+  } catch (err) {
+    return {
+      allowed: false,
+      currentUsage: 0,
+      error: err instanceof Error ? err.message : 'Failed to consume transaction quota',
+    };
+  }
+}
+
+/**
+ * Return one unit of quota after a transaction was counted but not created.
+ * Used on the failure paths that follow a successful consume, so a merchant is
+ * not billed a transaction they never got.
+ */
+export async function releaseTransactionQuota(
+  supabase: SupabaseClient,
+  merchantId: string
+): Promise<void> {
+  const { error } = await supabase.rpc('release_transaction_quota', {
+    p_merchant_id: merchantId,
+  });
+  if (error) {
+    console.error(`[Entitlements] Failed to release quota for ${merchantId}:`, error.message);
+  }
+}
+
+/**
  * Check if merchant has a specific feature enabled
  */
 export async function hasFeature(
@@ -524,10 +586,32 @@ export async function isPaidTier(
     const { subscription } = subscriptionResult;
 
     // Professional plan = paid tier, anything else = free tier
-    const isPaid = subscription.plan.name.toLowerCase() === 'professional' &&
-                   subscription.status === 'active';
+    const isProfessional = subscription.plan?.name?.toLowerCase() === 'professional' &&
+                           subscription.status === 'active';
 
-    return isPaid;
+    if (!isProfessional) return false;
+
+    // The plan must also still be within its paid period.
+    //
+    // This check used to be absent entirely: `plan === 'professional' &&
+    // status === 'active'` stayed true forever, because nothing on the read
+    // path looked at subscription_ends_at and the downgrade sweep is a cron
+    // that can lag, fail, or simply not run. One legitimately paid month
+    // therefore bought the reduced 0.5% commission in perpetuity. Enforcing
+    // the period here makes the entitlement correct regardless of the sweep.
+    if (!subscription.endsAt) {
+      // A Professional subscription with no end date cannot be validated as
+      // current, so it does not earn the paid rate.
+      console.warn(`[Entitlements] Merchant ${merchantId} is 'professional' with no subscription_ends_at; treating as free tier`);
+      return false;
+    }
+
+    const endsAt = new Date(subscription.endsAt);
+    if (Number.isNaN(endsAt.getTime()) || endsAt.getTime() <= Date.now()) {
+      return false;
+    }
+
+    return true;
   } catch (error) {
     console.error(`[Entitlements] Error checking paid tier for merchant ${merchantId}:`, error);
     // Default to free tier on error

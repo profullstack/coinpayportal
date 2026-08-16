@@ -203,13 +203,22 @@ describe('OAuth Tokens', () => {
       expect(validatePKCE('wrong-verifier', challenge, 'S256')).toBe(false);
     });
 
-    it('should validate plain challenge correctly', () => {
+    it('rejects the plain method even when the verifier matches', () => {
+      // 'plain' makes the challenge equal to the verifier, so observing the
+      // authorization request is enough to complete the exchange — it defeats
+      // the whole point of PKCE and is no longer accepted.
       const verifier = 'plain-code-verifier';
-      expect(validatePKCE(verifier, verifier, 'plain')).toBe(true);
+      expect(validatePKCE(verifier, verifier, 'plain')).toBe(false);
     });
 
     it('should reject wrong plain verifier', () => {
       expect(validatePKCE('wrong', 'correct', 'plain')).toBe(false);
+    });
+
+    it('rejects any unrecognised challenge method', () => {
+      const verifier = 'some-code-verifier';
+      expect(validatePKCE(verifier, verifier, 'S1')).toBe(false);
+      expect(validatePKCE(verifier, verifier, '')).toBe(false);
     });
 
     it('should reject unknown method', () => {

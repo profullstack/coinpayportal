@@ -18,6 +18,7 @@ import { verifyWebBotAuth } from '@/lib/web-bot-auth';
 import { resolveAgentIdentity } from '@/lib/web-bot-auth/identity';
 import { computeTrustVector } from '@/lib/reputation/trust-engine';
 import { computeTrustTier } from '@/lib/reputation/trust-tiers';
+import { resolveScopedKey } from '@/lib/auth/scoped-keys';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -41,15 +42,17 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabase();
 
-    const { data: keyData, error: keyError } = await supabase
-      .from('api_keys')
-      .select('id, business_id, active')
-      .eq('key_hash', apiKey)
-      .single();
-
-    if (keyError || !keyData?.active) {
+    // Authenticate the API key.
+    //
+    // This used to query a table called `api_keys` that does not exist, with
+    // `.eq('key_hash', apiKey)` comparing a RAW key against a hash column.
+    // Real key material lives in `business_api_keys`, keyed by an HMAC of the
+    // raw key; resolveScopedKey is the one place that knows how to check it.
+    const resolved = await resolveScopedKey(supabase, apiKey);
+    if (!resolved) {
       return NextResponse.json({ error: 'Invalid or inactive API key' }, { status: 401 });
     }
+    const keyData = { id: resolved.keyId, business_id: resolved.business.id, active: true };
 
     const body = await request.json().catch(() => null);
     const parsed = verifySchema.safeParse(body);

@@ -17,6 +17,8 @@ import { monitorLightningPayments, syncLnbitsPayments } from './lightning-monito
 import { monitorSeries } from './series-monitor';
 import { monitorEmails } from './email-monitor';
 import { runInvoiceMonitorCycle, runInvoiceSchedulerCycle } from '@/lib/payments/monitor-invoices';
+import { expireEndedSubscriptions } from '@/lib/subscriptions/service';
+import { isCronSecret } from '@/lib/auth/secret-compare';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -35,25 +37,21 @@ function getCronSupabase() {
 }
 
 /**
- * Get cron secret for authentication
- */
-function getCronSecret(): string | undefined {
-  return process.env.CRON_SECRET || process.env.INTERNAL_API_KEY;
-}
-
-/**
- * Authenticate the cron request
+ * Authenticate the cron request.
+ *
+ * Compared in constant time, and a blank/unset secret never authenticates —
+ * `isCronSecret` returns false rather than letting an empty env var match an
+ * empty header.
  */
 function authenticateRequest(request: NextRequest): boolean {
-  const cronSecret = getCronSecret();
-  if (!cronSecret) {
+  if (!process.env.CRON_SECRET && !process.env.INTERNAL_API_KEY) {
     console.error('CRON_SECRET or INTERNAL_API_KEY not configured');
     return false;
   }
 
   const authHeader = request.headers.get('authorization');
-  const providedSecret = authHeader?.replace('Bearer ', '');
-  return providedSecret === cronSecret;
+  const providedSecret = authHeader?.replace(/^Bearer /, '').trim();
+  return isCronSecret(providedSecret);
 }
 
 export async function GET(request: NextRequest) {
@@ -89,6 +87,11 @@ export async function GET(request: NextRequest) {
     // Process recurring invoice schedules
     const invoiceSchedulerStats = await runInvoiceSchedulerCycle(supabase, now);
 
+    // Downgrade merchants whose paid period has ended. isPaidTier also checks
+    // the end date on every read, so a missed sweep cannot extend a plan — this
+    // keeps the stored state honest as well.
+    const subscriptionExpiry = await expireEndedSubscriptions(supabase);
+
     const response = {
       success: true,
       timestamp: now.toISOString(),
@@ -100,6 +103,7 @@ export async function GET(request: NextRequest) {
       emails: emailStats,
       invoices: invoiceStats,
       invoiceScheduler: invoiceSchedulerStats,
+      subscriptionExpiry,
     };
 
     console.log('Monitor complete:', response);

@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ethers } from 'ethers';
+import { resolveScopedKey } from '@/lib/auth/scoped-keys';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -265,16 +266,20 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabase();
 
-    // Validate API key
-    const { data: keyData, error: keyError } = await supabase
-      .from('api_keys')
-      .select('id, business_id, active')
-      .eq('key_hash', apiKey)
-      .single();
-
-    if (keyError || !keyData?.active) {
+    // Authenticate the API key.
+    //
+    // This used to query a table called `api_keys` that does not exist, with
+    // `.eq('key_hash', apiKey)` comparing a RAW key against a hash column. The
+    // query therefore always errored or returned nothing, and the route's
+    // behaviour depended entirely on how that empty result was handled — which
+    // is not authentication, it is an accident. Real key material lives in
+    // `business_api_keys`, keyed by an HMAC of the raw key; `resolveScopedKey`
+    // is the one place that knows how to check it.
+    const resolved = await resolveScopedKey(supabase, apiKey);
+    if (!resolved) {
       return NextResponse.json({ error: 'Invalid or inactive API key' }, { status: 401 });
     }
+    const keyData = { id: resolved.keyId, business_id: resolved.business.id, active: true };
 
     const body = await request.json();
     const { payment, expected } = body;

@@ -67,4 +67,26 @@ describe('OAuth Scopes', () => {
       expect(VALID_SCOPES).toContain('wallet:read');
     });
   });
+
+  describe('client scope restriction', () => {
+    it('drops scopes the client is not registered for', () => {
+      // Checking only the global whitelist let a client approved for
+      // "openid profile" ask for wallet:read and receive it.
+      expect(validateScopes('openid profile wallet:read', ['openid', 'profile']))
+        .toEqual(['openid', 'profile']);
+    });
+
+    it('grants nothing beyond openid when the client has no registered scopes', () => {
+      expect(validateScopes('openid profile email', [])).toEqual(['openid']);
+    });
+
+    it('still filters against the global whitelist', () => {
+      expect(validateScopes('openid admin:everything', ['openid', 'admin:everything']))
+        .toEqual(['openid']);
+    });
+
+    it('keeps the old behaviour when no client scopes are supplied', () => {
+      expect(validateScopes('openid profile')).toEqual(['openid', 'profile']);
+    });
+  });
 });

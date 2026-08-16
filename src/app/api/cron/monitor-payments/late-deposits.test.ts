@@ -38,8 +38,21 @@ function expiredPayment(overrides: Record<string, any> = {}) {
   };
 }
 
-function mockSupabase(expiredRows: any[], opts: { isEscrow?: boolean } = {}) {
-  const paymentsUpdateEq = vi.fn().mockResolvedValue({ data: null, error: null });
+function mockSupabase(
+  expiredRows: any[],
+  opts: { isEscrow?: boolean; claimed?: boolean } = {},
+) {
+  // The confirm write is a compare-and-swap:
+  //   .update({status:'confirmed'}).eq('id', …).eq('status', observed).select()
+  // `claimed: false` models another worker having won the race.
+  const claimedRows = opts.claimed === false ? [] : [{ id: 'pay_late' }];
+  const paymentsUpdateSelect = vi.fn().mockResolvedValue({ data: claimedRows, error: null });
+  const paymentsUpdateStatusEq = vi.fn().mockReturnValue({ select: paymentsUpdateSelect });
+  const paymentsUpdateEq = vi.fn().mockReturnValue({
+    eq: paymentsUpdateStatusEq,
+    // Non-CAS callers (the plain 'expired' write) await the first .eq() directly.
+    then: (resolve: any) => resolve({ data: null, error: null }),
+  });
   const paymentsUpdate = vi.fn().mockReturnValue({ eq: paymentsUpdateEq });
   const queueDeleteEq = vi.fn().mockResolvedValue({ data: null, error: null });
 
@@ -88,7 +101,7 @@ function mockSupabase(expiredRows: any[], opts: { isEscrow?: boolean } = {}) {
     }),
   };
 
-  return { supabase, paymentsUpdate, paymentsUpdateEq, statusFilter };
+  return { supabase, paymentsUpdate, paymentsUpdateEq, paymentsUpdateStatusEq, statusFilter };
 }
 
 describe('rescanLateDeposits', () => {
@@ -145,13 +158,30 @@ describe('rescanLateDeposits', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('accepts a deposit within the 1% underpayment tolerance', async () => {
-    vi.mocked(checkBalance).mockResolvedValue(1.3552 as any); // ~0.3% short
-    const { supabase } = mockSupabase([expiredPayment()]);
+  it('refuses a deposit that is short, even slightly', async () => {
+    // ~0.3% short. This used to confirm under a 1% tolerance, which unlocked
+    // the goods and then left the forwarder trying to send 100% out of an
+    // address holding 99.7% — so the forward failed and the funds stranded.
+    vi.mocked(checkBalance).mockResolvedValue(1.3552 as any);
+    const { supabase, paymentsUpdate } = mockSupabase([expiredPayment()]);
 
     await rescanLateDeposits(supabase, now, stats);
 
-    expect(stats.confirmed).toBe(1);
+    expect(stats.confirmed).toBe(0);
+    expect(paymentsUpdate).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not forward when another worker already claimed the payment', async () => {
+    vi.mocked(checkBalance).mockResolvedValue(1.35938662 as any);
+    const { supabase } = mockSupabase([expiredPayment()], { claimed: false });
+
+    await rescanLateDeposits(supabase, now, stats);
+
+    // The CAS lost, so this worker must not send on-chain — otherwise three
+    // schedulers plus the balance-check endpoint each pay the merchant.
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sendWebhook).not.toHaveBeenCalled();
   });
 
   it('never auto-forwards an escrow-held address', async () => {

@@ -1,67 +1,84 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveWebhookSecret } from './secret';
+import { safeFetch, isBlockedAddress } from '@/lib/security/ssrf';
+import { isIP } from 'net';
 
 /**
- * SSRF Protection - validates webhook URLs before making requests
+ * Synchronous SSRF pre-check on a webhook URL.
  *
- * Blocks:
- * - Localhost and loopback addresses
- * - Private IP ranges (10.x, 172.16-31.x, 192.168.x)
- * - Link-local addresses (169.254.x.x)
- * - AWS/cloud metadata endpoints
- * - Non-HTTPS URLs in production
+ * Kept for callers that need a cheap answer before storing a URL (settings
+ * forms, validation). It classifies literal addresses in every encoding —
+ * decimal, hex, octal, IPv4-mapped IPv6 — and rejects blocked hostnames, but it
+ * deliberately does NOT resolve DNS, because that cannot be done synchronously.
+ *
+ * It is therefore a usability check, not the security boundary. Every actual
+ * outbound request goes through `safeFetch`, which resolves the host, checks
+ * every resulting address, and re-validates each redirect hop. Relying on this
+ * function alone is what let `[::ffff:169.254.169.254]`, `http://2852039166/`
+ * and "public URL that 302s to the metadata service" all through.
  */
 export function isInternalUrl(url: string): boolean {
+  let parsed: URL;
   try {
-    const parsed = new URL(url);
-    const hostname = parsed.hostname.toLowerCase();
-
-    // Block localhost variants
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
-      return true;
-    }
-
-    // Block IPv6 loopback
-    if (hostname === '[::1]') {
-      return true;
-    }
-
-    // Block private IPv4 ranges
-    // 10.0.0.0/8
-    if (/^10\./.test(hostname)) {
-      return true;
-    }
-    // 172.16.0.0/12
-    if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)) {
-      return true;
-    }
-    // 192.168.0.0/16
-    if (/^192\.168\./.test(hostname)) {
-      return true;
-    }
-
-    // Block link-local (AWS metadata, Azure IMDS, etc.)
-    // 169.254.0.0/16
-    if (/^169\.254\./.test(hostname)) {
-      return true;
-    }
-
-    // Block common cloud metadata hostnames
-    if (hostname === 'metadata.google.internal') {
-      return true;
-    }
-
-    // Block non-HTTPS in production (allows HTTP in dev/test)
-    if (parsed.protocol !== 'https:' && process.env.NODE_ENV === 'production') {
-      return true;
-    }
-
-    return false;
+    parsed = new URL(url);
   } catch {
-    // Invalid URL - block it
+    return true; // unparseable → treat as unsafe
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return true;
+  if (parsed.username || parsed.password) return true;
+  if (parsed.protocol !== 'https:' && process.env.NODE_ENV === 'production') return true;
+
+  const hostname = parsed.hostname.toLowerCase().replace(/\.$/, '');
+  if (!hostname) return true;
+
+  if (
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.internal') ||
+    hostname === 'metadata' ||
+    hostname === 'metadata.google.internal' ||
+    hostname === 'metadata.goog' ||
+    hostname === 'instance-data'
+  ) {
     return true;
   }
+
+  const literal = normalizeHostToAddress(hostname);
+  if (literal) return isBlockedAddress(literal);
+
+  // A name we cannot resolve here. Not provably internal, so allow it through
+  // to safeFetch, which will resolve and decide.
+  return false;
+}
+
+/**
+ * Reduce a hostname to a literal IP string when it is one, normalizing decimal,
+ * hex and octal encodings. Returns null for genuine DNS names.
+ */
+function normalizeHostToAddress(hostname: string): string | null {
+  const bare = hostname.replace(/^\[|\]$/g, '');
+
+  if (/^\d+$/.test(bare)) {
+    const n = Number(bare);
+    if (!Number.isSafeInteger(n) || n < 0 || n > 0xffffffff) return null;
+    return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
+  }
+
+  if (/^0x[0-9a-f]+$/i.test(bare)) {
+    const n = Number.parseInt(bare, 16);
+    if (!Number.isSafeInteger(n) || n < 0 || n > 0xffffffff) return null;
+    return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
+  }
+
+  const parts = bare.split('.');
+  if (parts.length === 4 && parts.every((part) => /^0[0-7]+$/.test(part))) {
+    const octets = parts.map((part) => Number.parseInt(part, 8));
+    if (octets.every((o) => o >= 0 && o <= 255)) return octets.join('.');
+  }
+
+  return isIP(bare) ? bare : null;
 }
 
 /**
@@ -213,14 +230,9 @@ export async function deliverWebhook(
   timeout: number = 30000
 ): Promise<WebhookDeliveryResult> {
   try {
-    // SSRF protection: block internal/dangerous URLs
-    if (isInternalUrl(webhookUrl)) {
-      console.warn(`[Webhook] SSRF protection: blocked request to internal URL`);
-      return {
-        success: false,
-        error: 'Webhook URL not allowed: internal or private addresses are blocked',
-      };
-    }
+    // SSRF protection happens inside safeFetch below: it resolves the host,
+    // rejects every blocked range in every encoding, and re-validates each
+    // redirect hop. The old pre-check only string-matched the first hostname.
 
     // Add timestamp to payload
     const payloadWithTimestamp = {
@@ -233,18 +245,25 @@ export async function deliverWebhook(
 
     // Deliver webhook
     const startTime = Date.now();
-    const response = await fetch(webhookUrl, {
+    const delivery = await safeFetch(webhookUrl, {
       method: 'POST',
+      timeoutMs: timeout,
       headers: {
         'Content-Type': 'application/json',
         'X-CoinPay-Signature': signature,
         'User-Agent': 'CoinPay-Webhook/1.0',
       },
       body: JSON.stringify(payloadWithTimestamp),
-      signal: AbortSignal.timeout(timeout),
     });
 
     const _responseTime = Date.now() - startTime;
+
+    if (!delivery.ok) {
+      console.warn(`[Webhook] Delivery refused: ${delivery.reason}`);
+      return { success: false, error: delivery.reason };
+    }
+
+    const response = delivery.response;
 
     if (response.ok) {
       return {
@@ -312,29 +331,29 @@ export async function deliverWebhookDirect(
   maxRetries: number = 3,
   timeout: number = 30000
 ): Promise<WebhookDeliveryResult> {
-  // SSRF protection: block internal/dangerous URLs
-  if (isInternalUrl(webhookUrl)) {
-    console.warn(`[Webhook] SSRF protection: blocked request to internal URL`);
-    return {
-      success: false,
-      error: 'Webhook URL not allowed: internal or private addresses are blocked',
-    };
-  }
-
+  // SSRF validation happens per attempt inside safeFetch — DNS is re-resolved
+  // each time, so a host that becomes internal between retries is caught.
   let lastResult: WebhookDeliveryResult = { success: false };
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const response = await fetch(webhookUrl, {
+      const delivery = await safeFetch(webhookUrl, {
         method: 'POST',
+        timeoutMs: timeout,
         headers: {
           'Content-Type': 'application/json',
           'X-CoinPay-Signature': signature,
           'User-Agent': 'CoinPay-Webhook/1.0',
         },
         body: payloadString,
-        signal: AbortSignal.timeout(timeout),
       });
+
+      if (!delivery.ok) {
+        console.warn(`[Webhook] Delivery refused: ${delivery.reason}`);
+        return { success: false, error: delivery.reason };
+      }
+
+      const response = delivery.response;
 
       if (response.ok) {
         return {

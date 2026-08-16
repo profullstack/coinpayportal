@@ -1,6 +1,12 @@
 import { NextRequest } from 'next/server';
+import { z } from 'zod';
 import { verifyToken, getUserIdFromToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
+import { extractBearerToken } from '@/lib/auth/middleware';
+import { isInternalApiKey } from '@/lib/auth/secret-compare';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+import { getAccessibleBusinessRoles } from '@/lib/auth/authz';
+import { createClient } from '@supabase/supabase-js';
 
 // Store active connections for broadcasting
 const connections = new Map<string, Set<ReadableStreamDefaultController>>();
@@ -29,6 +35,21 @@ export async function GET(request: NextRequest) {
     }
   } catch {
     return new Response('Invalid token', { status: 401 });
+  }
+
+  // A valid token proved who the caller is, not what they may subscribe to.
+  // Connections are keyed by `businessId || merchantId`, so without this check
+  // any authenticated merchant could name someone else's business and receive
+  // their live payment stream.
+  if (businessId) {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    const roles = await getAccessibleBusinessRoles(supabase, merchantId);
+    if (!roles.has(businessId)) {
+      return new Response('Forbidden', { status: 403 });
+    }
   }
 
   // Create SSE stream
@@ -139,23 +160,75 @@ function broadcastPaymentEvent(
 }
 
 /**
- * POST endpoint to trigger payment events (for internal use or webhooks)
+ * Shape of a broadcastable payment event.
+ *
+ * The endpoint used to forward whatever `event` object it was handed straight
+ * into every subscriber's stream. The dashboard renders these as real
+ * payments, so an arbitrary object was an arbitrary fake payment on a
+ * merchant's screen. Only known event types with a well-formed payment body
+ * are broadcast, and unknown fields are dropped rather than passed through.
+ */
+const paymentEventSchema = z.object({
+  type: z.enum(['payment_created', 'payment_updated', 'payment_completed', 'payment_expired']),
+  payment: z.object({
+    id: z.string().uuid(),
+    status: z.string().max(32),
+    amount_crypto: z.string().max(64),
+    amount_usd: z.string().max(64),
+    currency: z.string().max(16),
+    payment_address: z.string().max(128),
+    confirmations: z.number().int().nonnegative().optional(),
+    required_confirmations: z.number().int().nonnegative().optional(),
+    tx_hash: z.string().max(128).optional(),
+    created_at: z.string().max(64),
+    updated_at: z.string().max(64),
+  }),
+});
+
+const broadcastSchema = z.object({
+  merchantId: z.string().uuid(),
+  businessId: z.string().uuid().optional(),
+  event: paymentEventSchema,
+});
+
+/**
+ * POST endpoint to trigger payment events.
+ *
+ * Server-to-server only. This was unauthenticated, so anyone could push a
+ * `payment_completed` event into any merchant's dashboard stream — the
+ * merchant saw a payment that never happened, which is a usable setup for
+ * "I paid, ship the goods". The internal key is now mandatory and compared in
+ * constant time; an unset key authenticates nobody.
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { merchantId, businessId, event } = body;
+    const token =
+      extractBearerToken(request.headers.get('authorization')) ||
+      request.headers.get('x-api-key')?.trim() ||
+      null;
 
-    // Validate required fields
-    if (!merchantId || !event || !event.type || !event.payment) {
+    if (!isInternalApiKey(token)) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const parsed = broadcastSchema.safeParse(await request.json());
+    if (!parsed.success) {
       return Response.json(
-        { error: 'Missing required fields' },
+        { error: parsed.error.errors[0]?.message || 'Invalid event payload' },
         { status: 400 }
       );
     }
 
-    // Broadcast the event
-    broadcastPaymentEvent(merchantId, businessId, event);
+    const { merchantId, businessId, event } = parsed.data;
+
+    // Second layer: a leaked internal key cannot be used to flood dashboards.
+    const limit = await checkRateLimitAsync(businessId || merchantId, 'realtime_publish');
+    if (!limit.allowed) {
+      return Response.json({ error: 'Too many events' }, { status: 429 });
+    }
+
+    // Broadcast only the validated projection, never the raw request body.
+    broadcastPaymentEvent(merchantId, businessId ?? null, event);
 
     return Response.json({ success: true });
   } catch (error) {

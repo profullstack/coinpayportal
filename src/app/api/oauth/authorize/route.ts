@@ -110,10 +110,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Validate scopes
-  const scopes = validateScopes(scope);
+  // Validate scopes against BOTH the global whitelist and this client's own
+  // registration. Checking only the whitelist let any registered client request
+  // every scope the platform defines, regardless of what it was approved for.
+  const scopes = validateScopes(scope, clientResult.client.scopes);
   if (scopes.length === 0) {
-    return oauthError(redirectUri, 'invalid_scope', 'No valid scopes requested', state);
+    return oauthError(redirectUri, 'invalid_scope', 'No valid scopes requested for this client', state);
   }
 
   // Check authentication
@@ -236,7 +238,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ redirect: denyUrl.toString() });
   }
 
-  const scopes = validateScopes(scope || 'openid');
+  // Same constraint as the GET path: the consent POST must not be a way to
+  // grant a client scopes it was never registered for.
+  const scopes = validateScopes(scope || 'openid', clientResult.client?.scopes);
+  if (scopes.length === 0) {
+    return NextResponse.json(
+      { error: 'invalid_scope', error_description: 'No valid scopes requested for this client' },
+      { status: 400 }
+    );
+  }
+
+  // PKCE downgrade guard: only S256 is supported, so reject an explicit
+  // 'plain' request here rather than storing a challenge that can never verify.
+  if (codeChallenge && codeChallengeMethod && codeChallengeMethod !== 'S256') {
+    return NextResponse.json(
+      {
+        error: 'invalid_request',
+        error_description: `Unsupported code_challenge_method: ${codeChallengeMethod}. Only S256 is accepted.`,
+      },
+      { status: 400 }
+    );
+  }
+
   const supabase = getSupabase();
 
   // Save consent

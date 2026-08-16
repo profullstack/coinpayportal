@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { verifySession } from '@/lib/auth/service';
 import { generateTestWebhookSignature } from '@/lib/sdk';
 import { resolveWebhookSecret } from '@/lib/webhooks/secret';
+import { safeFetch } from '@/lib/security/ssrf';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 
 /**
  * POST /api/businesses/[id]/webhook-test
@@ -75,6 +77,16 @@ export async function POST(
       );
     }
 
+    // Even an authorized merchant must not be able to use this as an outbound
+    // request generator against a third party.
+    const testRate = await checkRateLimitAsync(businessId, 'webhook_test');
+    if (!testRate.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Too many webhook tests; try again shortly.' },
+        { status: 429 }
+      );
+    }
+
     // Check if webhook URL is configured
     if (!business.webhook_url) {
       return NextResponse.json(
@@ -127,36 +139,69 @@ export async function POST(
     const plaintextSecret = resolveWebhookSecret(business.webhook_secret, business.merchant_id);
     const signature = generateTestWebhookSignature(payloadString, plaintextSecret);
 
-    // Deliver the webhook
+    // Deliver the webhook.
+    //
+    // Two things made this endpoint a full-read SSRF: the URL was fetched with
+    // no address validation, and the response body AND headers were echoed back
+    // to the caller. Either alone is bad; together they are an exfiltration
+    // primitive — point webhook_url at 169.254.169.254 and read the instance's
+    // IAM credentials out of the API response.
+    //
+    // safeFetch resolves the host, rejects every blocked range in every
+    // encoding, and re-validates each redirect hop. And the response content is
+    // no longer reflected: the caller is told whether delivery succeeded, the
+    // status code, and how long it took — everything they need to debug their
+    // own endpoint, and nothing that can carry data out of the network.
     const startTime = Date.now();
-    let responseBody: string | null = null;
-    let responseHeaders: Record<string, string> = {};
 
     try {
-      const response = await fetch(business.webhook_url, {
+      const delivery = await safeFetch(business.webhook_url, {
         method: 'POST',
+        timeoutMs: 30000,
         headers: {
           'Content-Type': 'application/json',
           'X-CoinPay-Signature': signature,
           'User-Agent': 'CoinPay-Webhook/1.0',
         },
         body: payloadString,
-        signal: AbortSignal.timeout(30000),
       });
 
-      const responseTime = Date.now() - startTime;
+      // A blocked URL is a configuration error the merchant must fix; a
+      // transport failure means their endpoint is unreachable, which is
+      // exactly what this endpoint exists to tell them. Only the former is a
+      // 400 — the latter is a successful test with a failed delivery.
+      if (!delivery.ok && delivery.kind === 'blocked') {
+        await supabase.from('webhook_logs').insert({
+          business_id: businessId,
+          payment_id: testPayload.id,
+          event: 'test.webhook',
+          webhook_url: business.webhook_url,
+          success: false,
+          status_code: null,
+          error_message: delivery.reason,
+          attempt_number: 1,
+          response_time_ms: Date.now() - startTime,
+          created_at: new Date().toISOString(),
+        });
 
-      // Try to get response body
-      try {
-        responseBody = await response.text();
-      } catch {
-        responseBody = null;
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Webhook URL rejected: ${delivery.reason}`,
+            code: 'WEBHOOK_URL_BLOCKED',
+          },
+          { status: 400 }
+        );
       }
 
-      // Get response headers
-      response.headers.forEach((value, key) => {
-        responseHeaders[key] = value;
-      });
+      if (!delivery.ok) {
+        // Transport failure: fall through to the same shape the catch block
+        // produces, so a down endpoint reads the same as it always did.
+        throw new Error(delivery.reason);
+      }
+
+      const response = delivery.response;
+      const responseTime = Date.now() - startTime;
 
       // Log the test attempt
       await supabase.from('webhook_logs').insert({
@@ -180,8 +225,10 @@ export async function POST(
             status_code: response.status,
             status_text: response.statusText,
             response_time_ms: responseTime,
-            response_body: responseBody,
-            response_headers: responseHeaders,
+            // response_body and response_headers are deliberately NOT returned.
+            // See the comment above the fetch: echoing them turns any SSRF into
+            // data exfiltration. Merchants debug their endpoint from the status
+            // code and their own server logs.
             request: {
               url: business.webhook_url,
               method: 'POST',

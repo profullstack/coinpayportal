@@ -8,7 +8,10 @@ import {
   type ForwardingInput,
   type ForwardingResult,
 } from './forwarding';
-import { splitPayment } from './fees';
+import { splitTieredPayment } from './fees';
+
+// The forwarding path under test resolves a paid-tier merchant.
+const splitPayment = (amount: number) => splitTieredPayment(amount, true);
 
 // Mock the blockchain providers
 vi.mock('../blockchain/providers', () => ({
@@ -69,7 +72,7 @@ describe('Payment Forwarding Service', () => {
   describe('calculateForwardingAmounts', () => {
     it('should calculate correct amounts for merchant and platform', () => {
       const totalAmount = 1.0; // 1 ETH
-      const result = calculateForwardingAmounts(totalAmount);
+      const result = calculateForwardingAmounts(totalAmount, true);
 
       expect(result.merchantAmount).toBeDefined();
       expect(result.platformFee).toBeDefined();
@@ -79,7 +82,7 @@ describe('Payment Forwarding Service', () => {
 
     it('should give merchant 99.5% of the payment', () => {
       const totalAmount = 100;
-      const result = calculateForwardingAmounts(totalAmount);
+      const result = calculateForwardingAmounts(totalAmount, true);
 
       // 0.5% fee means merchant gets 99.5%
       expect(result.merchantAmount).toBeCloseTo(99.5, 2);
@@ -88,7 +91,7 @@ describe('Payment Forwarding Service', () => {
 
     it('should handle small amounts correctly', () => {
       const totalAmount = 0.001; // Small crypto amount
-      const result = calculateForwardingAmounts(totalAmount);
+      const result = calculateForwardingAmounts(totalAmount, true);
 
       expect(result.merchantAmount).toBeGreaterThan(0);
       expect(result.platformFee).toBeGreaterThan(0);
@@ -97,18 +100,18 @@ describe('Payment Forwarding Service', () => {
 
     it('should handle large amounts correctly', () => {
       const totalAmount = 1000000; // Large amount
-      const result = calculateForwardingAmounts(totalAmount);
+      const result = calculateForwardingAmounts(totalAmount, true);
 
       expect(result.merchantAmount).toBeCloseTo(995000, 2);
       expect(result.platformFee).toBeCloseTo(5000, 2);
     });
 
     it('should throw error for zero amount', () => {
-      expect(() => calculateForwardingAmounts(0)).toThrow('Amount must be greater than zero');
+      expect(() => calculateForwardingAmounts(0, true)).toThrow('Amount must be greater than zero');
     });
 
     it('should throw error for negative amount', () => {
-      expect(() => calculateForwardingAmounts(-1)).toThrow('Amount must be greater than zero');
+      expect(() => calculateForwardingAmounts(-1, true)).toThrow('Amount must be greater than zero');
     });
   });
 
@@ -320,7 +323,7 @@ describe('Payment Forwarding Service', () => {
   describe('Integration with fee calculations', () => {
     it('should use consistent fee calculations', () => {
       const amount = 10.0;
-      const forwardingAmounts = calculateForwardingAmounts(amount);
+      const forwardingAmounts = calculateForwardingAmounts(amount, true);
       const feeAmounts = splitPayment(amount);
 
       expect(forwardingAmounts.merchantAmount).toBeCloseTo(feeAmounts.merchantAmount, 8);
@@ -331,7 +334,7 @@ describe('Payment Forwarding Service', () => {
       const edgeCases = [0.00000001, 0.001, 1, 100, 10000, 999999.99999999];
 
       edgeCases.forEach((amount) => {
-        const result = calculateForwardingAmounts(amount);
+        const result = calculateForwardingAmounts(amount, true);
         expect(result.merchantAmount + result.platformFee).toBeCloseTo(amount, 8);
       });
     });

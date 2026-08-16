@@ -28,6 +28,9 @@ export type Capability =
   | 'paymentlink.write'
   | 'customer.write'
   | 'payment.markPaid'
+  // Creating an escrow under a business commits that business's tier and fee
+  // schedule and puts the escrow in its panel, so it is an operational write.
+  | 'escrow.write'
   // management (admin+)
   | 'business.update'
   | 'team.manage'
@@ -56,6 +59,7 @@ const WRITER_CAPS: Capability[] = [
   'paymentlink.write',
   'customer.write',
   'payment.markPaid',
+  'escrow.write',
 ];
 
 const ADMIN_CAPS: Capability[] = [
