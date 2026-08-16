@@ -1,23 +1,26 @@
 name: Deploy LNbits Droplet
 
-# Deploys are deliberate, not automatic.
+# Auto-deploys on push to master, by design.
 #
-# This job holds an SSH private key for a production droplet and applies a
-# dotenv file of live credentials to it. Running that on every push to master
-# means any merged commit — including one whose blast radius nobody considered —
-# reaches production infrastructure with no one in the loop. It is now
-# workflow_dispatch only, and pinned to the `production` environment so a
-# required-reviewer rule can gate it. (That rule is configured in repository
-# settings: Settings -> Environments -> production -> Required reviewers. The
-# environment key here is what makes it apply; without the rule the environment
-# is simply a label.)
+# The audit flagged this as a missing approval gate (N-020): the job holds an
+# SSH private key for a production droplet, so every merge reaches production
+# infrastructure with nobody in the loop. That gate was added and then removed
+# again at the maintainer's request — continuous deployment here is deliberate,
+# and the trade-off is the maintainer's to make, not the audit's.
+#
+# If you ever want the gate back, it is two lines: replace the `on:` block with
+# `workflow_dispatch:` and add `environment: production` to the job, then set a
+# required reviewer under Settings -> Environments -> production.
+#
+# The credential handling below is NOT part of that trade-off and stays.
 on:
+  push:
+    branches: [master]
   workflow_dispatch:
 
 jobs:
   deploy-lnbits:
     runs-on: ubuntu-latest
-    environment: production
     env:
       # secrets ONLY — never vars.
       #
