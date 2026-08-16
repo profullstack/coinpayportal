@@ -357,8 +357,16 @@ async function checkSignatureSupabase(signatureHash: string): Promise<boolean | 
     return true; // Fresh signature
   } catch (error) {
     console.error('[ReplayPrevention] Supabase error:', error);
-    return null; // Fall back to in-memory
+    // Signal "shared store unavailable" distinctly from "fresh"/"replay". The
+    // caller decides — and when the store IS configured, the answer is to
+    // reject, not to quietly downgrade. See checkAndRecordSignatureAsync.
+    return null;
   }
+}
+
+/** Whether the shared replay store is configured for this deployment. */
+export function hasSharedReplayStore(): boolean {
+  return getSupabase() !== null;
 }
 
 /**
@@ -399,6 +407,25 @@ export async function checkAndRecordSignatureAsync(signatureHash: string): Promi
       seenSignatures.set(signatureHash, Date.now());
     }
     return sbResult;
+  }
+
+  // The shared store answered neither "fresh" nor "replay" — it errored.
+  //
+  // Falling through to the in-memory map here is a FAIL-OPEN. On a
+  // multi-instance deployment the in-memory map is per-process, so a signature
+  // spent on instance A is unknown to instance B: replay protection quietly
+  // evaporates at precisely the moment the shared store is unhealthy, which is
+  // also when an attacker is most likely to be probing. Rejecting is the only
+  // safe answer when the store exists but cannot be consulted.
+  //
+  // The in-memory path is kept ONLY for deployments with no shared store
+  // configured at all (local development), where per-process is all there is.
+  if (hasSharedReplayStore()) {
+    console.error(
+      '[ReplayPrevention] Shared store unreachable — rejecting the request rather than ' +
+        'falling back to per-process memory, which is not replay protection across instances.'
+    );
+    return false;
   }
 
   // Fallback to in-memory

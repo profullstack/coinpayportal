@@ -4,16 +4,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { isValidDid } from '@/lib/reputation/crypto';
 import { computeTrustVector } from '@/lib/reputation/trust-engine';
 import { computeTrustTier } from '@/lib/reputation/trust-tiers';
+import { createServiceClient } from '@/lib/supabase/service-client';
 
 function getSupabase() {
-  return createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  return createServiceClient();
 }
 
 export async function GET(request: NextRequest) {

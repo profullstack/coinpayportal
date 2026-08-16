@@ -172,8 +172,14 @@ export class CoinPayApi {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (walletId && privateKey) {
       const timestamp = Math.floor(Date.now() / 1000);
-      const message = `${method}:${this.#signedPath(path)}:${timestamp}:${rawBody}`;
-      headers.Authorization = `Wallet ${walletId}:${signAuthMessage(message, privateKey)}:${timestamp}`;
+      // A per-request nonce goes into BOTH the signed message and the header.
+      // Without it, two identical requests in the same second produce the same
+      // signature, which the server's replay store cannot tell apart from an
+      // actual replay. It must be signed, or an attacker could vary it freely
+      // to mint fresh replay-store keys for a captured signature.
+      const nonce = crypto.randomUUID().slice(0, 8);
+      const message = `${method}:${this.#signedPath(path)}:${timestamp}:${nonce}:${rawBody}`;
+      headers.Authorization = `Wallet ${walletId}:${signAuthMessage(message, privateKey)}:${timestamp}:${nonce}`;
     }
 
     let response: Response;

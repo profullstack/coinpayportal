@@ -7,17 +7,14 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 import { isValidDid, sign } from '@/lib/reputation/crypto';
 import { isValidActionCategory } from '@/lib/reputation/trust-engine';
 import { z } from 'zod';
+import { createServiceClient } from '@/lib/supabase/service-client';
 
 function getSupabase() {
-  return createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'public-anon-key'
-  );
+  return createServiceClient();
 }
 
 const platformActionSchema = z.object({
