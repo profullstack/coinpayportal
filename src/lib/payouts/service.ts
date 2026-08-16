@@ -17,6 +17,7 @@ import {
   type BlockchainType,
 } from '@/lib/blockchain/providers';
 import { getCryptoPrice } from '@/lib/rates/tatum';
+import { requireEncryptionKey } from '../crypto/require-key';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -245,12 +246,7 @@ export async function createPayout(
 
   // ── Decrypt private key & send transaction ──
   try {
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (!encryptionKey) {
-      throw new Error('ENCRYPTION_KEY not configured');
-    }
-
-    const privateKey = decrypt(wallet.encrypted_private_key, encryptionKey);
+    const privateKey = decrypt(wallet.encrypted_private_key, requireEncryptionKey('payout'));
 
     if (!provider.sendTransaction) {
       throw new Error(`${cryptocurrency} provider does not support sending transactions`);
@@ -283,12 +279,25 @@ export async function createPayout(
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
 
-    // ── Mark failed ──
+    // Distinguish "the transaction was never broadcast" from "we do not know".
+    //
+    // Every failure used to be recorded as 'failed', and retryPayout re-sends
+    // anything marked failed. But a timeout or dropped connection can happen
+    // AFTER the node accepted the transaction — the payout is on-chain and we
+    // simply never heard back. Retrying that pays the affiliate twice, with no
+    // way to claw it back. An ambiguous error is therefore recorded as
+    // 'indeterminate', which the retry path refuses to touch until someone has
+    // checked the chain.
+    const ambiguous = isAmbiguousBroadcastError(err);
+    const status = ambiguous ? 'indeterminate' : 'failed';
+
     const { data: updated } = await supabase
       .from('affiliate_payouts')
       .update({
-        status: 'failed',
-        error_message: errorMessage,
+        status,
+        error_message: ambiguous
+          ? `${errorMessage} (broadcast outcome unknown — verify on-chain before retrying)`
+          : errorMessage,
       })
       .eq('id', payout.id)
       .select()
@@ -296,10 +305,63 @@ export async function createPayout(
 
     return {
       success: false,
-      payout: updated || { ...payout, status: 'failed', error_message: errorMessage },
-      error: `Payout transaction failed: ${errorMessage}`,
+      payout: updated || { ...payout, status, error_message: errorMessage },
+      error: ambiguous
+        ? `Payout outcome unknown: ${errorMessage}. The transaction may have been broadcast; ` +
+          `verify on-chain before retrying.`
+        : `Payout transaction failed: ${errorMessage}`,
     };
   }
+}
+
+/**
+ * Whether a send error leaves the broadcast outcome unknown.
+ *
+ * A rejection from the node (insufficient funds, bad nonce, malformed tx) means
+ * nothing was broadcast and a retry is safe. A timeout, abort, or transport
+ * error means the request may well have been accepted — retrying could send
+ * the funds a second time.
+ */
+function isAmbiguousBroadcastError(err: unknown): boolean {
+  const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
+
+  const definitelyNotBroadcast = [
+    'insufficient funds',
+    'insufficient balance',
+    'invalid address',
+    'nonce too low',
+    'does not support sending',
+    'encryption_key not configured',
+    'exceeds balance',
+    'malformed',
+  ];
+  if (definitelyNotBroadcast.some((needle) => message.includes(needle))) {
+    return false;
+  }
+
+  const ambiguous = [
+    'timeout',
+    'timed out',
+    'etimedout',
+    'econnreset',
+    'econnaborted',
+    'socket hang up',
+    'network',
+    'fetch failed',
+    'aborted',
+    'esockettimedout',
+    'gateway',
+    '502',
+    '503',
+    '504',
+  ];
+  if (ambiguous.some((needle) => message.includes(needle))) {
+    return true;
+  }
+
+  // Unrecognized failures are treated as ambiguous. Paying twice is worse than
+  // asking a human to look, so the uncertain case fails safe.
+  return true;
 }
 
 /**
@@ -322,15 +384,32 @@ export async function retryPayout(
     return { success: false, error: 'Payout not found' };
   }
 
+  if (payout.status === 'indeterminate') {
+    return {
+      success: false,
+      error:
+        `Payout ${payoutId} has an unknown broadcast outcome and cannot be retried automatically. ` +
+        `Check ${payout.recipient_wallet} on-chain: if the transfer landed, mark the payout completed ` +
+        `with its tx_hash; if it did not, mark it failed and retry.`,
+    };
+  }
+
   if (payout.status !== 'failed') {
     return { success: false, error: `Cannot retry payout with status '${payout.status}'. Only failed payouts can be retried.` };
   }
 
-  // Reset to pending
-  await supabase
+  // Reset to pending, conditioned on the status we read, so two concurrent
+  // retries cannot both proceed to send.
+  const { data: resetRows } = await supabase
     .from('affiliate_payouts')
     .update({ status: 'pending', error_message: null })
-    .eq('id', payoutId);
+    .eq('id', payoutId)
+    .eq('status', 'failed')
+    .select('id');
+
+  if (!resetRows || resetRows.length === 0) {
+    return { success: false, error: 'Payout is already being retried' };
+  }
 
   // Re-process
   return createPayout(supabase, businessId, {

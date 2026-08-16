@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { NextRequest } from 'next/server';
 import { resolveMerchant } from './merchant';
 import { authorizeBusiness } from './authz';
-import type { Capability } from './permissions';
+import type { Capability, Role } from './permissions';
 
 /**
  * Resolve the caller and authorize them for a single invoice by the invoice's
@@ -24,6 +24,13 @@ export type InvoiceAccessOk = {
   ok: true;
   merchantId: string;
   apiKeyBusinessId: string | null;
+  /**
+   * The caller's role on the invoice's business, or null when they
+   * authenticated with a business API key (which is scoped to one business and
+   * carries no role). Callers that need a capability beyond the one they asked
+   * authorizeInvoice for — marking an invoice paid, say — check this.
+   */
+  role: Role | null;
   invoice: any;
 };
 export type InvoiceAccessErr = { ok: false; status: number; error: string };
@@ -50,6 +57,8 @@ export async function authorizeInvoice(
   }
   const businessId = (invoice as any).business_id as string;
 
+  let role: Role | null = null;
+
   if (apiKeyBusinessId) {
     // API keys are locked to their own business.
     if (businessId !== apiKeyBusinessId) {
@@ -62,7 +71,8 @@ export async function authorizeInvoice(
       // 403 when they can see the business but lack the capability.
       return { ok: false, status: authz.status, error: authz.status === 404 ? 'Invoice not found' : authz.error };
     }
+    role = authz.role;
   }
 
-  return { ok: true, merchantId, apiKeyBusinessId, invoice };
+  return { ok: true, merchantId, apiKeyBusinessId, role, invoice };
 }

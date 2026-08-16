@@ -26,6 +26,11 @@ beforeAll(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
 });
 
+// SSRF validation resolves the webhook host before requesting it.
+vi.mock('dns/promises', () => ({
+  lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+}));
+
 // Mock global fetch
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
@@ -231,7 +236,12 @@ describe('POST /api/businesses/[id]/webhook-test', () => {
     expect(data.test_result).toBeDefined();
     expect(data.test_result.delivered).toBe(true);
     expect(data.test_result.status_code).toBe(200);
-    expect(data.test_result.response_body).toBe('{"received": true}');
+    // response_body and response_headers are deliberately absent: echoing the
+    // response of a server-side fetch is what turned this endpoint into a
+    // full-read SSRF (point webhook_url at the metadata service, read the IAM
+    // credentials out of the API response).
+    expect(data.test_result.response_body).toBeUndefined();
+    expect(data.test_result.response_headers).toBeUndefined();
     expect(data.test_result.request.url).toBe('https://example.com/webhook');
     expect(data.test_result.request.method).toBe('POST');
     expect(data.test_result.request.body.type).toBe('test.webhook');

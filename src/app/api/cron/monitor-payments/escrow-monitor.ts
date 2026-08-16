@@ -12,6 +12,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { checkBalance } from './balance-checkers';
 import type { EscrowStats } from './types';
 import { randomUUID } from 'crypto';
+import { isSufficientPayment } from '@/lib/payments/tolerance';
 
 /**
  * Run the full escrow monitoring cycle
@@ -82,9 +83,8 @@ async function checkPendingEscrows(
 
       // Check balance on-chain
       const balance = await checkBalance(escrow.escrow_address, escrow.chain);
-      const tolerance = escrow.amount * 0.01;
 
-      if (balance >= escrow.amount - tolerance) {
+      if (isSufficientPayment(balance, escrow.amount)) {
         // Mark as funded
         await supabase
           .from('escrows')

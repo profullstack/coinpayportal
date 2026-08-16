@@ -323,25 +323,74 @@ export async function generateUniquePaymentAddress(
       };
     }
 
-    // Derive the next address
+    // Reserve an index with a compare-and-swap.
+    //
+    // This used to read next_index, derive from it, and then write index+1 —
+    // three separate operations with nothing tying them together, despite the
+    // comment claiming otherwise. Two concurrent checkouts both read the same
+    // index and both derived the SAME deposit address, so two different
+    // customers paying two different merchants sent funds to one address and
+    // the second payment was credited to whoever the address was assigned to
+    // first.
+    //
+    // The update is conditioned on the index we read. If another request got
+    // there first the update matches zero rows, and we re-read and try again.
+    const MAX_INDEX_ATTEMPTS = 8;
+    let reservedIndex: number | null = null;
+    let currentIndex: number = hdConfig.next_index;
+
+    for (let attempt = 0; attempt < MAX_INDEX_ATTEMPTS; attempt++) {
+      const { data: updated, error: updateError } = await supabase
+        .from('hd_wallet_configs')
+        .update({ next_index: currentIndex + 1 })
+        .eq('id', hdConfig.id)
+        .eq('next_index', currentIndex)
+        .select('next_index');
+
+      if (updateError) {
+        return {
+          success: false,
+          error: 'Failed to update address index',
+        };
+      }
+
+      if (updated && updated.length > 0) {
+        reservedIndex = currentIndex;
+        break;
+      }
+
+      // Lost the race — re-read and retry against the new value.
+      const { data: fresh, error: refetchError } = await supabase
+        .from('hd_wallet_configs')
+        .select('next_index')
+        .eq('id', hdConfig.id)
+        .single();
+
+      if (refetchError || !fresh) {
+        return {
+          success: false,
+          error: 'Failed to update address index',
+        };
+      }
+
+      currentIndex = fresh.next_index;
+    }
+
+    if (reservedIndex === null) {
+      // Sustained contention. Refusing is correct: handing back an address
+      // whose index we could not reserve is what causes the collision.
+      return {
+        success: false,
+        error: 'Could not reserve an address index; please retry',
+      };
+    }
+
+    // Derive only from the index we successfully reserved.
     const derivedAddress = derivePaymentAddress(
       hdConfig.xpub,
       cryptocurrency,
-      hdConfig.next_index
+      reservedIndex
     );
-
-    // Increment the next_index atomically
-    const { error: updateError } = await supabase
-      .from('hd_wallet_configs')
-      .update({ next_index: hdConfig.next_index + 1 })
-      .eq('id', hdConfig.id);
-
-    if (updateError) {
-      return {
-        success: false,
-        error: 'Failed to update address index',
-      };
-    }
 
     return {
       success: true,

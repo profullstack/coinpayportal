@@ -105,12 +105,15 @@ export async function withTransactionLimit(
       };
     }
 
-    // Get current usage
+    // Advisory pre-check: cheap, gives the caller a clear error before any
+    // work is done. It is NOT the enforcement point — a read followed by a
+    // later increment is exactly the TOCTOU that let concurrent requests all
+    // pass a limit of one. Enforcement is consumeTransactionQuota(), which
+    // checks and increments in a single statement at the moment of creation.
     const usageResult = await getCurrentMonthUsage(supabase, merchantId);
     const currentUsage = usageResult.success ? (usageResult.count ?? 0) : 0;
     const limit = subscription.plan.monthly_transaction_limit;
 
-    // Calculate remaining (null if unlimited)
     const remaining = limit === null ? null : Math.max(0, limit - currentUsage);
     const allowed = limit === null || currentUsage < limit;
 

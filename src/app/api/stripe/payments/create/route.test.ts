@@ -35,6 +35,13 @@ vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn().mockReturnValue(mockSupabase),
 }));
 
+// Tier resolution is unit-tested in src/lib/entitlements/service.test.ts.
+// Here it is stubbed so both fee tiers can be exercised through the route.
+const mockIsBusinessPaidTier = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/entitlements/service', () => ({
+  isBusinessPaidTier: mockIsBusinessPaidTier,
+}));
+
 import { POST } from './route';
 
 function mockFromChain(overrides: Record<string, any> = {}) {
@@ -80,6 +87,7 @@ describe('POST /api/stripe/payments/create', () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     process.env.NEXT_PUBLIC_APP_URL = 'https://coinpayportal.com';
     mockAuthorize.mockResolvedValue({ ok: true, via: 'api_key', merchantId: 'merchant_123' });
+    mockIsBusinessPaidTier.mockResolvedValue(false);
     mockFromChain();
   });
 
@@ -100,6 +108,28 @@ describe('POST /api/stripe/payments/create', () => {
     expect(response.status).toBe(200);
     expect(data.checkout_url).toBe('https://checkout.stripe.com/pay/cs_test_123');
     expect(data.checkout_session_id).toBe('cs_test_123');
+    // Free tier: 1% of 10000. This rail used to hardcode 0.5% for everyone,
+    // billing free-tier merchants half the commission they owe.
+    expect(data.platform_fee_amount).toBe(100);
+  });
+
+  it('should charge the professional rate for a paid-tier merchant', async () => {
+    mockIsBusinessPaidTier.mockResolvedValue(true);
+
+    const request = new NextRequest('http://localhost:3000/api/stripe/payments/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        businessId: 'biz_123',
+        amount: 10000,
+        currency: 'usd',
+        description: 'Test payment',
+      }),
+    });
+
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
     expect(data.platform_fee_amount).toBe(50); // 0.5% of 10000
   });
 

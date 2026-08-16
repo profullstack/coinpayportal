@@ -20,14 +20,23 @@ class CoinPayPortalClient
         $this->logger  = $logger;
     }
 
+    /**
+     * Default API base. Matches the WooCommerce and WHMCS plugins.
+     *
+     * These paths are relative to the `/api` base: the plugin previously called
+     * `/v1/checkouts` and `/v1/payments/{id}`, neither of which the server has
+     * ever routed, so checkout creation failed outright.
+     */
+    public const DEFAULT_BASE_URL = 'https://coinpayportal.com/api';
+
     public function createCheckout(array $payload): array
     {
-        return $this->request('POST', '/v1/checkouts', $payload);
+        return $this->request('POST', '/payments/create', $payload);
     }
 
     public function getPayment(string $paymentId): array
     {
-        return $this->request('GET', '/v1/payments/' . urlencode($paymentId));
+        return $this->request('GET', '/payments/' . rawurlencode($paymentId));
     }
 
     private function request(string $method, string $path, array $body = []): array

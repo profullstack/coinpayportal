@@ -12,9 +12,11 @@ vi.mock('@supabase/supabase-js', () => ({
       insert: vi.fn(() => Promise.resolve({ error: null })),
       select: vi.fn(() => ({
         eq: vi.fn(() => ({
-          single: vi.fn(() => Promise.resolve({ 
-            data: { provider_data: {} }, 
-            error: null 
+          // The per-swap routes verify swaps.wallet_id matches the
+          // authenticated wallet before returning or mutating anything.
+          single: vi.fn(() => Promise.resolve({
+            data: { provider_data: {}, wallet_id: 'test-wallet-id' },
+            error: null
           })),
         })),
       })),
@@ -45,20 +47,24 @@ vi.mock('@/lib/swap/changenow', () => ({
   },
 }));
 
-// Mock auth so the create route's Bearer-token check passes
-vi.mock('@/lib/auth/jwt', () => ({
-  verifyToken: vi.fn(() => ({ sub: 'test-user', userId: 'test-user' })),
+// The swap routes bind the wallet id to the signed request rather than trusting
+// a body/query parameter. Ownership resolution is stubbed here; it is covered
+// directly in src/lib/web-wallet/auth.test.ts.
+const { authorizeWalletMock } = vi.hoisted(() => ({ authorizeWalletMock: vi.fn() }));
+
+vi.mock('@/lib/swap/auth', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/swap/auth')>()),
+  authorizeWallet: authorizeWalletMock,
 }));
 
-vi.mock('@/lib/secrets', () => ({
-  getJwtSecret: vi.fn(() => 'test-secret'),
-}));
+const TEST_WALLET_ID = 'test-wallet-id';
 
 import * as changenow from '@/lib/swap/changenow';
 
 describe('Swap API Routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authorizeWalletMock.mockResolvedValue({ ok: true, walletId: TEST_WALLET_ID });
   });
 
   afterEach(() => {
@@ -180,7 +186,6 @@ describe('Swap API Routes', () => {
           to: 'ETH',
           amount: '100',
           settleAddress: '0xabc123def456',
-          walletId: 'test-wallet-id',
         }),
       });
       const response = await createSwap(request);
@@ -199,7 +204,6 @@ describe('Swap API Routes', () => {
           to: 'ETH',
           amount: '0.1',
           settleAddress: 'short',
-          walletId: 'test-wallet-id',
         }),
       });
       const response = await createSwap(request);
@@ -232,7 +236,6 @@ describe('Swap API Routes', () => {
           to: 'ETH',
           amount: '0.1',
           settleAddress: '0xabc123def456789',
-          walletId: 'test-wallet-id',
         }),
       });
       const response = await createSwap(request);

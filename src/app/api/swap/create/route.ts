@@ -8,14 +8,14 @@
  *   amount: amount to swap
  *   settleAddress: address to receive swapped coins
  *   refundAddress?: address for refunds (optional)
- *   walletId: wallet ID for tracking (required)
+ *
+ * The wallet is taken from the authenticated request, not the body.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createSwap, isSwapSupported, SWAP_SUPPORTED_COINS } from '@/lib/swap/changenow';
 import { createClient } from '@supabase/supabase-js';
-import { verifyToken } from '@/lib/auth/jwt';
-import { getJwtSecret } from '@/lib/secrets';
+import { authorizeWallet } from '@/lib/swap/auth';
 
 function getSupabase() {
   return createClient(
@@ -25,35 +25,33 @@ function getSupabase() {
 }
 
 export async function POST(request: NextRequest) {
-  // Verify authentication
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 }
-    );
-  }
-
-  const token = authHeader.substring(7);
-  const payload = verifyToken(token, getJwtSecret());
-  if (!payload) {
-    return NextResponse.json(
-      { error: 'Invalid or expired token' },
-      { status: 401 }
-    );
-  }
-
   const supabase = getSupabase();
   try {
-    const body = await request.json();
-    const { from, to, amount, settleAddress, refundAddress, walletId } = body;
+    const rawBody = await request.text();
+
+    // A valid token proved who the caller is; it did not prove they own the
+    // `walletId` they put in the body. The swap is now always filed under the
+    // authenticated wallet.
+    const auth = await authorizeWallet(supabase, request, rawBody);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
+    const walletId = auth.walletId;
+
+    let body: Record<string, any>;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+    const { from, to, amount, settleAddress, refundAddress } = body;
 
     // Validate required params
-    if (!from || !to || !amount || !settleAddress || !walletId) {
+    if (!from || !to || !amount || !settleAddress) {
       return NextResponse.json(
         { 
           error: 'Missing required parameters',
-          required: ['from', 'to', 'amount', 'settleAddress', 'walletId'],
+          required: ['from', 'to', 'amount', 'settleAddress'],
           optional: ['refundAddress'],
         },
         { status: 400 }

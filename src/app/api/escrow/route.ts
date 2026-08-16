@@ -6,7 +6,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createEscrow, listEscrows } from '@/lib/escrow';
-import { authenticateRequest, isMerchantAuth } from '@/lib/auth/middleware';
+import { authenticateRequest, isMerchantAuth, type AuthContext } from '@/lib/auth/middleware';
+import { getAccessibleBusinessRoles } from '@/lib/auth/authz';
+import { can } from '@/lib/auth/permissions';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 
@@ -93,10 +95,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (authContext && isMerchantAuth(authContext)) {
-      if (body.business_id) {
-        isPaidTier = await isBusinessPaidTier(supabase, body.business_id);
-        businessId = body.business_id;
+    // Resolve the owning business, and prove the caller owns it.
+    //
+    // `business_id` used to be taken from the body and trusted: the tier and
+    // fee were evaluated against the *victim's* business, and the escrow showed
+    // up in the victim's panel. Whichever credential was presented, the caller
+    // must actually have access to the business they name.
+    const requestedBusinessId: string | undefined =
+      typeof body.business_id === 'string' ? body.business_id : undefined;
+
+    if (isMerchantAuth(authContext)) {
+      if (requestedBusinessId) {
+        const roles = await getAccessibleBusinessRoles(supabase, authContext.merchantId);
+        const role = roles.get(requestedBusinessId);
+        if (!role || !can(role, 'escrow.write')) {
+          return NextResponse.json(
+            { error: 'No access to this business' },
+            { status: 403 }
+          );
+        }
+        businessId = requestedBusinessId;
+        isPaidTier = await isBusinessPaidTier(supabase, businessId);
+      }
+    } else {
+      // Business API key: it may only ever act for its own business. A body
+      // that names a different one is rejected rather than quietly ignored.
+      const keyBusinessId = (authContext as { businessId?: string }).businessId;
+      if (requestedBusinessId && requestedBusinessId !== keyBusinessId) {
+        return NextResponse.json(
+          { error: 'API key does not belong to this business' },
+          { status: 403 }
+        );
+      }
+      if (keyBusinessId) {
+        businessId = keyBusinessId;
+        isPaidTier = await isBusinessPaidTier(supabase, businessId);
       }
     }
 
@@ -183,32 +216,68 @@ export async function GET(request: NextRequest) {
       offset: searchParams.get('offset') ? parseInt(searchParams.get('offset')!) : 0,
     };
 
-    // If authenticated, scope to merchant's businesses
+    // Authentication is mandatory.
+    //
+    // This endpoint used to accept `?depositor=` / `?beneficiary=` with no
+    // credentials at all and return the matching escrows in full — third-party
+    // emails, addresses, amounts and status — to anyone who could name or guess
+    // a wallet address. Addresses are public by construction, so "knows the
+    // address" was never an authorization signal.
     const authHeader = request.headers.get('authorization');
     const apiKeyHeader = request.headers.get('x-api-key');
     let merchantId: string | undefined;
     let businessIds: string[] | undefined;
     let scopedWalletAddresses: string[] = [];
 
-    if (authHeader || apiKeyHeader) {
-      try {
-        const authResult = await authenticateRequest(supabase, authHeader || apiKeyHeader);
-        if (authResult.success && authResult.context) {
-          if (isMerchantAuth(authResult.context)) {
-            merchantId = authResult.context.merchantId;
-            filters.business_id = searchParams.get('business_id') || undefined;
-          } else {
-            // Business API key — scope to that business
-            filters.business_id = (authResult.context as any).businessId;
-          }
-        }
-      } catch {
-        // Continue — address-based filtering still works
+    if (!authHeader && !apiKeyHeader) {
+      return NextResponse.json(
+        { error: 'Authentication required. Provide Authorization header or X-API-Key.' },
+        { status: 401 }
+      );
+    }
+
+    let listAuthContext: AuthContext | undefined;
+    try {
+      const authResult = await authenticateRequest(supabase, authHeader || apiKeyHeader);
+      if (!authResult.success || !authResult.context) {
+        return NextResponse.json(
+          { error: 'Invalid or expired authentication' },
+          { status: 401 }
+        );
+      }
+      listAuthContext = authResult.context;
+      if (isMerchantAuth(listAuthContext)) {
+        merchantId = listAuthContext.merchantId;
+        filters.business_id = searchParams.get('business_id') || undefined;
+      } else {
+        // Business API key — scope to that business, ignoring any body/query
+        // attempt to name a different one.
+        filters.business_id = listAuthContext.businessId;
+      }
+    } catch {
+      return NextResponse.json({ error: 'Authentication failed' }, { status: 401 });
+    }
+
+    // A merchant naming a business must actually have access to it.
+    if (merchantId && filters.business_id) {
+      const roles = await getAccessibleBusinessRoles(supabase, merchantId);
+      if (!roles.has(String(filters.business_id))) {
+        return NextResponse.json({ error: 'No access to this business' }, { status: 403 });
       }
     }
 
-    // Scope to merchant's businesses if authenticated as merchant
-    if (merchantId && !filters.business_id) {
+    const listRateCheck = await checkRateLimitAsync(
+      merchantId || String(filters.business_id),
+      'escrow_read'
+    );
+    if (!listRateCheck.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+    }
+
+    // Scope to merchant's businesses if authenticated as merchant.
+    // Resolved unconditionally (not just when business_id is absent) because
+    // the depositor/beneficiary filters below are validated against this set.
+    if (merchantId) {
       const { data: businesses } = await supabase
         .from('businesses')
         .select('id')
@@ -246,6 +315,27 @@ export async function GET(request: NextRequest) {
       scopedWalletAddresses = Array.from(walletAddressSet);
     }
 
+    // An address filter must name an address the caller actually controls.
+    //
+    // Authentication alone is not enough here: without this, any merchant with
+    // a valid token could pass someone else's public deposit address and read
+    // that escrow's counterparty emails and amounts. For a business API key the
+    // business_id scope already constrains the query, so the check applies to
+    // merchant sessions.
+    const addressFilters = [filters.depositor_address, filters.beneficiary_address].filter(
+      (a): a is string => typeof a === 'string' && a.length > 0
+    );
+    if (addressFilters.length > 0 && merchantId) {
+      const owned = new Set(scopedWalletAddresses);
+      const foreign = addressFilters.filter((a) => !owned.has(a));
+      if (foreign.length > 0) {
+        return NextResponse.json(
+          { error: 'Address filter must name a wallet on this account' },
+          { status: 403 }
+        );
+      }
+    }
+
     // Must have a scoping filter (status alone must NOT allow listing all escrows)
     const hasScope = Boolean(
       filters.depositor_address ||
@@ -267,7 +357,11 @@ export async function GET(request: NextRequest) {
     // If the caller explicitly scopes by depositor/beneficiary/business_id, keep direct behavior.
     const hasExplicitPartyScope = Boolean(filters.depositor_address || filters.beneficiary_address || filters.business_id);
     if (hasExplicitPartyScope) {
-      const result = await listEscrows(supabase, { ...filters, business_ids: businessIds } as any);
+      const result = await listEscrows(supabase, {
+        ...filters,
+        // Always constrained to the caller's own businesses.
+        business_ids: filters.business_id ? undefined : businessIds,
+      } as any);
 
       if (!result.success) {
         return NextResponse.json({ error: result.error }, { status: 500 });

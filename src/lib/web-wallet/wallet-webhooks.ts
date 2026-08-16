@@ -7,6 +7,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes, createHmac } from 'crypto';
+import { safeFetch } from '@/lib/security/ssrf';
+import { isInternalUrl } from '@/lib/webhooks/service';
 
 // ──────────────────────────────────────────────
 // Types
@@ -210,16 +212,26 @@ export async function deliverWebhook(
         .update(body)
         .digest('hex');
 
-      const response = await fetch(webhook.url, {
+      // Registration only checked that the scheme was https, which says
+      // nothing about where the host points. safeFetch resolves it, rejects
+      // private/link-local/metadata ranges in every encoding, and re-validates
+      // each redirect hop.
+      const delivery = await safeFetch(webhook.url, {
         method: 'POST',
+        timeoutMs: 10_000,
         headers: {
           'Content-Type': 'application/json',
           'X-Webhook-Signature': signature,
           'X-Webhook-Event': event,
         },
         body,
-        signal: AbortSignal.timeout(10_000),
       });
+
+      if (!delivery.ok) {
+        throw new Error(delivery.reason);
+      }
+
+      const response = delivery.response;
 
       if (response.ok) {
         delivered++;
@@ -262,10 +274,17 @@ export async function deliverWebhook(
 // Helpers
 // ──────────────────────────────────────────────
 
+/**
+ * Registration-time check. HTTPS plus the synchronous internal-address rules;
+ * the authoritative check (DNS resolution, redirect re-validation) happens at
+ * delivery time in safeFetch, because a host that is public today can point
+ * inward tomorrow.
+ */
 function isValidWebhookUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === 'https:';
+    if (parsed.protocol !== 'https:') return false;
+    return !isInternalUrl(url);
   } catch {
     return false;
   }

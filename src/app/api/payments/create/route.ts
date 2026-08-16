@@ -6,12 +6,13 @@ import {
   withTransactionLimit,
   createEntitlementErrorResponse,
 } from '@/lib/entitlements/middleware';
-import { incrementTransactionCount } from '@/lib/entitlements/service';
+import { consumeTransactionQuota, releaseTransactionQuota } from '@/lib/entitlements/service';
 import { getStripe } from '@/lib/server/optional-deps';
 import {
   getPaymentReceivingWallet,
   verifyBusinessAccess,
 } from '@/lib/wallets/supported-coins';
+import { isPlatformFeeWallet } from '@/lib/wallets/system-wallet';
 import { isValidPayoutAddress } from '@/lib/blockchain/address-format';
 
 /**
@@ -148,6 +149,14 @@ async function createStripeCheckoutSession(
  *   - "card" — creates a Stripe Checkout session via connected account
  *   - "both" — creates crypto payment AND returns stripe_checkout_url as fallback
  */
+/**
+ * Ceiling on a single payment, in USD.
+ *
+ * Well above any plausible checkout while still bounding quote cost, address
+ * consumption, and the effect of one payment on aggregate volume figures.
+ */
+const MAX_PAYMENT_AMOUNT_USD = 1_000_000;
+
 export async function POST(request: NextRequest) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -267,9 +276,24 @@ export async function POST(request: NextRequest) {
 
     // Determine the amount (support both amount_usd and amount)
     const paymentAmount = amount_usd ?? amount;
-    if (!paymentAmount || paymentAmount <= 0) {
+    if (typeof paymentAmount !== 'number' || !Number.isFinite(paymentAmount) || paymentAmount <= 0) {
       return NextResponse.json(
         { success: false, error: 'Invalid or missing payment amount' },
+        { status: 400 }
+      );
+    }
+
+    // Upper bound. Only `> 0` was checked, so a $999,999,999 payment was
+    // accepted and quoted at ~15,868 BTC: it burns an HD address and a rate
+    // lookup, inflates public volume metrics, and amplifies every downstream
+    // fee calculation. No real checkout is anywhere near this.
+    if (paymentAmount > MAX_PAYMENT_AMOUNT_USD) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Payment amount exceeds the maximum of ${MAX_PAYMENT_AMOUNT_USD.toLocaleString('en-US')} USD`,
+          code: 'AMOUNT_TOO_LARGE',
+        },
         { status: 400 }
       );
     }
@@ -336,8 +360,33 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
+
+        // Never let the merchant leg be pointed at a platform fee wallet. That
+        // would make the split indistinguishable from a fee payment and
+        // corrupts reconciliation on both legs.
+        if (isPlatformFeeWallet(overrideAddress)) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'merchant_wallet_address may not be a platform wallet',
+              code: 'PAYEE_RESERVED',
+            },
+            { status: 400 }
+          );
+        }
+
+        // A third-party payee is a legitimate flow (an invoice forwards the 99%
+        // net to the invoice recipient, not to the business), so ownership is
+        // not required — but it IS recorded. Who authorized a payout to an
+        // address outside the account has to be answerable after the fact.
         recipientAddress = overrideAddress;
         walletSource = 'request_override';
+        paymentMetadata.payee_override = {
+          address: overrideAddress,
+          authorized_by_merchant_id: merchantId,
+          authorized_via: authBusinessId ? 'api_key' : 'session',
+          authorized_at: new Date().toISOString(),
+        };
       } else {
         const wallet = await getPaymentReceivingWallet(supabase, {
           businessId: business_id,
@@ -360,6 +409,28 @@ export async function POST(request: NextRequest) {
         walletSource = wallet.source ?? 'business';
       }
 
+      // Spend the quota atomically, immediately before creating the payment.
+      //
+      // The advisory check earlier in the request gives fast feedback but is a
+      // plain read — concurrent requests all saw the same under-the-limit count
+      // and all proceeded past it. This RPC does the bounded increment in one
+      // statement, so exactly as many payments are created as there is quota for.
+      // Placed here, after validation, so a malformed request cannot burn a
+      // merchant's monthly allowance.
+      const quota = await consumeTransactionQuota(supabase, merchantId, limitCheck.limit ?? null);
+      if (!quota.allowed) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: quota.error
+              ? `Could not verify transaction limit: ${quota.error}`
+              : 'Monthly transaction limit exceeded',
+            usage: { current: quota.currentUsage, limit: limitCheck.limit },
+          },
+          { status: quota.error ? 500 : 429 }
+        );
+      }
+
       const result = await createPayment(supabase, {
         business_id,
         amount: paymentAmount,
@@ -372,6 +443,8 @@ export async function POST(request: NextRequest) {
       });
 
       if (!result.success) {
+        // Hand the quota back: nothing was created, so nothing should be billed.
+        await releaseTransactionQuota(supabase, merchantId);
         return NextResponse.json(
           { success: false, error: result.error },
           { status: 400 }
@@ -472,8 +545,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Increment transaction count after successful payment creation
-    await incrementTransactionCount(supabase, merchantId);
+    // Quota was spent atomically just before creation; see consumeTransactionQuota.
 
     // Transform payment response to include expected field names
     const payment = cryptoPaymentResult;

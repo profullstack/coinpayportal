@@ -11,6 +11,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { authorizeWallet, stripProviderSecrets } from '@/lib/swap/auth';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 
 function getSupabase() {
   return createClient(
@@ -41,25 +43,23 @@ export async function GET(request: NextRequest) {
   const supabase = getSupabase();
   try {
     const { searchParams } = new URL(request.url);
-    const walletId = searchParams.get('walletId');
     const status = searchParams.get('status');
     const limit = parsePaginationInteger(searchParams.get('limit'), 50, 1, 100);
     const offset = parsePaginationInteger(searchParams.get('offset'), 0, 0);
 
-    if (!walletId) {
-      return NextResponse.json(
-        { error: 'Missing walletId parameter' },
-        { status: 400 }
-      );
+    // The wallet id comes from the signed request, never from the query
+    // string. Taking it from `?walletId=` meant any caller could read any
+    // wallet's swap history — including the Boltz key material that used to be
+    // stored in provider_data.
+    const auth = await authorizeWallet(supabase, request);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
+    const walletId = auth.walletId;
 
-    // Validate UUID format to avoid DB errors
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(walletId)) {
-      return NextResponse.json(
-        { error: 'Invalid walletId format' },
-        { status: 400 }
-      );
+    const rateCheck = await checkRateLimitAsync(walletId, 'swap_read');
+    if (!rateCheck.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
     }
 
     // Build query
@@ -87,7 +87,14 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      swaps: swaps || [],
+      // Key material never travels in a listing, even to the owner — the
+      // refund/claim key is handed out once at creation and nowhere else.
+      swaps: (swaps || []).map((swap: Record<string, unknown>) => ({
+        ...swap,
+        provider_data: swap.provider_data
+          ? stripProviderSecrets(swap.provider_data as Record<string, unknown>)
+          : swap.provider_data,
+      })),
       pagination: {
         total: count || 0,
         limit,

@@ -80,6 +80,19 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'settings': { limit: 30, windowSeconds: 60 },               // 30/min
   'sync_history': { limit: 10, windowSeconds: 60 },           // 10/min
   'rates_query': { limit: 60, windowSeconds: 60 },            // 60/min per IP
+  // Merchant/payment API surface. These back endpoints that were previously
+  // unauthenticated; auth is the primary control and these are the second
+  // layer, sized so a credentialed caller cannot use them as an amplifier.
+  'check_balance': { limit: 30, windowSeconds: 60 },          // 30/min per payment
+  'payment_create': { limit: 60, windowSeconds: 60 },         // 60/min per business
+  'widget_create': { limit: 20, windowSeconds: 60 },          // 20/min per business+IP
+  'realtime_publish': { limit: 60, windowSeconds: 60 },       // 60/min per business
+  'webhook_test': { limit: 10, windowSeconds: 300 },          // 10/5min per business
+  'escrow_read': { limit: 30, windowSeconds: 60 },            // 30/min per caller
+  'swap_read': { limit: 30, windowSeconds: 60 },              // 30/min per caller
+  'lnurl_resolve': { limit: 10, windowSeconds: 60 },          // 10/min per business
+  'usage_mutate': { limit: 60, windowSeconds: 60 },           // 60/min per business
+  'invoice_mutate': { limit: 30, windowSeconds: 60 },         // 30/min per caller
 };
 
 /** In-memory fallback store */

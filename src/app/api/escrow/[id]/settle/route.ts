@@ -11,6 +11,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { markEscrowSettled } from '@/lib/escrow';
 import { decrypt } from '@/lib/crypto/encryption';
+import { isInternalApiKey } from '@/lib/auth/secret-compare';
+import { requireEncryptionKey } from '@/lib/crypto/require-key';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -20,10 +22,8 @@ function getSupabase() {
 }
 
 function isInternalRequest(authHeader: string | null): boolean {
-  const internalApiKey = process.env.INTERNAL_API_KEY;
-  if (!internalApiKey) return false;
   if (!authHeader?.startsWith('Bearer ')) return false;
-  return authHeader.substring(7) === internalApiKey;
+  return isInternalApiKey(authHeader.substring(7).trim());
 }
 
 export async function POST(
@@ -76,6 +76,51 @@ export async function POST(
       );
     }
 
+    // Claim the escrow before any on-chain work.
+    //
+    // The settlement_tx_hash check above is a read, and the write that records
+    // the hash happens only after the transaction is broadcast. Two concurrent
+    // settles therefore both read a null hash and both broadcast; where the
+    // address holds any residual balance the second send moves the leftover
+    // and custody reconciliation no longer adds up. This compare-and-swap
+    // stakes the claim atomically: only the request that flips
+    // settlement_started_at from NULL proceeds.
+    const claimedAt = new Date().toISOString();
+    const { data: claimedRows, error: claimErr } = await supabase
+      .from('escrows')
+      .update({ settlement_started_at: claimedAt })
+      .eq('id', escrowId)
+      .is('settlement_started_at', null)
+      .is('settlement_tx_hash', null)
+      .select('id');
+
+    if (claimErr) {
+      console.error(`Failed to claim escrow ${escrowId} for settlement:`, claimErr);
+      return NextResponse.json({ error: 'Could not start settlement' }, { status: 500 });
+    }
+
+    if (!claimedRows || claimedRows.length === 0) {
+      return NextResponse.json(
+        { error: 'Settlement already in progress or completed' },
+        { status: 409 }
+      );
+    }
+
+    /**
+     * Hand the claim back when settlement aborts before anything was
+     * broadcast, so a transient failure does not wedge the escrow forever.
+     * Guarded on the exact timestamp we wrote, so it can never clear a claim
+     * taken by a later attempt.
+     */
+    const releaseClaim = async () => {
+      await supabase
+        .from('escrows')
+        .update({ settlement_started_at: null })
+        .eq('id', escrowId)
+        .eq('settlement_started_at', claimedAt)
+        .is('settlement_tx_hash', null);
+    };
+
     // Get the payment address record for the encrypted private key
     const { data: addressData, error: addrError } = await supabase
       .from('payment_addresses')
@@ -84,15 +129,21 @@ export async function POST(
       .single();
 
     if (addrError || !addressData) {
+      await releaseClaim();
       return NextResponse.json(
         { error: 'Escrow address data not found' },
         { status: 500 }
       );
     }
 
-    // Decrypt private key
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (!encryptionKey) {
+    // Decrypt private key. requireEncryptionKey throws on a missing, malformed
+    // or known-weak key rather than letting settlement proceed under one.
+    let encryptionKey: string;
+    try {
+      encryptionKey = requireEncryptionKey('escrow settlement');
+    } catch (keyError) {
+      await releaseClaim();
+      console.error(`Escrow ${escrowId} settlement blocked:`, keyError);
       return NextResponse.json(
         { error: 'Encryption key not configured' },
         { status: 500 }
@@ -121,6 +172,7 @@ export async function POST(
     let feeTxHash: string | undefined;
 
     if (!provider.sendTransaction) {
+      await releaseClaim();
       return NextResponse.json(
         { error: `No transaction provider for chain ${escrow.chain}` },
         { status: 500 }

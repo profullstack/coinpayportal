@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { authenticateClient } from '@/lib/oauth/client';
+import { getOAuthClient, authenticateClient } from '@/lib/oauth/client';
 import {
   generateAccessToken,
   generateIdToken,
@@ -165,21 +165,37 @@ async function handleAuthorizationCode(body: Record<string, string>) {
     }
   }
 
-  // Mark code as used
-  await supabase
+  // Consume the code with a compare-and-swap.
+  //
+  // The `authCode.used` check above is a read, and this write was
+  // unconditional, so two exchanges of the same code both saw used=false and
+  // both received a full token set. An authorization code is single-use by
+  // definition — a stolen code could be replayed alongside the legitimate
+  // exchange. Only the request that flips used from false proceeds.
+  const { data: consumed } = await supabase
     .from('oauth_authorization_codes')
     .update({ used: true })
-    .eq('id', authCode.id);
+    .eq('id', authCode.id)
+    .eq('used', false)
+    .select('id');
+
+  if (!consumed || consumed.length === 0) {
+    return tokenError('invalid_grant', 'Authorization code has already been used');
+  }
 
   // Get user info for token claims
   const { data: merchant } = await supabase
     .from('merchants')
-    .select('id, email, name')
+    .select('id, email, name, email_verified')
     .eq('id', authCode.user_id)
     .single();
 
   const user = merchant
-    ? { ...merchant, email_verified: true }
+    // email_verified reflects the merchant record, not a constant. Hardcoding
+    // true asserted to every relying party that we had verified an address we
+    // had not — which is exactly the claim an RP uses to link accounts, so a
+    // false positive here is an account-takeover primitive on their side.
+    ? { ...merchant, email_verified: Boolean(merchant.email_verified) }
     : { id: authCode.user_id, email: undefined, name: undefined, email_verified: false };
 
   const client = { client_id };
@@ -227,8 +243,25 @@ async function handleRefreshToken(body: Record<string, string>) {
     return tokenError('invalid_request', 'Missing required parameters: refresh_token, client_id');
   }
 
-  // Authenticate client if secret provided
-  if (client_secret) {
+  // Authenticate the client.
+  //
+  // Rotation used to validate client_secret only when one happened to be
+  // supplied — so simply omitting it skipped authentication entirely, and a
+  // stolen refresh token alone was enough to mint access tokens indefinitely.
+  // A confidential client (one registered with a secret) must always present
+  // it; public clients, which have no secret to keep, are identified by the
+  // refresh token itself.
+  const clientRecord = await getOAuthClient(client_id);
+  if (!clientRecord) {
+    return tokenError('invalid_client', 'Unknown client', 401);
+  }
+
+  const isConfidential = Boolean(clientRecord.client_secret);
+
+  if (isConfidential || client_secret) {
+    if (!client_secret) {
+      return tokenError('invalid_client', 'client_secret is required for this client', 401);
+    }
     const authResult = await authenticateClient(client_id, client_secret);
     if (!authResult.valid) {
       return tokenError('invalid_client', authResult.error || 'Invalid client credentials', 401);
@@ -257,16 +290,24 @@ async function handleRefreshToken(body: Record<string, string>) {
     return tokenError('invalid_grant', 'Refresh token has expired');
   }
 
-  // Revoke old refresh token
-  await supabase
+  // Revoke the old refresh token, conditioned on it still being live. Two
+  // concurrent refreshes would otherwise both revoke-and-reissue, leaving two
+  // valid successor tokens for one rotation.
+  const { data: rotated } = await supabase
     .from('oauth_refresh_tokens')
     .update({ revoked: true })
-    .eq('id', storedToken.id);
+    .eq('id', storedToken.id)
+    .eq('revoked', false)
+    .select('id');
+
+  if (!rotated || rotated.length === 0) {
+    return tokenError('invalid_grant', 'Refresh token has been revoked');
+  }
 
   // Get user info
   const { data: merchant } = await supabase
     .from('merchants')
-    .select('id, email, name')
+    .select('id, email, name, email_verified')
     .eq('id', storedToken.user_id)
     .single();
 

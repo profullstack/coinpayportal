@@ -14,10 +14,16 @@ export const FEE_PERCENTAGE_FREE = 0.01;   // 1% for free tier (starter)
 export const FEE_PERCENTAGE_PAID = 0.005;  // 0.5% for paid tier (professional)
 
 /**
- * Default fee percentage (legacy - use tiered functions for new code)
+ * Default platform fee when no tier is known.
+ *
+ * Deliberately the FREE rate. A caller that has not resolved the merchant's
+ * tier must not be handed the discounted professional rate by default — that
+ * fails open in the platform's disfavour and was the shape of the 50% revenue
+ * leak. Resolve the tier and use getFeePercentage(isPaidTier) instead.
+ *
  * @deprecated Use getFeePercentage(isPaidTier) instead
  */
-export const FEE_PERCENTAGE = FEE_PERCENTAGE_PAID;
+export const FEE_PERCENTAGE = FEE_PERCENTAGE_FREE;
 
 /**
  * Subscription tier type
@@ -132,69 +138,17 @@ export function getTieredFeePercentageString(isPaidTier: boolean): string {
 }
 
 // ============================================
-// Legacy functions (for backward compatibility)
-// These use the paid tier rate by default
+// NOTE ON REMOVED LEGACY HELPERS
 // ============================================
-
-/**
- * Calculate platform fee (uses paid tier rate for backward compatibility)
- * @param amount - Total payment amount
- * @returns Platform fee amount
- * @deprecated Use calculateTieredFee(amount, isPaidTier) instead
- */
-export function calculateFee(amount: number): number {
-  return calculateTieredFee(amount, true);
-}
-
-/**
- * Calculate merchant amount (uses paid tier rate for backward compatibility)
- * @param amount - Total payment amount
- * @returns Amount merchant receives
- * @deprecated Use calculateTieredMerchantAmount(amount, isPaidTier) instead
- */
-export function calculateMerchantAmount(amount: number): number {
-  return calculateTieredMerchantAmount(amount, true);
-}
-
-/**
- * Alias for calculateFee (for clarity in code)
- * @param amount - Total payment amount
- * @returns Platform fee amount
- * @deprecated Use calculateTieredFee(amount, isPaidTier) instead
- */
-export function calculatePlatformFee(amount: number): number {
-  return calculateFee(amount);
-}
-
-/**
- * Split payment amount into merchant and platform portions
- * Uses paid tier rate for backward compatibility
- * @param amount - Total payment amount
- * @returns Object with merchant and platform amounts
- * @deprecated Use splitTieredPayment(amount, isPaidTier) instead
- */
-export function splitPayment(amount: number): {
-  merchantAmount: number;
-  platformFee: number;
-  total: number;
-} {
-  const result = splitTieredPayment(amount, true);
-  return {
-    merchantAmount: result.merchantAmount,
-    platformFee: result.platformFee,
-    total: result.total,
-  };
-}
-
-/**
- * Calculate fee percentage as human-readable string
- * Returns paid tier rate for backward compatibility
- * @returns Fee percentage string (e.g., "0.5%")
- * @deprecated Use getTieredFeePercentageString(isPaidTier) instead
- */
-export function getFeePercentageString(): string {
-  return getTieredFeePercentageString(true);
-}
+//
+// calculateFee / calculateMerchantAmount / calculatePlatformFee / splitPayment
+// / getFeePercentageString used to exist here and passed `isPaidTier: true`
+// unconditionally, so every caller that reached for the short name silently
+// charged a free-tier merchant the 0.5% professional rate instead of 1% — half
+// the commission the platform is owed. They had no production callers left, so
+// rather than "fixing the default" (which would still leave a name that hides
+// the tier) they are removed outright. Use the tiered functions above and pass
+// the merchant's real tier from isPaidTier()/isBusinessPaidTier().
 
 /**
  * Validate that split amounts equal total

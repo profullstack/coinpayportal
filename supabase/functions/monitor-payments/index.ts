@@ -428,19 +428,71 @@ async function sendWebhook(
 }
 
 /**
+ * Constant-time comparison of two secrets.
+ *
+ * Hashes both sides first so the comparison is over fixed-length buffers and
+ * cannot leak the length of the expected secret.
+ */
+async function secretsMatch(a: string | null, b: string | null): Promise<boolean> {
+  if (!a || !b || !a.trim() || !b.trim()) return false;
+
+  const encoder = new TextEncoder();
+  const [digestA, digestB] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(a)),
+    crypto.subtle.digest('SHA-256', encoder.encode(b)),
+  ]);
+
+  const viewA = new Uint8Array(digestA);
+  const viewB = new Uint8Array(digestB);
+
+  let diff = 0;
+  for (let i = 0; i < viewA.length; i++) {
+    diff |= viewA[i] ^ viewB[i];
+  }
+  return diff === 0;
+}
+
+/**
  * Main handler for the edge function
  */
 Deno.serve(async (req) => {
   try {
-    // Verify request is from Supabase (cron job) or has valid auth
+    // Verify the caller actually holds the cron secret.
+    //
+    // This used to accept ANY header beginning with 'Bearer ' and then build a
+    // service_role client — so the string "Bearer x" was enough for anyone who
+    // knew the (public) function URL to run the entire payment pipeline with
+    // full database privileges: expire and confirm payments, trigger forwards,
+    // and emit webhooks the merchant would treat as genuine.
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
+    const presented = authHeader?.startsWith('Bearer ')
+      ? authHeader.slice('Bearer '.length).trim()
+      : null;
+
+    const cronSecret = Deno.env.get('CRON_SECRET') ?? Deno.env.get('INTERNAL_API_KEY') ?? null;
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? null;
+
+    if (!cronSecret && !serviceRoleKey) {
+      // Refuse rather than fall open when nothing is configured to check against.
+      console.error('[monitor-payments] No CRON_SECRET/INTERNAL_API_KEY configured; refusing to run.');
+      return new Response(JSON.stringify({ error: 'Not configured' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const authorized =
+      (await secretsMatch(presented, cronSecret)) ||
+      // Supabase's own scheduler invokes the function with the service-role key.
+      (await secretsMatch(presented, serviceRoleKey));
+
+    if (!authorized) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    
+
     // Create Supabase client with service role
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -518,24 +570,43 @@ Deno.serve(async (req) => {
         const balance = await checkBalance(payment.payment_address, payment.blockchain);
         console.log(`Payment ${payment.id}: balance=${balance}, expected=${payment.crypto_amount}`);
         
-        // Check if sufficient funds received (allow 1% tolerance for network fees)
-        const tolerance = payment.crypto_amount * 0.01;
-        if (balance >= payment.crypto_amount - tolerance) {
-          // Mark as confirmed
-          await supabase
+        // Settlement requires the full amount. The old rule confirmed at 99%,
+        // which unlocked the goods and then left the forwarder trying to send
+        // 100% out of an address holding 99% — the forward failed and the funds
+        // stranded. A NULL/NaN crypto_amount also used to slip through here,
+        // because `balance >= NaN` is false but so is `balance < NaN`.
+        const expectedAmount = Number(payment.crypto_amount);
+        const isSufficient =
+          Number.isFinite(expectedAmount) &&
+          expectedAmount > 0 &&
+          balance > 0 &&
+          balance >= expectedAmount - expectedAmount * 1e-9;
+
+        if (isSufficient) {
+          // Compare-and-swap: this function, the in-process monitor, the HTTP
+          // cron and the merchant-facing balance check all race here. Without
+          // the status guard each of them forwards the same payment on-chain.
+          const { data: claimed } = await supabase
             .from('payments')
             .update({
               status: 'confirmed',
               updated_at: now.toISOString(),
             })
-            .eq('id', payment.id);
-          
+            .eq('id', payment.id)
+            .eq('status', 'pending')
+            .select('id');
+
+          if (!claimed || claimed.length === 0) {
+            console.log(`Payment ${payment.id} already claimed by another worker; skipping`);
+            continue;
+          }
+
           // Send webhook notification
           await sendWebhook(supabase, { ...payment, status: 'confirmed' }, 'payment.confirmed', {
             received_amount: balance,
             confirmed_at: now.toISOString(),
           });
-          
+
           stats.confirmed++;
           console.log(`Payment ${payment.id} confirmed with balance ${balance}`);
           

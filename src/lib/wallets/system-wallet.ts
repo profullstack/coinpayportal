@@ -1049,3 +1049,21 @@ export function calculateSplit(
 export function generateSystemMnemonic(): string {
   return bip39GenerateMnemonic(wordlist, 256); // 24 words for extra security
 }
+
+/**
+ * Whether an address is one of the platform's own fee wallets.
+ *
+ * Used to refuse a caller-supplied payee that points the merchant leg at a
+ * platform wallet — that makes the two legs of a split indistinguishable and
+ * breaks custody reconciliation.
+ */
+export function isPlatformFeeWallet(address: string): boolean {
+  const needle = address.trim().toLowerCase();
+  if (!needle) return false;
+
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.startsWith('PLATFORM_FEE_WALLET_')) continue;
+    if (typeof value === 'string' && value.trim().toLowerCase() === needle) return true;
+  }
+  return false;
+}

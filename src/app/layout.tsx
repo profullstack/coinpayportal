@@ -6,6 +6,7 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { Providers } from '@/components/Providers';
 import './globals.css';
+import { serializeJsonLd } from '@/lib/seo/json-ld';
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com'),
@@ -101,7 +102,7 @@ export default function RootLayout({
       <head>
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+          dangerouslySetInnerHTML={{ __html: serializeJsonLd(organizationJsonLd) }}
         />
       </head>
       <body className="flex flex-col min-h-screen font-sans">

@@ -5,6 +5,7 @@ import { getPostBySlug, formatBlogDate, SITE_URL } from '@/lib/blog';
 import { sanitizeBlogHtml } from '@/lib/blog-sanitize';
 import { splitHtmlForMidAd } from '@/lib/blog-split-html';
 import AdUnit from '@/components/AdUnit';
+import { serializeJsonLd } from '@/lib/seo/json-ld';
 
 type RouteParams = { params: Promise<{ slug: string }> };
 
@@ -146,7 +147,7 @@ export default async function BlogPostPage({ params }: RouteParams) {
 
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(ldJson) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(ldJson) }}
       />
     </div>
   );

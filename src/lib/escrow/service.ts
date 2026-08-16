@@ -26,6 +26,7 @@ import { generatePaymentAddress, type SystemBlockchain } from '../wallets/system
 import { getFeePercentage } from '../payments/fees';
 import { getExchangeRate } from '../rates/tatum';
 import { sendEscrowWebhook } from '../webhooks/service';
+import { secretsMatch } from '../auth/secret-compare';
 import type {
   CreateEscrowInput,
   Escrow,
@@ -473,8 +474,10 @@ function authenticateEscrowAction(
   escrow: Escrow,
   token: string
 ): 'depositor' | 'beneficiary' | 'arbiter' | null {
-  if (token === escrow.release_token) return 'depositor';
-  if (token === escrow.beneficiary_token) return 'beneficiary';
+  // Constant-time: these tokens are bearer credentials that release funds, so
+  // a byte-by-byte `===` is a usable oracle for anyone who can time the call.
+  if (secretsMatch(token, escrow.release_token)) return 'depositor';
+  if (secretsMatch(token, escrow.beneficiary_token)) return 'beneficiary';
   // Arbiter auth would be signature-based in v2
   return null;
 }

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getCryptoPrice } from '../rates/tatum';
+import { getUsdFxRate } from '../rates/fx';
 import { z } from 'zod';
 import { generatePaymentAddress, type SystemBlockchain } from '../wallets/system-wallet';
 import { STATIC_NETWORK_FEES_USD, getEstimatedNetworkFee, getStaticNetworkFee } from './network-fees';
@@ -165,18 +166,30 @@ export async function createPayment(
         ? 'USDT'
         : input.blockchain;
     
-    // Add estimated network fee to the amount so merchant receives full amount after forwarding
-    // Use dynamic fee estimation from Tatum API
+    // Add the estimated network fee so the merchant receives the full amount
+    // after forwarding.
+    //
+    // `input.amount` is denominated in `input.currency`; getEstimatedNetworkFee
+    // returns USD. Adding them directly and then converting the sum *as
+    // input.currency* mixed units: for a weak currency the fee was divided by
+    // the FX rate and the platform absorbed almost all of the forwarding cost,
+    // and for a strong currency the payer was overcharged. Convert the fee into
+    // the invoice currency first so both terms share a unit.
     const networkFeeUsd = await getEstimatedNetworkFee(input.blockchain);
-    const totalAmountUsd = input.amount + networkFeeUsd;
-    
+    const usdToCurrency = await getUsdFxRate(input.currency);
+    const networkFeeInCurrency = networkFeeUsd * usdToCurrency;
+    const totalInCurrency = input.amount + networkFeeInCurrency;
+    // The same total expressed in USD, for consumers that reason in USD
+    // (gas-affordability checks, the payer-facing breakdown).
+    const totalAmountUsd = totalInCurrency / usdToCurrency;
+
     const cryptoAmount = await getCryptoPrice(
-      totalAmountUsd,
+      totalInCurrency,
       input.currency,
       cryptoCurrency
     );
-    
-    console.log(`[Payment] Amount: $${input.amount}, Network fee: $${networkFeeUsd}, Total: $${totalAmountUsd}, Crypto: ${cryptoAmount} ${cryptoCurrency}`);
+
+    console.log(`[Payment] Amount: ${input.amount} ${input.currency}, Network fee: $${networkFeeUsd} (${networkFeeInCurrency} ${input.currency}), Total: ${totalInCurrency} ${input.currency}, Crypto: ${cryptoAmount} ${cryptoCurrency}`);
 
     // Calculate expiration. Defaults to the 15-minute checkout window; callers
     // with a longer-lived payer (invoices) pass their own, clamped so a bad
@@ -200,6 +213,11 @@ export async function createPayment(
       metadata: {
         ...input.metadata,
         network_fee_usd: networkFeeUsd,
+        // network_fee_amount and total_amount are denominated in
+        // input.currency; total_amount_usd is the same total in USD.
+        network_fee_amount: networkFeeInCurrency,
+        total_amount: totalInCurrency,
+        total_amount_currency: input.currency,
         total_amount_usd: totalAmountUsd,
       },
       expires_at: expiresAt.toISOString(),

@@ -74,12 +74,27 @@ export async function POST(
       );
     }
 
+    // Validate at the edge as well as in the service. `quantity: -1` inverted
+    // every comparison downstream and minted credit instead of spending it.
+    const requestedQuantity = quantity === undefined || quantity === null ? 1 : quantity;
+    if (
+      typeof requestedQuantity !== 'number' ||
+      !Number.isInteger(requestedQuantity) ||
+      requestedQuantity < 1 ||
+      requestedQuantity > 10_000
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'quantity must be an integer between 1 and 10000' },
+        { status: 400 }
+      );
+    }
+
     const result = await deductCredits(
       supabase,
       id,
       user_email,
       action_type,
-      quantity || 1,
+      requestedQuantity,
       metadata || {}
     );
 

@@ -37,6 +37,7 @@ import {
   forwardTokenViaRelayer,
 } from './evm-gas';
 import type { SystemBlockchain } from './system-wallet';
+import { checkBalance as checkAddressBalance } from '@/app/api/cron/monitor-payments/balance-checkers';
 
 const EVM_TOKEN_CONFIG = {
   USDT: { contractAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6 },
@@ -448,11 +449,28 @@ export async function forwardPaymentSecurely(
       };
     }
 
-    // Update payment status to forwarding
-    await supabase
+    // Claim the payment before any on-chain work.
+    //
+    // confirmed -> forwarding used to be an unconditional write, so the
+    // "is it confirmed?" read above and this write were separate steps. Three
+    // schedulers plus the merchant-facing balance check can all read
+    // 'confirmed' at the same time and each go on to send the full split — the
+    // merchant is paid N times out of a pot that only covers one payment.
+    // Conditioning the write on the status we observed means exactly one
+    // caller proceeds.
+    const { data: claimedForward } = await supabase
       .from('payments')
       .update({ status: 'forwarding', updated_at: new Date().toISOString() })
-      .eq('id', paymentId);
+      .eq('id', paymentId)
+      .eq('status', 'confirmed')
+      .select('id');
+
+    if (!claimedForward || claimedForward.length === 0) {
+      return {
+        success: false,
+        error: 'Payment is already being forwarded by another worker',
+      };
+    }
 
     // Check if merchant has a paid subscription tier for commission rate
     // Paid tier (Professional) = 0.5% commission, Free tier (Starter) = 1% commission
@@ -471,7 +489,48 @@ export async function forwardPaymentSecurely(
       ? computeGasReserve(payment.crypto_amount, payment.metadata)
       : 0;
 
-    const split = splitTieredPayment(payment.crypto_amount - gasReserve, isPaidTier);
+    // Split what is actually at the address, not what the quote expected.
+    //
+    // Splitting the expected amount meant the two legs were sized against a
+    // number the address might not hold. The merchant leg (99%+) went out
+    // first and drained the balance, then the platform-fee leg failed for
+    // insufficient funds — so the platform collected nothing while the payment
+    // still looked settled. Any surplus from an overpayment was likewise
+    // stranded, because nothing ever swept the difference.
+    //
+    // The expected amount stays as a floor sanity check: a balance that has
+    // dropped below it means funds already left, and forwarding must not
+    // proceed on a stale view.
+    let potToSplit = payment.crypto_amount;
+    try {
+      const actualBalance = await checkAddressBalance(
+        addressData.address,
+        addressData.cryptocurrency
+      );
+
+      if (actualBalance !== null && Number.isFinite(actualBalance)) {
+        if (actualBalance <= 0) {
+          await supabase
+            .from('payments')
+            .update({ status: 'confirmed', updated_at: new Date().toISOString() })
+            .eq('id', paymentId)
+            .eq('status', 'forwarding');
+          return {
+            success: false,
+            error: 'Address holds no balance to forward',
+          };
+        }
+        potToSplit = actualBalance;
+      } else {
+        console.warn(
+          `[SECURE] Could not read balance for ${paymentId}; splitting the expected amount instead`
+        );
+      }
+    } catch (balanceError) {
+      console.warn(`[SECURE] Balance read failed for ${paymentId}:`, balanceError);
+    }
+
+    const split = splitTieredPayment(potToSplit - gasReserve, isPaidTier);
     const { merchantAmount, feePercentage } = split;
     const platformFee = split.platformFee + gasReserve;
 
@@ -707,11 +766,23 @@ export async function retryForwardingSecurely(
     };
   }
 
-  // Reset status to confirmed for retry
-  await supabase
+  // Reset status to confirmed for retry, conditioned on the status we just
+  // read. Without the guard, a retry racing the normal pipeline could drag a
+  // payment that is mid-forward back to 'confirmed' and let a second forward
+  // start against the same funds.
+  const { data: reset } = await supabase
     .from('payments')
     .update({ status: 'confirmed', updated_at: new Date().toISOString() })
-    .eq('id', paymentId);
+    .eq('id', paymentId)
+    .eq('status', payment.status)
+    .select('id');
+
+  if (!reset || reset.length === 0) {
+    return {
+      success: false,
+      error: 'Payment state changed; retry aborted',
+    };
+  }
 
   // Forward using secure method
   return forwardPaymentSecurely(supabase, paymentId);
@@ -730,7 +801,16 @@ export async function batchForwardPaymentsSecurely(
   failed: number;
   results: SecureForwardingResult[];
 }> {
-  // Get confirmed payments that need forwarding
+  // Get confirmed payments that need forwarding.
+  //
+  // This SELECT takes no lock, so two instances of the batch job see the same
+  // rows — which used to mean each of them forwarded every payment in the
+  // overlap, producing N on-chain sends per payment. The mutual exclusion now
+  // lives one level down: forwardPaymentSecurely claims each payment with a
+  // conditional confirmed -> forwarding update and returns early if it loses.
+  // That is the same guarantee SELECT ... FOR UPDATE SKIP LOCKED would give,
+  // and it holds across processes and restarts rather than only for the life
+  // of a transaction, which matters because the forward spans a chain call.
   const { data: payments, error } = await supabase
     .from('payments')
     .select('id')
