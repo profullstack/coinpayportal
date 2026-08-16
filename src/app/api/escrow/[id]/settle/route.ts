@@ -170,6 +170,7 @@ export async function POST(
 
     let txHash: string | undefined;
     let feeTxHash: string | undefined;
+    let feeForwardError: string | undefined;
 
     if (!provider.sendTransaction) {
       await releaseClaim();
@@ -221,8 +222,28 @@ export async function POST(
             privateKey
           );
         } catch (feeError) {
+          // Non-fatal for the beneficiary — their leg already landed, and
+          // unwinding it would be worse. But this used to be the end of it:
+          // the escrow was marked settled with fee_tx_hash NULL and nothing
+          // recorded that the platform was still owed its fee, so the loss was
+          // invisible and unrecoverable. Write it to the escrow's event log,
+          // which is the audit trail the rest of the flow already uses.
+          feeForwardError = feeError instanceof Error ? feeError.message : String(feeError);
           console.error(`Fee forwarding failed for escrow ${escrowId}:`, feeError);
-          // Non-fatal — main settlement still succeeded
+
+          await supabase.from('escrow_events').insert({
+            escrow_id: escrowId,
+            event_type: 'fee_forward_failed',
+            actor: 'system',
+            details: {
+              error: feeForwardError,
+              fee_amount: escrow.fee_amount,
+              commission_wallet: addressData.commission_wallet,
+              chain: escrow.chain,
+              settlement_tx_hash: txHash,
+              failed_at: new Date().toISOString(),
+            },
+          });
         }
       }
     }
@@ -282,6 +303,12 @@ export async function POST(
       .eq('id', escrow.escrow_address_id);
 
     console.log(`Escrow ${escrowId} ${finalStatus}: tx=${txHash}`);
+
+    if (feeForwardError) {
+      console.error(
+        `[Escrow] ${escrowId} settled but the platform fee was NOT collected: ${feeForwardError}`
+      );
+    }
 
     return NextResponse.json({
       success: true,

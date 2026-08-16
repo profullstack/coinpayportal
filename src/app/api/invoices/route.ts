@@ -171,54 +171,94 @@ export async function POST(request: NextRequest) {
       payeeSource = payeeAddress ? 'manual' : null;
     }
 
-    // Generate invoice number
-    const { data: maxInvoice } = await supabase
-      .from('invoices')
-      .select('invoice_number')
-      .eq('business_id', resolvedBusinessId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+    // Invoice number: highest existing + 1, per business.
+    //
+    // This is a read-then-write, so two invoices created at the same moment
+    // both read the same maximum and both claim the same number. There is no
+    // way to make it atomic from here, so the guarantee lives in the database:
+    // a UNIQUE (business_id, invoice_number) constraint makes a collision an
+    // error instead of a silent duplicate, and the insert below retries on it.
+    //
+    // Ordering by created_at was also wrong for the lookup — it returns the
+    // most RECENTLY CREATED number, which is not the highest once any invoice
+    // is deleted or backdated. Ordering by the parsed number is what was meant.
+    const nextInvoiceNumber = async (): Promise<string> => {
+      const { data: rows } = await supabase
+        .from('invoices')
+        .select('invoice_number')
+        .eq('business_id', resolvedBusinessId)
+        .not('invoice_number', 'is', null);
 
-    let nextNum = 1;
-    if (maxInvoice?.invoice_number) {
-      const match = maxInvoice.invoice_number.match(/INV-(\d+)/);
-      if (match) nextNum = parseInt(match[1], 10) + 1;
-    }
-    const invoiceNumber = `INV-${String(nextNum).padStart(3, '0')}`;
+      let highest = 0;
+      for (const row of rows || []) {
+        const match = String(row.invoice_number).match(/INV-(\d+)/);
+        if (match) {
+          const n = parseInt(match[1], 10);
+          if (Number.isFinite(n) && n > highest) highest = n;
+        }
+      }
+      return `INV-${String(highest + 1).padStart(3, '0')}`;
+    };
+
+    let invoiceNumber = await nextInvoiceNumber();
 
     // Determine fee rate
     const isPaidTier = await isBusinessPaidTier(supabase, resolvedBusinessId);
     const feeRate = getFeePercentage(isPaidTier);
 
-    const { data: invoice, error } = await supabase
-      .from('invoices')
-      .insert({
-        user_id: invoiceOwnerId,
-        business_id: resolvedBusinessId,
-        client_id: client_id || null,
-        invoice_number: invoiceNumber,
-        status: 'draft',
-        currency: currency || 'USD',
-        amount,
-        crypto_currency: crypto_currency || null,
-        merchant_wallet_address: payeeAddress,
-        wallet_id: wallet_id || null,
-        fee_rate: feeRate,
-        due_date: due_date || null,
-        notes: notes || null,
-        metadata: payeeSource ? { payee_source: payeeSource } : {},
-      })
-      .select(`
-        *,
-        clients (id, name, email, company_name),
-        businesses (id, name)
-      `)
-      .single();
+    // Insert, retrying on the unique (business_id, invoice_number) violation
+    // that a concurrent create produces. Each retry re-reads the maximum, so
+    // two racing requests end up with consecutive numbers rather than one
+    // silently overwriting the other's.
+    const MAX_NUMBER_ATTEMPTS = 5;
+    let invoice: any = null;
+    let error: { message: string; code?: string } | null = null;
+
+    for (let attempt = 0; attempt < MAX_NUMBER_ATTEMPTS; attempt++) {
+      const result = await supabase
+        .from('invoices')
+        .insert({
+          user_id: invoiceOwnerId,
+          business_id: resolvedBusinessId,
+          client_id: client_id || null,
+          invoice_number: invoiceNumber,
+          status: 'draft',
+          currency: currency || 'USD',
+          amount,
+          crypto_currency: crypto_currency || null,
+          merchant_wallet_address: payeeAddress,
+          wallet_id: wallet_id || null,
+          fee_rate: feeRate,
+          due_date: due_date || null,
+          notes: notes || null,
+          metadata: payeeSource ? { payee_source: payeeSource } : {},
+        })
+        .select(`
+          *,
+          clients (id, name, email, company_name),
+          businesses (id, name)
+        `)
+        .single();
+
+      invoice = result.data;
+      error = result.error;
+
+      // 23505 = unique_violation. Anything else is a real failure.
+      if (!error || error.code !== '23505') break;
+
+      invoiceNumber = await nextInvoiceNumber();
+    }
 
     if (error) {
       console.error('Create invoice error:', error);
       return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
+
+    if (!invoice) {
+      return NextResponse.json(
+        { success: false, error: 'Could not allocate an invoice number; please retry.' },
+        { status: 409 }
+      );
     }
 
     // Create schedule if provided

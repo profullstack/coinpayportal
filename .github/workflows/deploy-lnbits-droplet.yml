@@ -1,20 +1,37 @@
 name: Deploy LNbits Droplet
 
+# Deploys are deliberate, not automatic.
+#
+# This job holds an SSH private key for a production droplet and applies a
+# dotenv file of live credentials to it. Running that on every push to master
+# means any merged commit — including one whose blast radius nobody considered —
+# reaches production infrastructure with no one in the loop. It is now
+# workflow_dispatch only, and pinned to the `production` environment so a
+# required-reviewer rule can gate it. (That rule is configured in repository
+# settings: Settings -> Environments -> production -> Required reviewers. The
+# environment key here is what makes it apply; without the rule the environment
+# is simply a label.)
 on:
-  push:
-    branches: [master]
   workflow_dispatch:
 
 jobs:
   deploy-lnbits:
     runs-on: ubuntu-latest
+    environment: production
     env:
-      # Supports either secret or variable named ENV_FILE (dotenv format)
-      ENV_FILE: ${{ secrets.ENV_FILE || vars.ENV_FILE }}
-      DIRECT_SSH_KEY: ${{ secrets.LNBITS_DROPLET_SSH_KEY || secrets.LNBITS_DROP_SSH_KEY || vars.LNBITS_DROPLET_SSH_KEY || vars.LNBITS_DROP_SSH_KEY }}
+      # secrets ONLY — never vars.
+      #
+      # These previously fell back to `vars.*`. GitHub Actions variables are not
+      # secrets: they are stored in plaintext, readable by anyone with repo
+      # access, and — critically — NOT masked in job logs. An SSH private key or
+      # a dotenv file of credentials supplied that way would be printed in the
+      # clear by any step that echoed it. If the secret is missing the job now
+      # fails loudly rather than silently reading a non-secret.
+      ENV_FILE: ${{ secrets.ENV_FILE }}
+      DIRECT_SSH_KEY: ${{ secrets.LNBITS_DROPLET_SSH_KEY || secrets.LNBITS_DROP_SSH_KEY }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Load ENV_FILE
         shell: bash

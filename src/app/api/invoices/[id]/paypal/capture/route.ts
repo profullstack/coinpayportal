@@ -65,8 +65,53 @@ export async function POST(
       );
     }
 
-    // Mark invoice paid.
-    await supabase
+    // Verify the captured amount actually settles this invoice.
+    //
+    // 'COMPLETED' only says PayPal captured *something*. It says nothing about
+    // how much, or in what currency. Without this check a completed capture for
+    // a token amount — or one denominated in a weaker currency — marked a
+    // full-value invoice paid. The capture response carries both fields; they
+    // were simply never read.
+    const capturedAmount = Number(capture.amount);
+    const invoiceAmount = Number(invoice.amount);
+
+    if (!Number.isFinite(capturedAmount) || capturedAmount <= 0) {
+      return NextResponse.json(
+        { success: false, error: 'PayPal capture reported no amount; refusing to mark the invoice paid.' },
+        { status: 502 }
+      );
+    }
+
+    if (!capture.currency || String(capture.currency).toUpperCase() !== String(invoice.currency || '').toUpperCase()) {
+      console.error(
+        `[PayPal] Currency mismatch on invoice ${id}: captured ${capture.currency}, invoice ${invoice.currency}`
+      );
+      return NextResponse.json(
+        {
+          success: false,
+          error: `PayPal capture currency (${capture.currency}) does not match the invoice (${invoice.currency}).`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Allow only floating-point representation slack, not an economic discount.
+    if (!Number.isFinite(invoiceAmount) || capturedAmount < invoiceAmount - invoiceAmount * 1e-9) {
+      console.error(
+        `[PayPal] Underpayment on invoice ${id}: captured ${capturedAmount}, expected ${invoiceAmount}`
+      );
+      return NextResponse.json(
+        {
+          success: false,
+          error: `PayPal capture of ${capturedAmount} does not cover the invoice total of ${invoiceAmount}.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Mark invoice paid. Conditioned on the invoice not already being paid, so
+    // two captures of the same order cannot both record a settlement.
+    const { data: markedPaid } = await supabase
       .from('invoices')
       .update({
         status: 'paid',
@@ -79,9 +124,18 @@ export async function POST(
           paypal_capture_id: capture.captureId,
           paypal_confirmed_at: new Date().toISOString(),
         },
+        settlement_method: 'paypal',
         updated_at: new Date().toISOString(),
       })
-      .eq('id', id);
+      .eq('id', id)
+      .neq('status', 'paid')
+      .select('id');
+
+    if (!markedPaid || markedPaid.length === 0) {
+      // Already settled by a concurrent capture; the money moved once and is
+      // recorded once. Report success so the payer is not told it failed.
+      return NextResponse.json({ success: true, alreadyPaid: true, captureId: capture.captureId });
+    }
 
     // Record the transaction for the merchant dashboard.
     try {

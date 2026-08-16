@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ethers } from 'ethers';
 import { resolveScopedKey } from '@/lib/auth/scoped-keys';
+import { createHash } from 'crypto';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -257,6 +258,33 @@ function enforcePriceBinding(payment: any, expected: any) {
   return { ok: true as const };
 }
 
+
+/**
+ * Store an audit copy of a payment proof WITHOUT the signature.
+ *
+ * The full proof was previously stringified into `raw_proof` verbatim. That
+ * column is write-only — nothing in the codebase reads it — so its entire
+ * effect was to keep a durable copy of the payer's signed authorization. A
+ * signature is a credential: if replay protection is ever bypassed, or the row
+ * is read by something that should not have it, the stored proof is directly
+ * reusable.
+ *
+ * What is worth keeping is the shape of the proof for forensics, so each
+ * secret-bearing field is replaced by a hash of itself. Two reports of "the
+ * same proof" can still be matched, and nothing reusable is retained.
+ */
+function redactProof(payment: any): string {
+  const payload = { ...(payment?.payload ?? {}) };
+
+  for (const field of ['signature', 'preimage', 'privateKey', 'secret']) {
+    if (payload[field]) {
+      payload[field] = `sha256:${createHash('sha256').update(String(payload[field])).digest('hex')}`;
+    }
+  }
+
+  return JSON.stringify({ ...payment, payload, _redacted: true });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const apiKey = request.headers.get('x-api-key');
@@ -356,7 +384,7 @@ export async function POST(request: NextRequest) {
       asset: payment.payload.asset || payment.payload.extra?.assetSymbol || network,
       method_key: methodKey,
       resource: expected.resource,
-      raw_proof: JSON.stringify(payment),
+      raw_proof: redactProof(payment),
       status: 'verified',
       pending_confirmation: result.pendingConfirmation || false,
     });

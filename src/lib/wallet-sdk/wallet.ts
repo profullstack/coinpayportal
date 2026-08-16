@@ -594,7 +594,10 @@ export class Wallet {
       options.privateKey || this._privateKeys.get(options.fromAddress);
     if (!privateKey) {
       console.error('[WalletSDK.send] No private key for address:', options.fromAddress);
-      console.log('[WalletSDK.send] Available addresses:', Array.from(this._privateKeys.keys()));
+      // Log the COUNT, not the addresses. Dumping every address the wallet
+      // holds correlates a user's whole account set into any shared console or
+      // log aggregator, on a path that triggers from an ordinary user mistake.
+      console.log(`[WalletSDK.send] ${this._privateKeys.size} address(es) available`);
       throw new WalletSDKError(
         'NO_PRIVATE_KEY',
         `No private key available for address ${options.fromAddress}. Provide privateKey in options.`,

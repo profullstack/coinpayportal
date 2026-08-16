@@ -11,7 +11,7 @@ import { secp256k1 } from '@noble/curves/secp256k1';
 import { createHash, randomBytes } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { generateToken, verifyToken } from '../auth/jwt';
-import { checkAndRecordSignature } from './rate-limit';
+import { checkAndRecordSignatureAsync } from './rate-limit';
 
 /** Auth result for wallet requests */
 export interface WalletAuthResult {
@@ -103,9 +103,16 @@ async function authenticateWithSignature(
       return { success: false, error: 'Request timestamp expired' };
     }
 
-    // Replay prevention: check if this exact signature was already used
+    // Replay prevention: check if this exact signature was already used.
+    //
+    // The synchronous variant consulted only this process's in-memory Map and
+    // pushed to Supabase fire-and-forget. Across more than one instance that is
+    // not replay protection at all: a signature spent on instance A is unknown
+    // to instance B, so the same signed request replays cleanly against any
+    // other instance. The async variant makes the shared store authoritative
+    // and is awaited, so the check is global.
     const sigKey = `${walletId}:${signatureHex}:${timestampStr}:${nonce}`;
-    if (!checkAndRecordSignature(sigKey)) {
+    if (!(await checkAndRecordSignatureAsync(sigKey))) {
       return { success: false, error: 'Replay detected: signature already used' };
     }
 

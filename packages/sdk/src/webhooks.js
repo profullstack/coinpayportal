@@ -58,7 +58,12 @@ export function verifyWebhookSignature({
     const signatureParts = {};
     
     for (const part of parts) {
-      const [key, value] = part.split('=');
+      // Split on the FIRST '=' only. Splitting on every one truncates any value
+      // that legitimately contains '=' (base64 padding, for instance).
+      const separator = part.indexOf('=');
+      if (separator === -1) continue;
+      const key = part.slice(0, separator).trim();
+      const value = part.slice(separator + 1).trim();
       signatureParts[key] = value;
     }
 
@@ -69,8 +74,23 @@ export function verifyWebhookSignature({
       return false;
     }
 
-    // Check timestamp tolerance
-    const timestampAge = Math.floor(Date.now() / 1000) - parseInt(timestamp, 10);
+    // Check timestamp tolerance.
+    //
+    // parseInt('abc', 10) is NaN, and every comparison against NaN is false —
+    // so `Math.abs(NaN) > tolerance` was false and the freshness check silently
+    // PASSED for any non-numeric timestamp. A security check that no-ops on
+    // malformed input is worse than no check, because it reads as one. Parse
+    // strictly and reject anything that is not a plain integer.
+    if (!/^\d+$/.test(String(timestamp))) {
+      return false;
+    }
+
+    const signedAt = Number(timestamp);
+    if (!Number.isSafeInteger(signedAt) || signedAt <= 0) {
+      return false;
+    }
+
+    const timestampAge = Math.floor(Date.now() / 1000) - signedAt;
     if (Math.abs(timestampAge) > tolerance) {
       return false;
     }

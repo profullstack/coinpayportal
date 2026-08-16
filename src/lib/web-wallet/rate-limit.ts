@@ -93,6 +93,8 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'lnurl_resolve': { limit: 10, windowSeconds: 60 },          // 10/min per business
   'usage_mutate': { limit: 60, windowSeconds: 60 },           // 60/min per business
   'invoice_mutate': { limit: 30, windowSeconds: 60 },         // 30/min per caller
+  'p2p_request': { limit: 30, windowSeconds: 60 },           // 30/min per issuing platform
+  'cli_auth_start': { limit: 10, windowSeconds: 300 },       // 10/5min per IP
 };
 
 /** In-memory fallback store */

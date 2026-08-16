@@ -44,6 +44,16 @@ NPM_PACKAGE="@profullstack/coinpay"      # display name / package identity
 GH_REPO="profullstack/coinpayportal"
 PKG_SUBDIR="packages/sdk"
 COINPAY_REF="${COINPAY_REF:-master}"
+# COINPAY_REF is interpolated into the download URL, so constrain it to the
+# characters a git ref can actually contain. Without this, a value carrying
+# `..`, a slash-escape or a query string could redirect the fetch — and this
+# script installs code that then runs as the operator.
+case "$COINPAY_REF" in
+    *[!A-Za-z0-9._/-]*|*..*|/*|*/)
+        echo "coinpay: refusing unsafe COINPAY_REF='$COINPAY_REF'" >&2
+        exit 1
+        ;;
+esac
 TARBALL_URL="https://codeload.github.com/$GH_REPO/tar.gz/$COINPAY_REF"
 RAW_PKG_URL="https://raw.githubusercontent.com/$GH_REPO/$COINPAY_REF/$PKG_SUBDIR/package.json"
 DEFAULT_API_URL="https://coinpayportal.com"
@@ -196,10 +206,62 @@ install_cli() {
     mkdir -p "$_tmp"
 
     info "fetching $NPM_PACKAGE ($GH_REPO@$COINPAY_REF) from GitHub"
-    if ! curl -fsSL "$TARBALL_URL" | tar -xz -C "$_tmp" 2>/dev/null; then
+
+    # Download to a file BEFORE extracting, rather than piping curl into tar.
+    #
+    # A pipe hands tar a stream it cannot verify: a truncated or interrupted
+    # transfer extracts whatever arrived and tar may still exit 0, leaving a
+    # partially-written CLI that then runs on the operator's machine. Landing
+    # the archive first means it can be checked as a whole.
+    _tarball="$_tmp/coinpay-src.tar.gz"
+    if ! curl -fsSL --proto '=https' --tlsv1.2 -o "$_tarball" "$TARBALL_URL"; then
         rm -rf "$_tmp"
-        fail "download/extract failed — $TARBALL_URL (check COINPAY_REF=$COINPAY_REF)"
+        fail "download failed — $TARBALL_URL (check COINPAY_REF=$COINPAY_REF)"
     fi
+
+    if [ ! -s "$_tarball" ]; then
+        rm -rf "$_tmp"
+        fail "downloaded archive is empty — $TARBALL_URL"
+    fi
+
+    # Verify it is a well-formed gzip archive before trusting its contents.
+    if ! gzip -t "$_tarball" 2>/dev/null; then
+        rm -rf "$_tmp"
+        fail "downloaded archive is not valid gzip — $TARBALL_URL"
+    fi
+
+    # Optional pinning. Set COINPAY_SHA256 to the expected archive digest to
+    # refuse anything else — the strongest available check, since GitHub does
+    # not publish signatures for codeload tarballs.
+    if [ -n "${COINPAY_SHA256:-}" ]; then
+        if command -v sha256sum >/dev/null 2>&1; then
+            _got="$(sha256sum "$_tarball" | awk '{print $1}')"
+        elif command -v shasum >/dev/null 2>&1; then
+            _got="$(shasum -a 256 "$_tarball" | awk '{print $1}')"
+        else
+            rm -rf "$_tmp"
+            fail "COINPAY_SHA256 set but no sha256sum/shasum available to verify"
+        fi
+
+        if [ "$_got" != "$COINPAY_SHA256" ]; then
+            rm -rf "$_tmp"
+            fail "archive checksum mismatch: expected $COINPAY_SHA256, got $_got"
+        fi
+        info "archive checksum verified"
+    fi
+
+    # Record what was actually installed, so an operator can audit it later.
+    if command -v sha256sum >/dev/null 2>&1; then
+        info "archive sha256: $(sha256sum "$_tarball" | awk '{print $1}')"
+    elif command -v shasum >/dev/null 2>&1; then
+        info "archive sha256: $(shasum -a 256 "$_tarball" | awk '{print $1}')"
+    fi
+
+    if ! tar -xzf "$_tarball" -C "$_tmp" 2>/dev/null; then
+        rm -rf "$_tmp"
+        fail "extract failed — $TARBALL_URL"
+    fi
+    rm -f "$_tarball"
 
     # Tarball top dir is coinpayportal-<ref>/ — locate packages/sdk inside it.
     _src="$(find "$_tmp" -type d -path "*/$PKG_SUBDIR" 2>/dev/null | head -1)"

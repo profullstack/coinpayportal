@@ -89,16 +89,27 @@ overrides:
   #   elliptic — 6.6.1 is already the latest published; no fix upstream yet.
 
 allowBuilds:
-  blake-hash: set this to true or false
-  bufferutil: set this to true or false
-  core-js: set this to true or false
-  esbuild: set this to true or false
-  protobufjs: set this to true or false
-  sharp: set this to true or false
-  supabase: set this to true or false
-  tiny-secp256k1: set this to true or false
-  unrs-resolver: set this to true or false
-  usb: set this to true or false
-  utf-8-validate: set this to true or false
+  # N-019: these were all literally "set this to true or false", which pnpm
+  # treats as unset — so every one of these packages was silently NOT running
+  # its build/postinstall script, and nobody had actually made the decision the
+  # placeholder was asking for. Resolved explicitly.
+  #
+  # true  = the package ships native code or a prebuilt binary it genuinely
+  #         needs to compile/fetch at install time.
+  # false = the postinstall is telemetry, an ad, or otherwise unnecessary, so
+  #         it is not executed. Running arbitrary install scripts is exactly the
+  #         supply-chain surface worth keeping small.
+  blake-hash: true          # native addon; needed for hashing
+  bufferutil: true          # native ws accelerator
+  core-js: false            # postinstall only prints a funding banner
+  esbuild: true             # downloads its platform binary
+  protobufjs: true          # generates its runtime descriptors
+  sharp: true               # prebuilt libvips binary
+  supabase: true            # downloads the CLI binary
+  tiny-secp256k1: true      # native addon used for key derivation
+  unrs-resolver: true       # native resolver addon
+  usb: false                # not used at runtime here; skip the native build
+  utf-8-validate: true      # native ws accelerator
+
 minimumReleaseAgeExclude:
   - '@profullstack/autoblog@0.4.0'
