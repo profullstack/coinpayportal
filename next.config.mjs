@@ -10,21 +10,17 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || `http://localhost:${process.env.PORT || 3000}`,
   },
-  // Transpile wallet packages that have ESM/CJS issues
+  // Transpile packages that have ESM/CJS issues.
+  //
+  // The @reown/*, @walletconnect/* and @solana/wallet-adapter-* entries were
+  // removed along with the packages themselves: nothing in this repo ever
+  // imported a wallet adapter, and they existed only as declared dependencies.
+  // They dragged in react-native -> metro -> image-size, whose two DoS CVEs
+  // have no upstream fix, so dropping them was the only way to clear that alert.
+  // @solana/web3.js is NOT part of that set and stays — it is used directly for
+  // Solana key derivation and RPC.
   transpilePackages: [
     '@profullstack/coinpay',
-    '@reown/appkit',
-    '@reown/appkit-adapter-wagmi',
-    '@reown/appkit-controllers',
-    '@walletconnect/universal-provider',
-    '@walletconnect/utils',
-    '@walletconnect/logger',
-    '@solana/wallet-adapter-base',
-    '@solana/wallet-adapter-react',
-    '@solana/wallet-adapter-react-ui',
-    '@solana/wallet-adapter-wallets',
-    '@solana/wallet-adapter-phantom',
-    '@solana/wallet-adapter-solflare',
     '@noble/hashes',
     '@noble/curves',
     'openpgp',
@@ -84,13 +80,11 @@ const nextConfig = {
     ];
   },
   // Turbopack configuration
-  turbopack: {
-    resolveAlias: {
-      // Handle optional peer dependencies that may not be installed
-      '@gemini-wallet/core': '@reown/appkit-adapter-wagmi/dist/esm/src/index.js',
-      'porto': '@reown/appkit-adapter-wagmi/dist/esm/src/index.js',
-    },
-  },
+  //
+  // The resolveAlias entries that stubbed @gemini-wallet/core and porto onto
+  // @reown/appkit-adapter-wagmi are gone with that package. They were shims for
+  // optional peers of appkit; with appkit out of the tree nothing requests
+  // either module, and the aliases pointed at a path that no longer exists.
 };
 
 export default nextConfig;
