@@ -145,8 +145,15 @@ export function refreshToken(
   expiresIn: string = DEFAULT_EXPIRATION
 ): string {
   try {
-    // Decode the existing token (without verification to allow expired tokens)
-    const decoded = decodeToken(token);
+    // Verify the signature, but allow an EXPIRED token — that is the whole
+    // point of a refresh.
+    //
+    // This previously used decodeToken(), which parses without verifying
+    // anything. A token this side never issued — one an attacker simply typed
+    // — would decode fine, and its payload would be copied into a freshly
+    // signed, valid token. That is not a refresh, it is minting. `verify` with
+    // ignoreExpiration keeps the intended behaviour and closes it.
+    const decoded = jwt.verify(token, secret, { ignoreExpiration: true }) as Record<string, any>;
     
     if (!decoded || typeof decoded !== 'object') {
       throw new Error('Invalid token');

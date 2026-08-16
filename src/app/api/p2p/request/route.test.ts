@@ -217,7 +217,16 @@ describe('POST /api/p2p/request', () => {
     stub.supabase.from = vi.fn((table: string) => {
       if (table === 'reputation_issuers') {
         return {
-          select: () => ({ eq: () => ({ eq: () => ({ single: async () => ({ data: null, error: null }) }) }) }),
+          // Issuer keys are matched by hash first, then by the legacy raw
+          // column, so both lookups must resolve to "not found".
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                single: async () => ({ data: null, error: null }),
+                maybeSingle: async () => ({ data: null, error: null }),
+              }),
+            }),
+          }),
         };
       }
       throw new Error(`Unexpected table: ${table}`);
