@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { computeReputation } from '@/lib/reputation/attestation-engine';
 import { isValidDid } from '@/lib/reputation/crypto';
+import { createServiceClient } from '@/lib/supabase/service-client';
 
 function getSupabase() {
-  return createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'public-anon-key'
-  );
+  return createServiceClient();
 }
 
 function generateBadgeSvg(taskCount: number, acceptedRate: number, flagged: boolean): string {
