@@ -23,7 +23,7 @@ overrides:
   picomatch: '>=4.0.4'
   flatted: '>=3.4.2'
   h3: '>=1.15.11'
-  socket.io-parser: '>=4.2.6'
+  socket.io-parser: '>=4.2.7'
   minimatch: '>=9.0.9'
   rollup: '>=4.60.1'
   bn.js: '>=5.2.3'
@@ -35,12 +35,21 @@ overrides:
   postcss: '>=8.5.10'
   follow-redirects: '>=1.16.0'
   uuid: '>=14.0.0'
-  ip-address: '>=10.1.1'
+  ip-address: '>=10.3.1'
   'ws@>=8.0.0': '>=8.20.1'
   # Added while re-homing the block — these had open alerts but no prior pin.
   # Kept within the current major of each package so nothing has to change at
   # the call sites; the alerts are all fixed in patch releases.
-  dompurify: '>=3.4.12'
+  #
+  # NOTE ON FLOORS: a '>=X' override does not keep itself current. pnpm resolves
+  # it once, writes the result to pnpm-lock.yaml, and thereafter the lockfile is
+  # authoritative — so when a new advisory lands on the exact version that was
+  # locked, the tree stays vulnerable and Dependabot reports
+  # `security_update_not_possible` ("latest resolvable" equal to our floor)
+  # rather than opening a PR. socket.io-parser, ip-address and dompurify all
+  # failed that way. Raise the floor past the vulnerable range and re-run
+  # `pnpm install` to force a re-resolve; bumping the floor alone is not enough.
+  dompurify: '>=3.4.13'
   # All versions, not just 4.x. The remaining 3.15.0 copy came in via
   # @istanbuljs/load-nyc-config -> babel-plugin-istanbul, i.e. coverage tooling
   # that never runs in production. Forcing it to 4.x crosses a major, so the
@@ -48,6 +57,18 @@ overrides:
   js-yaml: '>=4.3.1'
   'ws@>=7.0.0 <8.0.0': '>=7.5.10'
   'ws@<7.0.0': '>=6.2.3'
+  # Both halves are bounded, and both bounds matter.
+  #
+  # The only consumer is postcss, which asks for '^3.3.11'. nanoid dropped CJS
+  # after v3, so pulling in 4+ makes postcss — and with it Next, Tailwind,
+  # autoprefixer and Vite — fail to require it.
+  #
+  # The selector on the left ('nanoid@>=3.0.0 <4.0.0') only chooses WHICH
+  # dependency ranges this rule applies to. It does not constrain the result:
+  # with a replacement of '>=3.3.18', pnpm still resolved to the highest match
+  # published, which is 6.0.1. The upper bound on the RIGHT is what keeps the
+  # resolution inside the 3.x line. Same trap as brace-expansion above.
+  'nanoid@>=3.0.0 <4.0.0': '>=3.3.18 <4.0.0'
   tar: '>=7.5.22'
   form-data: '>=4.0.6'
   ua-parser-js: '>=2.0.10'
