@@ -1,17 +1,33 @@
 /**
  * POST /api/x402/settle — Settle an x402 payment
- * 
- * Uses CoinPayPortal's existing forwarding infrastructure:
- *   1. Buyer pays to CoinPayPortal house wallet (PLATFORM_FEE_WALLET_*)
- *   2. We verify payment landed
- *   3. We forward to merchant wallet minus commission (0.5% paid / 1% free tier)
- * 
- * Settlement methods:
- *   - EVM (ETH, POL, USDC): verify tx, forward via SYSTEM_MNEMONIC
- *   - Bitcoin/BCH: verify confirmations, forward via SYSTEM_MNEMONIC_BTC
- *   - Solana: verify finality, forward via SYSTEM_MNEMONIC_SOL
- *   - Lightning: preimage proves payment (instant, no forwarding needed — paid directly)
- *   - Stripe: capture payment intent (Stripe handles splits)
+ *
+ * On this rail the buyer pays the merchant DIRECTLY. `payTo` in the 402
+ * response is the merchant's own wallet (see `buildPaymentRequired` in
+ * packages/sdk/src/x402.js), `/verify` records it as `to_address`, and this
+ * route's job is to confirm on-chain that the address the proof named really
+ * received the amount the proof promised.
+ *
+ * No CoinPayPortal wallet is in the path. This file used to claim otherwise —
+ * "buyer pays the house wallet, we forward to the merchant minus commission" —
+ * and carried three `TODO: forward from house wallet` markers plus helpers to
+ * look up house mnemonics and fee wallets. None of it was ever wired up,
+ * because there is nothing to forward: the money went straight to the
+ * merchant. Implementing those TODOs literally would have paid every merchant
+ * a second time out of our own float.
+ *
+ * The real consequence is that the platform fee is NOT collected on this rail.
+ * `splitTieredPayment` below still computes it and the response still reports
+ * it, which overstates what the platform received and understates what the
+ * merchant did. Fixing that needs a product decision about how x402 fees are
+ * charged; it is deliberately left visible rather than quietly dropped.
+ *
+ * Settlement checks by network:
+ *   - EVM (ETH, POL, USDC): tx transferred >= amount to the payee
+ *   - Bitcoin: outputs to the payee sum to >= amount
+ *   - Bitcoin Cash: refused — no verified lookup wired up
+ *   - Solana: payee's lamport or SPL balance rose by >= amount
+ *   - Lightning: preimage proves payment (paid directly, nothing to check)
+ *   - Stripe: capture the payment intent (Stripe handles splits)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -19,6 +35,7 @@ import { createClient } from '@supabase/supabase-js';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { splitTieredPayment } from '@/lib/payments/fees';
 import { resolveScopedKey } from '@/lib/auth/scoped-keys';
+import { addressesEqual } from '@/lib/x402/address';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -26,16 +43,6 @@ function getSupabase() {
   if (!url || !key) throw new Error('Supabase not configured');
   return createClient(url, key);
 }
-
-/** Map x402 network names to blockchain provider types */
-const NETWORK_TO_CHAIN: Record<string, string> = {
-  bitcoin: 'BTC',
-  'bitcoin-cash': 'BCH',
-  ethereum: 'ETH',
-  polygon: 'POL',
-  solana: 'SOL',
-  base: 'ETH', // Base uses ETH infra
-};
 
 /** RPC endpoints by network */
 const RPC_URLS: Record<string, string> = {
@@ -45,39 +52,6 @@ const RPC_URLS: Record<string, string> = {
 };
 
 const EVM_NETWORKS = new Set(['ethereum', 'polygon', 'base']);
-
-/**
- * Get the system mnemonic (house wallet) for a given chain.
- * These are the same keys used by the payment forwarding system.
- */
-function getSystemMnemonic(network: string): string | undefined {
-  const chain = NETWORK_TO_CHAIN[network] || network.toUpperCase();
-  const mnemonicMap: Record<string, string> = {
-    BTC: 'SYSTEM_MNEMONIC_BTC',
-    BCH: 'SYSTEM_MNEMONIC_BTC', // BCH shares BTC mnemonic
-    ETH: 'SYSTEM_MNEMONIC_ETH',
-    POL: 'SYSTEM_MNEMONIC_POL',
-    SOL: 'SYSTEM_MNEMONIC_SOL',
-  };
-  const envVar = mnemonicMap[chain];
-  return envVar ? process.env[envVar] : undefined;
-}
-
-/**
- * Get the platform fee wallet address for a given chain.
- */
-function getPlatformWallet(network: string): string | undefined {
-  const chain = NETWORK_TO_CHAIN[network] || network.toUpperCase();
-  const walletMap: Record<string, string> = {
-    BTC: 'PLATFORM_FEE_WALLET_BTC',
-    BCH: 'PLATFORM_FEE_WALLET_BCH',
-    ETH: 'PLATFORM_FEE_WALLET_ETH',
-    POL: 'PLATFORM_FEE_WALLET_POL',
-    SOL: 'PLATFORM_FEE_WALLET_SOL',
-  };
-  const envVar = walletMap[chain];
-  return envVar ? process.env[envVar] : undefined;
-}
 
 /** ERC-20 Transfer(address,address,uint256) topic. */
 const ERC20_TRANSFER_TOPIC =
@@ -180,8 +154,13 @@ async function verifyUtxoTx(
     // Sum the outputs paying the expected address. Previously only the
     // transaction's existence was checked, so any Bitcoin transaction settled
     // any x402 payment.
+    // Compare under Bitcoin's casing rules. `expectedTo` used to arrive
+    // lowercased, which no base58 or bech32 address ever matches, so this sum
+    // was always 0 and every Bitcoin settlement failed as an underpayment.
     const paid = (tx.vout || [])
-      .filter((out: { scriptpubkey_address?: string }) => out.scriptpubkey_address === expectedTo)
+      .filter((out: { scriptpubkey_address?: string }) =>
+        addressesEqual(network, out.scriptpubkey_address, expectedTo),
+      )
       .reduce((sum: bigint, out: { value?: number }) => sum + BigInt(out.value ?? 0), 0n);
 
     if (paid < expectedAmount) {
@@ -242,8 +221,11 @@ async function verifySolanaTx(
   // paid — any confirmed Solana transaction satisfied the old check.
   const accountKeys: Array<{ pubkey?: string } | string> =
     data.result.transaction?.message?.accountKeys ?? [];
+  // Solana pubkeys are mixed-case base58. `expectedTo` used to arrive
+  // lowercased, so the payee was never found among the account keys and every
+  // Solana settlement failed with "Transaction does not involve".
   const index = accountKeys.findIndex((key) =>
-    typeof key === 'string' ? key === expectedTo : key?.pubkey === expectedTo,
+    addressesEqual('solana', typeof key === 'string' ? key : key?.pubkey, expectedTo),
   );
 
   if (index === -1) {
@@ -271,16 +253,19 @@ async function verifySolanaTx(
 
 /** Net SPL token amount credited to `owner` by a parsed transaction's meta. */
 function solanaTokenGain(meta: any, owner: string): bigint {
+  // `owner` is compared under Solana's casing rules for the same reason the
+  // lamport path is: a lowercased pubkey matches no token-balance owner, so
+  // SPL gains were invisible and USDC settlement failed as an underpayment.
   const before = new Map<string, bigint>();
   for (const entry of meta?.preTokenBalances ?? []) {
-    if (entry.owner === owner) {
+    if (addressesEqual('solana', entry.owner, owner)) {
       before.set(String(entry.accountIndex), BigInt(entry.uiTokenAmount?.amount ?? '0'));
     }
   }
 
   let gain = 0n;
   for (const entry of meta?.postTokenBalances ?? []) {
-    if (entry.owner !== owner) continue;
+    if (!addressesEqual('solana', entry.owner, owner)) continue;
     const post = BigInt(entry.uiTokenAmount?.amount ?? '0');
     gain += post - (before.get(String(entry.accountIndex)) ?? 0n);
   }
@@ -456,7 +441,7 @@ export async function POST(request: NextRequest) {
         // Stripe: capture payment intent, Stripe handles the split
         result = await settleStripe(payment);
       } else if (EVM_NETWORKS.has(network)) {
-        // EVM: verify the tx that paid the house wallet, then forward
+        // EVM: confirm the tx moved the amount to the merchant's own address.
         const txHash = payment.payload.txHash || payment.payload.txId;
         if (!txHash) throw new Error('Missing txHash for EVM settlement');
         result = await verifyEvmTx(
@@ -466,30 +451,16 @@ export async function POST(request: NextRequest) {
           expectedAmount,
           verifiedPayment.asset,
         );
-
-        // TODO: Forward merchantAmount from house wallet to merchant address
-        // using SYSTEM_MNEMONIC_ETH / SYSTEM_MNEMONIC_POL
-        // This reuses the same forwarding logic as regular payments
-        const mnemonic = getSystemMnemonic(network);
-        if (!mnemonic) {
-          console.warn(`[x402 Settle] No system mnemonic for ${network} — settlement verified but forwarding deferred`);
-        }
       } else if (network === 'bitcoin' || network === 'bitcoin-cash') {
-        // UTXO: verify tx landed at house wallet
+        // UTXO: confirm outputs to the merchant's own address cover the amount.
         const txId = payment.payload.txId;
         if (!txId) throw new Error('Missing txId for UTXO settlement');
         result = await verifyUtxoTx(network, txId, expectedTo, expectedAmount);
-
-        // TODO: Forward merchantAmount from house wallet to merchant address
-        // using SYSTEM_MNEMONIC_BTC
       } else if (network === 'solana') {
-        // Solana: verify tx finality
+        // Solana: confirm the merchant's own balance rose by the amount.
         const txSig = payment.payload.txSignature;
         if (!txSig) throw new Error('Missing txSignature for Solana settlement');
         result = await verifySolanaTx(txSig, expectedTo, expectedAmount);
-
-        // TODO: Forward merchantAmount from house wallet to merchant address
-        // using SYSTEM_MNEMONIC_SOL
       } else {
         await releaseSettleClaim();
         return NextResponse.json(
@@ -531,6 +502,12 @@ export async function POST(request: NextRequest) {
         tier: isPaidTier ? 'professional' : 'starter',
         merchantAmount: merchantAmount.toString(),
         platformFee: platformFee.toString(),
+        // The buyer paid the merchant directly, so nothing was withheld: the
+        // merchant received the full `amount`, not `merchantAmount`, and the
+        // platform received nothing. These figures are what the tier WOULD
+        // charge, not what changed hands. Reporting them without this flag
+        // told merchants they had been charged a fee they had not paid.
+        collected: false,
       },
     });
   } catch (error) {

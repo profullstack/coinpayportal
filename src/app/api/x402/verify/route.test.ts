@@ -329,4 +329,96 @@ describe('POST /api/x402/verify', () => {
       expect(data.error).toMatch(/replay-checked/i);
     });
   });
+
+  /**
+   * How the payee is stored decides whether settlement can ever find it.
+   *
+   * The payee used to be written as `payload.to.toLowerCase()` for every
+   * network. `/settle` then compares that stored string against the address
+   * the chain reports, which is in its true case — so on Bitcoin and Solana
+   * the two could never be equal, no output was ever attributed to the payee,
+   * and settlement failed as an underpayment on a transaction that had
+   * actually paid in full.
+   */
+  describe('payee storage casing', () => {
+    const BTC_PAYEE = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2';
+    const SOL_PAYEE = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+    const EVM_PAYEE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+
+    function storedRow() {
+      expect(mockInsert).toHaveBeenCalled();
+      return mockInsert.mock.calls.at(-1)![0];
+    }
+
+    it('stores a Bitcoin payee in its exact case', async () => {
+      mockInsert.mockReturnValueOnce({ error: null });
+
+      const req = makeRequest({
+        payment: {
+          scheme: 'exact',
+          payload: {
+            network: 'bitcoin',
+            from: '1PayerAddressXXXXXXXXXXXXXXXXXXXXXX',
+            to: BTC_PAYEE,
+            amount: '100000',
+            txId: 'btctx',
+            resource: RESOURCE,
+          },
+        },
+        expected: { amount: '100000', resource: RESOURCE },
+      });
+      const res = await POST(req);
+
+      expect(res.status).toBe(200);
+      expect(storedRow().to_address).toBe(BTC_PAYEE);
+    });
+
+    it('stores a Solana payee in its exact case', async () => {
+      mockInsert.mockReturnValueOnce({ error: null });
+
+      const req = makeRequest({
+        payment: {
+          scheme: 'exact',
+          payload: {
+            network: 'solana',
+            from: 'PayerXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+            to: SOL_PAYEE,
+            amount: '1000000',
+            txSignature: 'soltx',
+            resource: RESOURCE,
+          },
+        },
+        expected: { amount: '1000000', resource: RESOURCE },
+      });
+      const res = await POST(req);
+
+      expect(res.status).toBe(200);
+      expect(storedRow().to_address).toBe(SOL_PAYEE);
+    });
+
+    it('still lowercases EVM payees, where case is not significant', async () => {
+      mockInsert.mockReturnValueOnce({ error: null });
+
+      const req = makeRequest({
+        payment: {
+          scheme: 'exact',
+          signature: '0xsig',
+          payload: {
+            network: 'base',
+            from: '0xBuyerAddress',
+            to: EVM_PAYEE,
+            amount: '10000',
+            nonce: '0xabc',
+            asset: EVM_PAYEE,
+            resource: RESOURCE,
+          },
+        },
+        expected: { amount: '10000', resource: RESOURCE },
+      });
+      const res = await POST(req);
+
+      expect(res.status).toBe(200);
+      expect(storedRow().to_address).toBe(EVM_PAYEE.toLowerCase());
+    });
+  });
 });

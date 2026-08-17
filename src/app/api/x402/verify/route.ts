@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ethers } from 'ethers';
 import { resolveScopedKey } from '@/lib/auth/scoped-keys';
+import { normalizeAddressForNetwork } from '@/lib/x402/address';
 import { createHash } from 'crypto';
 
 function getSupabase() {
@@ -375,8 +376,10 @@ export async function POST(request: NextRequest) {
     // if the table is unreachable. Let the INSERT decide.
     const { error: insertError } = await supabase.from('x402_payments').insert({
       business_id: keyData.business_id,
-      from_address: (payment.payload.from || '').toLowerCase(),
-      to_address: (payment.payload.to || '').toLowerCase(),
+      // Per-network casing. Lowercasing unconditionally corrupted Bitcoin and
+      // Solana addresses, so settlement could never match them on-chain.
+      from_address: normalizeAddressForNetwork(network, payment.payload.from),
+      to_address: normalizeAddressForNetwork(network, payment.payload.to),
       amount: payment.payload.amount,
       unique_key: uniqueKey,
       network,
