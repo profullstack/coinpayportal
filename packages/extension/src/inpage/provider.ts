@@ -187,6 +187,29 @@ const provider = {
     }
   },
 
+  /**
+   * Pay an x402 invoice and return the `X-PAYMENT` header to retry with.
+   *
+   * Takes the body of a `402 Payment Required` response and returns a base64
+   * header value; the caller sets it on `X-PAYMENT` and repeats the request.
+   * Rejects if the user declines or if none of the offered options is one this
+   * wallet can sign.
+   *
+   * Nothing is broadcast and no gas is spent. The `exact` scheme is an EIP-3009
+   * authorization — the signature IS the payment, and the facilitator submits
+   * it — so this works with an account holding no native currency.
+   *
+   * @example
+   *   const res = await fetch(url);
+   *   if (res.status === 402) {
+   *     const header = await window.coinpay.payX402(await res.json());
+   *     return fetch(url, { headers: { 'X-PAYMENT': header } });
+   *   }
+   */
+  payX402(paymentRequired: unknown, options: { from?: string } = {}): Promise<string> {
+    return send({ type: 'site:payX402', paymentRequired, from: options.from });
+  },
+
   /** Subscribe to progress independently of a `payBatch` call. */
   onProgress(listener: (progress: CoinPayProgress) => void): () => void {
     progressListeners.add(listener);
