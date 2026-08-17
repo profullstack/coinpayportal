@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "CoinPay Wallet",
   "description": "Non-custodial multi-chain CoinPay wallet with one-click x402 payments and bulk payouts.",
-  "version": "0.9.3",
+  "version": "0.10.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvd6F0ByGMFO/ZfxK/kyuYMrlBlmwY0u2I9MfRRYf88YA2YQVmiUqM2444gPxyI4rhTyejAZX9IwMDwY0N+kgclQArkfTmbs+mo7E/RCgrMFy+FreMlrqEm5LACIKPgVZjzWUEjDxQGnmpNtvXWUN2ZN9srKF+Efr2tFKVZMwBKd3cJeh+4XGw0+AN6CKDbURWvgm6op+5bL4lTv+aJ8LbfC45ouEOsxHZgdN2HuC3x4kE232oStYYjmigr2NSKgE835U2nKO+hY7fCzBntMp8VI9hUkCDBwZwxbcWFQmtMKqJa6Mu3lgcwJQPYRzx9hujehn2OSsPE6b2k/jOYVtcwIDAQAB",
   "action": {
     "default_title": "CoinPay",
@@ -12,11 +12,16 @@
     "service_worker": "background/index.js",
     "type": "module"
   },
-  "permissions": ["storage", "alarms"],
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
   "host_permissions": [
     "https://coinpayportal.com/*",
     "https://ugig.net/*",
-    "https://www.ugig.net/*"
+    "https://www.ugig.net/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "content_scripts": [
     {
@@ -27,13 +32,17 @@
         "http://localhost/*",
         "http://127.0.0.1/*"
       ],
-      "js": ["content/bridge.js"],
+      "js": [
+        "content/bridge.js"
+      ],
       "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["inpage/provider.js"],
+      "resources": [
+        "inpage/provider.js"
+      ],
       "matches": [
         "https://coinpayportal.com/*",
         "https://ugig.net/*",
