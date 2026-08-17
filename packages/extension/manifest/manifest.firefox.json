@@ -2,20 +2,27 @@
   "manifest_version": 3,
   "name": "CoinPay Wallet",
   "description": "Non-custodial multi-chain CoinPay wallet with one-click x402 payments and bulk payouts.",
-  "version": "0.9.3",
+  "version": "0.10.0",
   "action": {
     "default_title": "CoinPay",
     "default_popup": "popup/index.html"
   },
   "background": {
-    "scripts": ["background/index.js"],
+    "scripts": [
+      "background/index.js"
+    ],
     "type": "module"
   },
-  "permissions": ["storage", "alarms"],
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
   "host_permissions": [
     "https://coinpayportal.com/*",
     "https://ugig.net/*",
-    "https://www.ugig.net/*"
+    "https://www.ugig.net/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "content_scripts": [
     {
@@ -26,13 +33,17 @@
         "http://localhost/*",
         "http://127.0.0.1/*"
       ],
-      "js": ["content/bridge.js"],
+      "js": [
+        "content/bridge.js"
+      ],
       "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["inpage/provider.js"],
+      "resources": [
+        "inpage/provider.js"
+      ],
       "matches": [
         "https://coinpayportal.com/*",
         "https://ugig.net/*",
