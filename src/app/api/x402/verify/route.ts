@@ -15,6 +15,7 @@ import { createClient } from '@supabase/supabase-js';
 import { ethers } from 'ethers';
 import { resolveScopedKey } from '@/lib/auth/scoped-keys';
 import { normalizeAddressForNetwork } from '@/lib/x402/address';
+import { isV2Payment, verifyExactEvmV2, type V2Payment } from '@/lib/x402/v2';
 import { createHash } from 'crypto';
 
 function getSupabase() {
@@ -286,6 +287,107 @@ function redactProof(payment: any): string {
   return JSON.stringify({ ...payment, payload, _redacted: true });
 }
 
+/**
+ * Verify a v2 (EIP-3009) proof and record it.
+ *
+ * Kept separate from the v1 path rather than folded into it, because almost
+ * nothing is shared: there is no transaction to look up, no `pendingConfirmation`
+ * (the signature is final the moment it verifies), and the replay key is the
+ * EIP-3009 nonce rather than a grab-bag of possible identifiers.
+ */
+async function verifyV2(
+  _request: NextRequest,
+  supabase: ReturnType<typeof getSupabase>,
+  keyData: { business_id: string },
+  payment: unknown,
+  expected: {
+    amount?: string;
+    resource?: string;
+    payTo?: string;
+    asset?: string;
+  } | undefined,
+) {
+  if (!expected || typeof expected !== 'object') {
+    return NextResponse.json(
+      { error: 'Missing `expected` — verification requires the asking price, payee and asset' },
+      { status: 400 },
+    );
+  }
+  // `payTo` and `asset` are needed here but not in v1: an EIP-3009 signature
+  // says nothing about which token it is denominated in, so without the asset
+  // there is no domain to verify it against, and without the payee there is
+  // nothing to check `authorization.to` means the merchant.
+  for (const field of ['amount', 'resource', 'payTo', 'asset'] as const) {
+    if (!expected[field]) {
+      return NextResponse.json(
+        { error: `Missing \`expected.${field}\` — required to verify an x402 v2 proof` },
+        { status: 400 },
+      );
+    }
+  }
+
+  const result = await verifyExactEvmV2(payment as V2Payment, {
+    amount: expected.amount!,
+    payTo: expected.payTo!,
+    asset: expected.asset!,
+  });
+
+  if (!result.valid || !result.payment) {
+    return NextResponse.json({ error: result.error }, { status: 400 });
+  }
+
+  const verified = result.payment;
+
+  const { error: insertError } = await supabase.from('x402_payments').insert({
+    business_id: keyData.business_id,
+    from_address: normalizeAddressForNetwork(verified.network, verified.from),
+    to_address: normalizeAddressForNetwork(verified.network, verified.to),
+    amount: verified.amount,
+    unique_key: verified.uniqueKey,
+    network: verified.network,
+    scheme: 'exact',
+    asset: verified.asset,
+    resource: expected.resource,
+    raw_proof: redactProof(payment),
+    status: 'verified',
+    // Nothing is pending: an EIP-3009 signature is complete on its own. What
+    // has not happened yet is settlement, which is a separate call.
+    pending_confirmation: false,
+  });
+
+  if (insertError) {
+    if (insertError.code === '23505') {
+      return NextResponse.json(
+        { error: 'Payment proof already used (replay detected)' },
+        { status: 400 },
+      );
+    }
+    console.error('x402 verify (v2): could not record payment', insertError);
+    return NextResponse.json(
+      { error: 'Could not record payment — verification refused' },
+      { status: 503 },
+    );
+  }
+
+  return NextResponse.json({
+    valid: true,
+    x402Version: 2,
+    payment: {
+      from: verified.from,
+      to: verified.to,
+      amount: verified.amount,
+      asset: verified.asset,
+      network: verified.network,
+      resource: expected.resource,
+      validBefore: verified.validBefore,
+      pendingConfirmation: false,
+      // The signature binds the amount, so it cannot be altered without
+      // invalidating the proof.
+      amountAuthenticated: true,
+    },
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const apiKey = request.headers.get('x-api-key');
@@ -318,6 +420,14 @@ export async function POST(request: NextRequest) {
         { error: 'Invalid payment proof: missing payload' },
         { status: 400 }
       );
+    }
+
+    // v2 proofs are a different object entirely: an EIP-3009 authorization
+    // that IS the payment, rather than a claim about a transaction. They carry
+    // no `resource` field — EIP-3009 has nowhere to put one — so they cannot
+    // go through `enforcePriceBinding`, which checks exactly that.
+    if (isV2Payment(payment)) {
+      return await verifyV2(request, supabase, keyData, payment, expected);
     }
 
     // What the merchant is charging, and for what. Checked before the proof is

@@ -43,6 +43,17 @@ vi.mock('@/lib/auth/scoped-keys', () => ({
 }));
 
 // Mock ethers
+// The v2 verifier does real cryptography against a real token domain and is
+// covered in src/lib/x402/v2.test.ts. Here only the route's own behaviour is
+// under test — what it demands, what it records, how it answers — so the
+// verdict is stubbed. `isV2Payment` stays real, because routing to the v2 path
+// at all is part of what these tests check.
+const mockVerifyExactEvmV2 = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/x402/v2', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/x402/v2')>()),
+  verifyExactEvmV2: mockVerifyExactEvmV2,
+}));
+
 vi.mock('ethers', () => ({
   ethers: {
     verifyTypedData: vi.fn().mockReturnValue('0xBuyerAddress'),
@@ -420,5 +431,158 @@ describe('POST /api/x402/verify', () => {
       expect(res.status).toBe(200);
       expect(storedRow().to_address).toBe(EVM_PAYEE.toLowerCase());
     });
+  });
+});
+
+/**
+ * x402 v2 (EIP-3009) proofs.
+ *
+ * A v2 proof carries no `resource` field — EIP-3009 has nowhere to put one —
+ * so it cannot go through the v1 price/resource binding and takes its own
+ * path. These cover what that path demands and what it writes.
+ */
+describe('POST /api/x402/verify — v2 (EIP-3009) proofs', () => {
+  const NONCE = '0x' + '11'.repeat(32);
+  const PAYER = '0x9dBA414637c611a16BEa6f0796BFcbcBdc410df8';
+  const V2_PAYEE = '0x1111111111111111111111111111111111111111';
+  const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+
+  function v2Payment() {
+    return {
+      x402Version: 2,
+      scheme: 'exact',
+      network: 'eip155:8453',
+      payload: {
+        signature: '0xsig',
+        authorization: {
+          from: PAYER,
+          to: V2_PAYEE,
+          value: '6000',
+          validAfter: '0',
+          validBefore: String(Math.floor(Date.now() / 1000) + 600),
+          nonce: NONCE,
+        },
+      },
+    };
+  }
+
+  function fullExpectation(overrides: Record<string, unknown> = {}) {
+    return { amount: '6000', resource: RESOURCE, payTo: V2_PAYEE, asset: USDC_BASE, ...overrides };
+  }
+
+  function storedRow() {
+    expect(mockInsert).toHaveBeenCalled();
+    return mockInsert.mock.calls.at(-1)![0];
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+    mockResolveScopedKey.mockResolvedValue({
+      keyId: 'key1',
+      business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
+      scopes: [],
+    });
+    mockVerifyExactEvmV2.mockResolvedValue({
+      valid: true,
+      payment: {
+        from: PAYER,
+        to: V2_PAYEE,
+        amount: '6000',
+        asset: USDC_BASE,
+        network: 'eip155:8453',
+        uniqueKey: NONCE,
+        validBefore: '9999999999',
+      },
+    });
+    mockInsert.mockReturnValue({ error: null });
+  });
+
+  it('verifies a v2 proof and answers with x402Version 2', async () => {
+    const res = await POST(makeRequest({ payment: v2Payment(), expected: fullExpectation() }));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.valid).toBe(true);
+    expect(data.x402Version).toBe(2);
+    expect(data.payment.network).toBe('eip155:8453');
+  });
+
+  it('records the EIP-3009 nonce as the replay key', async () => {
+    await POST(makeRequest({ payment: v2Payment(), expected: fullExpectation() }));
+    expect(storedRow().unique_key).toBe(NONCE);
+  });
+
+  it('records the resource even though the signature cannot bind it', async () => {
+    await POST(makeRequest({ payment: v2Payment(), expected: fullExpectation() }));
+    expect(storedRow().resource).toBe(RESOURCE);
+  });
+
+  it('never marks a v2 proof as pending — the signature is final', async () => {
+    const res = await POST(makeRequest({ payment: v2Payment(), expected: fullExpectation() }));
+    const data = await res.json();
+
+    expect(data.payment.pendingConfirmation).toBe(false);
+    expect(data.payment.amountAuthenticated).toBe(true);
+    expect(storedRow().pending_confirmation).toBe(false);
+  });
+
+  it.each(['amount', 'resource', 'payTo', 'asset'])(
+    'refuses when expected.%s is missing',
+    async (field) => {
+      const expected = fullExpectation();
+      delete (expected as Record<string, unknown>)[field];
+
+      const res = await POST(makeRequest({ payment: v2Payment(), expected }));
+      const data = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(data.error).toContain(field);
+      expect(mockInsert).not.toHaveBeenCalled();
+    },
+  );
+
+  it('passes the payee and asset through to the verifier', async () => {
+    await POST(makeRequest({ payment: v2Payment(), expected: fullExpectation() }));
+
+    expect(mockVerifyExactEvmV2).toHaveBeenCalledWith(expect.anything(), {
+      amount: '6000',
+      payTo: V2_PAYEE,
+      asset: USDC_BASE,
+    });
+  });
+
+  it("surfaces the verifier's rejection", async () => {
+    mockVerifyExactEvmV2.mockResolvedValue({ valid: false, error: 'Invalid payment signature' });
+
+    const res = await POST(makeRequest({ payment: v2Payment(), expected: fullExpectation() }));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/invalid payment signature/i);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it('reports a replayed nonce', async () => {
+    mockInsert.mockReturnValue({ error: { code: '23505', message: 'duplicate key' } });
+
+    const res = await POST(makeRequest({ payment: v2Payment(), expected: fullExpectation() }));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/replay/i);
+  });
+
+  it('fails closed when the proof cannot be recorded', async () => {
+    mockInsert.mockReturnValue({ error: { code: '42P01', message: 'missing table' } });
+
+    const res = await POST(makeRequest({ payment: v2Payment(), expected: fullExpectation() }));
+
+    expect(res.status).toBe(503);
+    expect((await res.json()).valid).toBeUndefined();
+  });
+
+  it('does not store the raw signature', async () => {
+    await POST(makeRequest({ payment: v2Payment(), expected: fullExpectation() }));
+    expect(storedRow().raw_proof).toContain('_redacted');
   });
 });

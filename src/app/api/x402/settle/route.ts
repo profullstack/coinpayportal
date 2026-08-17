@@ -36,6 +36,7 @@ import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { splitTieredPayment } from '@/lib/payments/fees';
 import { resolveScopedKey } from '@/lib/auth/scoped-keys';
 import { addressesEqual } from '@/lib/x402/address';
+import { isV2Payment } from '@/lib/x402/v2';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -330,13 +331,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid payment data' }, { status: 400 });
     }
 
-    const { network, scheme } = payment.payload;
-    const uniqueKey =
-      payment.payload.nonce ||
-      payment.payload.txId ||
-      payment.payload.txSignature ||
-      payment.payload.preimage ||
-      payment.payload.paymentIntentId;
+    // v2 proofs carry the network at the top level and the replay key inside
+    // `authorization`, so the v1 accessors below find neither. Reading them
+    // the v1 way would look up `unique_key IS NULL` on network `undefined` and
+    // report the payment as never verified.
+    const isV2 = isV2Payment(payment);
+
+    const network: string = isV2 ? payment.network : payment.payload.network;
+    const scheme: string = isV2 ? (payment.scheme ?? 'exact') : payment.payload.scheme;
+    const uniqueKey = isV2
+      ? payment.payload.authorization?.nonce
+      : payment.payload.nonce ||
+        payment.payload.txId ||
+        payment.payload.txSignature ||
+        payment.payload.preimage ||
+        payment.payload.paymentIntentId;
 
     // Find the verified payment record
     const query = supabase
@@ -433,7 +442,32 @@ export async function POST(request: NextRequest) {
     let result: { txHash: string; pending?: boolean; confirmed?: boolean; instant?: boolean; confirmations?: number };
 
     try {
-      if (scheme === 'bolt12' || network === 'lightning') {
+      if (isV2) {
+        // v2: nothing has been broadcast yet. Settling IS the broadcast — the
+        // token verifies the payer's signature itself and moves the funds,
+        // with our relayer paying the gas so the payer needs no native
+        // currency. The asset comes from the ledger rather than the request,
+        // so the caller cannot redirect settlement at a different token than
+        // the one the proof was verified against.
+        const authorization = payment.payload.authorization;
+        const signature = payment.payload.signature;
+        if (!authorization || !signature) {
+          throw new Error('v2 settlement needs payload.authorization and payload.signature');
+        }
+
+        // Imported here rather than at module scope: this pulls in the gas
+        // relayer and, through it, the system wallet, which drags ethers' `ws`
+        // dependency into every consumer of this route.
+        const { settleExactEvmV2 } = await import('@/lib/x402/settle-v2');
+
+        const settled = await settleExactEvmV2({
+          network,
+          asset: verifiedPayment.asset,
+          authorization,
+          signature,
+        });
+        result = { txHash: settled.txHash, confirmed: true };
+      } else if (scheme === 'bolt12' || network === 'lightning') {
         // Lightning: preimage proves payment, instant settlement
         // Funds already went to merchant's Lightning node via BOLT12 offer
         result = await settleLightning(payment);
