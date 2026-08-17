@@ -687,8 +687,60 @@ describe('CLI Invoice Commands', () => {
     );
 
     expect(result.status).toBe(0);
-    expect(result.output).toContain('Invoice sent and client notified');
+    expect(result.output).toContain('Invoice sent; email status was not reported by the server');
     expect(requests.map((request) => request.method)).toEqual(['GET', 'POST']);
+  });
+
+  it('warns when payment details are created but the email provider rejects the message', async () => {
+    respond = (request) => ({
+      body: {
+        success: true,
+        emailAccepted: false,
+        warning: 'The payment link is active, but the provider rejected the email.',
+        invoice: invoiceFixture({ status: request.method === 'POST' ? 'sent' : 'draft' }),
+      },
+    });
+
+    const result = await runCLI(
+      ['invoice', 'send', 'inv_mutation', '--yes'],
+      baseUrl
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.output).toContain('email provider did not accept the message');
+    expect(result.output).not.toContain('client notified');
+    expect(requests.map((request) => request.method)).toEqual(['GET', 'POST']);
+  });
+
+  it('reports email rejection in JSON without exposing private invoice fields', async () => {
+    respond = (request) => ({
+      body: {
+        success: true,
+        emailAccepted: false,
+        emailTrackingSaved: true,
+        warning: 'The payment link is active, but the provider rejected the email.',
+        emailError: 'Recipient suppressed',
+        invoice: invoiceFixture({
+          status: request.method === 'POST' ? 'sent' : 'draft',
+          clients: { email: 'private@example.com' },
+        }),
+      },
+    });
+
+    const result = await runCLI(
+      ['invoice', 'send', 'inv_mutation', '--yes', '--json'],
+      baseUrl
+    );
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: 'sent',
+      emailAccepted: false,
+      emailTrackingSaved: true,
+      warning: 'The payment link is active, but the provider rejected the email.',
+      emailError: 'Recipient suppressed',
+    });
+    expect(result.stdout).not.toContain('private@example.com');
   });
 
   it('requires --yes for non-interactive send and JSON send', async () => {
