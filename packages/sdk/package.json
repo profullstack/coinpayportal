@@ -36,6 +36,15 @@
     "./swap": {
       "import": "./src/swap.js",
       "types": "./src/swap.d.ts"
+    },
+    "./x402": {
+      "import": "./src/x402.js"
+    },
+    "./x402-v2": {
+      "import": "./src/x402-v2.js"
+    },
+    "./x402-browser": {
+      "import": "./src/x402-browser.js"
     }
   },
   "files": [
