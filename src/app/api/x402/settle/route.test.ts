@@ -8,7 +8,7 @@
  * - Error handling (missing data, already settled, etc.)
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { POST } from './route';
 import { NextRequest } from 'next/server';
 
@@ -382,5 +382,184 @@ describe('POST /api/x402/settle', () => {
 
     expect(res.status).toBe(401);
     expect(mockSingle).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Settlement against a real, correctly-cased payee.
+ *
+ * Every test above stops at an error path, so none of them ever compared a
+ * stored address against one read back from a chain. That is how settlement
+ * shipped unable to succeed on Bitcoin or Solana: `/verify` lowercased the
+ * payee, and neither base58 nor bech32 survives lowercasing, so the payee was
+ * never found on-chain and the settle failed as an underpayment.
+ */
+describe('POST /api/x402/settle — payee matching on case-sensitive chains', () => {
+  // Mixed case, as these chains actually render addresses.
+  const BTC_PAYEE = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2';
+  const SOL_PAYEE = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+    mockResolveScopedKey.mockResolvedValue({
+      keyId: 'key1',
+      business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
+      scopes: [],
+    });
+    setClaimResult({ data: [{ id: 'p1' }], error: null });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('settles a Bitcoin payment whose output pays the stored payee', async () => {
+    mockSingle.mockResolvedValueOnce({
+      data: {
+        id: 'p1',
+        status: 'verified',
+        amount: '100000',
+        network: 'bitcoin',
+        to_address: BTC_PAYEE,
+        asset: null,
+      },
+      error: null,
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: { confirmed: true, block_height: 900000 },
+          vout: [
+            { scriptpubkey_address: BTC_PAYEE, value: 100000 },
+            { scriptpubkey_address: '1SomeChangeAddressXXXXXXXXXXXXYY', value: 4321 },
+          ],
+        }),
+      }),
+    );
+
+    const req = makeRequest({
+      payment: { payload: { network: 'bitcoin', scheme: 'exact', txId: 'btctx' } },
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.settled).toBe(true);
+    expect(data.txHash).toBe('btctx');
+  });
+
+  it('refuses a Bitcoin payment whose outputs pay someone else', async () => {
+    mockSingle.mockResolvedValueOnce({
+      data: {
+        id: 'p1',
+        status: 'verified',
+        amount: '100000',
+        network: 'bitcoin',
+        to_address: BTC_PAYEE,
+        asset: null,
+      },
+      error: null,
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: { confirmed: true, block_height: 900000 },
+          vout: [{ scriptpubkey_address: '1AttackerAddressXXXXXXXXXXXXXXZZ', value: 100000 }],
+        }),
+      }),
+    );
+
+    const req = makeRequest({
+      payment: { payload: { network: 'bitcoin', scheme: 'exact', txId: 'btctx' } },
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(500);
+    expect((await res.json()).details).toContain('expected at least');
+  });
+
+  it('settles a Solana payment that credits the stored payee', async () => {
+    mockSingle.mockResolvedValueOnce({
+      data: {
+        id: 'p1',
+        status: 'verified',
+        amount: '1000000',
+        network: 'solana',
+        to_address: SOL_PAYEE,
+        asset: null,
+      },
+      error: null,
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          result: {
+            meta: {
+              err: null,
+              preBalances: [5_000_000, 2_000_000],
+              postBalances: [4_000_000, 3_000_000],
+            },
+            transaction: {
+              message: {
+                accountKeys: [{ pubkey: 'PayerXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX' }, { pubkey: SOL_PAYEE }],
+              },
+            },
+          },
+        }),
+      }),
+    );
+
+    const req = makeRequest({
+      payment: { payload: { network: 'solana', scheme: 'exact', txSignature: 'soltx' } },
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.settled).toBe(true);
+    expect(data.txHash).toBe('soltx');
+  });
+
+  it('reports the tier fee as uncollected, because the buyer paid the merchant direct', async () => {
+    mockSingle.mockResolvedValueOnce({
+      data: {
+        id: 'p1',
+        status: 'verified',
+        amount: '100000',
+        network: 'bitcoin',
+        to_address: BTC_PAYEE,
+        asset: null,
+      },
+      error: null,
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: { confirmed: true, block_height: 900000 },
+          vout: [{ scriptpubkey_address: BTC_PAYEE, value: 100000 }],
+        }),
+      }),
+    );
+
+    const req = makeRequest({
+      payment: { payload: { network: 'bitcoin', scheme: 'exact', txId: 'btctx' } },
+    });
+    const data = await (await POST(req)).json();
+
+    expect(data.commission.collected).toBe(false);
   });
 });
