@@ -35,6 +35,24 @@ function runCLI(args, baseUrl) {
   });
 }
 
+function invoiceFixture(overrides = {}) {
+  return {
+    id: 'inv_mutation',
+    invoice_number: 'INV-020',
+    business_id: 'biz_123',
+    client_id: 'cli_123',
+    currency: 'USD',
+    amount: 100,
+    crypto_currency: 'USDC',
+    status: 'draft',
+    due_date: '2026-09-01',
+    notes: 'Original scope',
+    created_at: '2026-08-17T00:00:00.000Z',
+    updated_at: '2026-08-17T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
 describe('CLI Invoice Commands', () => {
   let server;
   let baseUrl;
@@ -84,6 +102,9 @@ describe('CLI Invoice Commands', () => {
     expect(result.output).toContain('invoice');
     expect(result.output).toContain('Create a draft invoice');
     expect(result.output).toContain('Get invoice details');
+    expect(result.output).toContain('Update editable fields on a draft invoice');
+    expect(result.output).toContain('Create payment details and email the client');
+    expect(result.output).toContain('Permanently delete a draft invoice');
   });
 
   it('creates a draft invoice and emits clean JSON', async () => {
@@ -395,6 +416,414 @@ describe('CLI Invoice Commands', () => {
     expect(result.status).not.toBe(0);
     expect(result.output).toContain('coinpay invoice get <id>');
     expect(requests).toHaveLength(0);
+  });
+
+  it('updates every editable draft field and emits clean JSON', async () => {
+    respond = (request) => {
+      if (request.method === 'GET') {
+        return { body: { success: true, invoice: invoiceFixture() } };
+      }
+      return {
+        body: {
+          success: true,
+          invoice: invoiceFixture({
+            amount: 125.5,
+            currency: 'EUR',
+            crypto_currency: 'BTC',
+            due_date: '2026-10-01',
+            notes: 'Updated scope',
+            client_id: 'cli_456',
+            wallet_id: 'wal_456',
+            merchant_wallet_address: 'bc1qexample',
+          }),
+        },
+      };
+    };
+
+    const result = await runCLI(
+      [
+        'invoice', 'update', 'inv_mutation',
+        '--amount', '125.50',
+        '--currency', 'eur',
+        '--crypto-currency', 'btc',
+        '--due-date', '2026-10-01',
+        '--notes', 'Updated scope',
+        '--client-id', 'cli_456',
+        '--wallet-id', 'wal_456',
+        '--merchant-wallet-address', 'bc1qexample',
+        '--json',
+      ],
+      baseUrl
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).not.toContain('\u001b[');
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      id: 'inv_mutation',
+      amount: 125.5,
+      currency: 'EUR',
+      cryptoCurrency: 'BTC',
+      status: 'draft',
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({ method: 'GET', url: '/api/invoices/inv_mutation' });
+    expect(requests[1]).toMatchObject({
+      method: 'PUT',
+      url: '/api/invoices/inv_mutation',
+      body: {
+        amount: 125.5,
+        currency: 'EUR',
+        crypto_currency: 'BTC',
+        due_date: '2026-10-01',
+        notes: 'Updated scope',
+        client_id: 'cli_456',
+        wallet_id: 'wal_456',
+        merchant_wallet_address: 'bc1qexample',
+      },
+    });
+    expect(requests[1].body).not.toHaveProperty('status');
+    expect(requests[1].body).not.toHaveProperty('tx_hash');
+  });
+
+  it('allows clearing notes with --notes=', async () => {
+    respond = (request) => ({
+      body: {
+        success: true,
+        invoice: invoiceFixture(request.method === 'PUT' ? { notes: '' } : {}),
+      },
+    });
+
+    const result = await runCLI(
+      ['invoice', 'update', 'inv_mutation', '--notes=', '--json'],
+      baseUrl
+    );
+
+    expect(result.status).toBe(0);
+    expect(requests[1].body).toEqual({ notes: '' });
+    expect(JSON.parse(result.stdout).notes).toBe('');
+  });
+
+  it('explains how to clear notes when --notes has no value', async () => {
+    const result = await runCLI(
+      ['invoice', 'update', 'inv_mutation', '--notes'],
+      baseUrl
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.output).toContain('--notes requires a value; use --notes=');
+    expect(requests).toHaveLength(0);
+  });
+
+  it('rejects empty updates, unsupported state flags, and extra ids', async () => {
+    const empty = await runCLI(['invoice', 'update', 'inv_mutation'], baseUrl);
+    expect(empty.status).not.toBe(0);
+    expect(empty.output).toMatch(/at least one editable field/i);
+
+    const status = await runCLI(
+      ['invoice', 'update', 'inv_mutation', '--status', 'paid'],
+      baseUrl
+    );
+    expect(status.status).not.toBe(0);
+    expect(status.output).toContain('Unsupported option: --status');
+
+    const extra = await runCLI(
+      ['invoice', 'update', 'inv_mutation', 'inv_other', '--notes', 'x'],
+      baseUrl
+    );
+    expect(extra.status).not.toBe(0);
+    expect(extra.output).toContain('coinpay invoice update <id>');
+    expect(requests).toHaveLength(0);
+  });
+
+  it.each([
+    [['--amount', '0'], /amount.*positive/i],
+    [['--currency', 'US'], /three-letter/i],
+    [['--due-date', '2026-02-30'], /YYYY-MM-DD/i],
+    [['--client-id='], /client-id.*empty/i],
+  ])('validates update options before fetching the invoice', async (option, message) => {
+    const result = await runCLI(
+      ['invoice', 'update', 'inv_mutation', ...option],
+      baseUrl
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.output).toMatch(message);
+    expect(requests).toHaveLength(0);
+  });
+
+  it('blocks non-draft updates before PUT', async () => {
+    respond = () => ({
+      body: { success: true, invoice: invoiceFixture({ status: 'sent' }) },
+    });
+
+    const result = await runCLI(
+      ['invoice', 'update', 'inv_mutation', '--notes', 'new'],
+      baseUrl
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.output).toMatch(/only draft invoices/i);
+    expect(requests).toHaveLength(1);
+    expect(requests[0].method).toBe('GET');
+  });
+
+  it('fails when the API returns success without applying an update', async () => {
+    respond = () => ({ body: { success: true, invoice: invoiceFixture() } });
+
+    const result = await runCLI(
+      ['invoice', 'update', 'inv_mutation', '--notes', 'Not applied'],
+      baseUrl
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.output).toMatch(/update was not confirmed.*notes/i);
+    expect(requests.map((request) => request.method)).toEqual(['GET', 'PUT']);
+  });
+
+  it('sends a draft with --yes, sanitizes JSON, and returns the share link', async () => {
+    respond = (request) => {
+      if (request.method === 'GET') {
+        return { body: { success: true, invoice: invoiceFixture() } };
+      }
+      return {
+        body: {
+          success: true,
+          invoice: invoiceFixture({
+            status: 'sent',
+            sent_at: '2026-08-17T01:00:00.000Z',
+            payment_address: '0xpay',
+            user_id: 'private-user',
+            manual_methods: { venmo: '@private' },
+            clients: { email: 'client@example.com' },
+          }),
+        },
+      };
+    };
+
+    const result = await runCLI(
+      ['invoice', 'send', '--yes', 'inv_mutation', '--json'],
+      baseUrl
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    const output = JSON.parse(result.stdout);
+    expect(output).toMatchObject({
+      id: 'inv_mutation',
+      status: 'sent',
+      paymentAddress: '0xpay',
+      shareUrl: new URL('/now/inv_mutation', baseUrl).toString(),
+    });
+    expect(output).not.toHaveProperty('success');
+    expect(output).not.toHaveProperty('user_id');
+    expect(output).not.toHaveProperty('manual_methods');
+    expect(output).not.toHaveProperty('clients');
+    expect(requests.map(({ method, url }) => ({ method, url }))).toEqual([
+      { method: 'GET', url: '/api/invoices/inv_mutation' },
+      { method: 'POST', url: '/api/invoices/inv_mutation/send' },
+    ]);
+    expect(requests.some((request) => request.url.includes('/chat'))).toBe(false);
+  });
+
+  it('accepts the legacy successful send response without risking a second send', async () => {
+    respond = (request) => request.method === 'GET'
+      ? { body: { success: true, invoice: invoiceFixture() } }
+      : {
+          body: {
+            success: true,
+            payment_address: '0xlegacy',
+            stripe_checkout_url: 'https://checkout.example/session',
+            clients: { email: 'client@example.com' },
+          },
+        };
+
+    const result = await runCLI(
+      ['invoice', 'send', 'inv_mutation', '--yes', '--json'],
+      baseUrl
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      id: 'inv_mutation',
+      status: 'sent',
+      paymentAddress: '0xlegacy',
+      shareUrl: new URL('/now/inv_mutation', baseUrl).toString(),
+    });
+    expect(result.stdout).not.toContain('client@example.com');
+    expect(requests.map((request) => request.method)).toEqual(['GET', 'POST']);
+  });
+
+  it('does not treat an inconsistent wrapped send response as success', async () => {
+    respond = () => ({
+      body: {
+        success: true,
+        invoice: invoiceFixture({ status: 'draft' }),
+      },
+    });
+
+    const result = await runCLI(
+      ['invoice', 'send', 'inv_mutation', '--yes'],
+      baseUrl
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.output).toMatch(/send was not confirmed/i);
+    expect(requests.map((request) => request.method)).toEqual(['GET', 'POST']);
+  });
+
+  it('allows sending an overdue invoice', async () => {
+    respond = (request) => ({
+      body: {
+        success: true,
+        invoice: invoiceFixture({ status: request.method === 'POST' ? 'sent' : 'overdue' }),
+      },
+    });
+
+    const result = await runCLI(
+      ['invoice', 'send', 'inv_mutation', '--yes'],
+      baseUrl
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.output).toContain('Invoice sent and client notified');
+    expect(requests.map((request) => request.method)).toEqual(['GET', 'POST']);
+  });
+
+  it('requires --yes for non-interactive send and JSON send', async () => {
+    respond = () => ({ body: { success: true, invoice: invoiceFixture() } });
+
+    const nonInteractive = await runCLI(['invoice', 'send', 'inv_mutation'], baseUrl);
+    expect(nonInteractive.status).not.toBe(0);
+    expect(nonInteractive.output).toMatch(/interactive terminal.*--yes/i);
+    expect(requests.map((request) => request.method)).toEqual(['GET']);
+
+    requests = [];
+    const json = await runCLI(
+      ['invoice', 'send', 'inv_mutation', '--json'],
+      baseUrl
+    );
+    expect(json.status).not.toBe(0);
+    expect(json.output).toMatch(/--json requires --yes/i);
+    expect(requests.map((request) => request.method)).toEqual(['GET']);
+  });
+
+  it('blocks send for closed states and drafts without crypto', async () => {
+    respond = () => ({
+      body: { success: true, invoice: invoiceFixture({ status: 'paid' }) },
+    });
+    const closed = await runCLI(
+      ['invoice', 'send', 'inv_mutation', '--yes'],
+      baseUrl
+    );
+    expect(closed.status).not.toBe(0);
+    expect(closed.output).toMatch(/draft or overdue/i);
+    expect(requests).toHaveLength(1);
+
+    requests = [];
+    respond = () => ({
+      body: {
+        success: true,
+        invoice: invoiceFixture({ crypto_currency: null }),
+      },
+    });
+    const missingCrypto = await runCLI(
+      ['invoice', 'send', 'inv_mutation', '--yes'],
+      baseUrl
+    );
+    expect(missingCrypto.status).not.toBe(0);
+    expect(missingCrypto.output).toMatch(/crypto-currency before sending/i);
+    expect(requests).toHaveLength(1);
+  });
+
+  it('deletes a draft with --yes and emits a deterministic JSON result', async () => {
+    respond = (request) => request.method === 'DELETE'
+      ? { body: { success: true } }
+      : { body: { success: true, invoice: invoiceFixture() } };
+
+    const result = await runCLI(
+      ['invoice', 'delete', '--yes', 'inv_mutation', '--json'],
+      baseUrl
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toEqual({ id: 'inv_mutation', deleted: true });
+    expect(requests.map(({ method, url }) => ({ method, url }))).toEqual([
+      { method: 'GET', url: '/api/invoices/inv_mutation' },
+      { method: 'DELETE', url: '/api/invoices/inv_mutation' },
+    ]);
+  });
+
+  it('blocks delete without confirmation or for a non-draft invoice', async () => {
+    respond = () => ({ body: { success: true, invoice: invoiceFixture() } });
+    const confirmation = await runCLI(['invoice', 'delete', 'inv_mutation'], baseUrl);
+    expect(confirmation.status).not.toBe(0);
+    expect(confirmation.output).toMatch(/interactive terminal.*--yes/i);
+    expect(requests.map((request) => request.method)).toEqual(['GET']);
+
+    requests = [];
+    respond = () => ({
+      body: { success: true, invoice: invoiceFixture({ status: 'sent' }) },
+    });
+    const state = await runCLI(
+      ['invoice', 'delete', 'inv_mutation', '--yes'],
+      baseUrl
+    );
+    expect(state.status).not.toBe(0);
+    expect(state.output).toMatch(/only draft invoices/i);
+    expect(requests.map((request) => request.method)).toEqual(['GET']);
+  });
+
+  it('encodes ids for preflight and mutation requests', async () => {
+    const id = 'inv#1/../payments';
+    respond = (request) => request.method === 'DELETE'
+      ? { body: { success: true } }
+      : { body: { success: true, invoice: invoiceFixture({ id }) } };
+
+    const result = await runCLI(['invoice', 'delete', id, '--yes'], baseUrl);
+
+    expect(result.status).toBe(0);
+    expect(requests.map((request) => request.url)).toEqual([
+      '/api/invoices/inv%231%2F..%2Fpayments',
+      '/api/invoices/inv%231%2F..%2Fpayments',
+    ]);
+  });
+
+  it('rejects values for boolean flags instead of swallowing invoice ids', async () => {
+    const yes = await runCLI(
+      ['invoice', 'delete', 'inv_mutation', '--yes=false'],
+      baseUrl
+    );
+    expect(yes.status).not.toBe(0);
+    expect(yes.output).toContain('--yes does not take a value');
+
+    const json = await runCLI(
+      ['invoice', 'get', '--json=false', 'inv_mutation'],
+      baseUrl
+    );
+    expect(json.status).not.toBe(0);
+    expect(json.output).toContain('--json does not take a value');
+    expect(requests).toHaveLength(0);
+  });
+
+  it('surfaces mutation API error codes without leaking the API key', async () => {
+    respond = (request) => request.method === 'GET'
+      ? { body: { success: true, invoice: invoiceFixture() } }
+      : {
+          status: 422,
+          body: { error: 'Payee is invalid', code: 'PAYEE_INVALID' },
+        };
+
+    const result = await runCLI(
+      ['invoice', 'send', 'inv_mutation', '--yes'],
+      baseUrl
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('Payee is invalid (PAYEE_INVALID)');
+    expect(result.output).not.toContain('cp_test_invoice_key');
   });
 
   it('returns a non-zero status and useful error for API failures', async () => {

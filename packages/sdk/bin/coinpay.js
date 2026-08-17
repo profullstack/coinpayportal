@@ -15,7 +15,15 @@ import {
   DEFAULT_CHAINS,
 } from '../src/wallet.js';
 import { SwapClient, SwapCoins } from '../src/swap.js';
-import { createInvoice, getInvoice, listInvoices, InvoiceStatus } from '../src/invoices.js';
+import {
+  createInvoice,
+  deleteInvoice,
+  getInvoice,
+  listInvoices,
+  sendInvoice,
+  updateInvoice,
+  InvoiceStatus,
+} from '../src/invoices.js';
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 import { createInterface } from 'readline';
@@ -150,6 +158,23 @@ function createUnauthenticatedClient() {
   return new CoinPayClient({ baseUrl: getBaseUrl() });
 }
 
+const BOOLEAN_FLAGS = new Set([
+  'active',
+  'active-only',
+  'debug',
+  'escrow',
+  'escrow-mode',
+  'h',
+  'help',
+  'json',
+  'no-open',
+  'no-save',
+  'show',
+  'v',
+  'version',
+  'yes',
+]);
+
 /**
  * Parse command line arguments
  */
@@ -164,16 +189,20 @@ function parseArgs(args) {
       if (eqIdx !== -1) {
         result.flags[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
       } else {
+        const name = arg.slice(2);
         const next = args[i + 1];
-        if (next && !next.startsWith('-')) {
-          result.flags[arg.slice(2)] = next;
+        if (BOOLEAN_FLAGS.has(name)) {
+          result.flags[name] = true;
+        } else if (next && !next.startsWith('-')) {
+          result.flags[name] = next;
           i++;
         } else {
-          result.flags[arg.slice(2)] = true;
+          result.flags[name] = true;
         }
       }
     } else if (arg.startsWith('-')) {
-      result.flags[arg.slice(1)] = args[++i] ?? true;
+      const name = arg.slice(1);
+      result.flags[name] = BOOLEAN_FLAGS.has(name) ? true : args[++i] ?? true;
     } else if (!result.command) {
       result.command = arg;
     } else if (!result.subcommand) {
@@ -184,6 +213,15 @@ function parseArgs(args) {
   }
   
   return result;
+}
+
+function validateBooleanFlags(flags) {
+  for (const name of BOOLEAN_FLAGS) {
+    if (flags[name] !== undefined && flags[name] !== true) {
+      print.error('--' + name + ' does not take a value');
+      process.exit(1);
+    }
+  }
 }
 
 function parsePositiveInteger(value) {
@@ -232,6 +270,79 @@ function requireFlagValues(flags, names) {
   }
 }
 
+function requireSingleInvoiceId(args, subcommand) {
+  if (args.length !== 1) {
+    print.error('Usage: coinpay invoice ' + subcommand + ' <id>');
+    process.exit(1);
+  }
+  return args[0];
+}
+
+function rejectUnsupportedFlags(flags, allowed) {
+  const allowedFlags = new Set([...allowed, 'debug', 'json']);
+  const unsupported = Object.keys(flags).filter((name) => !allowedFlags.has(name));
+  if (unsupported.length > 0) {
+    print.error('Unsupported option' + (unsupported.length > 1 ? 's' : '') + ': ' +
+      unsupported.map((name) => '--' + name).join(', '));
+    process.exit(1);
+  }
+}
+
+function invoiceForOutput(data, fallbackId) {
+  const invoice = data?.invoice ?? data ?? {};
+  const output = {
+    id: invoice.id ?? fallbackId,
+    invoiceNumber: invoice.invoiceNumber ?? invoice.invoice_number,
+    businessId: invoice.businessId ?? invoice.business_id,
+    clientId: invoice.clientId ?? invoice.client_id,
+    currency: invoice.currency,
+    amount: invoice.amount,
+    cryptoCurrency: invoice.cryptoCurrency ?? invoice.crypto_currency,
+    cryptoAmount: invoice.cryptoAmount ?? invoice.crypto_amount,
+    status: invoice.status,
+    dueDate: invoice.dueDate ?? invoice.due_date,
+    notes: invoice.notes,
+    walletId: invoice.walletId ?? invoice.wallet_id,
+    merchantWalletAddress:
+      invoice.merchantWalletAddress ?? invoice.merchant_wallet_address,
+    paymentAddress: invoice.paymentAddress ?? invoice.payment_address,
+    stripeCheckoutUrl: invoice.stripeCheckoutUrl ?? invoice.stripe_checkout_url,
+    paidAt: invoice.paidAt ?? invoice.paid_at,
+    sentAt: invoice.sentAt ?? invoice.sent_at,
+    createdAt: invoice.createdAt ?? invoice.created_at,
+    updatedAt: invoice.updatedAt ?? invoice.updated_at,
+  };
+
+  return Object.fromEntries(
+    Object.entries(output).filter(([, value]) => value !== undefined)
+  );
+}
+
+function assertInvoiceUpdatesApplied(invoice, updates) {
+  if (invoice.status !== InvoiceStatus.DRAFT) {
+    throw new Error('Invoice changed state before the update completed; no draft update was confirmed');
+  }
+
+  const mismatches = Object.entries(updates).filter(([field, expected]) => {
+    const actual = invoice[field];
+    if (field === 'amount') return Number(actual) !== Number(expected);
+    if (field === 'dueDate') return String(actual || '').slice(0, 10) !== expected;
+    return actual !== expected;
+  });
+
+  if (mismatches.length > 0) {
+    throw new Error(
+      'Invoice update was not confirmed for: ' + mismatches.map(([field]) => field).join(', ')
+    );
+  }
+}
+
+function describeInvoiceRouting(invoice) {
+  const crypto = invoice.cryptoCurrency || 'unset crypto';
+  const destination = invoice.merchantWalletAddress || 'resolved payee';
+  return crypto + ' -> ' + destination;
+}
+
 /**
  * Show help
  */
@@ -266,6 +377,10 @@ ${colors.cyan}Commands:${colors.reset}
                             Route settlement to a direct address
     get <id>              Get invoice details
     list                  List invoices with optional filters
+    update <id>           Update editable fields on a draft invoice
+    send <id>             Create payment details and email the client
+    delete <id>           Permanently delete a draft invoice
+      --yes               Skip confirmation for send/delete
 
   ${colors.bright}tokens${colors.reset}
     list                  List checkout tokens (--business-id, --active-only)
@@ -480,6 +595,28 @@ async function promptYesNo(question, defaultYes = true) {
   
   if (!answer) return defaultYes;
   return answer.toLowerCase().startsWith('y');
+}
+
+async function promptYesNoOnStderr(question) {
+  const answer = await new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stderr });
+    rl.question(question + ' [y/N] ', (value) => {
+      rl.close();
+      resolve(value.trim());
+    });
+  });
+  return answer.toLowerCase().startsWith('y');
+}
+
+async function confirmInvoiceMutation(flags, question) {
+  if (flags.yes === true) return true;
+  if (flags.json) {
+    throw new Error('--json requires --yes for invoice send/delete');
+  }
+  if (!process.stdin.isTTY) {
+    throw new Error('Confirmation requires an interactive terminal; rerun with --yes');
+  }
+  return promptYesNoOnStderr(question);
 }
 
 /**
@@ -780,9 +917,19 @@ function printInvoiceDetails(invoice, { shareUrl } = {}) {
   if (invoice.businessId) print.info('Business: ' + invoice.businessId);
   if (invoice.clientId) print.info('Client: ' + invoice.clientId);
   if (invoice.cryptoCurrency) print.info('Crypto: ' + invoice.cryptoCurrency);
+  if (invoice.walletId) print.info('Wallet reference: ' + invoice.walletId);
+  if (invoice.merchantWalletAddress) {
+    print.info('Settlement address: ' + invoice.merchantWalletAddress);
+  }
+  if (invoice.paymentAddress) print.info('Payment address: ' + invoice.paymentAddress);
   if (invoice.dueDate) print.info('Due: ' + invoice.dueDate);
   if (invoice.notes) print.info('Notes: ' + invoice.notes);
-  if (shareUrl) print.info('Share link (opens after send): ' + shareUrl);
+  if (shareUrl) {
+    const shareLabel = invoice.status === InvoiceStatus.DRAFT
+      ? 'Share link (opens after send): '
+      : 'Share link: ';
+    print.info(shareLabel + shareUrl);
+  }
   console.log();
 }
 
@@ -909,11 +1056,8 @@ async function handleInvoice(subcommand, args, flags) {
     }
 
     case 'get': {
-      const id = args[0];
-      if (!id) {
-        print.error('Usage: coinpay invoice get <id>');
-        process.exit(1);
-      }
+      rejectUnsupportedFlags(flags, []);
+      const id = requireSingleInvoiceId(args, 'get');
 
       const invoice = await getInvoice(client, id);
       if (flags.json) {
@@ -925,9 +1069,207 @@ async function handleInvoice(subcommand, args, flags) {
       break;
     }
 
+    case 'update': {
+      const updateFlags = [
+        'amount',
+        'currency',
+        'crypto-currency',
+        'due-date',
+        'notes',
+        'client-id',
+        'wallet-id',
+        'merchant-wallet-address',
+      ];
+      rejectUnsupportedFlags(flags, updateFlags);
+      if (flags.notes === true) {
+        print.error('--notes requires a value; use --notes= to clear existing notes');
+        process.exit(1);
+      }
+      requireFlagValues(flags, updateFlags);
+      const id = requireSingleInvoiceId(args, 'update');
+      const updates = {};
+
+      if (flags.amount !== undefined) {
+        const amount = parsePositiveAmount(flags.amount);
+        if (amount === null) {
+          print.error('--amount must be a positive decimal with at most two decimal places');
+          process.exit(1);
+        }
+        updates.amount = amount;
+      }
+
+      if (flags.currency !== undefined) {
+        if (!/^[A-Za-z]{3}$/.test(flags.currency)) {
+          print.error('--currency must be a three-letter currency code');
+          process.exit(1);
+        }
+        updates.currency = flags.currency.toUpperCase();
+      }
+
+      if (flags['crypto-currency'] !== undefined) {
+        const cryptoCurrency = flags['crypto-currency'].trim();
+        if (!cryptoCurrency) {
+          print.error('--crypto-currency must not be empty');
+          process.exit(1);
+        }
+        updates.cryptoCurrency = cryptoCurrency.toUpperCase();
+      }
+
+      if (flags['due-date'] !== undefined) {
+        if (!isValidDate(flags['due-date'])) {
+          print.error('--due-date must be a valid date in YYYY-MM-DD format');
+          process.exit(1);
+        }
+        updates.dueDate = flags['due-date'];
+      }
+
+      if (flags.notes !== undefined) updates.notes = flags.notes;
+
+      const stringUpdates = [
+        ['client-id', 'clientId'],
+        ['wallet-id', 'walletId'],
+        ['merchant-wallet-address', 'merchantWalletAddress'],
+      ];
+      for (const [flag, field] of stringUpdates) {
+        if (flags[flag] === undefined) continue;
+        const value = flags[flag].trim();
+        if (!value) {
+          print.error('--' + flag + ' must not be empty');
+          process.exit(1);
+        }
+        updates[field] = value;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        print.error('Provide at least one editable field for invoice update');
+        print.info('Example: coinpay invoice update <id> --amount 125 --notes "Updated scope"');
+        process.exit(1);
+      }
+
+      const current = await getInvoice(client, id);
+      if (current.status !== InvoiceStatus.DRAFT) {
+        throw new Error('Only draft invoices can be updated (current: ' +
+          (current.status || 'unknown') + ')');
+      }
+
+      const updated = await updateInvoice(client, id, updates);
+      assertInvoiceUpdatesApplied(updated, updates);
+
+      if (flags.json) {
+        print.json(updated);
+        break;
+      }
+
+      print.success('Draft invoice updated');
+      const routingFields = ['cryptoCurrency', 'merchantWalletAddress'];
+      if (routingFields.some((field) => updates[field] !== undefined)) {
+        print.info('Payment routing: ' + describeInvoiceRouting(current) +
+          ' => ' + describeInvoiceRouting(updated));
+      }
+      if (updates.walletId !== undefined) {
+        print.info('Wallet reference: ' + (current.walletId || 'unset') +
+          ' => ' + updated.walletId);
+      }
+      printInvoiceDetails(updated);
+      break;
+    }
+
+    case 'send': {
+      rejectUnsupportedFlags(flags, ['yes']);
+      const id = requireSingleInvoiceId(args, 'send');
+      const current = await getInvoice(client, id);
+      const sendable = new Set([InvoiceStatus.DRAFT, InvoiceStatus.OVERDUE]);
+      if (!sendable.has(current.status)) {
+        throw new Error('Only draft or overdue invoices can be sent (current: ' +
+          (current.status || 'unknown') + ')');
+      }
+      if (!current.cryptoCurrency) {
+        throw new Error('Set --crypto-currency before sending this invoice');
+      }
+
+      const label = current.invoiceNumber || current.id;
+      const recipient = current.clientId ? 'client ' + current.clientId : 'the configured client';
+      const amount = current.amount + ' ' + (current.currency || '');
+      const resendWarning = current.status === InvoiceStatus.OVERDUE
+        ? ' This will issue new payment details and email the client again.'
+        : ' This will create payment details and email the client.';
+      const confirmed = await confirmInvoiceMutation(
+        flags,
+        'Send ' + label + ' to ' + recipient + ' for ' + amount +
+          ' using ' + current.cryptoCurrency + '?' + resendWarning
+      );
+      if (!confirmed) {
+        print.info('Aborted');
+        break;
+      }
+
+      const result = await sendInvoice(client, id);
+      let sent = invoiceForOutput(result, id);
+      const legacySuccess = result?.success === true &&
+        !Object.prototype.hasOwnProperty.call(result, 'invoice') &&
+        sent.status === undefined;
+
+      if (legacySuccess) {
+        sent = invoiceForOutput({
+          ...current,
+          ...result,
+          status: InvoiceStatus.SENT,
+        }, id);
+      } else if (result?.success === false || sent.status !== InvoiceStatus.SENT) {
+        throw new Error('Invoice send was not confirmed by the server');
+      }
+      const shareUrl = getInvoiceShareUrl(sent.id);
+
+      if (flags.json) {
+        print.json({ ...sent, shareUrl });
+        break;
+      }
+
+      print.success('Invoice sent and client notified');
+      if (legacySuccess) {
+        print.warn('The server returned limited invoice details; run coinpay invoice get ' +
+          id + ' to refresh them.');
+      }
+      printInvoiceDetails(sent, { shareUrl });
+      break;
+    }
+
+    case 'delete': {
+      rejectUnsupportedFlags(flags, ['yes']);
+      const id = requireSingleInvoiceId(args, 'delete');
+      const current = await getInvoice(client, id);
+      if (current.status !== InvoiceStatus.DRAFT) {
+        throw new Error('Only draft invoices can be deleted (current: ' +
+          (current.status || 'unknown') + ')');
+      }
+
+      const label = current.invoiceNumber || current.id;
+      const confirmed = await confirmInvoiceMutation(
+        flags,
+        'Permanently delete draft invoice ' + label + ' for ' + current.amount +
+          ' ' + (current.currency || '') + '?'
+      );
+      if (!confirmed) {
+        print.info('Aborted');
+        break;
+      }
+
+      const result = await deleteInvoice(client, id);
+      if (result?.success === false) {
+        throw new Error('Invoice deletion was not confirmed by the server');
+      }
+
+      if (flags.json) {
+        print.json({ id, deleted: true });
+        break;
+      }
+      print.success('Draft invoice deleted: ' + id);
+      break;
+    }
+
     default:
       print.error('Unknown invoice command: ' + subcommand);
-      print.info('Available: create, list, get');
+      print.info('Available: create, list, get, update, send, delete');
       process.exit(1);
   }
 }
@@ -2936,6 +3278,7 @@ const MENU_COMMANDS = [
   ['config', 'API key & endpoint (set-key, set-url, show)'],
   ['auth', 'Merchant account (register, login, me)'],
   ['payment', 'Payments (create, get, list, qr)'],
+  ['invoice', 'Invoices (create, list, get, update, send, delete)'],
   ['tokens', 'List checkout tokens'],
   ['business', 'Businesses (create, get, list, update)'],
   ['rates', 'Exchange rates (get, list)'],
@@ -2956,6 +3299,7 @@ const SUBCOMMANDS = {
   config: [['set-key', 'Set your API key'], ['set-url', 'Set custom API URL'], ['show', 'Show current configuration']],
   auth: [['register', 'Register new merchant account'], ['login', 'Login to merchant account'], ['me', 'Show current merchant info']],
   payment: [['create', 'Create a new payment'], ['get', 'Get payment details <id>'], ['list', 'List payments'], ['qr', 'Get payment QR code <id>']],
+  invoice: [['create', 'Create a draft invoice'], ['list', 'List invoices'], ['get', 'Get invoice details <id>'], ['update', 'Update a draft invoice <id>'], ['send', 'Send an invoice <id>'], ['delete', 'Delete a draft invoice <id>']],
   tokens: [['list', 'List checkout tokens']],
   business: [['create', 'Create a new business'], ['get', 'Get business details <id>'], ['list', 'List businesses'], ['update', 'Update business <id>']],
   rates: [['get', 'Get exchange rate <crypto>'], ['list', 'Get all exchange rates']],
@@ -3297,6 +3641,7 @@ async function handleWhoami(flags) {
 
 async function main() {
   const { command, subcommand, args, flags } = parseArgs(process.argv.slice(2));
+  validateBooleanFlags(flags);
   
   if (flags.version || flags.v) {
     console.log(VERSION);
@@ -3560,7 +3905,8 @@ async function handleLightning(subcommand, args, flags) {
         process.exit(1);
     }
   } catch (error) {
-    print.error(error.message);
+    const code = error?.response?.code;
+    print.error(error.message + (code ? ' (' + code + ')' : ''));
     if (flags.debug) {
       console.error(error);
     }

@@ -618,6 +618,22 @@ coinpay invoice create --amount 250 --merchant-wallet-address 0xabc123
 # Get invoice details
 coinpay invoice get inv_abc123
 
+# Update editable fields on a draft. Use --notes= to clear existing notes.
+coinpay invoice update inv_abc123 \
+  --amount 275 \
+  --due-date 2026-09-15 \
+  --notes "Updated scope"
+
+# Send creates real payment details and emails the client. The command asks for
+# confirmation and prints the same /now/{invoiceId} link for manual chat sharing.
+coinpay invoice send inv_abc123
+
+# Non-interactive send requires explicit confirmation. JSON stays on stdout.
+coinpay invoice send inv_abc123 --yes --json
+
+# Permanently delete a draft invoice (also asks for confirmation).
+coinpay invoice delete inv_abc123
+
 # List invoices. Date filters apply to created_at and --date-to includes that day.
 coinpay invoice list \
   --business-id biz_123 \
@@ -629,6 +645,19 @@ coinpay invoice list \
 # Use --json with any invoice command for machine-readable output
 coinpay invoice list --status paid --json
 ```
+
+Only draft invoices can be updated or deleted. Draft and overdue invoices can
+be sent; sending an overdue invoice issues new payment details and emails the
+client again. `--yes` skips the confirmation for send/delete, and is required
+when either command runs without a terminal or with `--json`.
+
+`--wallet-id` updates the invoice's stored wallet reference. To change the
+actual settlement destination, use `--merchant-wallet-address` (or change the
+crypto currency and let the server resolve the configured payee).
+
+The CLI does not post invoice links to `/chat` automatically. Copy the printed
+share link into chat manually. Treat `COINPAY_API_KEY` and `~/.coinpay.json` as
+sensitive: either credential can authorize invoice updates, sends, and deletes.
 
 ### Businesses
 
