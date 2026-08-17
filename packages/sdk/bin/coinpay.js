@@ -2967,7 +2967,11 @@ const SUBCOMMANDS = {
   payout: [['create', 'Create a payout'], ['list', 'List payouts'], ['get', 'Get payout details <id>']],
   card: [['create', 'Create a card payment'], ['get', 'Get card payment status <id>'], ['list', 'List card payments'], ['connect', 'Stripe onboarding / status'], ['escrow', 'Release / refund card escrow']],
   reputation: [['submit', 'Submit a task receipt'], ['query', 'Query agent reputation <did>'], ['credential', 'Get credential details <id>'], ['credentials', 'List credentials [did]'], ['receipts', 'List task receipts [did]'], ['badge', 'Reputation badge URL [did]'], ['verify', 'Verify a credential <id>'], ['revocations', 'List revoked credentials'], ['did', 'DID claim / me'], ['issuer', 'Issuer register / list / rotate']],
-  x402: [['status', 'x402 status'], ['test', 'x402 test']],
+  x402: [
+    ['status', 'x402 status'],
+    ['test', 'x402 test'],
+    ['pay', 'pay for a URL, approving in your browser'],
+  ],
   oauth: [['list', 'List OAuth clients'], ['create', 'Create an OAuth client'], ['get', 'Get client details <id>'], ['delete', 'Delete a client <id>']],
 };
 
@@ -3671,6 +3675,108 @@ async function handleOAuth(subcommand, args, flags) {
 }
 
 /**
+ * Open the platform's browser at a URL.
+ *
+ * Failure is not fatal: the URL is printed either way, so a headless box or an
+ * unusual desktop just means the user opens it themselves.
+ */
+async function openInBrowser(url) {
+  const { spawn } = await import('node:child_process');
+  const command =
+    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+  try {
+    spawn(command, [url], { stdio: 'ignore', detached: true, shell: process.platform === 'win32' })
+      .on('error', () => {})
+      .unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `coinpay x402 pay <url>` — fetch a paid resource, approving in the browser.
+ *
+ * The terminal cannot sign: browser wallets expose themselves to pages, not to
+ * processes. So this serves a one-shot approval page on loopback, opens it,
+ * and waits for the signed `X-PAYMENT` header to come back before retrying the
+ * original request.
+ */
+async function handleX402Pay(args, flags) {
+  const target = args[0] || flags.url;
+  if (!target) {
+    print.error('Usage: coinpay x402 pay <url>');
+    process.exit(1);
+  }
+
+  const { startPaymentServer } = await import('../src/x402-pay-server.js');
+
+  print.info(`Fetching ${target}`);
+  const first = await fetch(target);
+
+  if (first.status !== 402) {
+    // Nothing to pay for. Still the useful answer, so print it rather than
+    // treating "free" as an error.
+    print.success(`No payment required (HTTP ${first.status})`);
+    const body = await first.text();
+    if (flags.output) {
+      await (await import('node:fs/promises')).writeFile(flags.output, body);
+      print.info(`Wrote ${flags.output}`);
+    } else {
+      console.log(body);
+    }
+    return;
+  }
+
+  let paymentRequired;
+  try {
+    paymentRequired = await first.clone().json();
+  } catch {
+    print.error('Resource returned 402 but its body was not valid x402 JSON');
+    process.exit(1);
+  }
+
+  const server = await startPaymentServer({
+    paymentRequired,
+    resourceUrl: target,
+    port: flags.port ? Number(flags.port) : 0,
+  });
+
+  try {
+    if (flags['no-open']) {
+      print.info(`Open this to approve:\n  ${server.url}`);
+    } else {
+      await openInBrowser(server.url);
+      print.info(`Approve in your browser:\n  ${server.url}`);
+    }
+    print.info('Waiting for approval…');
+
+    const header = await server.waitForPayment();
+    print.success('Payment approved');
+
+    const paid = await fetch(target, { headers: { 'X-PAYMENT': header } });
+    if (paid.status === 402) {
+      // Never sign again automatically — a second 402 means the payment was
+      // refused rather than missing, and retrying spends the user's money on a
+      // resource that just said no.
+      print.error('Payment was rejected by the resource. Not retrying.');
+      process.exit(1);
+    }
+
+    const body = await paid.text();
+    if (flags.output) {
+      await (await import('node:fs/promises')).writeFile(flags.output, body);
+      print.success(`HTTP ${paid.status} — wrote ${flags.output}`);
+    } else {
+      print.success(`HTTP ${paid.status}`);
+      console.log(body);
+    }
+  } finally {
+    await server.close();
+  }
+}
+
+/**
  * Handle x402 commands
  */
 async function handleX402(subcommand, args, flags) {
@@ -3685,16 +3791,23 @@ Usage: coinpay x402 <command> [options]
 Commands:
   status          Check x402 facilitator status
   test            Test x402 flow against an endpoint
+  pay <url>       Fetch a paid URL, approving payment in your browser
 
 Options:
   --url <url>     Endpoint URL for testing
   --network <net> Network: base, ethereum, polygon (default: base)
   --amount <amt>  Amount in USDC smallest unit (default: 1000000 = 1 USDC)
+  --output <file> (pay) Write the paid response body to a file
+  --port <n>      (pay) Port for the local approval page (default: random)
+  --no-open       (pay) Print the URL instead of opening a browser
 `);
     return;
   }
 
   switch (subcommand) {
+    case 'pay':
+      return handleX402Pay(args, flags);
+
     case 'status': {
       const apiKey = flags['api-key'] || config.apiKey;
       const baseUrl = flags['base-url'] || config.baseUrl || 'https://coinpayportal.com';
