@@ -3,8 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { authorizeInvoice } from '@/lib/auth/invoice-access';
 import { createPayment, type Blockchain } from '@/lib/payments/service';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
-import { sendEmail } from '@/lib/email';
-import { invoiceSentTemplate } from '@/lib/email/invoice-templates';
+import { deliverInvoiceEmail, getInvoicePaymentLink } from '@/lib/email/invoice-delivery';
 import { createInvoiceStripeCheckout } from '@/lib/payments/invoice-stripe';
 import { businessHasPaypal } from '@/lib/paypal/accounts';
 import { getEnabledManualMethods } from '@/lib/payment-methods/manual';
@@ -166,7 +165,10 @@ export async function POST(
       console.error('Failed to resolve manual methods for invoice:', manualError);
     }
 
-    // Update invoice
+    const emailAttemptedAt = new Date().toISOString();
+
+    // Commit the live payment resource before attempting email. A provider
+    // failure must not orphan the payment address or pretend creation failed.
     const { data: updatedInvoice, error: updateError } = await supabase
       .from('invoices')
       .update({
@@ -185,7 +187,7 @@ export async function POST(
         ...(stripeSessionId && { stripe_session_id: stripeSessionId }),
         paypal_enabled: paypalEnabled,
         manual_methods: manualMethods,
-        updated_at: new Date().toISOString(),
+        updated_at: emailAttemptedAt,
       })
       .eq('id', id)
       .select(`*, clients (id, name, email, company_name), businesses (id, name)`)
@@ -195,30 +197,107 @@ export async function POST(
       return NextResponse.json({ success: false, error: 'Failed to update invoice' }, { status: 500 });
     }
 
-    // Send email to client
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com';
-    const paymentLink = `${appUrl}/invoices/${invoice.id}/pay`;
+    // Keep delivery tracking separate from the payment commit. This preserves
+    // the live invoice if application code is deployed before the migration or
+    // if observability storage is temporarily unavailable.
+    const pendingEmailState = {
+      email_status: 'pending',
+      email_message_id: null,
+      email_last_error: null,
+      email_last_attempted_at: emailAttemptedAt,
+    };
+    const { data: pendingTrackedInvoice, error: pendingTrackingError } = await supabase
+      .from('invoices')
+      .update(pendingEmailState)
+      .eq('id', id)
+      .select('id')
+      .maybeSingle();
 
-    const businessName = invoice.businesses?.name || 'CoinPay Merchant';
-    const template = invoiceSentTemplate({
-      invoiceNumber: invoice.invoice_number,
-      amount: parseFloat(invoice.amount),
-      currency: invoice.currency || 'USD',
-      cryptoAmount: cryptoAmount.toFixed(8),
-      cryptoCurrency: invoice.crypto_currency,
-      dueDate: invoice.due_date,
-      businessName,
-      paymentLink,
-      notes: invoice.notes,
+    const pendingTrackingSaved = !pendingTrackingError && !!pendingTrackedInvoice;
+
+    if (!pendingTrackingSaved) {
+      console.error('Failed to record invoice email attempt:', {
+        invoiceId: invoice.id,
+        error: pendingTrackingError || 'Invoice changed before the email attempt could be tracked',
+      });
+    }
+
+    let emailResult;
+    try {
+      emailResult = await deliverInvoiceEmail({
+        ...updatedInvoice,
+        crypto_amount: cryptoAmount.toFixed(8),
+        crypto_currency: invoice.crypto_currency,
+        clients: invoice.clients,
+        businesses: invoice.businesses,
+      });
+    } catch (emailError) {
+      emailResult = {
+        success: false,
+        error: emailError instanceof Error ? emailError.message : 'Email provider failed unexpectedly',
+        paymentLink: getInvoicePaymentLink(invoice.id),
+      };
+    }
+
+    const emailState = {
+      email_status: emailResult.success ? 'accepted' : 'failed',
+      email_message_id: emailResult.messageId || null,
+      email_last_error: emailResult.success ? null : (emailResult.error || 'Email provider rejected the message'),
+      email_last_attempted_at: emailAttemptedAt,
+    };
+
+    let emailTrackingError: unknown = pendingTrackingError;
+    let emailTrackingSaved = false;
+    if (pendingTrackingSaved) {
+      const { data: finalizedEmailAttempt, error: finalTrackingError } = await supabase
+        .from('invoices')
+        .update(emailState)
+        .eq('id', id)
+        .eq('email_last_attempted_at', emailAttemptedAt)
+        .select('id')
+        .maybeSingle();
+
+      emailTrackingError = finalTrackingError || (!finalizedEmailAttempt
+        ? 'A newer invoice email attempt replaced this tracking state'
+        : null);
+      emailTrackingSaved = !emailTrackingError && !!finalizedEmailAttempt;
+    }
+
+    if (!emailResult.success) {
+      console.error('Invoice email was not accepted by the provider:', {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoice_number,
+        error: emailResult.error,
+      });
+    }
+    if (!emailTrackingSaved) {
+      console.error('Failed to persist invoice email status:', {
+        invoiceId: invoice.id,
+        error: emailTrackingError,
+      });
+    }
+
+    const warning = !emailResult.success
+      ? 'The payment link is active, but the email provider did not accept the message. Copy the payment link or retry the email.'
+      : !emailTrackingSaved
+        ? 'The email provider accepted the message, but its tracking status could not be saved.'
+        : undefined;
+    const persistedInvoice = !emailTrackingSaved
+      ? {
+          ...updatedInvoice,
+          ...(pendingTrackingSaved && pendingEmailState),
+        }
+      : { ...updatedInvoice, ...emailState };
+
+    return NextResponse.json({
+      success: true,
+      invoice: persistedInvoice,
+      emailAccepted: emailResult.success,
+      emailTrackingSaved,
+      paymentLink: emailResult.paymentLink,
+      ...(warning && { warning }),
+      ...(!emailResult.success && { emailError: emailResult.error }),
     });
-
-    await sendEmail({
-      to: clientEmail,
-      subject: template.subject,
-      html: template.html,
-    });
-
-    return NextResponse.json({ success: true, invoice: updatedInvoice });
   } catch (error) {
     console.error('Send invoice error:', error);
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });

@@ -13,6 +13,7 @@ interface Invoice {
   amount: string;
   crypto_currency: string | null;
   crypto_amount: string | null;
+  email_status: 'pending' | 'accepted' | 'failed' | null;
   due_date: string | null;
   created_at: string;
   clients: { id: string; name: string; email: string; company_name: string } | null;
@@ -127,6 +128,19 @@ function InvoicesTab() {
                   </td>
                   <td className="px-6 py-4">
                     <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${statusColors[invoice.status] || ''}`}>{invoice.status}</span>
+                    {['sent', 'overdue'].includes(invoice.status) && (
+                      <p className={`mt-1 text-xs ${
+                        invoice.email_status === 'accepted'
+                          ? 'text-green-400'
+                          : invoice.email_status === 'failed'
+                            ? 'text-red-400'
+                            : invoice.email_status === 'pending'
+                              ? 'text-amber-400'
+                              : 'text-gray-500'
+                      }`}>
+                        Email {invoice.email_status || 'unknown'}
+                      </p>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-gray-400 text-sm">{invoice.due_date ? new Date(invoice.due_date).toLocaleDateString() : '—'}</td>
                   <td className="px-6 py-4">

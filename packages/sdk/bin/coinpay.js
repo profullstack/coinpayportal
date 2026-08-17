@@ -1221,11 +1221,23 @@ async function handleInvoice(subcommand, args, flags) {
       const shareUrl = getInvoiceShareUrl(sent.id);
 
       if (flags.json) {
-        print.json({ ...sent, shareUrl });
+        const delivery = {};
+        for (const field of ['emailAccepted', 'emailTrackingSaved', 'warning', 'emailError']) {
+          if (Object.prototype.hasOwnProperty.call(result ?? {}, field)) {
+            delivery[field] = result[field];
+          }
+        }
+        print.json({ ...sent, shareUrl, ...delivery });
         break;
       }
 
-      print.success('Invoice sent and client notified');
+      if (result?.emailAccepted === false) {
+        print.warn('Invoice payment link created, but the email provider did not accept the message');
+      } else if (result?.emailAccepted === true) {
+        print.success('Invoice sent; email accepted by provider');
+      } else {
+        print.success('Invoice sent; email status was not reported by the server');
+      }
       if (legacySuccess) {
         print.warn('The server returned limited invoice details; run coinpay invoice get ' +
           id + ' to refresh them.');

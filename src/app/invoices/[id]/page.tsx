@@ -23,6 +23,10 @@ interface Invoice {
   paid_at: string | null;
   tx_hash: string | null;
   notes: string | null;
+  email_status: 'pending' | 'accepted' | 'failed' | null;
+  email_message_id: string | null;
+  email_last_error: string | null;
+  email_last_attempted_at: string | null;
   created_at: string;
   updated_at: string;
   clients: { id: string; name: string; email: string; company_name: string; phone?: string; address?: string } | null;
@@ -50,6 +54,7 @@ export default function InvoiceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
   const [error, setError] = useState('');
+  const [emailFeedback, setEmailFeedback] = useState<{ tone: 'success' | 'warning'; message: string } | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   // null = unknown/loading. cardsEnabled reflects whether the invoice's business
   // has a Stripe Connect account with card charges enabled.
@@ -109,13 +114,43 @@ export default function InvoiceDetailPage() {
   };
 
   const handleSend = async () => {
+    if (invoice?.status === 'overdue' && !confirm(
+      'Re-issuing creates new payment details and replaces the current payment link. Continue?'
+    )) return;
     setActionLoading('send');
     setError('');
+    setEmailFeedback(null);
     const result = await authFetch(`/api/invoices/${invoiceId}/send`, { method: 'POST' }, router);
     if (result?.data.success) {
       setInvoice(result.data.invoice);
+      setEmailFeedback(result.data.emailAccepted === false || result.data.warning
+        ? {
+            tone: 'warning',
+            message: result.data.warning || 'The payment link is active, but the email was not accepted. Copy the link or retry the email.',
+          }
+        : { tone: 'success', message: 'The email provider accepted the invoice message.' });
     } else {
       setError(result?.data.error || 'Failed to send invoice');
+    }
+    setActionLoading('');
+  };
+
+  const handleResendEmail = async () => {
+    setActionLoading('resend-email');
+    setError('');
+    setEmailFeedback(null);
+    const result = await authFetch(`/api/invoices/${invoiceId}/resend-email`, { method: 'POST' }, router);
+
+    if (result?.data.invoice) {
+      setInvoice(result.data.invoice);
+    }
+    if (result?.data.success) {
+      setEmailFeedback({
+        tone: result.data.warning ? 'warning' : 'success',
+        message: result.data.warning || 'The email provider accepted the invoice message.',
+      });
+    } else {
+      setError(result?.data.error || 'Failed to resend invoice email. The existing payment link is still active.');
     }
     setActionLoading('');
   };
@@ -207,6 +242,15 @@ export default function InvoiceDetailPage() {
 
         {error && (
           <div className="mb-6 bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-lg">{error}</div>
+        )}
+        {emailFeedback && (
+          <div className={`mb-6 px-4 py-3 rounded-lg border ${
+            emailFeedback.tone === 'success'
+              ? 'bg-green-500/10 border-green-500/30 text-green-300'
+              : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+          }`}>
+            {emailFeedback.message}
+          </div>
         )}
 
         {/* An auto-generated invoice whose payee is not one of the account's own
@@ -353,6 +397,43 @@ export default function InvoiceDetailPage() {
               </div>
             )}
 
+            {['sent', 'overdue'].includes(invoice.status) && (
+              <div className="bg-gray-800/50 rounded-2xl border border-gray-700 p-6">
+                <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3">Invoice Email</h3>
+                <div className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${
+                    invoice.email_status === 'accepted'
+                      ? 'bg-green-400'
+                      : invoice.email_status === 'failed'
+                        ? 'bg-red-400'
+                        : invoice.email_status === 'pending'
+                          ? 'bg-amber-400'
+                          : 'bg-gray-500'
+                  }`} />
+                  <span className="text-white font-medium capitalize">
+                    {invoice.email_status || 'unknown'}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  {invoice.email_status === 'accepted'
+                    ? 'Accepted by the email provider. This does not guarantee inbox delivery.'
+                    : invoice.email_status === 'failed'
+                      ? 'The provider did not accept the last attempt.'
+                      : invoice.email_status === 'pending'
+                        ? 'An email attempt is in progress or was interrupted.'
+                        : 'No email acceptance record exists for this legacy invoice.'}
+                </p>
+                {invoice.email_last_attempted_at && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    Last attempt: {new Date(invoice.email_last_attempted_at).toLocaleString()}
+                  </p>
+                )}
+                {invoice.email_last_error && (
+                  <p className="text-xs text-red-300 mt-2 break-words">{invoice.email_last_error}</p>
+                )}
+              </div>
+            )}
+
             {/* Actions */}
             <div className="bg-gray-800/50 rounded-2xl border border-gray-700 p-6 space-y-3">
               <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3">Actions</h3>
@@ -361,9 +442,17 @@ export default function InvoiceDetailPage() {
                 <button
                   onClick={handleSend}
                   disabled={actionLoading === 'send'}
-                  className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-medium disabled:opacity-50 transition-colors"
+                  className={`w-full px-4 py-2 text-white rounded-lg font-medium disabled:opacity-50 transition-colors ${
+                    invoice.status === 'overdue'
+                      ? 'bg-amber-600 hover:bg-amber-500'
+                      : 'bg-purple-600 hover:bg-purple-500'
+                  }`}
                 >
-                  {actionLoading === 'send' ? 'Sending...' : '📧 Send Invoice'}
+                  {actionLoading === 'send'
+                    ? 'Sending...'
+                    : invoice.status === 'overdue'
+                      ? '↻ Re-issue Payment Details'
+                      : '📧 Send Invoice'}
                 </button>
               )}
 
@@ -374,6 +463,16 @@ export default function InvoiceDetailPage() {
                   className="w-full px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium disabled:opacity-50 transition-colors"
                 >
                   {actionLoading === 'paid' ? 'Updating...' : '✅ Mark as Paid'}
+                </button>
+              )}
+
+              {invoice.status === 'sent' && invoice.payment_address && invoice.crypto_amount && invoice.crypto_currency && (
+                <button
+                  onClick={handleResendEmail}
+                  disabled={actionLoading === 'resend-email'}
+                  className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-medium disabled:opacity-50 transition-colors"
+                >
+                  {actionLoading === 'resend-email' ? 'Resending...' : '📧 Resend Email'}
                 </button>
               )}
 

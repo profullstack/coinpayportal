@@ -59,12 +59,12 @@ vi.mock('@/lib/server/optional-deps', () => ({
   }),
 }));
 
-const mockSingle = vi.fn();
-const mockEq2 = vi.fn().mockReturnValue({ single: mockSingle });
-const mockEq = vi.fn().mockReturnValue({ eq: mockEq2, single: mockSingle });
-const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
-const mockUpdate = vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ single: vi.fn().mockResolvedValue({ data: { id: 'inv-1' }, error: null }) }) }) });
 const mockFrom = vi.fn();
+const invoiceUpdatePayloads: Array<Record<string, unknown>> = [];
+let pendingTrackingError: unknown = null;
+let finalTrackingError: unknown = null;
+let pendingTrackingMatched = true;
+let finalTrackingMatched = true;
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({
@@ -85,6 +85,7 @@ vi.mock('@/lib/auth/authz', () => ({
 
 import { POST } from './route';
 import { createPayment } from '@/lib/payments/service';
+import { sendEmail } from '@/lib/email';
 
 const baseInvoice = {
   id: 'inv-1',
@@ -112,6 +113,11 @@ function makeRequest(): NextRequest {
 describe('POST /api/invoices/[id]/send', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    invoiceUpdatePayloads.length = 0;
+    pendingTrackingError = null;
+    finalTrackingError = null;
+    pendingTrackingMatched = true;
+    finalTrackingMatched = true;
     vi.mocked(createPayment).mockResolvedValue({
       success: true,
       payment: {
@@ -120,6 +126,7 @@ describe('POST /api/invoices/[id]/send', () => {
         crypto_amount: 0.05,
       } as any,
     });
+    vi.mocked(sendEmail).mockResolvedValue({ success: true, messageId: 'email-message-1' });
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     process.env.NEXT_PUBLIC_APP_URL = 'https://coinpayportal.com';
@@ -137,12 +144,28 @@ describe('POST /api/invoices/[id]/send', () => {
               single: vi.fn().mockResolvedValue({ data: invoice, error: null }),
             }),
           }),
-          update: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              select: vi.fn().mockReturnValue({
-                single: vi.fn().mockResolvedValue({ data: { ...invoice, status: 'sent' }, error: null }),
-              }),
-            }),
+          update: vi.fn((payload: Record<string, unknown>) => {
+            invoiceUpdatePayloads.push(payload);
+            const updateNumber = invoiceUpdatePayloads.length;
+            const query: any = {};
+            query.eq = vi.fn(() => query);
+            query.select = vi.fn(() => {
+              if (updateNumber === 1) {
+                return {
+                  single: vi.fn().mockResolvedValue({ data: { ...invoice, status: 'sent' }, error: null }),
+                };
+              }
+
+              const error = updateNumber === 2 ? pendingTrackingError : finalTrackingError;
+              const matched = updateNumber === 2 ? pendingTrackingMatched : finalTrackingMatched;
+              return {
+                maybeSingle: vi.fn().mockResolvedValue({
+                  data: error || !matched ? null : { id: invoice.id },
+                  error,
+                }),
+              };
+            });
+            return query;
           }),
         };
       }
@@ -170,6 +193,26 @@ describe('POST /api/invoices/[id]/send', () => {
     const body = await res.json();
 
     expect(body.success).toBe(true);
+    expect(body.emailAccepted).toBe(true);
+    expect(body.invoice.email_status).toBe('accepted');
+    expect(body.invoice.email_message_id).toBe('email-message-1');
+    expect(body.paymentLink).toBe('https://coinpayportal.com/now/inv-1');
+    expect(invoiceUpdatePayloads[0]).not.toHaveProperty('email_status');
+    expect(invoiceUpdatePayloads[1]).toMatchObject({
+      email_status: 'pending',
+      email_message_id: null,
+      email_last_error: null,
+    });
+    expect(invoiceUpdatePayloads[2]).toMatchObject({
+      email_status: 'accepted',
+      email_message_id: 'email-message-1',
+      email_last_error: null,
+    });
+    expect(sendEmail).toHaveBeenCalledWith({
+      to: 'alice@example.com',
+      subject: 'Invoice from Acme',
+      html: '<p>Pay here</p>',
+    });
     expect(createPayment).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       business_id: 'biz-1',
       amount: 100,
@@ -231,5 +274,79 @@ describe('POST /api/invoices/[id]/send', () => {
 
     const createCall = mockStripeCreate.mock.calls[0][0];
     expect(createCall.payment_intent_data.application_fee_amount).toBe(50); // 0.5% of 10000
+  });
+
+  it('keeps the payment live and reports when the email provider rejects the message', async () => {
+    vi.mocked(sendEmail).mockResolvedValueOnce({
+      success: false,
+      error: 'Provider rejected the message',
+    });
+    setupMocks({ stripeAccount: null });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: 'inv-1' }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.emailAccepted).toBe(false);
+    expect(body.emailTrackingSaved).toBe(true);
+    expect(body.emailError).toBe('Provider rejected the message');
+    expect(body.warning).toContain('payment link is active');
+    expect(body.invoice).toMatchObject({
+      id: 'inv-1',
+      status: 'sent',
+      email_status: 'failed',
+      email_message_id: null,
+      email_last_error: 'Provider rejected the message',
+    });
+    expect(body.paymentLink).toBe('https://coinpayportal.com/now/inv-1');
+    expect(createPayment).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns an unexpected email exception into an explicit partial-success response', async () => {
+    vi.mocked(sendEmail).mockRejectedValueOnce(new Error('Email transport crashed'));
+    setupMocks({ stripeAccount: null });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: 'inv-1' }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.emailAccepted).toBe(false);
+    expect(body.emailError).toBe('Email transport crashed');
+    expect(body.invoice.email_status).toBe('failed');
+    expect(createPayment).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports pending when the final email tracking write fails', async () => {
+    finalTrackingError = { message: 'Tracking unavailable' };
+    setupMocks({ stripeAccount: null });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: 'inv-1' }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.emailAccepted).toBe(true);
+    expect(body.emailTrackingSaved).toBe(false);
+    expect(body.invoice.email_status).toBe('pending');
+    expect(body.warning).toContain('tracking status could not be saved');
+    expect(invoiceUpdatePayloads[1]).toMatchObject({ email_status: 'pending' });
+    expect(invoiceUpdatePayloads[2]).toMatchObject({ email_status: 'accepted' });
+  });
+
+  it('does not let an older send overwrite a newer email attempt', async () => {
+    finalTrackingMatched = false;
+    setupMocks({ stripeAccount: null });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: 'inv-1' }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.emailAccepted).toBe(true);
+    expect(body.emailTrackingSaved).toBe(false);
+    expect(body.invoice.email_status).toBe('pending');
+    expect(body.warning).toContain('tracking status could not be saved');
   });
 });

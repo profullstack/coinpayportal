@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect, beforeEach } from 'vitest';
 import {
   checkRateLimit,
   resetRateLimits,
@@ -6,6 +6,28 @@ import {
   resetSeenSignatures,
   RATE_LIMITS,
 } from './rate-limit';
+
+const originalSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const originalServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+beforeAll(() => {
+  delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+});
+
+afterAll(() => {
+  if (originalSupabaseUrl === undefined) {
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+  } else {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = originalSupabaseUrl;
+  }
+
+  if (originalServiceRoleKey === undefined) {
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  } else {
+    process.env.SUPABASE_SERVICE_ROLE_KEY = originalServiceRoleKey;
+  }
+});
 
 describe('rate-limit', () => {
   beforeEach(() => {
