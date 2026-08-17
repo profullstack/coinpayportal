@@ -22,7 +22,9 @@
       "matches": [
         "https://coinpayportal.com/*",
         "https://ugig.net/*",
-        "https://www.ugig.net/*"
+        "https://www.ugig.net/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
       ],
       "js": ["content/bridge.js"],
       "run_at": "document_start"
@@ -34,7 +36,9 @@
       "matches": [
         "https://coinpayportal.com/*",
         "https://ugig.net/*",
-        "https://www.ugig.net/*"
+        "https://www.ugig.net/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
       ]
     }
   ],
