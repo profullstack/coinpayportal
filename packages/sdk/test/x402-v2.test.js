@@ -14,6 +14,9 @@ import {
   requiredAmount,
   randomNonce,
   TRANSFER_WITH_AUTHORIZATION_TYPES,
+  tokenDomain,
+  V2_METHODS,
+  buildPaymentRequiredV2,
 } from '../src/x402-v2.js';
 
 // USDC on Base, exactly as it appears in live discovery data.
@@ -199,5 +202,162 @@ describe('requiredAmount', () => {
 
   it('throws when neither is present', () => {
     expect(() => requiredAmount({})).toThrow(/amount/i);
+  });
+});
+
+describe('token domains', () => {
+  it('publishes domains read from the deployed contracts', () => {
+    // Verified over JSON-RPC against each deployment, and matching what
+    // GoPlausible's discovery index publishes for Base.
+    expect(tokenDomain('base', USDC_BASE)).toEqual({ name: 'USD Coin', version: '2' });
+    expect(tokenDomain('eip155:1', '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48')).toEqual({
+      name: 'USD Coin',
+      version: '2',
+    });
+    expect(tokenDomain('polygon', '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359')).toEqual({
+      name: 'USD Coin',
+      version: '2',
+    });
+  });
+
+  it('matches regardless of address casing', () => {
+    expect(tokenDomain('base', USDC_BASE.toLowerCase())).toEqual({ name: 'USD Coin', version: '2' });
+  });
+
+  it('returns null for a token whose domain we have not read', () => {
+    expect(tokenDomain('base', '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef')).toBeNull();
+    expect(tokenDomain('base', undefined)).toBeNull();
+  });
+
+  it('quotes only tokens, since EIP-3009 cannot authorise native currency', () => {
+    for (const method of Object.values(V2_METHODS)) {
+      expect(method.asset).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    }
+  });
+});
+
+describe('buildPaymentRequiredV2', () => {
+  const payTo = '0x1111111111111111111111111111111111111111';
+  const resource = 'https://api.example.com/premium';
+
+  it('emits a v2 body a standard payer can read', () => {
+    const body = buildPaymentRequiredV2({ payTo, amountUsd: 0.01, resource });
+
+    expect(body.x402Version).toBe(2);
+    expect(body.accepts.length).toBeGreaterThan(0);
+
+    for (const entry of body.accepts) {
+      expect(entry.scheme).toBe('exact');
+      expect(entry.network).toMatch(/^eip155:\d+$/);
+      expect(entry).toHaveProperty('amount');
+      expect(entry).not.toHaveProperty('maxAmountRequired');
+      expect(entry.extra).toEqual({ name: 'USD Coin', version: '2' });
+    }
+  });
+
+  it('carries the token domain, without which nothing can be signed', () => {
+    const [entry] = buildPaymentRequiredV2({
+      payTo,
+      amountUsd: 1,
+      resource,
+      methods: ['usdc_base'],
+    }).accepts;
+
+    expect(entry.extra.name).toBe('USD Coin');
+    expect(entry.extra.version).toBe('2');
+    expect(entry.asset).toBe(USDC_BASE);
+  });
+
+  it('converts USD to USDC micro-units', () => {
+    const [entry] = buildPaymentRequiredV2({
+      payTo,
+      amountUsd: 0.05,
+      resource,
+      methods: ['usdc_base'],
+    }).accepts;
+
+    expect(entry.amount).toBe('50000');
+  });
+
+  it('rounds a sub-cent price UP, so a quote is never below the asking price', () => {
+    const [entry] = buildPaymentRequiredV2({
+      payTo,
+      amountUsd: 0.0000005,
+      resource,
+      methods: ['usdc_base'],
+    }).accepts;
+
+    expect(entry.amount).toBe('1');
+  });
+
+  it('accepts an explicit smallest-unit amount', () => {
+    const [entry] = buildPaymentRequiredV2({
+      payTo,
+      amount: '6000',
+      resource,
+      methods: ['usdc_base'],
+    }).accepts;
+
+    expect(entry.amount).toBe('6000');
+  });
+
+  it('resolves a per-network payTo map, by CAIP-2 or legacy name', () => {
+    const body = buildPaymentRequiredV2({
+      payTo: { 'eip155:8453': '0xBase', polygon: '0xPoly' },
+      amountUsd: 1,
+      resource,
+      methods: ['usdc_base', 'usdc_polygon', 'usdc_eth'],
+    });
+
+    const byNetwork = Object.fromEntries(body.accepts.map((a) => [a.network, a.payTo]));
+    expect(byNetwork['eip155:8453']).toBe('0xBase');
+    expect(byNetwork['eip155:137']).toBe('0xPoly');
+    // No Ethereum address supplied, so no Ethereum option is advertised.
+    expect(byNetwork['eip155:1']).toBeUndefined();
+  });
+
+  it('honours an explicit method list', () => {
+    const body = buildPaymentRequiredV2({ payTo, amountUsd: 1, resource, methods: ['usdc_base'] });
+    expect(body.accepts).toHaveLength(1);
+    expect(body.accepts[0].network).toBe('eip155:8453');
+  });
+
+  it('carries the resource so the payer knows what it is buying', () => {
+    const [entry] = buildPaymentRequiredV2({ payTo, amountUsd: 1, resource, methods: ['usdc_base'] })
+      .accepts;
+    expect(entry.resource).toBe(resource);
+  });
+
+  it('throws rather than emitting an empty accepts array', () => {
+    expect(() =>
+      buildPaymentRequiredV2({
+        payTo: { 'eip155:1': '0xa' },
+        amountUsd: 1,
+        resource,
+        methods: ['usdc_base'],
+      }),
+    ).toThrow(/no payable options/i);
+  });
+
+  it('requires payTo, resource and a price', () => {
+    expect(() => buildPaymentRequiredV2({ amountUsd: 1, resource })).toThrow(/payTo/);
+    expect(() => buildPaymentRequiredV2({ payTo, amountUsd: 1 })).toThrow(/resource/);
+    expect(() => buildPaymentRequiredV2({ payTo, resource })).toThrow(/amount/);
+  });
+
+  it('round-trips: what it quotes, selectAcceptEntry can choose and pay', () => {
+    const body = buildPaymentRequiredV2({ payTo, amountUsd: 0.01, resource });
+    const entry = selectAcceptEntry(body.accepts, ['eip155:8453']);
+
+    expect(entry).not.toBeNull();
+    expect(requiredAmount(entry)).toBe('10000');
+    expect(() =>
+      buildEip3009Domain({
+        network: entry.network,
+        asset: entry.asset,
+        name: entry.extra.name,
+        version: entry.extra.version,
+      }),
+    ).not.toThrow();
   });
 });

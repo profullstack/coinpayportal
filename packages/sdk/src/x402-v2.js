@@ -81,6 +81,73 @@ export function evmChainId(network) {
 }
 
 /**
+ * EIP-712 domains for the tokens we quote, keyed by `chainId:address`.
+ *
+ * A payer cannot sign without `name` and `version`, and they are not derivable:
+ * `version()` is not part of ERC-20 and tokens disagree about the value. So a
+ * v2 `accepts` entry has to carry them, which means the quoting side has to
+ * know them.
+ *
+ * Every entry below was read from the deployed contract — `name()`,
+ * `version()` and `DOMAIN_SEPARATOR()` over JSON-RPC — not copied from
+ * documentation. The Base values additionally match what GoPlausible's
+ * discovery index publishes for the same token.
+ *
+ * A token that is not in this table cannot be quoted for v2, because guessing
+ * its domain produces signatures that recover to the wrong address and fail
+ * verification with no useful diagnostic.
+ */
+export const TOKEN_DOMAINS = {
+  // USDC. All three deployments report the same domain.
+  'eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48': { name: 'USD Coin', version: '2' },
+  'eip155:137:0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359': { name: 'USD Coin', version: '2' },
+  'eip155:8453:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913': { name: 'USD Coin', version: '2' },
+};
+
+/** The published EIP-712 domain for a token, or null if we do not know it. */
+export function tokenDomain(network, asset) {
+  if (!asset) return null;
+  const caip2 = toCaip2(network);
+  const exact = TOKEN_DOMAINS[`${caip2}:${asset}`];
+  if (exact) return exact;
+
+  // Addresses are case-insensitive, so a caller passing a differently-cased
+  // address must not silently miss.
+  const wanted = `${caip2}:${asset}`.toLowerCase();
+  const match = Object.entries(TOKEN_DOMAINS).find(([key]) => key.toLowerCase() === wanted);
+  return match ? match[1] : null;
+}
+
+/**
+ * The v2-quotable tokens, as `{ methodKey: {network, asset, decimals} }`.
+ *
+ * Only tokens: EIP-3009 is an ERC-20 extension, so native ETH or POL cannot be
+ * paid under the `exact` scheme at all — there is no contract to authorise
+ * against. Quoting native currency as `exact` would advertise something no
+ * wallet can sign.
+ */
+export const V2_METHODS = {
+  usdc_eth: {
+    network: 'eip155:1',
+    asset: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+    decimals: 6,
+    label: 'USDC on Ethereum',
+  },
+  usdc_polygon: {
+    network: 'eip155:137',
+    asset: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+    decimals: 6,
+    label: 'USDC on Polygon',
+  },
+  usdc_base: {
+    network: 'eip155:8453',
+    asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    decimals: 6,
+    label: 'USDC on Base',
+  },
+};
+
+/**
  * EIP-3009 `TransferWithAuthorization` type.
  *
  * This — not a bespoke `Payment` struct — is what x402's `exact` scheme signs
@@ -247,6 +314,91 @@ export function selectAcceptEntry(accepts, capabilities) {
   if (!Array.isArray(accepts) || accepts.length === 0) return null;
   const supported = new Set(capabilities.map(toCaip2));
   return accepts.find((entry) => supported.has(toCaip2(entry?.network))) ?? null;
+}
+
+/**
+ * Build a v2 `402 Payment Required` body.
+ *
+ * `buildPaymentRequired` in x402.js emits our v1 dialect — `x402Version: 1`,
+ * bare network names, `maxAmountRequired` — which no standard payer can read.
+ * A facilitator that verifies v2 but only ever quotes v1 still cannot be paid
+ * by anyone, so this is the other half of speaking the protocol.
+ *
+ * Only tokens with a known EIP-712 domain are quoted. An entry a payer cannot
+ * sign is worse than an absent one: it looks payable, fails at signing time,
+ * and the failure surfaces as an opaque signature error.
+ *
+ * @param {object} options
+ * @param {string|Record<string,string>} options.payTo  merchant address, or per-network map
+ * @param {number} [options.amountUsd]  price in USD (USDC is quoted 1:1)
+ * @param {string} [options.amount]     explicit smallest-unit amount, overrides amountUsd
+ * @param {string[]} [options.methods]  keys from V2_METHODS; defaults to all
+ * @param {string} options.resource     the URL being sold
+ * @param {string} [options.description]
+ * @param {string} [options.mimeType='application/json']
+ * @param {number} [options.maxTimeoutSeconds=300]
+ */
+export function buildPaymentRequiredV2({
+  payTo,
+  amountUsd,
+  amount,
+  methods,
+  resource,
+  description = 'Payment required',
+  mimeType = 'application/json',
+  maxTimeoutSeconds = 300,
+} = {}) {
+  if (!payTo) throw new Error('buildPaymentRequiredV2 requires `payTo`');
+  if (!resource) throw new Error('buildPaymentRequiredV2 requires `resource`');
+  if (amount === undefined && amountUsd === undefined) {
+    throw new Error('buildPaymentRequiredV2 requires `amount` or `amountUsd`');
+  }
+
+  const keys = methods ?? Object.keys(V2_METHODS);
+  const accepts = [];
+
+  for (const key of keys) {
+    const method = V2_METHODS[key];
+    if (!method) continue;
+
+    const domain = tokenDomain(method.network, method.asset);
+    if (!domain) continue; // unsignable — leave it out rather than advertise it
+
+    const address =
+      typeof payTo === 'object' ? (payTo[method.network] ?? payTo[fromCaip2(method.network)] ?? payTo[key]) : payTo;
+    if (!address) continue; // merchant has no address on this chain
+
+    // USDC is a dollar stablecoin with 6 decimals, so a USD price converts
+    // exactly. Rounding up rather than down: rounding a fraction of a cent
+    // down would quote less than the asking price and verify as underpayment.
+    const smallestUnit =
+      amount !== undefined
+        ? String(amount)
+        : String(Math.ceil(amountUsd * 10 ** method.decimals));
+
+    accepts.push({
+      scheme: 'exact',
+      network: method.network,
+      amount: smallestUnit,
+      asset: method.asset,
+      payTo: address,
+      resource,
+      description,
+      mimeType,
+      maxTimeoutSeconds,
+      // The token's EIP-712 domain. Without this the payer cannot construct a
+      // signature at all — it is the whole reason `extra` exists on a v2 entry.
+      extra: { name: domain.name, version: domain.version },
+    });
+  }
+
+  if (accepts.length === 0) {
+    throw new Error(
+      'No payable options could be built. Check `payTo` covers at least one supported chain.',
+    );
+  }
+
+  return { x402Version: X402_VERSION, accepts };
 }
 
 /**
