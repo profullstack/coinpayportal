@@ -70,6 +70,12 @@ export type WalletRequest =
   | { type: 'site:getAccounts' }
   /** `from` picks which of a chain's addresses pays, as for `send`. */
   | { type: 'site:payBatch'; payments: BatchPaymentRequest[]; from?: string }
+  /**
+   * `paymentRequired` is the body of a 402 response, straight from the page,
+   * so it is untrusted and validated in the background before anything is
+   * signed.
+   */
+  | { type: 'site:payX402'; paymentRequired: unknown; from?: string }
   // ── approval window ──
   | { type: 'approval:get'; requestId: string }
   | { type: 'approval:approve'; requestId: string; password?: string }
@@ -154,7 +160,33 @@ export type PendingApproval =
        * the seed, and this window is what asks for the password.
        */
       funding?: BatchFunding[];
+    }
+  | {
+      kind: 'payX402';
+      requestId: string;
+      origin: string;
+      needsUnlock: boolean;
+      /**
+       * What the user is agreeing to pay. Summarised rather than raw, because
+       * an approval window that shows an EIP-3009 struct asks the user to
+       * verify something they cannot read.
+       */
+      summary: X402ApprovalSummary;
     };
+
+/** The human-facing shape of an x402 payment awaiting approval. */
+export interface X402ApprovalSummary {
+  /** Chain name, e.g. "Base". */
+  network: string;
+  chainId: number;
+  /** Display amount, already scaled out of smallest units. */
+  amount: string;
+  assetSymbol: string;
+  payTo: string;
+  /** The URL being bought, when the offer names one. */
+  resource?: string;
+  description?: string;
+}
 
 export type WalletResponse =
   | { ok: true; state: WalletState }
@@ -173,6 +205,8 @@ export type WalletResponse =
   | { ok: true; portal: PortalAccountStatus[] }
   | { ok: true; balances: AddressBalance[] }
   | { ok: true; transactions: WalletTransaction[] }
+  /** The `X-PAYMENT` header value for an approved x402 payment. */
+  | { ok: true; paymentHeader: string }
   | { ok: true }
   | { ok: false; error: string };
 

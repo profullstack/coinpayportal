@@ -41,8 +41,21 @@ import {
   type BatchFunding,
 } from '../core/batch.js';
 import { PAY_CHAINS, signingChain, toPayChain } from '../core/pay-chains.js';
+import {
+  selectPayableEntry,
+  buildAuthorization,
+  signX402Payment,
+  summarizeX402,
+  type PaymentRequired,
+} from '../core/x402.js';
 import type { NativeChain } from '../core/chains.js';
-import type { WalletRequest, WalletResponse, PendingApproval, WalletEvent } from '../messages.js';
+import type {
+  WalletRequest,
+  WalletResponse,
+  PendingApproval,
+  WalletEvent,
+  X402ApprovalSummary,
+} from '../messages.js';
 
 const AUTO_LOCK_ALARM = 'coinpay-auto-lock';
 const DEFAULT_IDLE_MINUTES = 15;
@@ -510,6 +523,90 @@ async function sendersFor(from?: string): Promise<
   return senders;
 }
 
+/**
+ * Sign an x402 invoice.
+ *
+ * Unlike `payBatch` this broadcasts nothing and costs no gas: an EIP-3009
+ * authorization IS the payment, and the facilitator submits it. So the account
+ * paying needs the token but no native currency on that chain, and there is no
+ * balance check here — there is no transaction to fund.
+ *
+ * The signature is a bearer instrument: whoever holds it can move exactly this
+ * amount from this account, once, before it expires. That is why it goes
+ * through the same approval window as a transfer rather than being signed
+ * silently.
+ */
+async function handleSitePayX402(
+  origin: string,
+  rawPaymentRequired: unknown,
+  from?: string,
+): Promise<WalletResponse> {
+  if (!(await connections.isConnected(origin))) {
+    return { ok: false, error: 'Site is not connected to this wallet' };
+  }
+  if (!(await wallet.isInitialized())) {
+    return { ok: false, error: 'No wallet has been set up yet' };
+  }
+
+  const entry = selectPayableEntry(rawPaymentRequired as PaymentRequired);
+  if (!entry) {
+    return {
+      ok: false,
+      error:
+        'None of the offered payment options can be paid by this wallet. ' +
+        'It signs EIP-3009 payments on Ethereum, Polygon and Base.',
+    };
+  }
+
+  let summary: X402ApprovalSummary;
+  try {
+    summary = summarizeX402(entry);
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+
+  const requestId = newRequestId();
+  const approved = await requestApproval({
+    kind: 'payX402',
+    requestId,
+    origin,
+    needsUnlock: !(await wallet.isUnlocked()),
+    summary,
+  });
+
+  if (!approved) {
+    await clearApproval(requestId);
+    return { ok: false, error: 'Payment request rejected' };
+  }
+
+  try {
+    // Approving requires unlocking, so the seed is available by here.
+    const seed = await wallet.requireSeed();
+    const senders = await sendersFor(from);
+    const sender = senders.ETH;
+    if (!sender) {
+      return { ok: false, error: 'This wallet has no Ethereum-family address to pay from' };
+    }
+
+    // Every EVM chain shares one derived key, so the ETH address is the payer
+    // on Polygon and Base too.
+    const privateKey = derivePrivateKey(seed, 'ETH', sender.index);
+    try {
+      const authorization = buildAuthorization(entry, sender.address);
+      const paymentHeader = signX402Payment(entry, authorization, privateKey);
+      await connections.touch(origin);
+      return { ok: true, paymentHeader };
+    } finally {
+      // The key is a live spending credential; do not leave it in memory.
+      privateKey.fill(0);
+    }
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  } finally {
+    await clearApproval(requestId);
+  }
+}
+
 async function handleSend(
   chain: string,
   to: string,
@@ -810,6 +907,12 @@ async function handle(
         const origin = senderOrigin(sender);
         if (!origin) return { ok: false, error: 'Unknown origin' };
         return handleSitePayBatch(origin, req.payments, sender, req.from);
+      }
+
+      case 'site:payX402': {
+        const origin = senderOrigin(sender);
+        if (!origin) return { ok: false, error: 'Unknown origin' };
+        return handleSitePayX402(origin, req.paymentRequired, req.from);
       }
 
       // ── approval window ──

@@ -40,7 +40,71 @@ export async function start(): Promise<void> {
 function render(): void {
   if (!approval) return;
   if (approval.kind === 'connect') return renderConnect(approval);
+  if (approval.kind === 'payX402') return renderX402(approval);
   return renderBatch(approval);
+}
+
+// ── x402 ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Approve paying an x402 invoice.
+ *
+ * Deliberately different in tone from a transfer. Nothing is broadcast and no
+ * gas is spent, but what the user authorises is a bearer instrument: whoever
+ * holds the signature can move exactly this amount from this account, once,
+ * until it expires. So the window states the amount, the payee and the URL
+ * being bought, and says plainly that the site can collect it.
+ */
+function renderX402(request: Extract<PendingApproval, { kind: 'payX402' }>): void {
+  const password = passwordField(request.needsUnlock);
+  const status = el('p', { class: 'muted' });
+  const { summary } = request;
+
+  const rows = el('div', { class: 'totals' }, [
+    el('div', { class: 'total-row grand' }, [
+      el('span', { text: 'Amount' }),
+      el('span', { text: `${summary.amount} ${summary.assetSymbol}` }),
+    ]),
+    el('div', { class: 'total-row' }, [
+      el('span', { class: 'chain', text: 'Network' }),
+      el('span', { text: summary.network }),
+    ]),
+    el('div', { class: 'total-row' }, [
+      el('span', { class: 'chain', text: 'To' }),
+      el('span', { text: shortAddress(summary.payTo) }),
+    ]),
+  ]);
+
+  mount(
+    brand('Approve payment'),
+    el('span', { class: 'origin', text: request.origin }),
+    ...(summary.resource
+      ? [el('p', { class: 'muted', text: `For: ${summary.resource}` })]
+      : []),
+    ...(summary.description
+      ? [el('p', { class: 'muted', text: summary.description })]
+      : []),
+    rows,
+    el('p', {
+      class: 'warn',
+      text: 'Approving authorises this site to collect this amount once. No network fee is charged to you.',
+    }),
+    ...(password ? [password.row] : []),
+    status,
+    el('div', { class: 'row' }, [
+      button('Reject', () => void decide(false), 'btn'),
+      button(
+        `Pay ${summary.amount} ${summary.assetSymbol}`,
+        () => void decide(true, password?.input.value, status),
+        'btn primary',
+      ),
+    ]),
+  );
+}
+
+/** Middle-elide an address so both ends stay checkable at a glance. */
+function shortAddress(address: string): string {
+  return address.length > 16 ? `${address.slice(0, 8)}…${address.slice(-6)}` : address;
 }
 
 // ── Connect ──────────────────────────────────────────────────────────────────
