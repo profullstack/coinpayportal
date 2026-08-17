@@ -8,6 +8,8 @@
  * @module x402
  */
 
+import { buildPaymentRequiredV2 } from './x402-v2.js';
+
 /**
  * All supported payment methods with their network/asset metadata.
  * 
@@ -352,12 +354,37 @@ function decodePaymentHeader(paymentHeader) {
  * The price comes from the offer the server just built — never from the proof
  * itself, which is the payer's word for what they owe.
  *
- * @returns {{amount: string, resource: string}|null} null if the proof matches
- *   no advertised method, in which case there is no price to hold it to.
+ * @returns {{amount: string, resource: string, payTo?: string, asset?: string}|null}
+ *   null if the proof matches no advertised method, in which case there is no
+ *   price to hold it to.
  */
 export function expectedForProof(paymentHeader, offer, resource) {
   const payment = decodePaymentHeader(paymentHeader);
   if (!payment?.payload) return null;
+
+  // A v2 proof describes itself differently: the network sits at the top level
+  // and the payload holds a signed authorization rather than loose fields.
+  // Matching it against the offer the same way as v1 would find nothing and
+  // report "no price to check against" for a perfectly good payment.
+  const authorization = payment.payload.authorization;
+  if (authorization) {
+    const entries = offer?.accepts || [];
+    const match =
+      entries.find((e) => e.network === payment.network && e.payTo === authorization.to) ||
+      entries.find((e) => e.network === payment.network);
+
+    if (!match) return null;
+
+    return {
+      amount: match.amount ?? match.maxAmountRequired,
+      resource,
+      // v2 verification needs both: an EIP-3009 signature says nothing about
+      // which token it is denominated in, so without the asset there is no
+      // domain to check it against.
+      payTo: match.payTo,
+      asset: match.asset,
+    };
+  }
 
   const { network, asset } = payment.payload;
   const methodKey = payment.payload.methodKey || payment.payload.extra?.methodKey;
@@ -425,9 +452,22 @@ export function createX402Middleware(globalOptions) {
     facilitatorUrl = DEFAULT_FACILITATOR_URL,
     apiBaseUrl = 'https://coinpayportal.com',
     allowPendingConfirmation: globalAllowPendingConfirmation = false,
+    /**
+     * Which protocol version to quote in the 402.
+     *
+     * Defaults to 1 so existing integrations keep the offer they have today —
+     * their payers only understand our dialect, and switching the quote out
+     * from under them would break every one at once. Set to 2 to advertise the
+     * real protocol, which is what any standard wallet (MetaMask, Phantom) can
+     * actually pay.
+     */
+    x402Version: protocolVersion = 1,
   } = globalOptions;
 
   if (!apiKey) throw new Error('x402 middleware requires an apiKey');
+  if (protocolVersion !== 1 && protocolVersion !== 2) {
+    throw new Error(`Unsupported x402Version: ${protocolVersion} (expected 1 or 2)`);
+  }
   if (!payTo) throw new Error('x402 middleware requires a payTo address');
 
   // Mutable rates cache — can be updated externally or via ratesEndpoint
@@ -475,17 +515,27 @@ export function createX402Middleware(globalOptions) {
       // and on a paid request it is the price the proof has to actually cover.
       let offer;
       try {
-        offer = buildPaymentRequired({
-          payTo,
-          amountUsd: routeAmountUsd,
-          amount: routeAmount,
-          network: routeOptions.network,
-          rates: currentRates,
-          methods: routeMethods,
-          resource,
-          description: routeDescription,
-          facilitatorUrl,
-        });
+        offer =
+          protocolVersion === 2
+            ? buildPaymentRequiredV2({
+                payTo,
+                amountUsd: routeAmountUsd,
+                amount: routeAmount,
+                methods: routeMethods,
+                resource,
+                description: routeDescription,
+              })
+            : buildPaymentRequired({
+                payTo,
+                amountUsd: routeAmountUsd,
+                amount: routeAmount,
+                network: routeOptions.network,
+                rates: currentRates,
+                methods: routeMethods,
+                resource,
+                description: routeDescription,
+                facilitatorUrl,
+              });
       } catch (err) {
         return res.status(500).json({ error: 'Failed to build payment options', details: err.message });
       }
