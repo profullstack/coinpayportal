@@ -314,6 +314,49 @@ describe('Blockchain Providers', () => {
       expect(provider.sendTransaction).toBeDefined();
     });
 
+    it('should reject a transfer when the signer does not control the source address', async () => {
+      const provider = new SolanaProvider('https://api.mainnet-beta.solana.com');
+
+      await expect(
+        provider.sendTransaction('different-address', 'recipient', '0.5', 'private-key')
+      ).rejects.toThrow('Solana signer address mismatch');
+    });
+
+    it('should reject a split transfer when the signer does not control the source address', async () => {
+      const provider = new SolanaProvider('https://api.mainnet-beta.solana.com');
+
+      await expect(
+        provider.sendSplitTransaction(
+          'different-address',
+          [{ address: 'recipient', amount: '0.5' }],
+          'private-key'
+        )
+      ).rejects.toThrow('Solana signer address mismatch');
+    });
+
+    it('should allow a transfer when the signer controls the source address', async () => {
+      const provider = new SolanaProvider('https://api.mainnet-beta.solana.com');
+
+      await expect(
+        provider.sendTransaction('mockpublickey', 'recipient', '0.5', 'private-key')
+      ).resolves.toBe('mocksoltxsignature');
+    });
+
+    it('should allow a split transfer when the signer controls the source address', async () => {
+      const provider = new SolanaProvider('https://api.mainnet-beta.solana.com');
+
+      await expect(
+        provider.sendSplitTransaction(
+          'mockpublickey',
+          [
+            { address: 'merchant', amount: '0.99' },
+            { address: 'platform', amount: '0.01' },
+          ],
+          'private-key'
+        )
+      ).resolves.toBe('mocksoltxsignature');
+    });
+
     describe('Rent-Exempt Minimum for One-Time Payment Addresses', () => {
       it('should have RENT_EXEMPT_MINIMUM set to 0 for one-time payment addresses', () => {
         const provider = new SolanaProvider('https://api.mainnet-beta.solana.com');

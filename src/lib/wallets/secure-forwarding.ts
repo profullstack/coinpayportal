@@ -36,7 +36,7 @@ import {
   ensureGasForTransfers,
   forwardTokenViaRelayer,
 } from './evm-gas';
-import type { SystemBlockchain } from './system-wallet';
+import { getCommissionWallet, type SystemBlockchain } from './system-wallet';
 import { checkBalance as checkAddressBalance } from '@/app/api/cron/monitor-payments/balance-checkers';
 
 const EVM_TOKEN_CONFIG = {
@@ -87,6 +87,72 @@ interface PaymentAddressData {
   merchant_amount: number;
   is_used: boolean;
   is_escrow?: boolean;
+}
+
+interface ForwardingPaymentBinding {
+  id: string;
+  blockchain: string | null;
+  payment_address: string | null;
+  merchant_wallet_address: string | null;
+}
+
+function addressesMatch(left: string, right: string): boolean {
+  const a = left.trim();
+  const b = right.trim();
+  return a.startsWith('0x') && b.startsWith('0x')
+    ? a.toLowerCase() === b.toLowerCase()
+    : a === b;
+}
+
+/**
+ * Fail closed when the payment and its signing record no longer describe the
+ * same source, chain, and payout destination.
+ */
+export function validateForwardingBinding(
+  payment: ForwardingPaymentBinding,
+  addressData: Pick<
+    PaymentAddressData,
+    'payment_id' | 'cryptocurrency' | 'address' | 'merchant_wallet' | 'commission_wallet'
+  >,
+  expectedCommissionWallet: string
+): string | null {
+  if (addressData.payment_id !== payment.id) {
+    return 'Payment address record belongs to a different payment';
+  }
+
+  if (!payment.payment_address) {
+    return 'Payment has no recorded source address';
+  }
+
+  if (!addressesMatch(payment.payment_address, addressData.address)) {
+    return 'Payment source address does not match its signing record';
+  }
+
+  if (!payment.blockchain) {
+    return 'Payment has no recorded blockchain';
+  }
+
+  if (payment.blockchain !== addressData.cryptocurrency) {
+    return 'Payment blockchain does not match its signing record';
+  }
+
+  if (!payment.merchant_wallet_address) {
+    return 'Payment has no recorded merchant payout address';
+  }
+
+  if (!addressesMatch(payment.merchant_wallet_address, addressData.merchant_wallet)) {
+    return 'Merchant payout address does not match its signing record';
+  }
+
+  if (!addressData.commission_wallet.trim()) {
+    return 'Payment signing record has no platform fee wallet';
+  }
+
+  if (!addressesMatch(expectedCommissionWallet, addressData.commission_wallet)) {
+    return 'Platform fee wallet does not match server configuration';
+  }
+
+  return null;
 }
 
 /**
@@ -446,6 +512,35 @@ export async function forwardPaymentSecurely(
         error:
           `Payment ${paymentId} has no merchant payout address on its payment_addresses row. ` +
           `Set merchant_wallet to the merchant's ${addressData.cryptocurrency} address before forwarding.`,
+      };
+    }
+
+    let expectedCommissionWallet: string;
+    try {
+      expectedCommissionWallet = getCommissionWallet(
+        addressData.cryptocurrency as SystemBlockchain
+      );
+    } catch (commissionWalletError) {
+      console.error(
+        `[SECURE] Cannot validate platform fee wallet for payment ${paymentId}:`,
+        commissionWalletError
+      );
+      return {
+        success: false,
+        error: 'Platform fee wallet configuration is unavailable',
+      };
+    }
+
+    const bindingError = validateForwardingBinding(
+      payment,
+      addressData,
+      expectedCommissionWallet
+    );
+    if (bindingError) {
+      console.error(`[SECURE] Refusing to forward payment ${paymentId}: ${bindingError}`);
+      return {
+        success: false,
+        error: `Forwarding record mismatch: ${bindingError}`,
       };
     }
 
