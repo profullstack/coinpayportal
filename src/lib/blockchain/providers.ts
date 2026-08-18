@@ -618,6 +618,15 @@ export class SolanaProvider implements BlockchainProvider {
     this.connection = new Connection(rpcUrl, 'confirmed');
   }
 
+  private assertSignerControls(from: string, keypair: Keypair): void {
+    const signerAddress = keypair.publicKey.toString();
+    if (signerAddress !== from) {
+      throw new Error(
+        `Solana signer address mismatch: expected ${from}, derived ${signerAddress}`
+      );
+    }
+  }
+
   async getBalance(address: string): Promise<string> {
     try {
       const publicKey = new PublicKey(address);
@@ -707,12 +716,10 @@ export class SolanaProvider implements BlockchainProvider {
       // Create keypair from secret key
       const keypair = Keypair.fromSecretKey(secretKey);
 
-      // Verify the from address matches the keypair
-      if (keypair.publicKey.toString() !== from) {
-        console.log(`[SOL] Address mismatch: expected ${from}, got ${keypair.publicKey.toString()}`);
-        // Don't throw - the address derivation might differ slightly
-        // Just log and continue
-      }
+      // A forwarding key must control the address whose balance was checked.
+      // Continuing on a mismatch could spend a different derived account while
+      // leaving the customer's deposit untouched.
+      this.assertSignerControls(from, keypair);
 
       // Convert amount to lamports
       let lamports = Math.floor(parseFloat(amount) * LAMPORTS_PER_SOL);
@@ -810,6 +817,8 @@ export class SolanaProvider implements BlockchainProvider {
       }
 
       const keypair = Keypair.fromSecretKey(secretKey);
+
+      this.assertSignerControls(from, keypair);
 
       // Get current balance
       const currentBalance = await this.connection.getBalance(keypair.publicKey);
