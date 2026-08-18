@@ -5,6 +5,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { Keypair } from '@solana/web3.js';
+import { SolanaProvider } from '../blockchain/providers';
 import {
   deriveSystemPaymentAddress,
   calculateSplit,
@@ -232,6 +234,21 @@ describe('System Wallet', () => {
         const result0 = await deriveSystemPaymentAddress('SOL', 0);
         const result1 = await deriveSystemPaymentAddress('SOL', 1);
         expect(result0.address).not.toBe(result1.address);
+      });
+
+      it('should restore the stored seed to the same Solana signer address', async () => {
+        const result = await deriveSystemPaymentAddress('SOL', 7);
+        const provider = new SolanaProvider('https://api.mainnet-beta.solana.com');
+        const deriveFullKeypair = (
+          provider as unknown as {
+            deriveFullKeypair(seed: Uint8Array): Promise<Uint8Array>;
+          }
+        ).deriveFullKeypair.bind(provider);
+
+        const seed = Uint8Array.from(Buffer.from(result.privateKey, 'hex'));
+        const restored = Keypair.fromSecretKey(await deriveFullKeypair(seed));
+
+        expect(restored.publicKey.toString()).toBe(result.address);
       });
     });
 
