@@ -270,7 +270,7 @@ from Stripe's own record rather than the self-declared payload amount (round 1).
 The `SIGNATURE_BOUND_NETWORKS` constant the finding cites no longer exists;
 dispatch is by `network` via `SCHEMES_BY_NETWORK`.
 
-Also `FIXED`: `E-04`, `F-1.3-06`.
+Also `FIXED`: `E-04`, `F-1.3-06`, `F4-02`, `ESC-NEW-06`.
 
 `IA-006` `ALREADY-FIXED` — the "sequential settlement commission leak" is the
 split-ordering bug in `secure-forwarding`: the merchant leg (99%+) went out
