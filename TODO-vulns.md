@@ -63,7 +63,7 @@ than the report's.
 | `R3-X1` | `FIXED` | `x402/verify`, `verifyStripePayment` | Checks the PaymentIntent status but never compares the **real** PI amount against `expected.amount`, nor that the PI belongs to this merchant. Price binding compares only the self-declared payload amount. | Compare `pi.amount_received` / `pi.amount` against `expected.amount`. |
 | `CP-005` | `FIXED` | `x402/settle:279-281,529` | Responds `settled: true` for Lightning with no funds moved. Same root cause as `F-1.3-01`. | Closed by the `F-1.3-01` fix. |
 | `L8-02` | `FIXED` | `src/lib/payments/service.ts`, card branch | `payment_address_id` was dropped from the schema but three card routes still insert it — every card payment 500s before reaching Stripe. | Verify against the live schema before changing; may already be closed. |
-| `N-01` | `UNVERIFIED` | `src/lib/fraud/screen.ts` callers | `screenCheckout` is invoked from 1 of 7 sinks that create real card charges; the most exposed sink, `payments/widget/create`, is a public secret-free embed. | Enumerate the seven sinks and screen each. |
+| `N-01` | `FIXED` | `src/lib/fraud/screen.ts` callers | `screenCheckout` is invoked from 1 of 7 sinks that create real card charges; the most exposed sink, `payments/widget/create`, is a public secret-free embed. | Enumerate the seven sinks and screen each. |
 | `W-07` | `FIXED` | `src/app/api/lightning/offers/route.ts` (GET) | No authentication, `business_id` optional, `limit` unbounded — one anonymous request dumps every merchant's Lightning offers and received revenue. | Require auth, scope to the caller's business, cap `limit`. |
 | `F9-01` | `UNVERIFIED` | `src/lib/crypto/require-key.ts` vs nine direct consumers | `requireEncryptionKey()` guards 4 of 13 encryption sites; the custody hot path (`hd-wallet`, `secure-forwarding`, `system-wallet`, `escrow/service`) reads `process.env.ENCRYPTION_KEY` raw and checks only non-empty. The repo's own test fixture value is itself a `KNOWN_WEAK_KEYS` entry. | Route every site through the guard, then add a lint rule banning the raw read (§2.1). |
 | `W-01` | `UNVERIFIED` | `public/install.sh` | Default `COINPAY_REF=master`, checksum verification optional and only printed, auto-upgrade timer every five minutes. Anything merged to master reaches every installed host within five minutes. | Pin to a tag, enforce the checksum. See also `F6-01`. |
@@ -97,16 +97,16 @@ The subset worth taking first:
 | ID | Status | Why it ranks up |
 |---|---|---|
 | `E-03` | `FIXED` | `application_fee` appears only in a comment claiming it is applied; the field is absent from `sessionParams`. 100% of the platform fee goes to the merchant on the only recurring card rail. Pure revenue. |
-| `FR-01` | `UNVERIFIED` | Fraud screening fails open, denylist included. Pairs with `N-01`. |
+| `FR-01` | `FIXED` | Fraud screening fails open, denylist included. Pairs with `N-01`. |
 | `L4-NEW-02` | `FIXED` | Writing `status:'failed'` violates `payments_status_check` and the failure is never checked, so the payment stays `pending` forever and invisible. |
 | `NEW-L5-2` | `FIXED` | The schema CHECK omits `USDT`/`USDC`/`USDC_BASE` that the application inserts — payment creation fails outright for those stablecoins. |
 | `NEW-24`, `G-1.2-09`, `F5-L4-02` | `UNVERIFIED` | Unescaped merchant-controlled HTML into invoice email, team email, and the internal daily report. |
 | `DOC-01` | `FIXED` | `layout.tsx` claimed "Non-Custodial" product-wide. Corrected. |
 | `F7-01` | `FIXED` | Security docs asserted audit logging that does not exist. Corrected to say so. |
 | `AUD-01` | `OPEN` | No audit-logging infrastructure exists anywhere. The claim is fixed; the gap is not. |
-| `CP-P5` | `ALREADY-FIXED` | `businesses.tier` does not exist, so every business is charged the 1% minimum regardless of tier. Verify against the live schema. |
+| `CP-P5` | `FIXED` | `businesses.tier` does not exist, so every business is charged the 1% minimum regardless of tier. Verify against the live schema. |
 | `R3-DIN-01` | `UNVERIFIED` | Marks an invoice paid and sends "Payment Received" with no `payment_id`; funds can be stuck at the intermediary. |
-| `REC-D-05` | `UNVERIFIED` | The p2p Stripe branch never calls `screenCheckout` at all. |
+| `REC-D-05` | `FIXED` | The p2p Stripe branch never calls `screenCheckout` at all. |
 | `GAP-02` | `FIXED` (history purge still `DECISION`) | Own pentest reports (`strix_runs/**`) versioned in the public repo. Delete and purge. |
 | `F5-L4-03` | `FIXED` | Real merchant PII hardcoded as fixtures in `scripts/test-spam-detection.ts`, public repo. |
 

@@ -6,6 +6,7 @@ import { createPayment, Blockchain } from '@/lib/payments/service';
 import { getStripe } from '@/lib/server/optional-deps';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { getClientIp } from '@/lib/web-wallet/client-ip';
+import { screenCheckout } from '@/lib/fraud/screen';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { getFeePercentage } from '@/lib/payments/fees';
 
@@ -286,6 +287,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Screen before the Stripe session exists — the last point at which a
+    // payment can be stopped without Stripe ever seeing it.
+    //
+    // Fraud screening was wired into exactly one of the seven code paths that
+    // create a real card charge, and this route is the most exposed of the
+    // seven: a public, secret-free embed anyone can post to. The card rail's
+    // whole abuse surface ran unscreened here.
+    const widgetScreening = await screenCheckout(supabase, {
+      businessId: stripe.business_id,
+      ip: clientIp,
+      amount: amount_usd,
+      currency: 'USD',
+      description,
+    });
+
+    if (widgetScreening.decision === 'block') {
+      console.warn('[Fraud] Blocked widget checkout', {
+        businessId: stripe.business_id,
+        score: widgetScreening.score,
+        findings: widgetScreening.findings.map((f) => f.code).join(', '),
+      });
+      return NextResponse.json(
+        { success: false, error: widgetScreening.buyerMessage },
+        { status: 403, headers: corsHeaders },
+      );
+    }
+
+    const widgetRequiresVerification = widgetScreening.decision === 'verify';
+
     const paymentId = randomUUID();
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
@@ -327,6 +357,12 @@ export async function POST(request: NextRequest) {
     const platformFeeAmount = Math.round(amountCents * getFeePercentage(widgetIsPaidTier));
     const stripeSdk = await getStripe();
     const session = await stripeSdk.checkout.sessions.create({
+      // Elevated risk: let it through but force 3-D Secure, which moves
+      // liability for a stolen card back to the issuer. Matches the direct
+      // Stripe rail.
+      ...(widgetRequiresVerification
+        ? { payment_method_options: { card: { request_three_d_secure: 'any' as const } } }
+        : {}),
       line_items: [
         {
           price_data: {

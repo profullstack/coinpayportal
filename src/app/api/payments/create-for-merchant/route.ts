@@ -27,6 +27,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { screenCheckout } from '@/lib/fraud/screen';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
@@ -298,8 +300,33 @@ export async function POST(request: NextRequest) {
     const appUrl =
       process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com';
 
+    // Screen before the Stripe session exists. One of the seven paths that
+    // create a real card charge; only one of the seven was screened.
+    const screening = await screenCheckout(supabase, {
+      businessId: stripe.business_id,
+      ip: getClientIp(request),
+      amount: amount_usd,
+      currency: 'USD',
+      description,
+    });
+
+    if (screening.decision === 'block') {
+      console.warn('[Fraud] Blocked create-for-merchant checkout', {
+        businessId: stripe.business_id,
+        score: screening.score,
+        findings: screening.findings.map((f) => f.code).join(', '),
+      });
+      return NextResponse.json(
+        { success: false, error: screening.buyerMessage },
+        { status: 403 },
+      );
+    }
+
     const stripeSdk = await getStripe();
     const session = await stripeSdk.checkout.sessions.create({
+      ...(screening.decision === 'verify'
+        ? { payment_method_options: { card: { request_three_d_secure: 'any' as const } } }
+        : {}),
       line_items: [
         {
           price_data: {
