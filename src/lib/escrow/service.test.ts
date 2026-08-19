@@ -372,12 +372,16 @@ describe('Escrow Service', () => {
   });
 
   describe('refundEscrow', () => {
+    const PAST = new Date(Date.now() - 60_000).toISOString();
+    const FUTURE = new Date(Date.now() + 60 * 60_000).toISOString();
+
     it('should reject refund on non-funded escrow', async () => {
       const escrow = {
         id: 'esc-1',
         status: 'released',
         release_token: 'esc_tok',
         beneficiary_token: 'esc_ben',
+        expires_at: PAST,
       };
 
       const supabase = createMockSupabase({ singleData: escrow }) as any;
@@ -385,6 +389,94 @@ describe('Escrow Service', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('Cannot refund');
+    });
+
+    it('refuses a depositor refund while the escrow is still live (CP-025)', async () => {
+      // The depositor's token used to refund on the spot, at any moment the
+      // escrow was funded — the buyer pulling their money back whenever they
+      // liked. The escrow protected the buyer from the seller and the seller
+      // from nobody, which is the one thing an escrow exists to do.
+      const escrow = {
+        id: 'esc-1',
+        status: 'funded',
+        release_token: 'esc_tok',
+        beneficiary_token: 'esc_ben',
+        expires_at: FUTURE,
+      };
+
+      const supabase = createMockSupabase({ singleData: escrow }) as any;
+      const result = await refundEscrow(supabase, 'esc-1', 'esc_tok');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('before the escrow expires');
+    });
+
+    it('allows the beneficiary to refund at any time (CP-025)', async () => {
+      // The beneficiary is relinquishing their own claim, so their token alone
+      // is enough — this is the cooperative path and must stay open.
+      const escrow = {
+        id: 'esc-1',
+        status: 'funded',
+        release_token: 'esc_tok',
+        beneficiary_token: 'esc_ben',
+        expires_at: FUTURE,
+      };
+
+      const supabase = createMockSupabase({ singleData: escrow }) as any;
+      const result = await refundEscrow(supabase, 'esc-1', 'esc_ben');
+
+      expect(result.success).toBe(true);
+    });
+
+    it('allows the depositor to refund once the deadline has passed (CP-025)', async () => {
+      // The depositor must not be locked in forever; expiry is the safety valve.
+      const escrow = {
+        id: 'esc-1',
+        status: 'funded',
+        release_token: 'esc_tok',
+        beneficiary_token: 'esc_ben',
+        expires_at: PAST,
+      };
+
+      const supabase = createMockSupabase({ singleData: escrow }) as any;
+      const result = await refundEscrow(supabase, 'esc-1', 'esc_tok');
+
+      expect(result.success).toBe(true);
+    });
+
+    it('treats an unreadable expiry as not-yet-expired (CP-025)', async () => {
+      // `new Date(undefined)` is an Invalid Date and every comparison against
+      // one is false, so a naive `expires_at > now` check would grant exactly
+      // the refund the gate exists to withhold.
+      const escrow = {
+        id: 'esc-1',
+        status: 'funded',
+        release_token: 'esc_tok',
+        beneficiary_token: 'esc_ben',
+        expires_at: undefined,
+      };
+
+      const supabase = createMockSupabase({ singleData: escrow }) as any;
+      const result = await refundEscrow(supabase, 'esc-1', 'esc_tok');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('before the escrow expires');
+    });
+
+    it('rejects a token that is neither party (CP-025)', async () => {
+      const escrow = {
+        id: 'esc-1',
+        status: 'funded',
+        release_token: 'esc_tok',
+        beneficiary_token: 'esc_ben',
+        expires_at: PAST,
+      };
+
+      const supabase = createMockSupabase({ singleData: escrow }) as any;
+      const result = await refundEscrow(supabase, 'esc-1', 'esc_not_a_party');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Unauthorized');
     });
   });
 

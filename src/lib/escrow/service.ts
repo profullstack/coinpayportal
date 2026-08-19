@@ -690,9 +690,45 @@ export async function refundEscrow(
 
   const escrow = data as Escrow;
 
+  // CP-025: a refund is no longer something the depositor can simply take.
+  //
+  // This accepted the depositor's token and refunded on the spot, at any moment
+  // while the escrow was funded. That is the buyer pulling their money back
+  // whenever they like — so the escrow protected the buyer from the seller and
+  // the seller from nobody. A seller who delivered had no more assurance than
+  // if they had been paid directly, which is the entire thing an escrow is for.
+  //
+  // Two refunds are legitimate, and both are still allowed:
+  //
+  //   - The beneficiary gives the money back. They are relinquishing their own
+  //     claim, so their token is sufficient, at any time.
+  //   - The deadline passes without release. The depositor should not be locked
+  //     in forever, so once `expires_at` is behind us their token works. (The
+  //     monitor usually gets there first and auto-refunds; this is the manual
+  //     equivalent, and the path that still works if the cron is behind.)
+  //
+  // What is gone is the depositor refunding *during* the window the seller is
+  // performing in.
   const role = authenticateEscrowAction(escrow, releaseToken);
-  if (role !== 'depositor') {
-    return { success: false, error: 'Unauthorized: invalid release token' };
+  if (role !== 'depositor' && role !== 'beneficiary') {
+    return { success: false, error: 'Unauthorized: invalid token' };
+  }
+
+  if (role === 'depositor') {
+    // An unreadable expiry is treated as "not yet expired". `new Date(undefined)`
+    // is an Invalid Date and every comparison against one is false, so a naive
+    // `expires_at > now` check would silently grant the very refund this gate
+    // exists to withhold.
+    const expiresAt = new Date(escrow.expires_at).getTime();
+    const hasExpired = Number.isFinite(expiresAt) && expiresAt <= Date.now();
+
+    if (!hasExpired) {
+      return {
+        success: false,
+        error:
+          'Cannot refund before the escrow expires. Ask the beneficiary to refund, or wait for expiry.',
+      };
+    }
   }
 
   // Only funded escrows can be refunded (not yet released)

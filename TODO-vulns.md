@@ -169,8 +169,9 @@ audit than whether its bespoke ownership query is correct.
 
 All `UNVERIFIED`. Detail in `docs/findings/03_SILENT_OPERATIONAL/`. Standouts:
 
-- `BL-02`, `CP-025`, `F-1.1-01` — escrow stuck at expiry, unilateral depositor
-  refund, and the monitor marking funded multisig escrows `refunded`.
+- `BL-02`, `CP-025`, `F-1.1-01` — **all three `FIXED`.** Escrow stuck at
+  expiry, unilateral depositor refund, and the monitor marking funded multisig
+  escrows `refunded`. See the batch-eight note below.
 - `V-01` + `L8-01` + `REC-D-02` — **`FIXED`.** Three independent reasons
   `webhook_logs` inserts fail. Confirmed against production: the table held
   **zero rows** — the delivery audit trail had never recorded a single attempt,
@@ -179,9 +180,11 @@ All `UNVERIFIED`. Detail in `docs/findings/03_SILENT_OPERATIONAL/`. Standouts:
 - `R3-DIN-03` — `settle_failed` written to `escrows.status` is rejected by the
   production CHECK constraint. This matches known prod drift: `escrows_status_check`
   is `NOT VALID`, so read escrow statuses from the data, not the constraint.
-- `F5-L1-06` — `scripts/sweep-balances.mjs` is truncated and fails `node --check`,
-  and has been since December 2025. The documented emergency fund-recovery
-  procedure has never worked.
+- `F5-L1-06` — **`PARTIAL`.** `scripts/sweep-balances.mjs` was truncated and
+  failed `node --check`, and had been since December 2025. It now parses, and
+  the discovery half (find stranded balances) works and is wired to
+  `pnpm sweep-balances`. `--execute` deliberately refuses: broadcasting sweeps
+  would be new untested multi-chain fund-moving code.
 
 ## Priority 4 — Conditional (26)
 
