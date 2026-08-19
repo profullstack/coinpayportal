@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
+import { resolveBusinessScope } from '@/lib/auth/tenant-scope';
+import { createServiceClient } from '@/lib/supabase/service-client';
 import { getStripe } from '@/lib/server/optional-deps';
 import { decrypt } from '@/lib/crypto/encryption';
 
@@ -44,6 +46,18 @@ export async function DELETE(
 
     if (!businessId) {
       return NextResponse.json({ success: false, error: 'business_id is required' }, { status: 400 });
+    }
+
+    // Authenticating the caller and then trusting the `business_id` they sent
+    // is not authorization. These routes create webhook endpoints ON the named
+    // business's Stripe Connect account and return the signing secret, so an
+    // unchecked business_id hands an attacker a live feed of another merchant's
+    // Stripe events, pointed at a URL of their choosing.
+    const tenant = await resolveBusinessScope(
+      createServiceClient(), decoded.userId, businessId, 'webhook.manage',
+    );
+    if (!tenant.ok) {
+      return NextResponse.json({ success: false, error: tenant.error }, { status: tenant.status });
     }
 
     // Verify the user owns this business / has a Stripe account
@@ -132,6 +146,18 @@ export async function GET(
 
     if (!businessId) {
       return NextResponse.json({ success: false, error: 'business_id is required' }, { status: 400 });
+    }
+
+    // Authenticating the caller and then trusting the `business_id` they sent
+    // is not authorization. These routes create webhook endpoints ON the named
+    // business's Stripe Connect account and return the signing secret, so an
+    // unchecked business_id hands an attacker a live feed of another merchant's
+    // Stripe events, pointed at a URL of their choosing.
+    const tenant = await resolveBusinessScope(
+      createServiceClient(), decoded.userId, businessId, 'webhook.manage',
+    );
+    if (!tenant.ok) {
+      return NextResponse.json({ success: false, error: tenant.error }, { status: tenant.status });
     }
 
     const stripeAccountId = await getStripeAccountId(businessId);

@@ -69,7 +69,7 @@ than the report's.
 | `W-01` | `UNVERIFIED` | `public/install.sh` | Default `COINPAY_REF=master`, checksum verification optional and only printed, auto-upgrade timer every five minutes. Anything merged to master reaches every installed host within five minutes. | Pin to a tag, enforce the checksum. See also `F6-01`. |
 | `W-05` | `UNVERIFIED` | Lightning Address payment path | The client never decodes the returned bolt11 to confirm the amount — it pays whatever the recipient's LNURL server decides. | Decode and compare before paying. |
 | `W-06` | `UNVERIFIED` | Boltz swap integration | `redeemScript`/`swapTree` are declared but never read; the swap address is never validated against the actual HTLC, so refund keys are worthless if the address was substituted. | Validate the address is derivable from the script. |
-| `CP-002` | `OPEN` | `src/app/api/reputation/issuers/route.ts` | Issuer self-registration sets `active: true` with no identity or domain check, and the API key is stored in cleartext. Root cause enabling `NEW-04`, `CP-003`, `CP-011`, `CP-015`, `CP-023`. Partially improved since the audit: `p2p/request:87` now matches on `api_key_hash` first, but still falls back to the cleartext column. | Register inactive by default and require manual activation. Drain the raw `api_key` column. |
+| `CP-002` | `FIXED` | `src/app/api/reputation/issuers/route.ts` | Issuer self-registration sets `active: true` with no identity or domain check, and the API key is stored in cleartext. Root cause enabling `NEW-04`, `CP-003`, `CP-011`, `CP-015`, `CP-023`. Partially improved since the audit: `p2p/request:87` now matches on `api_key_hash` first, but still falls back to the cleartext column. | Register inactive by default and require manual activation. Drain the raw `api_key` column. |
 | `NEW-01` | `UNVERIFIED` | `src/app/api/escrow/route.ts:182,192` | An oracle resolving a crypto address to a merchant's email, enumerable across the full merchant base. Feeds directly into `NEW-04`. | Stop returning the email. |
 | `H-R-01` | `UNVERIFIED` | `src/lib/wallets/balance-checkers.ts`, DOGE case | Returns `0` ("not yet implemented") while DOGE is advertised, accepted at four payment-creation routes, and has a working send path. Received DOGE is never detected as paid. | Implement it, or stop accepting DOGE. |
 | `H-R-08` | `UNVERIFIED` | Eight modules | The supported-currency list diverges across eight modules independently; there is no single source of truth. | One exported registry, everything else derived from it. |
@@ -101,7 +101,9 @@ The subset worth taking first:
 | `L4-NEW-02` | `UNVERIFIED` | Writing `status:'failed'` violates `payments_status_check` and the failure is never checked, so the payment stays `pending` forever and invisible. |
 | `NEW-L5-2` | `UNVERIFIED` | The schema CHECK omits `USDT`/`USDC`/`USDC_BASE` that the application inserts — payment creation fails outright for those stablecoins. |
 | `NEW-24`, `G-1.2-09`, `F5-L4-02` | `UNVERIFIED` | Unescaped merchant-controlled HTML into invoice email, team email, and the internal daily report. |
-| `F7-01` + `DOC-01` `FIXED`; `AUD-01` `OPEN` | No audit-logging infrastructure exists anywhere, while the public security docs state that it does, and `layout.tsx` claims "non-custodial". The documentation claims are legal exposure and are the cheapest thing in the register to correct — do that immediately even if the logging itself lands later. |
+| `DOC-01` | `FIXED` | `layout.tsx` claimed "Non-Custodial" product-wide. Corrected. |
+| `F7-01` | `FIXED` | Security docs asserted audit logging that does not exist. Corrected to say so. |
+| `AUD-01` | `OPEN` | No audit-logging infrastructure exists anywhere. The claim is fixed; the gap is not. |
 | `CP-P5` | `UNVERIFIED` | `businesses.tier` does not exist, so every business is charged the 1% minimum regardless of tier. Verify against the live schema. |
 | `R3-DIN-01` | `UNVERIFIED` | Marks an invoice paid and sends "Payment Received" with no `payment_id`; funds can be stuck at the intermediary. |
 | `REC-D-05` | `UNVERIFIED` | The p2p Stripe branch never calls `screenCheckout` at all. |
@@ -112,12 +114,36 @@ The subset worth taking first:
 
 Grouped by the gate the audit identified. All `UNVERIFIED`.
 
-- **Cross-tenant / IDOR (§2.7)** — `B-01`, `C-01`, `C-02`, `C-03`, `CP-001`,
-  `CP-003`, `CP-010`, `CP-014`, `CP-015`, `CP-021`, `CP-023`, `G-1.2-12`,
-  `NEW-13`, `NEW-15`, `H-R-10`, `SUB-01`, `REC-D-01`, `REC-C-03`.
-  **Treat as one workstream.** The shape is always "authenticate the caller, then
-  trust a tenant id from the request." A shared `resolveTenantScope(auth, requested)`
-  helper plus a route audit closes the class; eighteen separate patches do not.
+### Cross-tenant / IDOR (§2.7) — one workstream
+
+The shape is always "authenticate the caller, then trust a tenant id from the
+request." `src/lib/auth/tenant-scope.ts` (`resolveBusinessScope`) is now the one
+place that answers it, and `src/lib/escrow/access.ts` (`callerOwnsEscrow`) does
+the same for escrows. Whether a route calls them is a far easier property to
+audit than whether its bespoke ownership query is correct.
+
+| ID | Status | Note |
+|---|---|---|
+| `B-01` | `FIXED` | `getStripeAccountId(businessId \|\| authResult)` — the query-string value took precedence over the authenticated user. Both `api-keys` routes now scope through the helper with `apikey.manage`. |
+| `C-01` | `FIXED` | Stripe webhook routes decoded the JWT and never compared `business_id`. Now `webhook.manage` via the helper. |
+| `NEW-13` | `FIXED` | Same cluster as `C-01`/`B-01` — closed by the same change. |
+| `CP-010` | `FIXED` | `usage/rates` GET/POST/DELETE had no ownership check; sibling `credits`/`deduct` did. |
+| `NEW-14` | `FIXED` | `usage/history` — same gap, same file tree. |
+| `G-1.2-13` | `FIXED` | Duplicate of `CP-010` + `NEW-14`. |
+| `CP-014` | `FIXED` | `reputation/receipts` was an unauthenticated `select('*')`. Endpoint stays public (a trust graph must be checkable) but now returns a narrow projection — no `amount`, `escrow_tx`, `buyer_did`, `platform_did` or `signatures` — capped at 200 rows. |
+| `CP-021` | `FIXED` | `escrow/[id]` authenticated the caller and then fetched by UUID with no ownership check. Now `callerOwnsEscrow`, answering 404 rather than 403 so it is not an existence oracle. |
+| `NEW-15` | `FIXED` | `escrow/[id]/events` — clone of `CP-021`, fixed by the shared helper. |
+| `C-02` | `UNVERIFIED` | 8 of 16 routes on the `apiKeyBusinessId` contract. |
+| `C-03` / `G-1.2-01` | `UNVERIFIED` | `payment-methods/manual` — capability check missing. |
+| `CP-001` | `UNVERIFIED` | Injectable Stripe metadata. |
+| `CP-003` | `UNVERIFIED` | Cross-tenant DID rebind. |
+| `CP-015` | `UNVERIFIED` | `payments/create-for-merchant` authenticates with the raw issuer key. |
+| `CP-023` | `UNVERIFIED` | Wallet-slot squatting. |
+| `G-1.2-12` | `UNVERIFIED` | Invoice `merchant_wallet_address` writable by `readonly`. |
+| `H-R-10` | `UNVERIFIED` | `POST /api/invoices` takes `client_id` unvalidated. |
+| `SUB-01` | `UNVERIFIED` | `subscriptions/status` DELETE has no `hasScope`. |
+| `REC-D-01` | `UNVERIFIED` | Extends `NEW-04`; likely closed by that fix — re-verify. |
+| `REC-C-03` | `UNVERIFIED` | x402 ignores API key scopes. |
 - **Identity / DID abuse** — `L7A-02`, `V-02`, `REP-F1A-02`, `G-1.2-10`,
   `R4-ID-OAUTH`, `R3-ID-02`, `R4-ID-RESET`.
 - **Multisig escrow** — `F-1.1-02`, `F-1.1-03`, `F-1.1-04`. Latent while
