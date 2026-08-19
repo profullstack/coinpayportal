@@ -5,6 +5,7 @@
 import { checkBalance, processPayment, type Payment } from './monitor-balance';
 import { isSufficientPayment } from './tolerance';
 import { fetchAllKeyset } from '../db/keyset';
+import { createEscrow } from '../escrow/service';
 
 // ── Retry tracking (in-memory) ──
 // Prevents infinite retry loops that leak memory and cause OOM crashes.
@@ -485,35 +486,37 @@ export async function runRecurringEscrowCycle(supabase: any, now: Date): Promise
         let childCreated = false;
 
         if (series.payment_method === 'crypto') {
-          const res = await fetch(`${appUrl}/api/escrow`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${internalApiKey}`,
-            },
-            body: JSON.stringify({
-              business_id: series.merchant_id,
-              chain: series.coin,
-              amount: series.amount,
-              currency: series.currency,
-              depositor_address: series.depositor_address,
-              beneficiary_address: series.beneficiary_address,
-              description: series.description,
-              series_id: series.id,
-            }),
+          // ESC-NEW-06: call the service directly rather than POSTing to our own
+          // API with `Bearer INTERNAL_API_KEY`.
+          //
+          // `/api/escrow` authenticates via `authenticateRequest`, which has no
+          // notion of an internal key — it resolves merchant JWTs and business
+          // API keys. Every request this path made was therefore rejected 401
+          // and no series escrow was ever created here. It went unnoticed
+          // because the primary cron (`series-monitor.ts`) creates them by
+          // calling `createEscrow` directly and succeeds, so this fallback only
+          // mattered when the primary was down — which is exactly when it was
+          // needed.
+          //
+          // Server-side code calling server-side code has no reason to make an
+          // HTTP round trip and re-authenticate to itself; doing so is what
+          // created an auth mode that had to exist and did not.
+          const escrowResult = await createEscrow(supabase, {
+            business_id: series.merchant_id,
+            chain: series.coin,
+            amount: Number(series.amount),
+            depositor_address: series.depositor_address,
+            beneficiary_address: series.beneficiary_address,
+            series_id: series.id,
+            metadata: series.description ? { description: series.description } : undefined,
           });
 
-          if (res.ok) {
-            const escrow = await res.json();
-            await supabase
-              .from('escrows')
-              .update({ series_id: series.id })
-              .eq('id', escrow.id);
+          if (escrowResult.success && escrowResult.escrow) {
             childCreated = true;
             recordSuccess(retryKey);
-            console.log(`[Monitor] Created crypto escrow ${escrow.id} for series ${series.id}`);
+            console.log(`[Monitor] Created crypto escrow ${escrowResult.escrow.id} for series ${series.id}`);
           } else {
-            const errText = await res.text();
+            const errText = escrowResult.error || 'Unknown error';
             console.error(`[Monitor] Failed to create crypto escrow for series ${series.id}: ${errText}`);
             recordFailure(retryKey, errText.slice(0, 200));
             stats.errors++;
