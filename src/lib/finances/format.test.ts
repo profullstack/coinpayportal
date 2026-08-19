@@ -4,7 +4,7 @@ import { formatMoney, formatCompact, formatDate, formatRelative, percentOf } fro
 describe('formatMoney', () => {
   it('formats positive and negative amounts', () => {
     expect(formatMoney(1234.5, 'USD')).toBe('$1,234.50');
-    expect(formatMoney(-1500.00, 'USD')).toBe('-$1,500.49');
+    expect(formatMoney(-1500, 'USD')).toBe('-$1,500.00');
   });
 
   it('never renders negative zero as a debt', () => {
@@ -36,8 +36,8 @@ describe('formatCompact', () => {
   });
 
   it('compacts larger amounts and keeps the sign', () => {
-    expect(formatCompact(9000.00, 'USD')).toBe('$34K');
-    expect(formatCompact(-9000.00, 'USD')).toBe('-$34K');
+    expect(formatCompact(34000, 'USD')).toBe('$34K');
+    expect(formatCompact(-34000, 'USD')).toBe('-$34K');
   });
 });
 
