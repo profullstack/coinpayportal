@@ -12,7 +12,7 @@
 import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getProvider, getRpcUrl, type BlockchainType } from '../blockchain/providers';
-import { generatePaymentAddress } from '../blockchain/wallets';
+import { generatePaymentAddress, hashStringToNumber } from '../blockchain/wallets';
 import { deliverWebhook, logWebhookAttempt, retryFailedWebhook } from '../webhooks/service';
 import { decrypt } from '../crypto/encryption';
 import { resolveWebhookSecret } from '../webhooks/secret';
@@ -268,12 +268,59 @@ export async function createBusinessCollectionPayment(
       };
     }
 
-    // Generate payment address using wallet service
-    const paymentAddressResult = await generatePaymentAddress(
-      `collection_${payment.id}`,
-      input.blockchain
-    );
-    
+    // Generate payment address, and prove it is not already in use.
+    //
+    // F-1.3-14: the index came from a hash with a 10^6 range, so two collection
+    // payments shared an address — and a private key — with about even odds by
+    // the 1,180th one. The funds for one then land at the other's address: the
+    // balance check confirms the wrong payment and the sweep sends the money to
+    // the wrong destination. Widening the hash makes that unlikely; checking
+    // makes it impossible.
+    //
+    // The derived address is deterministic in the index, so a collision is
+    // resolved by walking to the next index rather than by regenerating and
+    // hoping.
+    const COLLECTION_ADDRESS_ATTEMPTS = 20;
+    const baseIndex = hashStringToNumber(`collection_${payment.id}`);
+
+    let paymentAddressResult: Awaited<ReturnType<typeof generatePaymentAddress>> | null = null;
+
+    for (let attempt = 0; attempt < COLLECTION_ADDRESS_ATTEMPTS; attempt++) {
+      const candidate = await generatePaymentAddress(
+        `collection_${payment.id}`,
+        input.blockchain,
+        (baseIndex + attempt) % 0x7fffffff
+      );
+
+      const { data: clash, error: clashError } = await supabase
+        .from('business_collection_payments')
+        .select('id')
+        .eq('payment_address', candidate.address)
+        .neq('id', payment.id)
+        .limit(1)
+        .maybeSingle();
+
+      if (clashError) {
+        // Cannot prove the address is free. Deriving anyway is what the finding
+        // is about, so stop rather than risk two payments sharing a key.
+        console.error('[Collection] Could not check address uniqueness:', clashError);
+        return { success: false, error: 'Could not allocate a payment address; please retry.' };
+      }
+
+      if (!clash) {
+        paymentAddressResult = candidate;
+        break;
+      }
+
+      console.warn(
+        `[Collection] Derivation index ${baseIndex + attempt} for ${input.blockchain} is already in use; trying the next.`
+      );
+    }
+
+    if (!paymentAddressResult) {
+      return { success: false, error: 'Could not allocate a unique payment address; please retry.' };
+    }
+
     const paymentAddress = paymentAddressResult.address;
     
     // Update payment with generated address and encrypted private key
