@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth/admin-guard';
+import { requireMerchant } from '@/lib/auth/merchant-guard';
 import { listAccounts } from '@/lib/finances/summary';
 
 export const dynamic = 'force-dynamic';
@@ -10,11 +10,11 @@ export const dynamic = 'force-dynamic';
  * `?hidden=1` includes accounts an operator has hidden from the totals.
  */
 export async function GET(req: NextRequest) {
-  const guard = await requireAdmin(req);
+  const guard = await requireMerchant(req);
   if (guard instanceof NextResponse) return guard;
 
   try {
-    const accounts = await listAccounts({
+    const accounts = await listAccounts(guard.id, {
       includeHidden: req.nextUrl.searchParams.get('hidden') === '1',
     });
     return NextResponse.json({ accounts }, { headers: { 'Cache-Control': 'no-store' } });

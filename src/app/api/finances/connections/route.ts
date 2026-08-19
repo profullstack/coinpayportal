@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth/admin-guard';
-import { listConnections, createConnection, bootstrapConnectionFromEnv } from '@/lib/finances/sync';
+import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { listConnections, createConnection } from '@/lib/finances/sync';
 import { claimSetupToken, redactAccessUrl } from '@/lib/finances/simplefin';
 
 export const dynamic = 'force-dynamic';
@@ -10,13 +10,12 @@ export const dynamic = 'force-dynamic';
  * sync outcome. Never returns the access URL; there is no route that does.
  */
 export async function GET(req: NextRequest) {
-  const guard = await requireAdmin(req);
+  const guard = await requireMerchant(req);
   if (guard instanceof NextResponse) return guard;
 
   try {
-    await bootstrapConnectionFromEnv();
     return NextResponse.json(
-      { connections: await listConnections() },
+      { connections: await listConnections(guard.id) },
       { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch (err) {
@@ -37,7 +36,7 @@ export async function GET(req: NextRequest) {
  * an operator retrying a token that can never work again.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireAdmin(req);
+  const guard = await requireMerchant(req);
   if (guard instanceof NextResponse) return guard;
 
   let body: { setupToken?: unknown; label?: unknown };
@@ -64,9 +63,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const connection = await createConnection({
+      merchantId: guard.id,
       accessUrl,
       label: typeof body.label === 'string' ? body.label : null,
-      createdBy: guard.id,
     });
     return NextResponse.json({ connection }, { status: 201 });
   } catch (err) {

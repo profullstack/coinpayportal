@@ -1,4 +1,3 @@
-import { requireAdminPage } from '@/lib/auth/admin-guard';
 import FinancesContent from './FinancesContent';
 
 export const dynamic = 'force-dynamic';
@@ -9,13 +8,14 @@ export const metadata = {
 };
 
 /**
- * /finances — the house balance sheet.
+ * /finances — a merchant's own bank accounts and credit cards.
  *
- * Gated server-side rather than in the client component, so the page never
- * renders for a non-admin even for the moment before a fetch resolves. The API
- * routes behind it repeat the check; this one is about what reaches the browser.
+ * Any signed-in merchant may reach this; what they see is scoped to the
+ * SimpleFIN connections they own. The client component calls `requireAuth` on
+ * mount the way /dashboard does, and every API route behind it re-checks the
+ * session and scopes by merchant id — the page guard is convenience, the route
+ * guards are the boundary.
  */
-export default async function FinancesPage() {
-  await requireAdminPage('/finances');
+export default function FinancesPage() {
   return <FinancesContent />;
 }
