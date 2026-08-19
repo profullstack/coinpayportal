@@ -104,9 +104,9 @@ const CONNECTION_COLUMNS =
  * somebody's bank and a setup token cannot be re-claimed to rotate it.
  */
 export async function createConnection(params: {
+  merchantId: string;
   accessUrl: string;
   label?: string | null;
-  createdBy?: string | null;
 }): Promise<FinanceConnectionRow> {
   // Reject a malformed URL before it is encrypted and becomes hard to inspect.
   parseAccessUrl(params.accessUrl);
@@ -118,9 +118,9 @@ export async function createConnection(params: {
     .from('finance_connections')
     .insert({
       provider: 'simplefin',
+      merchant_id: params.merchantId,
       label: params.label?.trim() || null,
       access_url_encrypted: encrypt(params.accessUrl, key),
-      created_by: params.createdBy ?? null,
     })
     .select(CONNECTION_COLUMNS)
     .single();
@@ -130,34 +130,20 @@ export async function createConnection(params: {
 }
 
 /**
- * Adopt `SIMPLEFIN_ACCESS_URL` as a connection when the table is empty.
+ * One merchant's connections, without their credentials.
  *
- * The access URL for this deployment was claimed out of band, and a claim
- * cannot be repeated — so the environment holds the only copy. This promotes it
- * into the database once, encrypted, and then the env var is only a backup.
- * Returns null when there is nothing to do, which is the steady state.
+ * There is no unscoped variant of this on purpose. `SIMPLEFIN_ACCESS_URL` is
+ * also no longer read anywhere: an earlier version adopted it as a connection
+ * whenever the table was empty, which was harmless for single-tenant admin
+ * tooling but under per-merchant ownership would have handed one person's bank
+ * accounts to whichever merchant happened to link first.
  */
-export async function bootstrapConnectionFromEnv(): Promise<FinanceConnectionRow | null> {
-  const envUrl = process.env.SIMPLEFIN_ACCESS_URL?.trim();
-  if (!envUrl) return null;
-
-  const supabase = getSupabaseAdmin();
-  const { count, error } = await supabase
-    .from('finance_connections')
-    .select('id', { count: 'exact', head: true });
-
-  if (error) throw new Error(`Could not read finance connections: ${error.message}`);
-  if ((count ?? 0) > 0) return null;
-
-  return createConnection({ accessUrl: envUrl, label: 'SimpleFIN (from environment)' });
-}
-
-/** Active connections, without their credentials. */
-export async function listConnections(): Promise<FinanceConnectionRow[]> {
+export async function listConnections(merchantId: string): Promise<FinanceConnectionRow[]> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from('finance_connections')
     .select(CONNECTION_COLUMNS)
+    .eq('merchant_id', merchantId)
     .order('created_at', { ascending: true });
 
   if (error) throw new Error(`Could not list finance connections: ${error.message}`);
@@ -167,17 +153,24 @@ export async function listConnections(): Promise<FinanceConnectionRow[]> {
 /**
  * Decrypt one connection's access URL.
  *
- * Falls back to `SIMPLEFIN_ACCESS_URL` only when decryption fails *and* the env
- * var is present — which is what happens if `ENCRYPTION_KEY` is rotated without
- * re-encrypting. Without that, a key rotation would permanently orphan a
- * credential that can never be re-claimed.
+ * Scoped by `merchant_id` in the same query that fetches the credential, so a
+ * caller cannot decrypt a connection it does not own by guessing an id. A
+ * connection belonging to someone else is reported as missing rather than
+ * forbidden — whether a given uuid exists is not this caller's business.
+ *
+ * There is no environment fallback when decryption fails. An earlier version
+ * returned `SIMPLEFIN_ACCESS_URL` in that case to survive an `ENCRYPTION_KEY`
+ * rotation; with per-merchant connections that would serve one merchant's bank
+ * feed to another whose credential happened to be undecryptable. Failing is
+ * the only safe answer.
  */
-async function getAccessUrl(connectionId: string): Promise<string> {
+async function getAccessUrl(connectionId: string, merchantId: string): Promise<string> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from('finance_connections')
     .select('id, access_url_encrypted')
     .eq('id', connectionId)
+    .eq('merchant_id', merchantId)
     .single();
 
   if (error || !data) throw new Error('Finance connection not found');
@@ -186,12 +179,10 @@ async function getAccessUrl(connectionId: string): Promise<string> {
   try {
     return decrypt(data.access_url_encrypted as string, key);
   } catch (err) {
-    const envUrl = process.env.SIMPLEFIN_ACCESS_URL?.trim();
-    if (envUrl) return envUrl;
     throw new Error(
       `Stored SimpleFIN credential could not be decrypted (${
         err instanceof Error ? err.message : 'unknown error'
-      }). ENCRYPTION_KEY may have changed.`,
+      }). ENCRYPTION_KEY may have changed; the connection must be re-linked with a new setup token.`,
     );
   }
 }
@@ -239,6 +230,7 @@ async function chunkedUpsert(
  * Sync one connection.
  *
  * @param connectionId the connection to read
+ * @param merchantId the owner; a connection belonging to anyone else is not found
  * @param days how far back to read transactions, clamped to SimpleFIN's 90-day window
  * @throws {Error} when the whole request fails; per-institution failures are
  *         reported in `errors` with status `partial` instead, because one
@@ -246,13 +238,14 @@ async function chunkedUpsert(
  */
 export async function syncConnection(
   connectionId: string,
+  merchantId: string,
   { days = DEFAULT_SYNC_DAYS }: { days?: number } = {},
 ): Promise<SyncResult> {
   const supabase = getSupabaseAdmin();
   const windowDays = Math.min(Math.max(Math.floor(days) || DEFAULT_SYNC_DAYS, 1), MAX_SYNC_DAYS);
 
   try {
-    const accessUrl = await getAccessUrl(connectionId);
+    const accessUrl = await getAccessUrl(connectionId, merchantId);
     const startDate = new Date(Date.now() - windowDays * 86_400_000);
 
     const set = await fetchAccountSet(accessUrl, { startDate, pending: true });
@@ -339,7 +332,8 @@ export async function syncConnection(
         last_sync_accounts: accountRows.length,
         last_sync_transactions: txRows.length,
       })
-      .eq('id', connectionId);
+      .eq('id', connectionId)
+      .eq('merchant_id', merchantId);
 
     return {
       connectionId,
@@ -352,6 +346,10 @@ export async function syncConnection(
     };
   } catch (err) {
     const message = redactAccessUrl(err instanceof Error ? err.message : 'Unknown sync failure');
+    // Scoped by owner as well as id. This runs for *any* failure, including
+    // "connection not found" — which is exactly what a caller passing someone
+    // else's connection id gets. Without the merchant filter, that caller
+    // would stamp an error onto a stranger's connection.
     await supabase
       .from('finance_connections')
       .update({
@@ -359,7 +357,8 @@ export async function syncConnection(
         last_sync_status: 'error',
         last_sync_error: message.slice(0, 2000),
       })
-      .eq('id', connectionId);
+      .eq('id', connectionId)
+      .eq('merchant_id', merchantId);
     throw new Error(message);
   }
 }
@@ -405,30 +404,35 @@ async function countNewTransactions(
   return fresh;
 }
 
-/**
- * Sync every active connection, bootstrapping one from the environment first if
- * the table is empty.
- */
-export async function syncAllConnections({
-  days = DEFAULT_SYNC_DAYS,
-}: { days?: number } = {}): Promise<SyncResult[]> {
-  await bootstrapConnectionFromEnv();
-
-  const connections = (await listConnections()).filter((c) => c.is_active);
+/** Sync every active connection belonging to one merchant. */
+export async function syncAllConnections(
+  merchantId: string,
+  { days = DEFAULT_SYNC_DAYS }: { days?: number } = {},
+): Promise<SyncResult[]> {
+  const connections = (await listConnections(merchantId)).filter((c) => c.is_active);
   const results: SyncResult[] = [];
 
-  // Sequential on purpose: SimpleFIN allows roughly 24 requests per day, and
-  // parallel requests would spend that budget in bursts for no gain.
+  // Sequential on purpose: SimpleFIN allows roughly 24 requests per day *per
+  // connection*, and parallel requests would spend one merchant's budget in
+  // bursts for no gain.
   for (const connection of connections) {
-    results.push(await syncConnection(connection.id, { days }));
+    results.push(await syncConnection(connection.id, merchantId, { days }));
   }
 
   return results;
 }
 
-/** Deactivate a connection and drop its accounts and transactions. */
-export async function deleteConnection(connectionId: string): Promise<void> {
+/**
+ * Unlink a connection and cascade away its accounts and transactions.
+ *
+ * Scoped by owner, so passing a stranger's id deletes nothing.
+ */
+export async function deleteConnection(connectionId: string, merchantId: string): Promise<void> {
   const supabase = getSupabaseAdmin();
-  const { error } = await supabase.from('finance_connections').delete().eq('id', connectionId);
+  const { error } = await supabase
+    .from('finance_connections')
+    .delete()
+    .eq('id', connectionId)
+    .eq('merchant_id', merchantId);
   if (error) throw new Error(`Could not delete the connection: ${error.message}`);
 }

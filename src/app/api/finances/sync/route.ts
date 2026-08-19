@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth/admin-guard';
+import { requireMerchant } from '@/lib/auth/merchant-guard';
 import { syncAllConnections, syncConnection, DEFAULT_SYNC_DAYS } from '@/lib/finances/sync';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,7 @@ export const maxDuration = 300;
  * syncs every active connection.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireAdmin(req);
+  const guard = await requireMerchant(req);
   if (guard instanceof NextResponse) return guard;
 
   let body: { days?: unknown; connectionId?: unknown } = {};
@@ -34,8 +34,8 @@ export async function POST(req: NextRequest) {
   try {
     const results =
       typeof body.connectionId === 'string' && body.connectionId
-        ? [await syncConnection(body.connectionId, { days })]
-        : await syncAllConnections({ days });
+        ? [await syncConnection(body.connectionId, guard.id, { days })]
+        : await syncAllConnections(guard.id, { days });
 
     if (results.length === 0) {
       return NextResponse.json(

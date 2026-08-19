@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { requireAuth } from '@/lib/auth/client';
 import { formatMoney, formatCompact, formatDate, formatRelative, percentOf } from '@/lib/finances/format';
 import { ACCOUNT_KINDS, categoryLabel, type AccountKind } from '@/lib/finances/classify';
 
@@ -109,6 +111,7 @@ function authHeaders(extra?: HeadersInit): HeadersInit {
 }
 
 export default function FinancesContent() {
+  const router = useRouter();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -136,6 +139,9 @@ export default function FinancesContent() {
   const [showLink, setShowLink] = useState(false);
 
   const loadOverview = useCallback(async () => {
+    // Bounces to /login when there is no session, the same way /dashboard does.
+    if (!requireAuth(router)) return;
+
     setError(null);
     try {
       const query = `days=${windowDays}${showHidden ? '&hidden=1' : ''}`;
@@ -146,7 +152,7 @@ export default function FinancesContent() {
       ]);
 
       if (summaryRes.status === 401 || summaryRes.status === 403) {
-        setError('This page is restricted to administrators.');
+        setError('Your session has expired. Please log in again.');
         return;
       }
       if (!summaryRes.ok || !accountsRes.ok) {
@@ -162,7 +168,7 @@ export default function FinancesContent() {
     } finally {
       setLoading(false);
     }
-  }, [windowDays, showHidden]);
+  }, [windowDays, showHidden, router]);
 
   const loadTransactions = useCallback(async () => {
     setTxLoading(true);
@@ -412,13 +418,80 @@ export default function FinancesContent() {
         </section>
       )}
 
-      {!hasData && (
+      {!hasData && connections.length > 0 && (
         <section className="rounded-lg border border-slate-700 bg-slate-900/50 p-8 text-center">
-          <p className="text-gray-300 mb-2">No accounts imported yet.</p>
+          <p className="text-gray-300 mb-2">Connected, but nothing imported yet.</p>
           <p className="text-sm text-gray-500">
-            Press <span className="text-gray-300">Sync now</span> to pull balances and the last 90 days
-            of transactions from the linked institutions.
+            Press <span className="text-gray-300">Sync now</span> to pull balances and recent
+            transactions from your linked institutions.
           </p>
+        </section>
+      )}
+
+      {!hasData && connections.length === 0 && (
+        <section className="rounded-lg border border-slate-700 bg-slate-900/50 p-8">
+          <h2 className="text-lg font-semibold text-white mb-2">Connect your accounts</h2>
+          <p className="text-sm text-gray-400 mb-6">
+            CoinPay reads your balances and transactions through SimpleFIN, an independent
+            service that holds the bank connections. Access is read-only — nothing here can
+            move money.
+          </p>
+
+          <ol className="space-y-4 text-sm text-gray-300 mb-6">
+            <li className="flex gap-3">
+              <span className="text-purple-400 font-semibold">1.</span>
+              <span>
+                Create an account at{' '}
+                <a
+                  href="https://beta-bridge.simplefin.org/"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-purple-400 hover:underline"
+                >
+                  SimpleFIN Bridge
+                </a>{' '}
+                and link your banks and cards there.{' '}
+                <span className="text-gray-500">
+                  The Bridge is a paid service — $1.50/month or $15/year, billed by them, not by
+                  CoinPay.
+                </span>
+              </span>
+            </li>
+            <li className="flex gap-3">
+              <span className="text-purple-400 font-semibold">2.</span>
+              <span>
+                On the Bridge, choose <span className="text-gray-200">Connect to an app</span> to
+                generate a <span className="text-gray-200">Setup Token</span> — a long block of
+                base64 text.
+              </span>
+            </li>
+            <li className="flex gap-3">
+              <span className="text-purple-400 font-semibold">3.</span>
+              <span>
+                Paste it below. We exchange it once for a read-only credential and store that
+                encrypted.{' '}
+                <span className="text-gray-500">
+                  Setup tokens are single-use, so generate a fresh one if you need to reconnect.
+                </span>
+              </span>
+            </li>
+          </ol>
+
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <input
+              value={setupToken}
+              onChange={(e) => setSetupToken(e.target.value)}
+              placeholder="Paste your SimpleFIN setup token"
+              className="flex-1 rounded border border-slate-600 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-gray-600"
+            />
+            <button
+              onClick={handleLink}
+              disabled={linking || !setupToken.trim()}
+              className="rounded bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-500 disabled:opacity-50"
+            >
+              {linking ? 'Connecting…' : 'Connect'}
+            </button>
+          </div>
         </section>
       )}
 

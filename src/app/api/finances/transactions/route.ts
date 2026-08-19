@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth/admin-guard';
+import { requireMerchant } from '@/lib/auth/merchant-guard';
 import { listTransactions } from '@/lib/finances/summary';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,7 @@ function parseDate(value: string | null): Date | null {
  * bucket), `start`, `end`, `pending=0`, plus `limit`/`offset`.
  */
 export async function GET(req: NextRequest) {
-  const guard = await requireAdmin(req);
+  const guard = await requireMerchant(req);
   if (guard instanceof NextResponse) return guard;
 
   const params = req.nextUrl.searchParams;
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   const parsedOffset = Number.parseInt(params.get('offset') ?? '', 10);
 
   try {
-    const page = await listTransactions({
+    const page = await listTransactions(guard.id, {
       accountId: params.get('account'),
       search: params.get('search'),
       category: params.get('category'),
