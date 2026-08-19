@@ -34,7 +34,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { splitTieredPayment } from '@/lib/payments/fees';
-import { resolveScopedKey } from '@/lib/auth/scoped-keys';
+import { resolveScopedKey, scopesSatisfy } from '@/lib/auth/scoped-keys';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { addressesEqual } from '@/lib/x402/address';
 import { isV2Payment } from '@/lib/x402/v2';
@@ -361,6 +361,22 @@ export async function POST(request: NextRequest) {
     if (!resolved) {
       return NextResponse.json({ error: 'Invalid or inactive API key' }, { status: 401 });
     }
+    // Scopes were resolved and then ignored, so ANY valid key — including a
+    // read-only `wallet:read` one issued to an integrator for a single narrow
+    // job — could settle x402 payments, which on the Stripe rail means capturing
+    // real PaymentIntents. A key must not do more than it was issued for.
+    //
+    // `payments:create` is the closest existing scope: x402 verification writes
+    // a payment record and settlement completes that same flow. There is no
+    // x402-specific scope in `API_SCOPES`; adding one would invalidate every
+    // key already issued, so this reuses the scope that describes the action.
+    if (!scopesSatisfy(resolved.scopes, 'payments:create')) {
+      return NextResponse.json(
+        { error: 'This API key lacks the payments:create scope' },
+        { status: 403 },
+      );
+    }
+
     const keyData = { id: resolved.keyId, business_id: resolved.business.id, active: true };
 
     // No rate limit or size cap on this route. An authenticated caller could

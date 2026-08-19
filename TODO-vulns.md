@@ -137,13 +137,13 @@ audit than whether its bespoke ownership query is correct.
 | `C-03` / `G-1.2-01` | `FIXED` | `payment-methods/manual` — capability check missing. |
 | `CP-001` | `UNVERIFIED` | Injectable Stripe metadata. |
 | `CP-003` | `FIXED` | Cross-tenant DID rebind. |
-| `CP-015` | `UNVERIFIED` | `payments/create-for-merchant` authenticates with the raw issuer key. |
+| `CP-015` | `FIXED` | `payments/create-for-merchant` authenticates with the raw issuer key. |
 | `CP-023` | `FIXED` | Wallet-slot squatting. |
-| `G-1.2-12` | `UNVERIFIED` | Invoice `merchant_wallet_address` writable by `readonly`. |
-| `H-R-10` | `UNVERIFIED` | `POST /api/invoices` takes `client_id` unvalidated. |
+| `G-1.2-12` | `FIXED` | Invoice `merchant_wallet_address` writable by `readonly`. |
+| `H-R-10` | `FIXED` | `POST /api/invoices` takes `client_id` unvalidated. |
 | `SUB-01` | `FIXED` | `subscriptions/status` DELETE has no `hasScope`. |
-| `REC-D-01` | `UNVERIFIED` | Extends `NEW-04`; likely closed by that fix — re-verify. |
-| `REC-C-03` | `UNVERIFIED` | x402 ignores API key scopes. |
+| `REC-D-01` | `FIXED` by `NEW-04` + `platformMayManageMerchant` | Extends `NEW-04`; likely closed by that fix — re-verify. |
+| `REC-C-03` | `FIXED` | x402 ignores API key scopes. |
 - **Identity / DID abuse** — `L7A-02`, `V-02`, `REP-F1A-02`, `G-1.2-10`,
   `R4-ID-OAUTH`, `R3-ID-02`, `R4-ID-RESET`.
 - **Multisig escrow** — `F-1.1-02`, `F-1.1-03`, `F-1.1-04`. Latent while

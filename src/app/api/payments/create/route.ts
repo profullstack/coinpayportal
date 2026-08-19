@@ -14,6 +14,7 @@ import {
 } from '@/lib/wallets/supported-coins';
 import { isPlatformFeeWallet } from '@/lib/wallets/system-wallet';
 import { isValidPayoutAddress } from '@/lib/blockchain/address-format';
+import { authorizeBusiness } from '@/lib/auth/authz';
 import { screenCheckout } from '@/lib/fraud/screen';
 import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
@@ -451,9 +452,37 @@ export async function POST(request: NextRequest) {
         }
 
         // A third-party payee is a legitimate flow (an invoice forwards the 99%
-        // net to the invoice recipient, not to the business), so ownership is
-        // not required — but it IS recorded. Who authorized a payout to an
-        // address outside the account has to be answerable after the fact.
+        // net to the invoice recipient, not to the business), so the address
+        // need not belong to the account — but WHO may name it is a separate
+        // question, and the answer is the owner.
+        //
+        // Recording `authorized_by_merchant_id` makes the action answerable
+        // after the fact; it does not restrict who can take it. A `writer` (or,
+        // via the permissive capability default, a `readonly` member) could
+        // point a payment at any address they liked, against the project's own
+        // invariant that funds movement is owner-only.
+        //
+        // Session callers are checked here. An API key is scoped to one
+        // business rather than to a role, so it is governed by its own scope.
+        if (!authBusinessId) {
+          const fundsAuthz = await authorizeBusiness(
+            supabase,
+            merchantId,
+            business_id,
+            'funds.move',
+          );
+          if (!fundsAuthz.ok) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: 'Naming a payout address requires owner permissions',
+                code: 'PAYEE_FORBIDDEN',
+              },
+              { status: 403 }
+            );
+          }
+        }
+
         recipientAddress = overrideAddress;
         walletSource = 'request_override';
         paymentMetadata.payee_override = {

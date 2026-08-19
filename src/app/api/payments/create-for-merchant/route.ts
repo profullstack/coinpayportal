@@ -27,6 +27,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { platformMayManageMerchant } from '@/lib/p2p/platform-ownership';
+import { hashApiKey } from '@/lib/auth/scoped-keys';
 import { screenCheckout } from '@/lib/fraud/screen';
 import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { createClient } from '@supabase/supabase-js';
@@ -83,12 +85,23 @@ async function authenticatePlatform(
   if (!authHeader?.startsWith('Bearer ')) return null;
   const apiKey = authHeader.slice(7);
 
+  // Match on the HASH first, falling back to the legacy cleartext column while
+  // it drains. Same contract as /api/p2p/request.
+  const { data: byHash } = await supabase
+    .from('reputation_issuers')
+    .select('did, name')
+    .eq('api_key_hash', hashApiKey(apiKey))
+    .eq('active', true)
+    .maybeSingle();
+
+  if (byHash) return byHash;
+
   const { data } = await supabase
     .from('reputation_issuers')
     .select('did, name')
     .eq('api_key', apiKey)
     .eq('active', true)
-    .single();
+    .maybeSingle();
 
   return data;
 }
@@ -163,17 +176,17 @@ export async function POST(request: NextRequest) {
     const method =
       payment_method ?? (currency.toLowerCase() === 'card' ? 'card' : 'crypto');
 
-    // Verify the merchant exists
-    const { data: merchant } = await supabase
-      .from('merchants')
-      .select('id')
-      .eq('id', merchant_id)
-      .maybeSingle();
-    if (!merchant) {
-      return NextResponse.json(
-        { success: false, error: 'merchant not found' },
-        { status: 404 },
-      );
+    // Verify the platform may act for this merchant — not merely that the
+    // merchant exists.
+    //
+    // The route authenticated an issuer key and then took `merchant_id` from
+    // the body, so any valid issuer could create payments on behalf of ANY
+    // merchant on the platform. Combined with CP-002 (issuer registration was
+    // open and auto-activated), that made "anyone with an email address" the
+    // real trust boundary on creating charges in someone else's name.
+    const owns = await platformMayManageMerchant(supabase, platform.name, merchant_id);
+    if (!owns.ok) {
+      return NextResponse.json({ success: false, error: owns.error }, { status: owns.status });
     }
 
     const baseMetadata: Record<string, unknown> = {
