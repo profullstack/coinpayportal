@@ -66,7 +66,7 @@ describe('inferAccountKind', () => {
   });
 
   it('recognises loans and investments', () => {
-    expect(inferAccountKind('Auto Loan 4432', 'DCU')).toBe('loan');
+    expect(inferAccountKind('Auto Loan 0000', 'Example CU')).toBe('loan');
     expect(inferAccountKind('Roth IRA', 'Fidelity')).toBe('investment');
     expect(inferAccountKind('Brokerage', 'Schwab')).toBe('investment');
   });

@@ -42,10 +42,11 @@ export function isAccountKind(value: unknown): value is AccountKind {
 }
 
 /**
- * Ordered because the first match wins and the names overlap: "DCU Cash
- * Rewards" is a credit card despite containing "cash", and "Harbor Cash Visa
- * Signature" is one despite containing both "cash" and "checking"-adjacent
- * words. Card signals are therefore tested before deposit-account signals.
+ * Ordered because the first match wins and the names overlap: a card called
+ * "<something> Cash Rewards" is credit despite containing "cash", and a
+ * "<something> Cash Visa Signature" is credit despite containing both "cash"
+ * and words adjacent to a deposit account. Card signals are therefore tested
+ * before deposit-account signals.
  */
 const KIND_PATTERNS: Array<{ kind: AccountKind; pattern: RegExp }> = [
   // Card networks and issuer product names are the strongest signal there is.
