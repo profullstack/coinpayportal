@@ -64,6 +64,19 @@ export type SelectEscrowModelResult =
  * Returns `ok: false` only when an explicit `multisig_2of3` request cannot be
  * honoured. An unspecified model always resolves to something creatable.
  */
+/**
+ * ESC-NEW-05: this function has no callers, and did not have any when the audit
+ * was written — the model decision is made by the two creation endpoints
+ * instead (`/api/escrow` is custodial-only; `/api/escrow/multisig` needs the
+ * three pubkeys, which a single resolver cannot conjure).
+ *
+ * It is kept, with its tests, because it is the clearest statement of the
+ * intended rules and is the right shape if the endpoints are ever merged. This
+ * note exists so nobody reads it as the thing that governs custody today: it
+ * does not. `MULTISIG_DEFAULT` is honoured by the browser's create page, and
+ * `/api/escrow` now tells an API caller when it has defaulted them to custodial
+ * on a deployment that advertises otherwise.
+ */
 export function selectEscrowModel(input: SelectEscrowModelInput): SelectEscrowModelResult {
   const { requested, chain, recurring = false, multisigEnabled, multisigDefault } = input;
 

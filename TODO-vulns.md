@@ -245,6 +245,26 @@ spending effort on any of these.
 | `CP-019`, `NEW-16`, `G-1.2-08`, `G-R-09` | **`FIXED`** | Were conditional on a production env var. Rather than verify one value, the conditionality is removed in code — see the batch-twenty-two note. `NEW-05` closed alongside `G-1.2-08`. |
 | `NUEVO-F2-01` | `DECISION` | Historically closed, but `gl_creds`/`gl_rune` were readable by the anon key for five days in February. Rotate regardless of the code being fixed. |
 
+### Priority 4 progress (batch twenty-one)
+
+Verified against live production, no code change needed:
+
+- `V-05` / `CP-P4` — `NEUTRALIZED`, confirmed: `monthly_transaction_limit` is
+  NULL on both plans (Starter, Professional). Re-activates the moment any plan
+  gets a non-null limit.
+- `NUEVO-F2-01` / `L4-NEW-01` — `CONFIRMED REMEDIATED`: every policy on
+  `ln_nodes`/`ln_offers`/`ln_payments`/`swaps` is now scoped to `service_role`
+  or to `authenticated` with a merchant predicate. No `FOR ALL USING(true)`
+  reachable by `anon`. **Rotation of `gl_creds`/`gl_rune` is still warranted**
+  and remains Anthony's decision — the code is fixed, the exposure window
+  happened.
+- `V-06` — `RESOLVED`: cross-checked every column the code touches on
+  `stripe_accounts` against the live schema. All 11 exist. Two apparent misses
+  (`cryptocurrency`, `is_active`) were a chained `merchant_wallets` query inside
+  the same `Promise.all`, not `stripe_accounts` references.
+
+`FIXED`: `ESC-NEW-05`, `H-R-03`, `F5-L2-03`.
+
 ## Priority 5 — Technical debt (60)
 
 Detail in `docs/findings/05_TECHNICAL_DEBT/`. Not urgent. Note that 5a reverts to

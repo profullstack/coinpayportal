@@ -8,6 +8,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveWebhookSecret } from '@/lib/webhooks/secret';
 import type { Payment } from './types';
+import { safeFetch } from '@/lib/security/ssrf';
 
 /**
  * Send webhook notification for payment status change
@@ -76,7 +77,15 @@ export async function sendWebhook(
       signature = `t=${timestamp},v1=${signatureHex}`;
     }
     
-    const response = await fetch(business.webhook_url, {
+    // H-R-03: the destination is merchant-supplied, so this is a request-forgery
+    // primitive — a merchant can point `webhook_url` at anything the cron's
+    // network can reach, including cloud metadata endpoints, and the platform
+    // will POST to it on a schedule with no user interaction at all.
+    //
+    // `safeFetch` resolves the host and refuses blocked ranges, re-validating
+    // every redirect hop. Legitimate external webhooks are unaffected; that is
+    // the entire set of destinations this is supposed to reach.
+    const fetched = await safeFetch(business.webhook_url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -84,7 +93,27 @@ export async function sendWebhook(
         'User-Agent': 'CoinPay-Webhook/1.0',
       },
       body: payloadString,
+      timeoutMs: 15_000,
     });
+
+    if (!fetched.ok) {
+      await supabase.from('webhook_logs').insert({
+        business_id: payment.business_id,
+        payment_id: payment.id,
+        event,
+        webhook_url: business.webhook_url,
+        success: false,
+        status_code: 0,
+        error_message: `Refused: ${fetched.reason}`,
+        attempt_number: 1,
+        response_time_ms: 0,
+        created_at: now.toISOString(),
+      });
+      console.error(`[Webhook] Refused delivery to ${business.webhook_url}: ${fetched.reason}`);
+      return;
+    }
+
+    const response = fetched.response;
     
     // Log webhook delivery
     await supabase.from('webhook_logs').insert({
