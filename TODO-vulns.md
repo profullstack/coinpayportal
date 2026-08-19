@@ -263,7 +263,7 @@ Verified against live production, no code change needed:
   (`cryptocurrency`, `is_active`) were a chained `merchant_wallets` query inside
   the same `Promise.all`, not `stripe_accounts` references.
 
-`FIXED`: `ESC-NEW-05`, `H-R-03`, `F5-L2-03`.
+`FIXED`: `ESC-NEW-05`, `H-R-03`, `F5-L2-03`, `F-1.3-14`.
 
 ## Priority 5 — Technical debt (60)
 
