@@ -274,7 +274,11 @@ export async function POST(request: NextRequest) {
       blockchain: 'ETH', // schema requires non-null; card-only payments
       status: 'pending',
       payment_address: '',
-      payment_address_id: null,
+      // `payment_address_id` is not a column on `payments` — it was dropped in a
+      // November 2025 migration and its absence is confirmed against the live
+      // schema. PostgREST rejects an insert naming an unknown column outright,
+      // so every card payment through this route failed with a 500 before it
+      // ever reached Stripe.
       merchant_wallet_address: '',
       metadata: { ...baseMetadata, payment_method: 'card' },
       created_at: now,

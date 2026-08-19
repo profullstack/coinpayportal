@@ -282,18 +282,38 @@ export async function createPayment(
       );
 
       if (!addressResult.success) {
-        // Payment was created but address generation failed
-        // Update payment status to indicate the issue
-        await supabase
+        // Payment was created but address generation failed.
+        //
+        // This wrote `status: 'failed'`, which `payments_status_check` does not
+        // allow — the permitted values are pending, confirmed, forwarding,
+        // forwarded, forwarding_failed and expired, confirmed against the live
+        // schema. Postgres rejected the UPDATE, the result was never checked,
+        // and the row was left `pending` forever: a payment with no address, on
+        // no dashboard's problem list, that nothing would ever reconcile.
+        //
+        // `expired` is the terminal state the schema actually has for a payment
+        // that can never be completed, and the monitor already ignores it. The
+        // reason is recorded in metadata either way.
+        const { error: markError } = await supabase
           .from('payments')
           .update({
-            status: 'failed',
+            status: 'expired',
             metadata: {
               ...input.metadata,
-              error: addressResult.error
+              error: addressResult.error,
+              failure_reason: 'address_generation_failed',
             }
           })
           .eq('id', payment.id);
+
+        if (markError) {
+          // Unchecked before. If this fails the row really is stranded, so say
+          // so rather than reporting only the original error.
+          console.error(
+            `[Payments] Could not mark payment ${payment.id} as expired after address generation failed:`,
+            markError
+          );
+        }
 
         return {
           success: false,
