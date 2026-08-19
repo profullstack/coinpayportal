@@ -80,7 +80,15 @@ export async function register(
       };
     }
 
-    // Check if email already exists
+    // R3-ID-02: hash BEFORE the existence check, deliberately.
+    //
+    // The check used to come first and return immediately, so a registered
+    // address answered in milliseconds while an unregistered one paid for a
+    // bcrypt hash. That timing difference is an enumeration oracle on its own,
+    // and would survive any amount of care over the wording below. Hashing
+    // first makes both paths do the same work.
+    const passwordHash = await hashPassword(input.password);
+
     const { data: existingMerchant } = await supabase
       .from('merchants')
       .select('id')
@@ -88,14 +96,22 @@ export async function register(
       .single();
 
     if (existingMerchant) {
+      // The message is deliberately generic and identical to the route's other
+      // rejection paths. "Email already exists" told any unauthenticated caller
+      // whether an address belonged to a merchant, enumerable across the whole
+      // base — and an address confirmed this way is exactly the input the
+      // email-keyed payout and DID-binding attacks needed.
+      //
+      // The cost is that someone who has forgotten they have an account is sent
+      // to "try again" rather than "you already have one". Sign-in and password
+      // reset are where that belongs; neither can be made to confirm an address
+      // without the same leak.
+      console.info(`[Auth] Registration attempted for an address that already exists`);
       return {
         success: false,
-        error: 'Email already exists',
+        error: 'Registration failed. Please try again later.',
       };
     }
-
-    // Hash password
-    const passwordHash = await hashPassword(input.password);
 
     // Insert new merchant
     const { data: merchant, error } = await supabase

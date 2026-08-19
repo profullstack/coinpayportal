@@ -24,7 +24,7 @@ import {
   updateInvoice,
   InvoiceStatus,
 } from '../src/invoices.js';
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync, chmodSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 import { createInterface } from 'readline';
 import { homedir, hostname } from 'os';
@@ -679,7 +679,39 @@ function hasGpg() {
 /**
  * Encrypt mnemonic with GPG and save to file
  */
+
+/**
+ * Minimum strength for a passphrase that protects an exported wallet.
+ *
+ * F5-L1-07 / L6B-05: there was no minimum at all here, while the sibling
+ * `generate-hd-wallets` backup asks for eight characters and the web wallet's
+ * create/import flow requires length >= 8 AND a strength score. A one-character
+ * passphrase was accepted on the path that produces a file an attacker can walk
+ * away with — and GPG's default KDF is far cheaper to attack on a GPU than the
+ * scrypt used by the other backup, so the passphrase is doing most of the work.
+ */
+function assertStrongPassphrase(password) {
+  const problems = [];
+  if (!password || password.length < 12) {
+    problems.push('at least 12 characters');
+  }
+  if (!/[a-z]/.test(password ?? '') || !/[A-Z]/.test(password ?? '')) {
+    problems.push('both upper and lower case');
+  }
+  if (!/\d/.test(password ?? '') && !/[^A-Za-z0-9]/.test(password ?? '')) {
+    problems.push('a digit or a symbol');
+  }
+  if (problems.length > 0) {
+    throw new Error(
+      'Passphrase too weak — this is the only thing protecting your wallet file. ' +
+      'It needs ' + problems.join(', ') + '.'
+    );
+  }
+}
+
 async function saveEncryptedWallet(mnemonic, walletId, password, walletFile) {
+  assertStrongPassphrase(password);
+
   if (!hasGpg()) {
     throw new Error('GPG is required for wallet encryption. Install: apt install gnupg');
   }
@@ -705,6 +737,22 @@ async function saveEncryptedWallet(mnemonic, walletId, password, walletFile) {
     ],
     { stdinData: content, passphrase: password }
   );
+
+  // Restrict the file gpg just created (F-L7-01 / F5-L1-02).
+  //
+  // `--output` means GPG creates the file itself, at the process umask — so it
+  // typically lands world-readable, and every other local user can copy an
+  // encrypted wallet at their leisure and attack the passphrase offline.
+  // Sibling writes in this same CLI pass `{ mode: 0o600 }`, but that option
+  // only applies when Node does the writing.
+  try {
+    chmodSync(walletFile, 0o600);
+  } catch (err) {
+    console.warn(
+      `Warning: could not restrict permissions on ${walletFile} — ` +
+      'other local users may be able to read it. ' + (err?.message ?? err)
+    );
+  }
 
   return true;
 }
@@ -3571,13 +3619,19 @@ async function handleLogin() {
     process.exit(1);
   }
 
+  // G-1.2-10: there is no pre-filled approval link any more. A link that filled
+  // in the code turned a phishing message into one-click account takeover —
+  // anyone could start a device authorization and send the resulting link to a
+  // signed-in merchant. Entering the code by hand is what ties the approval to
+  // a terminal the person is actually sitting at.
   print.info('');
-  console.log('  To log in, open this URL on any device (e.g. your desktop) and approve:');
+  console.log('  To log in, open this URL on any device (e.g. your desktop):');
   console.log('');
-  console.log('    ' + colors.cyan + start.verification_uri_complete + colors.reset);
+  console.log('    ' + colors.cyan + start.verification_uri + colors.reset);
   console.log('');
-  console.log('  …or go to ' + colors.cyan + start.verification_uri + colors.reset +
-    ' and enter code ' + colors.bright + start.user_code + colors.reset);
+  console.log('  and enter this code: ' + colors.bright + start.user_code + colors.reset);
+  console.log('');
+  console.log(colors.yellow + '  Only enter a code your own terminal printed.' + colors.reset);
   console.log('');
   print.info('Waiting for approval… (Ctrl-C to cancel)');
 
@@ -3688,10 +3742,12 @@ async function handleLightning(subcommand, args, flags) {
         console.error(colors.red + 'Error: --wallet-id required' + colors.reset);
         process.exit(1);
       }
-      const mnemonic = await getDecryptedMnemonic(flags);
+      // NEW-20: this used to decrypt the stored seed — prompting for the
+      // passphrase — purely to post it to the server, which validated it and
+      // threw it away. Provisioning is a custodial LNbits wallet, so nothing
+      // is derived or signed here. The seed never leaves the machine now.
       const result = await client.lightning.enableWallet({
         wallet_id: walletId,
-        mnemonic,
         business_id: flags['business-id'],
       });
       console.log(colors.green + '⚡ Lightning wallet enabled!' + colors.reset);

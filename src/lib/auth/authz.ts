@@ -206,11 +206,31 @@ export async function listAccessibleBusinessIds(
 export async function listAccessibleOwnerMerchantIds(
   supabase: SupabaseClient,
   userId: string,
+  capability: Capability,
 ): Promise<string[]> {
-  const ids = await listAccessibleBusinessIds(supabase, userId);
+  // `capability` is REQUIRED, and that is the fix for G-1.2-02.
+  //
+  // This used to widen from "businesses I can see" to "the merchant accounts
+  // that own them", with no capability check at all. Membership of one business
+  // at `readonly` therefore returned that owner's merchant id — and the callers
+  // query `stripe_payouts` / `stripe_disputes` / `subscriptions` by
+  // `.in('merchant_id', …)`, so the member read payout, dispute and
+  // subscription data for EVERY business that owner has, including ones they
+  // have no access to at all.
+  //
+  // Those Stripe tables are keyed only by `merchant_id` — there is no
+  // `business_id` to scope by — so tighter row filtering is not available. The
+  // control that is available is who may ask, and the answer is not `readonly`.
+  const roles = await getAccessibleBusinessRoles(supabase, userId);
+  const permitted = [...roles.entries()]
+    .filter(([, role]) => can(role, capability))
+    .map(([businessId]) => businessId);
+
+  // The caller always counts as an owner of their own merchant account.
   const owners = new Set<string>([userId]);
-  if (ids.length > 0) {
-    const { data } = await supabase.from('businesses').select('merchant_id').in('id', ids);
+
+  if (permitted.length > 0) {
+    const { data } = await supabase.from('businesses').select('merchant_id').in('id', permitted);
     for (const b of (data ?? []) as { merchant_id: string | null }[]) {
       if (b.merchant_id) owners.add(b.merchant_id);
     }

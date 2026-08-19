@@ -5,6 +5,7 @@ import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { resolveMerchant } from '@/lib/auth/merchant';
 import { authorizeBusiness, listAccessibleBusinessIds } from '@/lib/auth/authz';
 import { resolvePayee } from '@/lib/payments/payee';
+import { insertWithInvoiceNumber } from '@/lib/invoices/numbering';
 
 /**
  * GET /api/invoices
@@ -233,40 +234,17 @@ export async function POST(request: NextRequest) {
     // Ordering by created_at was also wrong for the lookup — it returns the
     // most RECENTLY CREATED number, which is not the highest once any invoice
     // is deleted or backdated. Ordering by the parsed number is what was meant.
-    const nextInvoiceNumber = async (): Promise<string> => {
-      const { data: rows } = await supabase
-        .from('invoices')
-        .select('invoice_number')
-        .eq('business_id', resolvedBusinessId)
-        .not('invoice_number', 'is', null);
-
-      let highest = 0;
-      for (const row of rows || []) {
-        const match = String(row.invoice_number).match(/INV-(\d+)/);
-        if (match) {
-          const n = parseInt(match[1], 10);
-          if (Number.isFinite(n) && n > highest) highest = n;
-        }
-      }
-      return `INV-${String(highest + 1).padStart(3, '0')}`;
-    };
-
-    let invoiceNumber = await nextInvoiceNumber();
-
     // Determine fee rate
     const isPaidTier = await isBusinessPaidTier(supabase, resolvedBusinessId);
     const feeRate = getFeePercentage(isPaidTier);
 
-    // Insert, retrying on the unique (business_id, invoice_number) violation
-    // that a concurrent create produces. Each retry re-reads the maximum, so
-    // two racing requests end up with consecutive numbers rather than one
-    // silently overwriting the other's.
-    const MAX_NUMBER_ATTEMPTS = 5;
-    let invoice: any = null;
-    let error: { message: string; code?: string } | null = null;
-
-    for (let attempt = 0; attempt < MAX_NUMBER_ATTEMPTS; attempt++) {
-      const result = await supabase
+    // Numbering and the 23505 retry both live in the shared helper now. This
+    // route already had them right; the other three sites did not, and keeping
+    // four copies is how they diverged in the first place.
+    const { data: invoice, error } = await insertWithInvoiceNumber<any>(
+      supabase,
+      resolvedBusinessId,
+      (invoiceNumber) => supabase
         .from('invoices')
         .insert({
           user_id: invoiceOwnerId,
@@ -289,16 +267,8 @@ export async function POST(request: NextRequest) {
           clients (id, name, email, company_name),
           businesses (id, name)
         `)
-        .single();
-
-      invoice = result.data;
-      error = result.error;
-
-      // 23505 = unique_violation. Anything else is a real failure.
-      if (!error || error.code !== '23505') break;
-
-      invoiceNumber = await nextInvoiceNumber();
-    }
+        .single()
+    );
 
     if (error) {
       console.error('Create invoice error:', error);

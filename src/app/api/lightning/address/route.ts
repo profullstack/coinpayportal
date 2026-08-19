@@ -58,14 +58,28 @@ async function ensureLightningAddressBackend(supabase: ReturnType<typeof getSupa
       const fallbackAdmin = process.env.LNBITS_ADMIN_KEY;
       if (!fallbackAdmin) throw error;
 
+      // F-1.3-06: used for this request, never written to the wallet row.
+      //
+      // This is the PLATFORM's LNbits admin key — it controls every wallet on
+      // the instance, not this one. Persisting it into
+      // `wallets.ln_wallet_adminkey` handed that authority to a single user's
+      // record, and four call sites read that column as "this wallet's key":
+      // `POST /api/lightning/payments` passes it straight to `payInvoice`, so
+      // the affected user could pay Lightning invoices out of the platform's
+      // own LNbits balance.
+      //
+      // The fallback exists so a username claim still works when the instance
+      // requires user-token auth for wallet creation, and creating the LNURLp
+      // pay link is all it is needed for. That use is transient and stays.
+      // Nothing is stored, so the wallet keeps no spending authority it did not
+      // earn — it simply has no LNbits wallet of its own yet, which is the
+      // truth.
       adminKey = fallbackAdmin;
 
-      await supabase
-        .from('wallets')
-        .update({
-          ln_wallet_adminkey: encryptLnKey(fallbackAdmin),
-        })
-        .eq('id', walletId);
+      console.warn(
+        `[Lightning] Wallet ${walletId} could not be provisioned on LNbits; using the platform key ` +
+          'for this pay-link creation only. The wallet has no LNbits wallet of its own and cannot send.'
+      );
     }
   };
 

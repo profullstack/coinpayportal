@@ -26,7 +26,6 @@ describe('LightningSetup', () => {
   const defaultProps = {
     walletId: 'w-1',
     businessId: 'b-1',
-    mnemonic: 'test mnemonic phrase',
   };
 
   it('should render the enable lightning button', () => {
@@ -112,7 +111,10 @@ describe('LightningSetup', () => {
     fireEvent.click(screen.getByText('Enable Lightning ⚡'));
 
     await waitFor(() => {
-      expect(mockEnableLightning).toHaveBeenCalledWith('test mnemonic phrase', 'b-1');
+      // NEW-20: the seed must not be passed. Asserting on `undefined` here is
+      // the regression guard — if a mnemonic is ever threaded back through,
+      // this fails.
+      expect(mockEnableLightning).toHaveBeenCalledWith(undefined, 'b-1');
     });
   });
 });

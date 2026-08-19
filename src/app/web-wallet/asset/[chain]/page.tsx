@@ -210,7 +210,6 @@ function LightningAssetView() {
         {!lnNode ? (
           <LightningSetup
             walletId={wallet?.walletId || ''}
-            mnemonic={wallet?.getMnemonic() || ''}
             onSetupComplete={(node) => setLnNode(node)}
           />
         ) : (

@@ -15,6 +15,8 @@ import {
   isMultisigEnabled,
 } from '@/lib/multisig';
 import { requireMultisigAuth } from './auth';
+import { verifyBusinessAccess } from '@/lib/wallets/supported-coins';
+import { callerOwnsEscrow } from '@/lib/escrow/access';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -51,6 +53,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // The body's `business_id` is a claim, not an authorization. Check the
+    // caller can act on it before it is persisted (F-1.1-04).
+    const requestedBusinessId = (parsed.data as { business_id?: string }).business_id;
+    if (requestedBusinessId) {
+      if (auth.context.type === 'business') {
+        if (auth.context.businessId !== requestedBusinessId) {
+          return NextResponse.json(
+            { error: 'This API key cannot create an escrow for that business' },
+            { status: 403 },
+          );
+        }
+      } else {
+        const access = await verifyBusinessAccess(
+          supabase,
+          requestedBusinessId,
+          auth.context.merchantId,
+          'escrow.write',
+        );
+        if (!access.ok) {
+          return NextResponse.json({ error: access.error }, { status: access.status ?? 403 });
+        }
+      }
+    }
+
     const result = await createMultisigEscrow(supabase, parsed.data);
 
     if (!result.success) {
@@ -73,6 +99,12 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // F-1.1-03: this was unauthenticated, so possession of an escrow id — which
+    // is handed to counterparties and echoed in URLs — exposed both parties'
+    // pubkeys, the amount, the lockup address and the owning business_id.
+    const auth = await requireMultisigAuth(request);
+    if (!auth.ok) return auth.response;
+
     const supabase = getSupabase();
     const { searchParams } = new URL(request.url);
     const escrowId = searchParams.get('id');
@@ -88,6 +120,13 @@ export async function GET(request: NextRequest) {
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 404 });
+    }
+
+    // Holding a credential is not the same as owning this escrow. 404 rather
+    // than 403 so the endpoint is not an existence oracle for escrow ids.
+    const allowed = await callerOwnsEscrow(supabase, auth.context, result.escrow as never);
+    if (!allowed) {
+      return NextResponse.json({ error: 'Escrow not found' }, { status: 404 });
     }
 
     return NextResponse.json(result.escrow);

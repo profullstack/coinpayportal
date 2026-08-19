@@ -46,6 +46,22 @@ jobs:
           fi
 
           # Export KEY=VALUE lines into job env (ignore comments/blank lines)
+          #
+          # F5-L2-01: every value extracted here is registered with the runner's
+          # log masker as it is parsed.
+          #
+          # GitHub masks the `ENV_FILE` secret as a single blob. It does NOT know
+          # that the LNbits admin key, the droplet SSH key and everything else
+          # inside it are secrets in their own right, so any later step that
+          # echoed one — a `set -x`, a curl trace, a failing command printing its
+          # arguments — wrote it to the job log in the clear. Job logs outlive
+          # the credentials in them.
+          #
+          # `::add-mask::` matches literal strings only, so a multi-line value
+          # (an SSH private key) has to be masked line by line. Values shorter
+          # than 8 characters are skipped: masking something like `true` or a
+          # port number would replace every incidental occurrence of it and make
+          # the log unreadable without protecting anything.
           while IFS= read -r line; do
             [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
             key="${line%%=*}"
@@ -53,6 +69,18 @@ jobs:
             key="${key#"${key%%[![:space:]]*}"}"
             key="${key%"${key##*[![:space:]]}"}"
             [[ -z "$key" ]] && continue
+
+            # Strip one layer of surrounding quotes so the masked string is what
+            # a consumer actually sees, not the quoted form.
+            unquoted="$value"
+            if [[ "$unquoted" == \"*\" || "$unquoted" == \'*\' ]]; then
+              unquoted="${unquoted:1:${#unquoted}-2}"
+            fi
+
+            while IFS= read -r masked_line; do
+              [[ ${#masked_line} -ge 8 ]] && echo "::add-mask::$masked_line"
+            done <<< "$unquoted"
+
             {
               echo "$key<<__EOF__"
               echo "$value"

@@ -12,7 +12,7 @@
 import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getProvider, getRpcUrl, type BlockchainType } from '../blockchain/providers';
-import { generatePaymentAddress } from '../blockchain/wallets';
+import { generatePaymentAddress, hashStringToNumber } from '../blockchain/wallets';
 import { deliverWebhook, logWebhookAttempt, retryFailedWebhook } from '../webhooks/service';
 import { decrypt } from '../crypto/encryption';
 import { resolveWebhookSecret } from '../webhooks/secret';
@@ -268,12 +268,59 @@ export async function createBusinessCollectionPayment(
       };
     }
 
-    // Generate payment address using wallet service
-    const paymentAddressResult = await generatePaymentAddress(
-      `collection_${payment.id}`,
-      input.blockchain
-    );
-    
+    // Generate payment address, and prove it is not already in use.
+    //
+    // F-1.3-14: the index came from a hash with a 10^6 range, so two collection
+    // payments shared an address — and a private key — with about even odds by
+    // the 1,180th one. The funds for one then land at the other's address: the
+    // balance check confirms the wrong payment and the sweep sends the money to
+    // the wrong destination. Widening the hash makes that unlikely; checking
+    // makes it impossible.
+    //
+    // The derived address is deterministic in the index, so a collision is
+    // resolved by walking to the next index rather than by regenerating and
+    // hoping.
+    const COLLECTION_ADDRESS_ATTEMPTS = 20;
+    const baseIndex = hashStringToNumber(`collection_${payment.id}`);
+
+    let paymentAddressResult: Awaited<ReturnType<typeof generatePaymentAddress>> | null = null;
+
+    for (let attempt = 0; attempt < COLLECTION_ADDRESS_ATTEMPTS; attempt++) {
+      const candidate = await generatePaymentAddress(
+        `collection_${payment.id}`,
+        input.blockchain,
+        (baseIndex + attempt) % 0x7fffffff
+      );
+
+      const { data: clash, error: clashError } = await supabase
+        .from('business_collection_payments')
+        .select('id')
+        .eq('payment_address', candidate.address)
+        .neq('id', payment.id)
+        .limit(1)
+        .maybeSingle();
+
+      if (clashError) {
+        // Cannot prove the address is free. Deriving anyway is what the finding
+        // is about, so stop rather than risk two payments sharing a key.
+        console.error('[Collection] Could not check address uniqueness:', clashError);
+        return { success: false, error: 'Could not allocate a payment address; please retry.' };
+      }
+
+      if (!clash) {
+        paymentAddressResult = candidate;
+        break;
+      }
+
+      console.warn(
+        `[Collection] Derivation index ${baseIndex + attempt} for ${input.blockchain} is already in use; trying the next.`
+      );
+    }
+
+    if (!paymentAddressResult) {
+      return { success: false, error: 'Could not allocate a unique payment address; please retry.' };
+    }
+
     const paymentAddress = paymentAddressResult.address;
     
     // Update payment with generated address and encrypted private key
@@ -344,6 +391,30 @@ export async function forwardBusinessCollectionPaymentSecurely(
       };
     }
 
+    // Claim it atomically before doing anything irreversible.
+    //
+    // L-04 / R4-DIN-08: the check above is a READ, and the status write further
+    // down was unconditional. Two overlapping cron runs both read `confirmed`,
+    // both passed this check, and both went on to broadcast — sending 100% of
+    // the payment twice out of an address that holds it once. Overlapping runs
+    // are not hypothetical here: the retry queue re-enters this same function.
+    //
+    // The conditional UPDATE is the lock. Exactly one caller can move the row
+    // out of `confirmed`, and the loser is told so instead of proceeding.
+    const { data: claimed } = await supabase
+      .from('business_collection_payments')
+      .update({ status: 'forwarding' })
+      .eq('id', paymentId)
+      .eq('status', 'confirmed')
+      .select('id');
+
+    if (!claimed || claimed.length === 0) {
+      return {
+        success: false,
+        error: 'Payment is already being forwarded by another process',
+      };
+    }
+
     // Get and decrypt the private key securely
     if (!payment.private_key_encrypted) {
       return {
@@ -378,14 +449,40 @@ export async function forwardBusinessCollectionPaymentSecurely(
     let txHash: string | undefined;
 
     try {
-      // Update status to forwarding
-      await supabase
-        .from('business_collection_payments')
-        .update({ status: 'forwarding' })
-        .eq('id', paymentId);
+      // Status is already `forwarding` — set by the compare-and-swap claim
+      // above, which is what makes this section single-entry.
 
-      // Forward 100% of the amount to destination wallet
-      if (provider.sendTransaction) {
+      // F-1.3-15: the network fee has to come out of what is at the address.
+      //
+      // A collection address holds exactly `crypto_amount` — the quote adds no
+      // network fee on top — and this asked the provider to send all of it.
+      // On UTXO chains `BitcoinProvider.sendTransaction` refuses outright when
+      // `amount + fee > balance`, which is always true here, so **every BTC
+      // collection sweep threw** and the payment sat in `forwarding_failed`
+      // with the funds stranded. On EVM the same shortfall was silently
+      // absorbed by reducing the amount (see IA-010), so it "worked" while
+      // under-sending.
+      //
+      // `sendSplitTransaction` with a single recipient is the sweep primitive:
+      // it takes the fee out of the outputs rather than demanding it on top,
+      // which is the only thing that can happen when fee and funds are the same
+      // asset. Preferred where the provider offers it; `sendTransaction`
+      // remains the path for account-model chains that deduct gas separately.
+      const canSplit = typeof (provider as { sendSplitTransaction?: unknown }).sendSplitTransaction === 'function';
+
+      if (canSplit) {
+        txHash = await (provider as unknown as {
+          sendSplitTransaction: (
+            from: string,
+            recipients: Array<{ address: string; amount: string }>,
+            privateKey: string,
+          ) => Promise<string>;
+        }).sendSplitTransaction(
+          payment.payment_address,
+          [{ address: payment.destination_wallet, amount: payment.crypto_amount.toString() }],
+          privateKey
+        );
+      } else if (provider.sendTransaction) {
         txHash = await provider.sendTransaction(
           payment.payment_address,
           payment.destination_wallet,

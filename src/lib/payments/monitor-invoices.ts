@@ -8,6 +8,8 @@ import { checkBalance } from './monitor-balance';
 import { isSufficientPayment } from './tolerance';
 import { resolvePayee } from './payee';
 import { getPaymentReceivingWallet } from '../wallets/supported-coins';
+import { fetchAllKeyset } from '../db/keyset';
+import { insertWithInvoiceNumber } from '../invoices/numbering';
 
 // Invoice Payment Monitoring
 // ────────────────────────────────────────────────────────────
@@ -25,16 +27,42 @@ export async function runInvoiceMonitorCycle(supabase: any, now: Date): Promise<
 
   try {
     // 1. Check sent invoices for incoming payments
-    const { data: sentInvoices } = await supabase
-      .from('invoices')
-      .select(`
-        *,
-        clients (id, name, email, company_name),
-        businesses (id, name, merchant_id)
-      `)
-      .eq('status', 'sent')
-      .not('payment_address', 'is', null)
-      .limit(100);
+    //
+    // F-1.3-09: this was `.limit(100)` with no `.order()`. An invoice stays
+    // `sent` until it is paid, so the matching set does not drain — once more
+    // than 100 invoices are awaiting payment, the same 100 are checked on every
+    // run and the rest are never checked at all. Payments to them are simply
+    // never detected, and the whole invoice rail stalls platform-wide with no
+    // error anywhere. (18 invoices are `sent` in production today, so this is
+    // latent rather than active — but it triggers on growth, silently.)
+    //
+    // Ordering alone would not fix it: an ordered query returns the same first
+    // page just as reliably. The page has to advance, so this walks the set.
+    const { rows: sentInvoices, truncated, error: sweepError } = await fetchAllKeyset<any>(
+      (cursor, pageSize) => {
+        let q = supabase
+          .from('invoices')
+          .select(`
+            *,
+            clients (id, name, email, company_name),
+            businesses (id, name, merchant_id)
+          `)
+          .eq('status', 'sent')
+          .not('payment_address', 'is', null)
+          .order('id', { ascending: true })
+          .limit(pageSize);
+        if (cursor) q = q.gt('id', cursor);
+        return q as unknown as Promise<{ data: any[] | null; error: { message: string } | null }>;
+      }
+    );
+
+    if (sweepError) {
+      console.error('[Monitor] Invoice sweep page failed:', sweepError);
+      stats.errors++;
+    }
+    if (truncated) {
+      console.warn('[Monitor] Invoice sweep hit its row ceiling; the tail was not checked this run');
+    }
 
     if (sentInvoices) {
       for (const invoice of sentInvoices) {
@@ -380,21 +408,14 @@ export async function runInvoiceSchedulerCycle(supabase: any, now: Date): Promis
           continue;
         }
 
-        // Generate next invoice number
-        const { data: maxInvoice } = await supabase
-          .from('invoices')
-          .select('invoice_number')
-          .eq('business_id', templateInvoice.business_id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        let nextNum = 1;
-        if (maxInvoice?.invoice_number) {
-          const match = maxInvoice.invoice_number.match(/INV-(\d+)/);
-          if (match) nextNum = parseInt(match[1], 10) + 1;
-        }
-        const invoiceNumber = `INV-${String(nextNum).padStart(3, '0')}`;
+        // F-1.3-10 / R4-DIN-07: this reused the numbering its interactive
+        // sibling had already been fixed for — ordering by `created_at` and
+        // taking the newest row, which is not the highest number, with no retry
+        // on the unique violation two overlapping cycles produce. Here the
+        // consequence is worse than a failed request: the cycle throws, the
+        // schedule is never advanced, and the subscription silently stops
+        // invoicing. The number is now produced by the shared helper at the
+        // point of insert.
 
         const nextDueDate = calculateNextInvoiceDueDate(
           new Date(schedule.next_due_date),
@@ -444,7 +465,10 @@ export async function runInvoiceSchedulerCycle(supabase: any, now: Date): Promis
         // resolution landed somewhere else it no longer refers to anything.
         const payeeMoved = payee.address !== templateInvoice.merchant_wallet_address;
 
-        const { error: createError } = await supabase
+        const { data: createdInvoice, error: createError } = await insertWithInvoiceNumber<any>(
+          supabase,
+          templateInvoice.business_id,
+          (invoiceNumber) => supabase
           .from('invoices')
           .insert({
             user_id: templateInvoice.user_id,
@@ -467,7 +491,10 @@ export async function runInvoiceSchedulerCycle(supabase: any, now: Date): Promis
               payee_source: payee.source,
               ...(payeeUnverified ? { payee_unverified: true } : {}),
             },
-          });
+          })
+          .select('invoice_number')
+          .single()
+        );
 
         if (createError) {
           console.error(`[Monitor] Failed to create scheduled invoice:`, createError);
@@ -484,7 +511,7 @@ export async function runInvoiceSchedulerCycle(supabase: any, now: Date): Promis
           .eq('id', schedule.id);
 
         stats.created++;
-        console.log(`[Monitor] Created recurring invoice ${invoiceNumber} for schedule ${schedule.id}`);
+        console.log(`[Monitor] Created recurring invoice ${createdInvoice?.invoice_number} for schedule ${schedule.id}`);
       } catch (err) {
         console.error(`[Monitor] Error processing schedule ${schedule.id}:`, err);
         stats.errors++;

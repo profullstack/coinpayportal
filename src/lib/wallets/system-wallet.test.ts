@@ -285,12 +285,38 @@ describe('System Wallet', () => {
     });
 
     describe('ADA derivation', () => {
-      it('should derive ADA address (simplified)', async () => {
+      it('derives a real, spendable Cardano address', async () => {
+        // L5-02: this used to produce `addr1_${pubkeyHex.slice(0,40)}...` — a
+        // placeholder, trailing ellipsis included, that is not a Cardano
+        // address in any sense. Production issued five of them between
+        // February and July 2026 and none was ever paid, because no wallet
+        // will accept a malformed address. This is the *custodial* wallet: the
+        // address a customer is told to send money to.
+        //
+        // The old assertion matched that exact broken shape, so the bug had a
+        // test defending it.
         const result = await deriveSystemPaymentAddress('ADA', 0);
-        // Simplified ADA address format
-        expect(result.address).toMatch(/^addr1_[a-f0-9]+\.\.\.$/);
+
         expect(result.cryptocurrency).toBe('ADA');
         expect(result.derivationPath).toBe("m/44'/1815'/0'/0'");
+
+        // No underscore, no ellipsis: bech32 has neither.
+        expect(result.address).not.toContain('_');
+        expect(result.address).not.toContain('.');
+        expect(result.address).toMatch(/^addr1[0-9a-z]+$/);
+
+        // The real check. The forwarding path calls Address.from_bech32 on this
+        // string, so if the library will not parse it the funds cannot be moved
+        // even after they arrive.
+        const CardanoWasm = await import('@emurgo/cardano-serialization-lib-nodejs');
+        const lib = (CardanoWasm as unknown as { default?: unknown }).default ?? CardanoWasm;
+        const parsed = (lib as any).Address.from_bech32(result.address);
+        expect(parsed.to_bech32()).toBe(result.address);
+
+        // And the fallback the spend path uses to recover the payment key hash
+        // (`to_bytes().slice(1, 29)`) must land on 28 bytes of key hash.
+        const keyHashSlice = Buffer.from(parsed.to_bytes()).subarray(1, 29);
+        expect(keyHashSlice.length).toBe(28);
       });
 
       it('should derive different addresses for different indexes', async () => {
@@ -318,9 +344,15 @@ describe('System Wallet', () => {
       });
 
       it('should throw error for unsupported cryptocurrency', async () => {
+        // The mnemonic lookup happens before the chain switch, so an unknown
+        // chain is refused with "no mnemonic configured for INVALID" rather
+        // than reaching the `Unsupported cryptocurrency` throw further down.
+        // Either way it is refused and nothing is derived, which is what
+        // matters; this assertion had simply drifted from the code while the
+        // file sat excluded from the test run.
         await expect(
           deriveSystemPaymentAddress('INVALID' as SystemBlockchain, 0)
-        ).rejects.toThrow(/Unsupported cryptocurrency/);
+        ).rejects.toThrow(/INVALID/);
       });
     });
   });

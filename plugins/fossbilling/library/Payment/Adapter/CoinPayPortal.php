@@ -51,6 +51,24 @@ class Payment_Adapter_CoinPayPortal
                     'required'    => true,
                     'description' => 'Secret used to verify incoming webhook signatures from CoinPayPortal.',
                 ],
+                // F4-03: the webhook URL was documented but never shown here.
+                //
+                // Nothing registers it automatically, so a merchant who
+                // configures the gateway from this screen alone ends up with a
+                // working checkout and no callback: payments are taken and the
+                // invoice is never marked paid. The failure is silent and looks
+                // like CoinPayPortal not paying out, because everything on this
+                // page appears correctly filled in.
+                //
+                // Read-only, because it is an instruction rather than a setting.
+                'webhook_url_display' => [
+                    'label'       => 'Webhook URL (register this in CoinPayPortal)',
+                    'type'        => 'text',
+                    'required'    => false,
+                    'readonly'    => true,
+                    'default'     => '/ipn/CoinPayPortal',
+                    'description' => 'Copy this path onto the end of your store URL — https://your-domain.com/ipn/CoinPayPortal — and add it as the webhook endpoint in your CoinPayPortal dashboard under Settings → Webhooks. Without it, invoices are never marked paid automatically.',
+                ],
                 'api_url' => [
                     'label'       => 'API Base URL',
                     'type'        => 'text',
@@ -284,6 +302,41 @@ class Payment_Adapter_CoinPayPortal
             $txHash    = $eventData['txid'] ?? '';
             $paidAsset = $eventData['paid_asset'] ?? '';
             $paidCrypto = $eventData['paid_amount'] ?? '';
+
+            // F4-02: refuse a payment already recorded.
+            //
+            // The only guard was `if ($invoice['status'] === 'paid') return;`,
+            // which is a check-then-act with a gap in the middle. Two
+            // deliveries of the same event — and CoinPayPortal retries, as does
+            // every webhook sender — both read a status that is not yet 'paid',
+            // both create a transaction and both mark the invoice paid. The
+            // merchant's books then show the invoice settled twice.
+            //
+            // `txid` is the payment id, so it is stable across retries and is
+            // the natural idempotency key. Wrapped defensively: if this
+            // FOSSBilling build does not expose the listing call, the behaviour
+            // degrades to what it was rather than breaking payment capture
+            // outright.
+            try {
+                $existing = $api_admin->invoice->transaction_get_list([
+                    'txid'       => $paymentId,
+                    'gateway_id' => $gateway_id,
+                    'per_page'   => 1,
+                ]);
+                $alreadyRecorded = !empty($existing['list']) || (is_array($existing) && !empty($existing[0]));
+
+                if ($alreadyRecorded) {
+                    $this->log(sprintf(
+                        'Payment %s already recorded against invoice %s, ignoring duplicate delivery',
+                        $paymentId,
+                        $invoiceId
+                    ));
+                    http_response_code(200);
+                    return;
+                }
+            } catch (\Throwable $e) {
+                $this->log('Could not check for a duplicate transaction: ' . $e->getMessage());
+            }
 
             try {
                 $api_admin->invoice->transaction_create([

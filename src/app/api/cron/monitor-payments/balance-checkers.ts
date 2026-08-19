@@ -6,6 +6,7 @@
  */
 
 import * as bitcoin from 'bitcoinjs-lib';
+import { fetchWithTimeout } from '@/lib/http/fetch-timeout';
 
 /**
  * CashAddr charset for decoding
@@ -149,7 +150,7 @@ const CRYPTO_APIS_KEY = process.env.CRYPTO_APIS_KEY || '';
  */
 export async function checkBitcoinBalance(address: string): Promise<number> {
   try {
-    const response = await fetch(`https://blockstream.info/api/address/${address}`);
+    const response = await fetchWithTimeout(`https://blockstream.info/api/address/${address}`);
     if (!response.ok) {
       console.error(`Failed to fetch BTC balance for ${address}: ${response.status}`);
       return 0;
@@ -181,7 +182,7 @@ export async function checkBCHBalance(address: string): Promise<number> {
         const tatumUrl = `https://api.tatum.io/v3/bcash/address/balance/${legacyAddress}`;
         console.log(`[Monitor BCH] Tatum URL: ${tatumUrl}`);
         
-        const response = await fetch(tatumUrl, {
+        const response = await fetchWithTimeout(tatumUrl, {
           method: 'GET',
           headers: { 'x-api-key': tatumApiKey },
         });
@@ -215,7 +216,7 @@ export async function checkBCHBalance(address: string): Promise<number> {
         const url = `https://rest.cryptoapis.io/addresses-latest/utxo/bitcoin-cash/mainnet/${cashAddrShort}/balance`;
         console.log(`[Monitor BCH] CryptoAPIs URL: ${url}`);
         
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -240,7 +241,7 @@ export async function checkBCHBalance(address: string): Promise<number> {
     // Fallback to fullstack.cash
     try {
       const fullstackUrl = `https://api.fullstack.cash/v5/electrumx/balance/${address}`;
-      const fullstackResponse = await fetch(fullstackUrl);
+      const fullstackResponse = await fetchWithTimeout(fullstackUrl);
       
       if (fullstackResponse.ok) {
         const fullstackData = await fullstackResponse.json();
@@ -256,7 +257,7 @@ export async function checkBCHBalance(address: string): Promise<number> {
     // Fallback to Blockchair
     try {
       const blockchairUrl = `https://api.blockchair.com/bitcoin-cash/dashboards/address/${legacyAddress}`;
-      const blockchairResponse = await fetch(blockchairUrl);
+      const blockchairResponse = await fetchWithTimeout(blockchairUrl);
       
       if (blockchairResponse.ok) {
         const blockchairData = await blockchairResponse.json();
@@ -280,7 +281,7 @@ export async function checkBCHBalance(address: string): Promise<number> {
  */
 export async function checkEVMBalance(address: string, rpcUrl: string): Promise<number> {
   try {
-    const response = await fetch(rpcUrl, {
+    const response = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -323,7 +324,7 @@ export async function checkEVMTokenBalance(
     const paddedAddress = address.toLowerCase().replace(/^0x/, '').padStart(64, '0');
     const callData = `${ERC20_BALANCE_OF_SELECTOR}${paddedAddress}`;
 
-    const response = await fetch(rpcUrl, {
+    const response = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -360,7 +361,7 @@ export async function checkSolanaBalance(address: string, rpcUrl: string): Promi
   try {
     console.log(`Checking Solana balance for ${address} using ${rpcUrl}`);
     
-    const response = await fetch(rpcUrl, {
+    const response = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -405,7 +406,7 @@ export async function checkSolanaTokenBalance(
   decimals: number = 6
 ): Promise<number> {
   try {
-    const response = await fetch(rpcUrl, {
+    const response = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -460,7 +461,7 @@ export async function checkSolanaTokenBalance(
  */
 export async function checkXRPBalance(address: string, rpcUrl: string): Promise<number> {
   try {
-    const response = await fetch(rpcUrl, {
+    const response = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -504,7 +505,7 @@ export async function checkADABalance(address: string, rpcUrl: string): Promise<
       return 0;
     }
 
-    const response = await fetch(`${rpcUrl}/addresses/${address}`, {
+    const response = await fetchWithTimeout(`${rpcUrl}/addresses/${address}`, {
       method: 'GET',
       headers: { 'project_id': apiKey },
     });
@@ -524,6 +525,48 @@ export async function checkADABalance(address: string, rpcUrl: string): Promise<
     return lovelace / 1_000_000;
   } catch (error) {
     console.error(`Error checking ADA balance for ${address}:`, error);
+    return 0;
+  }
+}
+
+/**
+ * Check a Dogecoin address balance.
+ *
+ * F-1.3-04: this case was `console.log('not yet implemented'); return 0`, and
+ * this is the oracle `secure-forwarding.ts` reads. A DOGE payment is *confirmed*
+ * by a different oracle (`payments/monitor-balance.ts`) which has always had a
+ * real implementation — so the two disagreed by construction. A confirmed DOGE
+ * payment reached forwarding, was told the address held nothing, and was pushed
+ * back to `confirmed`; on every subsequent run, the same. The funds would sit at
+ * the intermediary address permanently while the payment looked healthy.
+ *
+ * Deliberately the same two sources, in the same order, as the confirmation-side
+ * checker. Two oracles that disagree about the same address is the actual
+ * defect; a second, differently-sourced implementation would only hide it.
+ *
+ * Production has never confirmed a DOGE payment (all four are `expired`), so
+ * nothing is stranded today — this closes the trap before it is walked into.
+ */
+async function checkDOGEBalance(address: string): Promise<number> {
+  try {
+    const response = await fetchWithTimeout(`https://api.blockcypher.com/v1/doge/main/addrs/${address}/balance`);
+    if (response.ok) {
+      const data = await response.json();
+      return (data.balance || 0) / 1e8;
+    }
+
+    const fallbackResponse = await fetchWithTimeout(`https://dogechain.info/api/v1/address/balance/${address}`);
+    if (fallbackResponse.ok) {
+      const data = await fallbackResponse.json();
+      if (data.success === 1) {
+        return parseFloat(data.balance || '0');
+      }
+    }
+
+    console.error(`[Monitor DOGE] Both balance sources failed for ${address}`);
+    return 0;
+  } catch (error) {
+    console.error(`[Monitor DOGE] Error checking balance for ${address}:`, error);
     return 0;
   }
 }
@@ -562,8 +605,7 @@ export async function checkBalance(address: string, blockchain: string): Promise
     case 'BNB':
       return checkEVMBalance(address, RPC_ENDPOINTS.BNB);
     case 'DOGE':
-      console.log(`DOGE balance check not yet implemented for ${address}`);
-      return 0;
+      return checkDOGEBalance(address);
     case 'XRP':
       return checkXRPBalance(address, RPC_ENDPOINTS.XRP);
     case 'ADA':

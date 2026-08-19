@@ -9,8 +9,17 @@ function getSupabase() {
   return createClient(url, key);
 }
 
+/**
+ * F-1.1-04: this resolved the caller and then returned `{ ok: true }`, throwing
+ * the identity away. A route that cannot see who is calling cannot scope
+ * anything to them — which is why `createMultisigEscrow` persisted the
+ * `business_id` from the request body with no ownership check at all.
+ *
+ * The context now comes back, and callers are expected to use it.
+ */
 export async function requireMultisigAuth(request: NextRequest): Promise<{
   ok: true;
+  context: NonNullable<Awaited<ReturnType<typeof authenticateRequest>>['context']>;
 } | {
   ok: false;
   response: NextResponse;
@@ -42,5 +51,12 @@ export async function requireMultisigAuth(request: NextRequest): Promise<{
     };
   }
 
-  return { ok: true };
+  if (!authResult.context) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: 'Invalid authentication context' }, { status: 401 }),
+    };
+  }
+
+  return { ok: true, context: authResult.context };
 }

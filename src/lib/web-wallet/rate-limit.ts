@@ -96,6 +96,15 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'invoice_email_resend': { limit: 10, windowSeconds: 300 },  // 10/5min per business
   'p2p_request': { limit: 30, windowSeconds: 60 },           // 30/min per issuing platform
   'cli_auth_start': { limit: 10, windowSeconds: 300 },       // 10/5min per IP
+  // NEW-11: `poll` was unauthenticated and unlimited, and its answers are
+  // distinguishable (invalid / pending / denied / expired), so it was a free
+  // status oracle. A legitimate CLI polls every 5s for at most 10 minutes —
+  // 120 calls — so this leaves generous headroom for several terminals behind
+  // one NAT while still bounding the endpoint.
+  'cli_auth_poll': { limit: 600, windowSeconds: 600 },       // 600/10min per IP
+  // SUB-02: each checkout derives an HD address and stores an encrypted key,
+  // so an unbounded loop accumulates key material as well as rows.
+  'subscription_checkout': { limit: 10, windowSeconds: 300 }, // 10/5min per merchant
   // WebAuthn. `login-options` answers differently for a registered and an
   // unregistered account, so without a limit it is a free user-enumeration
   // oracle; the verify endpoints back an authentication decision.
@@ -120,6 +129,12 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   // Releases Boltz refund/claim key material to the owning wallet. Authorized,
   // but key material leaving the system deserves its own tight budget.
   'swap_recovery': { limit: 10, windowSeconds: 300 },        // 10/5min per wallet
+  // Password reset. Two keys, deliberately: the per-EMAIL bucket is a victim's
+  // bucket, so an attacker who can exhaust it cheaply denies that account its
+  // reset flow. The per-IP bucket is the attacker's own and is the one that
+  // actually costs them something.
+  'password_reset_email': { limit: 3, windowSeconds: 900 },  // 3/15min per email
+  'password_reset_ip': { limit: 10, windowSeconds: 900 },    // 10/15min per IP
 };
 
 /** In-memory fallback store */

@@ -1,12 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { SUPPORTED_CRYPTOCURRENCIES, type Cryptocurrency } from './service';
+import { validateWalletAddress } from './validate-address';
 
 /**
  * Validation schemas
  */
 const cryptocurrencySchema = z.enum(SUPPORTED_CRYPTOCURRENCIES);
-const walletAddressSchema = z.string().min(26, 'Invalid wallet address').max(100);
 const labelSchema = z.string().max(100).optional();
 
 /**
@@ -73,12 +73,18 @@ export async function createMerchantWallet(
       };
     }
 
-    // Validate wallet address
-    const addressResult = walletAddressSchema.safeParse(input.wallet_address);
-    if (!addressResult.success) {
+    // Validate wallet address.
+    //
+    // H-R-09: this checked length only (26-100 chars), so anything of roughly
+    // the right size was accepted as a payout destination — an address for the
+    // wrong chain, a transposed character, a sentence. Now format-checked
+    // against the chain it is being saved for, via the shared validator both
+    // wallet tables use.
+    const addressResult = validateWalletAddress(input.wallet_address, input.cryptocurrency);
+    if (!addressResult.ok) {
       return {
         success: false,
-        error: addressResult.error.errors[0].message,
+        error: addressResult.error,
       };
     }
 
@@ -261,13 +267,13 @@ export async function updateMerchantWallet(
       };
     }
 
-    // Validate wallet address if provided
+    // Validate wallet address if provided (H-R-09 — see the create path).
     if (input.wallet_address) {
-      const addressResult = walletAddressSchema.safeParse(input.wallet_address);
-      if (!addressResult.success) {
+      const addressResult = validateWalletAddress(input.wallet_address, cryptocurrency);
+      if (!addressResult.ok) {
         return {
           success: false,
-          error: addressResult.error.errors[0].message,
+          error: addressResult.error,
         };
       }
     }

@@ -792,6 +792,30 @@ describe('POST /api/x402/verify — audit regressions', () => {
     expect((await res.json()).error).toMatch(/asset mismatch/i);
   });
 
+  it('rejects an invented asset even when the merchant named none (F-1.3-03)', async () => {
+    // The gap the asset check left open: it only ran when `expected.asset` was
+    // set, so a price with no asset stated was satisfied by a proof denominated
+    // in any token at all. The payer picks that token — 1000 units of something
+    // they minted this morning costs nothing.
+    const { asset: _dropped, ...expectationWithoutAsset } = lightningExpectation as Record<string, unknown>;
+
+    const res = await POST(
+      makeRequest({
+        payment: lightningPayment({ asset: 'WORTHLESSCOIN' }),
+        expected: expectationWithoutAsset,
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/asset mismatch/i);
+  });
+
+  // The accepting side of the allow-list is already covered: six tests in this
+  // file pay in real USDC with `expected.asset` unset and still pass, which is
+  // exactly the "merchant named none, asset is recognised" case. A Lightning
+  // fixture for it would need a matching ln_payments row and would be testing
+  // the settlement proof rather than the asset rule.
+
   it('rejects a Stripe proof whose PaymentIntent charged less than the price', async () => {
     process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
     // A real, succeeded, one-cent PaymentIntent — presented for a $50 resource.

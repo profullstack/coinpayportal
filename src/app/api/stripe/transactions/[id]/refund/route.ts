@@ -124,13 +124,32 @@ export async function POST(
     // Block refunds on charges with an open dispute — Stripe rejects these, and
     // the correct action is to accept/contest the dispute.
     if (transaction.stripe_charge_id) {
-      const { data: dispute } = await supabase
+      const { data: dispute, error: disputeError } = await supabase
         .from('stripe_disputes')
         .select('status')
         .eq('stripe_charge_id', transaction.stripe_charge_id)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
+
+      // W-08: the error was discarded, so `dispute` came back null on any query
+      // failure and the guard concluded "no dispute" — the exact opposite of
+      // what a failed check means. A refund would then be attempted on a
+      // disputed charge, which Stripe rejects, and which is the wrong action
+      // anyway: the dispute should be accepted or contested.
+      //
+      // "Could not check" is not "nothing to find".
+      if (disputeError) {
+        console.error('[Stripe] Dispute lookup failed; refusing to refund:', disputeError);
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Could not verify whether this charge is disputed. Please try again.',
+          },
+          { status: 503 }
+        );
+      }
+
       if (dispute && OPEN_DISPUTE_STATUSES.has(String(dispute.status))) {
         return NextResponse.json(
           {

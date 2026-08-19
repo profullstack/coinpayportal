@@ -41,10 +41,23 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 # Copy the whole repo before install: the root package.json depends on the
 # workspace package @profullstack/coinpay (packages/*), so pnpm needs those
-# manifests present at install time. Coinpay's Railway build uses
-# --no-frozen-lockfile (the lockfile drifts); match it.
+# manifests present at install time.
 COPY . .
-RUN pnpm install --no-frozen-lockfile
+
+# L-03: installs from the lockfile, not around it.
+#
+# This was `--no-frozen-lockfile`, justified by a comment saying the lockfile
+# drifts. That flag lets pnpm resolve versions the lockfile does not record, so
+# two builds of the same commit can ship different dependency trees and a
+# changed — or compromised — transitive dependency reaches production without
+# appearing in any diff. For a payments platform that is the whole supply-chain
+# argument for having a lockfile at all.
+#
+# The premise was also out of date: `pnpm install --frozen-lockfile` passes
+# against the current tree, checked before making this change. If it drifts
+# again the build now fails loudly, which is the point — a drifted lockfile is
+# something to fix in a commit, not to route around on every deploy.
+RUN pnpm install --frozen-lockfile
 RUN pnpm build
 
 # Runtime env

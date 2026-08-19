@@ -7,7 +7,6 @@ import { useWebWallet } from '@/components/web-wallet/WalletContext';
 interface LightningSetupProps {
   walletId: string;
   businessId?: string;
-  mnemonic: string;
   onSetupComplete?: (node: LnNode) => void;
 }
 
@@ -18,7 +17,6 @@ interface LightningSetupProps {
 export function LightningSetup({
   walletId,
   businessId,
-  mnemonic,
   onSetupComplete,
 }: LightningSetupProps) {
   const { wallet } = useWebWallet();
@@ -32,7 +30,10 @@ export function LightningSetup({
 
     try {
       if (!wallet || wallet.walletId !== walletId) throw new Error('Wallet is locked');
-      const nextNode = await wallet.enableLightning(mnemonic, businessId);
+      // NEW-20: this took the seed phrase as a prop and posted it to the
+      // server, which validated it and discarded it. The provisioned wallet is
+      // custodial — nothing is derived here — so the prop is gone.
+      const nextNode = await wallet.enableLightning(undefined, businessId);
       setNode(nextNode as LnNode);
       onSetupComplete?.(nextNode as LnNode);
     } catch (err) {

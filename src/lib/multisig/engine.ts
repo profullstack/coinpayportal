@@ -13,6 +13,7 @@
  * Core Rule: CoinPay can never move funds alone.
  */
 
+import { verifyActionProof, proposalChallenge, disputeChallenge } from './proof';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ChainAdapter } from './adapters/interface';
 import { getAdapterType } from './adapters/interface';
@@ -210,6 +211,7 @@ export async function proposeTransaction(
   proposalType: ProposalType,
   toAddress: string,
   signerPubkey: string,
+  signature?: string,
 ): Promise<ProposeResult> {
   // Fetch escrow
   const { data: escrow, error: fetchError } = await supabase
@@ -221,6 +223,16 @@ export async function proposeTransaction(
 
   if (fetchError || !escrow) {
     return { success: false, error: 'Multisig escrow not found' };
+  }
+
+  // Prove possession of the key BEFORE the pubkey is allowed to mean anything
+  // (F-1.1-02). Matching a public value proves only that you can read it.
+  if (!verifyActionProof(
+    proposalChallenge({ escrowId, proposalType, toAddress }),
+    signature,
+    signerPubkey,
+  )) {
+    return { success: false, error: 'Invalid or missing signature for this proposal' };
   }
 
   // Verify signer is a participant
@@ -583,6 +595,7 @@ export async function disputeMultisigEscrow(
   escrowId: string,
   signerPubkey: string,
   reason: string,
+  signature?: string,
 ): Promise<DisputeResult> {
   // Fetch escrow
   const { data: escrow, error: fetchError } = await supabase
@@ -594,6 +607,12 @@ export async function disputeMultisigEscrow(
 
   if (fetchError || !escrow) {
     return { success: false, error: 'Multisig escrow not found' };
+  }
+
+  // Proof of possession first (F-1.1-02): opening a dispute freezes an escrow,
+  // so being able to name a party's public key must not be enough to do it.
+  if (!verifyActionProof(disputeChallenge({ escrowId, reason }), signature, signerPubkey)) {
+    return { success: false, error: 'Invalid or missing signature for this dispute' };
   }
 
   // Verify signer is depositor or beneficiary
