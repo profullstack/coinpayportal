@@ -288,6 +288,67 @@ fired. All 6 wallets holding an LNbits admin key hold their own — they have bo
 `ln_wallet_adminkey` and `ln_wallet_inkey`, and the fallback path writes only
 the former (`adminkey_only = 0`). The fix is preventive, not remedial.
 
+## Priority 5 verification sweep (2026-08-19)
+
+142 findings across `5a` (35), `5b` (25) and `5c` (82). The audit's own framing
+is that these produce no business impact **only because of a stated condition**.
+The agreed treatment was verification with evidence rather than pretending a
+code change happened, so this records what was actually checked.
+
+### Checked, and the gate holds
+
+- **Dead-code claims** (`F1.4-L1-NEW-02`, `IA-004`). Tested by reference search
+  rather than trusted. `clearSensitiveString`: one definition, zero callers —
+  confirmed. `initSecrets`: the two apparent callers are both inside the
+  module's own doc comment, so zero real call sites — confirmed, though it is
+  worth noting the module documents a usage pattern nothing follows.
+- **`V-05` / `CP-P4`** — `monthly_transaction_limit` is NULL on both plans.
+- **`NUEVO-F2-01` / `L4-NEW-01`** — no `FOR ALL USING(true)` reachable by
+  `anon` on `ln_nodes`/`ln_offers`/`ln_payments`/`swaps`.
+- **`IA-002`** — the RLS gap is **not a live data exposure**, and the scary
+  reading of it is wrong. Every table in `public` has RLS enabled. Every
+  `{public}` INSERT policy carries a real `with_check` predicate — none is
+  unconditional, so there is no anonymous-write hole. `qual` reads as null on
+  those rows because INSERT policies keep their predicate in `with_check`;
+  reading the wrong column is what makes this look alarming.
+
+### Found while sweeping, and fixed
+
+**`reputation_receipts` was one `GRANT` away from publishing everything.** It
+carries `SELECT ... USING (true)` for `anon, authenticated` — which reads as
+world-readable — and is unreadable today *only* because neither role holds a
+SELECT grant. RLS is evaluated after the grant check, so a permissive policy on
+an ungranted table is inert.
+
+That is a trap, not a control. `GRANT SELECT ON ALL TABLES IN SCHEMA public TO
+anon` is a routine Supabase incantation, and running it once would have
+published **14,346 receipts carrying `agent_did`, `buyer_did`, `escrow_tx` and
+amounts totalling $1,050,924** — the platform's entire transaction history by
+counterparty and value — with no other change and no warning.
+
+Migration `20260819200000` scopes the policy to `service_role`, matching what
+the grants already enforce. Nothing reads the table through PostgREST (the
+application uses the service role, which bypasses RLS), so this cannot break a
+working path. Applied to production and verified.
+
+The sibling tables are deliberately untouched: `mutual_attestations`,
+`reputation_credentials` and `reputation_revocations` *are* granted to `anon`
+and are the public, verifiable trust graph — that is the product working as
+designed, and they hold 1, 1 and 0 rows respectively. `blog_posts` and
+`referral_codes` are likewise intended public reads.
+
+### Not verifiable from here
+
+The remainder of `5a` is gated on prior compromise (`IA-015`, `NEW-03`,
+`W-02`, `REC-03`, …) or on environment variables not observable from the
+repository. Those gates are structural: "requires an already-stolen session" is
+not something a code change closes, and the audit rates them accordingly. The
+bulk of `5b` is root causes of findings already fixed individually
+(`IA-005` → `CP-024`/`L-04`, `F-1.1-10` → `F-1.1-07`, `CP-013` → `NEW-01`), and
+races the audit itself confirms are compensated by a downstream CAS
+(`F-1.1-09`, `IA-001`, `WW-06`) — those CAS guards are the ones added in this
+work.
+
 ## Priority 5 — Technical debt (60)
 
 Detail in `docs/findings/05_TECHNICAL_DEBT/`. Not urgent. Note that 5a reverts to
