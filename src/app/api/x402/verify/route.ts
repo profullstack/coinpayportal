@@ -392,12 +392,36 @@ function enforcePriceBinding(payment: any, expected: any) {
   // What it was paid in. Optional, because a native-currency price has no asset
   // contract to name — but when the merchant does state one, a proof denominated
   // in some other (possibly worthless) token must not satisfy the price.
+  const paidAsset = payment.payload.asset || payment.payload.extra?.assetSymbol;
+
   if (expectedAsset) {
-    const paidAsset = payment.payload.asset || payment.payload.extra?.assetSymbol;
     if (String(paidAsset ?? '').toLowerCase() !== String(expectedAsset).toLowerCase()) {
       return {
         ok: false,
         error: `Asset mismatch: proof is denominated in ${paidAsset || '(none)'}, not ${expectedAsset}`,
+      };
+    }
+  } else {
+    // F-1.3-03: an unnamed asset must not mean "any asset will do".
+    //
+    // The check above only ran when the merchant named an asset, so a price
+    // with none stated was satisfied by a proof denominated in an arbitrary
+    // token. The payer chooses that token, and 1000 units of something they
+    // minted this morning costs nothing.
+    //
+    // Rejecting everything unnamed would break the integrations that quote a
+    // price and let the well-known stablecoin for the network be inferred, so
+    // the fallback is an allow-list rather than a refusal: native currency, or
+    // one of the stablecoins the platform itself settles. An invented token is
+    // in neither set.
+    const isNative = !paidAsset || String(paidAsset).toLowerCase() === ZERO_ADDRESS.toLowerCase();
+
+    if (!isNative && !isKnownSettlementAsset(paidAsset)) {
+      return {
+        ok: false,
+        error:
+          `Asset mismatch: the proof is denominated in ${paidAsset}, which is not a recognised ` +
+          'settlement asset. Name the asset in the payment requirements to accept it.',
       };
     }
   }
@@ -405,6 +429,37 @@ function enforcePriceBinding(payment: any, expected: any) {
   return { ok: true as const };
 }
 
+
+/**
+ * Assets this platform actually settles.
+ *
+ * F-1.3-03: used as the fallback when payment requirements name no asset, so an
+ * unnamed price still cannot be satisfied by a token the payer invented. These
+ * are the same contracts `secure-forwarding` knows how to move, by address and
+ * by symbol, matched case-insensitively.
+ */
+const KNOWN_SETTLEMENT_ASSETS = new Set(
+  [
+    // EVM stablecoins
+    '0xdAC17F958D2ee523a2206206994597C13D831ec7', // USDT / USDT_ETH
+    '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', // USDT_POL
+    '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC / USDC_ETH
+    '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', // USDC_POL
+    '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC_BASE
+    // Solana mints
+    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT_SOL
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC_SOL
+    // Symbols, for rails that name an asset rather than an address.
+    'USDC',
+    'USDT',
+    'BTC',
+    'SATS',
+  ].map((a) => a.toLowerCase()),
+);
+
+function isKnownSettlementAsset(asset: unknown): boolean {
+  return KNOWN_SETTLEMENT_ASSETS.has(String(asset ?? '').toLowerCase());
+}
 
 /**
  * Store an audit copy of a payment proof WITHOUT the signature.
