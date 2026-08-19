@@ -41,6 +41,9 @@ function makeSupabase(schedules: any[]) {
       insert: (payload: any) => { ctx.op = 'insert'; ctx.payload = payload; return builder; },
       update: (payload: any) => { ctx.op = 'update'; ctx.payload = payload; return builder; },
       eq: (col: string, val: any) => { ctx.filters[col] = val; return builder; },
+      // Invoice numbering scans every numbered invoice for the business
+      // (F-1.3-10 / R4-DIN-07), so the chain now includes `.not()`.
+      not: () => builder,
       lte: () => builder,
       order: () => builder,
       limit: () => builder,
@@ -58,7 +61,10 @@ function makeSupabase(schedules: any[]) {
             recorded.inserts.push(ctx.payload);
             result = { data: null, error: null };
           } else {
-            result = { data: { invoice_number: 'INV-011' }, error: null };
+            // The numbering helper reads ALL numbered invoices and takes the
+            // highest parsed value, rather than ordering by created_at and
+            // trusting the first row — so this answers with a list.
+            result = { data: [{ invoice_number: 'INV-011' }], error: null };
           }
         }
         return Promise.resolve(result).then(resolve, reject);

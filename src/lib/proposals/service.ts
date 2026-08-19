@@ -27,6 +27,7 @@ import {
   type ProposalStatus,
   type RevisionInput,
 } from './types';
+import { insertWithInvoiceNumber } from '../invoices/numbering';
 
 export interface ServiceError {
   ok: false;
@@ -503,25 +504,21 @@ export async function convertToInvoice(
     return { ok: false, error: payee.error, code: payee.code, status: payee.status };
   }
 
-  const { data: maxInvoice } = await supabase
-    .from('invoices')
-    .select('invoice_number')
-    .eq('business_id', proposal.business_id)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let nextNum = 1;
-  const match = maxInvoice?.invoice_number?.match(/INV-(\d+)/);
-  if (match) nextNum = parseInt(match[1], 10) + 1;
-
-  const { data: invoice, error } = await supabase
+  // NEW-F1A-P-01: this ordered by `created_at` and took the newest row, which
+  // is not the highest number — backdate or delete an invoice and the next
+  // number collides with one that already exists. There was also no retry on
+  // the unique violation a concurrent create causes, so the loser simply could
+  // not convert their proposal. Both are handled by the shared helper now.
+  const { data: invoice, error } = await insertWithInvoiceNumber<any>(
+    supabase,
+    proposal.business_id,
+    (invoiceNumber) => supabase
     .from('invoices')
     .insert({
       user_id: proposal.user_id,
       business_id: proposal.business_id,
       client_id: proposal.client_id,
-      invoice_number: `INV-${String(nextNum).padStart(3, '0')}`,
+      invoice_number: invoiceNumber,
       status: 'draft',
       currency: revision.currency || 'USD',
       amount: revision.amount,
@@ -538,7 +535,8 @@ export async function convertToInvoice(
       },
     })
     .select('*')
-    .single();
+    .single()
+  );
 
   if (error || !invoice) {
     return { ok: false, error: error?.message || 'Failed to create invoice', status: 400 };
