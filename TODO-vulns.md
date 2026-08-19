@@ -75,7 +75,7 @@ than the report's.
 | `H-R-08` | `UNVERIFIED` | Eight modules | The supported-currency list diverges across eight modules independently; there is no single source of truth. | One exported registry, everything else derived from it. |
 | `L5-01` | `UNVERIFIED` | `src/lib/escrow/service.ts:320-337` | Escrow address-derivation index has no compare-and-swap and does not coordinate with the normal-payment counter — deterministic index collision for ETH/POL/BNB/USDT/USDC/SOL. | One counter, incremented by an atomic RPC. |
 | `L7A-01` | `FIXED` | `reputation/did/{claim,delegate,me}` | None of the three DID identity routes call `hasScope()`. A read-only business key can rebind a merchant's DID and issue credentials carrying `wallet:transfer`/`escrow:settle`. | Add the scope checks. |
-| `L7A-03` | `UNVERIFIED` | `reputation/attest`, `src/lib/reputation/mutual-attestation.ts` | No verification that the caller controls `attester_did`, and no rate limit — the mutual trust graph is unilaterally forgeable, free, at scale. | Require a signature over the attestation; rate limit. |
+| `L7A-03` | `FIXED` | `reputation/attest`, `src/lib/reputation/mutual-attestation.ts` | No verification that the caller controls `attester_did`, and no rate limit — the mutual trust graph is unilaterally forgeable, free, at scale. | Require a signature over the attestation; rate limit. |
 | `REP-F14-01` | `UNVERIFIED` | `src/lib/reputation/trust-engine.ts`, `trust-tiers.ts`, `anti-gaming.ts` | The A–F reputation score is maximizable with self-declared high-value receipts; anti-gaming deducts about 1.5 of 100 points at worst. Consumed by `web-bot-auth/verify` for real trust decisions. | Weight on externally-verifiable signal only. |
 | `G-1.2-01` | `FIXED` | `payment-methods/manual` (GET + POST) | Omits the capability check and falls back to the permissive `business.read` default, so a `readonly` team member can rewrite the Venmo/CashApp/Zelle payout handle. | Require an owner capability (§2.2 and §2.3 both). |
 | `G-R-07` | `FIXED` | `src/app/api/oauth/userinfo/route.ts` | Returns `email_verified: true` unconditionally — no verification column and no verification flow exist — while the ID token correctly returns `false`. An account-takeover primitive against relying parties. | Return `false` until a real verification flow exists. |
@@ -150,8 +150,9 @@ audit than whether its bespoke ownership query is correct.
   `MULTISIG_ESCROW_ENABLED` is off. Fix before that flag is ever turned on.
 - **Wallet and key handling** — `F-L7-01`, `F-L7-02`, `F5-L1-02`, `F5-L1-05`,
   `F5-L1-07`, `L6B-05`, `REC-04`, `REC-01`.
-- **Rate limit / enumeration (§2.6)** — `NEW-07`, `NEW-09`, `NEW-11`, `NEW-20`,
-  `NEW-23`, `NEW-WW34-01`.
+- **Rate limit / enumeration (§2.6)** — `NEW-06` `FIXED`, `WW-02` `FIXED`,
+  `REC-C-04` `FIXED`, `REC-C-05` `FIXED`, `L7A-03` `FIXED`. Still open:
+  `NEW-07`, `NEW-09`, `NEW-11`, `NEW-20`, `NEW-23`, `NEW-WW34-01`.
 - **Payment and settlement integrity** — `B-03`, `F-1.1-07`, `F-1.1-16`,
   `F-1.3-02`, `IA-016`, `WW-01`, `WW-03`, `NEW-14`, `F5-L2-01`, `F5-L4-02`, `V-04`.
 

@@ -35,6 +35,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { splitTieredPayment } from '@/lib/payments/fees';
 import { resolveScopedKey } from '@/lib/auth/scoped-keys';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { addressesEqual } from '@/lib/x402/address';
 import { isV2Payment } from '@/lib/x402/v2';
 import { EVM_NETWORKS, checkSchemeForNetwork } from '@/lib/x402/networks';
@@ -361,6 +362,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid or inactive API key' }, { status: 401 });
     }
     const keyData = { id: resolved.keyId, business_id: resolved.business.id, active: true };
+
+    // No rate limit or size cap on this route. An authenticated caller could
+    // bloat the x402 ledger indefinitely, and on the Stripe rail each call
+    // costs a request against our own Stripe API quota. Keyed by business so
+    // one integrator cannot spend everyone else's headroom.
+    const rate = await checkRateLimitAsync(keyData.business_id, 'x402_settle');
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded' },
+        { status: 429 },
+      );
+    }
 
     const body = await request.json();
     const { payment } = body;

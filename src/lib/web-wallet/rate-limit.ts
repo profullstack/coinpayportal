@@ -96,6 +96,23 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'invoice_email_resend': { limit: 10, windowSeconds: 300 },  // 10/5min per business
   'p2p_request': { limit: 30, windowSeconds: 60 },           // 30/min per issuing platform
   'cli_auth_start': { limit: 10, windowSeconds: 300 },       // 10/5min per IP
+  // WebAuthn. `login-options` answers differently for a registered and an
+  // unregistered account, so without a limit it is a free user-enumeration
+  // oracle; the verify endpoints back an authentication decision.
+  'webauthn_options': { limit: 20, windowSeconds: 300 },     // 20/5min per IP
+  'webauthn_verify': { limit: 20, windowSeconds: 300 },      // 20/5min per IP
+  // Address derivation. Its five sibling mutating routes are limited; this one
+  // was not, and each call does HD derivation work and writes a row.
+  'wallet_derive': { limit: 30, windowSeconds: 60 },         // 30/min per wallet
+  // x402 facilitator. Anonymous callers can otherwise bloat the ledger and
+  // burn third-party API quota (Stripe) for free.
+  'x402_verify': { limit: 60, windowSeconds: 60 },           // 60/min per business
+  'x402_settle': { limit: 60, windowSeconds: 60 },           // 60/min per business
+  // Each swap quote costs two calls to the ChangeNOW third-party API, so an
+  // unlimited anonymous endpoint is a quota-exhaustion lever against us.
+  'swap_quote': { limit: 20, windowSeconds: 60 },            // 20/min per IP
+  // The trust graph is only meaningful if attestations are expensive to mint.
+  'reputation_attest': { limit: 10, windowSeconds: 60 },     // 10/min per caller
 };
 
 /** In-memory fallback store */
@@ -260,6 +277,10 @@ export function checkRateLimit(
 ): RateLimitResult {
   const config = RATE_LIMITS[category];
   if (!config) {
+    // An unknown category used to return `allowed: true` in silence, so a typo
+    // in a category name disabled the limit entirely with nothing to notice.
+    // Still allow — a config mistake must not take payments down — but say so.
+    console.error(`[RateLimit] Unknown category '${category}' — no limit applied`);
     return { allowed: true, limit: 0, remaining: 0, resetAt: 0 };
   }
 
@@ -287,6 +308,8 @@ export async function checkRateLimitAsync(
 ): Promise<RateLimitResult> {
   const config = RATE_LIMITS[category];
   if (!config) {
+    // See checkRateLimit: silent on an unknown category until now.
+    console.error(`[RateLimit] Unknown category '${category}' — no limit applied`);
     return { allowed: true, limit: 0, remaining: 0, resetAt: 0 };
   }
 

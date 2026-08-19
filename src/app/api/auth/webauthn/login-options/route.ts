@@ -3,6 +3,8 @@
  * POST — returns options for navigator.credentials.get()
  * Public endpoint (no auth required)
  */
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateAuthenticationOptions } from '@simplewebauthn/server';
@@ -17,6 +19,17 @@ function getSupabase() {
 }
 
 export async function POST(request: NextRequest) {
+  // No rate limit on any WebAuthn route. This one answers differently for a
+  // registered and an unregistered email, so unlimited it is a free
+  // user-enumeration oracle against the whole merchant base.
+  const rate = await checkRateLimitAsync(getClientIp(request) || 'unknown', 'webauthn_options');
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: 'Too many attempts. Please try again shortly.' },
+      { status: 429 }
+    );
+  }
+
   let body: any = {};
   try {
     body = await request.json();

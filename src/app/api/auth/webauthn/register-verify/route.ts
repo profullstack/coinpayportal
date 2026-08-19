@@ -2,6 +2,8 @@
  * WebAuthn Registration Verification
  * POST — verifies credential and stores it
  */
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyRegistrationResponse } from '@simplewebauthn/server';
@@ -18,6 +20,15 @@ function getSupabase() {
 }
 
 export async function POST(request: NextRequest) {
+  // Backs a credential-registration decision.
+  const rate = await checkRateLimitAsync(getClientIp(request) || 'unknown', 'webauthn_verify');
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: 'Too many attempts. Please try again shortly.' },
+      { status: 429 }
+    );
+  }
+
   const user = await getAuthUser(request);
   if (!user) {
     return NextResponse.json(
