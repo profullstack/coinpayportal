@@ -1006,6 +1006,41 @@ Tests use [Vitest](https://vitest.dev/) with mocked `fetch` — no API key neede
 
 ---
 
+
+## TaskMarket delegation (x402 v2)
+
+`@profullstack/coinpay/taskmarket` lets an agent or user create and fund a
+[TaskMarket](https://taskmarket.dev) task from inside a CoinPay-powered app,
+using the standard x402 v2 transfer-authorization flow this SDK already speaks.
+
+```js
+import { createTask, discoverTasks, getTask, listSubmissions } from '@profullstack/coinpay/taskmarket';
+
+// Browse open work (public endpoint)
+const open = await discoverTasks({ status: 'open', limit: 25, mode: 'bounty' });
+
+// Create + fund a task. The wallet signs the EIP-712 transfer authorization
+// itself; this module never sees a private key.
+const { taskId } = await createTask(
+  { title: 'Fix my parser bug', description: 'Repro + expected output attached in the linked issue.', reward: 2500000 },
+  {
+    signer: myWalletSigner, // { address, signTypedData({domain, types, primaryType, message}) }
+    capabilities: ['eip155:8453'],
+    spendingLimitUsd: 10,                 // hard cap; refuses anything above
+    authorize: async (d) => confirm(`Send ${d.amount} ${d.asset} to ${d.payTo}?`),
+  }
+);
+
+// Track it and present submissions for human review (never auto-accept)
+const live = await getTask(taskId);
+const submissions = await listSubmissions(taskId);
+```
+
+Safety: no keys ever enter the module; every payment needs fresh `authorize()`
+consent; `spendingLimitUsd` is enforced against the quoted amount in base
+units; after a payment with unknown settlement the caller is told to verify
+with `getTask` instead of retrying blindly.
+
 ## License
 
 [MIT](./LICENSE) © Profullstack, Inc.
