@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveWebhookSecret } from './secret';
 import { safeFetch, isBlockedAddress } from '@/lib/security/ssrf';
 import { isIP } from 'net';
+import { enqueueFailedDelivery } from './retry-queue';
 
 /**
  * Synchronous SSRF pre-check on a webhook URL.
@@ -618,6 +619,25 @@ export async function sendPaymentWebhook(
       console.log(`[Webhook] Successfully delivered ${event} webhook for payment ${paymentId}`);
     } else {
       console.error(`[Webhook] Failed to deliver ${event} webhook for payment ${paymentId}: ${result.error}`);
+
+      // REC-D-07: the three in-process attempts spent their whole budget inside
+      // this request, over roughly three seconds. An endpoint down for four —
+      // a deploy, a restart, a brief network fault — lost the event for good,
+      // and so did anything in flight when our own process was recycled.
+      // Merchants reconcile against these, so a lost `payment.confirmed` is a
+      // payment the merchant never hears about.
+      //
+      // Hand it to the durable queue, which retries on a backoff measured in
+      // minutes and dead-letters after a day rather than after three seconds.
+      await enqueueFailedDelivery(supabase, {
+        businessId,
+        event,
+        webhookUrl: business.webhook_url,
+        payload,
+        paymentId,
+        lastError: result.error,
+        lastStatusCode: result.statusCode,
+      });
     }
 
     return {
@@ -631,6 +651,62 @@ export async function sendPaymentWebhook(
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
+}
+
+/**
+ * Re-deliver a webhook that the durable queue is retrying.
+ *
+ * REC-D-07: the queue stores the payload but deliberately not the signature.
+ * A signature is bound to a timestamp, so replaying a stored one would either
+ * be rejected by a merchant enforcing a freshness window or, if they are not,
+ * would hand them a credential to accept indefinitely. The payload is re-signed
+ * with a current timestamp on every attempt instead.
+ *
+ * The secret is re-read rather than cached with the row: a merchant who rotates
+ * their webhook secret while a delivery is queued should have the retry signed
+ * with the new one, and a merchant who has removed their webhook entirely
+ * should stop receiving attempts.
+ */
+export async function redeliverQueuedWebhook(
+  supabase: SupabaseClient,
+  row: { business_id: string; event: string; webhook_url: string; payload: unknown }
+): Promise<{ success: boolean; statusCode?: number; error?: string }> {
+  const { data: business, error } = await supabase
+    .from('businesses')
+    .select('webhook_url, webhook_secret, merchant_id')
+    .eq('id', row.business_id)
+    .single();
+
+  if (error || !business) {
+    return { success: false, error: 'Business not found' };
+  }
+
+  // Configuration removed since the delivery was queued. Report success so the
+  // row is closed rather than retried to death against an endpoint the merchant
+  // has deliberately taken away.
+  if (!business.webhook_url || !business.webhook_secret) {
+    return { success: true };
+  }
+
+  const plaintextSecret = resolveWebhookSecret(business.webhook_secret, business.merchant_id);
+  const timestamp = Math.floor(Date.now() / 1000);
+  const payloadString = JSON.stringify(row.payload);
+  const signature = signWebhookPayload(row.payload as Record<string, unknown>, plaintextSecret, timestamp);
+
+  const result = await deliverWebhookDirect(business.webhook_url, payloadString, signature, 1);
+
+  await logWebhookAttempt(supabase, {
+    business_id: row.business_id,
+    event: row.event as WebhookEvent,
+    webhook_url: business.webhook_url,
+    payload: row.payload as Record<string, unknown>,
+    success: result.success,
+    status_code: result.statusCode,
+    error_message: result.error,
+    attempt_number: result.attempts || 1,
+  });
+
+  return { success: result.success, statusCode: result.statusCode, error: result.error };
 }
 
 /**
