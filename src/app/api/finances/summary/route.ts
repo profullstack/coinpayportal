@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth/admin-guard';
+import { requireMerchant } from '@/lib/auth/merchant-guard';
 import { getSummary } from '@/lib/finances/summary';
 
 export const dynamic = 'force-dynamic';
@@ -7,15 +7,15 @@ export const dynamic = 'force-dynamic';
 /**
  * GET /api/finances/summary — balance sheet and cashflow headline.
  *
- * House financial data, so the admin check is the entire security boundary:
- * the tables are RLS-enabled with no policies and are reachable only through
- * the service client behind this guard.
+ * Somebody's bank balances, so the guard plus the `merchantId` scope is the
+ * entire security boundary: the tables are RLS-enabled with no policies and
+ * are reachable only through the service client behind this route.
  *
  * `?days=` sets the cashflow and category window. Balances ignore it — a
  * balance is a current fact and has no window.
  */
 export async function GET(req: NextRequest) {
-  const guard = await requireAdmin(req);
+  const guard = await requireMerchant(req);
   if (guard instanceof NextResponse) return guard;
 
   const params = req.nextUrl.searchParams;
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   const includeHidden = params.get('hidden') === '1';
 
   try {
-    const summary = await getSummary({ windowDays, includeHidden });
+    const summary = await getSummary(guard.id, { windowDays, includeHidden });
     return NextResponse.json(
       { summary },
       { headers: { 'Cache-Control': 'no-store' } },

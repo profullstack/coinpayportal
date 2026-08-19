@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth/admin-guard';
+import { requireMerchant } from '@/lib/auth/merchant-guard';
 import { deleteConnection } from '@/lib/finances/sync';
 
 export const dynamic = 'force-dynamic';
@@ -12,13 +12,13 @@ export const dynamic = 'force-dynamic';
  * re-claimed, so re-linking means generating a fresh token at the bridge.
  */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireAdmin(req);
+  const guard = await requireMerchant(req);
   if (guard instanceof NextResponse) return guard;
 
   const { id } = await params;
 
   try {
-    await deleteConnection(id);
+    await deleteConnection(id, guard.id);
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('[finances/connections] delete failed', err);
