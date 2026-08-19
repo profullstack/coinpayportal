@@ -206,6 +206,10 @@ Batch twelve: `NEW-L5-1`, `G-1.2-04`, `H-R-09` `FIXED`. `R3-DIN-03`
 `20260819190000_collection_blockchain_check_token_variants` applied and
 validated (18 chains, matching `SUPPORTED_BLOCKCHAINS`).
 
+Batch thirteen: `F-1.3-12`, `F3-L5-02` `FIXED`. `F-1.1-06` `ALREADY-FIXED` —
+both settle paths now share `processEscrowSettlement`, so they share its retry
+cap. The unordered-sweep family is now fully converted to `lib/db/keyset.ts`.
+
 ## Priority 4 — Conditional (26)
 
 Detail in `docs/findings/04_CONDITIONAL_LOW/`. Verify the condition before
