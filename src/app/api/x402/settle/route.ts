@@ -31,12 +31,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { splitTieredPayment } from '@/lib/payments/fees';
 import { resolveScopedKey } from '@/lib/auth/scoped-keys';
 import { addressesEqual } from '@/lib/x402/address';
 import { isV2Payment } from '@/lib/x402/v2';
+import { EVM_NETWORKS, checkSchemeForNetwork } from '@/lib/x402/networks';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -52,7 +53,7 @@ const RPC_URLS: Record<string, string> = {
   polygon: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
 };
 
-const EVM_NETWORKS = new Set(['ethereum', 'polygon', 'base']);
+
 
 /** ERC-20 Transfer(address,address,uint256) topic. */
 const ERC20_TRANSFER_TOPIC =
@@ -276,8 +277,45 @@ function solanaTokenGain(meta: any, owner: string): bigint {
 /**
  * Settle a Lightning payment — preimage already proves payment.
  */
-async function settleLightning(payment: any) {
-  return { txHash: payment.payload.paymentHash, instant: true, confirmed: true };
+async function settleLightning(
+  payment: any,
+  supabase: SupabaseClient,
+  businessId: string,
+  expectedAmount: bigint,
+) {
+  // This used to be a one-liner returning the payer's own `paymentHash` as the
+  // settlement tx and `confirmed: true`. The route then answered
+  // `settled: true` having confirmed nothing whatsoever — a consumer had no way
+  // to tell a real settlement from this.
+  //
+  // Lightning genuinely is instant, so there is no broadcast to perform here.
+  // What there is, is a fact to check: our node recorded an incoming settled
+  // payment for this hash. Verification already checks it; re-checking at
+  // settle keeps the two calls independently sound.
+  const { paymentHash } = payment.payload;
+  if (!paymentHash) throw new Error('Missing paymentHash for Lightning settlement');
+
+  const { data: received, error } = await supabase
+    .from('ln_payments')
+    .select('payment_hash, business_id, direction, status, amount_msat')
+    .eq('payment_hash', paymentHash)
+    .maybeSingle();
+
+  if (error) throw new Error('Could not read the Lightning ledger — refusing to report settlement');
+  if (!received) throw new Error('No settled Lightning payment matches this payment hash');
+  if (received.direction !== 'incoming' || received.status !== 'settled') {
+    throw new Error(`Lightning payment is ${received.direction}/${received.status}, not a settled incoming payment`);
+  }
+  if (received.business_id && received.business_id !== businessId) {
+    throw new Error('Lightning payment belongs to a different business');
+  }
+  if (BigInt(received.amount_msat) < expectedAmount) {
+    throw new Error(
+      `Underpayment: Lightning payment is ${received.amount_msat} msat, resource costs ${expectedAmount} msat`
+    );
+  }
+
+  return { txHash: paymentHash, instant: true, confirmed: true };
 }
 
 /**
@@ -339,6 +377,15 @@ export async function POST(request: NextRequest) {
 
     const network: string = isV2 ? payment.network : payment.payload.network;
     const scheme: string = isV2 ? (payment.scheme ?? 'exact') : payment.payload.scheme;
+
+    // Same consistency rule the verify route applies: `scheme` and `network`
+    // are independent fields on the proof, so a scheme the named network does
+    // not support means the proof is malformed, not that it should be routed
+    // somewhere else.
+    const schemeError = checkSchemeForNetwork(network, scheme);
+    if (schemeError) {
+      return NextResponse.json({ error: schemeError }, { status: 400 });
+    }
     const uniqueKey = isV2
       ? payment.payload.authorization?.nonce
       : payment.payload.nonce ||
@@ -467,11 +514,16 @@ export async function POST(request: NextRequest) {
           signature,
         });
         result = { txHash: settled.txHash, confirmed: true };
-      } else if (scheme === 'bolt12' || network === 'lightning') {
-        // Lightning: preimage proves payment, instant settlement
-        // Funds already went to merchant's Lightning node via BOLT12 offer
-        result = await settleLightning(payment);
-      } else if (scheme === 'stripe-checkout' || network === 'stripe') {
+      } else if (network === 'lightning') {
+        // Lightning: funds already arrived at the merchant's node. Confirm our
+        // own ledger says so rather than taking the payer's word.
+        //
+        // Dispatch is on `network` alone. It used to also fire on
+        // `scheme === 'bolt12'`, and scheme is an independent attacker-set
+        // field, so a proof could name an EVM network and still take this
+        // branch.
+        result = await settleLightning(payment, supabase, keyData.business_id, expectedAmount);
+      } else if (network === 'stripe') {
         // Stripe: capture payment intent, Stripe handles the split
         result = await settleStripe(payment);
       } else if (EVM_NETWORKS.has(network)) {
