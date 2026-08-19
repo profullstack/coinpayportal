@@ -21,6 +21,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { platformMayManageMerchant } from '@/lib/p2p/platform-ownership';
+import { recordAuditEvent } from '@/lib/audit/log';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
@@ -112,6 +113,16 @@ export async function POST(request: NextRequest) {
           { status: 500 },
         );
       }
+      await recordAuditEvent(supabase, {
+        action: 'did.rebound',
+        actorType: 'platform',
+        actorId: platform.name,
+        subjectType: 'merchant',
+        subjectId: merchant_id,
+        merchantId: merchant_id,
+        detail: { did, previous_record_id: existing.id },
+      });
+
       return NextResponse.json({ did, merchant_id, action: 'updated' });
     }
 

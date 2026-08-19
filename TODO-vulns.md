@@ -103,7 +103,7 @@ The subset worth taking first:
 | `NEW-24`, `G-1.2-09`, `F5-L4-02` | `FIXED` | Unescaped merchant-controlled HTML into invoice email, team email, and the internal daily report. |
 | `DOC-01` | `FIXED` | `layout.tsx` claimed "Non-Custodial" product-wide. Corrected. |
 | `F7-01` | `FIXED` | Security docs asserted audit logging that does not exist. Corrected to say so. |
-| `AUD-01` | `OPEN` | No audit-logging infrastructure exists anywhere. The claim is fixed; the gap is not. |
+| `AUD-01` | `FIXED` (foundation + 4 paths; coverage still extending) | Append-only `audit_log`, verified append-only against prod. |
 | `CP-P5` | `FIXED` | `businesses.tier` does not exist, so every business is charged the 1% minimum regardless of tier. Verify against the live schema. |
 | `R3-DIN-01` | `FIXED` | Marks an invoice paid and sends "Payment Received" with no `payment_id`; funds can be stuck at the intermediary. |
 | `REC-D-05` | `FIXED` | The p2p Stripe branch never calls `screenCheckout` at all. |

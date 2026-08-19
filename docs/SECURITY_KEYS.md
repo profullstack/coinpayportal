@@ -153,7 +153,7 @@ COMMISSION_WALLET_SOL=...
 - [x] Private keys decrypted only at moment of transaction signing
 - [ ] Sensitive data cleared from memory after use — `clearSensitiveString` exists but has no callers, so this is not implemented
 - [x] Admin-only access for manual forwarding operations
-- [ ] Audit logging for key operations — **not implemented.** There is no audit-logging infrastructure anywhere in the codebase. Tracked as `AUD-01` in `/TODO-vulns.md`
+- [x] Audit logging for key operations — `audit_log`, append-only. Key *release* is recorded (the fact and the swap, never the key material). Broader coverage is still being extended; see `/TODO-vulns.md`
 
 ### 🔄 Recommended for Production
 

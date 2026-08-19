@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authorizeWallet, decryptProviderSecrets } from '@/lib/swap/auth';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+import { recordAuditEvent } from '@/lib/audit/log';
 
 function getSupabase() {
   return createClient(
@@ -76,11 +77,30 @@ export async function GET(
       );
     }
 
-    // Key material leaving the system is worth a log line on its own, even
-    // though the request is authorized. The keys themselves are never logged.
+    // Key material leaving the system is worth a durable record, not only a log
+    // line. `docs/SECURITY_KEYS.md` claimed "audit logging for key operations"
+    // existed; AUD-01 found it did not. This is that record. The keys
+    // themselves are never written — `recordAuditEvent` redacts anything
+    // key-shaped as a second line of defence.
     console.warn(
       `[Swap] Recovery keys released for boltz swap ${id} to wallet ${auth.walletId} (status=${swap.status})`
     );
+
+    await recordAuditEvent(supabase, {
+      action: 'key.released',
+      actorType: 'merchant',
+      actorId: auth.walletId,
+      subjectType: 'swap',
+      subjectId: swap.id,
+      detail: {
+        provider: 'boltz',
+        swap_status: swap.status,
+        released: [
+          refundPrivateKey ? 'refund' : null,
+          claimPrivateKey ? 'claim' : null,
+        ].filter(Boolean),
+      },
+    });
 
     return NextResponse.json({
       success: true,

@@ -625,19 +625,28 @@ async function logSecurityEvent(event: SecurityEvent): Promise<void> {
 
 ### Audit Trail
 
-**Not implemented.** This section previously described an audit trail as
-existing. It does not: there is no audit-logging infrastructure anywhere in the
-codebase — no audit table, no append-only log, no key-access record. Payment
-state changes are visible only as the current value of a status column, which is
-overwritten in place and keeps no history.
+`audit_log` is an append-only table: `service_role` holds INSERT and SELECT and
+is granted neither UPDATE nor DELETE, so an event cannot be rewritten by the
+credential that wrote it. Records carry an actor (who), a subject (what) and an
+action, because "payment 123 changed" without an actor is an event log rather
+than an audit trail. `detail` is redacted on write — any field whose name looks
+key-bearing is replaced before it is stored.
 
-Building it is tracked as `AUD-01` in `/TODO-vulns.md`. The intended scope, once
-built:
+Writing an audit record never fails the operation it describes; a failure is
+logged loudly instead. This is a forensic record, not a control.
 
-- All payment state changes logged
-- API access logged with timestamps
-- Failed authentication attempts tracked
-- Key access logged and monitored
+Currently recorded:
+
+- Subscription activation (which plan, for which merchant, against which payment)
+- Payout wallet changes (where a merchant's money is sent)
+- Key release (Boltz refund/claim recovery — the fact, never the key)
+- DID rebinding by a platform
+
+Not yet covered, and worth extending to: general payment state transitions, API
+access with timestamps, and failed authentication attempts. This section
+previously described all of that as already existing, which is what `AUD-01`
+found: there was no audit infrastructure at all. Remaining coverage is tracked
+in `/TODO-vulns.md`.
 
 ## Security Contacts
 
