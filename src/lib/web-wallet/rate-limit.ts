@@ -117,6 +117,9 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   // design (a sender checks before paying), so the limit is what stops it being
   // used to sweep the merchant base address by address.
   'wallet_lookup': { limit: 30, windowSeconds: 60 },         // 30/min per IP
+  // Releases Boltz refund/claim key material to the owning wallet. Authorized,
+  // but key material leaving the system deserves its own tight budget.
+  'swap_recovery': { limit: 10, windowSeconds: 300 },        // 10/5min per wallet
 };
 
 /** In-memory fallback store */
