@@ -105,7 +105,7 @@ The subset worth taking first:
 | `F7-01` | `FIXED` | Security docs asserted audit logging that does not exist. Corrected to say so. |
 | `AUD-01` | `OPEN` | No audit-logging infrastructure exists anywhere. The claim is fixed; the gap is not. |
 | `CP-P5` | `FIXED` | `businesses.tier` does not exist, so every business is charged the 1% minimum regardless of tier. Verify against the live schema. |
-| `R3-DIN-01` | `UNVERIFIED` | Marks an invoice paid and sends "Payment Received" with no `payment_id`; funds can be stuck at the intermediary. |
+| `R3-DIN-01` | `FIXED` | Marks an invoice paid and sends "Payment Received" with no `payment_id`; funds can be stuck at the intermediary. |
 | `REC-D-05` | `FIXED` | The p2p Stripe branch never calls `screenCheckout` at all. |
 | `GAP-02` | `FIXED` (history purge still `DECISION`) | Own pentest reports (`strix_runs/**`) versioned in the public repo. Delete and purge. |
 | `F5-L4-03` | `FIXED` | Real merchant PII hardcoded as fixtures in `scripts/test-spam-detection.ts`, public repo. |
