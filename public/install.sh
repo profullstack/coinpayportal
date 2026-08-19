@@ -30,6 +30,10 @@
 #   COINPAY_HOME=/path           install dir          (default: $HOME/.coinpay)
 #   COINPAY_BIN=/path/dir        wrapper bin dir      (default: $HOME/.local/bin)
 #   COINPAY_REF=branch|tag|sha   git ref to install   (default: master)
+#   COINPAY_AUTO_UPGRADE_UNPINNED=1  schedule auto-upgrade even on a mutable
+#                                    ref. Off by default: following master
+#                                    unattended means any merge runs here
+#                                    within 5 minutes (W-01).
 #   COINPAY_NO_AUTOUPGRADE=1     skip the 5-min poll setup
 #   COINPAY_API_URL=https://…    pin API base         (default: https://coinpayportal.com)
 #
@@ -578,6 +582,29 @@ schedule_auto_upgrade() {
         info "COINPAY_NO_AUTOUPGRADE=1 — skipping auto-upgrade scheduling"
         return 0
     fi
+
+    # W-01: following a MUTABLE ref unattended is now opt-in.
+    #
+    # With COINPAY_REF unpinned the ref is `master`, and this timer polls every
+    # ${UPGRADE_INTERVAL_SEC}s. That means anything merged to master executes on
+    # every installed operator host within five minutes, with no human between
+    # the merge and the execution — a single bad merge, or a single compromised
+    # push, reaches the whole fleet automatically.
+    #
+    # Pinned installs keep auto-upgrade on by default: a tag or SHA is immutable,
+    # so the timer can only ever re-install the same code it already has, and
+    # moving to a new version stays a deliberate act.
+    #
+    # An operator who genuinely wants to track master can still have it, by
+    # asking for it explicitly. Refusing outright would push people to write
+    # their own cron job, which is worse.
+    if [ "$COINPAY_REF_PINNED" = "0" ] && [ "${COINPAY_AUTO_UPGRADE_UNPINNED:-}" != "1" ]; then
+        warn "auto-upgrade not scheduled: '$COINPAY_REF' is a mutable branch"
+        warn "  pin a release (COINPAY_REF=v0.6.13) to get automatic updates, or"
+        warn "  set COINPAY_AUTO_UPGRADE_UNPINNED=1 to follow master unattended"
+        return 0
+    fi
+
     case "$OS" in
         macos)
             schedule_launchd_agent && return 0
