@@ -129,12 +129,70 @@ export type SpendCategory =
   | 'shopping'
   | 'utilities'
   | 'software'
+  | 'advertising'
   | 'health'
   | 'entertainment'
   | 'insurance'
   | 'taxes'
   | 'cash'
   | 'other';
+
+/**
+ * Merchant rules, matched against `payee` only.
+ *
+ * Worth separating from the description rules because the two fields are not
+ * alike. `description` is whatever the institution printed — truncated, full of
+ * store numbers and reference codes. `payee` arrives already normalised to a
+ * merchant name ("Porkbun.com", "Reddit Inc Ads"), which makes a name match
+ * here far higher precision than the same word appearing anywhere in a
+ * description. So these run first, and they run against the clean field.
+ *
+ * Anchored with ^ so "Cigars" matches the merchant named Cigars without also
+ * catching a description that merely mentions cigars.
+ */
+const PAYEE_RULES: Array<{ category: SpendCategory; pattern: RegExp }> = [
+  // Ad spend is a business cost that has nothing to do with SaaS tooling;
+  // folding it into `software` hid five figures a year in the wrong bucket.
+  {
+    category: 'advertising',
+    pattern:
+      /^(reddit\b.*ads?|google ads|facebook|meta platforms|x corp ads|linkedin ads|twitter ads|taboola|outbrain|bing ads|microsoft advertising)/i,
+  },
+
+  // Infrastructure, SaaS and developer tooling.
+  {
+    category: 'software',
+    pattern:
+      /^(porkbun|namecheap|godaddy|cloudflare|turso|supabase|railway|vercel|netlify|heroku|digitalocean|linode|hetzner|aws|amazon web services|google cloud|github|gitlab|openai|anthropic|moonshot ?ai|deepseek|apollo ?io|hedra|higgsfield|thunder compute|trajectdata|jobcopilot|applyme|saasrow|profullstack|jetbrains|figma|notion|slack|atlassian|twilio|sentry|datadog|stripe|expo\b|fly\.io|render\b|neon\b|planetscale|elevenlabs|replicate|huggingface|perplexity|cursor\b|windsurf)/i,
+  },
+
+  { category: 'entertainment', pattern: /^(siriusxm|netflix|spotify|hulu|disney|hbo|patreon|twitch|steam)/i },
+
+  // Remittance and money movement — not spending.
+  { category: 'transfer', pattern: /^(worldremit|wise\b|remitly|western union|moneygram|revolut|itc outbound|zelle|venmo|cash app)/i },
+
+  // Card and account mechanics.
+  { category: 'payment', pattern: /^(returned payment|statement credit|payment reversal)/i },
+  { category: 'income', pattern: /^(credit interest income|interest income|dividend|cashback bonus)/i },
+
+  { category: 'fuel', pattern: /^(great gas|chevron|shell|exxon|mobil|arco|valero|circle k fuel)/i },
+  { category: 'groceries', pattern: /^(instacart|7-eleven|trader joe|safeway|costco|whole ?foods|sprouts|grocery outlet)/i },
+  { category: 'dining', pattern: /^(mcdonald|starbucks|chipotle|subway\b|panera|peet|doordash|uber ?eats|grubhub|taco bell|in-?n-?out)/i },
+  { category: 'utilities', pattern: /^(guadalupe landfill|recology|waste management|pg&?e|comcast|xfinity|at&?t|verizon|t-?mobile)/i },
+
+  // Wine, spirits and tobacco are retail, not dining — they are not a meal.
+  { category: 'shopping', pattern: /^(.*wine & spirits|.*cigar|cigars|lifestyles|bevmo|total wine|amazon|target|walmart|best buy|home depot|lowe'?s|ikea|etsy|ebay)/i },
+];
+
+function categoryFromPayee(payee: unknown): SpendCategory | null {
+  if (typeof payee !== 'string') return null;
+  const name = payee.trim();
+  if (!name) return null;
+  for (const { category, pattern } of PAYEE_RULES) {
+    if (pattern.test(name)) return category;
+  }
+  return null;
+}
 
 /**
  * MCC ranges, checked before any text. An institution that supplies an MCC is
@@ -287,8 +345,20 @@ export function categorizeTransaction(input: {
   mcc?: string | number | null;
   amount?: number | null;
 }): SpendCategory | null {
+  // MCC first when present — it is the institution stating what the merchant
+  // is. In practice only about 4% of transactions carry one, so it settles far
+  // fewer rows than its priority suggests.
   const fromMcc = categoryFromMcc(input.mcc);
   if (fromMcc) return fromMcc;
+
+  // Then the normalised merchant name, which nearly every row does have.
+  const fromPayee = categoryFromPayee(input.payee);
+  if (fromPayee) {
+    // Same guard as below: only a credit can actually be income.
+    if (!(fromPayee === 'income' && typeof input.amount === 'number' && input.amount < 0)) {
+      return fromPayee;
+    }
+  }
 
   const text = [input.payee, input.description, input.memo]
     .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)

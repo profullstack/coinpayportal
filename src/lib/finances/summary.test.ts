@@ -26,10 +26,10 @@ function account(partial: Partial<FinanceAccount>): FinanceAccount {
 
 describe('toAccountView', () => {
   it('states a card balance as a positive amount owed', () => {
-    // SimpleFIN reports a $1,500.49 card debt as -1500.00.
-    const view = toAccountView(account({ kind: 'credit', balance: -1500.00 }));
+    // SimpleFIN reports a $1,500.00 card debt as -1500.00.
+    const view = toAccountView(account({ kind: 'credit', balance: -1500 }));
     expect(view.is_liability).toBe(true);
-    expect(view.display_balance).toBe(1500.00);
+    expect(view.display_balance).toBe(1500);
   });
 
   it('leaves a deposit balance alone', () => {
@@ -103,17 +103,17 @@ describe('aggregateAccounts', () => {
 
   it('groups by institution with debt stated positive', () => {
     const { byInstitution } = aggregateAccounts([
-      account({ id: 'a', org_name: 'Chase Bank', kind: 'credit', balance: -250.00 }),
-      account({ id: 'b', org_name: 'Chase Bank', kind: 'credit', balance: -9000.00 }),
-      account({ id: 'c', org_name: 'Example Harbor', kind: 'savings', balance: 4200.00 }),
+      account({ id: 'a', org_name: 'Example Bank', kind: 'credit', balance: -250.00 }),
+      account({ id: 'b', org_name: 'Example Bank', kind: 'credit', balance: -9000.00 }),
+      account({ id: 'c', org_name: 'Example Credit Union', kind: 'savings', balance: 4200.00 }),
     ].map(toAccountView));
 
-    const chase = byInstitution.find((i) => i.org === 'Chase Bank');
+    const chase = byInstitution.find((i) => i.org === 'Example Bank');
     expect(chase?.liabilities).toBeCloseTo(9250.00, 2);
     expect(chase?.assets).toBe(0);
     expect(chase?.accounts).toBe(2);
     // Sorted by total exposure, so the largest position leads.
-    expect(byInstitution[0].org).toBe('Chase Bank');
+    expect(byInstitution[0].org).toBe('Example Bank');
   });
 
   it('handles an empty account set without producing NaN', () => {
