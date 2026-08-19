@@ -158,15 +158,39 @@ export function toAccountView(row: FinanceAccount): AccountView {
   };
 }
 
-export async function listAccounts({
-  includeHidden = false,
-}: { includeHidden?: boolean } = {}): Promise<AccountView[]> {
+/**
+ * The connection ids one merchant owns.
+ *
+ * Ownership lives on `finance_connections` alone, so every scoped read starts
+ * here and filters accounts by `connection_id`. An empty result must be
+ * treated as "this merchant sees nothing", never as "no filter" — passing an
+ * empty array to `.in()` would return every row on the platform.
+ */
+async function connectionIdsFor(merchantId: string): Promise<string[]> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from('finance_connections')
+    .select('id')
+    .eq('merchant_id', merchantId);
+
+  if (error) throw new Error(`Could not resolve finance connections: ${error.message}`);
+  return (data ?? []).map((row) => row.id as string);
+}
+
+export async function listAccounts(
+  merchantId: string,
+  { includeHidden = false }: { includeHidden?: boolean } = {},
+): Promise<AccountView[]> {
+  const connectionIds = await connectionIdsFor(merchantId);
+  if (connectionIds.length === 0) return [];
+
   const supabase = getSupabaseAdmin();
   let query = supabase
     .from('finance_accounts')
     .select(
       'id, connection_id, external_id, org_name, org_domain, name, currency, balance, available_balance, balance_date, kind, kind_override, is_hidden, last_seen_at',
     )
+    .in('connection_id', connectionIds)
     .order('org_name', { ascending: true })
     .order('name', { ascending: true });
 
@@ -176,6 +200,27 @@ export async function listAccounts({
   if (error) throw new Error(`Could not load accounts: ${error.message}`);
 
   return (data ?? []).map((row) => toAccountView(row as unknown as FinanceAccount));
+}
+
+/**
+ * Confirm an account belongs to a merchant, for routes that mutate one by id.
+ */
+export async function merchantOwnsAccount(
+  accountId: string,
+  merchantId: string,
+): Promise<boolean> {
+  const connectionIds = await connectionIdsFor(merchantId);
+  if (connectionIds.length === 0) return false;
+
+  const supabase = getSupabaseAdmin();
+  const { count, error } = await supabase
+    .from('finance_accounts')
+    .select('id', { count: 'exact', head: true })
+    .eq('id', accountId)
+    .in('connection_id', connectionIds);
+
+  if (error) throw new Error(`Could not verify account ownership: ${error.message}`);
+  return (count ?? 0) > 0;
 }
 
 /**
@@ -274,13 +319,20 @@ export interface TransactionPage {
  * join, because PostgREST cannot filter a parent by an embedded child's column
  * without changing the row shape.
  */
-export async function listTransactions(filters: TransactionFilters = {}): Promise<TransactionPage> {
+export async function listTransactions(
+  merchantId: string,
+  filters: TransactionFilters = {},
+): Promise<TransactionPage> {
   const supabase = getSupabaseAdmin();
 
   const limit = Math.min(Math.max(filters.limit ?? 50, 1), 500);
   const offset = Math.max(filters.offset ?? 0, 0);
 
-  const accounts = await listAccounts({ includeHidden: filters.includeHiddenAccounts ?? false });
+  // Scoping runs through the merchant's own accounts, so `?account=` can only
+  // ever narrow that set — never reach outside it.
+  const accounts = await listAccounts(merchantId, {
+    includeHidden: filters.includeHiddenAccounts ?? false,
+  });
   const accountById = new Map(accounts.map((a) => [a.id, a]));
 
   const visibleIds = filters.accountId
@@ -342,15 +394,17 @@ export async function listTransactions(filters: TransactionFilters = {}): Promis
  * @param windowDays how far back cashflow and categories look; balances are
  *        always current, since a balance has no window.
  */
-export async function getSummary({
-  windowDays = 30,
-  includeHidden = false,
-}: { windowDays?: number; includeHidden?: boolean } = {}): Promise<FinanceSummary> {
+export async function getSummary(
+  merchantId: string,
+  { windowDays = 30, includeHidden = false }: { windowDays?: number; includeHidden?: boolean } = {},
+): Promise<FinanceSummary> {
   const supabase = getSupabaseAdmin();
   const days = Math.min(Math.max(Math.floor(windowDays) || 30, 1), 3650);
 
-  const accounts = await listAccounts({ includeHidden });
-  const allAccounts = includeHidden ? accounts : await listAccounts({ includeHidden: true });
+  const accounts = await listAccounts(merchantId, { includeHidden });
+  const allAccounts = includeHidden
+    ? accounts
+    : await listAccounts(merchantId, { includeHidden: true });
   const hiddenCount = allAccounts.filter((a) => a.is_hidden).length;
 
   const { totals, primaryCurrency, byKind, byInstitution } = aggregateAccounts(accounts);

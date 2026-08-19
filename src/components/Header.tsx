@@ -186,23 +186,21 @@ export default function Header() {
                         >
                           Settings
                         </Link>
+                        <Link
+                          href="/finances"
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          onClick={() => setUserMenuOpen(false)}
+                        >
+                          Finances
+                        </Link>
                         {isAdmin && (
-                          <>
-                            <Link
-                              href="/finances"
-                              className="block px-4 py-2 text-sm font-semibold text-purple-700 hover:bg-gray-100"
-                              onClick={() => setUserMenuOpen(false)}
-                            >
-                              Finances
-                            </Link>
-                            <Link
-                              href="/admin"
-                              className="block px-4 py-2 text-sm font-semibold text-purple-700 hover:bg-gray-100"
-                              onClick={() => setUserMenuOpen(false)}
-                            >
-                              Admin
-                            </Link>
-                          </>
+                          <Link
+                            href="/admin"
+                            className="block px-4 py-2 text-sm font-semibold text-purple-700 hover:bg-gray-100"
+                            onClick={() => setUserMenuOpen(false)}
+                          >
+                            Admin
+                          </Link>
                         )}
                         <button
                           onClick={handleLogout}
@@ -336,23 +334,21 @@ export default function Header() {
                   >
                     Settings
                   </Link>
+                  <Link
+                    href="/finances"
+                    className="block px-3 py-2 text-base font-medium text-gray-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Finances
+                  </Link>
                   {isAdmin && (
-                    <>
-                      <Link
-                        href="/finances"
-                        className="block px-3 py-2 text-base font-semibold text-purple-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
-                        onClick={() => setMobileMenuOpen(false)}
-                      >
-                        Finances
-                      </Link>
-                      <Link
-                        href="/admin"
-                        className="block px-3 py-2 text-base font-semibold text-purple-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
-                        onClick={() => setMobileMenuOpen(false)}
-                      >
-                        Admin
-                      </Link>
-                    </>
+                    <Link
+                      href="/admin"
+                      className="block px-3 py-2 text-base font-semibold text-purple-300 hover:bg-gray-800 hover:text-white rounded-md transition-colors"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      Admin
+                    </Link>
                   )}
                   <button
                     onClick={() => {

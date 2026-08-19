@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth/admin-guard';
+import { requireMerchant } from '@/lib/auth/merchant-guard';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { isAccountKind } from '@/lib/finances/classify';
-import { toAccountView, type FinanceAccount } from '@/lib/finances/summary';
+import { toAccountView, merchantOwnsAccount, type FinanceAccount } from '@/lib/finances/summary';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +23,7 @@ const ACCOUNT_COLUMNS =
  * what an institution said, and an editable ledger is not a ledger.
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireAdmin(req);
+  const guard = await requireMerchant(req);
   if (guard instanceof NextResponse) return guard;
 
   const { id } = await params;
@@ -57,6 +57,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
+  }
+
+  // Ownership runs through the account's connection, so it has to be checked
+  // explicitly — the update below filters on the account id alone, and without
+  // this a merchant could rename or hide a stranger's account by guessing a
+  // uuid. Reported as not-found rather than forbidden: whether that id exists
+  // is not this caller's business.
+  if (!(await merchantOwnsAccount(id, guard.id))) {
+    return NextResponse.json({ error: 'Account not found' }, { status: 404 });
   }
 
   const supabase = getSupabaseAdmin();
