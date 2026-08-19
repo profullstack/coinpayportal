@@ -133,6 +133,10 @@ describe('prepareTransactionSchema', () => {
       proposal_type: 'release',
       to_address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
       signer_pubkey: '0x1234567890123456789012345678901234567890',
+      // F-1.1-02: propose and dispute now carry a signature proving the caller
+      // holds the key behind that pubkey. Schema-level here; the engine tests
+      // verify a real one.
+      signature: '0x' + 'ab'.repeat(32),
     });
     expect(result.success).toBe(true);
   });
@@ -142,6 +146,10 @@ describe('prepareTransactionSchema', () => {
       proposal_type: 'refund',
       to_address: '0x1234567890123456789012345678901234567890',
       signer_pubkey: '0x1234567890123456789012345678901234567890',
+      // F-1.1-02: propose and dispute now carry a signature proving the caller
+      // holds the key behind that pubkey. Schema-level here; the engine tests
+      // verify a real one.
+      signature: '0x' + 'ab'.repeat(32),
     });
     expect(result.success).toBe(true);
   });
@@ -151,6 +159,10 @@ describe('prepareTransactionSchema', () => {
       proposal_type: 'cancel',
       to_address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
       signer_pubkey: '0x1234567890123456789012345678901234567890',
+      // F-1.1-02: propose and dispute now carry a signature proving the caller
+      // holds the key behind that pubkey. Schema-level here; the engine tests
+      // verify a real one.
+      signature: '0x' + 'ab'.repeat(32),
     });
     expect(result.success).toBe(false);
   });
@@ -169,6 +181,10 @@ describe('signProposalSchema', () => {
     const result = signProposalSchema.safeParse({
       proposal_id: '00000000-0000-0000-0000-000000000001',
       signer_pubkey: '0x1234567890123456789012345678901234567890',
+      // F-1.1-02: propose and dispute now carry a signature proving the caller
+      // holds the key behind that pubkey. Schema-level here; the engine tests
+      // verify a real one.
+      signature: '0x' + 'ab'.repeat(32),
       signature: '0xabcdef1234567890abcdef1234567890',
     });
     expect(result.success).toBe(true);
@@ -178,6 +194,10 @@ describe('signProposalSchema', () => {
     const result = signProposalSchema.safeParse({
       proposal_id: 'not-a-uuid',
       signer_pubkey: '0x1234567890123456789012345678901234567890',
+      // F-1.1-02: propose and dispute now carry a signature proving the caller
+      // holds the key behind that pubkey. Schema-level here; the engine tests
+      // verify a real one.
+      signature: '0x' + 'ab'.repeat(32),
       signature: '0xabcdef1234567890',
     });
     expect(result.success).toBe(false);
@@ -202,6 +222,10 @@ describe('disputeSchema', () => {
   it('should accept valid dispute', () => {
     const result = disputeSchema.safeParse({
       signer_pubkey: '0x1234567890123456789012345678901234567890',
+      // F-1.1-02: propose and dispute now carry a signature proving the caller
+      // holds the key behind that pubkey. Schema-level here; the engine tests
+      // verify a real one.
+      signature: '0x' + 'ab'.repeat(32),
       reason: 'The goods were not delivered as described in the agreement',
     });
     expect(result.success).toBe(true);
@@ -210,6 +234,10 @@ describe('disputeSchema', () => {
   it('should require reason of at least 10 characters', () => {
     const result = disputeSchema.safeParse({
       signer_pubkey: '0x1234567890123456789012345678901234567890',
+      // F-1.1-02: propose and dispute now carry a signature proving the caller
+      // holds the key behind that pubkey. Schema-level here; the engine tests
+      // verify a real one.
+      signature: '0x' + 'ab'.repeat(32),
       reason: 'Too short',
     });
     expect(result.success).toBe(false);
@@ -218,6 +246,10 @@ describe('disputeSchema', () => {
   it('should enforce reason max of 2000 characters', () => {
     const result = disputeSchema.safeParse({
       signer_pubkey: '0x1234567890123456789012345678901234567890',
+      // F-1.1-02: propose and dispute now carry a signature proving the caller
+      // holds the key behind that pubkey. Schema-level here; the engine tests
+      // verify a real one.
+      signature: '0x' + 'ab'.repeat(32),
       reason: 'x'.repeat(2001),
     });
     expect(result.success).toBe(false);

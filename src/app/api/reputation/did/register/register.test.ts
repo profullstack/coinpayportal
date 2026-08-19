@@ -10,16 +10,22 @@ let mockPlatformAuth: { did: string; name: string } | null = {
 let mockExistingDid: unknown = null;
 let mockMerchant: unknown = null;
 let mockInsertError: unknown = null;
+// Whether the named merchant was provisioned by THIS platform. Null = not ours,
+// which is the case that must register the DID unlinked (L7A-02 / V-02).
+let mockPlatformLink: unknown = null;
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from: (table: string) => {
       if (table === 'reputation_issuers') {
+        // Lookup is hash-first now, so the chain must terminate at
+        // `maybeSingle` as well as `single`.
         return {
           select: () => ({
             eq: () => ({
               eq: () => ({
                 single: () => Promise.resolve({ data: mockPlatformAuth, error: null }),
+                maybeSingle: () => Promise.resolve({ data: mockPlatformAuth, error: null }),
               }),
             }),
           }),
@@ -40,6 +46,21 @@ vi.mock('@supabase/supabase-js', () => ({
           select: () => ({
             eq: () => ({
               maybeSingle: () => Promise.resolve({ data: mockMerchant, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === 'businesses') {
+        // platformMayManageMerchant: is this merchant one THIS platform
+        // provisioned? Null means no, so the DID registers unlinked.
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                limit: () => ({
+                  maybeSingle: () => Promise.resolve({ data: mockPlatformLink, error: null }),
+                }),
+              }),
             }),
           }),
         };
@@ -73,6 +94,7 @@ describe('POST /api/reputation/did/register', () => {
     mockExistingDid = null;
     mockMerchant = null;
     mockInsertError = null;
+    mockPlatformLink = null;
   });
 
   it('returns 401 with invalid API key', async () => {
@@ -113,13 +135,31 @@ describe('POST /api/reputation/did/register', () => {
     expect(json.registered).toBe(true);
   });
 
-  it('links merchant_id when email matches existing merchant', async () => {
-    mockMerchant = { id: 'merchant-456' };
+  it('does NOT link a merchant this platform did not provision', async () => {
+    // L7A-02 / V-02 / REP-F1A-02: an email match alone used to bind an
+    // arbitrary DID to that account with verified:true, letting a caller plant
+    // a hostile DID on a victim — ideally before the victim claimed their own,
+    // since the first registration wins. The DID still registers, unlinked.
+    mockMerchant = { id: 'merchant-456', auth_provider: 'self' };
+    mockPlatformLink = null;
     const { POST } = await import('./route');
     const res = await POST(
       makeRequest({
         did: 'did:key:z6MkLinked',
         email: 'merchant@test.com',
+      })
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it('links a merchant this platform did provision', async () => {
+    mockMerchant = { id: 'merchant-456', auth_provider: 'platform' };
+    mockPlatformLink = { id: 'biz-1' };
+    const { POST } = await import('./route');
+    const res = await POST(
+      makeRequest({
+        did: 'did:key:z6MkOurUser',
+        email: 'ourusr@test.com',
       })
     );
     expect(res.status).toBe(201);
