@@ -200,6 +200,12 @@ rather than four copies. `F-1.3-12` still to convert.
 Batch eleven: `F-1.3-04`, `INV-01`, `H-R-04` `FIXED`. Migration
 `20260819180000_stripe_webhook_idempotency` applied to production and verified.
 
+Batch twelve: `NEW-L5-1`, `G-1.2-04`, `H-R-09` `FIXED`. `R3-DIN-03`
+`ALREADY-FIXED` — confirmed live: `settle_failed` is now in
+`escrows_status_check`. Migration
+`20260819190000_collection_blockchain_check_token_variants` applied and
+validated (18 chains, matching `SUPPORTED_BLOCKCHAINS`).
+
 ## Priority 4 — Conditional (26)
 
 Detail in `docs/findings/04_CONDITIONAL_LOW/`. Verify the condition before
