@@ -64,7 +64,7 @@ than the report's.
 | `CP-005` | `FIXED` | `x402/settle:279-281,529` | Responds `settled: true` for Lightning with no funds moved. Same root cause as `F-1.3-01`. | Closed by the `F-1.3-01` fix. |
 | `L8-02` | `UNVERIFIED` | `src/lib/payments/service.ts`, card branch | `payment_address_id` was dropped from the schema but three card routes still insert it — every card payment 500s before reaching Stripe. | Verify against the live schema before changing; may already be closed. |
 | `N-01` | `UNVERIFIED` | `src/lib/fraud/screen.ts` callers | `screenCheckout` is invoked from 1 of 7 sinks that create real card charges; the most exposed sink, `payments/widget/create`, is a public secret-free embed. | Enumerate the seven sinks and screen each. |
-| `W-07` | `UNVERIFIED` | `src/app/api/lightning/offers/route.ts` (GET) | No authentication, `business_id` optional, `limit` unbounded — one anonymous request dumps every merchant's Lightning offers and received revenue. | Require auth, scope to the caller's business, cap `limit`. |
+| `W-07` | `FIXED` | `src/app/api/lightning/offers/route.ts` (GET) | No authentication, `business_id` optional, `limit` unbounded — one anonymous request dumps every merchant's Lightning offers and received revenue. | Require auth, scope to the caller's business, cap `limit`. |
 | `F9-01` | `UNVERIFIED` | `src/lib/crypto/require-key.ts` vs nine direct consumers | `requireEncryptionKey()` guards 4 of 13 encryption sites; the custody hot path (`hd-wallet`, `secure-forwarding`, `system-wallet`, `escrow/service`) reads `process.env.ENCRYPTION_KEY` raw and checks only non-empty. The repo's own test fixture value is itself a `KNOWN_WEAK_KEYS` entry. | Route every site through the guard, then add a lint rule banning the raw read (§2.1). |
 | `W-01` | `UNVERIFIED` | `public/install.sh` | Default `COINPAY_REF=master`, checksum verification optional and only printed, auto-upgrade timer every five minutes. Anything merged to master reaches every installed host within five minutes. | Pin to a tag, enforce the checksum. See also `F6-01`. |
 | `W-05` | `UNVERIFIED` | Lightning Address payment path | The client never decodes the returned bolt11 to confirm the amount — it pays whatever the recipient's LNURL server decides. | Decode and compare before paying. |
@@ -78,15 +78,15 @@ than the report's.
 | `L7A-03` | `UNVERIFIED` | `reputation/attest`, `src/lib/reputation/mutual-attestation.ts` | No verification that the caller controls `attester_did`, and no rate limit — the mutual trust graph is unilaterally forgeable, free, at scale. | Require a signature over the attestation; rate limit. |
 | `REP-F14-01` | `UNVERIFIED` | `src/lib/reputation/trust-engine.ts`, `trust-tiers.ts`, `anti-gaming.ts` | The A–F reputation score is maximizable with self-declared high-value receipts; anti-gaming deducts about 1.5 of 100 points at worst. Consumed by `web-bot-auth/verify` for real trust decisions. | Weight on externally-verifiable signal only. |
 | `G-1.2-01` | `UNVERIFIED` | `payment-methods/manual` (GET + POST) | Omits the capability check and falls back to the permissive `business.read` default, so a `readonly` team member can rewrite the Venmo/CashApp/Zelle payout handle. | Require an owner capability (§2.2 and §2.3 both). |
-| `G-R-07` | `UNVERIFIED` | `src/app/api/oauth/userinfo/route.ts` | Returns `email_verified: true` unconditionally — no verification column and no verification flow exist — while the ID token correctly returns `false`. An account-takeover primitive against relying parties. | Return `false` until a real verification flow exists. |
+| `G-R-07` | `FIXED` | `src/app/api/oauth/userinfo/route.ts` | Returns `email_verified: true` unconditionally — no verification column and no verification flow exist — while the ID token correctly returns `false`. An account-takeover primitive against relying parties. | Return `false` until a real verification flow exists. |
 | `F3-L3-01` | `UNVERIFIED` | Extension/SDK batch payment `payOnce()` | Retries prepare → sign → broadcast from scratch after a transient broadcast error, including `already known`, with no idempotency key. Can duplicate a real transaction. | Treat `already known` as success; add an idempotency key. |
 | `F3-L5-01` | `UNVERIFIED` | SDK `WalletClient.send()` | Signs with generic `signMessage()` instead of serializing the real RLP/PSBT transaction — the SDK's flagship send method is broken for every integrator. | Serialize and sign the actual transaction. |
 | `F4-01` | `UNVERIFIED` | FossBilling plugin `StatusMapper.php` | `StatusMapper::MAP` only translates event types the backend never emits, and there is no fallback, so every real webhook falls into `'ignore'`. Automated invoice crediting is unreachable in production, 100% of transactions. | Map the event names actually emitted; add a fallback. |
 | `ESC-NEW-01` | `UNVERIFIED` | `dispute_resolution` and `dispute_status` columns | Both columns are present in the production schema and **neither has a single writer anywhere in the codebase**, in both escrow models. A disputed escrow has no exit except the depositor's own release. | A product gap, not only a code one: needs an arbiter path. |
 | `A-03` | `UNVERIFIED` | Boltz `decryptProviderSecrets` | Zero callers, so every failed swap's refund key is unrecoverable through the product. | Wire up a recovery path. |
-| `F-1.1-08` | `UNVERIFIED` | `invoices/[id]/check-balance`, `monitor-invoices` | A `* 0.99` underpayment tolerance survives in both paths without going through the shared `isSufficientPayment` — a live, recurring 1% revenue leak. | Route both through the shared helper. |
+| `F-1.1-08` | `FIXED` | `invoices/[id]/check-balance`, `monitor-invoices` | A `* 0.99` underpayment tolerance survives in both paths without going through the shared `isSufficientPayment` — a live, recurring 1% revenue leak. | Route both through the shared helper. |
 | `BL-01` | `UNVERIFIED` | `monitor.ts:73`, `monitor-balance.ts:639-730` | A transient RPC failure marks a fully-paid payment `expired`. No attacker required; customer funds appear stuck with no automatic recovery. | Distinguish "RPC failed" from "unpaid" and never expire on error. |
-| `F5-L4-01` | `UNVERIFIED` | `scripts/cleanup-spam.ts:246-273` | `cleanOrphanedWallets()` deletes every `wallets` row with zero transactions — no merchant filter, no protected list, no age filter. The header comment asserting safety is false for this function, and it fires on every documented `--execute` run, destroying legitimate third-party web wallets including ones created seconds earlier. | Add age and ownership filters, or delete the function. **Highest data-loss risk in the register.** |
+| `F5-L4-01` | `FIXED` | `scripts/cleanup-spam.ts:246-273` | `cleanOrphanedWallets()` deletes every `wallets` row with zero transactions — no merchant filter, no protected list, no age filter. The header comment asserting safety is false for this function, and it fires on every documented `--execute` run, destroying legitimate third-party web wallets including ones created seconds earlier. | Add age and ownership filters, or delete the function. **Highest data-loss risk in the register.** |
 
 ## Priority 1b — Medium (31) and 1c — Low (7)
 
@@ -96,7 +96,7 @@ The subset worth taking first:
 
 | ID | Status | Why it ranks up |
 |---|---|---|
-| `E-03` | `UNVERIFIED` | `application_fee` appears only in a comment claiming it is applied; the field is absent from `sessionParams`. 100% of the platform fee goes to the merchant on the only recurring card rail. Pure revenue. |
+| `E-03` | `FIXED` | `application_fee` appears only in a comment claiming it is applied; the field is absent from `sessionParams`. 100% of the platform fee goes to the merchant on the only recurring card rail. Pure revenue. |
 | `FR-01` | `UNVERIFIED` | Fraud screening fails open, denylist included. Pairs with `N-01`. |
 | `L4-NEW-02` | `UNVERIFIED` | Writing `status:'failed'` violates `payments_status_check` and the failure is never checked, so the payment stays `pending` forever and invisible. |
 | `NEW-L5-2` | `UNVERIFIED` | The schema CHECK omits `USDT`/`USDC`/`USDC_BASE` that the application inserts — payment creation fails outright for those stablecoins. |
@@ -163,6 +163,38 @@ spending effort on any of these.
 Detail in `docs/findings/05_TECHNICAL_DEBT/`. Not urgent. Note that 5a reverts to
 live risk if its gating condition changes — re-read 5a whenever a feature flag is
 turned on or a deployment topology changes.
+
+---
+
+## Needs a decision from Anthony (found while remediating, 2026-08-19)
+
+Both came out of read-only queries against the production database.
+
+**18 reputation issuers exist, all `active`, 17 with cleartext API keys.**
+`CP-002` is now fixed for new registrations, but the existing rows predate the
+fix. An issuer key authenticates `/api/p2p/request`, which provisions merchant
+accounts and issues invoices on other people's behalf. What is in there:
+
+- `evilpoc` / `evil-poc.example`, `poc2` / `poc2-audit.example`, `OutHunt` /
+  `out-hunt.example` — all created 2026-06-08, and they look like the auditor's
+  own proof-of-concept registrations. Worth confirming, then deleting.
+- `Tounes` with domain `Coinpayportal.com` — a third-party merchant registered
+  an issuer claiming **the platform's own domain**. Nothing verified it.
+- `X` with domain `X` — junk.
+- Six `*.trycloudflare.com` ephemeral tunnel domains from one integrator.
+
+I have not deactivated anything: `ugig.net`, `d0rz.com`, `Infernet` and
+`CoinPayPortal` look like real integrations and revoking them breaks live
+traffic. Suggested order: delete the three PoC rows and `X`, ask `Tounes` and the
+`solearn-*` set to re-register, then rotate what remains so the cleartext
+`api_key` column can be dropped.
+
+**`merchants.email_verified` does not exist in production.** The consequence is
+in the log above — the OAuth ID token silently carries no email or name today.
+That is now fixed, but the product question stands: there is no email
+verification flow at all. Until one exists, `email_verified` is `false`
+everywhere, which is honest but will read as a downgrade to any relying party
+that was trusting the old hardcoded `true`.
 
 ---
 
@@ -233,3 +265,50 @@ amount **Stripe** reports rather than the payer's self-declared payload figure.
 *Contract change for integrators*: `expected.payTo` is now required on v1
 verify, matching what v2 already demanded. Callers that omit it get a 400 naming
 the field. This is deliberate — not checking the recipient was the vulnerability.
+
+### 2026-08-19 — second batch: data loss, exposure, revenue
+
+**`F5-L4-01` — `scripts/cleanup-spam.ts`**. `cleanOrphanedWallets()` deleted
+every `wallets` row with no transactions, on every `--execute`. The `wallets`
+table is the self-custodial web-wallet store and has **no merchant_id or
+user_id** — a wallet is identified by its public keys alone — so nothing in it
+can be attributed to a spam signup, and "zero transactions" simply describes a
+wallet that has not been funded *yet*. Now behind an explicit
+`--prune-empty-wallets` flag with a 90-day floor on both `created_at` and
+`last_active_at`. The header's false safety claim is corrected.
+
+**`W-07` — `GET /api/lightning/offers`**. Had no authentication, `business_id`
+was optional, and `limit` had no ceiling, so one anonymous request returned every
+merchant's Lightning offers and received revenue. Now requires authentication,
+requires `business_id`, checks the caller can read that business (business API
+keys are pinned to their own business), and caps the page at 100. 5 new tests.
+
+**`CP-002` — issuer self-registration**. Registered `active: true` with no
+identity or domain check, and stored the API key in cleartext. Now registers
+`active: false` pending manual activation, and persists only
+`hashApiKey(...)` — the raw key is returned once and never stored.
+
+**`G-R-07` — `email_verified`** (plus a live bug the audit did not have).
+`/api/oauth/userinfo` returned `email_verified: true` unconditionally. Checking
+the live schema showed `merchants` has **no `email_verified` column at all** —
+which also means `/api/oauth/token`'s `select('id, email, name, email_verified')`
+errored on every call, so `merchant` came back null and **the OAuth ID token has
+been carrying neither email nor name for any user, whatever scopes were
+granted**. All three sites now select only real columns and report
+`email_verified: false`, which is the honest answer while no verification flow
+exists. Two existing tests were named "should return false" while asserting
+`true`; the names were right.
+
+**`E-03` — platform fee on recurring cards**. `sessionParams` carried a comment
+saying the fee was applied via `application_fee_percent` and never set the
+field, so every recurring card subscription paid the merchant 100% and the
+platform nothing. Now sets `subscription_data.application_fee_percent` from
+`getFeePercentage(isBusinessPaidTier(...))`. A percentage rather than a fixed
+amount, because the charge recurs and its amount can change. Also hardens
+`R4-STRIPE-SUB`: caller metadata is spread first so platform keys always win.
+
+**`F-1.1-08` — 1% revenue leak**. `invoices/[id]/check-balance` and
+`monitor-invoices` both compared `balance >= expected * 0.99` instead of calling
+the shared `isSufficientPayment`. Both now use the helper. A test named "marks
+invoice as paid with 1% tolerance" encoded the leak as intended behaviour and is
+now inverted, with a companion test proving the 1e-9 float epsilon still works.

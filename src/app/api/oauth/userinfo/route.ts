@@ -58,7 +58,17 @@ export async function GET(request: NextRequest) {
 
     if (scopes.includes('email') && merchant.email) {
       claims.email = merchant.email;
-      claims.email_verified = true;
+      // Was hardcoded `true`, contradicting the ID token from
+      // /api/oauth/token, which reports `false`. The same claim about the same
+      // account gave opposite answers depending on which endpoint the relying
+      // party asked.
+      //
+      // `false` is the honest answer: `merchants` has no `email_verified`
+      // column and no verification flow exists — confirmed against the live
+      // schema. An RP uses this claim to link an incoming OAuth identity to an
+      // existing local account, so asserting an address is verified when nobody
+      // proved they own it is an account-takeover primitive on their side.
+      claims.email_verified = false;
     }
   }
 

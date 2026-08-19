@@ -9,6 +9,8 @@
  *   npx tsx scripts/cleanup-spam.ts              # dry run (default)
  *   npx tsx scripts/cleanup-spam.ts --execute    # actually delete
  *   npx tsx scripts/cleanup-spam.ts --verbose    # show every flagged merchant
+ *   npx tsx scripts/cleanup-spam.ts --execute --prune-empty-wallets
+ *                                                # also prune long-untouched web wallets
  *
  * Detection heuristics (any match = flagged):
  *   1. Gibberish name: random-looking strings (high consonant ratio, camelCase noise)
@@ -23,6 +25,12 @@
  *   - NEVER deletes merchants in the protected list (your accounts)
  *   - Respects FK constraints: deletes children before parents
  *   - Dry run by default
+ *   - Does NOT touch the self-custodial `wallets` table unless
+ *     --prune-empty-wallets is passed, and then only for wallets with no
+ *     transactions that have been untouched for 90+ days. That table has no
+ *     merchant_id, so nothing there can be attributed to a spam signup; the
+ *     previous version deleted every wallet that had not transacted yet,
+ *     including real customer wallets created moments earlier.
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
@@ -35,6 +43,26 @@ dotenv.config();
 
 const DRY_RUN = !process.argv.includes("--execute");
 const VERBOSE = process.argv.includes("--verbose");
+
+/**
+ * Pruning empty web wallets is OFF unless asked for explicitly.
+ *
+ * `wallets` is the self-custodial web-wallet table. It has no merchant_id or
+ * user_id — a wallet is identified by its public keys alone — so there is no
+ * way to tell "wallet belonging to a spam signup" from "wallet a real customer
+ * created a minute ago". `cleanOrphanedWallets` selected on zero transactions
+ * and nothing else, which describes every wallet that has not been used *yet*,
+ * and it ran on every `--execute`. That destroyed real customer wallets as
+ * documented, routine use of a script whose header promises it is safe.
+ *
+ * Kept behind a flag rather than deleted, because reclaiming genuinely
+ * abandoned rows is a real operational need — just not something to do by
+ * default, and not without an age floor.
+ */
+const PRUNE_EMPTY_WALLETS = process.argv.includes("--prune-empty-wallets");
+
+/** Minimum age before an unused wallet is even a candidate for pruning. */
+const EMPTY_WALLET_MIN_AGE_DAYS = 90;
 
 // ─── Protected merchant IDs (never delete) ─────────────────────────────────
 const PROTECTED_MERCHANT_IDS = new Set([
@@ -243,11 +271,24 @@ async function deleteSpamMerchants(
   }
 }
 
+/**
+ * Prune web wallets that have never transacted AND are older than the age
+ * floor.
+ *
+ * "Zero transactions" on its own is not evidence of abandonment — it is the
+ * normal state of a wallet between being created and being funded. The age
+ * floor is what makes the distinction, and it is deliberately generous.
+ */
 async function cleanOrphanedWallets(supabase: SupabaseClient): Promise<number> {
-  // Find wallets with zero transactions
+  const cutoff = new Date(Date.now() - EMPTY_WALLET_MIN_AGE_DAYS * 24 * 60 * 60 * 1000);
+
+  // Only wallets that have sat untouched since before the cutoff. `created_at`
+  // alone would catch an old wallet still in active use, so `last_active_at`
+  // has to be behind the cutoff too.
   const { data: allWallets } = await supabase
     .from("wallets")
-    .select("id");
+    .select("id, created_at, last_active_at")
+    .lt("created_at", cutoff.toISOString());
 
   const { data: txWallets } = await supabase
     .from("wallet_transactions")
@@ -256,6 +297,10 @@ async function cleanOrphanedWallets(supabase: SupabaseClient): Promise<number> {
   const activeWalletIds = new Set((txWallets || []).map((t) => t.wallet_id));
   const orphanWallets = (allWallets || [])
     .filter((w) => !activeWalletIds.has(w.id))
+    .filter((w) => {
+      const lastActive = w.last_active_at ?? w.created_at;
+      return !lastActive || new Date(lastActive) < cutoff;
+    })
     .map((w) => w.id);
 
   if (orphanWallets.length === 0) return 0;
@@ -352,9 +397,20 @@ async function main() {
   console.log(`\n🗑️  Deleting ${spamIds.length} spam merchants...`);
   await deleteSpamMerchants(supabase, spamIds);
 
-  console.log("\n🧹 Cleaning orphaned wallets...");
-  const orphanCount = await cleanOrphanedWallets(supabase);
-  console.log(`   Removed ${orphanCount} orphaned wallets`);
+  if (PRUNE_EMPTY_WALLETS) {
+    console.log(
+      `\n🧹 Pruning web wallets with no transactions, untouched for ${EMPTY_WALLET_MIN_AGE_DAYS}+ days...`
+    );
+    console.log(
+      "   ⚠️  These are self-custodial customer wallets with no owner column — verify the count before trusting it."
+    );
+    const orphanCount = await cleanOrphanedWallets(supabase);
+    console.log(`   Removed ${orphanCount} empty wallets`);
+  } else {
+    console.log(
+      "\n⏭️  Skipping empty-wallet pruning (pass --prune-empty-wallets to enable)."
+    );
+  }
 
   // Final counts
   const { count: finalMerchants } = await supabase

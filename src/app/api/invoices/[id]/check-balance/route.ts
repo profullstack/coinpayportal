@@ -5,6 +5,7 @@ import { invoicePaidMerchantTemplate } from '@/lib/email/invoice-templates';
 import { confirmAndForwardPayment } from '@/app/api/cron/monitor-payments/payment-monitor';
 import type { Payment } from '@/app/api/cron/monitor-payments/types';
 import { createServiceClient } from '@/lib/supabase/service-client';
+import { isSufficientPayment } from '@/lib/payments/tolerance';
 
 
 /**
@@ -56,7 +57,15 @@ export async function POST(
 
     console.log(`[Invoice Check] ${id}: balance=${balanceResult.balance}, expected=${expectedAmount}, currency=${invoice.crypto_currency}`);
 
-    if (expectedAmount > 0 && balanceResult.balance >= expectedAmount * 0.99) {
+            // Full payment, via the shared rule.
+    //
+    // This read `balance >= expected * 0.99`, bypassing
+    // `isSufficientPayment`. That 1% discount is the exact economic
+    // concession the shared helper was written to remove: the payer
+    // unlocks the goods on 99%, and the forwarder is then asked to send
+    // 100% out of an address holding 99%, so the forward fails and the
+    // funds strand at the intermediary address.
+    if (isSufficientPayment(balanceResult.balance, expectedAmount)) {
       const nowDate = new Date();
       const now = nowDate.toISOString();
 
