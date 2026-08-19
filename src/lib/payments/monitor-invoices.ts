@@ -5,6 +5,7 @@
 import { sendEmail } from '../email';
 import { invoicePaidMerchantTemplate, invoiceOverdueTemplate } from '../email/invoice-templates';
 import { checkBalance } from './monitor-balance';
+import { isSufficientPayment } from './tolerance';
 import { resolvePayee } from './payee';
 import { getPaymentReceivingWallet } from '../wallets/supported-coins';
 
@@ -92,7 +93,15 @@ export async function runInvoiceMonitorCycle(supabase: any, now: Date): Promise<
           const balanceResult = await checkBalance(invoice.payment_address, invoice.crypto_currency);
           const expectedAmount = parseFloat(invoice.crypto_amount || '0');
 
-          if (expectedAmount > 0 && balanceResult.balance >= expectedAmount * 0.99) {
+            // Full payment, via the shared rule.
+          //
+          // This read `balance >= expected * 0.99`, bypassing
+          // `isSufficientPayment`. That 1% discount is the exact economic
+          // concession the shared helper was written to remove: the payer
+          // unlocks the goods on 99%, and the forwarder is then asked to send
+          // 100% out of an address holding 99%, so the forward fails and the
+          // funds strand at the intermediary address.
+          if (isSufficientPayment(balanceResult.balance, expectedAmount)) {
             // Put the money on its way before declaring the invoice settled.
             //
             // This branch handles invoices with no linked CoinPay payment. It

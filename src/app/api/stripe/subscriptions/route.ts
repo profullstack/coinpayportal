@@ -5,6 +5,8 @@ import { listAccessibleOwnerMerchantIds } from '@/lib/auth/authz';
 import { getJwtSecret } from '@/lib/secrets';
 import { getStripe } from '@/lib/server/optional-deps';
 import { parsePaginationParam } from '@/lib/api/pagination';
+import { getFeePercentage } from '@/lib/payments/fees';
+import { isBusinessPaidTier } from '@/lib/entitlements/service';
 
 /**
  * GET /api/stripe/subscriptions
@@ -107,15 +109,45 @@ export async function POST(request: NextRequest) {
 
     const stripe = await getStripe();
 
+    // Actually charge the platform fee.
+    //
+    // This block previously carried a comment saying the fee was applied via
+    // `application_fee_percent` — and never set the field. Every recurring card
+    // subscription, on the only recurring card rail the product has, paid the
+    // merchant 100% and the platform nothing. The comment is why it went
+    // unnoticed: reading the code, the control appears to be there.
+    //
+    // Subscriptions take a percentage rather than a fixed amount, because the
+    // charge recurs and its amount can change (proration, quantity, price
+    // updates); a fixed `application_fee_amount` computed once at checkout
+    // would be wrong on every later invoice.
+    const isPaidTier = await isBusinessPaidTier(supabase, plan.business_id);
+    const applicationFeePercent = Number((getFeePercentage(isPaidTier) * 100).toFixed(4));
+
     // Create checkout session for subscription
     const sessionParams: any = {
       mode: 'subscription',
       line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
       success_url: successUrl || `${process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com'}/subscriptions?success=true`,
       cancel_url: cancelUrl || `${process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com'}/subscriptions?canceled=true`,
-      metadata: { ...metadata, plan_id: plan.id, merchant_id: merchantId, business_id: plan.business_id },
+      // Caller metadata is spread FIRST so the platform's own keys always win.
+      // A caller that sends `merchant_id` or `platform_fee_percent` cannot
+      // overwrite what the webhook reads back.
+      metadata: {
+        ...metadata,
+        plan_id: plan.id,
+        merchant_id: merchantId,
+        business_id: plan.business_id,
+        platform_fee_percent: applicationFeePercent.toString(),
+      },
       subscription_data: {
-        metadata: { plan_id: plan.id, merchant_id: merchantId, business_id: plan.business_id },
+        application_fee_percent: applicationFeePercent,
+        metadata: {
+          plan_id: plan.id,
+          merchant_id: merchantId,
+          business_id: plan.business_id,
+          platform_fee_percent: applicationFeePercent.toString(),
+        },
         ...(plan.trial_days ? { trial_period_days: plan.trial_days } : {}),
       },
     };
@@ -123,7 +155,6 @@ export async function POST(request: NextRequest) {
     if (customerEmail) sessionParams.customer_email = customerEmail;
     if (customerId) sessionParams.customer = customerId;
 
-    // Use application_fee_percent for platform fee on connected account
     const session = await stripe.checkout.sessions.create(sessionParams, {
       stripeAccount: plan.stripe_account_id,
     });

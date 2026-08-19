@@ -624,6 +624,16 @@ async function logSecurityEvent(event: SecurityEvent): Promise<void> {
 - SOC 2 Type II certification (future)
 
 ### Audit Trail
+
+**Not implemented.** This section previously described an audit trail as
+existing. It does not: there is no audit-logging infrastructure anywhere in the
+codebase — no audit table, no append-only log, no key-access record. Payment
+state changes are visible only as the current value of a status column, which is
+overwritten in place and keeps no history.
+
+Building it is tracked as `AUD-01` in `/TODO-vulns.md`. The intended scope, once
+built:
+
 - All payment state changes logged
 - API access logged with timestamps
 - Failed authentication attempts tracked

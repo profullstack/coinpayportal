@@ -151,9 +151,9 @@ COMMISSION_WALLET_SOL=...
 - [x] Private keys encrypted with AES-256-GCM before storage
 - [x] API endpoints reject any request containing private keys
 - [x] Private keys decrypted only at moment of transaction signing
-- [x] Sensitive data cleared from memory after use
+- [ ] Sensitive data cleared from memory after use — `clearSensitiveString` exists but has no callers, so this is not implemented
 - [x] Admin-only access for manual forwarding operations
-- [x] Audit logging for key operations (without exposing key material)
+- [ ] Audit logging for key operations — **not implemented.** There is no audit-logging infrastructure anywhere in the codebase. Tracked as `AUD-01` in `/TODO-vulns.md`
 
 ### 🔄 Recommended for Production
 

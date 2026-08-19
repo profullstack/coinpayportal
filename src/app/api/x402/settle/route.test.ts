@@ -91,6 +91,7 @@ function makeRequest(body: any, apiKey = 'test-api-key') {
 describe('POST /api/x402/settle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSingle.mockReset();
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     mockResolveScopedKey.mockResolvedValue({
@@ -169,6 +170,16 @@ describe('POST /api/x402/settle', () => {
       .mockResolvedValueOnce({
         data: { id: 'p1', status: 'verified', amount: '100', network: 'lightning', to_address: 'lnbc-house', asset: null },
         error: null,
+      })
+      .mockResolvedValueOnce({
+        data: {
+          payment_hash: 'hash123',
+          business_id: 'biz1',
+          direction: 'incoming',
+          status: 'settled',
+          amount_msat: 100,
+        },
+        error: null,
       });
 
     const req = makeRequest({
@@ -195,6 +206,16 @@ describe('POST /api/x402/settle', () => {
     mockSingle
       .mockResolvedValueOnce({
         data: { id: 'p1', status: 'verified', amount: '100', network: 'lightning', to_address: 'lnbc-house', asset: null },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: {
+          payment_hash: 'hash456',
+          business_id: 'biz1',
+          direction: 'incoming',
+          status: 'settled',
+          amount_msat: 100,
+        },
         error: null,
       });
 
@@ -401,6 +422,7 @@ describe('POST /api/x402/settle — payee matching on case-sensitive chains', ()
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSingle.mockReset();
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     mockResolveScopedKey.mockResolvedValue({
