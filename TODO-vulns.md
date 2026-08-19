@@ -288,6 +288,34 @@ fired. All 6 wallets holding an LNbits admin key hold their own — they have bo
 `ln_wallet_adminkey` and `ln_wallet_inkey`, and the fallback path writes only
 the former (`adminkey_only = 0`). The fix is preventive, not remedial.
 
+## Remaining-gaps pass (2026-08-19, after the audit merged)
+
+- **`ESC-NEW-01` `FIXED`.** `dispute_resolution`/`dispute_status` now have a
+  writer: `resolveDispute()` plus an admin-gated
+  `POST /api/admin/escrows/[id]/resolve`. Also fixed the sharper half — refund
+  required `funded`, so raising a dispute *removed* the refund path and left
+  release-by-depositor as the only exit. `disputed` is now refundable, so a
+  beneficiary can concede.
+- **`REC-D-07` `FIXED`.** Durable retry queue (`webhook_deliveries`, migration
+  `20260819210000`) with a dead-letter state. In-process delivery spent its
+  whole budget in ~3 seconds; the queue retries on 1m→12h backoff and marks a
+  row `dead` after 8 attempts rather than dropping the event. Payloads are
+  re-signed per attempt — a stored signature is bound to its timestamp, so
+  replaying one is either rejected or, worse, accepted indefinitely.
+- **`W-01` `FIXED`.** Auto-upgrade from a mutable ref is now opt-in
+  (`COINPAY_AUTO_UPGRADE_UNPINNED=1`). Pinned installs keep it, since a tag can
+  only ever re-install the same code. Previously any merge to master executed on
+  every operator host within five minutes, unattended.
+- **Issuer cleanup — DONE (reversible).** Deactivated 5 of 18: `evilpoc`,
+  `poc2`, `OutHunt` (all `.example`, RFC 2606 — cannot resolve), `X`/`X`, and
+  `Tounes` claiming `Coinpayportal.com`. Verified first that only `ugig.net`
+  (14,333 receipts) and `d0rz.com` (5) have *ever* produced anything, so none of
+  the deactivated rows could break live traffic. `active = true` restores any.
+
+  Still open: 6 `*.trycloudflare.com` issuers (ephemeral tunnel hostnames are a
+  weak identity by construction) and the cleartext `api_key` column on 17 rows.
+  Rotating those needs the integrators told, so it stays Anthony's.
+
 ## Priority 5 verification sweep (2026-08-19)
 
 142 findings across `5a` (35), `5b` (25) and `5c` (82). The audit's own framing
