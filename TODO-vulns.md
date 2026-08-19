@@ -263,7 +263,12 @@ Verified against live production, no code change needed:
   (`cryptocurrency`, `is_active`) were a chained `merchant_wallets` query inside
   the same `Promise.all`, not `stripe_accounts` references.
 
-`FIXED`: `ESC-NEW-05`, `H-R-03`, `F5-L2-03`, `F-1.3-14`.
+`FIXED`: `ESC-NEW-05`, `H-R-03`, `F5-L2-03`, `F-1.3-14`, `F-1.3-03`.
+
+`R3-X1` `ALREADY-FIXED` — the Stripe x402 branch compares `pi.amount_received`
+from Stripe's own record rather than the self-declared payload amount (round 1).
+The `SIGNATURE_BOUND_NETWORKS` constant the finding cites no longer exists;
+dispatch is by `network` via `SCHEMES_BY_NETWORK`.
 
 ## Priority 5 — Technical debt (60)
 
