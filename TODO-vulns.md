@@ -159,8 +159,11 @@ audit than whether its bespoke ownership query is correct.
   `F-1.1-16` `FIXED`, `F-1.3-02` `FIXED`, `V-04` `FIXED`, `IA-016` `FIXED`,
   `WW-01` `FIXED`, `WW-03` `PARTIAL` (recipient bound on every chain; amount
   still unbound on BCH and Solana — see the batch-5 log), `NEW-14`
-  `ALREADY-FIXED` (`resolveBusinessScope`). Still open: `F5-L2-01`,
-  `F5-L4-02`.
+  `ALREADY-FIXED` (`resolveBusinessScope`), `F5-L2-01` `FIXED`,
+  `F5-L4-02` `ALREADY-FIXED` (both HTML paths escape; the raw interpolations
+  the finding cites are the plain-text body, where escaping would be wrong).
+
+**Priority 2 is complete.**
 
 ## Priority 3 — Silent operational loss (39)
 
