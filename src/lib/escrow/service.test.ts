@@ -15,6 +15,16 @@ import {
   markEscrowSettled,
   expireStaleEscrows,
 } from './service';
+import { randomBytes } from 'crypto';
+
+// A fresh 32-byte key per run, rather than a hardcoded constant.
+//
+// This was `'test-encryption-key-0123456789abcdef'` — 36 characters and not hex
+// — which the escrow path accepted because it only checked the variable was
+// non-empty. A hardcoded strong key fixed that but left a key-shaped literal in
+// the repo, which a credential scanner flags on every diff and a reader has to
+// stop and verify is not live. Generating it removes both problems.
+const TEST_ENCRYPTION_KEY = randomBytes(32).toString('hex');
 
 // ── Mock Setup ──────────────────────────────────────────────
 
@@ -54,7 +64,12 @@ vi.stubGlobal('crypto', {
 });
 
 // Mock process.env
-vi.stubEnv('ENCRYPTION_KEY', 'test-encryption-key-0123456789abcdef');
+// A real 32-byte hex key. This was `'test-encryption-key-0123456789abcdef'`,
+// which is 36 characters and not hex — the escrow path accepted it because it
+// only checked the variable was non-empty. `requireEncryptionKey` rejects it,
+// which is the point: an unusable key must stop a custody operation, not be
+// silently used as one.
+vi.stubEnv('ENCRYPTION_KEY', TEST_ENCRYPTION_KEY);
 
 function createMockSupabase(overrides: Record<string, any> = {}) {
   const defaultEscrow = {

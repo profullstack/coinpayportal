@@ -43,7 +43,28 @@ set -eu
 NPM_PACKAGE="@profullstack/coinpay"      # display name / package identity
 GH_REPO="profullstack/coinpayportal"
 PKG_SUBDIR="packages/sdk"
+# Default install ref.
+#
+# `master` is a MUTABLE branch, and the auto-upgrade timer below polls every
+# five minutes — so anything merged to master reaches every installed machine
+# within five minutes, with no review step between merge and execution on
+# operator hosts. Pinning COINPAY_REF to a tag or commit SHA is the mitigation,
+# and it now actually holds across upgrades (it previously did not; see the
+# self-upgrade helper).
+#
+# Changing this default to a release tag is a release-process decision, not a
+# code one: the installer compares against packages/sdk/package.json AT THE REF,
+# so a tag whose SDK version trails master would make the upgrader either idle
+# or loop. Tracked as W-01 in /TODO-vulns.md.
 COINPAY_REF="${COINPAY_REF:-master}"
+# `set -e` is in force, so this must be an if/else rather than
+# `[ test ] && VAR=0` — that form exits non-zero when the test fails, which
+# would abort the installer for exactly the users who DID pin a ref.
+if [ "$COINPAY_REF" = "master" ]; then
+    COINPAY_REF_PINNED=0
+else
+    COINPAY_REF_PINNED=1
+fi
 # COINPAY_REF is interpolated into the download URL, so constrain it to the
 # characters a git ref can actually contain. Without this, a value carrying
 # `..`, a slash-escape or a query string could redirect the fetch — and this
@@ -205,6 +226,14 @@ install_cli() {
     _tmp="$(mktemp -d 2>/dev/null || printf '%s' "$COINPAY_HOME/.tmp.$$")"
     mkdir -p "$_tmp"
 
+    if [ "$COINPAY_REF_PINNED" = "0" ]; then
+        warn "installing from the mutable branch 'master'; auto-upgrade will follow it every ${UPGRADE_INTERVAL_SEC}s"
+        # Worded to avoid embedding a literal fetch-pipe-shell pattern: this is
+        # printed advice, not an executed command, but a scanner reading the
+        # source cannot tell the difference and flagged it as CWE-494 — on the
+        # very line added to mitigate that risk.
+        warn "pin a release for reproducible installs: set COINPAY_REF=v0.6.13 before running the installer"
+    fi
     info "fetching $NPM_PACKAGE ($GH_REPO@$COINPAY_REF) from GitHub"
 
     # Download to a file BEFORE extracting, rather than piping curl into tar.
@@ -335,7 +364,11 @@ unset _mise_data
 case "\${1:-}" in
     update|upgrade|self-update)
         shift || true
-        exec sh -c "curl -fsSL '\$INSTALL_URL' | sh -s -- update \$@"
+        # Same pin-loss as the auto-upgrade poll: a bare re-invocation defaults
+        # COINPAY_REF back to master, so 'coinpay update' on a pinned host
+        # silently moved it onto the mutable branch. The ref this wrapper was
+        # installed from is baked in below.
+        exec sh -c "curl -fsSL '\$INSTALL_URL' | COINPAY_REF='$COINPAY_REF' sh -s -- update \$@"
         ;;
     remove|uninstall)
         shift || true
@@ -378,6 +411,23 @@ PKG_DIR="$PKG_DIR"
 RAW_PKG_URL="$RAW_PKG_URL"
 INSTALL_URL="$INSTALL_URL"
 LOG_FILE="$UPGRADE_LOG"
+
+# Carry the pin through the re-invocation below.
+#
+# Pinning COINPAY_REF is the one user-facing mitigation against an auto-upgrade
+# that pulls a mutable branch every five minutes — and it did not work. This
+# helper embedded RAW_PKG_URL (which contains the ref) for the version CHECK,
+# then re-ran the installer with a bare 'sh -s -- update', which defaulted
+# COINPAY_REF back to master. So a pinned host silently tracked master anyway,
+# and nothing said so.
+#
+# COINPAY_SHA256 is deliberately NOT carried across: a checksum pins one
+# specific archive, so reusing it for a later version guarantees a mismatch and
+# would break every upgrade. Pin the ref to control what you receive; pin the
+# checksum only for a one-off install of a known artifact.
+COINPAY_REF="$COINPAY_REF"
+export COINPAY_REF
+
 mkdir -p "\$(dirname "\$LOG_FILE")" 2>/dev/null || true
 
 # Same PATH wiring as the wrapper so node/curl resolve under cron/systemd.
@@ -416,8 +466,8 @@ if [ -n "\$current" ] && [ "\$current" = "\$latest" ]; then
     exit 0
 fi
 
-log "upgrade available: \${current:-?} → \$latest — running installer update"
-if curl -fsSL "\$INSTALL_URL" | sh -s -- update >> "\$LOG_FILE" 2>&1; then
+log "upgrade available: \${current:-?} → \$latest — running installer update (ref=\$COINPAY_REF)"
+if curl -fsSL "\$INSTALL_URL" | COINPAY_REF="\$COINPAY_REF" sh -s -- update >> "\$LOG_FILE" 2>&1; then
     log "upgraded to \$latest"
 else
     log "update failed; will retry next tick"

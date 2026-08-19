@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sanitizeStripeMetadata } from '@/lib/stripe/metadata';
 import { createClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/server/optional-deps';
 import { screenCheckout } from '@/lib/fraud/screen';
@@ -121,7 +122,7 @@ export async function POST(request: NextRequest) {
     const platformFeeAmount = Math.round(amount * platformFeeRate);
 
     const sessionMetadata = {
-      ...metadata,
+      ...sanitizeStripeMetadata(metadata, 'stripe/payments/create'),
       business_id: businessId,
       merchant_id: business.merchant_id,
       platform_fee_amount: platformFeeAmount.toString(),

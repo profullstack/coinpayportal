@@ -45,6 +45,11 @@ vi.mock('@supabase/supabase-js', () => ({
 const mockResolveScopedKey = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth/scoped-keys', () => ({
   resolveScopedKey: mockResolveScopedKey,
+  // The routes now check the key's scopes, which were resolved and then ignored
+  // — so any valid key, including a read-only one, could verify and settle
+  // payments. Real implementation, so a test that grants the wrong scope fails.
+  scopesSatisfy: (granted: string[], required: string) =>
+    granted.includes('*') || granted.includes(required),
 }));
 
 // Mock ethers
@@ -87,7 +92,7 @@ describe('POST /api/x402/verify', () => {
     mockResolveScopedKey.mockResolvedValue({
       keyId: 'key1',
       business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
-      scopes: [],
+      scopes: ['payments:create'],
     });
   });
 
@@ -489,7 +494,7 @@ describe('POST /api/x402/verify — v2 (EIP-3009) proofs', () => {
     mockResolveScopedKey.mockResolvedValue({
       keyId: 'key1',
       business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
-      scopes: [],
+      scopes: ['payments:create'],
     });
     mockVerifyExactEvmV2.mockResolvedValue({
       valid: true,
@@ -623,7 +628,7 @@ describe('POST /api/x402/verify — audit regressions', () => {
     mockResolveScopedKey.mockResolvedValue({
       keyId: 'key1',
       business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
-      scopes: [],
+      scopes: ['payments:create'],
     });
   });
 
@@ -816,5 +821,58 @@ describe('POST /api/x402/verify — audit regressions', () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/underpayment/i);
     expect(mockInsert).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Regression test for REC-C-03 (2026-08-19 audit).
+ *
+ * `resolveScopedKey` returns the key's scopes and both x402 routes ignored
+ * them, so any valid key — including a read-only `wallet:read` one issued to an
+ * integrator for a single narrow job — could verify and settle payments. On the
+ * Stripe rail that means capturing real PaymentIntents.
+ */
+describe('POST /api/x402/verify — key scopes (REC-C-03)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+  });
+
+  it('refuses a read-only key', async () => {
+    mockResolveScopedKey.mockResolvedValue({
+      keyId: 'key1',
+      business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
+      scopes: ['wallet:read'],
+    });
+
+    const res = await POST(
+      makeRequest({
+        payment: { scheme: 'exact', payload: { network: 'base', to: '0xM', amount: '1', resource: 'r' } },
+        expected: { amount: '1', resource: 'r', payTo: '0xM' },
+      })
+    );
+
+    expect(res.status).toBe(403);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it('accepts a wildcard (legacy) key', async () => {
+    mockResolveScopedKey.mockResolvedValue({
+      keyId: 'key1',
+      business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
+      scopes: ['*'],
+    });
+
+    const res = await POST(
+      makeRequest({
+        payment: { scheme: 'exact', payload: { network: 'base', to: '0xM', amount: '1', resource: 'r' } },
+        expected: { amount: '1', resource: 'r', payTo: '0xM' },
+      })
+    );
+
+    // Past the scope gate — whatever it answers, it is not a 403 for scopes.
+    expect(res.status).not.toBe(403);
   });
 });

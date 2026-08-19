@@ -19,6 +19,8 @@
  *    OR dispute → arbiter resolves → settled or refunded
  */
 
+import { acquireFamilyIndex } from '../wallets/derivation-family';
+import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
@@ -128,8 +130,19 @@ export async function createEscrow(
     return { success: false, error: 'Depositor and beneficiary must be different addresses' };
   }
 
-  // Auto-detect emails from wallet addresses if not provided
-  // Checks both merchant_wallets and business_wallets → merchants
+  // Auto-detect emails from wallet addresses if not provided.
+  //
+  // Convenient — it lets an escrow notify a counterparty who was identified
+  // only by address — but the resolved value must NOT be echoed back to the
+  // caller. Doing so turned escrow creation into an oracle mapping any
+  // on-chain address to the email of the merchant who owns it, enumerable
+  // across the whole merchant base by anyone who could create escrows. That is
+  // also the input `NEW-04` needed: a victim's email address.
+  //
+  // Which emails were resolved rather than supplied is tracked here and
+  // redacted from the response below. The row keeps them, so notification still
+  // works.
+  const autoResolved = { depositor: false, beneficiary: false };
   if (!data.depositor_email || !data.beneficiary_email) {
     const lookupEmail = async (address: string): Promise<string | null> => {
       // 1. merchant_wallets → merchants
@@ -164,11 +177,17 @@ export async function createEscrow(
 
     if (!data.depositor_email) {
       const email = await lookupEmail(data.depositor_address);
-      if (email) data = { ...data, depositor_email: email };
+      if (email) {
+        data = { ...data, depositor_email: email };
+        autoResolved.depositor = true;
+      }
     }
     if (!data.beneficiary_email) {
       const email = await lookupEmail(data.beneficiary_address);
-      if (email) data = { ...data, beneficiary_email: email };
+      if (email) {
+        data = { ...data, beneficiary_email: email };
+        autoResolved.beneficiary = true;
+      }
     }
   }
 
@@ -277,10 +296,19 @@ export async function createEscrow(
     // Fire webhook if tied to a business
     await sendEscrowWebhook(supabase, businessId || null, escrow.id, 'escrow.created', escrow);
 
+    // Redact anything the caller did not already know. See the note on
+    // `autoResolved` above: echoing a looked-up email back makes this an
+    // address-to-email oracle over the merchant base.
+    const publicEscrow = {
+      ...stripTokens(escrow as Escrow),
+      ...(autoResolved.depositor ? { depositor_email: null } : {}),
+      ...(autoResolved.beneficiary ? { beneficiary_email: null } : {}),
+    };
+
     return {
       success: true,
       escrow: {
-        ...stripTokens(escrow as Escrow),
+        ...publicEscrow,
         release_token: releaseToken,
         beneficiary_token: beneficiaryToken,
       },
@@ -316,35 +344,30 @@ async function generateEscrowAddress(
   const { encrypt } = await import('../crypto/encryption');
 
   try {
-    // Get next index
-    const { data: indexData, error: indexError } = await supabase
-      .from('system_wallet_indexes')
-      .select('next_index')
-      .eq('cryptocurrency', cryptocurrency)
-      .single();
-
-    let nextIndex = 0;
-    if (indexError || !indexData) {
-      await supabase.from('system_wallet_indexes').insert({
-        cryptocurrency,
-        next_index: 1,
-      });
-    } else {
-      nextIndex = indexData.next_index;
-      await supabase
-        .from('system_wallet_indexes')
-        .update({ next_index: nextIndex + 1 })
-        .eq('cryptocurrency', cryptocurrency);
-    }
+    // Acquire the index through the shared compare-and-swap helper.
+    //
+    // This used to read `next_index`, then write `next_index + 1` with no
+    // condition on what it had read — so two concurrent escrow creations both
+    // saw the same value and derived the SAME address. Worse, it keyed on
+    // `cryptocurrency` while the normal payment flow keys on the derivation
+    // FAMILY (ETH/POL/BNB/USDT/USDC all share one), so escrow and payment
+    // counters advanced independently over the same key space and collided
+    // deterministically, not just under contention.
+    //
+    // `acquireFamilyIndex` is the same helper the payment flow uses: CAS with
+    // retries, seeded past any pre-existing addresses in the family.
+    const nextIndex = await acquireFamilyIndex(supabase, cryptocurrency);
 
     // Derive address
     const derived = await deriveSystemPaymentAddress(cryptocurrency, nextIndex);
 
     // Encrypt private key
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (!encryptionKey) {
-      return { success: false, error: 'Encryption key not configured' };
+    // Guarded, not just present — this key protects escrowed funds.
+    const keyResult = tryRequireEncryptionKey('escrow');
+    if (!keyResult.ok) {
+      return { success: false, error: keyResult.error };
     }
+    const encryptionKey = keyResult.key;
     const encryptedPrivateKey = await encrypt(derived.privateKey, encryptionKey);
 
     // Calculate fee split

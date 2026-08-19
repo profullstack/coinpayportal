@@ -241,7 +241,23 @@ async function settleReleasedEscrows(supabase: SupabaseClient): Promise<void> {
           await supabase.from('escrows').update({ settle_attempts: attempts }).eq('id', escrow.id);
           if (attempts >= MAX_SETTLE_ATTEMPTS) {
             console.error(`[Monitor] Escrow ${escrow.id} exceeded max settle attempts (${MAX_SETTLE_ATTEMPTS}), marking as settle_failed`);
-            await supabase.from('escrows').update({ status: 'settle_failed' }).eq('id', escrow.id);
+            {
+          // Check the result. `settle_failed` was absent from
+          // `escrows_status_check`, so this UPDATE was rejected outright and
+          // the escrow stayed `released` with nothing to signal the failure —
+          // the one state an operator needs to see. The constraint now allows
+          // it; this makes a future rejection loud rather than silent.
+          const { error: markErr } = await supabase
+            .from('escrows')
+            .update({ status: 'settle_failed' })
+            .eq('id', escrow.id);
+          if (markErr) {
+            console.error(
+              `[Monitor] Could not mark escrow ${escrow.id} as settle_failed:`,
+              markErr.message
+            );
+          }
+        }
           }
         }
       }
@@ -251,7 +267,23 @@ async function settleReleasedEscrows(supabase: SupabaseClient): Promise<void> {
       await supabase.from('escrows').update({ settle_attempts: attempts }).eq('id', escrow.id);
       if (attempts >= MAX_SETTLE_ATTEMPTS) {
         console.error(`[Monitor] Escrow ${escrow.id} exceeded max settle attempts, marking as settle_failed`);
-        await supabase.from('escrows').update({ status: 'settle_failed' }).eq('id', escrow.id);
+        {
+          // Check the result. `settle_failed` was absent from
+          // `escrows_status_check`, so this UPDATE was rejected outright and
+          // the escrow stayed `released` with nothing to signal the failure —
+          // the one state an operator needs to see. The constraint now allows
+          // it; this makes a future rejection loud rather than silent.
+          const { error: markErr } = await supabase
+            .from('escrows')
+            .update({ status: 'settle_failed' })
+            .eq('id', escrow.id);
+          if (markErr) {
+            console.error(
+              `[Monitor] Could not mark escrow ${escrow.id} as settle_failed:`,
+              markErr.message
+            );
+          }
+        }
       }
     }
   }

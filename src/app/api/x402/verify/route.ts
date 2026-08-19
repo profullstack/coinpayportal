@@ -13,7 +13,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ethers } from 'ethers';
-import { resolveScopedKey } from '@/lib/auth/scoped-keys';
+import { resolveScopedKey, scopesSatisfy } from '@/lib/auth/scoped-keys';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { normalizeAddressForNetwork } from '@/lib/x402/address';
 import { isV2Payment, verifyExactEvmV2, type V2Payment } from '@/lib/x402/v2';
 import { EVM_NETWORKS, UTXO_NETWORKS, checkSchemeForNetwork } from '@/lib/x402/networks';
@@ -108,7 +109,19 @@ async function verifyEvmPayment(payment: any) {
     return { valid: false, error: 'Invalid payment signature' };
   }
 
-  return { valid: true };
+  // A valid signature is a PROMISE to pay, not a payment.
+  //
+  // REC-C-02: the documented gasless `transferFrom` collection does not exist
+  // on this v1 path — nothing moves tokens on-chain here. The signature proves
+  // the payer authorised these terms and cannot alter the amount, which is why
+  // `amountAuthenticated` is true for EVM; it does not prove any funds changed
+  // hands. This returned `pendingConfirmation` unset, i.e. false, which tells a
+  // merchant's middleware the payment is final and it may serve the resource.
+  //
+  // Settlement (`verifyEvmTx` in the settle route) is what checks the chain, so
+  // the honest answer here is "not confirmed yet". The v2/EIP-3009 path is
+  // different and genuinely does broadcast — it sets this false deliberately.
+  return { valid: true, pendingConfirmation: true };
 }
 
 /**
@@ -542,7 +555,35 @@ export async function POST(request: NextRequest) {
     if (!resolved) {
       return NextResponse.json({ error: 'Invalid or inactive API key' }, { status: 401 });
     }
+    // Scopes were resolved and then ignored, so ANY valid key — including a
+    // read-only `wallet:read` one issued to an integrator for a single narrow
+    // job — could verify x402 payments, which on the Stripe rail means capturing
+    // real PaymentIntents. A key must not do more than it was issued for.
+    //
+    // `payments:create` is the closest existing scope: x402 verification writes
+    // a payment record and settlement completes that same flow. There is no
+    // x402-specific scope in `API_SCOPES`; adding one would invalidate every
+    // key already issued, so this reuses the scope that describes the action.
+    if (!scopesSatisfy(resolved.scopes, 'payments:create')) {
+      return NextResponse.json(
+        { error: 'This API key lacks the payments:create scope' },
+        { status: 403 },
+      );
+    }
+
     const keyData = { id: resolved.keyId, business_id: resolved.business.id, active: true };
+
+    // No rate limit or size cap on this route. An authenticated caller could
+    // bloat the x402 ledger indefinitely, and on the Stripe rail each call
+    // costs a request against our own Stripe API quota. Keyed by business so
+    // one integrator cannot spend everyone else's headroom.
+    const rate = await checkRateLimitAsync(keyData.business_id, 'x402_verify');
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded' },
+        { status: 429 },
+      );
+    }
 
     const body = await request.json();
     const { payment, expected } = body;

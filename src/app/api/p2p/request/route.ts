@@ -18,6 +18,8 @@
  * Returns: { invoice_id, invoice_number, pay_url, payment_address?, crypto_amount?, stripe_checkout_url? }
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { screenCheckout } from '@/lib/fraud/screen';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { resolveOrProvisionPayee, resolveOrProvisionPayerClient } from '@/lib/p2p/resolve';
@@ -273,8 +275,37 @@ export async function POST(request: NextRequest) {
         const amountCents = Math.round(amount_usd * 100);
         const platformFeeAmount = Math.round(amountCents * feeRate);
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com';
+
+        // REC-D-05: this branch created a Stripe Checkout session without
+        // calling screenCheckout at all, and the caller is a platform issuer
+        // key rather than an authenticated merchant — so it was the least
+        // supervised of the card paths.
+        const screening = await screenCheckout(supabase, {
+          businessId,
+          email: payer.email,
+          ip: getClientIp(request),
+          amount: amount_usd,
+          currency: 'USD',
+          description: notes,
+        });
+
+        if (screening.decision === 'block') {
+          console.warn('[Fraud] Blocked p2p checkout', {
+            businessId,
+            score: screening.score,
+            findings: screening.findings.map((f) => f.code).join(', '),
+          });
+          return NextResponse.json(
+            { success: false, error: screening.buyerMessage },
+            { status: 403 },
+          );
+        }
+
         const stripe = await getStripe();
         const session = await stripe.checkout.sessions.create({
+          ...(screening.decision === 'verify'
+            ? { payment_method_options: { card: { request_three_d_secure: 'any' as const } } }
+            : {}),
           line_items: [
             {
               price_data: {

@@ -3,8 +3,25 @@ import { createPayment, getPayment, listPayments } from './service';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as rates from '../rates/tatum';
 
+import { randomBytes as __randomBytes } from 'crypto';
+// A fresh 32-byte key per run, rather than a hardcoded constant.
+//
+// This was the sequential-hex literal `0123456789abcdef...`, which is one of the
+// values `requireEncryptionKey` exists to REJECT — so these tests exercised a
+// key production refuses. Replacing it with a hardcoded strong key fixed that
+// but left a key-shaped literal in the repo, which a credential scanner flags on
+// every diff and a reader has to stop and verify is not live. Generating it
+// removes both problems, and proves nothing here depends on one specific value.
+const TEST_ENCRYPTION_KEY = __randomBytes(32).toString('hex');
+
 beforeAll(() => {
-  process.env.ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  // A fixed but high-entropy key. It used to be the sequential-hex constant
+  // `0123456789abcdef...`, which is one of the values `requireEncryptionKey`
+  // exists to REJECT — so these tests were exercising a key the production guard
+  // refuses, and the guard's own consumers could not have adopted it without
+  // turning the suite red. That is exactly how the guard ended up protecting 4 of
+  // 13 call sites.
+  process.env.ENCRYPTION_KEY = TEST_ENCRYPTION_KEY;
 });
 
 vi.mock('../rates/tatum', async () => {

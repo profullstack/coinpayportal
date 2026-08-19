@@ -129,6 +129,57 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Naming a payee address is moving funds, and that is owner-only.
+    //
+    // `merchant_wallet_address` overrides where this invoice pays out. It was
+    // gated at `invoice.write`, which a `writer` holds — so a non-owner team
+    // member could redirect an invoice's proceeds to an address of their
+    // choosing, against the project's own stated invariant that funds movement
+    // is owner-only. Using the business's CONFIGURED payee stays at
+    // `invoice.write`; overriding it does not.
+    //
+    // API-key callers are not covered here: a key is scoped to its business
+    // rather than to a role, and is already restricted to that one business.
+    if (merchant_wallet_address && !apiKeyBusinessId) {
+      const fundsAuthz = await authorizeBusiness(
+        supabase,
+        merchantId,
+        resolvedBusinessId,
+        'funds.move',
+      );
+      if (!fundsAuthz.ok) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Naming a payout address for an invoice requires owner permissions',
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    // A client must belong to the business the invoice is being created on.
+    //
+    // `client_id` was written straight through. `clients` rows carry a
+    // `business_id`, so an unvalidated id attaches another business's customer
+    // record to this invoice — cross-tenant by construction, and the invoice
+    // then renders that client's details.
+    if (client_id) {
+      const { data: clientRow } = await supabase
+        .from('clients')
+        .select('id, business_id')
+        .eq('id', client_id)
+        .maybeSingle();
+
+      if (!clientRow || clientRow.business_id !== resolvedBusinessId) {
+        return NextResponse.json(
+          { success: false, error: 'client_id does not belong to this business' },
+          { status: 400 }
+        );
+      }
+    }
+
+
     // Resolve the business + its owner. The owner's id is used as the invoice user_id so
     // owner-scoped views still surface invoices a team member created.
     const { data: business } = await supabase

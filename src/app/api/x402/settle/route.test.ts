@@ -60,6 +60,11 @@ vi.mock('@supabase/supabase-js', () => ({
 const mockResolveScopedKey = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth/scoped-keys', () => ({
   resolveScopedKey: mockResolveScopedKey,
+  // The routes now check the key's scopes, which were resolved and then ignored
+  // — so any valid key, including a read-only one, could verify and settle
+  // payments. Real implementation, so a test that grants the wrong scope fails.
+  scopesSatisfy: (granted: string[], required: string) =>
+    granted.includes('*') || granted.includes(required),
 }));
 
 // Mock entitlements
@@ -97,7 +102,7 @@ describe('POST /api/x402/settle', () => {
     mockResolveScopedKey.mockResolvedValue({
       keyId: 'key1',
       business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
-      scopes: [],
+      scopes: ['payments:create'],
     });
     setClaimResult({ data: [{ id: 'p1' }], error: null });
   });
@@ -428,7 +433,7 @@ describe('POST /api/x402/settle — payee matching on case-sensitive chains', ()
     mockResolveScopedKey.mockResolvedValue({
       keyId: 'key1',
       business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
-      scopes: [],
+      scopes: ['payments:create'],
     });
     setClaimResult({ data: [{ id: 'p1' }], error: null });
   });

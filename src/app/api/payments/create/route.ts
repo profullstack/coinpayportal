@@ -14,6 +14,11 @@ import {
 } from '@/lib/wallets/supported-coins';
 import { isPlatformFeeWallet } from '@/lib/wallets/system-wallet';
 import { isValidPayoutAddress } from '@/lib/blockchain/address-format';
+import { authorizeBusiness } from '@/lib/auth/authz';
+import { screenCheckout } from '@/lib/fraud/screen';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
+import { isBusinessPaidTier } from '@/lib/entitlements/service';
+import { getFeePercentage } from '@/lib/payments/fees';
 
 /**
  * Map frontend currency values to blockchain types
@@ -70,6 +75,7 @@ async function createStripeCheckoutSession(
   amountCents: number,
   description: string | undefined,
   paymentId: string,
+  clientIp?: string | null,
   successUrl?: string,
   cancelUrl?: string,
 ): Promise<{ stripe_checkout_url: string; stripe_session_id: string }> {
@@ -84,21 +90,45 @@ async function createStripeCheckoutSession(
     throw new Error('STRIPE_NOT_CONNECTED');
   }
 
-  // Determine tier for fee calculation
-  const { data: business } = await supabase
-    .from('businesses')
-    .select('tier')
-    .eq('id', businessId)
-    .single() as { data: { tier: string } | null };
-
-  const tier = business?.tier || 'free';
-  const platformFeeRate = tier === 'pro' ? 0.005 : 0.01;
-  const platformFeeAmount = Math.round(amountCents * platformFeeRate);
+  // Determine tier for fee calculation.
+  //
+  // This selected `businesses.tier`, a column that does not exist — confirmed
+  // against the live schema. PostgREST rejected the query, `business` came back
+  // null, and the fee fell through to the 'free' branch, so every business was
+  // charged the 1% minimum on this rail no matter what plan they were on.
+  // `isBusinessPaidTier` resolves the tier through the merchant's subscription,
+  // which is how the other rails do it.
+  const isPaidTier = await isBusinessPaidTier(supabase, businessId);
+  const platformFeeAmount = Math.round(amountCents * getFeePercentage(isPaidTier));
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com';
 
+  // Screen before the Stripe session exists. This is one of the seven paths
+  // that create a real card charge; only one of the seven was screened.
+  const screening = await screenCheckout(supabase, {
+    businessId,
+    ip: clientIp ?? null,
+    amount: amountCents / 100,
+    currency: 'USD',
+    description,
+  });
+
+  if (screening.decision === 'block') {
+    console.warn('[Fraud] Blocked card checkout', {
+      businessId,
+      score: screening.score,
+      findings: screening.findings.map((f) => f.code).join(', '),
+    });
+    throw new Error('FRAUD_BLOCKED');
+  }
+
   const stripe = await getStripe();
   const session = await stripe.checkout.sessions.create({
+    // Elevated risk: force 3-D Secure so liability for a stolen card moves back
+    // to the issuer.
+    ...(screening.decision === 'verify'
+      ? { payment_method_options: { card: { request_three_d_secure: 'any' as const } } }
+      : {}),
     line_items: [
       {
         price_data: {
@@ -422,9 +452,37 @@ export async function POST(request: NextRequest) {
         }
 
         // A third-party payee is a legitimate flow (an invoice forwards the 99%
-        // net to the invoice recipient, not to the business), so ownership is
-        // not required — but it IS recorded. Who authorized a payout to an
-        // address outside the account has to be answerable after the fact.
+        // net to the invoice recipient, not to the business), so the address
+        // need not belong to the account — but WHO may name it is a separate
+        // question, and the answer is the owner.
+        //
+        // Recording `authorized_by_merchant_id` makes the action answerable
+        // after the fact; it does not restrict who can take it. A `writer` (or,
+        // via the permissive capability default, a `readonly` member) could
+        // point a payment at any address they liked, against the project's own
+        // invariant that funds movement is owner-only.
+        //
+        // Session callers are checked here. An API key is scoped to one
+        // business rather than to a role, so it is governed by its own scope.
+        if (!authBusinessId) {
+          const fundsAuthz = await authorizeBusiness(
+            supabase,
+            merchantId,
+            business_id,
+            'funds.move',
+          );
+          if (!fundsAuthz.ok) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: 'Naming a payout address requires owner permissions',
+                code: 'PAYEE_FORBIDDEN',
+              },
+              { status: 403 }
+            );
+          }
+        }
+
         recipientAddress = overrideAddress;
         walletSource = 'request_override';
         paymentMetadata.payee_override = {
@@ -517,7 +575,11 @@ export async function POST(request: NextRequest) {
           blockchain: blockchainType || 'ETH', // fallback, not used for card
           status: 'pending',
           payment_address: '', // no crypto address for card-only
-          payment_address_id: null,
+          // `payment_address_id` is not a column on `payments` — it was dropped in a
+      // November 2025 migration and its absence is confirmed against the live
+      // schema. PostgREST rejects an insert naming an unknown column outright,
+      // so every card payment through this route failed with a 500 before it
+      // ever reached Stripe.
           merchant_wallet_address: '',
           metadata: {
             ...paymentMetadata,
@@ -554,6 +616,7 @@ export async function POST(request: NextRequest) {
           amountCents,
           description,
           paymentId,
+          getClientIp(request),
           success_url,
           cancel_url,
         );
@@ -573,6 +636,17 @@ export async function POST(request: NextRequest) {
           .eq('id', paymentId);
 
       } catch (err: any) {
+        if (err.message === 'FRAUD_BLOCKED') {
+          // Deliberately vague, matching the direct Stripe rail: telling a
+          // fraudster which signal tripped is a tuning guide.
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'This payment could not be processed. Please contact the merchant.',
+            },
+            { status: 403 }
+          );
+        }
         if (err.message === 'STRIPE_NOT_CONNECTED') {
           return NextResponse.json(
             {

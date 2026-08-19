@@ -127,13 +127,47 @@ function settleDelayMs(chain: NativeChain): number {
 }
 
 /**
- * Transient = the transaction was built against chain state that has since
- * moved. Re-preparing from scratch is very likely to succeed, so we retry.
- * Anything else (insufficient funds, invalid address) is terminal — retrying
- * only wastes the user's time and, worse, risks a duplicate payment.
+ * The node already has this exact transaction.
+ *
+ * `already known` is not a failure at all — the broadcast SUCCEEDED and the
+ * node is telling us it has seen it. It was previously classified as transient,
+ * so the runner rebuilt the payment from scratch and broadcast it AGAIN: a
+ * second, real, duplicate payment. This is the single most dangerous string in
+ * the list, because the response that means "your money moved" was treated as
+ * "try again".
+ */
+export function isAlreadyBroadcast(message: string): boolean {
+  return /already known|already in (the )?(block ?chain|mempool)|duplicate transaction|txn-already-known/i.test(
+    message,
+  );
+}
+
+/**
+ * Retry only when the transaction definitely did NOT reach the chain.
+ *
+ * The previous list conflated two very different things: errors meaning "the
+ * request never landed" and errors meaning "something already consumed this
+ * transaction's inputs". Retrying the first is free; retrying the second sends
+ * the payment twice, because re-preparing picks fresh state and produces a
+ * second valid transaction.
+ *
+ * Deliberately NOT retried any more, and why:
+ *
+ *   already known                        the broadcast succeeded (see above)
+ *   nonce too low                        an earlier tx with that nonce is mined
+ *   replacement transaction underpriced  one with that nonce is already pending
+ *   missingorspent / utxo / mempool-conflict
+ *                                        the input is gone — plausibly spent by
+ *                                        our own previous attempt
+ *
+ * Each of those describes chain state that has moved *because a transaction
+ * like ours already exists*. That is precisely when a retry duplicates a
+ * payment, and none of them can be distinguished from the benign case without
+ * asking the chain — which the runner does not do.
  */
 export function isTransientChainError(message: string): boolean {
-  return /nonce too low|replacement transaction underpriced|already known|missingorspent|missing or spent|utxo|txn-mempool-conflict|blockhash not found|block height exceeded|rate limit|timeout|temporarily|502|503|504/i.test(
+  if (isAlreadyBroadcast(message)) return false;
+  return /blockhash not found|block height exceeded|rate limit|timeout|temporarily|econnreset|network error|502|503|504/i.test(
     message,
   );
 }
@@ -265,6 +299,25 @@ export async function runBatchPayments(
           sent = true;
         } catch (err) {
           lastError = errorMessage(err);
+
+          // The node already has it: the payment went through. Retrying would
+          // send a second one.
+          if (isAlreadyBroadcast(lastError)) {
+            results.set(request.id, {
+              id: request.id,
+              chain: request.chain,
+              to: request.to,
+              amount: request.amount,
+              status: 'sent',
+              txHash: undefined,
+              explorerUrl: undefined,
+            });
+            completed++;
+            report(request, 'sent');
+            sent = true;
+            break;
+          }
+
           const canRetry = attempt < maxAttempts && isTransientChainError(lastError);
           if (!canRetry) break;
           // Back off and let chain state settle before rebuilding the tx.

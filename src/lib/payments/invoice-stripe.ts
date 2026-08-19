@@ -1,3 +1,4 @@
+import { screenCheckout } from '../fraud/screen';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/server/optional-deps';
 
@@ -47,9 +48,34 @@ export async function createInvoiceStripeCheckout(
   const platformFeeRate = isPaidTier ? 0.005 : 0.01;
   const platformFeeAmount = Math.round(amountCents * platformFeeRate);
 
+  // Screen before the Stripe session exists. This is one of the seven paths
+  // that create a real card charge; only one of the seven was screened.
+  //
+  // No request object reaches this helper, so there is no client IP to pass —
+  // the velocity and blocklist signals that do not need one still apply.
+  const screening = await screenCheckout(supabase, {
+    businessId: invoice.business_id,
+    amount: parseFloat(String(invoice.amount)),
+    currency: 'USD',
+    description: `Invoice ${invoice.invoice_number}`,
+  });
+
+  if (screening.decision === 'block') {
+    console.warn('[Fraud] Blocked invoice checkout', {
+      businessId: invoice.business_id,
+      invoiceId: invoice.id,
+      score: screening.score,
+      findings: screening.findings.map((f) => f.code).join(', '),
+    });
+    return null;
+  }
+
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com';
   const stripe = await getStripe();
   const session = await stripe.checkout.sessions.create({
+    ...(screening.decision === 'verify'
+      ? { payment_method_options: { card: { request_three_d_secure: 'any' as const } } }
+      : {}),
     line_items: [
       {
         price_data: {
