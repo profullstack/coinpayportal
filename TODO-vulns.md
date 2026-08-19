@@ -224,6 +224,14 @@ Batch eighteen: `ESC-NEW-14` `FIXED`.
 
 Batch nineteen: `SUB-02` `FIXED`.
 
+Batch twenty: `F-1.3-15` `FIXED` (the BTC-throws half and the missing gas
+reserve; the quote still does not add a network fee on top, so the merchant
+receives amount-minus-fee — a pricing decision, not a bug fix, and left for
+Anthony). `IA-006` and `REC-D-07` remain: `IA-006` has no location in the
+findings beyond "sequential settlement — commission leak" and needs Eduardo to
+point at the code; `REC-D-07` is marked [Inferred] and asks for a durable
+retry queue, which is a design change rather than a patch.
+
 ## Priority 4 — Conditional (26)
 
 Detail in `docs/findings/04_CONDITIONAL_LOW/`. Verify the condition before

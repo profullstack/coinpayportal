@@ -405,8 +405,37 @@ export async function forwardBusinessCollectionPaymentSecurely(
       // Status is already `forwarding` — set by the compare-and-swap claim
       // above, which is what makes this section single-entry.
 
-      // Forward 100% of the amount to destination wallet
-      if (provider.sendTransaction) {
+      // F-1.3-15: the network fee has to come out of what is at the address.
+      //
+      // A collection address holds exactly `crypto_amount` — the quote adds no
+      // network fee on top — and this asked the provider to send all of it.
+      // On UTXO chains `BitcoinProvider.sendTransaction` refuses outright when
+      // `amount + fee > balance`, which is always true here, so **every BTC
+      // collection sweep threw** and the payment sat in `forwarding_failed`
+      // with the funds stranded. On EVM the same shortfall was silently
+      // absorbed by reducing the amount (see IA-010), so it "worked" while
+      // under-sending.
+      //
+      // `sendSplitTransaction` with a single recipient is the sweep primitive:
+      // it takes the fee out of the outputs rather than demanding it on top,
+      // which is the only thing that can happen when fee and funds are the same
+      // asset. Preferred where the provider offers it; `sendTransaction`
+      // remains the path for account-model chains that deduct gas separately.
+      const canSplit = typeof (provider as { sendSplitTransaction?: unknown }).sendSplitTransaction === 'function';
+
+      if (canSplit) {
+        txHash = await (provider as unknown as {
+          sendSplitTransaction: (
+            from: string,
+            recipients: Array<{ address: string; amount: string }>,
+            privateKey: string,
+          ) => Promise<string>;
+        }).sendSplitTransaction(
+          payment.payment_address,
+          [{ address: payment.destination_wallet, amount: payment.crypto_amount.toString() }],
+          privateKey
+        );
+      } else if (provider.sendTransaction) {
         txHash = await provider.sendTransaction(
           payment.payment_address,
           payment.destination_wallet,
