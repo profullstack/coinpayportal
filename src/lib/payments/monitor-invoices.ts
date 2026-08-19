@@ -8,6 +8,7 @@ import { checkBalance } from './monitor-balance';
 import { isSufficientPayment } from './tolerance';
 import { resolvePayee } from './payee';
 import { getPaymentReceivingWallet } from '../wallets/supported-coins';
+import { fetchAllKeyset } from '../db/keyset';
 
 // Invoice Payment Monitoring
 // ────────────────────────────────────────────────────────────
@@ -25,16 +26,42 @@ export async function runInvoiceMonitorCycle(supabase: any, now: Date): Promise<
 
   try {
     // 1. Check sent invoices for incoming payments
-    const { data: sentInvoices } = await supabase
-      .from('invoices')
-      .select(`
-        *,
-        clients (id, name, email, company_name),
-        businesses (id, name, merchant_id)
-      `)
-      .eq('status', 'sent')
-      .not('payment_address', 'is', null)
-      .limit(100);
+    //
+    // F-1.3-09: this was `.limit(100)` with no `.order()`. An invoice stays
+    // `sent` until it is paid, so the matching set does not drain — once more
+    // than 100 invoices are awaiting payment, the same 100 are checked on every
+    // run and the rest are never checked at all. Payments to them are simply
+    // never detected, and the whole invoice rail stalls platform-wide with no
+    // error anywhere. (18 invoices are `sent` in production today, so this is
+    // latent rather than active — but it triggers on growth, silently.)
+    //
+    // Ordering alone would not fix it: an ordered query returns the same first
+    // page just as reliably. The page has to advance, so this walks the set.
+    const { rows: sentInvoices, truncated, error: sweepError } = await fetchAllKeyset<any>(
+      (cursor, pageSize) => {
+        let q = supabase
+          .from('invoices')
+          .select(`
+            *,
+            clients (id, name, email, company_name),
+            businesses (id, name, merchant_id)
+          `)
+          .eq('status', 'sent')
+          .not('payment_address', 'is', null)
+          .order('id', { ascending: true })
+          .limit(pageSize);
+        if (cursor) q = q.gt('id', cursor);
+        return q as unknown as Promise<{ data: any[] | null; error: { message: string } | null }>;
+      }
+    );
+
+    if (sweepError) {
+      console.error('[Monitor] Invoice sweep page failed:', sweepError);
+      stats.errors++;
+    }
+    if (truncated) {
+      console.warn('[Monitor] Invoice sweep hit its row ceiling; the tail was not checked this run');
+    }
 
     if (sentInvoices) {
       for (const invoice of sentInvoices) {

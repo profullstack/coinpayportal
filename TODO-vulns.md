@@ -192,6 +192,11 @@ All `UNVERIFIED`. Detail in `docs/findings/03_SILENT_OPERATIONAL/`. Standouts:
 `L5-02` `FIXED`. `F5-L1-06` `PARTIAL`. `V-01`/`L8-01`/`REC-D-02` were already
 `FIXED`. All verified against the live production schema, not inferred.
 
+Batch ten: `A-05`, `F-1.3-08`, `W-08`, `F-1.3-09`, `H-R-05` `FIXED`, plus
+`B-03` refactored onto the shared pager. The unordered-sweep family
+(`B-03`/`F-1.3-09`/`F-1.3-12`/`H-R-05`) now has one helper, `lib/db/keyset.ts`,
+rather than four copies. `F-1.3-12` still to convert.
+
 ## Priority 4 — Conditional (26)
 
 Detail in `docs/findings/04_CONDITIONAL_LOW/`. Verify the condition before

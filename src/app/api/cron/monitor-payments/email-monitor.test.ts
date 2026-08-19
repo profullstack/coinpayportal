@@ -22,6 +22,11 @@ function buildSupabase(
       chain.not = vi.fn().mockReturnValue(chain);
       chain.or = vi.fn().mockReturnValue(chain);
       chain.in = vi.fn().mockReturnValue(chain);
+      // H-R-05: the status-change sweep now pages by keyset, so its chain is
+      // .in().order().limit() and, on later pages, .gt(). The first page
+      // returns everything here, so the walk terminates on a short page.
+      chain.order = vi.fn().mockReturnValue(chain);
+      chain.gt = vi.fn().mockReturnValue(chain);
       chain.limit = vi.fn().mockImplementation(() => {
         const allResults = [pendingRows, settledRows, statusRows];
         const data = allResults[limitCallCount] || [];

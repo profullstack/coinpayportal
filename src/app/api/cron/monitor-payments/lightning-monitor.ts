@@ -11,6 +11,7 @@ import { decryptLnKey } from '@/lib/lightning/key-encryption';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendWebhook } from './webhook';
+import { fetchAllKeyset } from '@/lib/db/keyset';
 
 export interface LightningMonitorStats {
   nodes_checked: number;
@@ -157,37 +158,27 @@ export async function syncLnbitsPayments(
     // Ordering by id makes the page deterministic, and the loop walks the whole
     // table by keyset rather than stopping at the first page. The cap is a
     // runaway guard, not a working set.
-    const PAGE_SIZE = 100;
-    const MAX_WALLETS_PER_RUN = 5_000;
-    const wallets: { id: string; ln_wallet_inkey: string | null; ln_wallet_adminkey: string | null }[] = [];
-    let cursor = '';
-
-    while (wallets.length < MAX_WALLETS_PER_RUN) {
-      let query = supabase
+    const { rows: wallets, truncated, error: wErr } = await fetchAllKeyset<{
+      id: string;
+      ln_wallet_inkey: string | null;
+      ln_wallet_adminkey: string | null;
+    }>((cursor, pageSize) => {
+      let q = supabase
         .from('wallets')
         .select('id, ln_wallet_inkey, ln_wallet_adminkey')
         .or('ln_wallet_inkey.not.is.null,ln_wallet_adminkey.not.is.null')
         .order('id', { ascending: true })
-        .limit(PAGE_SIZE);
-      if (cursor) query = query.gt('id', cursor);
+        .limit(pageSize);
+      if (cursor) q = q.gt('id', cursor);
+      return q as unknown as Promise<{ data: any[] | null; error: { message: string } | null }>;
+    });
 
-      const { data: page, error: wErr } = await query;
-      if (wErr) {
-        console.error('[Lightning] wallet page fetch failed:', wErr);
-        stats.errors++;
-        break;
-      }
-      if (!page?.length) break;
-
-      wallets.push(...page);
-      cursor = page[page.length - 1].id;
-      if (page.length < PAGE_SIZE) break;
+    if (wErr) {
+      console.error('[Lightning] wallet page fetch failed:', wErr);
+      stats.errors++;
     }
-
-    if (wallets.length >= MAX_WALLETS_PER_RUN) {
-      console.warn(
-        `[Lightning] wallet sync hit the ${MAX_WALLETS_PER_RUN} ceiling; the tail of the table was not synced this run`
-      );
+    if (truncated) {
+      console.warn('[Lightning] wallet sync hit its row ceiling; the tail of the table was not synced this run');
     }
 
     if (!wallets.length) return stats;
