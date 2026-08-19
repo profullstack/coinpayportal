@@ -87,6 +87,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Webhook signature verification failed' }, { status: 400 });
     }
 
+    // INV-01: claim the event before doing anything with it.
+    //
+    // The handler dispatched on `event.type` and never looked at `event.id`.
+    // Stripe redelivers whenever the endpoint times out or answers non-2xx, and
+    // may send duplicates regardless — so every handler below was re-runnable
+    // by a retry this platform does not control. `charge.refunded` and
+    // `payment_intent.succeeded` both write money-shaped records.
+    //
+    // The primary key does the work: a conflicting insert means someone already
+    // took this event, so we acknowledge and stop. Note this is also the reason
+    // the webhook must answer 200 rather than 409 — a non-2xx would ask Stripe
+    // to retry the very delivery we just declined as a duplicate.
+    const { error: claimError } = await supabase
+      .from('stripe_webhook_events')
+      .insert({ event_id: event.id, event_type: event.type });
+
+    if (claimError) {
+      // 23505 is the unique violation: already processed, nothing to do.
+      if ((claimError as { code?: string }).code === '23505') {
+        console.log(`[Stripe Webhook] Duplicate delivery of ${event.id} (${event.type}) — ignoring`);
+        return NextResponse.json({ received: true, duplicate: true });
+      }
+      // Any other failure means we cannot tell whether this is a duplicate.
+      // Processing anyway risks double-recording money; a non-2xx asks Stripe
+      // to retry, which is the recoverable direction.
+      console.error('[Stripe Webhook] Could not record event id; refusing to process:', claimError);
+      return NextResponse.json({ error: 'Could not verify event uniqueness' }, { status: 503 });
+    }
+
+    try {
     // Handle the event
     switch (event.type) {
       case 'payment_intent.succeeded':
@@ -128,6 +158,28 @@ export async function POST(request: NextRequest) {
 
       default:
         console.log(`Unhandled event type: ${event.type}`);
+    }
+    } catch (handlerError) {
+      // Release the claim so Stripe's retry can actually retry.
+      //
+      // Without this, a handler that threw would leave the event recorded as
+      // taken, and the redelivery would be dismissed as a duplicate — turning a
+      // transient failure into a permanently dropped event, which is a worse
+      // failure than the double-processing the claim exists to prevent.
+      const { error: releaseError } = await supabase
+        .from('stripe_webhook_events')
+        .delete()
+        .eq('event_id', event.id);
+
+      if (releaseError) {
+        console.error(
+          `[Stripe Webhook] Handler for ${event.id} failed AND the claim could not be released — ` +
+            'this event will not be reprocessed on retry:',
+          releaseError
+        );
+      }
+
+      throw handlerError;
     }
 
     return NextResponse.json({ received: true });

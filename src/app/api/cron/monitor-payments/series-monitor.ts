@@ -71,6 +71,39 @@ export async function monitorSeries(
           continue;
         }
 
+        // H-R-04: claim the period BEFORE creating anything for it.
+        //
+        // This used to create the escrow first and then write
+        // `periods_completed`/`next_charge_at` with only `.eq('id', ...)` — no
+        // compare-and-swap against the state it had read. Two overlapping cron
+        // runs therefore both read the same `periods_completed`, both created an
+        // escrow for the same period, and both wrote the same next period: the
+        // subscriber is billed twice and the counter advances once, so nothing
+        // downstream shows that it happened. Overlapping runs are not
+        // hypothetical — a slow run and the next tick is all it takes.
+        //
+        // Conditioning the write on the values that were read makes the row
+        // itself the lock. The loser sees zero rows updated and skips the
+        // period rather than duplicating it.
+        const nextChargeAt = advanceNextCharge(new Date(series.next_charge_at), series.interval);
+
+        const { data: claimed } = await supabase
+          .from('escrow_series')
+          .update({
+            periods_completed: nextPeriod,
+            next_charge_at: nextChargeAt.toISOString(),
+            updated_at: now.toISOString(),
+          })
+          .eq('id', series.id)
+          .eq('periods_completed', series.periods_completed ?? 0)
+          .eq('next_charge_at', series.next_charge_at)
+          .select('id');
+
+        if (!claimed || claimed.length === 0) {
+          console.log(`[Series] ${series.id} period ${nextPeriod} already claimed by another run — skipping`);
+          continue;
+        }
+
         const isPaidTier = await isBusinessPaidTier(supabase, series.merchant_id).catch(() => false);
 
         const expiresMap: Record<string, number> = { weekly: 168, biweekly: 336, monthly: 720 };
@@ -91,21 +124,31 @@ export async function monitorSeries(
         }, isPaidTier);
 
         if (escrowResult.success) {
-          const nextChargeAt = advanceNextCharge(new Date(series.next_charge_at), series.interval);
-
-          await supabase
-            .from('escrow_series')
-            .update({
-              periods_completed: nextPeriod,
-              next_charge_at: nextChargeAt.toISOString(),
-              updated_at: now.toISOString(),
-            })
-            .eq('id', series.id);
-
           stats.created++;
           console.log(`[Series] ${series.id} period ${nextPeriod} escrow created, next charge: ${nextChargeAt.toISOString()}`);
         } else {
+          // The period was claimed but nothing was created for it, so give it
+          // back. Conditioned on the values this run wrote, so a concurrent
+          // run that has since moved the series on is not rolled backwards.
           console.error(`[Series] ${series.id} failed to create escrow: ${escrowResult.error}`);
+          const { error: revertError } = await supabase
+            .from('escrow_series')
+            .update({
+              periods_completed: series.periods_completed ?? 0,
+              next_charge_at: series.next_charge_at,
+              updated_at: now.toISOString(),
+            })
+            .eq('id', series.id)
+            .eq('periods_completed', nextPeriod)
+            .eq('next_charge_at', nextChargeAt.toISOString());
+
+          if (revertError) {
+            console.error(
+              `[Series] ${series.id}: escrow creation failed AND the period claim could not be released — ` +
+                `period ${nextPeriod} will be skipped:`,
+              revertError
+            );
+          }
           stats.errors++;
         }
       } catch (seriesError) {

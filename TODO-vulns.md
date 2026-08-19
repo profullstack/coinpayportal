@@ -197,6 +197,9 @@ Batch ten: `A-05`, `F-1.3-08`, `W-08`, `F-1.3-09`, `H-R-05` `FIXED`, plus
 (`B-03`/`F-1.3-09`/`F-1.3-12`/`H-R-05`) now has one helper, `lib/db/keyset.ts`,
 rather than four copies. `F-1.3-12` still to convert.
 
+Batch eleven: `F-1.3-04`, `INV-01`, `H-R-04` `FIXED`. Migration
+`20260819180000_stripe_webhook_idempotency` applied to production and verified.
+
 ## Priority 4 — Conditional (26)
 
 Detail in `docs/findings/04_CONDITIONAL_LOW/`. Verify the condition before

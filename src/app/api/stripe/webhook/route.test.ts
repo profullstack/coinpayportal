@@ -39,6 +39,15 @@ import { POST } from './route';
 
 function mockFromChain(overrides: Record<string, any> = {}) {
   const defaults: Record<string, any> = {
+    // INV-01: the handler claims `event.id` in stripe_webhook_events before
+    // dispatching, so a redelivery is recognised as a duplicate instead of
+    // re-running money-shaped handlers. A fresh insert succeeds.
+    stripe_webhook_events: {
+      insert: vi.fn().mockResolvedValue({ error: null }),
+      delete: vi.fn().mockReturnValue({
+        eq: vi.fn().mockResolvedValue({ error: null }),
+      }),
+    },
     stripe_transactions: {
       update: vi.fn().mockReturnValue({
         eq: vi.fn().mockReturnValue({
