@@ -670,6 +670,114 @@ export async function setEscrowAutoRelease(
 }
 
 /**
+ * Resolve a disputed escrow as arbiter.
+ *
+ * ESC-NEW-01: `dispute_resolution` and `dispute_status` exist in the production
+ * schema and, until this function, **had no writer anywhere in the codebase**.
+ * `disputeEscrow` set `status = 'disputed'` and `dispute_reason` and stopped
+ * there, so a dispute recorded a grievance and changed nothing else.
+ *
+ * The consequence was worse than a missing audit field. A disputed escrow could
+ * only be *released* — and only by the depositor, the party who had just been
+ * disputed against or had just disputed. Refund required `funded`, so raising a
+ * dispute removed the refund path entirely. Whoever raised it had made their
+ * own position strictly worse, and the beneficiary had no path at all. In
+ * practice a disputed escrow sat until someone gave up.
+ *
+ * This is the missing third exit. It is deliberately not self-service: the two
+ * parties disagree by definition, so neither can be the one who decides. The
+ * route that calls this is admin-gated, which makes the platform the arbiter of
+ * record — the same role `arbiter_address` describes for the multisig model,
+ * played by the only party with standing here.
+ *
+ * The money movement reuses the existing paths rather than inventing a third:
+ * `release` settles to the beneficiary, `refund` returns to the depositor, and
+ * both are picked up by the settlement monitor exactly as a cooperative
+ * outcome would be.
+ */
+export async function resolveDispute(
+  supabase: SupabaseClient,
+  escrowId: string,
+  input: {
+    /** Which way the dispute was decided. */
+    resolution: 'release' | 'refund';
+    /** Why — recorded on the escrow and in the event log. */
+    note: string;
+    /** Identifies the human who decided, for the audit trail. */
+    resolvedBy: string;
+  }
+): Promise<EscrowActionResult> {
+  const note = (input.note || '').trim();
+  if (note.length < 10) {
+    return {
+      success: false,
+      error: 'A resolution note of at least 10 characters is required — it is the record of why this was decided.',
+    };
+  }
+
+  if (input.resolution !== 'release' && input.resolution !== 'refund') {
+    return { success: false, error: "resolution must be 'release' or 'refund'" };
+  }
+
+  const { data, error } = await supabase
+    .from('escrows')
+    .select('*')
+    .eq('id', escrowId)
+    .single();
+
+  if (error || !data) {
+    return { success: false, error: 'Escrow not found' };
+  }
+
+  const escrow = data as Escrow;
+
+  if (escrow.status !== 'disputed') {
+    return {
+      success: false,
+      error: `Only a disputed escrow can be arbitrated; this one is ${escrow.status}.`,
+    };
+  }
+
+  const nextStatus = input.resolution === 'release' ? 'released' : 'refunded';
+  const timestampField = input.resolution === 'release' ? 'released_at' : 'refunded_at';
+
+  // Conditioned on the escrow still being disputed, so two arbiters acting at
+  // once cannot both apply an outcome to the same escrow.
+  const { data: updated } = await supabase
+    .from('escrows')
+    .update({
+      status: nextStatus,
+      [timestampField]: new Date().toISOString(),
+      dispute_status: 'resolved',
+      dispute_resolution: note,
+    })
+    .eq('id', escrowId)
+    .eq('status', 'disputed')
+    .select()
+    .single();
+
+  if (!updated) {
+    return { success: false, error: 'Escrow was resolved by someone else while this request was in flight.' };
+  }
+
+  await logEvent(supabase, escrowId, nextStatus === 'released' ? 'released' : 'refunded', input.resolvedBy, {
+    arbitrated: true,
+    resolution: input.resolution,
+    note,
+  });
+
+  await sendEscrowWebhook(
+    supabase,
+    escrow.business_id,
+    escrowId,
+    nextStatus === 'released' ? 'escrow.released' : 'escrow.refunded',
+    updated as Escrow
+  );
+
+  return { success: true, escrow: stripTokens(updated as Escrow) };
+}
+
+/**
  * Request refund (depositor only, before release).
  * Only allowed in 'funded' status.
  */
@@ -731,8 +839,14 @@ export async function refundEscrow(
     }
   }
 
-  // Only funded escrows can be refunded (not yet released)
-  if (escrow.status !== 'funded') {
+  // ESC-NEW-01: `disputed` is refundable, not a dead end.
+  //
+  // This required `funded`, while `releaseEscrow` accepts `funded` or
+  // `disputed`. So raising a dispute removed the refund path entirely: the only
+  // remaining exit was the depositor releasing the money to the beneficiary,
+  // which is the opposite of what someone raising a dispute wants. A
+  // beneficiary who concedes could not hand the funds back.
+  if (escrow.status !== 'funded' && escrow.status !== 'disputed') {
     return { success: false, error: `Cannot refund escrow in status: ${escrow.status}` };
   }
 
@@ -743,7 +857,7 @@ export async function refundEscrow(
       refunded_at: new Date().toISOString(),
     })
     .eq('id', escrowId)
-    .eq('status', 'funded')
+    .eq('status', escrow.status) // optimistic lock on what was read
     .select()
     .single();
 

@@ -19,6 +19,8 @@ import { monitorEmails } from './email-monitor';
 import { runInvoiceMonitorCycle, runInvoiceSchedulerCycle } from '@/lib/payments/monitor-invoices';
 import { expireEndedSubscriptions } from '@/lib/subscriptions/service';
 import { isCronSecret } from '@/lib/auth/secret-compare';
+import { processWebhookRetryQueue } from '@/lib/webhooks/retry-queue';
+import { redeliverQueuedWebhook } from '@/lib/webhooks/service';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -87,6 +89,16 @@ export async function GET(request: NextRequest) {
     // Process recurring invoice schedules
     const invoiceSchedulerStats = await runInvoiceSchedulerCycle(supabase, now);
 
+    // REC-D-07: work the durable webhook retry queue.
+    //
+    // In-process delivery spends its whole retry budget inside one request over
+    // roughly three seconds, so anything that fails there is handed here and
+    // retried on a backoff measured in minutes. Rows that exhaust their budget
+    // become dead-letters rather than disappearing.
+    const webhookRetryStats = await processWebhookRetryQueue(supabase, (row) =>
+      redeliverQueuedWebhook(supabase, row)
+    );
+
     // Downgrade merchants whose paid period has ended. isPaidTier also checks
     // the end date on every read, so a missed sweep cannot extend a plan — this
     // keeps the stored state honest as well.
@@ -103,6 +115,7 @@ export async function GET(request: NextRequest) {
       emails: emailStats,
       invoices: invoiceStats,
       invoiceScheduler: invoiceSchedulerStats,
+      webhookRetries: webhookRetryStats,
       subscriptionExpiry,
     };
 
