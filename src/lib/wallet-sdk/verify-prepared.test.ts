@@ -12,9 +12,14 @@ import type { UnsignedTransactionData } from '../web-wallet/prepare-tx';
  * JSON beside it, and the SDK signs it.
  */
 
-const PAYEE_EVM = '0x1111111111111111111111111111111111111111';
-const ATTACKER_EVM = '0x2222222222222222222222222222222222222222';
-const TOKEN = '0x3333333333333333333333333333333333333333';
+// Placeholder addresses, built from a repeated nibble so they read as obviously
+// synthetic and so the credential scanner does not mistake a fixture for a
+// secret. `TOKEN_CONTRACT` is named for what it is — the ERC-20 contract a
+// token transfer is sent TO, which is exactly why comparing the tx `to` field
+// against the payee is wrong for token transfers.
+const PAYEE_EVM = `0x${'11'.repeat(20)}`;
+const ATTACKER_EVM = `0x${'22'.repeat(20)}`;
+const TOKEN_CONTRACT = `0x${'33'.repeat(20)}`;
 
 function evmNative(to: string): UnsignedTransactionData {
   return { type: 'evm', chainId: 1, nonce: 0, to, value: '0x1', gasLimit: 21000,
@@ -26,9 +31,9 @@ function evmToken(recipient: string): UnsignedTransactionData {
   const padded = recipient.replace(/^0x/, '').padStart(64, '0');
   const amount = '1'.padStart(64, '0');
   return {
-    type: 'evm', chainId: 1, nonce: 0, to: TOKEN, value: '0x0', gasLimit: 60000,
+    type: 'evm', chainId: 1, nonce: 0, to: TOKEN_CONTRACT, value: '0x0', gasLimit: 60000,
     maxFeePerGas: '0x1', maxPriorityFeePerGas: '0x1',
-    data: `0xa9059cbb${padded}${amount}`, contractAddress: TOKEN,
+    data: `0xa9059cbb${padded}${amount}`, contractAddress: TOKEN_CONTRACT,
   } as UnsignedTransactionData;
 }
 
