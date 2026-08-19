@@ -26,11 +26,59 @@ export interface EncryptedBackup {
  * @param walletId - Wallet ID (used in filename and file header)
  * @returns Encrypted backup with raw bytes and suggested filename
  */
+/**
+ * Minimum strength for the passphrase protecting an exported seed phrase.
+ *
+ * L6B-05 / REC-01: this accepted any password, including an empty one, while
+ * the wallet create and import flows require length >= 8 plus a strength score.
+ * The exported file is the one artefact that leaves the device — the thing an
+ * attacker walks away with — so it should not have the weakest gate.
+ *
+ * The rule is LENGTH-primary, deliberately. Requiring particular character
+ * classes is a poor proxy for entropy and actively penalises the passwords
+ * people should be encouraged to use: a long passphrase, or a non-Latin one,
+ * can be far stronger than `Passw0rd!` while failing an upper/lower/digit
+ * check. Counted in code points, so an emoji or a CJK character counts once
+ * rather than twice.
+ *
+ * Enforced here rather than only in the UI: the UI check protects one button,
+ * this protects every caller of the SDK.
+ */
+export function assertBackupPasswordStrength(password: string): void {
+  const chars = [...(password ?? '')];
+
+  if (chars.length < 12) {
+    throw new Error(
+      'Backup password too weak — it is the only thing protecting your seed phrase. ' +
+      'It needs at least 12 characters.'
+    );
+  }
+
+  // Long enough that variety stops mattering much.
+  if (chars.length >= 16) return;
+
+  const classes = [
+    /\p{Ll}/u,
+    /\p{Lu}/u,
+    /\p{Nd}/u,
+    /[^\p{L}\p{Nd}]/u,
+  ].filter((re) => re.test(password)).length;
+
+  if (classes < 2) {
+    throw new Error(
+      'Backup password too weak — it is the only thing protecting your seed phrase. ' +
+      'Use 16+ characters, or mix character types.'
+    );
+  }
+}
+
 export async function encryptSeedPhrase(
   mnemonic: string,
   password: string,
   walletId: string
 ): Promise<EncryptedBackup> {
+  assertBackupPasswordStrength(password);
+
   // Lazy-load openpgp to avoid crashing in jsdom/SSR environments
   const openpgp = await import('openpgp');
 

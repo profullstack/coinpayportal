@@ -24,7 +24,7 @@ import {
   updateInvoice,
   InvoiceStatus,
 } from '../src/invoices.js';
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync, chmodSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 import { createInterface } from 'readline';
 import { homedir, hostname } from 'os';
@@ -679,7 +679,39 @@ function hasGpg() {
 /**
  * Encrypt mnemonic with GPG and save to file
  */
+
+/**
+ * Minimum strength for a passphrase that protects an exported wallet.
+ *
+ * F5-L1-07 / L6B-05: there was no minimum at all here, while the sibling
+ * `generate-hd-wallets` backup asks for eight characters and the web wallet's
+ * create/import flow requires length >= 8 AND a strength score. A one-character
+ * passphrase was accepted on the path that produces a file an attacker can walk
+ * away with — and GPG's default KDF is far cheaper to attack on a GPU than the
+ * scrypt used by the other backup, so the passphrase is doing most of the work.
+ */
+function assertStrongPassphrase(password) {
+  const problems = [];
+  if (!password || password.length < 12) {
+    problems.push('at least 12 characters');
+  }
+  if (!/[a-z]/.test(password ?? '') || !/[A-Z]/.test(password ?? '')) {
+    problems.push('both upper and lower case');
+  }
+  if (!/\d/.test(password ?? '') && !/[^A-Za-z0-9]/.test(password ?? '')) {
+    problems.push('a digit or a symbol');
+  }
+  if (problems.length > 0) {
+    throw new Error(
+      'Passphrase too weak — this is the only thing protecting your wallet file. ' +
+      'It needs ' + problems.join(', ') + '.'
+    );
+  }
+}
+
 async function saveEncryptedWallet(mnemonic, walletId, password, walletFile) {
+  assertStrongPassphrase(password);
+
   if (!hasGpg()) {
     throw new Error('GPG is required for wallet encryption. Install: apt install gnupg');
   }
@@ -705,6 +737,22 @@ async function saveEncryptedWallet(mnemonic, walletId, password, walletFile) {
     ],
     { stdinData: content, passphrase: password }
   );
+
+  // Restrict the file gpg just created (F-L7-01 / F5-L1-02).
+  //
+  // `--output` means GPG creates the file itself, at the process umask — so it
+  // typically lands world-readable, and every other local user can copy an
+  // encrypted wallet at their leisure and attack the passphrase offline.
+  // Sibling writes in this same CLI pass `{ mode: 0o600 }`, but that option
+  // only applies when Node does the writing.
+  try {
+    chmodSync(walletFile, 0o600);
+  } catch (err) {
+    console.warn(
+      `Warning: could not restrict permissions on ${walletFile} — ` +
+      'other local users may be able to read it. ' + (err?.message ?? err)
+    );
+  }
 
   return true;
 }
