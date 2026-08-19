@@ -184,7 +184,7 @@ spending effort on any of these.
 | `V-05`, `CP-P4` | `NEUTRALIZED` per the audit | `monthly_transaction_limit` is NULL on every plan. Re-confirm once, then close. |
 | `F9-02` | `NEUTRALIZED` per the audit | No internal HTTPS target is reachable from any documented deployment topology. |
 | `GAP-01` | `DECISION` | A BIP-39 mnemonic with a valid checksum is committed at `scripts/gen-mnemonic.mjs:11,14`. **Check on-chain whether any custody address was ever derived from it.** |
-| `CP-019`, `NEW-16`, `G-1.2-08`, `G-R-09` | `UNVERIFIED` | All four gate on a production environment variable (`REPUTATION_SIGNING_SECRET`, `INTERNAL_API_KEY`, `WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGIN`, `JWT_SECRET`). One secrets read closes all four. |
+| `CP-019`, `NEW-16`, `G-1.2-08`, `G-R-09` | **`FIXED`** | Were conditional on a production env var. Rather than verify one value, the conditionality is removed in code — see the batch-twenty-two note. `NEW-05` closed alongside `G-1.2-08`. |
 | `NUEVO-F2-01` | `DECISION` | Historically closed, but `gl_creds`/`gl_rune` were readable by the anon key for five days in February. Rotate regardless of the code being fixed. |
 
 ## Priority 5 — Technical debt (60)
