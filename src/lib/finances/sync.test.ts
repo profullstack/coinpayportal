@@ -17,7 +17,7 @@ describe('isAdvisory', () => {
 
   it('leaves a real institution failure alone', () => {
     // The signal that must never be swallowed: a bank that stopped answering.
-    expect(isAdvisory('Connection to Chase Bank needs to be re-authenticated')).toBe(false);
+    expect(isAdvisory('Connection to Example Bank needs to be re-authenticated')).toBe(false);
     expect(isAdvisory('Account temporarily unavailable')).toBe(false);
     expect(isAdvisory('')).toBe(false);
   });

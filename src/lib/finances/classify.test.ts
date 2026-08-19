@@ -22,14 +22,14 @@ import {
 describe('inferAccountKind', () => {
   it('classifies deposit accounts from their names', () => {
     expect(inferAccountKind('Free Checking (0000)', 'Example Federal Credit Union')).toBe('checking');
-    expect(inferAccountKind('BASIC CHECKING (0000)', 'Example Technology Credit Union')).toBe('checking');
+    expect(inferAccountKind('BASIC CHECKING (0000)', 'Example Second Credit Union')).toBe('checking');
     expect(inferAccountKind('Primary Savings (0000)', 'Example Federal Credit Union')).toBe('savings');
     expect(inferAccountKind('Money Market (0000)', 'Example Federal Credit Union')).toBe('savings');
-    expect(inferAccountKind('J D Checking (XXXX0000)', 'Example Coastal Credit Union')).toBe('checking');
+    expect(inferAccountKind('J D Checking (XXXX0000)', 'Example Harbor Credit Union')).toBe('checking');
   });
 
   it('classifies cards by network and product name', () => {
-    expect(inferAccountKind('VISA SIGNATURE (0000)', 'Example Technology Credit Union')).toBe('credit');
+    expect(inferAccountKind('VISA SIGNATURE (0000)', 'Example Second Credit Union')).toBe('credit');
     expect(inferAccountKind('Sapphire Preferred (0000)', 'Example Bank')).toBe('credit');
     expect(inferAccountKind('Discover it (0000)', 'Example Card Co')).toBe('credit');
     expect(
@@ -44,7 +44,7 @@ describe('inferAccountKind', () => {
     // The trap: both names contain "Cash", and one also contains "Signature".
     expect(inferAccountKind('Cash Rewards (0000)', 'Example Federal Credit Union')).toBe('credit');
     expect(
-      inferAccountKind('Coastal Cash Visa Signature (XXXX0000)', 'Example Coastal Credit Union'),
+      inferAccountKind('Harbor Cash Visa Signature (XXXX0000)', 'Example Harbor Credit Union'),
     ).toBe('credit');
   });
 
@@ -66,7 +66,7 @@ describe('inferAccountKind', () => {
   });
 
   it('recognises loans and investments', () => {
-    expect(inferAccountKind('Auto Loan 4432', 'DCU')).toBe('loan');
+    expect(inferAccountKind('Auto Loan 0000', 'Example CU')).toBe('loan');
     expect(inferAccountKind('Roth IRA', 'Fidelity')).toBe('investment');
     expect(inferAccountKind('Brokerage', 'Schwab')).toBe('investment');
   });
