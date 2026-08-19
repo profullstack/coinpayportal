@@ -314,17 +314,24 @@ code change happened, so this records what was actually checked.
 
 ### Found while sweeping, and fixed
 
-**`reputation_receipts` was one `GRANT` away from publishing everything.** It
-carries `SELECT ... USING (true)` for `anon, authenticated` — which reads as
+**`reputation_receipts` was protected only by a missing grant.** It carries
+`SELECT ... USING (true)` for `anon, authenticated` — which reads as
 world-readable — and is unreadable today *only* because neither role holds a
 SELECT grant. RLS is evaluated after the grant check, so a permissive policy on
 an ungranted table is inert.
 
-That is a trap, not a control. `GRANT SELECT ON ALL TABLES IN SCHEMA public TO
-anon` is a routine Supabase incantation, and running it once would have
-published **14,346 receipts carrying `agent_did`, `buyer_did`, `escrow_tx` and
-amounts totalling $1,050,924** — the platform's entire transaction history by
-counterparty and value — with no other change and no warning.
+That is a trap rather than a control: `GRANT SELECT ON ALL TABLES IN SCHEMA
+public TO anon` is a routine Supabase incantation, and running it once would
+expose the table with no other change and no warning.
+
+**Scale, stated accurately.** The table holds 14,346 rows, of which 14,333 are
+`did:web:ugig.net` reputation receipts totalling **$921.03**. A first pass
+summed the `amount` column and reported $1,050,924; that figure is
+meaningless — $1,050,002 of it is six rows with round test values (1000001,
+50001) and no `platform_did`. These are also ugig.net *reputation receipts*, not
+CoinPay payment records; CoinPay's payments live in `payments` and were never
+part of this. The fix is worth keeping because the policy should say what the
+grants enforce, not because anything valuable was at risk.
 
 Migration `20260819200000` scopes the policy to `service_role`, matching what
 the grants already enforce. Nothing reads the table through PostgREST (the
