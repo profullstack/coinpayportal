@@ -94,7 +94,60 @@ export async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowSt
       for (const escrow of pendingEscrows) {
         stats.checked++;
         try {
+          // BL-02: check the balance BEFORE expiring, not instead of.
+          //
+          // This used to mark a pending escrow `expired` on the clock alone. If
+          // the deposit had landed but no cycle had yet observed it — it arrived
+          // between two runs, or in the last minutes before expiry — the escrow
+          // went to `expired` holding real money, and every exit closed at once:
+          // release wants `funded` or `disputed`, refund wants `funded`, dispute
+          // wants `funded`, and the auto-release/auto-refund sweep below selects
+          // only `funded`. Neither party could do anything and nothing would
+          // ever settle it. The funds were simply gone.
+          //
+          // Reading the chain first means a deposit that arrived in time is
+          // recognised as `funded`; the sweep below then auto-releases or
+          // auto-refunds it on the next cycle, according to the escrow's own
+          // setting. Only a genuinely empty escrow expires.
+          const balanceResult = await checkBalance(escrow.escrow_address, escrow.chain);
+          const balance = balanceResult.balance;
+
           if (new Date(escrow.expires_at) < now) {
+            // An unreadable balance is not an empty one. Expiring on a failed
+            // read is exactly the irreversible mistake this fix exists to stop,
+            // so leave it pending and try again next cycle.
+            if (balanceResult.error) {
+              console.warn(
+                `[Monitor] Escrow ${escrow.id} is past expiry but its balance could not be read (${balanceResult.error}); leaving pending`
+              );
+              stats.errors++;
+              continue;
+            }
+
+            if (isSufficientPayment(balance, escrow.amount)) {
+              await supabase
+                .from('escrows')
+                .update({
+                  status: 'funded',
+                  funded_at: now.toISOString(),
+                  deposited_amount: balance,
+                })
+                .eq('id', escrow.id)
+                .eq('status', 'pending');
+              await supabase.from('escrow_events').insert({
+                escrow_id: escrow.id,
+                event_type: 'funded',
+                actor: 'system',
+                details: {
+                  reason: 'Deposit found at expiry — funded rather than expired so it can still settle',
+                  deposited_amount: balance,
+                },
+              });
+              stats.funded++;
+              console.log(`[Monitor] Escrow ${escrow.id} was funded at expiry — marked funded, not expired`);
+              continue;
+            }
+
             await supabase
               .from('escrows')
               .update({ status: 'expired' })
@@ -104,15 +157,12 @@ export async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowSt
               escrow_id: escrow.id,
               event_type: 'expired',
               actor: 'system',
-              details: {},
+              details: { confirmed_empty: true, balance },
             });
             stats.expired++;
-            console.log(`[Monitor] Escrow ${escrow.id} expired`);
+            console.log(`[Monitor] Escrow ${escrow.id} expired (confirmed empty)`);
             continue;
           }
-
-          const balanceResult = await checkBalance(escrow.escrow_address, escrow.chain);
-          const balance = balanceResult.balance;
 
           if (isSufficientPayment(balance, escrow.amount)) {
             await supabase
@@ -141,17 +191,42 @@ export async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowSt
     }
 
     // ── 1b. Check funded escrows for expiration (auto-refund) ──
+    // F-1.1-01: multisig escrows are excluded here.
+    //
+    // This sweep flips an expired funded escrow to `released` or `refunded` and
+    // hands it to `processEscrowSettlement`, which moves funds using the key the
+    // platform holds. A 2-of-3 multisig escrow has no such key: its funds can
+    // only move through `proposeTransaction` or `disputeMultisigEscrow`, and
+    // both require status `funded`. Marking one `refunded` therefore closed the
+    // only two ways its money could ever move, while the settlement path it was
+    // handed to cannot sign for it either — so the flag would sit on a
+    // permanently unspendable escrow.
+    //
+    // Leaving them `funded` past expiry is correct: for a multisig the deadline
+    // is the point at which the participants should act, not a licence for the
+    // platform to act for them.
     const { data: fundedEscrows } = await supabase
       .from('escrows')
-      .select('id, escrow_address, escrow_address_id, chain, deposited_amount, depositor_address, beneficiary_address, amount, expires_at, allow_auto_release')
+      .select('id, escrow_address, escrow_address_id, chain, deposited_amount, depositor_address, beneficiary_address, amount, expires_at, allow_auto_release, escrow_model')
       .eq('status', 'funded')
       .lt('expires_at', now.toISOString())
+      .or('escrow_model.is.null,escrow_model.neq.multisig_2of3')
       .limit(50);
 
     if (fundedEscrows && fundedEscrows.length > 0) {
       console.log(`[Monitor] Processing ${fundedEscrows.length} expired funded escrows (auto-release/auto-refund)`);
       for (const escrow of fundedEscrows) {
         try {
+          // Belt and braces on the query filter above: a multisig escrow that
+          // reached this loop must not be transitioned, because doing so is
+          // irreversible for funds the platform cannot sign for.
+          if (escrow.escrow_model === 'multisig_2of3') {
+            console.warn(
+              `[Monitor] Skipping expired multisig escrow ${escrow.id} — its funds move only via propose/dispute, which require status 'funded'`
+            );
+            continue;
+          }
+
           if (escrow.allow_auto_release) {
             await supabase
               .from('escrows')

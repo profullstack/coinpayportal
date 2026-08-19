@@ -762,10 +762,123 @@ describe('Payment Monitor', () => {
           return {};
         });
 
+        // BL-02: expiry now reads the chain before writing. An empty address
+        // still expires — but it has to be *known* empty, not assumed.
+        vi.mocked(global.fetch).mockResolvedValue({
+          ok: true,
+          json: async () => ({ chain_stats: { funded_txo_sum: 0, spent_txo_sum: 0 } }),
+        } as any);
+
         const { runOnce } = await import('./monitor');
         await runOnce();
 
         expect(mockUpdate).toHaveBeenCalledWith({ status: 'expired' });
+      });
+
+      it('does not expire an escrow that was funded before the deadline', async () => {
+        // BL-02: this used to mark the escrow `expired` on the clock alone. An
+        // escrow holding real money then had every exit closed at once —
+        // release wants funded or disputed, refund wants funded, dispute wants
+        // funded, and the auto-release sweep selects only funded. Nothing could
+        // move the money, ever.
+        const fundedAtExpiry = {
+          id: 'escrow-funded-at-expiry',
+          escrow_address: 'bc1qtest',
+          chain: 'BTC',
+          amount: 0.001,
+          status: 'created',
+          expires_at: new Date(Date.now() - 1000).toISOString(),
+        };
+
+        const mockUpdate = vi.fn(() => ({
+          eq: vi.fn(() => ({ eq: vi.fn(() => Promise.resolve({ error: null })) })),
+        }));
+
+        mockSupabase.from = vi.fn((table: string) => {
+          if (table === 'payments') {
+            return {
+              select: vi.fn(() => ({
+                eq: vi.fn(() => ({ limit: vi.fn(() => Promise.resolve({ data: [], error: null })) })),
+              })),
+            };
+          }
+          if (table === 'escrows') {
+            return {
+              select: vi.fn(() => ({
+                eq: vi.fn(() => ({
+                  limit: vi.fn(() => Promise.resolve({ data: [fundedAtExpiry], error: null })),
+                })),
+              })),
+              update: mockUpdate,
+            };
+          }
+          if (table === 'escrow_events') {
+            return { insert: vi.fn(() => Promise.resolve({ error: null })) };
+          }
+          return {};
+        });
+
+        // 0.001 BTC = 100000 sats: the deposit landed.
+        vi.mocked(global.fetch).mockResolvedValue({
+          ok: true,
+          json: async () => ({ chain_stats: { funded_txo_sum: 100000, spent_txo_sum: 0 } }),
+        } as any);
+
+        const { runOnce } = await import('./monitor');
+        await runOnce();
+
+        expect(mockUpdate).not.toHaveBeenCalledWith({ status: 'expired' });
+        expect(mockUpdate).toHaveBeenCalledWith(
+          expect.objectContaining({ status: 'funded', deposited_amount: 0.001 })
+        );
+      });
+
+      it('leaves an escrow pending when the balance cannot be read at expiry', async () => {
+        // Expiring on a failed read is the same irreversible mistake: an
+        // unreadable balance is not a known-empty one.
+        const expiredEscrow = {
+          id: 'escrow-unreadable',
+          escrow_address: 'bc1qtest',
+          chain: 'BTC',
+          amount: 0.001,
+          status: 'created',
+          expires_at: new Date(Date.now() - 1000).toISOString(),
+        };
+
+        const mockUpdate = vi.fn(() => ({
+          eq: vi.fn(() => ({ eq: vi.fn(() => Promise.resolve({ error: null })) })),
+        }));
+
+        mockSupabase.from = vi.fn((table: string) => {
+          if (table === 'payments') {
+            return {
+              select: vi.fn(() => ({
+                eq: vi.fn(() => ({ limit: vi.fn(() => Promise.resolve({ data: [], error: null })) })),
+              })),
+            };
+          }
+          if (table === 'escrows') {
+            return {
+              select: vi.fn(() => ({
+                eq: vi.fn(() => ({
+                  limit: vi.fn(() => Promise.resolve({ data: [expiredEscrow], error: null })),
+                })),
+              })),
+              update: mockUpdate,
+            };
+          }
+          if (table === 'escrow_events') {
+            return { insert: vi.fn(() => Promise.resolve({ error: null })) };
+          }
+          return {};
+        });
+
+        vi.mocked(global.fetch).mockResolvedValue({ ok: false, text: async () => '' } as any);
+
+        const { runOnce } = await import('./monitor');
+        await runOnce();
+
+        expect(mockUpdate).not.toHaveBeenCalledWith({ status: 'expired' });
       });
     });
 
@@ -790,12 +903,19 @@ describe('Payment Monitor', () => {
               select: vi.fn(() => ({
                 eq: vi.fn((_col: string, value: string) => {
                   if (value === 'created') return { limit: emptyLimit };
-                  if (value === 'funded') return { lt: vi.fn(() => ({ limit: emptyLimit })) };
+                  // F-1.1-01: the expired-funded sweep now excludes multisig
+                  // escrows in the query, so the chain is .lt().or().limit().
+                  if (value === 'funded') {
+                    return { lt: vi.fn(() => ({ or: vi.fn(() => ({ limit: emptyLimit })) })) };
+                  }
                   if (value === 'released') return {
                     limit: vi.fn(() => Promise.resolve({ data: [releasedEscrow], error: null })),
                   };
                   if (value === 'refunded') return { is: vi.fn(() => ({ limit: emptyLimit })) };
-                  return { limit: emptyLimit, lt: vi.fn(() => ({ limit: emptyLimit })) };
+                  return {
+                    limit: emptyLimit,
+                    lt: vi.fn(() => ({ or: vi.fn(() => ({ limit: emptyLimit })) })),
+                  };
                 }),
               })),
             };
@@ -846,14 +966,21 @@ describe('Payment Monitor', () => {
               select: vi.fn(() => ({
                 eq: vi.fn((_col: string, value: string) => {
                   if (value === 'created') return { limit: emptyLimit };
-                  if (value === 'funded') return { lt: vi.fn(() => ({ limit: emptyLimit })) };
+                  // F-1.1-01: the expired-funded sweep now excludes multisig
+                  // escrows in the query, so the chain is .lt().or().limit().
+                  if (value === 'funded') {
+                    return { lt: vi.fn(() => ({ or: vi.fn(() => ({ limit: emptyLimit })) })) };
+                  }
                   if (value === 'released') return { limit: emptyLimit };
                   if (value === 'refunded') return {
                     is: vi.fn(() => ({
                       limit: vi.fn(() => Promise.resolve({ data: [refundedEscrow], error: null })),
                     })),
                   };
-                  return { limit: emptyLimit, lt: vi.fn(() => ({ limit: emptyLimit })) };
+                  return {
+                    limit: emptyLimit,
+                    lt: vi.fn(() => ({ or: vi.fn(() => ({ limit: emptyLimit })) })),
+                  };
                 }),
               })),
             };
@@ -904,12 +1031,19 @@ describe('Payment Monitor', () => {
               select: vi.fn(() => ({
                 eq: vi.fn((_col: string, value: string) => {
                   if (value === 'created') return { limit: emptyLimit };
-                  if (value === 'funded') return { lt: vi.fn(() => ({ limit: emptyLimit })) };
+                  // F-1.1-01: the expired-funded sweep now excludes multisig
+                  // escrows in the query, so the chain is .lt().or().limit().
+                  if (value === 'funded') {
+                    return { lt: vi.fn(() => ({ or: vi.fn(() => ({ limit: emptyLimit })) })) };
+                  }
                   if (value === 'released') return {
                     limit: vi.fn(() => Promise.resolve({ data: [releasedEscrow], error: null })),
                   };
                   if (value === 'refunded') return { is: vi.fn(() => ({ limit: emptyLimit })) };
-                  return { limit: emptyLimit, lt: vi.fn(() => ({ limit: emptyLimit })) };
+                  return {
+                    limit: emptyLimit,
+                    lt: vi.fn(() => ({ or: vi.fn(() => ({ limit: emptyLimit })) })),
+                  };
                 }),
               })),
             };
