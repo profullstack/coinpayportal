@@ -35,24 +35,48 @@ function createMockSupabase(overrides: {
     error: overrides.selectError ?? null,
   });
 
+  // WW-01: broadcast re-checks the wallet's whitelist and daily spend limit,
+  // because prepare moves no money and broadcast does. `wallet_settings` is
+  // read as select→eq→single, one `eq` shorter than the transaction lookup, so
+  // the mock answers per table. Wide-open settings keep these tests about the
+  // broadcast path they were written for.
+  const settingsChain: any = {
+    select: vi.fn(() => settingsChain),
+    eq: vi.fn(() => settingsChain),
+    insert: vi.fn(() => settingsChain),
+    upsert: vi.fn(() => settingsChain),
+    single: vi.fn().mockResolvedValue({
+      data: {
+        wallet_id: 'w1',
+        daily_spend_limit: null,
+        whitelist_addresses: [],
+        whitelist_enabled: false,
+      },
+      error: null,
+    }),
+  };
+
   return {
-    from: vi.fn().mockReturnValue({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            single: singleMock,
-          }),
-        }),
-      }),
-      update: updateMock,
-      insert: vi.fn().mockReturnValue({
+    from: vi.fn((table: string) => {
+      if (table === 'wallet_settings') return settingsChain;
+      return {
         select: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({
-            data: { id: 'tx-prepared-001', status: 'pending' },
-            error: null,
+          eq: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              single: singleMock,
+            }),
           }),
         }),
-      }),
+        update: updateMock,
+        insert: vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: { id: 'tx-prepared-001', status: 'pending' },
+              error: null,
+            }),
+          }),
+        }),
+      };
     }),
     _updateMock: updateMock,
   } as any;

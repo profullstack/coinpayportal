@@ -16,6 +16,8 @@ function createMockSupabase(overrides: {
   txRecord?: any;
   txError?: any;
   updateError?: any;
+  settings?: any;
+  spendRows?: { amount: string }[];
 } = {}) {
   const defaultTx = {
     id: 'tx-123',
@@ -39,14 +41,48 @@ function createMockSupabase(overrides: {
     data: overrides.txRecord ?? defaultTx,
     error: overrides.txError ?? null,
   });
-  const eqWallet = vi.fn().mockReturnValue({ single: singleFn });
+  // The daily-spend query is `.eq().eq().eq()[.neq()].in().gte()` awaited
+  // directly, rather than `.single()`. Thenable so `await` resolves it.
+  const spendRows = overrides.spendRows ?? [];
+  const spendChain: any = {
+    eq: vi.fn(() => spendChain),
+    neq: vi.fn(() => spendChain),
+    in: vi.fn(() => spendChain),
+    gte: vi.fn(() => spendChain),
+    then: (resolve: any) => resolve({ data: spendRows, error: null }),
+  };
+
+  const eqWallet = vi.fn().mockReturnValue({ single: singleFn, eq: spendChain.eq });
   const eqId = vi.fn().mockReturnValue({ eq: eqWallet });
   const selectFn = vi.fn().mockReturnValue({ eq: eqId });
 
+  // WW-01: broadcast now re-checks the wallet's whitelist and daily spend
+  // limit, because prepare moves no money and broadcast does. That reads
+  // `wallet_settings`, whose query shape is select→eq→single rather than the
+  // transaction's select→eq→eq→single, so the mock has to answer per table.
+  // Settings are returned wide open, so these tests still exercise the binding
+  // logic they were written for rather than the limit.
+  const settingsSingle = vi.fn().mockResolvedValue({
+    data: overrides.settings ?? {
+      wallet_id: 'w1',
+      daily_spend_limit: null,
+      whitelist_addresses: [],
+      whitelist_enabled: false,
+    },
+    error: null,
+  });
+  const settingsChain: any = {
+    select: vi.fn(() => settingsChain),
+    eq: vi.fn(() => settingsChain),
+    single: settingsSingle,
+    insert: vi.fn(() => settingsChain),
+    upsert: vi.fn(() => settingsChain),
+  };
+
   return {
-    from: vi.fn().mockReturnValue({
-      select: selectFn,
-      update: updateFn,
+    from: vi.fn((table: string) => {
+      if (table === 'wallet_settings') return settingsChain;
+      return { select: selectFn, update: updateFn };
     }),
   } as any;
 }
@@ -574,6 +610,80 @@ describe('broadcastTransaction — signed/prepared binding (WW-01)', () => {
 
   beforeEach(() => {
     mockFetch.mockReset();
+  });
+
+  it('refuses at broadcast when the daily spend limit is already exhausted', async () => {
+    // WW-01's second half: the whitelist and daily spend limit were enforced at
+    // prepare and never again. Prepare moves no money — broadcast does — and
+    // the check ran BEFORE the transaction row was inserted, so two prepares
+    // racing each other both read the same pre-insert total and both passed.
+    // By broadcast time every pending row exists, so the sum is the real one.
+    const signed = await signNative(TO, '1');
+    const supabase = createMockSupabase({
+      txRecord: {
+        id: 'tx-123',
+        wallet_id: 'w1',
+        chain: 'ETH',
+        status: 'pending',
+        from_address: '0xSENDER',
+        to_address: TO,
+        amount: '1',
+        metadata: {
+          unsigned_tx: { type: 'evm' },
+          expires_at: new Date(Date.now() + 300_000).toISOString(),
+        },
+      },
+      settings: {
+        wallet_id: 'w1',
+        daily_spend_limit: 0.5,
+        whitelist_addresses: [],
+        whitelist_enabled: false,
+      },
+    });
+
+    const result = await broadcastTransaction(supabase, 'w1', {
+      tx_id: 'tx-123',
+      signed_tx: signed,
+      chain: 'ETH',
+    });
+
+    expect(result.success).toBe(false);
+    // Nothing may reach the network once the limit says no.
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses at broadcast when the recipient is not whitelisted', async () => {
+    const signed = await signNative(TO, '1');
+    const supabase = createMockSupabase({
+      txRecord: {
+        id: 'tx-123',
+        wallet_id: 'w1',
+        chain: 'ETH',
+        status: 'pending',
+        from_address: '0xSENDER',
+        to_address: TO,
+        amount: '1',
+        metadata: {
+          unsigned_tx: { type: 'evm' },
+          expires_at: new Date(Date.now() + 300_000).toISOString(),
+        },
+      },
+      settings: {
+        wallet_id: 'w1',
+        daily_spend_limit: null,
+        whitelist_addresses: ['0x0000000000000000000000000000000000000009'],
+        whitelist_enabled: true,
+      },
+    });
+
+    const result = await broadcastTransaction(supabase, 'w1', {
+      tx_id: 'tx-123',
+      signed_tx: signed,
+      chain: 'ETH',
+    });
+
+    expect(result.success).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('refuses a signed transaction whose amount differs from the prepared one', async () => {

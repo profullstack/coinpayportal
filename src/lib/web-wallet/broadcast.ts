@@ -8,6 +8,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { WalletChain } from './identity';
 import { isValidChain } from './identity';
+import { checkTransactionAllowed } from './settings';
 
 /** Truncate an address for safe logging */
 function truncAddr(addr: string): string {
@@ -575,6 +576,62 @@ export async function broadcastTransaction(
       error: 'Signed transaction does not match the prepared transaction',
       code: 'TX_BINDING_MISMATCH',
     };
+  }
+
+  if (!binding.verified && !binding.mismatch) {
+    // Not a disagreement — an inability to tell. BCH has no decoder here
+    // (bitcoinjs-lib does not handle its SIGHASH_FORKID variant) and Solana's
+    // transfer amount sits in instruction data whose layout is program-specific,
+    // so on those chains the amount is not bound to what was prepared.
+    //
+    // Refusing outright would take those chains offline, so the broadcast
+    // proceeds. The outcome is already recorded on the row below as
+    // `binding_verified`; this makes the same fact visible in the logs at the
+    // moment it happens, rather than only to whoever later reads the metadata.
+    //
+    // The residual gap is real and is tracked: on BCH and Solana the *amount*
+    // in the signed bytes is still not compared to the prepared amount.
+    console.warn(
+      `[Broadcast] Tx ${input.tx_id} on ${chain} could not be bound to the prepared transaction: ${binding.reason}`
+    );
+  }
+
+  // Re-check the wallet's own spending controls, now, against the record the
+  // signed bytes were just bound to.
+  //
+  // WW-01: the whitelist and daily spend limit were enforced at prepare and
+  // never again. Prepare moves no money — broadcast does — and the check ran
+  // *before* the transaction row was inserted, so two prepares racing each
+  // other both read the same pre-insert total and both passed. By the time we
+  // are here every pending row exists, so the sum is the real one.
+  //
+  // `to_address` and `amount` come from the prepared record rather than the
+  // request, and the binding check above has already refused any signed
+  // transaction that disagrees with them on the chains it can decode.
+  if (txRecord.to_address && txRecord.amount !== null && txRecord.amount !== undefined) {
+    const securityCheck = await checkTransactionAllowed(
+      supabase,
+      walletId,
+      txRecord.to_address,
+      Number(txRecord.amount),
+      chain,
+      // This transaction's own row is already `pending` and counted; excluding
+      // it stops the amount being charged against the limit twice.
+      txRecord.id
+    );
+
+    if (!securityCheck.allowed) {
+      await supabase
+        .from('wallet_transactions')
+        .update({
+          status: 'failed',
+          metadata: { ...txRecord.metadata, failure_reason: securityCheck.reason },
+        })
+        .eq('id', input.tx_id);
+
+      console.error(`[Broadcast] Refused tx ${input.tx_id}: ${securityCheck.reason}`);
+      return { success: false, error: securityCheck.reason, code: 'SECURITY_CHECK_FAILED' };
+    }
   }
 
   // Broadcast to the network

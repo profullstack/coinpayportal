@@ -39,6 +39,9 @@ vi.mock('../wallets/system-wallet', () => ({
   getCommissionRate: vi.fn().mockReturnValue(0.01),
   generatePaymentAddress: vi.fn(),
   getFeePercentage: vi.fn().mockReturnValue(0.01),
+  // IA-016: escrow legs are now checked against the reserved platform wallets,
+  // the way /api/payments/create has always checked its payout leg.
+  isPlatformFeeWallet: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('../crypto/encryption', () => ({
@@ -169,11 +172,56 @@ describe('Escrow Service', () => {
       expect(result.error?.toLowerCase()).toContain('depositor_address must be at least 10 characters');
     });
 
+    it('rejects an escrow leg that is malformed for its chain (IA-016)', async () => {
+      // Escrow addresses were validated by `.min(10)` and nothing else, while
+      // /api/payments/create validates the same kind of payout leg properly.
+      // A malformed address means a release broadcasts somewhere unspendable
+      // and the funds are gone with no recourse.
+      const supabase = { from: vi.fn() } as any;
+
+      const result = await createEscrow(supabase, {
+        chain: 'ETH',
+        amount: 1.0,
+        depositor_address: '0x1111111111111111111111111111111111111111',
+        beneficiary_address: 'not-an-ethereum-address-but-long-enough',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('beneficiary_address');
+      // Rejected before any database work.
+      expect(supabase.from).not.toHaveBeenCalled();
+    });
+
+    it('rejects an escrow leg pointed at a platform fee wallet (IA-016)', async () => {
+      // Naming a platform wallet makes the escrow leg indistinguishable from a
+      // fee payment and corrupts reconciliation on both — which is exactly why
+      // payments/create rejects it there.
+      const { isPlatformFeeWallet } = await import('../wallets/system-wallet');
+      vi.mocked(isPlatformFeeWallet).mockImplementation(
+        (address: string) => address === '0x3333333333333333333333333333333333333333'
+      );
+
+      const supabase = { from: vi.fn() } as any;
+
+      const result = await createEscrow(supabase, {
+        chain: 'ETH',
+        amount: 1.0,
+        depositor_address: '0x1111111111111111111111111111111111111111',
+        beneficiary_address: '0x3333333333333333333333333333333333333333',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('may not be a platform wallet');
+      expect(supabase.from).not.toHaveBeenCalled();
+
+      vi.mocked(isPlatformFeeWallet).mockReturnValue(false);
+    });
+
     it('should create escrow with valid input', async () => {
       const insertedEscrow = {
         id: 'new-escrow-id',
-        depositor_address: '0xDepositor123456',
-        beneficiary_address: '0xBeneficiary789012',
+        depositor_address: '0x1111111111111111111111111111111111111111',
+        beneficiary_address: '0x2222222222222222222222222222222222222222',
         escrow_address: '0xEscrowAddress1234567890abcdef',
         chain: 'ETH',
         amount: 1.0,
@@ -230,8 +278,8 @@ describe('Escrow Service', () => {
       const result = await createEscrow(supabase, {
         chain: 'ETH',
         amount: 1.0,
-        depositor_address: '0xDepositor123456',
-        beneficiary_address: '0xBeneficiary789012',
+        depositor_address: '0x1111111111111111111111111111111111111111',
+        beneficiary_address: '0x2222222222222222222222222222222222222222',
         metadata: { job: 'code review' },
       });
 

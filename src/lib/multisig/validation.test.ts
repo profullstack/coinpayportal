@@ -181,10 +181,6 @@ describe('signProposalSchema', () => {
     const result = signProposalSchema.safeParse({
       proposal_id: '00000000-0000-0000-0000-000000000001',
       signer_pubkey: '0x1234567890123456789012345678901234567890',
-      // F-1.1-02: propose and dispute now carry a signature proving the caller
-      // holds the key behind that pubkey. Schema-level here; the engine tests
-      // verify a real one.
-      signature: '0x' + 'ab'.repeat(32),
       signature: '0xabcdef1234567890abcdef1234567890',
     });
     expect(result.success).toBe(true);
@@ -194,10 +190,6 @@ describe('signProposalSchema', () => {
     const result = signProposalSchema.safeParse({
       proposal_id: 'not-a-uuid',
       signer_pubkey: '0x1234567890123456789012345678901234567890',
-      // F-1.1-02: propose and dispute now carry a signature proving the caller
-      // holds the key behind that pubkey. Schema-level here; the engine tests
-      // verify a real one.
-      signature: '0x' + 'ab'.repeat(32),
       signature: '0xabcdef1234567890',
     });
     expect(result.success).toBe(false);
