@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { resolveMerchant } from '@/lib/auth/merchant';
+import { resolveMerchant, keyMayActOnBusiness } from '@/lib/auth/merchant';
 import { authorizeBusiness } from '@/lib/auth/authz';
 
 function client() {
@@ -62,6 +62,18 @@ export async function POST(
           { status: 400 },
         );
       }
+
+    // A key issued for one business must not act on another, even within the
+    // same merchant account. `verifyBusinessAccess`/`authorizeBusiness` check
+    // the MERCHANT's access, which a scoped key passes for every business its
+    // owner has.
+    if (!keyMayActOnBusiness(auth, businessId)) {
+      return NextResponse.json(
+        { success: false, error: 'This API key cannot act on that business' },
+        { status: 403 }
+      );
+    }
+
       const authz = await authorizeBusiness(supabase, auth.merchantId, businessId, 'wallet.manage');
       if (!authz.ok) {
         return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });

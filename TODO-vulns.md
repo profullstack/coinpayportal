@@ -133,7 +133,7 @@ audit than whether its bespoke ownership query is correct.
 | `CP-014` | `FIXED` | `reputation/receipts` was an unauthenticated `select('*')`. Endpoint stays public (a trust graph must be checkable) but now returns a narrow projection — no `amount`, `escrow_tx`, `buyer_did`, `platform_did` or `signatures` — capped at 200 rows. |
 | `CP-021` | `FIXED` | `escrow/[id]` authenticated the caller and then fetched by UUID with no ownership check. Now `callerOwnsEscrow`, answering 404 rather than 403 so it is not an existence oracle. |
 | `NEW-15` | `FIXED` | `escrow/[id]/events` — clone of `CP-021`, fixed by the shared helper. |
-| `C-02` | `UNVERIFIED` | 8 of 16 routes on the `apiKeyBusinessId` contract. |
+| `C-02` | `FIXED` | 8 of 16 routes on the `apiKeyBusinessId` contract. |
 | `C-03` / `G-1.2-01` | `FIXED` | `payment-methods/manual` — capability check missing. |
 | `CP-001` | `UNVERIFIED` | Injectable Stripe metadata. |
 | `CP-003` | `FIXED` | Cross-tenant DID rebind. |
