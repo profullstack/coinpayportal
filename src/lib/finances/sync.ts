@@ -436,3 +436,71 @@ export async function deleteConnection(connectionId: string, merchantId: string)
     .eq('merchant_id', merchantId);
   if (error) throw new Error(`Could not delete the connection: ${error.message}`);
 }
+
+/**
+ * Re-derive categories over transactions already stored.
+ *
+ * Categorisation is a local function of fields we already hold, so improving
+ * the rules should not cost a SimpleFIN request — the quota is ~24/day and
+ * re-fetching 90 days to recompute a text match would be absurd. This reads the
+ * merchant's own rows, recomputes, and writes back only the ones that changed.
+ *
+ * @returns how many rows were examined and how many actually moved
+ */
+export async function recategorizeStored(
+  merchantId: string,
+): Promise<{ examined: number; updated: number }> {
+  const supabase = getSupabaseAdmin();
+
+  const connectionIds = (await listConnections(merchantId)).map((c) => c.id);
+  if (connectionIds.length === 0) return { examined: 0, updated: 0 };
+
+  const { data: accounts, error: accountsError } = await supabase
+    .from('finance_accounts')
+    .select('id')
+    .in('connection_id', connectionIds);
+  if (accountsError) throw new Error(`Could not read accounts: ${accountsError.message}`);
+
+  const accountIds = (accounts ?? []).map((a) => a.id as string);
+  if (accountIds.length === 0) return { examined: 0, updated: 0 };
+
+  let examined = 0;
+  let updated = 0;
+
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await supabase
+      .from('finance_transactions')
+      .select('id, description, payee, memo, mcc, amount, category')
+      .in('account_id', accountIds)
+      .order('posted', { ascending: false })
+      .range(offset, offset + 999);
+
+    if (error) throw new Error(`Could not read transactions: ${error.message}`);
+
+    const page = data ?? [];
+    examined += page.length;
+
+    for (const row of page) {
+      const next = categorizeTransaction({
+        description: row.description as string | null,
+        payee: row.payee as string | null,
+        memo: row.memo as string | null,
+        mcc: row.mcc as string | null,
+        amount: Number(row.amount),
+      });
+
+      if (next === (row.category ?? null)) continue;
+
+      const { error: updateError } = await supabase
+        .from('finance_transactions')
+        .update({ category: next })
+        .eq('id', row.id);
+      if (updateError) throw new Error(`Could not update category: ${updateError.message}`);
+      updated += 1;
+    }
+
+    if (page.length < 1000) break;
+  }
+
+  return { examined, updated };
+}

@@ -150,6 +150,44 @@ describe('categorizeTransaction', () => {
     expect(categorizeTransaction({ payee: 'Railway', amount: -25 })).toBe('software');
   });
 
+  it('matches the normalised payee, which nearly every row has', () => {
+    // Only ~4% of transactions carry an MCC, so the merchant name is what
+    // actually settles most rows. It arrives already normalised, which is why
+    // these rules can be anchored and precise.
+    expect(categorizeTransaction({ payee: 'Porkbun.com', amount: -12 })).toBe('software');
+    expect(categorizeTransaction({ payee: 'Turso', amount: -75 })).toBe('software');
+    expect(categorizeTransaction({ payee: 'Moonshot Ai', amount: -45 })).toBe('software');
+  });
+
+  it('separates ad spend from software', () => {
+    // Both are business costs, but folding advertising into tooling hides a
+    // large recurring spend in a bucket nobody reviews for it.
+    expect(categorizeTransaction({ payee: 'Reddit Inc Ads', amount: -86 })).toBe('advertising');
+    expect(categorizeTransaction({ payee: 'Google Ads', amount: -76 })).toBe('advertising');
+    expect(categorizeTransaction({ payee: 'Facebook', amount: -66 })).toBe('advertising');
+  });
+
+  it('treats remittance as a transfer, not spending', () => {
+    expect(categorizeTransaction({ payee: 'WorldRemit', amount: -165 })).toBe('transfer');
+    expect(categorizeTransaction({ payee: 'Wise', amount: -400 })).toBe('transfer');
+  });
+
+  it('classifies wine and tobacco as retail rather than dining', () => {
+    // They are not a meal, and counting them as dining distorts both buckets.
+    expect(categorizeTransaction({ payee: 'Los Gatos Wine & Spirits', amount: -97 })).toBe('shopping');
+    expect(categorizeTransaction({ payee: 'Campbell Fine Cigar Corp', amount: -29 })).toBe('shopping');
+  });
+
+  it('does not book a debit as interest income', () => {
+    expect(categorizeTransaction({ payee: 'Credit Interest Income', amount: 0.78 })).toBe('income');
+    expect(categorizeTransaction({ payee: 'Credit Interest Income', amount: -0.78 })).not.toBe('income');
+  });
+
+  it('prefers a present MCC over the payee name', () => {
+    // 5411 is a grocer; the institution saying so beats our merchant list.
+    expect(categorizeTransaction({ mcc: '5411', payee: 'Porkbun.com', amount: -30 })).toBe('groceries');
+  });
+
   it('returns null when nothing matches, rather than inventing "other"', () => {
     expect(categorizeTransaction({ description: 'XYZ 4471 REF 99', amount: -18 })).toBeNull();
     expect(categorizeTransaction({ amount: -18 })).toBeNull();
