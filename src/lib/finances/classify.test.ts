@@ -9,50 +9,55 @@ import {
 } from './classify';
 
 /**
- * The account names below are the real ones the live connection returns. They
- * are the point of this file: "DCU Cash Rewards" and "Coastal Cash Visa
- * Signature" are credit cards whose names contain deposit-account words, and a
- * naive keyword pass puts both on the wrong side of the balance sheet.
+ * Fixtures are synthetic, but their *shapes* are drawn from what real
+ * institutions emit — which is the whole point of this file. "Cash Rewards" and
+ * "Cash Visa Signature" are credit cards whose names contain deposit-account
+ * words, and a naive keyword pass puts both on the wrong side of the balance
+ * sheet.
+ *
+ * Deliberately invented rather than copied from a live connection: an account
+ * name carries its institution and the last four digits, and this repository is
+ * public.
  */
 describe('inferAccountKind', () => {
   it('classifies deposit accounts from their names', () => {
-    expect(inferAccountKind('Free Checking (0849)', 'Digital Federal Credit Union')).toBe('checking');
-    expect(inferAccountKind('BASIC CHECKING (0011)', 'Technology Credit Union')).toBe('checking');
-    expect(inferAccountKind('Primary Savings (6266)', 'Digital Federal Credit Union')).toBe('savings');
-    expect(inferAccountKind('Money Market (4026)', 'Digital Federal Credit Union')).toBe('savings');
-    expect(inferAccountKind('A L Checking (XXXX4989)', 'Bay Federal Credit Union')).toBe('checking');
+    expect(inferAccountKind('Free Checking (0000)', 'Example Federal Credit Union')).toBe('checking');
+    expect(inferAccountKind('BASIC CHECKING (0000)', 'Example Technology Credit Union')).toBe('checking');
+    expect(inferAccountKind('Primary Savings (0000)', 'Example Federal Credit Union')).toBe('savings');
+    expect(inferAccountKind('Money Market (0000)', 'Example Federal Credit Union')).toBe('savings');
+    expect(inferAccountKind('J D Checking (XXXX0000)', 'Example Coastal Credit Union')).toBe('checking');
   });
 
   it('classifies cards by network and product name', () => {
-    expect(inferAccountKind('VISA SIGNATURE (0001)', 'Technology Credit Union')).toBe('credit');
-    expect(inferAccountKind('Chase Sapphire Preferred (2674)', 'Chase Bank')).toBe('credit');
-    expect(inferAccountKind('Discover it (2069)', 'Capital One')).toBe('credit');
+    expect(inferAccountKind('VISA SIGNATURE (0000)', 'Example Technology Credit Union')).toBe('credit');
+    expect(inferAccountKind('Sapphire Preferred (0000)', 'Example Bank')).toBe('credit');
+    expect(inferAccountKind('Discover it (0000)', 'Example Card Co')).toBe('credit');
     expect(
-      inferAccountKind('Costco Anywhere Visa® Card by Citi-4294 (4294)', 'Citibank'),
+      inferAccountKind('Anywhere Visa® Card by Example-0000 (0000)', 'Example Citi'),
     ).toBe('credit');
     expect(
-      inferAccountKind('Graphite™ Business Cash Unlimited Card (1009)', 'American Express'),
+      inferAccountKind('Graphite™ Business Cash Unlimited Card (0000)', 'Example Express'),
     ).toBe('credit');
   });
 
   it('does not let a card name containing "cash" read as a deposit account', () => {
     // The trap: both names contain "Cash", and one also contains "Signature".
-    expect(inferAccountKind('DCU Cash Rewards (0061)', 'Digital Federal Credit Union')).toBe('credit');
+    expect(inferAccountKind('Cash Rewards (0000)', 'Example Federal Credit Union')).toBe('credit');
     expect(
-      inferAccountKind('Coastal Cash Visa Signature (XXXX9731)', 'Bay Federal Credit Union'),
+      inferAccountKind('Coastal Cash Visa Signature (XXXX0000)', 'Example Coastal Credit Union'),
     ).toBe('credit');
   });
 
   it('falls back to the institution when the account is named after its holder', () => {
-    // Apple Card arrives as org "Apple Card (Updated Monthly)" with the
-    // account simply named after the cardholder.
-    expect(inferAccountKind('Anthony', 'Apple Card (Updated Monthly)')).toBe('credit');
+    // Some issuers send an org of "<Product> Card" with the account simply
+    // named after the cardholder, so the account name alone says nothing.
+    expect(inferAccountKind('J. Doe', 'Apple Card (Updated Monthly)')).toBe('credit');
   });
 
   it('uses a negative balance only to break a tie', () => {
     expect(inferAccountKind('Unlabelled account', null, -500)).toBe('credit');
     // An overdrawn checking account must stay checking.
-    expect(inferAccountKind('Free Checking (0849)', 'DCU', -42)).toBe('checking');
+    expect(inferAccountKind('Free Checking (0000)', 'Example CU', -42)).toBe('checking');
   });
 
   it('returns unknown rather than guessing', () => {
@@ -119,7 +124,7 @@ describe('categorizeTransaction', () => {
     expect(
       categorizeTransaction({ description: 'PAYMENT THANK YOU - WEB', amount: 500 }),
     ).toBe('payment');
-    expect(categorizeTransaction({ description: 'AUTOPAY 4294 - THANK YOU', amount: 300 })).toBe(
+    expect(categorizeTransaction({ description: 'AUTOPAY 0000 - THANK YOU', amount: 300 })).toBe(
       'payment',
     );
     // Zelle to a person is a transfer, not a card payment — "payment" here is

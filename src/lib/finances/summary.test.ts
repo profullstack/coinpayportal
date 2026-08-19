@@ -26,16 +26,16 @@ function account(partial: Partial<FinanceAccount>): FinanceAccount {
 
 describe('toAccountView', () => {
   it('states a card balance as a positive amount owed', () => {
-    // SimpleFIN reports a $2,653.49 card debt as -2653.49.
-    const view = toAccountView(account({ kind: 'credit', balance: -2653.49 }));
+    // SimpleFIN reports a $1,500.00 card debt as -1500.00.
+    const view = toAccountView(account({ kind: 'credit', balance: -1500 }));
     expect(view.is_liability).toBe(true);
-    expect(view.display_balance).toBe(2653.49);
+    expect(view.display_balance).toBe(1500);
   });
 
   it('leaves a deposit balance alone', () => {
-    const view = toAccountView(account({ kind: 'checking', balance: 1673.86 }));
+    const view = toAccountView(account({ kind: 'checking', balance: 1000.00 }));
     expect(view.is_liability).toBe(false);
-    expect(view.display_balance).toBe(1673.86);
+    expect(view.display_balance).toBe(1000.00);
   });
 
   it('shows an overpaid card as a negative amount owed, not a positive one', () => {
@@ -61,17 +61,17 @@ describe('aggregateAccounts', () => {
   it('splits assets from debt and nets them', () => {
     const accounts = [
       account({ id: 'a', kind: 'checking', balance: 1000 }),
-      account({ id: 'b', kind: 'savings', balance: 9530.78 }),
-      account({ id: 'c', kind: 'credit', balance: -2653.49 }),
-      account({ id: 'd', kind: 'credit', balance: -617.49 }),
+      account({ id: 'b', kind: 'savings', balance: 4200.00 }),
+      account({ id: 'c', kind: 'credit', balance: -1500.00 }),
+      account({ id: 'd', kind: 'credit', balance: -250.00 }),
     ].map(toAccountView);
 
     const { totals, primaryCurrency } = aggregateAccounts(accounts);
     expect(primaryCurrency).toBe('USD');
     expect(totals).toHaveLength(1);
-    expect(totals[0].assets).toBeCloseTo(10530.78, 2);
-    expect(totals[0].liabilities).toBeCloseTo(3270.98, 2);
-    expect(totals[0].net).toBeCloseTo(7259.8, 2);
+    expect(totals[0].assets).toBeCloseTo(5200.00, 2);
+    expect(totals[0].liabilities).toBeCloseTo(1750.00, 2);
+    expect(totals[0].net).toBeCloseTo(3450.00, 2);
     expect(totals[0].accounts).toBe(4);
   });
 
@@ -103,17 +103,17 @@ describe('aggregateAccounts', () => {
 
   it('groups by institution with debt stated positive', () => {
     const { byInstitution } = aggregateAccounts([
-      account({ id: 'a', org_name: 'Chase Bank', kind: 'credit', balance: -617.49 }),
-      account({ id: 'b', org_name: 'Chase Bank', kind: 'credit', balance: -33998.35 }),
-      account({ id: 'c', org_name: 'Bay Federal', kind: 'savings', balance: 9530.78 }),
+      account({ id: 'a', org_name: 'Example Bank', kind: 'credit', balance: -250.00 }),
+      account({ id: 'b', org_name: 'Example Bank', kind: 'credit', balance: -9000.00 }),
+      account({ id: 'c', org_name: 'Example Credit Union', kind: 'savings', balance: 4200.00 }),
     ].map(toAccountView));
 
-    const chase = byInstitution.find((i) => i.org === 'Chase Bank');
-    expect(chase?.liabilities).toBeCloseTo(34615.84, 2);
+    const chase = byInstitution.find((i) => i.org === 'Example Bank');
+    expect(chase?.liabilities).toBeCloseTo(9250.00, 2);
     expect(chase?.assets).toBe(0);
     expect(chase?.accounts).toBe(2);
     // Sorted by total exposure, so the largest position leads.
-    expect(byInstitution[0].org).toBe('Chase Bank');
+    expect(byInstitution[0].org).toBe('Example Bank');
   });
 
   it('handles an empty account set without producing NaN', () => {

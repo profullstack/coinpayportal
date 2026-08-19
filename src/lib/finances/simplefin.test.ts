@@ -88,7 +88,7 @@ describe('decodeSetupToken', () => {
 
 describe('parseAmount', () => {
   it('parses the decimal strings SimpleFIN sends', () => {
-    expect(parseAmount('-2653.49')).toBe(-2653.49);
+    expect(parseAmount('-1500.00')).toBe(-1500.00);
     expect(parseAmount('0.00')).toBe(0);
     expect(parseAmount('1,234.56')).toBe(1234.56);
   });

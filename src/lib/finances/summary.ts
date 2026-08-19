@@ -13,7 +13,7 @@ import { effectiveKind, isLiabilityKind, type AccountKind } from './classify';
  * map and makes that impossible.
  *
  * **Liability sign is normalised once, at the boundary.** SimpleFIN reports a
- * card you owe $2,653 on as `-2653.49`. That sign is preserved in the database
+ * card you owe $1,500 on as `-1500.00`. That sign is preserved in the database
  * (it is the only account-type signal the protocol gives) but every figure
  * leaving this module is stated the way a person would: `liabilities` is a
  * positive amount owed, and `net` is assets minus liabilities.
