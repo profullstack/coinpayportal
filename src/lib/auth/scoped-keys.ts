@@ -56,6 +56,15 @@ export interface ScopedKeyRecord {
  * in tests where no secret is configured.
  */
 function keyHashPepper(): string {
+  // Deliberately NOT routed through `requireEncryptionKey`, unlike every other
+  // reader of this variable.
+  //
+  // This is a pepper for an HMAC, not an encryption key, and its value is baked
+  // into every `api_key_hash` already stored. Rejecting a weak value here — or
+  // changing which variable wins the fallback — would change the hash of every
+  // existing key and lock out every integrator at once. The correct fix if this
+  // pepper is ever weak is a rotation with re-hashing, not a guard that refuses
+  // at read time.
   return (
     process.env.API_KEY_HASH_PEPPER ||
     process.env.ENCRYPTION_KEY ||

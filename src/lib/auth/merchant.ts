@@ -72,3 +72,31 @@ async function resolveApiKey(
     apiKeyBusinessId: result.business.id,
   };
 }
+
+/**
+ * Whether an API key may act on a given business.
+ *
+ * `resolveMerchant` already returns `apiKeyBusinessId` — the business the key
+ * belongs to — and its own doc comment says callers "can use it to lock writes
+ * to that business and reject mismatched `business_id`". Half of them did not.
+ * A key issued for business A therefore acted freely on business B, as long as
+ * both belonged to the same merchant. That is not what the key represents: a
+ * merchant hands out a scoped key precisely so an integrator can touch one
+ * business and not the rest.
+ *
+ * JWT (session) auth has no key scope, so `apiKeyBusinessId` is null and the
+ * caller's own ownership check governs — this returns true and does not
+ * substitute for that check.
+ *
+ * Returning a boolean rather than doing the rejection keeps each route's error
+ * shape its own; a shared helper that wrote responses would not fit the routes
+ * that need it.
+ */
+export function keyMayActOnBusiness(
+  auth: { apiKeyBusinessId: string | null },
+  businessId: string | null | undefined,
+): boolean {
+  if (!auth.apiKeyBusinessId) return true;
+  if (!businessId) return true;
+  return auth.apiKeyBusinessId === businessId;
+}

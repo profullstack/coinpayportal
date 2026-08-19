@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { recordAuditEvent } from '../audit/log';
 import { randomBytes } from 'crypto';
 
 export type PlatformIdentity = {
@@ -239,6 +240,19 @@ async function persistPayout(
   if (payout.kind === 'crypto') {
     const crypto = payout.cryptocurrency.toUpperCase();
     if (!SUPPORTED_CRYPTOS.has(crypto)) return;
+
+    // Audit: where a merchant's money goes. NEW-04 was a silent rewrite of
+    // exactly this row, and nothing recorded that it had happened.
+    await recordAuditEvent(supabase, {
+      action: 'wallet.payout_changed',
+      actorType: 'platform',
+      subjectType: 'merchant_wallet',
+      subjectId: merchantId,
+      merchantId,
+      businessId,
+      detail: { cryptocurrency: crypto, wallet_address: payout.address },
+    });
+
     await supabase
       .from('merchant_wallets')
       .upsert(

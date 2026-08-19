@@ -19,6 +19,16 @@ process.env.NEXT_PUBLIC_SUPABASE_URL ||= 'https://test.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||= 'test-anon-key';
 
+// Reputation credential signing key.
+//
+// `src/lib/reputation/crypto.ts` used to fall back to the literal
+// 'cpr-dev-secret' when this was unset — a constant in a public repository, so
+// an unset variable in production would have signed every credential with a key
+// the whole internet knows, silently and with signatures that verify perfectly.
+// The fallback is gone and signing now throws instead, so the suite has to
+// supply a value like any other deployment.
+process.env.REPUTATION_SIGNING_SECRET ||= 'test-reputation-signing-secret';
+
 // Setup localStorage mock with actual storage
 beforeAll(() => {
   const store: Record<string, string> = {};

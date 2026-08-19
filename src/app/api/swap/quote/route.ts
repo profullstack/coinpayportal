@@ -8,11 +8,25 @@
  *   amount: amount to swap
  */
 
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSwapQuote, isSwapSupported, SWAP_SUPPORTED_COINS } from '@/lib/swap/changenow';
 
 export async function GET(request: NextRequest) {
   try {
+    // Anonymous and unlimited, and each quote costs two calls to the ChangeNOW
+    // third-party API — so this was a lever for exhausting our own quota with
+    // no credential at all.
+    const clientIp = getClientIp(request) || 'unknown';
+    const rate = await checkRateLimitAsync(clientIp, 'swap_quote');
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: 'Too many quote requests. Please try again shortly.' },
+        { status: 429 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const from = searchParams.get('from')?.toUpperCase();
     const to = searchParams.get('to')?.toUpperCase();

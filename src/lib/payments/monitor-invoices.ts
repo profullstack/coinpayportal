@@ -140,10 +140,43 @@ export async function runInvoiceMonitorCycle(supabase: any, now: Date): Promise<
                 console.error(`[Monitor] Invoice ${invoice.invoice_number} forwarding error:`, fwdErr);
               }
             } else {
+              // Funds arrived at an address no payment record owns, so there is
+              // no forwarding path and the money is stranded at the
+              // intermediary address.
+              //
+              // This case used to fall through and mark the invoice `paid` and
+              // email the merchant "Payment Received" — telling them they had
+              // been paid while nothing could move the funds to them, and
+              // clearing the invoice off every outstanding list that would have
+              // surfaced the problem.
+              //
+              // Leaving it unpaid keeps it visible as outstanding, which is the
+              // accurate state: the customer paid, the merchant has not been.
+              // The observation is recorded so an operator can find it.
               console.error(
                 `[Monitor] Invoice ${invoice.invoice_number}: ${balanceResult.balance} ${invoice.crypto_currency} received at ` +
-                  `${invoice.payment_address} but no payment record owns that address — funds need manual recovery.`,
+                  `${invoice.payment_address} but no payment record owns that address — funds need manual recovery. ` +
+                  `NOT marking the invoice paid.`,
               );
+
+              await supabase
+                .from('invoices')
+                .update({
+                  metadata: {
+                    ...(invoice.metadata && typeof invoice.metadata === 'object' ? invoice.metadata : {}),
+                    unforwardable_balance: {
+                      observed_at: now.toISOString(),
+                      balance: balanceResult.balance,
+                      currency: invoice.crypto_currency,
+                      address: invoice.payment_address,
+                      reason: 'no payment record owns this address',
+                    },
+                  },
+                  updated_at: now.toISOString(),
+                })
+                .eq('id', invoice.id);
+
+              continue;
             }
 
             // Payment received — mark as paid

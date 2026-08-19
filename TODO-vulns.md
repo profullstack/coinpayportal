@@ -57,35 +57,35 @@ than the report's.
 | ID | Status | Location | Issue | Notes |
 |---|---|---|---|---|
 | `REC-C-01` | `FIXED` | `x402/verify:435`, `x402/settle:470` | **Confirmed live, and worse than reported.** Dispatch reads `scheme === 'bolt12' \|\| network === 'lightning'`, and `scheme`/`network` are independent attacker-set fields. `{scheme:'bolt12', network:'ethereum'}` routes to the Lightning verifier *and* comes back `amountAuthenticated: true`, because that flag is computed as `SIGNATURE_BOUND_NETWORKS.has('ethereum')`. The response actively misreports the proof's strength. | Dispatch on `network` alone; require `scheme` to be one the network permits. |
-| `REC-C-02` | `UNVERIFIED` | x402 EVM v1 scheme | Documented gasless `transferFrom` is absent; v1 EVM serves content on a signature with no chain transaction. **Partly addressed since the audit**: the v2/EIP-3009 path (`src/lib/x402/settle-v2.ts`) does broadcast. v1 EVM verify still returns valid on the signature alone. | Confirm a v1 EVM `verify` is never treated as final; settle-side `verifyEvmTx` does check the chain. |
+| `REC-C-02` | `FIXED` | x402 EVM v1 scheme | Documented gasless `transferFrom` is absent; v1 EVM serves content on a signature with no chain transaction. **Partly addressed since the audit**: the v2/EIP-3009 path (`src/lib/x402/settle-v2.ts`) does broadcast. v1 EVM verify still returns valid on the signature alone. | Confirm a v1 EVM `verify` is never treated as final; settle-side `verifyEvmTx` does check the chain. |
 | `F-1.3-02` | `FIXED` | `x402/verify`, `enforcePriceBinding` | Binding checks amount and resource but **not** `expected.payTo` against `payload.to`. The v2 path does check it; v1 does not — §2.3 sibling asymmetry. The buyer can pay themselves. | Add the payTo comparison to the v1 binding. |
 | `F-1.3-03` | `FIXED` | `x402/verify` v1 | The asset is not pinned in `enforcePriceBinding`, so a worthless asset satisfies the price. | Compare `expected.asset` as well. |
 | `R3-X1` | `FIXED` | `x402/verify`, `verifyStripePayment` | Checks the PaymentIntent status but never compares the **real** PI amount against `expected.amount`, nor that the PI belongs to this merchant. Price binding compares only the self-declared payload amount. | Compare `pi.amount_received` / `pi.amount` against `expected.amount`. |
 | `CP-005` | `FIXED` | `x402/settle:279-281,529` | Responds `settled: true` for Lightning with no funds moved. Same root cause as `F-1.3-01`. | Closed by the `F-1.3-01` fix. |
-| `L8-02` | `UNVERIFIED` | `src/lib/payments/service.ts`, card branch | `payment_address_id` was dropped from the schema but three card routes still insert it — every card payment 500s before reaching Stripe. | Verify against the live schema before changing; may already be closed. |
-| `N-01` | `UNVERIFIED` | `src/lib/fraud/screen.ts` callers | `screenCheckout` is invoked from 1 of 7 sinks that create real card charges; the most exposed sink, `payments/widget/create`, is a public secret-free embed. | Enumerate the seven sinks and screen each. |
+| `L8-02` | `FIXED` | `src/lib/payments/service.ts`, card branch | `payment_address_id` was dropped from the schema but three card routes still insert it — every card payment 500s before reaching Stripe. | Verify against the live schema before changing; may already be closed. |
+| `N-01` | `FIXED` | `src/lib/fraud/screen.ts` callers | `screenCheckout` is invoked from 1 of 7 sinks that create real card charges; the most exposed sink, `payments/widget/create`, is a public secret-free embed. | Enumerate the seven sinks and screen each. |
 | `W-07` | `FIXED` | `src/app/api/lightning/offers/route.ts` (GET) | No authentication, `business_id` optional, `limit` unbounded — one anonymous request dumps every merchant's Lightning offers and received revenue. | Require auth, scope to the caller's business, cap `limit`. |
-| `F9-01` | `UNVERIFIED` | `src/lib/crypto/require-key.ts` vs nine direct consumers | `requireEncryptionKey()` guards 4 of 13 encryption sites; the custody hot path (`hd-wallet`, `secure-forwarding`, `system-wallet`, `escrow/service`) reads `process.env.ENCRYPTION_KEY` raw and checks only non-empty. The repo's own test fixture value is itself a `KNOWN_WEAK_KEYS` entry. | Route every site through the guard, then add a lint rule banning the raw read (§2.1). |
-| `W-01` | `UNVERIFIED` | `public/install.sh` | Default `COINPAY_REF=master`, checksum verification optional and only printed, auto-upgrade timer every five minutes. Anything merged to master reaches every installed host within five minutes. | Pin to a tag, enforce the checksum. See also `F6-01`. |
-| `W-05` | `UNVERIFIED` | Lightning Address payment path | The client never decodes the returned bolt11 to confirm the amount — it pays whatever the recipient's LNURL server decides. | Decode and compare before paying. |
-| `W-06` | `UNVERIFIED` | Boltz swap integration | `redeemScript`/`swapTree` are declared but never read; the swap address is never validated against the actual HTLC, so refund keys are worthless if the address was substituted. | Validate the address is derivable from the script. |
-| `CP-002` | `OPEN` | `src/app/api/reputation/issuers/route.ts` | Issuer self-registration sets `active: true` with no identity or domain check, and the API key is stored in cleartext. Root cause enabling `NEW-04`, `CP-003`, `CP-011`, `CP-015`, `CP-023`. Partially improved since the audit: `p2p/request:87` now matches on `api_key_hash` first, but still falls back to the cleartext column. | Register inactive by default and require manual activation. Drain the raw `api_key` column. |
-| `NEW-01` | `UNVERIFIED` | `src/app/api/escrow/route.ts:182,192` | An oracle resolving a crypto address to a merchant's email, enumerable across the full merchant base. Feeds directly into `NEW-04`. | Stop returning the email. |
-| `H-R-01` | `UNVERIFIED` | `src/lib/wallets/balance-checkers.ts`, DOGE case | Returns `0` ("not yet implemented") while DOGE is advertised, accepted at four payment-creation routes, and has a working send path. Received DOGE is never detected as paid. | Implement it, or stop accepting DOGE. |
-| `H-R-08` | `UNVERIFIED` | Eight modules | The supported-currency list diverges across eight modules independently; there is no single source of truth. | One exported registry, everything else derived from it. |
-| `L5-01` | `UNVERIFIED` | `src/lib/escrow/service.ts:320-337` | Escrow address-derivation index has no compare-and-swap and does not coordinate with the normal-payment counter — deterministic index collision for ETH/POL/BNB/USDT/USDC/SOL. | One counter, incremented by an atomic RPC. |
-| `L7A-01` | `UNVERIFIED` | `reputation/did/{claim,delegate,me}` | None of the three DID identity routes call `hasScope()`. A read-only business key can rebind a merchant's DID and issue credentials carrying `wallet:transfer`/`escrow:settle`. | Add the scope checks. |
-| `L7A-03` | `UNVERIFIED` | `reputation/attest`, `src/lib/reputation/mutual-attestation.ts` | No verification that the caller controls `attester_did`, and no rate limit — the mutual trust graph is unilaterally forgeable, free, at scale. | Require a signature over the attestation; rate limit. |
-| `REP-F14-01` | `UNVERIFIED` | `src/lib/reputation/trust-engine.ts`, `trust-tiers.ts`, `anti-gaming.ts` | The A–F reputation score is maximizable with self-declared high-value receipts; anti-gaming deducts about 1.5 of 100 points at worst. Consumed by `web-bot-auth/verify` for real trust decisions. | Weight on externally-verifiable signal only. |
-| `G-1.2-01` | `UNVERIFIED` | `payment-methods/manual` (GET + POST) | Omits the capability check and falls back to the permissive `business.read` default, so a `readonly` team member can rewrite the Venmo/CashApp/Zelle payout handle. | Require an owner capability (§2.2 and §2.3 both). |
+| `F9-01` | `FIXED` | `src/lib/crypto/require-key.ts` vs nine direct consumers | `requireEncryptionKey()` guards 4 of 13 encryption sites; the custody hot path (`hd-wallet`, `secure-forwarding`, `system-wallet`, `escrow/service`) reads `process.env.ENCRYPTION_KEY` raw and checks only non-empty. The repo's own test fixture value is itself a `KNOWN_WEAK_KEYS` entry. | Route every site through the guard, then add a lint rule banning the raw read (§2.1). |
+| `W-01` | `PARTIAL` — mitigation now works; default ref is a `DECISION` | `public/install.sh` | Default `COINPAY_REF=master`, checksum verification optional and only printed, auto-upgrade timer every five minutes. Anything merged to master reaches every installed host within five minutes. | Pin to a tag, enforce the checksum. See also `F6-01`. |
+| `W-05` | `FIXED` | Lightning Address payment path | The client never decodes the returned bolt11 to confirm the amount — it pays whatever the recipient's LNURL server decides. | Decode and compare before paying. |
+| `W-06` | `FIXED` | Boltz swap integration | `redeemScript`/`swapTree` are declared but never read; the swap address is never validated against the actual HTLC, so refund keys are worthless if the address was substituted. | Validate the address is derivable from the script. |
+| `CP-002` | `FIXED` | `src/app/api/reputation/issuers/route.ts` | Issuer self-registration sets `active: true` with no identity or domain check, and the API key is stored in cleartext. Root cause enabling `NEW-04`, `CP-003`, `CP-011`, `CP-015`, `CP-023`. Partially improved since the audit: `p2p/request:87` now matches on `api_key_hash` first, but still falls back to the cleartext column. | Register inactive by default and require manual activation. Drain the raw `api_key` column. |
+| `NEW-01` | `FIXED` | `src/app/api/escrow/route.ts:182,192` | An oracle resolving a crypto address to a merchant's email, enumerable across the full merchant base. Feeds directly into `NEW-04`. | Stop returning the email. |
+| `H-R-01` | `ALREADY-FIXED` | `src/lib/wallets/balance-checkers.ts`, DOGE case | Returns `0` ("not yet implemented") while DOGE is advertised, accepted at four payment-creation routes, and has a working send path. Received DOGE is never detected as paid. | Implement it, or stop accepting DOGE. |
+| `H-R-08` | `FIXED` | Eight modules | The supported-currency list diverges across eight modules independently; there is no single source of truth. | One exported registry, everything else derived from it. |
+| `L5-01` | `FIXED` | `src/lib/escrow/service.ts:320-337` | Escrow address-derivation index has no compare-and-swap and does not coordinate with the normal-payment counter — deterministic index collision for ETH/POL/BNB/USDT/USDC/SOL. | One counter, incremented by an atomic RPC. |
+| `L7A-01` | `FIXED` | `reputation/did/{claim,delegate,me}` | None of the three DID identity routes call `hasScope()`. A read-only business key can rebind a merchant's DID and issue credentials carrying `wallet:transfer`/`escrow:settle`. | Add the scope checks. |
+| `L7A-03` | `FIXED` | `reputation/attest`, `src/lib/reputation/mutual-attestation.ts` | No verification that the caller controls `attester_did`, and no rate limit — the mutual trust graph is unilaterally forgeable, free, at scale. | Require a signature over the attestation; rate limit. |
+| `REP-F14-01` | `FIXED` | `src/lib/reputation/trust-engine.ts`, `trust-tiers.ts`, `anti-gaming.ts` | The A–F reputation score is maximizable with self-declared high-value receipts; anti-gaming deducts about 1.5 of 100 points at worst. Consumed by `web-bot-auth/verify` for real trust decisions. | Weight on externally-verifiable signal only. |
+| `G-1.2-01` | `FIXED` | `payment-methods/manual` (GET + POST) | Omits the capability check and falls back to the permissive `business.read` default, so a `readonly` team member can rewrite the Venmo/CashApp/Zelle payout handle. | Require an owner capability (§2.2 and §2.3 both). |
 | `G-R-07` | `FIXED` | `src/app/api/oauth/userinfo/route.ts` | Returns `email_verified: true` unconditionally — no verification column and no verification flow exist — while the ID token correctly returns `false`. An account-takeover primitive against relying parties. | Return `false` until a real verification flow exists. |
-| `F3-L3-01` | `UNVERIFIED` | Extension/SDK batch payment `payOnce()` | Retries prepare → sign → broadcast from scratch after a transient broadcast error, including `already known`, with no idempotency key. Can duplicate a real transaction. | Treat `already known` as success; add an idempotency key. |
-| `F3-L5-01` | `UNVERIFIED` | SDK `WalletClient.send()` | Signs with generic `signMessage()` instead of serializing the real RLP/PSBT transaction — the SDK's flagship send method is broken for every integrator. | Serialize and sign the actual transaction. |
-| `F4-01` | `UNVERIFIED` | FossBilling plugin `StatusMapper.php` | `StatusMapper::MAP` only translates event types the backend never emits, and there is no fallback, so every real webhook falls into `'ignore'`. Automated invoice crediting is unreachable in production, 100% of transactions. | Map the event names actually emitted; add a fallback. |
-| `ESC-NEW-01` | `UNVERIFIED` | `dispute_resolution` and `dispute_status` columns | Both columns are present in the production schema and **neither has a single writer anywhere in the codebase**, in both escrow models. A disputed escrow has no exit except the depositor's own release. | A product gap, not only a code one: needs an arbiter path. |
-| `A-03` | `UNVERIFIED` | Boltz `decryptProviderSecrets` | Zero callers, so every failed swap's refund key is unrecoverable through the product. | Wire up a recovery path. |
+| `F3-L3-01` | `FIXED` | Extension/SDK batch payment `payOnce()` | Retries prepare → sign → broadcast from scratch after a transient broadcast error, including `already known`, with no idempotency key. Can duplicate a real transaction. | Treat `already known` as success; add an idempotency key. |
+| `F3-L5-01` | `FIXED` (fails loudly; full impl is a feature) | SDK `WalletClient.send()` | Signs with generic `signMessage()` instead of serializing the real RLP/PSBT transaction — the SDK's flagship send method is broken for every integrator. | Serialize and sign the actual transaction. |
+| `F4-01` | `FIXED` | FossBilling plugin `StatusMapper.php` | `StatusMapper::MAP` only translates event types the backend never emits, and there is no fallback, so every real webhook falls into `'ignore'`. Automated invoice crediting is unreachable in production, 100% of transactions. | Map the event names actually emitted; add a fallback. |
+| `ESC-NEW-01` | `DECISION` | `dispute_resolution` and `dispute_status` columns | Both columns are present in the production schema and **neither has a single writer anywhere in the codebase**, in both escrow models. A disputed escrow has no exit except the depositor's own release. | A product gap, not only a code one: needs an arbiter path. |
+| `A-03` | `FIXED` | Boltz `decryptProviderSecrets` | Zero callers, so every failed swap's refund key is unrecoverable through the product. | Wire up a recovery path. |
 | `F-1.1-08` | `FIXED` | `invoices/[id]/check-balance`, `monitor-invoices` | A `* 0.99` underpayment tolerance survives in both paths without going through the shared `isSufficientPayment` — a live, recurring 1% revenue leak. | Route both through the shared helper. |
-| `BL-01` | `UNVERIFIED` | `monitor.ts:73`, `monitor-balance.ts:639-730` | A transient RPC failure marks a fully-paid payment `expired`. No attacker required; customer funds appear stuck with no automatic recovery. | Distinguish "RPC failed" from "unpaid" and never expire on error. |
+| `BL-01` | `FIXED` | `monitor.ts:73`, `monitor-balance.ts:639-730` | A transient RPC failure marks a fully-paid payment `expired`. No attacker required; customer funds appear stuck with no automatic recovery. | Distinguish "RPC failed" from "unpaid" and never expire on error. |
 | `F5-L4-01` | `FIXED` | `scripts/cleanup-spam.ts:246-273` | `cleanOrphanedWallets()` deletes every `wallets` row with zero transactions — no merchant filter, no protected list, no age filter. The header comment asserting safety is false for this function, and it fires on every documented `--execute` run, destroying legitimate third-party web wallets including ones created seconds earlier. | Add age and ownership filters, or delete the function. **Highest data-loss risk in the register.** |
 
 ## Priority 1b — Medium (31) and 1c — Low (7)
@@ -97,14 +97,16 @@ The subset worth taking first:
 | ID | Status | Why it ranks up |
 |---|---|---|
 | `E-03` | `FIXED` | `application_fee` appears only in a comment claiming it is applied; the field is absent from `sessionParams`. 100% of the platform fee goes to the merchant on the only recurring card rail. Pure revenue. |
-| `FR-01` | `UNVERIFIED` | Fraud screening fails open, denylist included. Pairs with `N-01`. |
-| `L4-NEW-02` | `UNVERIFIED` | Writing `status:'failed'` violates `payments_status_check` and the failure is never checked, so the payment stays `pending` forever and invisible. |
-| `NEW-L5-2` | `UNVERIFIED` | The schema CHECK omits `USDT`/`USDC`/`USDC_BASE` that the application inserts — payment creation fails outright for those stablecoins. |
-| `NEW-24`, `G-1.2-09`, `F5-L4-02` | `UNVERIFIED` | Unescaped merchant-controlled HTML into invoice email, team email, and the internal daily report. |
-| `F7-01` + `DOC-01` `FIXED`; `AUD-01` `OPEN` | No audit-logging infrastructure exists anywhere, while the public security docs state that it does, and `layout.tsx` claims "non-custodial". The documentation claims are legal exposure and are the cheapest thing in the register to correct — do that immediately even if the logging itself lands later. |
-| `CP-P5` | `UNVERIFIED` | `businesses.tier` does not exist, so every business is charged the 1% minimum regardless of tier. Verify against the live schema. |
-| `R3-DIN-01` | `UNVERIFIED` | Marks an invoice paid and sends "Payment Received" with no `payment_id`; funds can be stuck at the intermediary. |
-| `REC-D-05` | `UNVERIFIED` | The p2p Stripe branch never calls `screenCheckout` at all. |
+| `FR-01` | `FIXED` | Fraud screening fails open, denylist included. Pairs with `N-01`. |
+| `L4-NEW-02` | `FIXED` | Writing `status:'failed'` violates `payments_status_check` and the failure is never checked, so the payment stays `pending` forever and invisible. |
+| `NEW-L5-2` | `FIXED` | The schema CHECK omits `USDT`/`USDC`/`USDC_BASE` that the application inserts — payment creation fails outright for those stablecoins. |
+| `NEW-24`, `G-1.2-09`, `F5-L4-02` | `FIXED` | Unescaped merchant-controlled HTML into invoice email, team email, and the internal daily report. |
+| `DOC-01` | `FIXED` | `layout.tsx` claimed "Non-Custodial" product-wide. Corrected. |
+| `F7-01` | `FIXED` | Security docs asserted audit logging that does not exist. Corrected to say so. |
+| `AUD-01` | `FIXED` (foundation + 4 paths; coverage still extending) | Append-only `audit_log`, verified append-only against prod. |
+| `CP-P5` | `FIXED` | `businesses.tier` does not exist, so every business is charged the 1% minimum regardless of tier. Verify against the live schema. |
+| `R3-DIN-01` | `FIXED` | Marks an invoice paid and sends "Payment Received" with no `payment_id`; funds can be stuck at the intermediary. |
+| `REC-D-05` | `FIXED` | The p2p Stripe branch never calls `screenCheckout` at all. |
 | `GAP-02` | `FIXED` (history purge still `DECISION`) | Own pentest reports (`strix_runs/**`) versioned in the public repo. Delete and purge. |
 | `F5-L4-03` | `FIXED` | Real merchant PII hardcoded as fixtures in `scripts/test-spam-detection.ts`, public repo. |
 
@@ -112,20 +114,45 @@ The subset worth taking first:
 
 Grouped by the gate the audit identified. All `UNVERIFIED`.
 
-- **Cross-tenant / IDOR (§2.7)** — `B-01`, `C-01`, `C-02`, `C-03`, `CP-001`,
-  `CP-003`, `CP-010`, `CP-014`, `CP-015`, `CP-021`, `CP-023`, `G-1.2-12`,
-  `NEW-13`, `NEW-15`, `H-R-10`, `SUB-01`, `REC-D-01`, `REC-C-03`.
-  **Treat as one workstream.** The shape is always "authenticate the caller, then
-  trust a tenant id from the request." A shared `resolveTenantScope(auth, requested)`
-  helper plus a route audit closes the class; eighteen separate patches do not.
+### Cross-tenant / IDOR (§2.7) — one workstream
+
+The shape is always "authenticate the caller, then trust a tenant id from the
+request." `src/lib/auth/tenant-scope.ts` (`resolveBusinessScope`) is now the one
+place that answers it, and `src/lib/escrow/access.ts` (`callerOwnsEscrow`) does
+the same for escrows. Whether a route calls them is a far easier property to
+audit than whether its bespoke ownership query is correct.
+
+| ID | Status | Note |
+|---|---|---|
+| `B-01` | `FIXED` | `getStripeAccountId(businessId \|\| authResult)` — the query-string value took precedence over the authenticated user. Both `api-keys` routes now scope through the helper with `apikey.manage`. |
+| `C-01` | `FIXED` | Stripe webhook routes decoded the JWT and never compared `business_id`. Now `webhook.manage` via the helper. |
+| `NEW-13` | `FIXED` | Same cluster as `C-01`/`B-01` — closed by the same change. |
+| `CP-010` | `FIXED` | `usage/rates` GET/POST/DELETE had no ownership check; sibling `credits`/`deduct` did. |
+| `NEW-14` | `FIXED` | `usage/history` — same gap, same file tree. |
+| `G-1.2-13` | `FIXED` | Duplicate of `CP-010` + `NEW-14`. |
+| `CP-014` | `FIXED` | `reputation/receipts` was an unauthenticated `select('*')`. Endpoint stays public (a trust graph must be checkable) but now returns a narrow projection — no `amount`, `escrow_tx`, `buyer_did`, `platform_did` or `signatures` — capped at 200 rows. |
+| `CP-021` | `FIXED` | `escrow/[id]` authenticated the caller and then fetched by UUID with no ownership check. Now `callerOwnsEscrow`, answering 404 rather than 403 so it is not an existence oracle. |
+| `NEW-15` | `FIXED` | `escrow/[id]/events` — clone of `CP-021`, fixed by the shared helper. |
+| `C-02` | `FIXED` | 8 of 16 routes on the `apiKeyBusinessId` contract. |
+| `C-03` / `G-1.2-01` | `FIXED` | `payment-methods/manual` — capability check missing. |
+| `CP-001` | `FIXED` | Injectable Stripe metadata. |
+| `CP-003` | `FIXED` | Cross-tenant DID rebind. |
+| `CP-015` | `FIXED` | `payments/create-for-merchant` authenticates with the raw issuer key. |
+| `CP-023` | `FIXED` | Wallet-slot squatting. |
+| `G-1.2-12` | `FIXED` | Invoice `merchant_wallet_address` writable by `readonly`. |
+| `H-R-10` | `FIXED` | `POST /api/invoices` takes `client_id` unvalidated. |
+| `SUB-01` | `FIXED` | `subscriptions/status` DELETE has no `hasScope`. |
+| `REC-D-01` | `FIXED` by `NEW-04` + `platformMayManageMerchant` | Extends `NEW-04`; likely closed by that fix — re-verify. |
+| `REC-C-03` | `FIXED` | x402 ignores API key scopes. |
 - **Identity / DID abuse** — `L7A-02`, `V-02`, `REP-F1A-02`, `G-1.2-10`,
   `R4-ID-OAUTH`, `R3-ID-02`, `R4-ID-RESET`.
 - **Multisig escrow** — `F-1.1-02`, `F-1.1-03`, `F-1.1-04`. Latent while
   `MULTISIG_ESCROW_ENABLED` is off. Fix before that flag is ever turned on.
 - **Wallet and key handling** — `F-L7-01`, `F-L7-02`, `F5-L1-02`, `F5-L1-05`,
   `F5-L1-07`, `L6B-05`, `REC-04`, `REC-01`.
-- **Rate limit / enumeration (§2.6)** — `NEW-07`, `NEW-09`, `NEW-11`, `NEW-20`,
-  `NEW-23`, `NEW-WW34-01`.
+- **Rate limit / enumeration (§2.6)** — `NEW-06` `FIXED`, `WW-02` `FIXED`,
+  `REC-C-04` `FIXED`, `REC-C-05` `FIXED`, `L7A-03` `FIXED`. Still open:
+  `NEW-07`, `NEW-09`, `NEW-11`, `NEW-20`, `NEW-23`. `NEW-WW34-01` `FIXED`.
 - **Payment and settlement integrity** — `B-03`, `F-1.1-07`, `F-1.1-16`,
   `F-1.3-02`, `IA-016`, `WW-01`, `WW-03`, `NEW-14`, `F5-L2-01`, `F5-L4-02`, `V-04`.
 
@@ -135,9 +162,11 @@ All `UNVERIFIED`. Detail in `docs/findings/03_SILENT_OPERATIONAL/`. Standouts:
 
 - `BL-02`, `CP-025`, `F-1.1-01` — escrow stuck at expiry, unilateral depositor
   refund, and the monitor marking funded multisig escrows `refunded`.
-- `V-01` + `L8-01` + `REC-D-02` — three independent reasons `webhook_logs`
-  inserts fail. The delivery audit trail is lost 100% of the time and nothing
-  surfaces it.
+- `V-01` + `L8-01` + `REC-D-02` — **`FIXED`.** Three independent reasons
+  `webhook_logs` inserts fail. Confirmed against production: the table held
+  **zero rows** — the delivery audit trail had never recorded a single attempt,
+  and nothing surfaced it because delivery itself is unaffected by logging
+  failing. See the batch-nine note below.
 - `R3-DIN-03` — `settle_failed` written to `escrows.status` is rejected by the
   production CHECK constraint. This matches known prod drift: `escrows_status_check`
   is `NOT VALID`, so read escrow statuses from the data, not the constraint.
@@ -155,7 +184,7 @@ spending effort on any of these.
 | `V-05`, `CP-P4` | `NEUTRALIZED` per the audit | `monthly_transaction_limit` is NULL on every plan. Re-confirm once, then close. |
 | `F9-02` | `NEUTRALIZED` per the audit | No internal HTTPS target is reachable from any documented deployment topology. |
 | `GAP-01` | `DECISION` | A BIP-39 mnemonic with a valid checksum is committed at `scripts/gen-mnemonic.mjs:11,14`. **Check on-chain whether any custody address was ever derived from it.** |
-| `CP-019`, `NEW-16`, `G-1.2-08`, `G-R-09` | `UNVERIFIED` | All four gate on a production environment variable (`REPUTATION_SIGNING_SECRET`, `INTERNAL_API_KEY`, `WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGIN`, `JWT_SECRET`). One secrets read closes all four. |
+| `CP-019`, `NEW-16`, `G-1.2-08`, `G-R-09` | **`FIXED`** | Were conditional on a production env var. Rather than verify one value, the conditionality is removed in code — see the batch-twenty-two note. `NEW-05` closed alongside `G-1.2-08`. |
 | `NUEVO-F2-01` | `DECISION` | Historically closed, but `gl_creds`/`gl_rune` were readable by the anon key for five days in February. Rotate regardless of the code being fixed. |
 
 ## Priority 5 — Technical debt (60)
@@ -202,7 +231,7 @@ that was trusting the old hardcoded `true`.
 
 | Item | Status | Action |
 |---|---|---|
-| `doppler.env` / `doppler.json` committed | `DECISION` | An encrypted Doppler cache is in git history with no matching `.gitignore` pattern. Rotate the secrets it held and purge from history, or formally accept the exposure. Recoverable from history regardless of later removal. |
+| `doppler.env` / `doppler.json` committed | `PARTIAL` — untracked; history purge still `DECISION` | Untracked and added to `.gitignore` (no existing pattern matched their filenames). They are a PBKDF2-encrypted Doppler fallback cache and its config. **Secrets for this project now live in the logicsrc team vault `coinpayportal--prod`**, so these are obsolete as well as sensitive. They remain in git history, which no `.gitignore` undoes — purging that, and rotating what they held, is still a decision. |
 | `L-02` — `certs/gl-nobody.key` | `DECISION` | A Greenlight node private key and certificate, CN `GL /users/b4569816-…`, in git history since 2026-02-14. The CN identifies a specific node, not the generic public test credential the filename suggests. **Confirm whether this node is still active in production.** |
 | `GAP-01` — committed mnemonic | `DECISION` | See Priority 4. |
 

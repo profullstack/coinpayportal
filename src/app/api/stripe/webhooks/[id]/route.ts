@@ -1,7 +1,10 @@
+import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
+import { resolveBusinessScope } from '@/lib/auth/tenant-scope';
+import { createServiceClient } from '@/lib/supabase/service-client';
 import { getStripe } from '@/lib/server/optional-deps';
 import { decrypt } from '@/lib/crypto/encryption';
 
@@ -44,6 +47,18 @@ export async function DELETE(
 
     if (!businessId) {
       return NextResponse.json({ success: false, error: 'business_id is required' }, { status: 400 });
+    }
+
+    // Authenticating the caller and then trusting the `business_id` they sent
+    // is not authorization. These routes create webhook endpoints ON the named
+    // business's Stripe Connect account and return the signing secret, so an
+    // unchecked business_id hands an attacker a live feed of another merchant's
+    // Stripe events, pointed at a URL of their choosing.
+    const tenant = await resolveBusinessScope(
+      createServiceClient(), decoded.userId, businessId, 'webhook.manage',
+    );
+    if (!tenant.ok) {
+      return NextResponse.json({ success: false, error: tenant.error }, { status: tenant.status });
     }
 
     // Verify the user owns this business / has a Stripe account
@@ -134,6 +149,18 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'business_id is required' }, { status: 400 });
     }
 
+    // Authenticating the caller and then trusting the `business_id` they sent
+    // is not authorization. These routes create webhook endpoints ON the named
+    // business's Stripe Connect account and return the signing secret, so an
+    // unchecked business_id hands an attacker a live feed of another merchant's
+    // Stripe events, pointed at a URL of their choosing.
+    const tenant = await resolveBusinessScope(
+      createServiceClient(), decoded.userId, businessId, 'webhook.manage',
+    );
+    if (!tenant.ok) {
+      return NextResponse.json({ success: false, error: tenant.error }, { status: tenant.status });
+    }
+
     const stripeAccountId = await getStripeAccountId(businessId);
     if (!stripeAccountId) {
       return NextResponse.json({ success: false, error: 'Stripe account not found' }, { status: 404 });
@@ -155,10 +182,14 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'No stored secret for this endpoint' }, { status: 404 });
     }
 
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (!encryptionKey) {
+    // Guarded, not just present: a bare presence check accepts an all-zero key,
+    // under which this stored secret was never meaningfully encrypted.
+    const keyResult = tryRequireEncryptionKey('stripe webhook secret');
+    if (!keyResult.ok) {
+      console.error('[Stripe] Cannot decrypt webhook secret:', keyResult.error);
       return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
     }
+    const encryptionKey = keyResult.key;
 
     const secret = decrypt(secretRow.encrypted_secret, encryptionKey);
     return NextResponse.json({ success: true, secret });

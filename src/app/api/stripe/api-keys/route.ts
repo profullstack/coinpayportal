@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
 import { getStripe } from '@/lib/server/optional-deps';
+import { resolveBusinessScope } from '@/lib/auth/tenant-scope';
+import { createServiceClient } from '@/lib/supabase/service-client';
 
 async function getStripeAccountId(businessId: string): Promise<string | null> {
   const supabase = createClient(
@@ -40,9 +42,23 @@ export async function GET(request: NextRequest) {
     if (authResult instanceof NextResponse) return authResult;
 
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get('business_id');
 
-    const stripeAccountId = await getStripeAccountId(businessId || authResult);
+    // `getStripeAccountId(businessId || authResult)` put the untrusted value
+    // FIRST: `?business_id=<victim>` overrode the authenticated user entirely,
+    // and this route lists — and POST below mints — Stripe restricted keys on
+    // whatever Connect account that resolved to. The fallback was broken as
+    // well as unsafe, passing a merchant id where a business id was expected.
+    const scope = await resolveBusinessScope(
+      createServiceClient(),
+      authResult,
+      searchParams.get('business_id'),
+      'apikey.manage',
+    );
+    if (!scope.ok) {
+      return NextResponse.json({ success: false, error: scope.error }, { status: scope.status });
+    }
+
+    const stripeAccountId = await getStripeAccountId(scope.businessId);
     if (!stripeAccountId) {
       return NextResponse.json({ success: true, keys: [], account_id: null });
     }
@@ -109,7 +125,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Name is required' }, { status: 400 });
     }
 
-    const stripeAccountId = await getStripeAccountId(business_id || authResult);
+    const scope = await resolveBusinessScope(
+      createServiceClient(),
+      authResult,
+      business_id,
+      'apikey.manage',
+    );
+    if (!scope.ok) {
+      return NextResponse.json({ success: false, error: scope.error }, { status: scope.status });
+    }
+
+    const stripeAccountId = await getStripeAccountId(scope.businessId);
     if (!stripeAccountId) {
       return NextResponse.json({ success: false, error: 'Stripe account not found' }, { status: 404 });
     }

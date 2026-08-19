@@ -62,6 +62,19 @@ vi.mock('@/lib/entitlements/service', () => ({
   // not read-then-incremented, so the mock mirrors that contract.
   consumeTransactionQuota: vi.fn().mockResolvedValue({ allowed: true, currentUsage: 1 }),
   releaseTransactionQuota: vi.fn().mockResolvedValue(undefined),
+  // The card branch used to read `businesses.tier`, a column that does not
+  // exist, so the fee always fell through to the free rate. It now resolves the
+  // tier through the merchant's subscription like every other rail.
+  isBusinessPaidTier: (...args: unknown[]) => mockIsBusinessPaidTier(...args),
+}));
+
+const mockIsBusinessPaidTier = vi.fn();
+
+// N-01: the card rail creates a real charge, so it is screened before the
+// Stripe session exists. Default: allow.
+const mockScreenCheckout = vi.fn();
+vi.mock('@/lib/fraud/screen', () => ({
+  screenCheckout: (...args: unknown[]) => mockScreenCheckout(...args),
 }));
 
 vi.mock('@/lib/payments/service', () => ({
@@ -70,6 +83,15 @@ vi.mock('@/lib/payments/service', () => ({
 }));
 
 import { POST } from './route';
+
+mockScreenCheckout.mockResolvedValue({
+  decision: 'allow',
+  score: 0,
+  findings: [],
+  signals: {},
+  misrepresentation: null,
+});
+mockIsBusinessPaidTier.mockResolvedValue(false);
 
 function mockSingleQuery(response: any) {
   const query: any = {
@@ -150,6 +172,15 @@ function makeRequest(body: Record<string, any>) {
 describe('Unified Payment Creation - POST /api/payments/create', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks wipes implementations, so restore the defaults each test.
+    mockIsBusinessPaidTier.mockResolvedValue(false);
+    mockScreenCheckout.mockResolvedValue({
+      decision: 'allow',
+      score: 0,
+      findings: [],
+      signals: {},
+      misrepresentation: null,
+    });
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     process.env.STRIPE_SECRET_KEY = 'sk_test_123';
@@ -332,10 +363,16 @@ describe('Unified Payment Creation - POST /api/payments/create', () => {
     });
 
     it('should use correct platform fee for pro tier', async () => {
+      // Was expressed as `tier: 'pro'` on the businesses row. That column does
+      // not exist in the database, which is exactly why this rail charged every
+      // business the free rate (CP-P5) — the query errored, the row came back
+      // null, and the fee fell through to the default. The tier now comes from
+      // the merchant's subscription, like every other rail.
+      mockIsBusinessPaidTier.mockResolvedValue(true);
       setupMockChain({
         businesses: {
           select: vi.fn().mockReturnValue(mockSingleQuery({
-            data: { id: 'biz_123', tier: 'pro', merchant_id: 'merchant_123' },
+            data: { id: 'biz_123', merchant_id: 'merchant_123' },
           })),
         },
       });

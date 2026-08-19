@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { resolveMerchant } from '@/lib/auth/merchant';
+import { resolveMerchant, keyMayActOnBusiness } from '@/lib/auth/merchant';
 import { authorizeBusiness } from '@/lib/auth/authz';
 import { verifyAuthChallenge } from '@/lib/web-wallet/service';
 import { listWalletAccountLinks } from '@/lib/wallets/linked-web-wallets';
@@ -30,9 +30,19 @@ export async function GET(request: NextRequest) {
 
     const businessId = new URL(request.url).searchParams.get('business_id');
 
+    // A scoped key reads only its own business's links.
+    if (!keyMayActOnBusiness(auth, businessId)) {
+      return NextResponse.json(
+        { success: false, error: 'This API key cannot read that business' },
+        { status: 403 }
+      );
+    }
+
     const { links, error } = await listWalletAccountLinks(supabase, {
       merchantId: auth.merchantId,
-      businessId,
+      // With a scoped key and no explicit filter, narrow to the key's own
+      // business rather than returning every business the merchant owns.
+      businessId: businessId ?? auth.apiKeyBusinessId,
     });
     if (error) {
       return NextResponse.json({ success: false, error }, { status: 400 });
@@ -105,6 +115,16 @@ export async function POST(request: NextRequest) {
 
     // Business-scoped links require write access to that business.
     if (business_id) {
+    // A key issued for one business must not act on another, even when both
+    // belong to the same merchant. `resolveMerchant` returns the key's own
+    // business precisely so routes can enforce this; half of them did not.
+      if (!keyMayActOnBusiness(auth, business_id)) {
+        return NextResponse.json(
+          { success: false, error: 'This API key cannot act on that business' },
+          { status: 403 }
+        );
+      }
+
       const authz = await authorizeBusiness(supabase, auth.merchantId, business_id, 'wallet.manage');
       if (!authz.ok) {
         return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });

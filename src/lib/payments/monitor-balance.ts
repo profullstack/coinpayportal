@@ -55,6 +55,21 @@ export interface Payment {
 export interface BalanceResult {
   balance: number;
   txHash?: string;
+  /**
+   * Set when the balance could NOT be determined — an RPC error, a non-OK
+   * response, an unsupported chain.
+   *
+   * Every lookup here previously answered `{ balance: 0 }` on failure, which is
+   * indistinguishable from "this address has genuinely received nothing". The
+   * caller acted on that: a payment past its expiry window at the moment an RPC
+   * happened to be down was marked `expired` even though the customer had paid
+   * in full. No attacker required, and no automatic recovery — the funds sat at
+   * an address belonging to a payment the platform had written off.
+   *
+   * `balance` stays 0 alongside this so existing arithmetic is unaffected;
+   * callers that make an irreversible decision must check `error` first.
+   */
+  error?: string;
 }
 
 /**
@@ -65,7 +80,7 @@ async function checkBitcoinBalance(address: string): Promise<BalanceResult> {
     const response = await fetch(`https://blockstream.info/api/address/${address}`);
     if (!response.ok) {
       await drainResponse(response);
-      return { balance: 0 };
+      return { balance: 0, error: 'checkBitcoinBalance: lookup failed' };
     }
     
     const data = await response.json();
@@ -92,7 +107,7 @@ async function checkBitcoinBalance(address: string): Promise<BalanceResult> {
     return { balance, txHash };
   } catch (error) {
     console.error(`[Monitor] Error checking BTC balance for ${address}:`, error);
-    return { balance: 0 };
+    return { balance: 0, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -103,7 +118,7 @@ async function checkBCHBalance(address: string): Promise<BalanceResult> {
   try {
     if (!CRYPTO_APIS_KEY) {
       console.error('[Monitor] CRYPTO_APIS_KEY not configured for BCH');
-      return { balance: 0 };
+      return { balance: 0, error: 'checkBCHBalance: lookup failed' };
     }
     const url = `https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet/addresses/${address}`;
     
@@ -118,7 +133,7 @@ async function checkBCHBalance(address: string): Promise<BalanceResult> {
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`[Monitor] Failed to fetch BCH balance for ${address}: ${response.status} - ${errorText}`);
-      return { balance: 0 };
+      return { balance: 0, error: 'checkBCHBalance: lookup failed' };
     }
     
     const data = await response.json();
@@ -151,7 +166,7 @@ async function checkBCHBalance(address: string): Promise<BalanceResult> {
     return { balance, txHash };
   } catch (error) {
     console.error(`[Monitor] Error checking BCH balance for ${address}:`, error);
-    return { balance: 0 };
+    return { balance: 0, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -174,13 +189,13 @@ async function checkEVMBalance(address: string, rpcUrl: string, chain: string): 
     
     if (!response.ok) {
       await drainResponse(response);
-      return { balance: 0 };
+      return { balance: 0, error: 'checkEVMBalance: lookup failed' };
     }
     
     const data = await response.json();
     if (data.error) {
       console.error(`[Monitor] RPC error for ${address}:`, data.error);
-      return { balance: 0 };
+      return { balance: 0, error: 'checkEVMBalance: lookup failed' };
     }
     
     const balanceWei = BigInt(data.result || '0x0');
@@ -200,7 +215,7 @@ async function checkEVMBalance(address: string, rpcUrl: string, chain: string): 
     return { balance, txHash };
   } catch (error) {
     console.error(`[Monitor] Error checking ${chain} balance for ${address}:`, error);
-    return { balance: 0 };
+    return { balance: 0, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -225,19 +240,19 @@ async function checkEVMTokenBalance(
 
     if (!response.ok) {
       await drainResponse(response);
-      return { balance: 0 };
+      return { balance: 0, error: 'checkEVMTokenBalance: lookup failed' };
     }
 
     const data = await response.json();
     if (data.error) {
       console.error(`[Monitor] EVM token balance RPC error for ${address}:`, data.error);
-      return { balance: 0 };
+      return { balance: 0, error: 'checkEVMTokenBalance: lookup failed' };
     }
 
     return { balance: Number(BigInt(data.result || '0x0')) / 10 ** decimals };
   } catch (error) {
     console.error(`[Monitor] Error checking EVM token balance for ${address}:`, error);
-    return { balance: 0 };
+    return { balance: 0, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -359,19 +374,19 @@ async function checkSolanaBalance(address: string, rpcUrl: string): Promise<Bala
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`[Monitor] Failed to fetch SOL balance for ${address}: ${response.status} - ${errorText}`);
-      return { balance: 0 };
+      return { balance: 0, error: `checkSolanaBalance: ${response.status}` };
     }
 
     const data = await response.json();
     if (data.error) {
       console.error(`[Monitor] RPC error for ${address}:`, data.error);
-      return { balance: 0 };
+      return { balance: 0, error: 'checkSolanaBalance: lookup failed' };
     }
     
     return solanaBalanceResult(address, data.result?.value || 0, rpcUrl);
   } catch (error) {
     console.error(`[Monitor] Error checking SOL balance for ${address}:`, error);
-    return { balance: 0 };
+    return { balance: 0, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -443,13 +458,13 @@ async function checkSolanaTokenBalance(
 
     if (!response.ok) {
       await drainResponse(response);
-      return { balance: 0 };
+      return { balance: 0, error: 'checkSolanaTokenBalance: lookup failed' };
     }
 
     const data = await response.json();
     if (data.error) {
       console.error(`[Monitor] Solana token balance RPC error for ${address}:`, data.error);
-      return { balance: 0 };
+      return { balance: 0, error: 'checkSolanaTokenBalance: lookup failed' };
     }
 
     const accounts = data.result?.value || [];
@@ -466,7 +481,7 @@ async function checkSolanaTokenBalance(
     return { balance };
   } catch (error) {
     console.error(`[Monitor] Error checking Solana token balance for ${address}:`, error);
-    return { balance: 0 };
+    return { balance: 0, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -491,10 +506,10 @@ async function checkDOGEBalance(address: string): Promise<BalanceResult> {
         return { balance };
       }
     }
-    return { balance: 0 };
+    return { balance: 0, error: 'checkDOGEBalance: lookup failed' };
   } catch (error) {
     console.error(`[Monitor] Error checking DOGE balance for ${address}:`, error);
-    return { balance: 0 };
+    return { balance: 0, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -514,7 +529,7 @@ async function checkBNBBalance(address: string): Promise<BalanceResult> {
       }),
     });
     if (!response.ok) {
-      return { balance: 0 };
+      return { balance: 0, error: 'checkBNBBalance: lookup failed' };
     }
     const data = await response.json();
     const balanceWei = BigInt(data.result || '0x0');
@@ -522,7 +537,7 @@ async function checkBNBBalance(address: string): Promise<BalanceResult> {
     return { balance };
   } catch (error) {
     console.error(`[Monitor] Error checking BNB balance for ${address}:`, error);
-    return { balance: 0 };
+    return { balance: 0, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -540,7 +555,7 @@ async function checkXRPBalance(address: string): Promise<BalanceResult> {
       }),
     });
     if (!response.ok) {
-      return { balance: 0 };
+      return { balance: 0, error: 'checkXRPBalance: lookup failed' };
     }
     const data = await response.json();
     if (data.result?.error === 'actNotFound') {
@@ -552,7 +567,7 @@ async function checkXRPBalance(address: string): Promise<BalanceResult> {
     return { balance };
   } catch (error) {
     console.error(`[Monitor] Error checking XRP balance for ${address}:`, error);
-    return { balance: 0 };
+    return { balance: 0, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -564,7 +579,7 @@ async function checkADABalance(address: string): Promise<BalanceResult> {
     const blockfrostKey = process.env.BLOCKFROST_API_KEY;
     if (!blockfrostKey) {
       console.error('[Monitor] BLOCKFROST_API_KEY not configured for ADA');
-      return { balance: 0 };
+      return { balance: 0, error: 'checkADABalance: lookup failed' };
     }
     const response = await fetch(`https://cardano-mainnet.blockfrost.io/api/v0/addresses/${address}`, {
       headers: { 'project_id': blockfrostKey },
@@ -573,7 +588,7 @@ async function checkADABalance(address: string): Promise<BalanceResult> {
       return { balance: 0 }; // Address not used yet
     }
     if (!response.ok) {
-      return { balance: 0 };
+      return { balance: 0, error: 'checkADABalance: lookup failed' };
     }
     const data = await response.json();
     // ADA is in lovelace (1 ADA = 1,000,000 lovelace)
@@ -584,7 +599,7 @@ async function checkADABalance(address: string): Promise<BalanceResult> {
     return { balance };
   } catch (error) {
     console.error(`[Monitor] Error checking ADA balance for ${address}:`, error);
-    return { balance: 0 };
+    return { balance: 0, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -629,7 +644,7 @@ export async function checkBalance(address: string, blockchain: string): Promise
       return checkADABalance(address);
     default:
       console.error(`[Monitor] Unsupported blockchain: ${blockchain}`);
-      return { balance: 0 };
+      return { balance: 0, error: `unsupported blockchain: ${blockchain}` };
   }
 }
 
@@ -716,6 +731,25 @@ export async function processPayment(supabase: any, payment: Payment): Promise<{
   }
 
   if (isExpired) {
+    // Never expire a payment on a balance we could not read.
+    //
+    // `checkBalance` used to answer `{ balance: 0 }` for an RPC error just as it
+    // does for an address that has genuinely received nothing, so a transient
+    // provider outage during the expiry window marked fully-paid payments
+    // `expired`. The customer's funds were at the address; the platform had
+    // written the payment off; nothing retried.
+    //
+    // Leaving it pending is the safe direction: the cron runs again, and a
+    // payment that really is unpaid expires on the next cycle once the provider
+    // answers.
+    if (balanceResult.error) {
+      console.error(
+        `[Monitor] Payment ${payment.id} is past expiry but its balance could not be read ` +
+        `(${balanceResult.error}) — leaving pending rather than expiring it.`
+      );
+      return { confirmed: false, expired: false };
+    }
+
     console.log(`[Monitor] Payment ${payment.id} expired`);
     await supabase
       .from('payments')

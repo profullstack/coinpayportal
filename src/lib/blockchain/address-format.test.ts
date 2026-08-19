@@ -11,8 +11,6 @@ describe('isValidPayoutAddress', () => {
     expect(isValidPayoutAddress(SOL, 'SOL')).toBe(true);
     expect(isValidPayoutAddress(SOL, 'USDC_SOL')).toBe(true);
     expect(isValidPayoutAddress(SOL, 'USDT_SOL')).toBe(true);
-    // Bare USDC defaults to the Solana rail.
-    expect(isValidPayoutAddress(SOL, 'USDC')).toBe(true);
   });
 
   it('validates EVM addresses for ETH/POL and their token variants', () => {
@@ -20,8 +18,18 @@ describe('isValidPayoutAddress', () => {
     expect(isValidPayoutAddress(EVM, 'POL')).toBe(true);
     expect(isValidPayoutAddress(EVM, 'USDC_ETH')).toBe(true);
     expect(isValidPayoutAddress(EVM, 'USDT_POL')).toBe(true);
-    // Bare USDT defaults to the EVM rail.
+    // Bare USDT and bare USDC both settle as ERC-20 on Ethereum, so both
+    // validate as EVM addresses.
+    //
+    // This test previously asserted that bare USDC validated as a *Solana*
+    // address, matching a validator that disagreed with the rest of the
+    // codebase: monitor-balance checks plain USDC on the Ethereum RPC, fees
+    // price it off the Ethereum gas path, and address generation puts it on the
+    // Ethereum family. A merchant therefore had to supply a Solana address to
+    // pass validation and was then paid on Ethereum (H-R-06).
     expect(isValidPayoutAddress(EVM, 'USDT')).toBe(true);
+    expect(isValidPayoutAddress(EVM, 'USDC')).toBe(true);
+    expect(isValidPayoutAddress(SOL, 'USDC')).toBe(false);
   });
 
   it('validates BTC addresses', () => {

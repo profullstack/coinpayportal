@@ -2,6 +2,7 @@
  * WebAuthn Registration Options
  * GET — returns options for navigator.credentials.create()
  */
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateRegistrationOptions } from '@simplewebauthn/server';
@@ -17,11 +18,21 @@ function getSupabase() {
 }
 
 export async function GET(request: NextRequest) {
+  // Authenticated, so keyed by user rather than IP. No WebAuthn route had any
+  // limit; this one mints a challenge and writes a row on every call.
   const user = await getAuthUser(request);
   if (!user) {
     return NextResponse.json(
       { success: false, error: 'Authentication required' },
       { status: 401 }
+    );
+  }
+
+  const rate = await checkRateLimitAsync(user.id, 'webauthn_options');
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { success: false, error: 'Too many attempts. Please try again shortly.' },
+      { status: 429 }
     );
   }
 

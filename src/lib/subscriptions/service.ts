@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { recordAuditEvent } from '../audit/log';
 import { createBusinessCollectionPayment } from '../payments/business-collection';
 
 /**
@@ -305,6 +306,25 @@ export async function handleSubscriptionPaymentConfirmed(
         error: updateError.message,
       };
     }
+
+    // Audit: a plan was granted. `docs/SECURITY.md` claimed payment state
+    // changes were logged; AUD-01 found nothing logged them. This is one.
+    await recordAuditEvent(supabase, {
+      action: 'subscription.activated',
+      actorType: 'system',
+      actorId: 'payment-monitor',
+      subjectType: 'merchant',
+      subjectId: merchantId,
+      merchantId,
+      detail: {
+        plan_id: planId,
+        billing_period: billingPeriod,
+        payment_id: paymentId,
+        amount_paid: payment.amount,
+        currency: payment.currency,
+        ends_at: endDate.toISOString(),
+      },
+    });
 
     // Update subscription history
     await supabase

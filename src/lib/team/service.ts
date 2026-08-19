@@ -12,6 +12,7 @@
  * through src/lib/email (Resend/Mailgun).
  */
 
+import { escapeHtml, escapeUrl } from '../email/escape';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes } from 'crypto';
 import { sendEmail } from '@/lib/email';
@@ -122,18 +123,23 @@ function invitationEmailHtml(opts: {
   role: Role;
   acceptUrl: string;
 }): string {
+  // `scopeLabel` is the business or organization NAME, chosen by whoever
+  // created it — and creating a merchant account is free and unverified. It was
+  // interpolated raw into an email delivered to an arbitrary address the same
+  // caller supplies, which makes this a way to send attacker-authored HTML from
+  // the platform's own sending domain, to anyone, with no rate limit.
   return `
     <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 480px; margin: 0 auto;">
-      <h2>You've been invited to ${opts.scopeLabel} on CoinPay</h2>
-      <p>You've been added as a <strong>${opts.role}</strong>. Click below to accept the invitation and access the workspace.</p>
+      <h2>You've been invited to ${escapeHtml(opts.scopeLabel)} on CoinPay</h2>
+      <p>You've been added as a <strong>${escapeHtml(opts.role)}</strong>. Click below to accept the invitation and access the workspace.</p>
       <p style="margin: 24px 0;">
-        <a href="${opts.acceptUrl}"
+        <a href="${escapeUrl(opts.acceptUrl)}"
            style="background:#111827;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;display:inline-block;">
           Accept invitation
         </a>
       </p>
       <p style="color:#6b7280;font-size:13px;">This invitation expires in 7 days. If you didn't expect this, you can ignore this email.</p>
-      <p style="color:#9ca3af;font-size:12px;word-break:break-all;">${opts.acceptUrl}</p>
+      <p style="color:#9ca3af;font-size:12px;word-break:break-all;">${escapeHtml(opts.acceptUrl)}</p>
     </div>
   `;
 }

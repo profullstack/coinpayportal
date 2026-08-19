@@ -14,6 +14,7 @@
  * - All key operations are logged (without exposing key material)
  */
 
+import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ethers } from 'ethers';
 import {
@@ -192,13 +193,13 @@ async function getDecryptedPrivateKey(
     }
 
     // Get encryption key from environment
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (!encryptionKey) {
-      return {
-        success: false,
-        error: 'Encryption key not configured',
-      };
+    // Guarded, not just present: decrypting under a known-weak key is the
+    // same exposure as never having encrypted at all.
+    const keyResult = tryRequireEncryptionKey('forwarding');
+    if (!keyResult.ok) {
+      return { success: false, error: keyResult.error };
     }
+    const encryptionKey = keyResult.key;
 
     // Decrypt the private key
     const privateKey = decrypt(addressData.encrypted_private_key, encryptionKey);

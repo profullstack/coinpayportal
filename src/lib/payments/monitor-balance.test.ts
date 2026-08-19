@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { checkBalance, primeSolanaBalances, resetSolBalanceCache } from './monitor-balance';
+import { checkBalance, primeSolanaBalances, processPayment, resetSolBalanceCache } from './monitor-balance';
 
 /**
  * The failure these guard: the monitor checked pending payments one at a time
@@ -148,5 +148,81 @@ describe('primeSolanaBalances', () => {
   it('does nothing at all when there is nothing to prime', async () => {
     await primeSolanaBalances([], 'https://rpc.example');
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * BL-01 (High, 2026-08-19 audit).
+ *
+ * Every balance lookup answered `{ balance: 0 }` on an RPC error, exactly as it
+ * does for an address that has genuinely received nothing. `processPayment`
+ * acted on that: a payment past its expiry window at the moment a provider
+ * happened to be down was marked `expired` even though the customer had paid in
+ * full. No attacker required, and no automatic recovery — the funds sat at an
+ * address belonging to a payment the platform had written off.
+ */
+describe('processPayment expiry', () => {
+  const mockFetch = vi.fn();
+
+  function makeSupabase() {
+    const updates: Array<Record<string, unknown>> = [];
+    const client = {
+      from: () => ({
+        update: (values: Record<string, unknown>) => {
+          updates.push(values);
+          return { eq: async () => ({ error: null }) };
+        },
+      }),
+    };
+    return { client: client as never, updates };
+  }
+
+  const expiredPayment = {
+    id: 'pay-1',
+    payment_address: '7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV',
+    blockchain: 'SOL',
+    crypto_amount: '1.5',
+    expires_at: new Date(Date.now() - 60_000).toISOString(),
+  };
+
+  beforeEach(() => {
+    resetSolBalanceCache();
+    mockFetch.mockReset();
+    vi.stubGlobal('fetch', mockFetch);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('does not expire a payment whose balance could not be read', async () => {
+    // The provider is down. Nothing here says the customer did not pay.
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: async () => ({}),
+      text: async () => 'Connection rate limits exceeded',
+    });
+
+    const { client, updates } = makeSupabase();
+    const result = await processPayment(client, expiredPayment as never);
+
+    expect(result.expired).toBe(false);
+    expect(updates).toHaveLength(0);
+  });
+
+  it('still expires a payment the chain confirms is unpaid', async () => {
+    mockFetch.mockResolvedValue(jsonOk({ result: { value: 0 } }));
+
+    const { client, updates } = makeSupabase();
+    const result = await processPayment(client, expiredPayment as never);
+
+    expect(result.expired).toBe(true);
+    expect(updates).toHaveLength(1);
+    expect(updates[0].status).toBe('expired');
   });
 });

@@ -296,41 +296,205 @@ function describeSolError(error: {
  * not available here; those are recorded as unverified rather than silently
  * treated as checked — see `binding_verified` in the row metadata.
  */
+/**
+ * Token decimals per EVM chain, needed to compare a human-readable prepared
+ * amount against the integer value carried in the signed transaction.
+ */
+const EVM_DECIMALS: Record<string, number> = {
+  ETH: 18,
+  POL: 18,
+  USDC_ETH: 6,
+  USDC_POL: 6,
+  USDC_BASE: 6,
+};
+
+/**
+ * Decode a signed Bitcoin transaction and confirm its outputs pay the prepared
+ * recipient at least the prepared amount.
+ *
+ * WW-03: BTC, BCH, SOL and USDC_SOL had NO binding check at all — the decoder
+ * simply reported "no decoder for <chain>" and the broadcast proceeded, so a
+ * signed transaction on those chains was never compared against what the
+ * platform had prepared and recorded.
+ */
+async function verifyBtcBinding(
+  signedTx: string,
+  expected: { to_address: string | null; amount: string | number | null },
+  network: 'bitcoin',
+): Promise<{ verified: boolean; reason?: string; mismatch?: boolean }> {
+  const bitcoin = await import('bitcoinjs-lib');
+  const tx = bitcoin.Transaction.fromHex(signedTx);
+  const net = bitcoin.networks[network];
+
+  if (!expected.to_address) return { verified: true };
+
+  // Sum every output paying the prepared address. A transaction legitimately
+  // has a change output back to the sender, so this is "did the payee get at
+  // least what we recorded", not "the transaction has exactly one output".
+  let paid = 0n;
+  for (const out of tx.outs) {
+    let outAddress: string | null = null;
+    try {
+      outAddress = bitcoin.address.fromOutputScript(out.script, net);
+    } catch {
+      continue; // OP_RETURN and other non-address outputs
+    }
+    if (outAddress === expected.to_address) {
+      paid += BigInt(out.value);
+    }
+  }
+
+  if (paid === 0n) {
+    return {
+      verified: false,
+      mismatch: true,
+      reason: `no output pays prepared ${expected.to_address}`,
+    };
+  }
+
+  if (expected.amount !== null && expected.amount !== undefined && expected.amount !== '') {
+    // Prepared amounts are human-readable BTC; outputs are satoshis.
+    const expectedSats = BigInt(Math.round(Number(expected.amount) * 1e8));
+    if (paid < expectedSats) {
+      return {
+        verified: false,
+        mismatch: true,
+        reason: `outputs pay ${paid} sats to prepared address, expected ${expectedSats}`,
+      };
+    }
+  }
+
+  return { verified: true };
+}
+
+/**
+ * Decode a signed Solana transaction and confirm the prepared recipient appears
+ * among its account keys. See `verifyBtcBinding` for why this exists.
+ *
+ * Deliberately weaker than the BTC and EVM checks: a Solana transaction's
+ * transfer amount lives inside instruction data whose layout depends on the
+ * program (System vs SPL Token), and decoding every variant correctly is not
+ * something to guess at in a broadcast guard. Confirming the payee is present
+ * catches a wholesale substitution of the recipient, which is the case that
+ * matters most; anything finer is reported as unverified rather than claimed.
+ */
+async function verifySolBinding(
+  signedTx: string,
+  expected: { to_address: string | null },
+): Promise<{ verified: boolean; reason?: string; mismatch?: boolean }> {
+  if (!expected.to_address) return { verified: true };
+
+  const { VersionedTransaction, Transaction: LegacyTransaction } = await import('@solana/web3.js');
+  const raw = Buffer.from(signedTx, 'base64');
+
+  let keys: string[];
+  try {
+    const vtx = VersionedTransaction.deserialize(raw);
+    keys = vtx.message.staticAccountKeys.map((k) => k.toBase58());
+  } catch {
+    const ltx = LegacyTransaction.from(raw);
+    keys = ltx.compileMessage().accountKeys.map((k) => k.toBase58());
+  }
+
+  if (!keys.includes(expected.to_address)) {
+    return {
+      verified: false,
+      mismatch: true,
+      reason: `prepared recipient ${expected.to_address} is not referenced by the signed transaction`,
+    };
+  }
+
+  // Present, but the amount is not checked — see the note above.
+  return { verified: false, reason: 'solana: recipient present, amount not decodable here' };
+}
+
 async function verifySignedTxBinding(
   chain: string,
   signedTx: string,
   expected: { to_address: string | null; amount: string | number | null },
-): Promise<{ verified: boolean; reason?: string }> {
-  const EVM_CHAINS = ['ETH', 'USDC_ETH', 'POL', 'USDC_POL', 'USDC_BASE'];
-  if (!EVM_CHAINS.includes(chain)) {
+): Promise<{ verified: boolean; reason?: string; mismatch?: boolean }> {
+  if (chain === 'BTC') {
+    try {
+      return await verifyBtcBinding(signedTx, expected, 'bitcoin');
+    } catch (err) {
+      return { verified: false, reason: err instanceof Error ? err.message : 'btc decode failed' };
+    }
+  }
+
+  if (chain === 'SOL' || chain === 'USDC_SOL') {
+    try {
+      return await verifySolBinding(signedTx, expected);
+    } catch (err) {
+      return { verified: false, reason: err instanceof Error ? err.message : 'sol decode failed' };
+    }
+  }
+
+  const decimals = EVM_DECIMALS[chain];
+  if (decimals === undefined) {
+    // BCH remains undecoded: bitcoinjs-lib does not support its SIGHASH_FORKID
+    // variant (see the note in blockchain/providers.ts), so a decoder here would
+    // be guessing. Recorded as unverified rather than claimed as checked.
     return { verified: false, reason: `no decoder for ${chain}` };
   }
 
   try {
-    const { Transaction } = await import('ethers');
+    const { Transaction, parseUnits } = await import('ethers');
     const parsed = Transaction.from(signedTx);
 
     const actualTo = (parsed.to || '').toLowerCase();
     const expectedTo = (expected.to_address || '').toLowerCase();
 
+    // The amount was never compared — only the recipient was. So a signed
+    // transaction paying the right address a different amount was accepted and
+    // recorded as the prepared one. Everything downstream hangs off that row:
+    // the wallet's history, the daily spend limit, fee accounting and
+    // notifications all described a transaction that did not happen.
+    let expectedValue: bigint | null = null;
+    if (expected.amount !== null && expected.amount !== undefined && expected.amount !== '') {
+      try {
+        expectedValue = parseUnits(String(expected.amount), decimals);
+      } catch {
+        return { verified: false, reason: `unparseable prepared amount ${expected.amount}` };
+      }
+    }
+
     // For a native transfer the recipient is the tx `to`. For an ERC-20 the tx
     // `to` is the token contract and the recipient sits in the calldata, so a
-    // direct comparison would produce false mismatches — the value check below
-    // is skipped for those and the recipient is compared against the calldata.
+    // direct comparison would produce false mismatches.
     const isTokenTransfer = parsed.data && parsed.data !== '0x' && parsed.data.length >= 138;
 
     if (isTokenTransfer) {
-      // ERC-20 transfer(address,uint256): recipient is the first argument,
-      // left-padded to 32 bytes after the 4-byte selector.
+      // ERC-20 transfer(address,uint256): recipient is the first argument and
+      // the amount the second, each left-padded to 32 bytes after the 4-byte
+      // selector.
       const recipient = `0x${parsed.data.slice(34, 74)}`.toLowerCase();
       if (expectedTo && recipient !== expectedTo) {
-        return { verified: false, reason: `recipient ${recipient} != prepared ${expectedTo}` };
+        return { verified: false, mismatch: true, reason: `recipient ${recipient} != prepared ${expectedTo}` };
+      }
+
+      if (expectedValue !== null) {
+        const actualValue = BigInt(`0x${parsed.data.slice(74, 138)}`);
+        if (actualValue !== expectedValue) {
+          return {
+            verified: false,
+            mismatch: true,
+            reason: `amount ${actualValue} != prepared ${expectedValue}`,
+          };
+        }
       }
       return { verified: true };
     }
 
     if (expectedTo && actualTo !== expectedTo) {
-      return { verified: false, reason: `recipient ${actualTo} != prepared ${expectedTo}` };
+      return { verified: false, mismatch: true, reason: `recipient ${actualTo} != prepared ${expectedTo}` };
+    }
+
+    if (expectedValue !== null && parsed.value !== expectedValue) {
+      return {
+        verified: false,
+        mismatch: true,
+        reason: `amount ${parsed.value} != prepared ${expectedValue}`,
+      };
     }
 
     return { verified: true };
@@ -389,8 +553,14 @@ export async function broadcastTransaction(
     amount: txRecord.amount,
   });
 
-  if (!binding.verified && binding.reason?.startsWith('recipient ')) {
+  if (!binding.verified && binding.mismatch) {
     // A decoded mismatch is unambiguous: refuse it.
+    //
+    // This used to test `reason?.startsWith('recipient ')`, which meant only a
+    // recipient mismatch could refuse a broadcast — matching on message text,
+    // so a reworded reason would silently stop refusing anything. `mismatch` is
+    // now set explicitly by the decoder for every definite disagreement,
+    // amounts included.
     await supabase
       .from('wallet_transactions')
       .update({

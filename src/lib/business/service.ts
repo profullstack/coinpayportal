@@ -1,3 +1,4 @@
+import { requireEncryptionKey } from '@/lib/crypto/require-key';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { encrypt, decrypt, deriveKey } from '../crypto/encryption';
 import { generateApiKey } from '../auth/apikey';
@@ -264,11 +265,9 @@ export function applyBusinessFilters<T>(query: T, filters: BusinessFilters): T {
  * Get encryption key for business data
  */
 function getEncryptionKey(): string {
-  const key = process.env.ENCRYPTION_KEY;
-  if (!key) {
-    throw new Error('ENCRYPTION_KEY environment variable is not set');
-  }
-  return key;
+  // Delegates to the shared guard, which additionally rejects malformed and
+  // known-weak keys. The presence check this replaces accepted an all-zero key.
+  return requireEncryptionKey('business data');
 }
 
 /**

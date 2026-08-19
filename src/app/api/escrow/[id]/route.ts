@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getEscrow } from '@/lib/escrow';
 import { authenticateRequest } from '@/lib/auth/middleware';
+import { callerOwnsEscrow } from '@/lib/escrow/access';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -38,12 +39,14 @@ export async function GET(
     }
 
     // If using bearer/api-key auth, validate it
+    let authContext: Awaited<ReturnType<typeof authenticateRequest>>['context'] | undefined;
     if ((authHeader || apiKeyHeader) && !queryToken) {
       try {
         const authResult = await authenticateRequest(supabase, authHeader || apiKeyHeader);
-        if (!authResult.success) {
+        if (!authResult.success || !authResult.context) {
           return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
         }
+        authContext = authResult.context;
       } catch {
         return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
       }
@@ -61,6 +64,18 @@ export async function GET(
       const validToken = queryToken === escrow.release_token || queryToken === escrow.beneficiary_token;
       if (!validToken) {
         return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+      }
+    }
+
+    // Authenticating the caller established only that they hold *a* valid
+    // credential — not that this escrow is theirs. Any merchant's API key could
+    // read any escrow by UUID: counterparty emails, amounts, address hashes and
+    // dispute reasons. The token path above is checked; this one was not.
+    if (authContext && result.escrow) {
+      const escrow = result.escrow as any;
+      const allowed = await callerOwnsEscrow(supabase, authContext, escrow);
+      if (!allowed) {
+        return NextResponse.json({ error: 'Escrow not found' }, { status: 404 });
       }
     }
 
