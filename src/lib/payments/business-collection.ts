@@ -344,6 +344,30 @@ export async function forwardBusinessCollectionPaymentSecurely(
       };
     }
 
+    // Claim it atomically before doing anything irreversible.
+    //
+    // L-04 / R4-DIN-08: the check above is a READ, and the status write further
+    // down was unconditional. Two overlapping cron runs both read `confirmed`,
+    // both passed this check, and both went on to broadcast — sending 100% of
+    // the payment twice out of an address that holds it once. Overlapping runs
+    // are not hypothetical here: the retry queue re-enters this same function.
+    //
+    // The conditional UPDATE is the lock. Exactly one caller can move the row
+    // out of `confirmed`, and the loser is told so instead of proceeding.
+    const { data: claimed } = await supabase
+      .from('business_collection_payments')
+      .update({ status: 'forwarding' })
+      .eq('id', paymentId)
+      .eq('status', 'confirmed')
+      .select('id');
+
+    if (!claimed || claimed.length === 0) {
+      return {
+        success: false,
+        error: 'Payment is already being forwarded by another process',
+      };
+    }
+
     // Get and decrypt the private key securely
     if (!payment.private_key_encrypted) {
       return {
@@ -378,11 +402,8 @@ export async function forwardBusinessCollectionPaymentSecurely(
     let txHash: string | undefined;
 
     try {
-      // Update status to forwarding
-      await supabase
-        .from('business_collection_payments')
-        .update({ status: 'forwarding' })
-        .eq('id', paymentId);
+      // Status is already `forwarding` — set by the compare-and-swap claim
+      // above, which is what makes this section single-entry.
 
       // Forward 100% of the amount to destination wallet
       if (provider.sendTransaction) {

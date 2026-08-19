@@ -14,6 +14,7 @@
  * - All key operations are logged (without exposing key material)
  */
 
+import { settlementThreshold, toFiniteNumber } from '@/lib/payments/tolerance';
 import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ethers } from 'ethers';
@@ -616,6 +617,52 @@ export async function forwardPaymentSecurely(
             error: 'Address holds no balance to forward',
           };
         }
+
+        // The floor check the comment above promises (BL-04).
+        //
+        // Only `<= 0` was actually tested, so the "floor sanity check" existed
+        // in prose and nowhere else. A balance that had dropped below the
+        // expected amount but stayed above zero — funds partially moved, or a
+        // stale read mid-sweep — forwarded anyway, splitting a pot that no
+        // longer matched what the payment recorded.
+        //
+        // `settlementThreshold` is the same relative epsilon confirmation uses,
+        // so a float round-trip does not trip this while a real shortfall does.
+        const expected = toFiniteNumber(payment.crypto_amount);
+        if (expected !== null && expected > 0 && actualBalance < settlementThreshold(expected)) {
+          console.error(
+            `[SECURE] Payment ${paymentId}: address holds ${actualBalance} but ${expected} was confirmed — ` +
+            'funds appear to have already moved. Refusing to forward on a stale view.'
+          );
+          await supabase
+            .from('payments')
+            .update({ status: 'confirmed', updated_at: new Date().toISOString() })
+            .eq('id', paymentId)
+            .eq('status', 'forwarding');
+          return {
+            success: false,
+            error: 'Address balance is below the confirmed amount — refusing to forward',
+          };
+        }
+
+        // F-1.1-13: a balance inside (0, gasReserve] leaves nothing to split
+        // once gas is held back, and the tiered split then misbehaves rather
+        // than reporting the real problem.
+        if (gasReserve > 0 && actualBalance <= gasReserve) {
+          console.error(
+            `[SECURE] Payment ${paymentId}: balance ${actualBalance} does not exceed the ${gasReserve} gas reserve`
+          );
+          await supabase
+            .from('payments')
+            .update({ status: 'confirmed', updated_at: new Date().toISOString() })
+            .eq('id', paymentId)
+            .eq('status', 'forwarding');
+          return {
+            success: false,
+            error: 'Address balance does not cover the gas reserve',
+          };
+        }
+
         potToSplit = actualBalance;
       } else {
         console.warn(
