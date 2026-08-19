@@ -104,13 +104,23 @@ Sign each request with your secp256k1 private key:
 Authorization: Wallet <wallet_id>:<signature>:<timestamp>:<nonce>
 ```
 
-**Message to sign:** `{METHOD}:{PATH}:{UNIX_TIMESTAMP}:{BODY}`
+**Message to sign:** `{METHOD}:{PATH}:{UNIX_TIMESTAMP}:{NONCE}:{BODY}`
 
-Example: `GET:/api/web-wallet/abc123/balances:1706432100:`
+Every field must match the request exactly: the HTTP method, the URL path (with query string if present), the UNIX timestamp in seconds from the header, the nonce from the header, and the raw request body bytes (empty string for GET/DELETE). The body is included as-is — do not format or re-serialize it.
 
-Sign the message bytes with secp256k1, hex-encode the 64-byte compact signature.
+Example with nonce: `GET:/api/web-wallet/abc123/balances:1706432100:kX9fQ2mZ:`
 
-**Nonce** (recommended): Append a random string (e.g. 8 chars from `crypto.randomUUID()`) as the 4th field. This prevents replay errors when firing concurrent requests in the same second. The nonce is optional for backwards compatibility.
+The nonce is optional for backwards compatibility. If you omit it, sign the 4-field message `{METHOD}:{PATH}:{UNIX_TIMESTAMP}:{BODY}` and send `Wallet <wallet_id>:<signature>:<timestamp>` (3 fields). Note that a request tuple (`wallet_id`, `signature`, `timestamp`, `nonce`) is single-use — the server rejects replays, so concurrent requests within the same second MUST use distinct nonces (a random string works).
+
+**Hashing (mandatory):** SHA-256 the message bytes first, then sign the 32-byte digest with secp256k1. The server verifies against the raw message with SHA-256 prehashing (the same behavior as `@noble/curves` v2 defaults: `secp256k1.verify` hashes internally unless `prehash: false` is passed). Signing the raw message without hashing will produce `401 {"code":"UNAUTHORIZED","message":"Invalid signature"}`.
+
+**Low-S signatures (mandatory):** the signature must be low-S, i.e. `s <= n/2` where `n = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141`. If your library produces high-S values, normalize with `s' = n - s` before hex-encoding. `@noble/curves`, ethers v6 and viem normalize automatically; raw libraries (e.g. Python `ecdsa`) do not. High-S signatures are rejected with the same `401 Invalid signature`.
+
+Hex-encode the 64-byte compact signature (`r || s`) in the header.
+
+**Timestamp window:** the server accepts timestamps within 300 seconds of its own clock (±5 min window) — keep your clock in sync.
+
+**Body must match the wire:** for POST/PUT/PATCH the signed message body must be byte-identical to the body you send. Build the message from the same string you pass to your HTTP client.
 
 ### 3. Check Balances
 
