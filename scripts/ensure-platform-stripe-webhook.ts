@@ -25,11 +25,28 @@ const COINPAY_HOST = 'coinpayportal.com';
 const COINPAY_WEBHOOK_URL = `https://${COINPAY_HOST}/api/stripe/webhook`;
 
 // Every event the handler at src/app/api/stripe/webhook/route.ts switches on.
+/**
+ * Every event `src/app/api/stripe/webhook/route.ts` actually handles.
+ *
+ * E-04: this list had 7 of the 10, omitting `charge.dispute.updated`,
+ * `charge.dispute.closed` and `charge.refunded` — and `--apply` reconciles the
+ * live endpoint to this list, so running it *unsubscribed* dispute resolution
+ * and refunds. The handlers stayed in the code and simply stopped being called:
+ * disputes would be recorded on creation and then never updated or closed, and
+ * refunds would never be recorded at all, while the dashboard kept showing the
+ * stale state as if it were current.
+ *
+ * Keep in step with the switch in the webhook route. A handler that is not
+ * listed here is a handler that `--apply` will turn off.
+ */
 const REQUIRED_EVENTS: Stripe.WebhookEndpointCreateParams.EnabledEvent[] = [
   'checkout.session.completed',
   'payment_intent.succeeded',
   'payment_intent.payment_failed',
   'charge.dispute.created',
+  'charge.dispute.updated',
+  'charge.dispute.closed',
+  'charge.refunded',
   'payout.created',
   'payout.paid',
   'account.updated',
