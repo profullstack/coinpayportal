@@ -4,6 +4,7 @@
 
 import { checkBalance, processPayment, type Payment } from './monitor-balance';
 import { isSufficientPayment } from './tolerance';
+import { fetchAllKeyset } from '../db/keyset';
 
 // ── Retry tracking (in-memory) ──
 // Prevents infinite retry loops that leak memory and cause OOM crashes.
@@ -272,11 +273,34 @@ export async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowSt
     }
 
     // ── 2. Process released escrows (trigger settlement/forwarding) ──
-    const { data: releasedEscrows } = await supabase
-      .from('escrows')
-      .select('id, escrow_address, escrow_address_id, chain, amount, deposited_amount, fee_amount, beneficiary_address, business_id')
-      .eq('status', 'released')
-      .limit(20);
+    //
+    // F-1.3-12: this was `.limit(20)` with no `.order()`. An escrow stays
+    // `released` until it settles, so an escrow that can never settle — a dead
+    // RPC, a chain with no gas, a bad address — holds its slot in that window
+    // permanently. Twenty of them and the window is full: no newly-released
+    // escrow is ever settled again, and the job reports success every run.
+    //
+    // The retry gate inside `processEscrowSettlement` already declines to
+    // re-attempt an exhausted escrow, but a skipped escrow still occupied one
+    // of the twenty slots, so the gate made the stall cheaper rather than
+    // fixing it. Walking the set means a fresh escrow is always reached.
+    const { rows: releasedEscrows, truncated: releasedTruncated } = await fetchAllKeyset<any>(
+      (cursor, pageSize) => {
+        let q = supabase
+          .from('escrows')
+          .select('id, escrow_address, escrow_address_id, chain, amount, deposited_amount, fee_amount, beneficiary_address, business_id')
+          .eq('status', 'released')
+          .order('id', { ascending: true })
+          .limit(pageSize);
+        if (cursor) q = q.gt('id', cursor);
+        return q as unknown as Promise<{ data: any[] | null; error: { message: string } | null }>;
+      },
+      { pageSize: 20, maxRows: 500 }
+    );
+
+    if (releasedTruncated) {
+      console.warn('[Monitor] Released-escrow settlement hit its row ceiling; the tail was not processed this run');
+    }
 
     if (releasedEscrows && releasedEscrows.length > 0) {
       console.log(`[Monitor] Processing ${releasedEscrows.length} released escrows for settlement`);
@@ -286,12 +310,27 @@ export async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowSt
     }
 
     // ── 3. Process refunded escrows (return funds to depositor) ──
-    const { data: refundedEscrows } = await supabase
-      .from('escrows')
-      .select('id, escrow_address, escrow_address_id, chain, deposited_amount, depositor_address')
-      .eq('status', 'refunded')
-      .is('settlement_tx_hash', null)
-      .limit(20);
+    //
+    // Same window, same defect as section 2 above — a refund that cannot be
+    // sent holds its slot and starves every later one.
+    const { rows: refundedEscrows, truncated: refundedTruncated } = await fetchAllKeyset<any>(
+      (cursor, pageSize) => {
+        let q = supabase
+          .from('escrows')
+          .select('id, escrow_address, escrow_address_id, chain, deposited_amount, depositor_address')
+          .eq('status', 'refunded')
+          .is('settlement_tx_hash', null)
+          .order('id', { ascending: true })
+          .limit(pageSize);
+        if (cursor) q = q.gt('id', cursor);
+        return q as unknown as Promise<{ data: any[] | null; error: { message: string } | null }>;
+      },
+      { pageSize: 20, maxRows: 500 }
+    );
+
+    if (refundedTruncated) {
+      console.warn('[Monitor] Refunded-escrow settlement hit its row ceiling; the tail was not processed this run');
+    }
 
     if (refundedEscrows && refundedEscrows.length > 0) {
       console.log(`[Monitor] Processing ${refundedEscrows.length} refunded escrows`);

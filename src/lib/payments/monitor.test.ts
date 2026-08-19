@@ -909,9 +909,11 @@ describe('Payment Monitor', () => {
                     return { lt: vi.fn(() => ({ or: vi.fn(() => ({ limit: emptyLimit })) })) };
                   }
                   if (value === 'released') return {
-                    limit: vi.fn(() => Promise.resolve({ data: [releasedEscrow], error: null })),
+                    order: vi.fn(() => ({
+                      limit: vi.fn(() => Promise.resolve({ data: [releasedEscrow], error: null })),
+                    })),
                   };
-                  if (value === 'refunded') return { is: vi.fn(() => ({ limit: emptyLimit })) };
+                  if (value === 'refunded') return { is: vi.fn(() => ({ order: vi.fn(() => ({ limit: emptyLimit })) })) };
                   return {
                     limit: emptyLimit,
                     lt: vi.fn(() => ({ or: vi.fn(() => ({ limit: emptyLimit })) })),
@@ -971,10 +973,12 @@ describe('Payment Monitor', () => {
                   if (value === 'funded') {
                     return { lt: vi.fn(() => ({ or: vi.fn(() => ({ limit: emptyLimit })) })) };
                   }
-                  if (value === 'released') return { limit: emptyLimit };
+                  if (value === 'released') return { order: vi.fn(() => ({ limit: emptyLimit })) };
                   if (value === 'refunded') return {
                     is: vi.fn(() => ({
-                      limit: vi.fn(() => Promise.resolve({ data: [refundedEscrow], error: null })),
+                      order: vi.fn(() => ({
+                        limit: vi.fn(() => Promise.resolve({ data: [refundedEscrow], error: null })),
+                      })),
                     })),
                   };
                   return {
@@ -1037,9 +1041,11 @@ describe('Payment Monitor', () => {
                     return { lt: vi.fn(() => ({ or: vi.fn(() => ({ limit: emptyLimit })) })) };
                   }
                   if (value === 'released') return {
-                    limit: vi.fn(() => Promise.resolve({ data: [releasedEscrow], error: null })),
+                    order: vi.fn(() => ({
+                      limit: vi.fn(() => Promise.resolve({ data: [releasedEscrow], error: null })),
+                    })),
                   };
-                  if (value === 'refunded') return { is: vi.fn(() => ({ limit: emptyLimit })) };
+                  if (value === 'refunded') return { is: vi.fn(() => ({ order: vi.fn(() => ({ limit: emptyLimit })) })) };
                   return {
                     limit: emptyLimit,
                     lt: vi.fn(() => ({ or: vi.fn(() => ({ limit: emptyLimit })) })),
