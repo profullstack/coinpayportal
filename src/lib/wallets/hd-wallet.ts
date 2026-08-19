@@ -17,6 +17,7 @@
  * - Deterministic: same xpub + index = same address
  */
 
+import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import { HDKey } from '@scure/bip32';
 import * as bitcoin from 'bitcoinjs-lib';
 import { ethers } from 'ethers';
@@ -548,13 +549,14 @@ export async function configureHDWallet(
     // Encrypt xpriv if provided
     let encryptedXpriv: string | undefined;
     if (xpriv) {
-      const encryptionKey = process.env.ENCRYPTION_KEY;
-      if (!encryptionKey) {
-        return {
-          success: false,
-          error: 'Encryption key not configured',
-        };
+      // Guarded, not just present. A bare non-empty check accepts an all-zero
+      // or `deadbeef`-repeated key, under which "encrypted" key material is
+      // recoverable by anyone who reads the row.
+      const keyResult = tryRequireEncryptionKey('xpriv encryption');
+      if (!keyResult.ok) {
+        return { success: false, error: keyResult.error };
       }
+      const encryptionKey = keyResult.key;
       encryptedXpriv = await encrypt(xpriv, encryptionKey);
     }
 

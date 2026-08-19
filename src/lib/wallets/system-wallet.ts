@@ -18,6 +18,7 @@
  * - Merchants never receive direct payments (all go through system)
  */
 
+import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import { HDKey } from '@scure/bip32';
 import { generateMnemonic as bip39GenerateMnemonic, mnemonicToSeedSync, validateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
@@ -821,13 +822,12 @@ export async function generatePaymentAddress(
     const derivedAddress = await deriveSystemPaymentAddress(cryptocurrency, nextIndex);
 
     // Encrypt the private key for storage
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (!encryptionKey) {
-      return {
-        success: false,
-        error: 'Encryption key not configured',
-      };
+    // Guarded, not just present — this is the system custody path.
+    const keyResult = tryRequireEncryptionKey('system wallet');
+    if (!keyResult.ok) {
+      return { success: false, error: keyResult.error };
     }
+    const encryptionKey = keyResult.key;
     const encryptedPrivateKey = await encrypt(derivedAddress.privateKey, encryptionKey);
 
     // Get commission wallet
@@ -959,13 +959,12 @@ export async function getPaymentPrivateKey(
       };
     }
 
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (!encryptionKey) {
-      return {
-        success: false,
-        error: 'Encryption key not configured',
-      };
+    // Guarded, not just present — this is the system custody path.
+    const keyResult = tryRequireEncryptionKey('system wallet');
+    if (!keyResult.ok) {
+      return { success: false, error: keyResult.error };
     }
+    const encryptionKey = keyResult.key;
 
     const privateKey = await decrypt(data.encrypted_private_key, encryptionKey);
 

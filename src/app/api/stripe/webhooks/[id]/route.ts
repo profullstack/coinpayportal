@@ -1,3 +1,4 @@
+import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
@@ -181,10 +182,14 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'No stored secret for this endpoint' }, { status: 404 });
     }
 
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (!encryptionKey) {
+    // Guarded, not just present: a bare presence check accepts an all-zero key,
+    // under which this stored secret was never meaningfully encrypted.
+    const keyResult = tryRequireEncryptionKey('stripe webhook secret');
+    if (!keyResult.ok) {
+      console.error('[Stripe] Cannot decrypt webhook secret:', keyResult.error);
       return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
     }
+    const encryptionKey = keyResult.key;
 
     const secret = decrypt(secretRow.encrypted_secret, encryptionKey);
     return NextResponse.json({ success: true, secret });

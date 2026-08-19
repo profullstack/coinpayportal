@@ -9,6 +9,7 @@
  * payments forward the entire amount to the platform's wallet addresses.
  */
 
+import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getProvider, getRpcUrl, type BlockchainType } from '../blockchain/providers';
 import { generatePaymentAddress } from '../blockchain/wallets';
@@ -351,13 +352,13 @@ export async function forwardBusinessCollectionPaymentSecurely(
       };
     }
 
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (!encryptionKey) {
-      return {
-        success: false,
-        error: 'Encryption key not configured',
-      };
+    // Guarded, not just present: decrypting under a known-weak key is the
+    // same exposure as never having encrypted at all.
+    const keyResult = tryRequireEncryptionKey('business collection');
+    if (!keyResult.ok) {
+      return { success: false, error: keyResult.error };
     }
+    const encryptionKey = keyResult.key;
 
     let privateKey: string;
     try {

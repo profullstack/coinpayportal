@@ -6,11 +6,12 @@ import { getStripe } from '@/lib/server/optional-deps';
 import { resolveBusinessScope } from '@/lib/auth/tenant-scope';
 import { createServiceClient } from '@/lib/supabase/service-client';
 import { encrypt, decrypt } from '@/lib/crypto/encryption';
+import { requireEncryptionKey } from '@/lib/crypto/require-key';
 
 function getEncryptionKey(): string {
-  const key = process.env.ENCRYPTION_KEY;
-  if (!key) throw new Error('ENCRYPTION_KEY not set');
-  return key;
+  // Shared guard: also rejects malformed and known-weak keys, which a bare
+  // presence check accepts.
+  return requireEncryptionKey('stripe webhook secret');
 }
 
 function getSupabase() {

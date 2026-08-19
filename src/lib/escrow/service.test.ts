@@ -54,7 +54,12 @@ vi.stubGlobal('crypto', {
 });
 
 // Mock process.env
-vi.stubEnv('ENCRYPTION_KEY', 'test-encryption-key-0123456789abcdef');
+// A real 32-byte hex key. This was `'test-encryption-key-0123456789abcdef'`,
+// which is 36 characters and not hex — the escrow path accepted it because it
+// only checked the variable was non-empty. `requireEncryptionKey` rejects it,
+// which is the point: an unusable key must stop a custody operation, not be
+// silently used as one.
+vi.stubEnv('ENCRYPTION_KEY', '9f2c41a7be05d38c6714e0ab5d92f3487c1de6b0a4358fce27d91b6408ea75c3');
 
 function createMockSupabase(overrides: Record<string, any> = {}) {
   const defaultEscrow = {

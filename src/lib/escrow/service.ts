@@ -19,6 +19,7 @@
  *    OR dispute → arbiter resolves → settled or refunded
  */
 
+import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
@@ -341,10 +342,12 @@ async function generateEscrowAddress(
     const derived = await deriveSystemPaymentAddress(cryptocurrency, nextIndex);
 
     // Encrypt private key
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (!encryptionKey) {
-      return { success: false, error: 'Encryption key not configured' };
+    // Guarded, not just present — this key protects escrowed funds.
+    const keyResult = tryRequireEncryptionKey('escrow');
+    if (!keyResult.ok) {
+      return { success: false, error: keyResult.error };
     }
+    const encryptionKey = keyResult.key;
     const encryptedPrivateKey = await encrypt(derived.privateKey, encryptionKey);
 
     // Calculate fee split

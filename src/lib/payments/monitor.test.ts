@@ -4,7 +4,13 @@ import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vite
 beforeAll(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
-  process.env.ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  // A fixed but high-entropy key. It used to be the sequential-hex constant
+  // `0123456789abcdef...`, which is one of the values `requireEncryptionKey`
+  // exists to REJECT — so these tests were exercising a key the production guard
+  // refuses, and the guard's own consumers could not have adopted it without
+  // turning the suite red. That is exactly how the guard ended up protecting 4 of
+  // 13 call sites.
+  process.env.ENCRYPTION_KEY = '9f2c41a7be05d38c6714e0ab5d92f3487c1de6b0a4358fce27d91b6408ea75c3';
 });
 
 // Mock Supabase
