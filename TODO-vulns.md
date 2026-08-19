@@ -100,7 +100,7 @@ The subset worth taking first:
 | `FR-01` | `FIXED` | Fraud screening fails open, denylist included. Pairs with `N-01`. |
 | `L4-NEW-02` | `FIXED` | Writing `status:'failed'` violates `payments_status_check` and the failure is never checked, so the payment stays `pending` forever and invisible. |
 | `NEW-L5-2` | `FIXED` | The schema CHECK omits `USDT`/`USDC`/`USDC_BASE` that the application inserts — payment creation fails outright for those stablecoins. |
-| `NEW-24`, `G-1.2-09`, `F5-L4-02` | `UNVERIFIED` | Unescaped merchant-controlled HTML into invoice email, team email, and the internal daily report. |
+| `NEW-24`, `G-1.2-09`, `F5-L4-02` | `FIXED` | Unescaped merchant-controlled HTML into invoice email, team email, and the internal daily report. |
 | `DOC-01` | `FIXED` | `layout.tsx` claimed "Non-Custodial" product-wide. Corrected. |
 | `F7-01` | `FIXED` | Security docs asserted audit logging that does not exist. Corrected to say so. |
 | `AUD-01` | `OPEN` | No audit-logging infrastructure exists anywhere. The claim is fixed; the gap is not. |

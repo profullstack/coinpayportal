@@ -111,6 +111,29 @@ async function recentBusinesses(limit: number) {
 
 import { checkSpamSignup } from "../src/lib/auth/spam-detection";
 
+/**
+ * Escape signup-supplied text before it lands in the internal daily report.
+ *
+ * `name` and `email` come straight from public signup, which needs no
+ * verification of any kind, and the report is delivered to the operations
+ * team's inbox. Interpolated raw, a signup name is a way to put arbitrary HTML
+ * — a link, a fake "action required" button — in front of the people with
+ * production access, from an internal sender they trust. The friction to try it
+ * is one signup form.
+ *
+ * Duplicated from src/lib/email/escape.ts rather than imported: this script is
+ * run standalone with tsx and does not resolve the app's path aliases.
+ */
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+
 async function spamStats() {
   const { data: merchants } = await supabase
     .from("merchants")
@@ -290,7 +313,7 @@ SPAM DETECTION
     ${recent.length > 0 ? `
     <h3 style="font-size: 14px; color: #666; margin: 0 0 8px;">Recent Signups</h3>
     <ul style="font-size: 13px; padding-left: 20px; margin: 0 0 20px;">
-      ${recent.map((m) => `<li style="margin-bottom: 4px;"><strong>${m.name || "(no name)"}</strong> — ${m.email} <span style="color: #999;">(${m.created_at?.slice(0, 10)})</span></li>`).join("")}
+      ${recent.map((m) => `<li style="margin-bottom: 4px;"><strong>${escapeHtml(m.name || "(no name)")}</strong> — ${escapeHtml(m.email)} <span style="color: #999;">(${escapeHtml(m.created_at?.slice(0, 10))})</span></li>`).join("")}
     </ul>
     ` : ""}
 
@@ -328,7 +351,7 @@ SPAM DETECTION
     </table>
     ${recentBiz.length > 0 ? `
     <ul style="font-size: 13px; padding-left: 20px; margin: 0 0 20px;">
-      ${recentBiz.map((b) => `<li style="margin-bottom: 4px;"><strong>${b.name || "(no name)"}</strong> <span style="color: #999;">(${b.created_at?.slice(0, 10)})</span></li>`).join("")}
+      ${recentBiz.map((b) => `<li style="margin-bottom: 4px;"><strong>${escapeHtml(b.name || "(no name)")}</strong> <span style="color: #999;">(${escapeHtml(b.created_at?.slice(0, 10))})</span></li>`).join("")}
     </ul>
     ` : `<div style="margin-bottom: 20px;"></div>`}
 

@@ -2,6 +2,8 @@
  * Invoice Email Templates
  */
 
+import { escapeHtml, escapeUrl } from './escape';
+
 interface InvoiceSentData {
   invoiceNumber: string;
   amount: number;
@@ -83,13 +85,13 @@ function wrapTemplate(content: string): string {
 export function invoiceSentTemplate(data: InvoiceSentData) {
   const content = `
     <div>
-      <h2 style="color: #111827;">Invoice from ${data.businessName}</h2>
+      <h2 style="color: #111827;">Invoice from ${escapeHtml(data.businessName)}</h2>
       <p>You have received an invoice. Please review the details below and make your payment.</p>
 
       <div class="details">
         <div class="detail-row">
           <span class="detail-label">Invoice:</span>
-          <span class="detail-value">${data.invoiceNumber}</span>
+          <span class="detail-value">${escapeHtml(data.invoiceNumber)}</span>
         </div>
         <div class="detail-row">
           <span class="detail-label">Amount:</span>
@@ -97,7 +99,7 @@ export function invoiceSentTemplate(data: InvoiceSentData) {
         </div>
         <div class="detail-row">
           <span class="detail-label">Crypto Amount:</span>
-          <span class="detail-value">${data.cryptoAmount} ${data.cryptoCurrency}</span>
+          <span class="detail-value">${escapeHtml(data.cryptoAmount)} ${escapeHtml(data.cryptoCurrency)}</span>
         </div>
         ${data.dueDate ? `
         <div class="detail-row">
@@ -107,10 +109,10 @@ export function invoiceSentTemplate(data: InvoiceSentData) {
         ` : ''}
       </div>
 
-      ${data.notes ? `<p style="color: #6b7280; font-style: italic;">Note: ${data.notes}</p>` : ''}
+      ${data.notes ? `<p style="color: #6b7280; font-style: italic;">Note: ${escapeHtml(data.notes)}</p>` : ''}
 
       <div style="text-align: center;">
-        <a href="${data.paymentLink}" class="button">Pay Now</a>
+        <a href="${escapeUrl(data.paymentLink)}" class="button">Pay Now</a>
       </div>
 
       <p style="color: #6b7280; font-size: 14px;">Click the button above to view payment details and make your crypto payment.</p>
@@ -130,17 +132,17 @@ export function invoicePaidMerchantTemplate(data: InvoicePaidData) {
   const content = `
     <div>
       <h2 style="color: #059669;">Payment Received ✅</h2>
-      <p>Invoice ${data.invoiceNumber} has been paid!</p>
+      <p>Invoice ${escapeHtml(data.invoiceNumber)} has been paid!</p>
 
       <div class="details">
         <div class="detail-row">
           <span class="detail-label">Invoice:</span>
-          <span class="detail-value">${data.invoiceNumber}</span>
+          <span class="detail-value">${escapeHtml(data.invoiceNumber)}</span>
         </div>
         ${data.clientName ? `
         <div class="detail-row">
           <span class="detail-label">Client:</span>
-          <span class="detail-value">${data.clientName} (${data.clientEmail})</span>
+          <span class="detail-value">${escapeHtml(data.clientName)} (${escapeHtml(data.clientEmail)})</span>
         </div>
         ` : ''}
         <div class="detail-row">
@@ -149,7 +151,7 @@ export function invoicePaidMerchantTemplate(data: InvoicePaidData) {
         </div>
         <div class="detail-row">
           <span class="detail-label">Crypto Received:</span>
-          <span class="detail-value">${data.cryptoAmount} ${data.cryptoCurrency}</span>
+          <span class="detail-value">${escapeHtml(data.cryptoAmount)} ${escapeHtml(data.cryptoCurrency)}</span>
         </div>
         <div class="detail-row">
           <span class="detail-label">Platform Fee (${(data.feeRate * 100).toFixed(1)}%):</span>
@@ -161,7 +163,7 @@ export function invoicePaidMerchantTemplate(data: InvoicePaidData) {
         </div>
         <div class="detail-row">
           <span class="detail-label">TX Hash:</span>
-          <span class="detail-value" style="word-break: break-all; font-size: 12px;">${data.txHash}</span>
+          <span class="detail-value" style="word-break: break-all; font-size: 12px;">${escapeHtml(data.txHash)}</span>
         </div>
       </div>
 
@@ -182,12 +184,12 @@ export function invoiceOverdueTemplate(data: InvoiceOverdueData) {
   const content = `
     <div>
       <h2 style="color: #dc2626;">Invoice Overdue ⚠️</h2>
-      <p>This is a reminder that the following invoice from <strong>${data.businessName}</strong> is overdue.</p>
+      <p>This is a reminder that the following invoice from <strong>${escapeHtml(data.businessName)}</strong> is overdue.</p>
 
       <div class="details">
         <div class="detail-row">
           <span class="detail-label">Invoice:</span>
-          <span class="detail-value">${data.invoiceNumber}</span>
+          <span class="detail-value">${escapeHtml(data.invoiceNumber)}</span>
         </div>
         <div class="detail-row">
           <span class="detail-label">Amount:</span>
@@ -200,7 +202,7 @@ export function invoiceOverdueTemplate(data: InvoiceOverdueData) {
       </div>
 
       <div style="text-align: center;">
-        <a href="${data.paymentLink}" class="button" style="background-color: #dc2626;">Pay Now</a>
+        <a href="${escapeUrl(data.paymentLink)}" class="button" style="background-color: #dc2626;">Pay Now</a>
       </div>
 
       <p style="color: #6b7280; font-size: 14px;">Please make your payment at your earliest convenience.</p>
