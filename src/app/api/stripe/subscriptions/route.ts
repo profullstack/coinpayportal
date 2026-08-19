@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Team-aware: subscriptions of every business the caller can access.
-    const ownerMerchantIds = await listAccessibleOwnerMerchantIds(supabase, merchantId);
+    const ownerMerchantIds = await listAccessibleOwnerMerchantIds(supabase, merchantId, 'billing.manage');
 
     let query = supabase
       .from('subscriptions')
