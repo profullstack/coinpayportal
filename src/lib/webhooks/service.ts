@@ -131,9 +131,21 @@ export interface WebhookDeliveryResult {
  */
 export interface WebhookLogEntry {
   business_id: string;
-  payment_id: string;
+  /** The payment this delivery is about. Null for escrow events. */
+  payment_id?: string | null;
+  /**
+   * The escrow this delivery is about. Its own column now.
+   *
+   * The escrow path used to pass the escrow id as `payment_id` — "reuse
+   * payment_id column for escrow_id" — which violated that column's foreign key
+   * to `payments(id)`, so every escrow webhook log insert failed silently.
+   * Delivery is unaffected by logging failing, so nothing surfaced it.
+   */
+  escrow_id?: string | null;
   event: WebhookEvent;
   webhook_url: string;
+  /** The body that was delivered, stored for forensics. */
+  payload?: unknown;
   success: boolean;
   status_code?: number;
   error_message?: string;
@@ -398,18 +410,32 @@ export async function logWebhookAttempt(
   try {
     const { error } = await supabase.from('webhook_logs').insert({
       business_id: logEntry.business_id,
-      payment_id: logEntry.payment_id,
+      payment_id: logEntry.payment_id ?? null,
+      escrow_id: logEntry.escrow_id ?? null,
       event: logEntry.event,
+      // `url` and `payload` are the older names for the same facts, and were
+      // NOT NULL with no default while the code wrote only the newer ones — so
+      // every insert here failed on a not-null violation and the table stayed
+      // permanently empty. The migration relaxes them; both sets are written so
+      // either name reads correctly.
+      url: logEntry.webhook_url,
       webhook_url: logEntry.webhook_url,
+      payload: logEntry.payload ?? {},
       success: logEntry.success,
       status_code: logEntry.status_code,
+      response_status: logEntry.status_code,
       error_message: logEntry.error_message,
       attempt_number: logEntry.attempt_number,
+      attempt: logEntry.attempt_number,
       response_time_ms: logEntry.response_time_ms,
       created_at: new Date().toISOString(),
     });
 
     if (error) {
+      // Was returned and dropped by every caller. A lost audit record is not
+      // worth failing a delivery over, but it must not be silent — that is why
+      // this table sat empty without anyone noticing.
+      console.error('[Webhook] Could not record delivery attempt:', error.message);
       return { success: false, error: error.message };
     }
 
@@ -581,6 +607,7 @@ export async function sendPaymentWebhook(
       payment_id: paymentId,
       event,
       webhook_url: business.webhook_url,
+      payload,
       success: result.success,
       status_code: result.statusCode,
       error_message: result.error,
@@ -670,9 +697,10 @@ export async function sendEscrowWebhook(
     // Log delivery
     await logWebhookAttempt(supabase, {
       business_id: businessId,
-      payment_id: escrowId, // reuse payment_id column for escrow_id
+      escrow_id: escrowId,
       event,
       webhook_url: business.webhook_url,
+      payload,
       success: result.success,
       status_code: result.statusCode || 0,
       error_message: result.error || undefined,

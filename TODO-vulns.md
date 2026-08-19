@@ -161,9 +161,11 @@ All `UNVERIFIED`. Detail in `docs/findings/03_SILENT_OPERATIONAL/`. Standouts:
 
 - `BL-02`, `CP-025`, `F-1.1-01` — escrow stuck at expiry, unilateral depositor
   refund, and the monitor marking funded multisig escrows `refunded`.
-- `V-01` + `L8-01` + `REC-D-02` — three independent reasons `webhook_logs`
-  inserts fail. The delivery audit trail is lost 100% of the time and nothing
-  surfaces it.
+- `V-01` + `L8-01` + `REC-D-02` — **`FIXED`.** Three independent reasons
+  `webhook_logs` inserts fail. Confirmed against production: the table held
+  **zero rows** — the delivery audit trail had never recorded a single attempt,
+  and nothing surfaced it because delivery itself is unaffected by logging
+  failing. See the batch-nine note below.
 - `R3-DIN-03` — `settle_failed` written to `escrows.status` is rejected by the
   production CHECK constraint. This matches known prod drift: `escrows_status_check`
   is `NOT VALID`, so read escrow statuses from the data, not the constraint.
