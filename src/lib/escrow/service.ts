@@ -24,7 +24,12 @@ import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
-import { generatePaymentAddress, type SystemBlockchain } from '../wallets/system-wallet';
+import {
+  generatePaymentAddress,
+  isPlatformFeeWallet,
+  type SystemBlockchain,
+} from '../wallets/system-wallet';
+import { isValidPayoutAddress } from '../blockchain/address-format';
 import { getFeePercentage } from '../payments/fees';
 import { getExchangeRate } from '../rates/tatum';
 import { sendEscrowWebhook } from '../webhooks/service';
@@ -128,6 +133,38 @@ export async function createEscrow(
   // Depositor and beneficiary can't be the same
   if (data.depositor_address === data.beneficiary_address) {
     return { success: false, error: 'Depositor and beneficiary must be different addresses' };
+  }
+
+  // IA-016: escrow addresses were checked by `.min(10)` and nothing else — no
+  // chain-format validation and no reserved-address check — while
+  // /api/payments/create validates both for exactly the same kind of payout
+  // leg. Sibling asymmetry again (§2.3).
+  //
+  // Two separate problems. A malformed address means a release broadcasts to
+  // somewhere unspendable and the funds are gone with no recourse, which
+  // `.min(10)` does nothing about. And naming a platform fee wallet as the
+  // depositor or beneficiary makes the escrow leg indistinguishable from a fee
+  // payment, corrupting reconciliation on both — the reason payments/create
+  // rejects it there.
+  const addressLegs: [string, string | undefined][] = [
+    ['depositor_address', data.depositor_address],
+    ['beneficiary_address', data.beneficiary_address],
+    ['arbiter_address', data.arbiter_address],
+  ];
+
+  for (const [field, address] of addressLegs) {
+    if (!address) continue;
+
+    // `false` = malformed for this chain → reject. `null` = a chain we have no
+    // validator for → do not block a legitimate escrow on a check we cannot
+    // make. Same three-state contract as payments/create.
+    if (isValidPayoutAddress(address, data.chain as SystemBlockchain) === false) {
+      return { success: false, error: `Invalid ${data.chain} ${field}` };
+    }
+
+    if (isPlatformFeeWallet(address)) {
+      return { success: false, error: `${field} may not be a platform wallet` };
+    }
   }
 
   // Auto-detect emails from wallet addresses if not provided.

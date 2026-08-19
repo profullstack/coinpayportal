@@ -155,8 +155,11 @@ audit than whether its bespoke ownership query is correct.
   `NEW-07` `FIXED`, `NEW-09` `FIXED`, `NEW-20` `FIXED`, `NEW-23` `FIXED`,
   `NEW-WW34-01` `FIXED`. Still open: `NEW-11`.
 - **Payment and settlement integrity** — `B-03` `FIXED`, `F-1.1-07` `FIXED`,
-  `F-1.1-16` `FIXED`, `F-1.3-02` `FIXED`, `V-04` `FIXED`. Still open:
-  `IA-016`, `WW-01`, `WW-03`, `NEW-14`, `F5-L2-01`, `F5-L4-02`.
+  `F-1.1-16` `FIXED`, `F-1.3-02` `FIXED`, `V-04` `FIXED`, `IA-016` `FIXED`,
+  `WW-01` `FIXED`, `WW-03` `PARTIAL` (recipient bound on every chain; amount
+  still unbound on BCH and Solana — see the batch-5 log), `NEW-14`
+  `ALREADY-FIXED` (`resolveBusinessScope`). Still open: `F5-L2-01`,
+  `F5-L4-02`.
 
 ## Priority 3 — Silent operational loss (39)
 
