@@ -1,4 +1,5 @@
 import { describe, expect, it, afterEach, vi } from 'vitest';
+import { randomBytes } from 'crypto';
 import { requireEncryptionKey, tryRequireEncryptionKey } from './require-key';
 
 /**
@@ -22,7 +23,11 @@ import { requireEncryptionKey, tryRequireEncryptionKey } from './require-key';
  *     turned the suite red.
  */
 
-const STRONG = '9f2c41a7be05d38c6714e0ab5d92f3487c1de6b0a4358fce27d91b6408ea75c3';
+// Generated rather than hardcoded: a key-shaped literal in the repo is flagged
+// by credential scanners on every diff, and a reader has to stop and confirm it
+// is not live. `randomBytes` cannot collide with a KNOWN_WEAK_KEYS entry in any
+// realistic universe, so it is a valid "strong key" fixture by construction.
+const STRONG = randomBytes(32).toString('hex');
 
 afterEach(() => {
   vi.unstubAllEnvs();
