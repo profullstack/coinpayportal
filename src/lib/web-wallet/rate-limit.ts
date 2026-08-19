@@ -120,6 +120,12 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   // Releases Boltz refund/claim key material to the owning wallet. Authorized,
   // but key material leaving the system deserves its own tight budget.
   'swap_recovery': { limit: 10, windowSeconds: 300 },        // 10/5min per wallet
+  // Password reset. Two keys, deliberately: the per-EMAIL bucket is a victim's
+  // bucket, so an attacker who can exhaust it cheaply denies that account its
+  // reset flow. The per-IP bucket is the attacker's own and is the one that
+  // actually costs them something.
+  'password_reset_email': { limit: 3, windowSeconds: 900 },  // 3/15min per email
+  'password_reset_ip': { limit: 10, windowSeconds: 900 },    // 10/15min per IP
 };
 
 /** In-memory fallback store */

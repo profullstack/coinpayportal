@@ -47,6 +47,7 @@ export async function POST(
       escrowId,
       parsed.data.signer_pubkey,
       parsed.data.reason,
+      parsed.data.signature,
     );
 
     if (!result.success) {

@@ -60,6 +60,11 @@ export const prepareTransactionSchema = z.object({
   signer_pubkey: z.string({
     required_error: 'signer_pubkey is required',
   }).min(20, 'signer_pubkey must be at least 20 characters'),
+  // F-1.1-02: the pubkey alone identified the caller, and a pubkey is public.
+  // A signature over the proposal's own terms is what makes it proof.
+  signature: z.string({
+    required_error: 'signature is required',
+  }).min(10, 'signature must be at least 10 characters'),
 });
 
 // ── Sign Proposal ───────────────────────────────────────────
@@ -90,6 +95,11 @@ export const disputeSchema = z.object({
   signer_pubkey: z.string({
     required_error: 'signer_pubkey is required',
   }).min(20, 'signer_pubkey must be at least 20 characters'),
+  // F-1.1-02: opening a dispute freezes an escrow, so naming a party's public
+  // key must not be enough to do it.
+  signature: z.string({
+    required_error: 'signature is required',
+  }).min(10, 'signature must be at least 10 characters'),
   reason: z.string({
     required_error: 'reason is required',
   }).min(10, 'Dispute reason must be at least 10 characters')
