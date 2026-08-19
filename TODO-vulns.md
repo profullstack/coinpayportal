@@ -152,9 +152,11 @@ audit than whether its bespoke ownership query is correct.
   `F5-L1-07`, `L6B-05`, `REC-04`, `REC-01`.
 - **Rate limit / enumeration (§2.6)** — `NEW-06` `FIXED`, `WW-02` `FIXED`,
   `REC-C-04` `FIXED`, `REC-C-05` `FIXED`, `L7A-03` `FIXED`. Still open:
-  `NEW-07`, `NEW-09`, `NEW-11`, `NEW-20`, `NEW-23`. `NEW-WW34-01` `FIXED`.
-- **Payment and settlement integrity** — `B-03`, `F-1.1-07`, `F-1.1-16`,
-  `F-1.3-02`, `IA-016`, `WW-01`, `WW-03`, `NEW-14`, `F5-L2-01`, `F5-L4-02`, `V-04`.
+  `NEW-07` `FIXED`, `NEW-09` `FIXED`, `NEW-20` `FIXED`, `NEW-23` `FIXED`,
+  `NEW-WW34-01` `FIXED`. Still open: `NEW-11`.
+- **Payment and settlement integrity** — `B-03` `FIXED`, `F-1.1-07` `FIXED`,
+  `F-1.1-16` `FIXED`, `F-1.3-02` `FIXED`, `V-04` `FIXED`. Still open:
+  `IA-016`, `WW-01`, `WW-03`, `NEW-14`, `F5-L2-01`, `F5-L4-02`.
 
 ## Priority 3 — Silent operational loss (39)
 
@@ -341,3 +343,122 @@ amount, because the charge recurs and its amount can change. Also hardens
 the shared `isSufficientPayment`. Both now use the helper. A test named "marks
 invoice as paid with 1% tolerance" encoded the leak as intended behaviour and is
 now inverted, with a companion test proving the 1e-9 float epsilon still works.
+
+### 2026-08-19 — fourth batch: seed transmission, sibling gaps, unproved claims
+
+**`NEW-20` — the seed on the wire**. `POST /api/lightning/nodes` required a
+valid BIP-39 mnemonic, validated it, and never used it. The wallet being
+provisioned is a **custodial LNbits wallet** — no signer, nothing to derive — so
+the field bought nothing at all, while making every client transmit the master
+seed for the entire wallet into request logs. The seed reconstructs every key on
+every chain; it is the one secret that must never leave the device. Callers were
+already proving possession properly, via `authorizeWalletRequest`'s signature
+over the request body.
+
+Removed from the route, the two SDKs, the React component and the CLI. The web
+call site was the worst of them: `asset/[chain]/page.tsx` called
+`wallet.getMnemonic()` and handed the live seed to `LightningSetup` as a prop.
+The CLI was second: `coinpay lightning enable` **prompted for the passphrase and
+decrypted the stored seed** purely so it could post it. Older clients that still
+send the field are accepted and the value discarded, with a warning naming the
+wallet — rejecting them would break provisioning for anyone who has not
+upgraded.
+
+**`F-1.1-07` — a scope enforced nowhere**. `payouts:create` is offered to
+merchants when they mint a scoped key, so a merchant can deliberately create a
+key *without* it. `POST /api/payouts/create` is the only route the scope
+governs, and it never looked: a key restricted to reading could still send money
+out of the business's wallet. Its sibling `/api/payments/create` has checked its
+own scope all along — §2.3 exactly.
+
+**`NEW-07` — WebAuthn challenges keyed on the victim**. `login-options` stored
+the challenge under the merchant's own id whenever the supplied email resolved.
+The store holds one challenge per key and the route is public, so anyone who
+knew a merchant's email could overwrite that merchant's pending challenge at
+will: the victim's authenticator signs the challenge it was handed, verify
+consumes whatever the attacker wrote last, they never match, and the account
+cannot be logged into for as long as the attacker keeps posting. It also broke
+two honest logins from two devices.
+
+The key is only a lookup handle — the client echoes it back and `login-verify`
+derives the user from the stored credential, never from this value — so it does
+not need to identify anyone. It is now 32 random bytes per request.
+`register-options` uses the same store keyed by user id, but it is authenticated
+and self-keyed, so there is no cross-user reach; left as is.
+
+**`NEW-09` and `V-04` — claims nobody checked**. Two halves of the same shape.
+
+`importWallet` verified proof of ownership inside `if (public_key_secp256k1)`,
+and the schema requires only **one** of the two keys. Submitting just
+`public_key_ed25519` skipped verification entirely: `proof_of_ownership` was
+still mandatory, but no part of it was ever read and any string passed.
+
+`createWallet` asked for no proof of anything — an unauthenticated caller could
+declare a public key that was not theirs and, more damagingly, a list of
+on-chain addresses that were not theirs. `wallet_addresses` is **globally unique
+on `(address, chain)`**, so whoever registers an address first holds it and the
+rightful owner can never register it at all.
+
+Both now go through one `verifyKeyOwnership` helper, deliberately shared so the
+two cannot drift apart again — the whole class of bug here is one sibling
+checking what the other does not. Every key presented must be proved: with a
+secp256k1 key, `signature` must verify against it; without one, the ed25519 key
+is the only identity claimed and `signature_ed25519` must verify against it.
+Demanding *both* signatures would break every client in the field to close a gap
+that only exists when secp256k1 is absent. `initial_addresses` is also capped —
+it was unbounded, so one request could claim thousands of addresses permanently.
+
+Proof is checked after the format validation (so a malformed key still gets a
+useful error) and before the first write (so nothing is persisted on an unproved
+claim).
+
+> **Breaking for old npm SDK builds.** `/api/web-wallet/create` now requires a
+> signature. `packages/sdk` and the in-repo SDK both send one as of this commit;
+> a published SDK older than this will fail to create wallets. The browser
+> extension is unaffected — it registers via `/import`, which has always
+> required proof.
+
+**An unlisted bug found while wiring that.** `packages/sdk`'s `signMessage`
+signed `sha256(message)`, but the server verifies by passing the **raw** encoded
+message to `secp256k1.verify`. Confirmed against the repo's own noble build:
+sign-hash/verify-raw returns `false`. So every proof of ownership the published
+SDK produced was rejected, meaning `WalletClient.fromSeed()` **could not import
+a wallet at all**. Now signs raw bytes, matching the server and the in-repo SDK.
+
+**`F-1.1-16` — overwriting the pending PayPal order**. `create-order` is public
+and wrote `invoices.paypal_order_id` unconditionally; that single column was the
+only thing `capture` checked. Anyone who knew an invoice id could overwrite it
+after the real payer had been handed their order — the payer approves order A,
+capture sees B, rejects it as "Order does not match this invoice", and the
+invoice can never be paid while the attacker keeps posting. Across open invoices
+that is a denial of payment for the platform.
+
+"First write wins" would be no better; it just lets the attacker lock the slot
+earlier. And an invoice legitimately has several orders over its life — an
+abandoned attempt, a retry, two people on one pay link. Each issued order is now
+its own row in `paypal_transactions` bound to the invoice, and capture accepts
+any order bound to the invoice it is settling. `paypal_order_id` is unique on
+that table, so rows cannot collide or be repointed. Orders already in flight at
+deploy time fall back to the legacy column. No migration needed — the table and
+its unique constraint already existed.
+
+**`B-03` — a sync that never rotated**. `syncLnbitsPayments` selected wallets
+with `.limit(100)` and **no `.order()`**. Postgres may return rows in any order
+and in practice returns a stable physical one, so past 100 Lightning wallets the
+same hundred were synced every run and the rest never at all. Their incoming
+payments never reached `ln_payments` — which is what the dashboard reads, and
+what x402 Lightning settlement now *requires* as proof after the round-1 fix, so
+those wallets would silently lose the ability to prove they had been paid. Now
+ordered by id and walked by keyset through the whole table, with the cap as a
+runaway guard rather than a working set, and a warning if it is ever hit.
+
+**`NEW-23` — SSRF by hostname**. The `Signature-Agent` key-directory fetch was
+guarded by literal matching — `127.x`, `10.x`, `fc00::/7` — which does nothing
+about a hostname whose A record points at `169.254.169.254`. The function's own
+comment admitted it. Now goes through `safeFetch`, which resolves the host,
+rejects on the resolved address, and re-validates every redirect hop. The
+literal checks stay: they reject the obvious cases before any DNS lookup and
+enforce the https-only rule the spec requires.
+
+Suite green at 317 files / 4455 tests, `tsc --noEmit` clean. 14 findings; 129 of
+338 fixed.

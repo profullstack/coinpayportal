@@ -26,16 +26,21 @@ export class LightningClient {
 
   /**
    * Enable Lightning for a wallet (provisions an LNbits custodial wallet).
+   *
    * @param {Object} params
    * @param {string} params.wallet_id - Wallet UUID
-   * @param {string} params.mnemonic - BIP39 mnemonic
+   * @param {string} [params.mnemonic] - **Deprecated and ignored.** The server
+   *   required a BIP39 mnemonic here, validated it, and never used it: the
+   *   provisioned wallet is custodial, so there is no signer and nothing to
+   *   derive (NEW-20). The seed reconstructs every key on every chain, and it
+   *   is no longer sent. Stop passing it.
    * @param {string} [params.business_id] - Optional business UUID
    * @returns {Promise<Object>} The provisioned node record
    */
-  async enableWallet({ wallet_id, mnemonic, business_id }) {
+  async enableWallet({ wallet_id, business_id }) {
     return this.#client.request('/lightning/nodes', {
       method: 'POST',
-      body: JSON.stringify({ wallet_id, mnemonic, business_id }),
+      body: JSON.stringify({ wallet_id, business_id }),
     });
   }
 

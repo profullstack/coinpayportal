@@ -135,8 +135,30 @@ describe('Lightning Route Handlers', () => {
       expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
-    it('should return 400 if mnemonic invalid', async () => {
+    it('no longer asks for the seed, and ignores one that is sent', async () => {
+      // NEW-20: this route used to require a valid BIP-39 mnemonic and reject
+      // the request without one — then never use it. Provisioning creates a
+      // custodial LNbits wallet, so there is no signer and nothing to derive;
+      // the only effect was to make every client transmit the master seed for
+      // the whole wallet. It is accepted and discarded for older clients, so
+      // an invalid one must no longer be a rejection.
       const { POST } = await import('./nodes/route');
+
+      mockChain.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+      mockSingle.mockResolvedValueOnce({ data: { id: 'w-1', name: 'Test Wallet' }, error: null });
+      mockCreateUserWallet.mockResolvedValue({
+        id: 'lnbits-wallet-1',
+        name: 'Test Wallet',
+        adminkey: 'admin-key-123',
+        inkey: 'invoice-key-456',
+        balance: 0,
+      });
+      mockChain.update = vi.fn().mockReturnValue(mockChain);
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'node-1', status: 'active', wallet_id: 'w-1' },
+        error: null,
+      });
+
       const req = makeRequest('http://localhost:3000/api/lightning/nodes', {
         method: 'POST',
         body: JSON.stringify({ wallet_id: 'w-1', mnemonic: 'bad' }),
@@ -145,8 +167,8 @@ describe('Lightning Route Handlers', () => {
       const res = await POST(req);
       const body = await res.json();
 
-      expect(res.status).toBe(400);
-      expect(body.success).toBe(false);
+      expect(res.status).toBe(201);
+      expect(body.success).toBe(true);
     });
 
     it('should provision node via LNbits on valid input', async () => {
