@@ -86,6 +86,29 @@ describe('WebAuthn Login Options', () => {
 
     expect(res.status).toBe(200);
     expect(data.success).toBe(true);
-    expect(data._challengeKey).toBe('user-123');
+
+    // NEW-07: the key used to be the merchant's own id. The challenge store
+    // holds one entry per key and this route is public, so anyone who knew a
+    // merchant's email could overwrite that merchant's pending challenge and
+    // lock them out of their own account for as long as they kept posting.
+    // The key is only a lookup handle — login-verify derives the user from the
+    // stored credential, never from this value — so it must not identify
+    // anyone, and two requests must never collide.
+    expect(data._challengeKey).not.toBe('user-123');
+    expect(data._challengeKey).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
+
+  it('issues a distinct challenge key per request for the same email', async () => {
+    const call = async () => {
+      const req = new NextRequest('http://localhost/api/auth/webauthn/login-options', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'test@example.com' }),
+      });
+      return (await (await POST(req)).json())._challengeKey;
+    };
+
+    // Two honest logins from two devices used to share one slot and break each
+    // other; this is the same property that denies the attack above.
+    expect(await call()).not.toBe(await call());
   });
 });

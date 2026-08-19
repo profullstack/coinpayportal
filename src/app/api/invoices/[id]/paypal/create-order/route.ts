@@ -47,7 +47,46 @@ export async function POST(
       );
     }
 
-    // Record the order id so the capture callback can be validated against it.
+    // Record the order so the capture callback can be validated against it.
+    //
+    // F-1.1-16: this used to write `invoices.paypal_order_id` unconditionally,
+    // and the route is public. That single column is the only thing capture
+    // checked, so anyone who knew an invoice id could call this endpoint and
+    // overwrite it — including after the real payer had already been handed
+    // their order. The payer then approves order A, capture sees B, rejects it
+    // as "Order does not match this invoice", and the invoice can never be
+    // paid for as long as the attacker keeps posting. Repeating it across open
+    // invoices is a denial of payment for the whole platform.
+    //
+    // An invoice legitimately has more than one order over its life — a payer
+    // abandons the PayPal flow and starts again, or two people open the same
+    // pay link — so the fix is not "first write wins", which would let an
+    // attacker lock the slot even earlier. Each order we issue is recorded as
+    // its own row, bound to this invoice, and capture accepts any order bound
+    // to the invoice it is settling. `paypal_order_id` is unique on that
+    // table, so rows cannot collide or be rewritten to point elsewhere.
+    const { error: bindError } = await supabase.from('paypal_transactions').insert({
+      business_id: invoice.business_id,
+      invoice_id: invoice.id,
+      paypal_order_id: order.orderId,
+      amount: Number(invoice.amount),
+      currency: invoice.currency || 'USD',
+      status: 'created',
+    });
+
+    if (bindError) {
+      // Without the binding row, capture cannot confirm this order belongs to
+      // this invoice. Handing the payer an approval URL we will later refuse to
+      // capture is worse than failing here.
+      console.error('PayPal order binding insert failed:', bindError);
+      return NextResponse.json(
+        { success: false, error: 'Failed to create PayPal order' },
+        { status: 500 }
+      );
+    }
+
+    // Kept in step for the dashboard and for older rows, but it is no longer
+    // what authorises a capture.
     await supabase
       .from('invoices')
       .update({ paypal_order_id: order.orderId, updated_at: new Date().toISOString() })

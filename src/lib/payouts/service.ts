@@ -365,6 +365,83 @@ function isAmbiguousBroadcastError(err: unknown): boolean {
 }
 
 /**
+ * Resolve a payout whose broadcast outcome was never determined.
+ *
+ * N-03: `indeterminate` had no exit. A payout entered it when the broadcast
+ * result was ambiguous — a timeout after the node may already have accepted the
+ * transaction — and `retryPayout` refuses to touch one, correctly, because
+ * re-sending could pay the recipient twice. Its error message told the operator
+ * to "mark the payout completed with its tx_hash" or "mark it failed and
+ * retry", and **no route or function existed to do either**. The state was a
+ * dead end that described a procedure nobody could carry out.
+ *
+ * This is the missing transition, and it is deliberately manual: only a human
+ * who has looked at the chain can say which way it went. Nothing here inspects
+ * the chain itself, because a wrong automatic answer either pays twice or
+ * strands a real payment.
+ *
+ * @param resolution - `completed` (the transfer landed; `txHash` is required so
+ *   the record points at it) or `failed` (it did not; the payout becomes
+ *   retryable again).
+ */
+export async function resolveIndeterminatePayout(
+  supabase: SupabaseClient,
+  businessId: string,
+  payoutId: string,
+  resolution: 'completed' | 'failed',
+  txHash?: string
+): Promise<PayoutResult> {
+  if (resolution === 'completed' && !txHash?.trim()) {
+    return {
+      success: false,
+      error: 'A transaction hash is required to mark a payout completed — it is the evidence the transfer landed.',
+    };
+  }
+
+  const { data: payout, error } = await supabase
+    .from('affiliate_payouts')
+    .select('*')
+    .eq('id', payoutId)
+    .eq('business_id', businessId)
+    .single();
+
+  if (error || !payout) {
+    return { success: false, error: 'Payout not found' };
+  }
+
+  if (payout.status !== 'indeterminate') {
+    return {
+      success: false,
+      error: `Only an indeterminate payout can be resolved this way; this one is '${payout.status}'.`,
+    };
+  }
+
+  // Conditioned on the status still being indeterminate, so two operators
+  // resolving the same payout cannot both apply an outcome.
+  const { data: updated } = await supabase
+    .from('affiliate_payouts')
+    .update({
+      status: resolution,
+      ...(resolution === 'completed' ? { tx_hash: txHash!.trim(), paid_at: new Date().toISOString() } : {}),
+      error_message:
+        resolution === 'completed'
+          ? null
+          : 'Broadcast confirmed not to have landed; resolved manually and available for retry.',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', payoutId)
+    .eq('status', 'indeterminate')
+    .select()
+    .maybeSingle();
+
+  if (!updated) {
+    return { success: false, error: 'Payout was resolved by someone else while this request was in flight.' };
+  }
+
+  return { success: true, payout: updated };
+}
+
+/**
  * Retry a failed payout.
  */
 export async function retryPayout(
@@ -389,8 +466,9 @@ export async function retryPayout(
       success: false,
       error:
         `Payout ${payoutId} has an unknown broadcast outcome and cannot be retried automatically. ` +
-        `Check ${payout.recipient_wallet} on-chain: if the transfer landed, mark the payout completed ` +
-        `with its tx_hash; if it did not, mark it failed and retry.`,
+        `Check ${payout.recipient_wallet} on-chain, then PATCH this payout with ` +
+        `{"resolution":"completed","tx_hash":"..."} if the transfer landed, or ` +
+        `{"resolution":"failed"} if it did not — which makes it retryable again.`,
     };
   }
 

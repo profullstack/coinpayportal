@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const ownerMerchantIds = await listAccessibleOwnerMerchantIds(supabase, merchantId);
+    const ownerMerchantIds = await listAccessibleOwnerMerchantIds(supabase, merchantId, 'billing.manage');
 
     // Get query parameters for filtering and pagination
     const { searchParams } = new URL(request.url);

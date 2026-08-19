@@ -28,6 +28,25 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+/**
+ * Derivation index reserved for the platform arbiter, never issued as a
+ * payment or escrow address.
+ *
+ * ESC-NEW-14: `GET /api/escrow/platform-arbiter` derives the arbiter key at
+ * index 0 of the *same* system mnemonic these payment addresses come from — and
+ * `getMaxFamilyIndex` returns -1 for a family with no addresses yet, so the
+ * counter started at `seed + 1` = 0. The first payment or escrow address ever
+ * created on a chain therefore derived the very key the platform arbiter signs
+ * disputes with: one key, two roles, and customer funds sitting on the
+ * arbiter's address.
+ *
+ * The codebase already reserves BIP44 account 1 for the gas relayer for exactly
+ * this reason (see GAS_RELAYER_DERIVATION_PATH). This is the same idea one
+ * level down: a slot the counter can never enter.
+ */
+export const PLATFORM_ARBITER_DERIVATION_INDEX = 0;
+
+
 export type SystemBlockchain =
   | 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
   | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
@@ -103,6 +122,7 @@ export async function acquireFamilyIndex(
   cryptocurrency: SystemBlockchain
 ): Promise<number> {
   const familyKey = getDerivationFamily(cryptocurrency);
+  // ESC-NEW-14: never hand out the platform arbiter's index. See the constant.
 
   for (let attempt = 0; attempt < 10; attempt++) {
     const { data: indexData, error: indexError } = await supabase
@@ -114,7 +134,10 @@ export async function acquireFamilyIndex(
     if (indexError || !indexData) {
       // Initialize the row, seeded past any pre-existing addresses in
       // the family so we don't immediately collide with them.
-      const seed = await getMaxFamilyIndex(supabase, cryptocurrency);
+      const seed = Math.max(
+        await getMaxFamilyIndex(supabase, cryptocurrency),
+        PLATFORM_ARBITER_DERIVATION_INDEX
+      );
       const { error: insertErr } = await supabase
         .from('system_wallet_indexes')
         .insert({ cryptocurrency: familyKey, next_index: seed + 2 });
@@ -125,12 +148,18 @@ export async function acquireFamilyIndex(
       continue;
     }
 
-    const candidate = indexData.next_index;
+    // A counter created before this reservation existed can still be sitting on
+    // the arbiter's index; step over it rather than deriving a duplicate key.
+    const candidate =
+      indexData.next_index === PLATFORM_ARBITER_DERIVATION_INDEX
+        ? indexData.next_index + 1
+        : indexData.next_index;
+
     const { data: swapped, error: casError } = await supabase
       .from('system_wallet_indexes')
       .update({ next_index: candidate + 1 })
       .eq('cryptocurrency', familyKey)
-      .eq('next_index', candidate)
+      .eq('next_index', indexData.next_index)
       .select('next_index')
       .single();
 

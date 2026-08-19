@@ -110,6 +110,30 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // R4-ID-OAUTH: an authorization request must be bound to the browser that
+  // started it, by `state` or by PKCE.
+  //
+  // Both were optional. The session cookie is `sameSite=lax`, which is sent on
+  // a top-level GET navigation, so an attacker could craft an authorize URL and
+  // have a victim's click complete a flow the victim never began — classic
+  // login-CSRF. `state` defends by binding the callback to the browser that
+  // issued it; `code_challenge` defends by binding the code to a verifier only
+  // the initiating client holds. Either is sufficient. Neither is not.
+  //
+  // Returned as a direct 400 rather than a redirect: with nothing binding the
+  // request there is nothing to safely redirect back to. Most live clients
+  // already send PKCE, so this rejects the unprotected minority, not everybody.
+  if (!state && !codeChallenge) {
+    return NextResponse.json(
+      {
+        error: 'invalid_request',
+        error_description:
+          'Either state or code_challenge (PKCE) is required to bind the authorization request',
+      },
+      { status: 400 }
+    );
+  }
+
   // Validate scopes against BOTH the global whitelist and this client's own
   // registration. Checking only the whitelist let any registered client request
   // every scope the platform defines, regardless of what it was approved for.

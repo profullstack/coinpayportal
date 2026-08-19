@@ -5,6 +5,7 @@
  */
 
 import { isSufficientPayment } from './tolerance';
+import { fetchWithTimeout } from '@/lib/http/fetch-timeout';
 
 // RPC endpoints for different blockchains
 const RPC_ENDPOINTS: Record<string, string> = {
@@ -77,7 +78,7 @@ export interface BalanceResult {
  */
 async function checkBitcoinBalance(address: string): Promise<BalanceResult> {
   try {
-    const response = await fetch(`https://blockstream.info/api/address/${address}`);
+    const response = await fetchWithTimeout(`https://blockstream.info/api/address/${address}`);
     if (!response.ok) {
       await drainResponse(response);
       return { balance: 0, error: 'checkBitcoinBalance: lookup failed' };
@@ -91,7 +92,7 @@ async function checkBitcoinBalance(address: string): Promise<BalanceResult> {
     let txHash: string | undefined;
     if (balance > 0) {
       try {
-        const txResponse = await fetch(`https://blockstream.info/api/address/${address}/txs`);
+        const txResponse = await fetchWithTimeout(`https://blockstream.info/api/address/${address}/txs`);
         if (txResponse.ok) {
           const txs = await txResponse.json();
           if (txs && txs.length > 0) {
@@ -122,7 +123,7 @@ async function checkBCHBalance(address: string): Promise<BalanceResult> {
     }
     const url = `https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet/addresses/${address}`;
     
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -144,7 +145,7 @@ async function checkBCHBalance(address: string): Promise<BalanceResult> {
     if (balance > 0) {
       try {
         const txUrl = `https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet/addresses/${address}/transactions`;
-        const txResponse = await fetch(txUrl, {
+        const txResponse = await fetchWithTimeout(txUrl, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -176,7 +177,7 @@ async function checkBCHBalance(address: string): Promise<BalanceResult> {
 async function checkEVMBalance(address: string, rpcUrl: string, chain: string): Promise<BalanceResult> {
   try {
     console.log(`[Monitor] Checking ${chain} balance for ${address}`);
-    const response = await fetch(rpcUrl, {
+    const response = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -227,7 +228,7 @@ async function checkEVMTokenBalance(
 ): Promise<BalanceResult> {
   try {
     const paddedAddress = address.toLowerCase().replace(/^0x/, '').padStart(64, '0');
-    const response = await fetch(rpcUrl, {
+    const response = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -301,7 +302,7 @@ export async function primeSolanaBalances(
   for (let i = 0; i < unique.length; i += SOL_ACCOUNTS_PER_CALL) {
     const chunk = unique.slice(i, i + SOL_ACCOUNTS_PER_CALL);
     try {
-      const response = await fetch(rpcUrl, {
+      const response = await fetchWithTimeout(rpcUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -360,7 +361,7 @@ async function checkSolanaBalance(address: string, rpcUrl: string): Promise<Bala
       return solanaBalanceResult(address, primed, rpcUrl);
     }
 
-    const response = await fetch(rpcUrl, {
+    const response = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -407,7 +408,7 @@ async function solanaBalanceResult(
   // the pending set — the rest are still waiting for money to arrive.
   let txHash: string | undefined;
   try {
-    const sigResponse = await fetch(rpcUrl, {
+    const sigResponse = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -441,7 +442,7 @@ async function checkSolanaTokenBalance(
   decimals: number
 ): Promise<BalanceResult> {
   try {
-    const response = await fetch(rpcUrl, {
+    const response = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -491,14 +492,14 @@ async function checkSolanaTokenBalance(
 async function checkDOGEBalance(address: string): Promise<BalanceResult> {
   try {
     // Try Blockcypher first
-    const response = await fetch(`https://api.blockcypher.com/v1/doge/main/addrs/${address}/balance`);
+    const response = await fetchWithTimeout(`https://api.blockcypher.com/v1/doge/main/addrs/${address}/balance`);
     if (response.ok) {
       const data = await response.json();
       const balance = (data.balance || 0) / 1e8;
       return { balance };
     }
     // Fallback to dogechain
-    const fallbackResponse = await fetch(`https://dogechain.info/api/v1/address/balance/${address}`);
+    const fallbackResponse = await fetchWithTimeout(`https://dogechain.info/api/v1/address/balance/${address}`);
     if (fallbackResponse.ok) {
       const data = await fallbackResponse.json();
       if (data.success === 1) {
@@ -518,7 +519,7 @@ async function checkDOGEBalance(address: string): Promise<BalanceResult> {
  */
 async function checkBNBBalance(address: string): Promise<BalanceResult> {
   try {
-    const response = await fetch(RPC_ENDPOINTS.BNB, {
+    const response = await fetchWithTimeout(RPC_ENDPOINTS.BNB, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -546,7 +547,7 @@ async function checkBNBBalance(address: string): Promise<BalanceResult> {
  */
 async function checkXRPBalance(address: string): Promise<BalanceResult> {
   try {
-    const response = await fetch(RPC_ENDPOINTS.XRP, {
+    const response = await fetchWithTimeout(RPC_ENDPOINTS.XRP, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -581,7 +582,7 @@ async function checkADABalance(address: string): Promise<BalanceResult> {
       console.error('[Monitor] BLOCKFROST_API_KEY not configured for ADA');
       return { balance: 0, error: 'checkADABalance: lookup failed' };
     }
-    const response = await fetch(`https://cardano-mainnet.blockfrost.io/api/v0/addresses/${address}`, {
+    const response = await fetchWithTimeout(`https://cardano-mainnet.blockfrost.io/api/v0/addresses/${address}`, {
       headers: { 'project_id': blockfrostKey },
     });
     if (response.status === 404) {
@@ -705,7 +706,7 @@ export async function processPayment(supabase: any, payment: Payment): Promise<{
     if (internalApiKey) {
       try {
         console.log(`[Monitor] Triggering forwarding for payment ${payment.id}`);
-        const forwardResponse = await fetch(`${appUrl}/api/payments/${payment.id}/forward`, {
+        const forwardResponse = await fetchWithTimeout(`${appUrl}/api/payments/${payment.id}/forward`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

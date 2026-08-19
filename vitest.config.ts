@@ -19,16 +19,21 @@ export default defineConfig({
       '**/cypress/**',
       '**/.{idea,git,cache,output,temp}/**',
       '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build}.config.*',
-      // Skip blockchain tests due to ws CommonJS/ESM incompatibility (except providers.test.ts which is fully mocked)
+      // These were all excluded for a ws CommonJS/ESM incompatibility. The `ws`
+      // alias below fixes that, and the exclusions outlived it — four of the
+      // seven files now run clean and are back in the suite.
+      //
+      // Leaving them out had a cost. `system-wallet.test.ts` covers custodial
+      // address derivation, and while it sat unrun its ADA test asserted the
+      // shape of a *broken* address (`addr1_<hex>...`, ellipsis and all), so
+      // the L5-02 defect had a passing-looking test defending it. Production
+      // issued five unusable ADA addresses before anyone noticed.
+      //
+      // The three below no longer fail on module loading either — they fail on
+      // assertions that drifted while nobody was running them. That is a
+      // to-do, not a module problem; do not re-add the others without checking.
       'src/lib/blockchain/wallets.test.ts',
-      'src/lib/blockchain/monitor.test.ts',
-      // Skip system-wallet test due to ethers/ws CommonJS/ESM incompatibility
-      'src/lib/wallets/system-wallet.test.ts',
-      // Skip payment service tests that import system-wallet (ethers/ws issue)
       'src/lib/payments/service.test.ts',
-      'src/lib/payments/service.expiration.test.ts',
-      // Skip API route tests that pull system-wallet through payment flow (same ws issue)
-      'src/app/api/payments/route.test.ts',
       'src/app/api/cron/monitor-payments/route.test.ts',
     ],
   },

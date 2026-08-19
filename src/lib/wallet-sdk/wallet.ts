@@ -5,6 +5,7 @@
  * Uses fetch() exclusively — NO Supabase imports.
  */
 
+import { preparedTxPaysRecipient } from './verify-prepared';
 import { WalletAPIClient, hexToUint8Array, uint8ArrayToHex } from './client';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { WalletEventEmitter } from './events';
@@ -89,6 +90,27 @@ export class Wallet {
     const mnemonic = generateMnemonic(options.words || 12);
     const bundle = await deriveWalletBundle(mnemonic, chains);
 
+    if (!bundle.privateKeySecp256k1) {
+      throw new WalletSDKError(
+        'NO_SECP256K1_KEY',
+        'Cannot derive proof-of-ownership key',
+        400
+      );
+    }
+
+    // V-04: /create used to accept a public key and a list of on-chain
+    // addresses from anyone, unauthenticated and unproved, while its sibling
+    // /import required a signature for exactly the same write. Signed the same
+    // way as import, with the master account key that matches the
+    // public_key_secp256k1 being registered.
+    const proofMessage = `coinpayportal:create:${Date.now()}`;
+    const proofSignature = uint8ArrayToHex(
+      secp256k1.sign(
+        new TextEncoder().encode(proofMessage),
+        hexToUint8Array(bundle.privateKeySecp256k1)
+      )
+    );
+
     const result = await client.request<{
       wallet_id: string;
       created_at: string;
@@ -104,6 +126,10 @@ export class Wallet {
           address: a.address,
           derivation_path: a.derivationPath,
         })),
+        proof_of_ownership: {
+          message: proofMessage,
+          signature: proofSignature,
+        },
       },
     });
 
@@ -615,6 +641,21 @@ export class Wallet {
     });
     console.log('[WalletSDK.send] Prepared tx:', { txId: prepared.txId, fee: prepared.fee });
 
+    // Check what the server handed back actually pays the intended recipient
+    // before signing it (REC-04).
+    //
+    // Holding the key locally is only a protection if the thing being signed is
+    // inspected. A hostile or compromised server could return an unsigned_tx
+    // paying its own address while echoing the requested recipient in the JSON
+    // beside it, and this signed whatever arrived.
+    if (!preparedTxPaysRecipient(prepared.unsignedTx, options.toAddress)) {
+      throw new WalletSDKError(
+        'PREPARED_TX_MISMATCH',
+        `The prepared transaction does not pay ${options.toAddress} — refusing to sign it.`,
+        400
+      );
+    }
+
     console.log('[WalletSDK.send] Signing transaction...');
     const signed = await signTransaction({
       unsigned_tx: prepared.unsignedTx,
@@ -833,7 +874,8 @@ export class Wallet {
   }
 
   getLightningNode() { return this.ln.getLightningNode(); }
-  enableLightning(mnemonic: string, businessId?: string) { return this.ln.enableLightning(mnemonic, businessId); }
+  /** @param _mnemonic - Deprecated and ignored; the seed is no longer sent (NEW-20). */
+  enableLightning(_mnemonic?: string, businessId?: string) { return this.ln.enableLightning(undefined, businessId); }
   getLightningAddress() { return this.ln.getLightningAddress(); }
   setLightningAddress(username: string) { return this.ln.setLightningAddress(username); }
   createLightningInvoice(amount: number, memo?: string) { return this.ln.createLightningInvoice(amount, memo); }
