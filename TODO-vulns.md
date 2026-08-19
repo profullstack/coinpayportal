@@ -214,6 +214,8 @@ Batch fourteen: `F-1.3-10`, `NEW-F1A-P-01`, `R4-DIN-07` `FIXED`. Invoice
 numbering now has one implementation, `lib/invoices/numbering.ts`, used by all
 four call sites — three of which were wrong while the fourth was right.
 
+Batch fifteen: `IA-010`, `L-03`, `F4-03` `FIXED`.
+
 ## Priority 4 — Conditional (26)
 
 Detail in `docs/findings/04_CONDITIONAL_LOW/`. Verify the condition before
