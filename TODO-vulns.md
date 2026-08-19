@@ -101,12 +101,12 @@ The subset worth taking first:
 | `L4-NEW-02` | `UNVERIFIED` | Writing `status:'failed'` violates `payments_status_check` and the failure is never checked, so the payment stays `pending` forever and invisible. |
 | `NEW-L5-2` | `UNVERIFIED` | The schema CHECK omits `USDT`/`USDC`/`USDC_BASE` that the application inserts — payment creation fails outright for those stablecoins. |
 | `NEW-24`, `G-1.2-09`, `F5-L4-02` | `UNVERIFIED` | Unescaped merchant-controlled HTML into invoice email, team email, and the internal daily report. |
-| `AUD-01` + `F7-01` + `DOC-01` | `UNVERIFIED` / `DECISION` | No audit-logging infrastructure exists anywhere, while the public security docs state that it does, and `layout.tsx` claims "non-custodial". The documentation claims are legal exposure and are the cheapest thing in the register to correct — do that immediately even if the logging itself lands later. |
+| `F7-01` + `DOC-01` `FIXED`; `AUD-01` `OPEN` | No audit-logging infrastructure exists anywhere, while the public security docs state that it does, and `layout.tsx` claims "non-custodial". The documentation claims are legal exposure and are the cheapest thing in the register to correct — do that immediately even if the logging itself lands later. |
 | `CP-P5` | `UNVERIFIED` | `businesses.tier` does not exist, so every business is charged the 1% minimum regardless of tier. Verify against the live schema. |
 | `R3-DIN-01` | `UNVERIFIED` | Marks an invoice paid and sends "Payment Received" with no `payment_id`; funds can be stuck at the intermediary. |
 | `REC-D-05` | `UNVERIFIED` | The p2p Stripe branch never calls `screenCheckout` at all. |
-| `GAP-02` | `DECISION` | Own pentest reports (`strix_runs/**`) versioned in the public repo. Delete and purge. |
-| `F5-L4-03` | `UNVERIFIED` | Real merchant PII hardcoded as fixtures in `scripts/test-spam-detection.ts`, public repo. |
+| `GAP-02` | `FIXED` (history purge still `DECISION`) | Own pentest reports (`strix_runs/**`) versioned in the public repo. Delete and purge. |
+| `F5-L4-03` | `FIXED` | Real merchant PII hardcoded as fixtures in `scripts/test-spam-detection.ts`, public repo. |
 
 ## Priority 2 — High impact, gated (54)
 
