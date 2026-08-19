@@ -22,9 +22,19 @@ function makeSupabase(fixtures: Record<string, unknown[]>) {
 
     const builder: Record<string, unknown> = {};
     const chain = () => builder;
+    const rows = () => fixtures[table] ?? [];
 
     builder.select = chain;
     builder.order = chain;
+    builder.update = chain;
+    builder.delete = chain;
+    builder.insert = chain;
+    builder.range = chain;
+    builder.limit = chain;
+    builder.gte = chain;
+    builder.lte = chain;
+    builder.is = chain;
+    builder.or = chain;
     builder.eq = (col: string, val: unknown) => {
       record.filters[col] = val;
       return builder;
@@ -33,9 +43,19 @@ function makeSupabase(fixtures: Record<string, unknown[]>) {
       record.filters[col] = vals;
       return builder;
     };
+    // `.single()` resolves to one row, or a not-found error when there is none
+    // — which is exactly what a scoped lookup of someone else's row returns.
+    builder.single = () => ({
+      then: (resolve: (v: unknown) => unknown) =>
+        resolve(
+          rows().length > 0
+            ? { data: rows()[0], error: null }
+            : { data: null, error: { message: 'No rows found' } },
+        ),
+    });
     // Awaiting the builder resolves to the fixture for this table.
     builder.then = (resolve: (v: unknown) => unknown) =>
-      resolve({ data: fixtures[table] ?? [], error: null, count: (fixtures[table] ?? []).length });
+      resolve({ data: rows(), error: null, count: rows().length });
 
     return builder;
   };
@@ -53,6 +73,7 @@ const { listAccounts, merchantOwnsAccount } = await import('./summary');
 
 const MERCHANT = 'merchant-aaa';
 const OTHER = 'merchant-bbb';
+const ATTACKER = 'merchant-ccc';
 
 describe('listAccounts scoping', () => {
   beforeEach(() => {
@@ -119,5 +140,43 @@ describe('merchantOwnsAccount', () => {
 
     await expect(merchantOwnsAccount('acc-1', OTHER)).resolves.toBe(false);
     expect(supabaseMock.calls.some((c) => c.table === 'finance_accounts')).toBe(false);
+  });
+});
+
+/**
+ * Write-side scoping. Both of these guard a bug that was real: filtering a
+ * mutation on the row id alone lets any caller who can guess a uuid act on
+ * somebody else's connection.
+ */
+describe('write scoping', () => {
+  it('deletes only within the caller’s own connections', async () => {
+    supabaseMock = makeSupabase({ finance_connections: [] });
+    const { deleteConnection } = await import('./sync');
+
+    await deleteConnection('conn-belonging-to-someone-else', ATTACKER);
+
+    const del = supabaseMock.calls.find((c) => c.table === 'finance_connections');
+    expect(del?.filters.id).toBe('conn-belonging-to-someone-else');
+    // Without this the delete would cascade away a stranger's accounts and
+    // their entire transaction history.
+    expect(del?.filters.merchant_id).toBe(ATTACKER);
+  });
+
+  it('stamps a sync failure only on a connection the caller owns', async () => {
+    // An empty connection lookup is what passing someone else's id produces,
+    // and it sends syncConnection straight into its failure path — which
+    // writes last_sync_error.
+    supabaseMock = makeSupabase({ finance_connections: [] });
+    const { syncConnection } = await import('./sync');
+
+    await expect(syncConnection('conn-not-mine', ATTACKER)).rejects.toThrow(/not found/i);
+
+    const writes = supabaseMock.calls.filter(
+      (c) => c.table === 'finance_connections' && 'id' in c.filters,
+    );
+    expect(writes.length).toBeGreaterThan(0);
+    for (const write of writes) {
+      expect(write.filters.merchant_id).toBe(ATTACKER);
+    }
   });
 });
