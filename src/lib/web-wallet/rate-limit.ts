@@ -96,6 +96,12 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'invoice_email_resend': { limit: 10, windowSeconds: 300 },  // 10/5min per business
   'p2p_request': { limit: 30, windowSeconds: 60 },           // 30/min per issuing platform
   'cli_auth_start': { limit: 10, windowSeconds: 300 },       // 10/5min per IP
+  // NEW-11: `poll` was unauthenticated and unlimited, and its answers are
+  // distinguishable (invalid / pending / denied / expired), so it was a free
+  // status oracle. A legitimate CLI polls every 5s for at most 10 minutes —
+  // 120 calls — so this leaves generous headroom for several terminals behind
+  // one NAT while still bounding the endpoint.
+  'cli_auth_poll': { limit: 600, windowSeconds: 600 },       // 600/10min per IP
   // WebAuthn. `login-options` answers differently for a registered and an
   // unregistered account, so without a limit it is a free user-enumeration
   // oracle; the verify endpoints back an authentication decision.
