@@ -102,6 +102,9 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   // 120 calls — so this leaves generous headroom for several terminals behind
   // one NAT while still bounding the endpoint.
   'cli_auth_poll': { limit: 600, windowSeconds: 600 },       // 600/10min per IP
+  // SUB-02: each checkout derives an HD address and stores an encrypted key,
+  // so an unbounded loop accumulates key material as well as rows.
+  'subscription_checkout': { limit: 10, windowSeconds: 300 }, // 10/5min per merchant
   // WebAuthn. `login-options` answers differently for a registered and an
   // unregistered account, so without a limit it is a free user-enumeration
   // oracle; the verify endpoints back an authentication decision.
