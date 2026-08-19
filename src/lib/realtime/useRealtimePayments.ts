@@ -103,13 +103,15 @@ export function useRealtimePayments({
         url += `?businessId=${businessId}`;
       }
 
-      // Get auth token
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-      if (token) {
-        url += `${businessId ? '&' : '?'}token=${token}`;
-      }
-
-      const eventSource = new EventSource(url);
+      // G-1.2-04: the session token is no longer appended to the URL.
+      //
+      // It is a 7-day credential, and a URL puts it into proxy and CDN access
+      // logs, browser history, and the `Referer` header of anything navigated
+      // to next. `EventSource` cannot set headers, which is why it was there —
+      // but it does send cookies on a same-origin request, and the session
+      // cookie is httpOnly, so `withCredentials` authenticates the stream
+      // without the credential ever appearing in a URL.
+      const eventSource = new EventSource(url, { withCredentials: true });
       eventSourceRef.current = eventSource;
 
       eventSource.onopen = () => {
