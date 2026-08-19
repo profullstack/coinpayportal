@@ -31,6 +31,19 @@ function signMessage(message: string, privateKey: Uint8Array): string {
   return Buffer.from(signatureBytes).toString('hex');
 }
 
+/**
+ * A valid proof of ownership for a keypair.
+ *
+ * V-04: createWallet used to take a public key and a list of on-chain
+ * addresses from an unauthenticated caller and write both without asking for
+ * any proof they were the caller's, while its sibling importWallet had always
+ * required a signature. Both now go through the same check, so every create
+ * test has to hold the private key it claims.
+ */
+function proofFor(privateKey: Uint8Array, message = 'coinpayportal:create:test') {
+  return { message, signature: signMessage(message, privateKey) };
+}
+
 /** Create a mock Supabase client with chainable query builder */
 function createMockSupabase() {
   const mockChain = () => {
@@ -139,7 +152,11 @@ describe('Web Wallet Service', () => {
   describe('createWallet', () => {
     it('should reject missing public keys', async () => {
       const supabase = createMockSupabase();
-      const result = await createWallet(supabase, {});
+      // A proof is present but no key is claimed, so the "at least one public
+      // key" rule is still what rejects this — not the new proof requirement.
+      const result = await createWallet(supabase, {
+        proof_of_ownership: { message: 'coinpayportal:create:test', signature: 'aa' },
+      });
       expect(result.success).toBe(false);
       expect(result.error).toContain('At least one public key');
     });
@@ -148,8 +165,11 @@ describe('Web Wallet Service', () => {
       const supabase = createMockSupabase();
       const result = await createWallet(supabase, {
         public_key_secp256k1: 'not-a-valid-key',
+        proof_of_ownership: { message: 'coinpayportal:create:test', signature: 'aa' },
       });
       expect(result.success).toBe(false);
+      // Key format is checked before the signature, so a malformed key still
+      // gets the specific error rather than a generic proof failure.
       expect(result.error).toContain('Invalid secp256k1');
     });
 
@@ -169,6 +189,7 @@ describe('Web Wallet Service', () => {
 
       const result = await createWallet(supabase, {
         public_key_secp256k1: keypair.publicKeyHex,
+        proof_of_ownership: proofFor(keypair.privateKey),
       });
 
       expect(result.success).toBe(true);
@@ -186,6 +207,7 @@ describe('Web Wallet Service', () => {
 
       const result = await createWallet(supabase, {
         public_key_secp256k1: keypair.publicKeyHex,
+        proof_of_ownership: proofFor(keypair.privateKey),
       });
 
       expect(result.success).toBe(false);
@@ -202,6 +224,7 @@ describe('Web Wallet Service', () => {
 
       const result = await createWallet(supabase, {
         public_key_secp256k1: keypair.publicKeyHex,
+        proof_of_ownership: proofFor(keypair.privateKey),
         initial_addresses: [
           { chain: 'ETH', address: 'invalid-address', derivation_path: "m/44'/60'/0'/0/0" },
         ],
@@ -228,6 +251,7 @@ describe('Web Wallet Service', () => {
 
       const result = await createWallet(supabase, {
         public_key_secp256k1: keypair.publicKeyHex,
+        proof_of_ownership: proofFor(keypair.privateKey),
         initial_addresses: [
           {
             chain: 'ETH',
@@ -265,6 +289,7 @@ describe('Web Wallet Service', () => {
 
       const result = await createWallet(supabase, {
         public_key_secp256k1: keypair.publicKeyHex,
+        proof_of_ownership: proofFor(keypair.privateKey),
         initial_addresses: [
           {
             chain: 'LN',
@@ -277,6 +302,119 @@ describe('Web Wallet Service', () => {
       expect(result.success).toBe(true);
       expect(result.data?.addresses).toHaveLength(1);
       expect(result.data?.addresses?.[0]?.chain).toBe('LN');
+    });
+  });
+
+  describe('proof of ownership', () => {
+    it('refuses to create a wallet for a key the caller cannot sign for', async () => {
+      // V-04: creation took a self-declared public key and a list of on-chain
+      // addresses from an unauthenticated caller and wrote both, asking for no
+      // proof that any of it was theirs. `wallet_addresses` is globally unique
+      // on (address, chain), so an unproved registration permanently denies
+      // that address to whoever actually owns it.
+      const victim = generateTestKeypair();
+      const attacker = generateTestKeypair();
+      const supabase = createSequentialMockSupabase();
+
+      const message = 'coinpayportal:create:test';
+      const result = await createWallet(supabase, {
+        public_key_secp256k1: victim.publicKeyHex,
+        // A perfectly valid signature — over the right message, by the wrong key.
+        proof_of_ownership: { message, signature: signMessage(message, attacker.privateKey) },
+        initial_addresses: [
+          {
+            chain: 'ETH',
+            address: '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD28',
+            derivation_path: "m/44'/60'/0'/0/0",
+          },
+        ],
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.code).toBe('INVALID_SIGNATURE');
+      // Nothing may be written on an unproved claim — the squat must not land.
+      expect(supabase.from).not.toHaveBeenCalledWith('wallet_addresses');
+    });
+
+    it('refuses to create a wallet with no signature at all', async () => {
+      const keypair = generateTestKeypair();
+      const supabase = createSequentialMockSupabase();
+
+      const result = await createWallet(supabase, {
+        public_key_secp256k1: keypair.publicKeyHex,
+        proof_of_ownership: { message: 'coinpayportal:create:test' },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.code).toBe('INVALID_SIGNATURE');
+    });
+
+    it('refuses an ed25519-only import whose proof is not checkable', async () => {
+      // NEW-09: verification sat inside `if (public_key_secp256k1)`, and the
+      // schema requires only *one* of the two keys. Omitting the secp256k1 key
+      // therefore skipped the check entirely — `proof_of_ownership` was still
+      // mandatory, but nothing in it was ever read and any string passed.
+      const supabase = createSequentialMockSupabase();
+
+      const result = await importWallet(supabase, {
+        // A structurally valid base58 ed25519 key that is not the caller's.
+        public_key_ed25519: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+        proof_of_ownership: {
+          message: 'CoinPayPortal wallet import: 1234567890',
+          signature: 'deadbeef',
+          signature_ed25519: 'deadbeef',
+        },
+        addresses: [
+          {
+            chain: 'SOL',
+            address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+            derivation_path: "m/44'/501'/0'",
+          },
+        ],
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.code).toBe('INVALID_SIGNATURE');
+      expect(supabase.from).not.toHaveBeenCalledWith('wallet_addresses');
+    });
+
+    it('refuses an ed25519-only import that omits the ed25519 signature', async () => {
+      // The exact shape of the bypass: send only the ed25519 key, and the
+      // secp256k1 branch that did the verifying is never entered.
+      const supabase = createSequentialMockSupabase();
+
+      const result = await importWallet(supabase, {
+        public_key_ed25519: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+        proof_of_ownership: {
+          message: 'CoinPayPortal wallet import: 1234567890',
+          signature: 'anything at all',
+        },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.code).toBe('INVALID_SIGNATURE');
+    });
+
+    it('caps how many addresses one registration may claim', async () => {
+      // V-04: `initial_addresses` was unbounded, so a single request could
+      // claim thousands of addresses it did not own — and each one is
+      // permanent, because the uniqueness is global.
+      const keypair = generateTestKeypair();
+      const supabase = createSequentialMockSupabase();
+
+      const message = 'coinpayportal:create:test';
+      const result = await createWallet(supabase, {
+        public_key_secp256k1: keypair.publicKeyHex,
+        proof_of_ownership: { message, signature: signMessage(message, keypair.privateKey) },
+        initial_addresses: Array.from({ length: 500 }, () => ({
+          chain: 'ETH',
+          address: '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD28',
+          derivation_path: "m/44'/60'/0'/0/0",
+        })),
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.code).toBe('VALIDATION_ERROR');
     });
   });
 

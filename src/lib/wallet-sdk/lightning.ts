@@ -63,15 +63,21 @@ export function createLightningMethods(
 
     /**
      * Provision a Lightning node for this wallet.
+     *
+     * @param _mnemonic - **Deprecated and ignored.** Provisioning creates a
+     *   custodial LNbits wallet; there is no signer and nothing to derive, so
+     *   the seed was sent, validated and discarded (NEW-20). It is no longer
+     *   transmitted. The parameter is retained only so existing call sites keep
+     *   compiling — pass `undefined`, or drop it once callers are updated.
+     * @param businessId - Optional business to attach the node to.
      */
-    async enableLightning(mnemonic: string, businessId?: string): Promise<LightningNode> {
+    async enableLightning(_mnemonic?: string, businessId?: string): Promise<LightningNode> {
       const data = await client.request<any>({
         method: 'POST',
         path: '/api/lightning/nodes',
         body: {
           wallet_id: walletId,
           business_id: businessId,
-          mnemonic,
         },
         authenticated: true,
       });

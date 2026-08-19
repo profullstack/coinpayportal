@@ -90,6 +90,27 @@ export class Wallet {
     const mnemonic = generateMnemonic(options.words || 12);
     const bundle = await deriveWalletBundle(mnemonic, chains);
 
+    if (!bundle.privateKeySecp256k1) {
+      throw new WalletSDKError(
+        'NO_SECP256K1_KEY',
+        'Cannot derive proof-of-ownership key',
+        400
+      );
+    }
+
+    // V-04: /create used to accept a public key and a list of on-chain
+    // addresses from anyone, unauthenticated and unproved, while its sibling
+    // /import required a signature for exactly the same write. Signed the same
+    // way as import, with the master account key that matches the
+    // public_key_secp256k1 being registered.
+    const proofMessage = `coinpayportal:create:${Date.now()}`;
+    const proofSignature = uint8ArrayToHex(
+      secp256k1.sign(
+        new TextEncoder().encode(proofMessage),
+        hexToUint8Array(bundle.privateKeySecp256k1)
+      )
+    );
+
     const result = await client.request<{
       wallet_id: string;
       created_at: string;
@@ -105,6 +126,10 @@ export class Wallet {
           address: a.address,
           derivation_path: a.derivationPath,
         })),
+        proof_of_ownership: {
+          message: proofMessage,
+          signature: proofSignature,
+        },
       },
     });
 
@@ -849,7 +874,8 @@ export class Wallet {
   }
 
   getLightningNode() { return this.ln.getLightningNode(); }
-  enableLightning(mnemonic: string, businessId?: string) { return this.ln.enableLightning(mnemonic, businessId); }
+  /** @param _mnemonic - Deprecated and ignored; the seed is no longer sent (NEW-20). */
+  enableLightning(_mnemonic?: string, businessId?: string) { return this.ln.enableLightning(undefined, businessId); }
   getLightningAddress() { return this.ln.getLightningAddress(); }
   setLightningAddress(username: string) { return this.ln.setLightningAddress(username); }
   createLightningInvoice(amount: number, memo?: string) { return this.ln.createLightningInvoice(amount, memo); }

@@ -8,7 +8,9 @@
  */
 
 import { secp256k1 } from '@noble/curves/secp256k1';
+import { ed25519 } from '@noble/curves/ed25519.js';
 import { createHash, randomBytes } from 'crypto';
+import { base58Decode } from './identity';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { generateToken, verifyToken } from '../auth/jwt';
 import { checkAndRecordSignatureAsync } from './rate-limit';
@@ -223,6 +225,49 @@ export function verifyChallengeSignature(
   try {
     const messageBytes = new TextEncoder().encode(challenge);
     return verifySecp256k1Signature(signatureHex, messageBytes, publicKeyHex);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Verify an ed25519 signature over a challenge message.
+ *
+ * NEW-09: `importWallet` verified proof of ownership only inside
+ * `if (public_key_secp256k1)`. The import schema requires *at least one* of the
+ * two keys, so submitting only `public_key_ed25519` skipped the check
+ * entirely — the `proof_of_ownership` object was still mandatory, but its
+ * contents were never read and any string passed. That let an unauthenticated
+ * caller register a wallet under an ed25519 public key they do not hold.
+ *
+ * The public key is base58 (the Solana convention used for ed25519 throughout
+ * this codebase) and the signature is hex, matching the secp256k1 path. Signed
+ * over the raw message bytes, as `verifyChallengeSignature` does, so a client
+ * constructs both proofs the same way.
+ *
+ * Returns false rather than throwing on malformed input: a caller deciding
+ * whether to trust someone needs a boolean, not an exception that a
+ * surrounding try/catch might turn into a pass.
+ */
+export function verifyEd25519ChallengeSignature(
+  challenge: string,
+  signatureHex: string,
+  publicKeyBase58: string
+): boolean {
+  try {
+    if (!challenge || !signatureHex || !publicKeyBase58) return false;
+
+    const clean = signatureHex.startsWith('0x') ? signatureHex.slice(2) : signatureHex;
+    const signature = Uint8Array.from(Buffer.from(clean, 'hex'));
+    // Ed25519 signatures are exactly 64 bytes. Buffer.from silently stops at
+    // the first invalid hex pair, so check the decoded length rather than
+    // trusting that the input was hex at all.
+    if (signature.length !== 64) return false;
+
+    const publicKey = base58Decode(publicKeyBase58);
+    if (publicKey.length !== 32) return false;
+
+    return ed25519.verify(signature, new TextEncoder().encode(challenge), publicKey);
   } catch {
     return false;
   }

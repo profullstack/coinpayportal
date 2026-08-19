@@ -207,7 +207,7 @@ export function buildDerivationPath(chain: WalletChain, index: number): string {
 
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
-function base58Decode(str: string): Uint8Array {
+export function base58Decode(str: string): Uint8Array {
   // Count leading '1' characters (each represents a zero byte)
   let leadingZeros = 0;
   for (const char of str) {

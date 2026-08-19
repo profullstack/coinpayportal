@@ -1280,9 +1280,10 @@ coinpay oauth delete <client-id>`}
             <h3 className="text-xl font-semibold text-white mb-4">Enable Lightning</h3>
             <CodeBlock title="Provision a Lightning wallet" language="javascript">
 {`// Enable Lightning for a wallet (provisions LNbits custodial wallet)
+// No mnemonic: the wallet is custodial, so nothing is derived or signed
+// here. Never send your seed phrase to an API.
 const result = await client.lightning.enableWallet({
   wallet_id: 'your-wallet-uuid',
-  mnemonic: 'your bip39 mnemonic words...',
 });
 
 console.log('Lightning enabled!', result);`}

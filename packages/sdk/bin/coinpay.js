@@ -3736,10 +3736,12 @@ async function handleLightning(subcommand, args, flags) {
         console.error(colors.red + 'Error: --wallet-id required' + colors.reset);
         process.exit(1);
       }
-      const mnemonic = await getDecryptedMnemonic(flags);
+      // NEW-20: this used to decrypt the stored seed — prompting for the
+      // passphrase — purely to post it to the server, which validated it and
+      // threw it away. Provisioning is a custodial LNbits wallet, so nothing
+      // is derived or signed here. The seed never leaves the machine now.
       const result = await client.lightning.enableWallet({
         wallet_id: walletId,
-        mnemonic,
         business_id: flags['business-id'],
       });
       console.log(colors.green + '⚡ Lightning wallet enabled!' + colors.reset);
