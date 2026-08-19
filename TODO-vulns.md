@@ -186,6 +186,12 @@ All `UNVERIFIED`. Detail in `docs/findings/03_SILENT_OPERATIONAL/`. Standouts:
   `pnpm sweep-balances`. `--execute` deliberately refuses: broadcasting sweeps
   would be new untested multi-chain fund-moving code.
 
+### Priority 3 progress (batch nine)
+
+`BL-02`, `CP-025`, `F-1.1-01` `FIXED` (see batch eight). `B-04`, `L7A-04`,
+`L5-02` `FIXED`. `F5-L1-06` `PARTIAL`. `V-01`/`L8-01`/`REC-D-02` were already
+`FIXED`. All verified against the live production schema, not inferred.
+
 ## Priority 4 — Conditional (26)
 
 Detail in `docs/findings/04_CONDITIONAL_LOW/`. Verify the condition before
