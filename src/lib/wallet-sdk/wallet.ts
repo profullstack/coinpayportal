@@ -5,6 +5,7 @@
  * Uses fetch() exclusively — NO Supabase imports.
  */
 
+import { preparedTxPaysRecipient } from './verify-prepared';
 import { WalletAPIClient, hexToUint8Array, uint8ArrayToHex } from './client';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { WalletEventEmitter } from './events';
@@ -614,6 +615,21 @@ export class Wallet {
       priority: options.priority,
     });
     console.log('[WalletSDK.send] Prepared tx:', { txId: prepared.txId, fee: prepared.fee });
+
+    // Check what the server handed back actually pays the intended recipient
+    // before signing it (REC-04).
+    //
+    // Holding the key locally is only a protection if the thing being signed is
+    // inspected. A hostile or compromised server could return an unsigned_tx
+    // paying its own address while echoing the requested recipient in the JSON
+    // beside it, and this signed whatever arrived.
+    if (!preparedTxPaysRecipient(prepared.unsignedTx, options.toAddress)) {
+      throw new WalletSDKError(
+        'PREPARED_TX_MISMATCH',
+        `The prepared transaction does not pay ${options.toAddress} — refusing to sign it.`,
+        400
+      );
+    }
 
     console.log('[WalletSDK.send] Signing transaction...');
     const signed = await signTransaction({
