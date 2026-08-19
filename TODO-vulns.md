@@ -144,8 +144,9 @@ audit than whether its bespoke ownership query is correct.
 | `SUB-01` | `FIXED` | `subscriptions/status` DELETE has no `hasScope`. |
 | `REC-D-01` | `FIXED` by `NEW-04` + `platformMayManageMerchant` | Extends `NEW-04`; likely closed by that fix — re-verify. |
 | `REC-C-03` | `FIXED` | x402 ignores API key scopes. |
-- **Identity / DID abuse** — `L7A-02`, `V-02`, `REP-F1A-02`, `G-1.2-10`,
-  `R4-ID-OAUTH`, `R3-ID-02`, `R4-ID-RESET`.
+- **Identity / DID abuse** — `L7A-02` `FIXED`, `V-02` `FIXED`,
+  `REP-F1A-02` `FIXED`, `G-1.2-10` `FIXED`, `R4-ID-OAUTH` `FIXED`,
+  `R3-ID-02` `FIXED`, `R4-ID-RESET` `FIXED`.
 - **Multisig escrow** — `F-1.1-02`, `F-1.1-03`, `F-1.1-04`. Latent while
   `MULTISIG_ESCROW_ENABLED` is off. Fix before that flag is ever turned on.
 - **Wallet and key handling** — `F-L7-01`, `F-L7-02`, `F5-L1-02`, `F5-L1-05`,
@@ -153,7 +154,7 @@ audit than whether its bespoke ownership query is correct.
 - **Rate limit / enumeration (§2.6)** — `NEW-06` `FIXED`, `WW-02` `FIXED`,
   `REC-C-04` `FIXED`, `REC-C-05` `FIXED`, `L7A-03` `FIXED`. Still open:
   `NEW-07` `FIXED`, `NEW-09` `FIXED`, `NEW-20` `FIXED`, `NEW-23` `FIXED`,
-  `NEW-WW34-01` `FIXED`. Still open: `NEW-11`.
+  `NEW-WW34-01` `FIXED`, `NEW-11` `FIXED`.
 - **Payment and settlement integrity** — `B-03` `FIXED`, `F-1.1-07` `FIXED`,
   `F-1.1-16` `FIXED`, `F-1.3-02` `FIXED`, `V-04` `FIXED`, `IA-016` `FIXED`,
   `WW-01` `FIXED`, `WW-03` `PARTIAL` (recipient bound on every chain; amount

@@ -3619,13 +3619,19 @@ async function handleLogin() {
     process.exit(1);
   }
 
+  // G-1.2-10: there is no pre-filled approval link any more. A link that filled
+  // in the code turned a phishing message into one-click account takeover —
+  // anyone could start a device authorization and send the resulting link to a
+  // signed-in merchant. Entering the code by hand is what ties the approval to
+  // a terminal the person is actually sitting at.
   print.info('');
-  console.log('  To log in, open this URL on any device (e.g. your desktop) and approve:');
+  console.log('  To log in, open this URL on any device (e.g. your desktop):');
   console.log('');
-  console.log('    ' + colors.cyan + start.verification_uri_complete + colors.reset);
+  console.log('    ' + colors.cyan + start.verification_uri + colors.reset);
   console.log('');
-  console.log('  …or go to ' + colors.cyan + start.verification_uri + colors.reset +
-    ' and enter code ' + colors.bright + start.user_code + colors.reset);
+  console.log('  and enter this code: ' + colors.bright + start.user_code + colors.reset);
+  console.log('');
+  console.log(colors.yellow + '  Only enter a code your own terminal printed.' + colors.reset);
   console.log('');
   print.info('Waiting for approval… (Ctrl-C to cancel)');
 
