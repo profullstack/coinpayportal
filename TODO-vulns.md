@@ -231,7 +231,7 @@ that was trusting the old hardcoded `true`.
 
 | Item | Status | Action |
 |---|---|---|
-| `doppler.env` / `doppler.json` committed | `DECISION` | An encrypted Doppler cache is in git history with no matching `.gitignore` pattern. Rotate the secrets it held and purge from history, or formally accept the exposure. Recoverable from history regardless of later removal. |
+| `doppler.env` / `doppler.json` committed | `PARTIAL` — untracked; history purge still `DECISION` | Untracked and added to `.gitignore` (no existing pattern matched their filenames). They are a PBKDF2-encrypted Doppler fallback cache and its config. **Secrets for this project now live in the logicsrc team vault `coinpayportal--prod`**, so these are obsolete as well as sensitive. They remain in git history, which no `.gitignore` undoes — purging that, and rotating what they held, is still a decision. |
 | `L-02` — `certs/gl-nobody.key` | `DECISION` | A Greenlight node private key and certificate, CN `GL /users/b4569816-…`, in git history since 2026-02-14. The CN identifies a specific node, not the generic public test credential the filename suggests. **Confirm whether this node is still active in production.** |
 | `GAP-01` — committed mnemonic | `DECISION` | See Priority 4. |
 

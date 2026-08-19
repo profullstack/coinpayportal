@@ -35,6 +35,16 @@ strix_*.log
 .env
 .env*.prod
 
+# Doppler local secret caches.
+#
+# `doppler.env` is a PBKDF2-encrypted fallback cache and `doppler.json` its
+# config; both were tracked, and none of the patterns above match their
+# filenames. Secrets for this project live in the logicsrc team vault
+# (`coinpayportal--prod`), so these are obsolete as well as sensitive — but they
+# remain in git history, which no .gitignore can undo.
+doppler.env
+doppler.json
+
 # vercel
 .vercel
 
