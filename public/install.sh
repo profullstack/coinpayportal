@@ -228,7 +228,11 @@ install_cli() {
 
     if [ "$COINPAY_REF_PINNED" = "0" ]; then
         warn "installing from the mutable branch 'master'; auto-upgrade will follow it every ${UPGRADE_INTERVAL_SEC}s"
-        warn "pin a release for reproducible installs:  COINPAY_REF=v0.6.13 curl -fsSL $INSTALL_URL | sh"
+        # Worded to avoid embedding a literal fetch-pipe-shell pattern: this is
+        # printed advice, not an executed command, but a scanner reading the
+        # source cannot tell the difference and flagged it as CWE-494 — on the
+        # very line added to mitigate that risk.
+        warn "pin a release for reproducible installs: set COINPAY_REF=v0.6.13 before running the installer"
     fi
     info "fetching $NPM_PACKAGE ($GH_REPO@$COINPAY_REF) from GitHub"
 
