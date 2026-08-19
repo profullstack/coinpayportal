@@ -51,6 +51,24 @@ class Payment_Adapter_CoinPayPortal
                     'required'    => true,
                     'description' => 'Secret used to verify incoming webhook signatures from CoinPayPortal.',
                 ],
+                // F4-03: the webhook URL was documented but never shown here.
+                //
+                // Nothing registers it automatically, so a merchant who
+                // configures the gateway from this screen alone ends up with a
+                // working checkout and no callback: payments are taken and the
+                // invoice is never marked paid. The failure is silent and looks
+                // like CoinPayPortal not paying out, because everything on this
+                // page appears correctly filled in.
+                //
+                // Read-only, because it is an instruction rather than a setting.
+                'webhook_url_display' => [
+                    'label'       => 'Webhook URL (register this in CoinPayPortal)',
+                    'type'        => 'text',
+                    'required'    => false,
+                    'readonly'    => true,
+                    'default'     => '/ipn/CoinPayPortal',
+                    'description' => 'Copy this path onto the end of your store URL — https://your-domain.com/ipn/CoinPayPortal — and add it as the webhook endpoint in your CoinPayPortal dashboard under Settings → Webhooks. Without it, invoices are never marked paid automatically.',
+                ],
                 'api_url' => [
                     'label'       => 'API Base URL',
                     'type'        => 'text',

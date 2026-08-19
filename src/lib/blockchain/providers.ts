@@ -321,11 +321,32 @@ export class BitcoinProvider implements BlockchainProvider {
 
       console.log(`[BTC] Split: balance=${totalAvailable}, total=${totalToSend}, fee=${fee}`);
 
-      // Adjust amounts if needed
+      // IA-010: the adjustment may absorb the fee and nothing more.
+      //
+      // This used to scale every output down by whatever ratio made the
+      // transaction fit, log it at `console.log`, and carry on. The caller
+      // asked to send X, X-δ went out, and everything downstream recorded X:
+      // the merchant's ledger, the fee split and the webhook all described a
+      // payment that did not happen. δ was unbounded — a balance half the
+      // requested amount simply sent half, silently.
+      //
+      // Taking the miner fee out of the outputs is the intended behaviour and
+      // is kept. A balance that cannot cover the outputs *before* fees is a
+      // real deficit and something is wrong upstream, so that fails instead.
       if (totalToSend + fee > totalAvailable) {
+        if (totalToSend > totalAvailable) {
+          throw new Error(
+            `Insufficient balance: address holds ${totalAvailable} sats but ${totalToSend} sats were requested ` +
+            `(before a ${fee} sat fee). Refusing to silently send less than asked.`
+          );
+        }
+
         const ratio = (totalAvailable - fee) / totalToSend;
-        console.log(`[BTC] Adjusting split amounts by ratio ${ratio}`);
-        
+        console.warn(
+          `[BTC] Reducing outputs by ratio ${ratio} to cover the ${fee} sat fee ` +
+          `(balance ${totalAvailable}, requested ${totalToSend})`
+        );
+
         for (const output of outputs) {
           output.value = Math.floor(output.value * ratio);
         }
@@ -486,13 +507,29 @@ export class EthereumProvider implements BlockchainProvider {
       
       console.log(`[ETH] Balance: ${ethers.formatEther(balance)} ETH, requested: ${amount} ETH, gas cost: ${ethers.formatEther(gasCost)} ETH`);
       
-      // If requested amount + gas exceeds balance, adjust to send max possible
+      // IA-010: the adjustment may absorb gas and nothing more.
+      //
+      // This used to send whatever was left after gas, whatever the shortfall,
+      // and log it at `console.log`. The caller asked for X, X-δ went out, and
+      // everything downstream recorded X. A balance well below the requested
+      // amount quietly sent whatever it had.
+      //
+      // Gas coming out of a native transfer is unavoidable and is kept. A
+      // balance that cannot cover the amount *before* gas is a real deficit.
       if (valueToSend + gasCost > balance) {
+        if (valueToSend > balance) {
+          throw new Error(
+            `Insufficient balance. Have ${ethers.formatEther(balance)} ETH, ` +
+            `${amount} ETH was requested (before ${ethers.formatEther(gasCost)} ETH of gas). ` +
+            'Refusing to silently send less than asked.'
+          );
+        }
+
         const maxSendable = balance - gasCost;
         if (maxSendable <= BigInt(0)) {
           throw new Error(`Insufficient balance. Have ${ethers.formatEther(balance)} ETH, need at least ${ethers.formatEther(gasCost)} ETH for gas`);
         }
-        console.log(`[ETH] Adjusting amount from ${amount} to ${ethers.formatEther(maxSendable)} ETH (max sendable after gas)`);
+        console.warn(`[ETH] Reducing amount from ${amount} to ${ethers.formatEther(maxSendable)} ETH to cover gas`);
         valueToSend = maxSendable;
       }
       
