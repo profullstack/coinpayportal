@@ -8,10 +8,13 @@
 --
 -- That is a trap rather than a control. `GRANT SELECT ON ALL TABLES IN SCHEMA
 -- public TO anon` is a routine Supabase incantation, and running it once would
--- publish every row of this table with no other change and no warning. As of
--- this migration that is 14,346 receipts carrying `agent_did`, `buyer_did`,
--- `escrow_tx`, and amounts totalling $1,050,924 — the platform's entire
--- transaction history, by counterparty and value.
+-- publish every row of this table with no other change and no warning.
+--
+-- Scale, for proportion: 14,346 rows, of which 14,333 are `did:web:ugig.net`
+-- reputation receipts totalling $921.03. These are ugig.net's agent trust graph,
+-- not CoinPay payment records — those live in `payments` and are not affected.
+-- The point of this migration is that the policy should say what the grants
+-- already enforce, not that anything valuable was at risk.
 --
 -- Nothing reads this table through PostgREST today (the application uses the
 -- service role, which bypasses RLS entirely), so narrowing the policy cannot
