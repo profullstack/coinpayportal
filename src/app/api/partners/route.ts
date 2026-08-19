@@ -7,10 +7,19 @@ export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
 
+    // Opt-in only.
+    //
+    // This listed every active business with a non-null `webhook_url` and
+    // published the HOST of that webhook. Nobody agreed to it: configuring a
+    // webhook is a technical step, not consent to appear in a public directory,
+    // and the host itself can be a subdomain a merchant never meant to
+    // advertise. `public_directory_opt_in` defaults to false, so the directory
+    // is empty until merchants actually choose to be in it.
     const { data: businesses, error } = await supabase
       .from('businesses')
       .select('id, name, description, webhook_url, logo_url')
       .eq('active', true)
+      .eq('public_directory_opt_in', true)
       .not('webhook_url', 'is', null)
       .order('created_at', { ascending: true });
 

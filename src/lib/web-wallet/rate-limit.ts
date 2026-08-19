@@ -113,6 +113,10 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'swap_quote': { limit: 20, windowSeconds: 60 },            // 20/min per IP
   // The trust graph is only meaningful if attestations are expensive to mint.
   'reputation_attest': { limit: 10, windowSeconds: 60 },     // 10/min per caller
+  // A boolean "is this address a CoinPay merchant?" oracle. Unauthenticated by
+  // design (a sender checks before paying), so the limit is what stops it being
+  // used to sweep the merchant base address by address.
+  'wallet_lookup': { limit: 30, windowSeconds: 60 },         // 30/min per IP
 };
 
 /** In-memory fallback store */

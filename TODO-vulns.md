@@ -152,7 +152,7 @@ audit than whether its bespoke ownership query is correct.
   `F5-L1-07`, `L6B-05`, `REC-04`, `REC-01`.
 - **Rate limit / enumeration (§2.6)** — `NEW-06` `FIXED`, `WW-02` `FIXED`,
   `REC-C-04` `FIXED`, `REC-C-05` `FIXED`, `L7A-03` `FIXED`. Still open:
-  `NEW-07`, `NEW-09`, `NEW-11`, `NEW-20`, `NEW-23`, `NEW-WW34-01`.
+  `NEW-07`, `NEW-09`, `NEW-11`, `NEW-20`, `NEW-23`. `NEW-WW34-01` `FIXED`.
 - **Payment and settlement integrity** — `B-03`, `F-1.1-07`, `F-1.1-16`,
   `F-1.3-02`, `IA-016`, `WW-01`, `WW-03`, `NEW-14`, `F5-L2-01`, `F5-L4-02`, `V-04`.
 
