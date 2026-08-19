@@ -20,6 +20,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { platformMayManageMerchant } from '@/lib/p2p/platform-ownership';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
@@ -76,16 +77,15 @@ export async function POST(request: NextRequest) {
 
     const { merchant_id, did, public_key } = parsed.data;
 
-    const { data: merchant } = await supabase
-      .from('merchants')
-      .select('id')
-      .eq('id', merchant_id)
-      .maybeSingle();
-    if (!merchant) {
-      return NextResponse.json(
-        { error: 'merchant not found' },
-        { status: 404 },
-      );
+    // A platform may only override the DID of an account it provisioned. This
+    // took any `merchant_id` and rebound that merchant's human DID, marked
+    // `verified: true`, on nothing but a valid issuer key — and a DID is the
+    // identity the reputation graph and delegated-authority credentials hang
+    // off, so it let one platform repoint another merchant's identity at a key
+    // it controlled.
+    const owns = await platformMayManageMerchant(supabase, platform.name, merchant_id);
+    if (!owns.ok) {
+      return NextResponse.json({ error: owns.error }, { status: owns.status });
     }
 
     const { data: existing } = await supabase

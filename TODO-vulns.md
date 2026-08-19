@@ -74,10 +74,10 @@ than the report's.
 | `H-R-01` | `UNVERIFIED` | `src/lib/wallets/balance-checkers.ts`, DOGE case | Returns `0` ("not yet implemented") while DOGE is advertised, accepted at four payment-creation routes, and has a working send path. Received DOGE is never detected as paid. | Implement it, or stop accepting DOGE. |
 | `H-R-08` | `UNVERIFIED` | Eight modules | The supported-currency list diverges across eight modules independently; there is no single source of truth. | One exported registry, everything else derived from it. |
 | `L5-01` | `UNVERIFIED` | `src/lib/escrow/service.ts:320-337` | Escrow address-derivation index has no compare-and-swap and does not coordinate with the normal-payment counter — deterministic index collision for ETH/POL/BNB/USDT/USDC/SOL. | One counter, incremented by an atomic RPC. |
-| `L7A-01` | `UNVERIFIED` | `reputation/did/{claim,delegate,me}` | None of the three DID identity routes call `hasScope()`. A read-only business key can rebind a merchant's DID and issue credentials carrying `wallet:transfer`/`escrow:settle`. | Add the scope checks. |
+| `L7A-01` | `FIXED` | `reputation/did/{claim,delegate,me}` | None of the three DID identity routes call `hasScope()`. A read-only business key can rebind a merchant's DID and issue credentials carrying `wallet:transfer`/`escrow:settle`. | Add the scope checks. |
 | `L7A-03` | `UNVERIFIED` | `reputation/attest`, `src/lib/reputation/mutual-attestation.ts` | No verification that the caller controls `attester_did`, and no rate limit — the mutual trust graph is unilaterally forgeable, free, at scale. | Require a signature over the attestation; rate limit. |
 | `REP-F14-01` | `UNVERIFIED` | `src/lib/reputation/trust-engine.ts`, `trust-tiers.ts`, `anti-gaming.ts` | The A–F reputation score is maximizable with self-declared high-value receipts; anti-gaming deducts about 1.5 of 100 points at worst. Consumed by `web-bot-auth/verify` for real trust decisions. | Weight on externally-verifiable signal only. |
-| `G-1.2-01` | `UNVERIFIED` | `payment-methods/manual` (GET + POST) | Omits the capability check and falls back to the permissive `business.read` default, so a `readonly` team member can rewrite the Venmo/CashApp/Zelle payout handle. | Require an owner capability (§2.2 and §2.3 both). |
+| `G-1.2-01` | `FIXED` | `payment-methods/manual` (GET + POST) | Omits the capability check and falls back to the permissive `business.read` default, so a `readonly` team member can rewrite the Venmo/CashApp/Zelle payout handle. | Require an owner capability (§2.2 and §2.3 both). |
 | `G-R-07` | `FIXED` | `src/app/api/oauth/userinfo/route.ts` | Returns `email_verified: true` unconditionally — no verification column and no verification flow exist — while the ID token correctly returns `false`. An account-takeover primitive against relying parties. | Return `false` until a real verification flow exists. |
 | `F3-L3-01` | `UNVERIFIED` | Extension/SDK batch payment `payOnce()` | Retries prepare → sign → broadcast from scratch after a transient broadcast error, including `already known`, with no idempotency key. Can duplicate a real transaction. | Treat `already known` as success; add an idempotency key. |
 | `F3-L5-01` | `UNVERIFIED` | SDK `WalletClient.send()` | Signs with generic `signMessage()` instead of serializing the real RLP/PSBT transaction — the SDK's flagship send method is broken for every integrator. | Serialize and sign the actual transaction. |
@@ -134,14 +134,14 @@ audit than whether its bespoke ownership query is correct.
 | `CP-021` | `FIXED` | `escrow/[id]` authenticated the caller and then fetched by UUID with no ownership check. Now `callerOwnsEscrow`, answering 404 rather than 403 so it is not an existence oracle. |
 | `NEW-15` | `FIXED` | `escrow/[id]/events` — clone of `CP-021`, fixed by the shared helper. |
 | `C-02` | `UNVERIFIED` | 8 of 16 routes on the `apiKeyBusinessId` contract. |
-| `C-03` / `G-1.2-01` | `UNVERIFIED` | `payment-methods/manual` — capability check missing. |
+| `C-03` / `G-1.2-01` | `FIXED` | `payment-methods/manual` — capability check missing. |
 | `CP-001` | `UNVERIFIED` | Injectable Stripe metadata. |
-| `CP-003` | `UNVERIFIED` | Cross-tenant DID rebind. |
+| `CP-003` | `FIXED` | Cross-tenant DID rebind. |
 | `CP-015` | `UNVERIFIED` | `payments/create-for-merchant` authenticates with the raw issuer key. |
-| `CP-023` | `UNVERIFIED` | Wallet-slot squatting. |
+| `CP-023` | `FIXED` | Wallet-slot squatting. |
 | `G-1.2-12` | `UNVERIFIED` | Invoice `merchant_wallet_address` writable by `readonly`. |
 | `H-R-10` | `UNVERIFIED` | `POST /api/invoices` takes `client_id` unvalidated. |
-| `SUB-01` | `UNVERIFIED` | `subscriptions/status` DELETE has no `hasScope`. |
+| `SUB-01` | `FIXED` | `subscriptions/status` DELETE has no `hasScope`. |
 | `REC-D-01` | `UNVERIFIED` | Extends `NEW-04`; likely closed by that fix — re-verify. |
 | `REC-C-03` | `UNVERIFIED` | x402 ignores API key scopes. |
 - **Identity / DID abuse** — `L7A-02`, `V-02`, `REP-F1A-02`, `G-1.2-10`,

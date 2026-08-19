@@ -3,15 +3,32 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveMerchant } from '@/lib/auth/merchant';
 import { verifyBusinessAccess } from '@/lib/wallets/supported-coins';
 import { configureManualMethod } from '@/lib/payment-methods/policy';
+import type { Capability } from '@/lib/auth/permissions';
 
 function getSupabase() {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 }
 
-async function authorize(supabase: ReturnType<typeof getSupabase>, request: NextRequest, businessId: string) {
+/**
+ * The capability argument is not optional here.
+ *
+ * `verifyBusinessAccess` defaults to `business.read`, which every team member
+ * has including `readonly`. Calling it with no capability therefore gated the
+ * WRITE below at read level: a read-only member could rewrite the Venmo, Cash
+ * App or Zelle handle that customers are told to pay. That is a funds
+ * destination, and the project's own invariant is that moving funds is
+ * owner-only — so the write asks for `funds.move`, the owner-only capability,
+ * rather than a management one.
+ */
+async function authorize(
+  supabase: ReturnType<typeof getSupabase>,
+  request: NextRequest,
+  businessId: string,
+  capability: Capability,
+) {
   const authResult = await resolveMerchant(supabase, request);
   if ('error' in authResult) return { error: authResult.error, status: authResult.status } as const;
-  const access = await verifyBusinessAccess(supabase, businessId, authResult.merchantId);
+  const access = await verifyBusinessAccess(supabase, businessId, authResult.merchantId, capability);
   if (!access.ok) return { error: access.error, status: access.status ?? 404 } as const;
   return { ok: true } as const;
 }
@@ -25,7 +42,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const supabase = getSupabase();
   try {
     const { id } = await params;
-    const auth = await authorize(supabase, request, id);
+    const auth = await authorize(supabase, request, id, 'business.read');
     if ('error' in auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
 
     const [{ data: catalog }, { data: settings }] = await Promise.all([
@@ -71,7 +88,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const supabase = getSupabase();
   try {
     const { id } = await params;
-    const auth = await authorize(supabase, request, id);
+    const auth = await authorize(supabase, request, id, 'funds.move');
     if ('error' in auth) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
 
     const body = await request.json();
