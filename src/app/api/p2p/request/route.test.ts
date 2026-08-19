@@ -90,6 +90,14 @@ function buildStub({ existingBusiness = false }: { existingBusiness?: boolean } 
       }),
       order: vi.fn(() => builder),
       limit: vi.fn(() => builder),
+      // Invoice numbering scans every numbered invoice for the business and
+      // takes the highest parsed value (NEW-F1A-P-01), so the chain now ends
+      // in `.not('invoice_number','is',null)` and is awaited directly.
+      not: vi.fn(() => builder),
+      then: (resolve: any, reject: any) =>
+        Promise.resolve(
+          table === 'invoices' ? { data: [{ invoice_number: 'INV-001' }], error: null } : response
+        ).then(resolve, reject),
       maybeSingle: vi.fn(async () => response),
       single: vi.fn(async () => response),
     };

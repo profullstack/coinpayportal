@@ -9,6 +9,7 @@ import { isSufficientPayment } from './tolerance';
 import { resolvePayee } from './payee';
 import { getPaymentReceivingWallet } from '../wallets/supported-coins';
 import { fetchAllKeyset } from '../db/keyset';
+import { insertWithInvoiceNumber } from '../invoices/numbering';
 
 // Invoice Payment Monitoring
 // ────────────────────────────────────────────────────────────
@@ -407,21 +408,14 @@ export async function runInvoiceSchedulerCycle(supabase: any, now: Date): Promis
           continue;
         }
 
-        // Generate next invoice number
-        const { data: maxInvoice } = await supabase
-          .from('invoices')
-          .select('invoice_number')
-          .eq('business_id', templateInvoice.business_id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        let nextNum = 1;
-        if (maxInvoice?.invoice_number) {
-          const match = maxInvoice.invoice_number.match(/INV-(\d+)/);
-          if (match) nextNum = parseInt(match[1], 10) + 1;
-        }
-        const invoiceNumber = `INV-${String(nextNum).padStart(3, '0')}`;
+        // F-1.3-10 / R4-DIN-07: this reused the numbering its interactive
+        // sibling had already been fixed for — ordering by `created_at` and
+        // taking the newest row, which is not the highest number, with no retry
+        // on the unique violation two overlapping cycles produce. Here the
+        // consequence is worse than a failed request: the cycle throws, the
+        // schedule is never advanced, and the subscription silently stops
+        // invoicing. The number is now produced by the shared helper at the
+        // point of insert.
 
         const nextDueDate = calculateNextInvoiceDueDate(
           new Date(schedule.next_due_date),
@@ -471,7 +465,10 @@ export async function runInvoiceSchedulerCycle(supabase: any, now: Date): Promis
         // resolution landed somewhere else it no longer refers to anything.
         const payeeMoved = payee.address !== templateInvoice.merchant_wallet_address;
 
-        const { error: createError } = await supabase
+        const { data: createdInvoice, error: createError } = await insertWithInvoiceNumber<any>(
+          supabase,
+          templateInvoice.business_id,
+          (invoiceNumber) => supabase
           .from('invoices')
           .insert({
             user_id: templateInvoice.user_id,
@@ -494,7 +491,10 @@ export async function runInvoiceSchedulerCycle(supabase: any, now: Date): Promis
               payee_source: payee.source,
               ...(payeeUnverified ? { payee_unverified: true } : {}),
             },
-          });
+          })
+          .select('invoice_number')
+          .single()
+        );
 
         if (createError) {
           console.error(`[Monitor] Failed to create scheduled invoice:`, createError);
@@ -511,7 +511,7 @@ export async function runInvoiceSchedulerCycle(supabase: any, now: Date): Promis
           .eq('id', schedule.id);
 
         stats.created++;
-        console.log(`[Monitor] Created recurring invoice ${invoiceNumber} for schedule ${schedule.id}`);
+        console.log(`[Monitor] Created recurring invoice ${createdInvoice?.invoice_number} for schedule ${schedule.id}`);
       } catch (err) {
         console.error(`[Monitor] Error processing schedule ${schedule.id}:`, err);
         stats.errors++;

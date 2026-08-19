@@ -210,6 +210,10 @@ Batch thirteen: `F-1.3-12`, `F3-L5-02` `FIXED`. `F-1.1-06` `ALREADY-FIXED` —
 both settle paths now share `processEscrowSettlement`, so they share its retry
 cap. The unordered-sweep family is now fully converted to `lib/db/keyset.ts`.
 
+Batch fourteen: `F-1.3-10`, `NEW-F1A-P-01`, `R4-DIN-07` `FIXED`. Invoice
+numbering now has one implementation, `lib/invoices/numbering.ts`, used by all
+four call sites — three of which were wrong while the fourth was right.
+
 ## Priority 4 — Conditional (26)
 
 Detail in `docs/findings/04_CONDITIONAL_LOW/`. Verify the condition before
