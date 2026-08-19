@@ -270,6 +270,24 @@ from Stripe's own record rather than the self-declared payload amount (round 1).
 The `SIGNATURE_BOUND_NETWORKS` constant the finding cites no longer exists;
 dispatch is by `network` via `SCHEMES_BY_NETWORK`.
 
+Also `FIXED`: `E-04`, `F-1.3-06`.
+
+`IA-006` `ALREADY-FIXED` — the "sequential settlement commission leak" is the
+split-ordering bug in `secure-forwarding`: the merchant leg (99%+) went out
+first, drained the address, and the platform-fee leg then failed for
+insufficient funds. The split is now computed from the actual balance and both
+legs are submitted as a single split transaction, so one cannot starve the
+other.
+
+`REC-D-07` `DECISION` — webhook delivery retries three times in-process but has
+no durable queue or dead-letter. That is a feature to build, not a defect to
+patch, and it is Anthony's call whether it is worth it.
+
+`F-1.3-06` verified against production before and after: the fallback has never
+fired. All 6 wallets holding an LNbits admin key hold their own — they have both
+`ln_wallet_adminkey` and `ln_wallet_inkey`, and the fallback path writes only
+the former (`adminkey_only = 0`). The fix is preventive, not remedial.
+
 ## Priority 5 — Technical debt (60)
 
 Detail in `docs/findings/05_TECHNICAL_DEBT/`. Not urgent. Note that 5a reverts to
