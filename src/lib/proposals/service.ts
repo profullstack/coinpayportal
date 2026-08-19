@@ -174,6 +174,15 @@ export async function addRevision(
     return { ok: false, error: 'A positive amount is required', status: 400 };
   }
 
+  // NEW-F1A-P-02: countering an expired proposal used to work, which meant a
+  // deadline stopped the deal closing but not the negotiation continuing — the
+  // one thing a deadline is for. The opening offer is exempt: a draft being
+  // sent for the first time has no deadline to have passed yet.
+  if (isNegotiable(proposal.status)) {
+    const expired = await assertNotExpired(supabase, proposal);
+    if (expired) return expired;
+  }
+
   const { data: previous } = await supabase
     .from('proposal_revisions')
     .select(REVISION_SELECT)
@@ -256,6 +265,49 @@ export async function addRevision(
 }
 
 /** Guard: may `party` put a counter-offer on this proposal right now? */
+/**
+ * Refuse a proposal past its own deadline, and record that it is past it.
+ *
+ * NEW-F1A-P-02: `expires_at` was checked in exactly one place — `acceptProposal`
+ * — so a proposal could still be countered, rejected, withdrawn, re-sent and
+ * viewed by token long after it had expired. The deadline meant "you cannot
+ * accept this", not "this is over", which is not what either party reads it as
+ * when they set one.
+ *
+ * `'expired'` is also a permitted value of `proposals_status_check` that
+ * *nothing ever wrote*. The state existed in the schema and in the type union
+ * and was unreachable, so no proposal has ever shown as expired in any list or
+ * dashboard — they simply sit as `sent` for ever.
+ *
+ * Both halves are fixed here. The status is flipped on the way past, which
+ * gives the state a producer without a new cron: expiry is only interesting
+ * when someone tries to act, and that is exactly when this runs. The write is
+ * conditioned on the status still being negotiable so it cannot overwrite a
+ * concurrent accept or reject.
+ */
+export async function assertNotExpired(
+  supabase: SupabaseClient,
+  proposal: Proposal,
+): Promise<ServiceResult<null> | null> {
+  if (!proposal.expires_at) return null;
+
+  const expiresAt = new Date(proposal.expires_at).getTime();
+  // An unparseable deadline is treated as no deadline rather than as an expired
+  // one — refusing to act on a proposal because of a bad timestamp would be a
+  // worse failure than letting it through.
+  if (!Number.isFinite(expiresAt) || expiresAt > Date.now()) return null;
+
+  if (isNegotiable(proposal.status)) {
+    await supabase
+      .from('proposals')
+      .update({ status: 'expired', updated_at: new Date().toISOString() })
+      .eq('id', proposal.id)
+      .in('status', ['sent', 'countered']);
+  }
+
+  return { ok: false, error: 'This proposal has expired', code: 'EXPIRED', status: 409 };
+}
+
 export function assertCounterable(
   status: ProposalStatus,
   party: Party,
@@ -310,9 +362,8 @@ export async function acceptProposal(
     return { ok: false, error: reason, code: 'NOT_ACCEPTABLE', status: 409 };
   }
 
-  if (proposal.expires_at && new Date(proposal.expires_at) < new Date()) {
-    return { ok: false, error: 'This proposal has expired', code: 'EXPIRED', status: 409 };
-  }
+  const expiredOnAccept = await assertNotExpired(supabase, proposal);
+  if (expiredOnAccept) return expiredOnAccept;
 
   // Payee gate.
   let payeeAddress = revision.merchant_wallet_address;
@@ -429,6 +480,12 @@ export async function rejectProposal(
       status: 409,
     };
   }
+
+  // NEW-F1A-P-02: the deadline applied only to accepting, so an expired
+  // proposal could still be rejected — and the rejection would look like a
+  // live decision rather than something that had already lapsed.
+  const expiredOnReject = await assertNotExpired(supabase, proposal);
+  if (expiredOnReject) return expiredOnReject;
 
   const now = new Date().toISOString();
 

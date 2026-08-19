@@ -218,6 +218,8 @@ Batch fifteen: `IA-010`, `L-03`, `F4-03` `FIXED`.
 
 Batch sixteen: `IA-008`, `N-03` `FIXED`.
 
+Batch seventeen: `NEW-F1A-P-02` `FIXED`.
+
 ## Priority 4 — Conditional (26)
 
 Detail in `docs/findings/04_CONDITIONAL_LOW/`. Verify the condition before
