@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { isMultisigDefault, isMultisigEnabled } from '@/lib/multisig/engine';
 import { createClient } from '@supabase/supabase-js';
 import { createEscrow, listEscrows } from '@/lib/escrow';
 import { authenticateRequest, isMerchantAuth, type AuthContext } from '@/lib/auth/middleware';
@@ -92,6 +93,28 @@ export async function POST(request: NextRequest) {
           code: 'MULTISIG_WRONG_ENDPOINT',
         },
         { status: 400 },
+      );
+    }
+
+    // ESC-NEW-05: when the deployment advertises multisig as its default and
+    // the caller omitted `escrow_model`, say what they are getting.
+    //
+    // `GET /api/escrow/model-availability` reports `multisig_default`, and only
+    // the browser acted on it — the create page pre-selects multisig. An API
+    // caller that omits the field gets a custodial escrow, meaning CoinPay
+    // holds the funds, on a deployment that advertises the opposite. That is
+    // the same silent-custody failure the explicit-request branch above was
+    // fixed for, just reached by omission instead.
+    //
+    // Refusing would break every integration that has always omitted the
+    // field, so the escrow is still created and the response says so.
+    const multisigIsDefault = isMultisigEnabled() && isMultisigDefault();
+    const defaultedToCustodial = multisigIsDefault && !body.escrow_model;
+
+    if (defaultedToCustodial) {
+      console.warn(
+        '[Escrow] Created a custodial escrow while MULTISIG_DEFAULT is on — ' +
+          'the caller omitted escrow_model. Pass it explicitly to remove the ambiguity.',
       );
     }
 
@@ -189,7 +212,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
 
-    return NextResponse.json(result.escrow, { status: 201 });
+    return NextResponse.json(
+      defaultedToCustodial
+        ? {
+            ...result.escrow,
+            // ESC-NEW-05: the deployment advertises multisig as its default and
+            // this caller did not choose, so name the custody model rather than
+            // leaving them to assume they got the advertised one.
+            escrow_model: 'custodial',
+            notice:
+              'This deployment defaults to multisig, but escrow_model was not supplied and this ' +
+              'endpoint creates custodial escrows only — CoinPay holds these funds. For a 2-of-3 ' +
+              'escrow use POST /api/escrow/multisig.',
+          }
+        : result.escrow,
+      { status: 201 },
+    );
   } catch (error) {
     console.error('Failed to create escrow:', error);
     return NextResponse.json(
