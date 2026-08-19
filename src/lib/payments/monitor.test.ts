@@ -128,8 +128,12 @@ describe('Payment Monitor', () => {
       const { runOnce } = await import('./monitor');
       await runOnce();
 
+      // IA-008: balance lookups now carry an abort signal, so the call has a
+      // second argument. The deadline is the point — a peer that accepts a
+      // connection and never answers used to hold the whole cycle open.
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('blockstream.info')
+        expect.stringContaining('blockstream.info'),
+        expect.objectContaining({ signal: expect.anything() })
       );
     });
 
