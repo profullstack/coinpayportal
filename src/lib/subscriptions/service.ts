@@ -18,6 +18,14 @@ export const SUBSCRIPTION_PRICES = {
 } as const;
 
 /**
+ * Statuses a `business_collection_payments` row can hold once the funds have
+ * actually confirmed on-chain. `forwarding`/`forwarding_failed` are downstream
+ * of confirmation — the money arrived; only the sweep to the collection wallet
+ * is in flight or stuck — so they still count as paid.
+ */
+const CONFIRMED_PAYMENT_STATUSES = new Set(['confirmed', 'forwarding', 'forwarding_failed', 'forwarded']);
+
+/**
  * Supported blockchains for subscription payments
  * Must match the blockchains supported by business-collection
  */
@@ -208,9 +216,68 @@ export async function handleSubscriptionPaymentConfirmed(
       };
     }
 
-    const merchantId = metadata.merchant_id;
+    // Only a payment that actually confirmed on-chain activates anything. Both
+    // current callers already filter on these statuses; asserting it here means
+    // a future caller that forgets cannot activate a plan against a `pending`
+    // row that no funds ever reached.
+    if (!CONFIRMED_PAYMENT_STATUSES.has(payment.status)) {
+      return {
+        success: false,
+        error: `Payment ${paymentId} is ${payment.status}, not confirmed — refusing to activate a subscription`,
+      };
+    }
+
+    // Whose subscription this activates comes from the payment ROW, never from
+    // `metadata`.
+    //
+    // `POST /api/business-collection` accepts a caller-supplied `metadata` blob
+    // verbatim and stores it on the row. Reading `metadata.merchant_id` here
+    // meant the payer named the account to upgrade: a payment created against
+    // the attacker's own business, tagged with a victim's merchant UUID,
+    // activated the plan on the victim — or, far more usefully, on the
+    // attacker's own account for whatever the attacker chose to pay. The row's
+    // own `merchant_id` is written by `createBusinessCollectionPayment` after
+    // it has confirmed the business belongs to that merchant, so it is the only
+    // trustworthy answer to "who paid".
+    const merchantId = payment.merchant_id;
+    if (!merchantId) {
+      return { success: false, error: 'Payment has no merchant_id — refusing to activate a subscription' };
+    }
+
     const planId = metadata.plan_id;
     const billingPeriod = metadata.billing_period as BillingPeriod;
+
+    // The plan and period still arrive via metadata — there are no columns for
+    // them — so they are validated against the price table rather than trusted.
+    // An unknown plan or period has no price to check the payment against.
+    const price = getSubscriptionPrice(planId, billingPeriod);
+    if (price === null) {
+      return {
+        success: false,
+        error: `Unknown plan or billing period on payment ${paymentId}: ${planId}/${billingPeriod}`,
+      };
+    }
+
+    // What was actually paid has to cover the plan's price. Nothing compared
+    // the two before, so a one-cent payment carrying `plan_id: 'professional',
+    // billing_period: 'yearly'` bought the $490/yr plan.
+    //
+    // `amount`/`currency` are the USD-denominated fields set at creation from
+    // the validated price; `crypto_amount` is the quote and is not comparable.
+    if (payment.currency !== 'USD') {
+      return {
+        success: false,
+        error: `Subscription payment ${paymentId} is denominated in ${payment.currency}, not USD — cannot verify it covers the plan price`,
+      };
+    }
+
+    const paidAmount = Number(payment.amount);
+    if (!Number.isFinite(paidAmount) || paidAmount < price) {
+      return {
+        success: false,
+        error: `Underpayment for ${planId}/${billingPeriod}: paid ${payment.amount}, plan costs ${price}`,
+      };
+    }
 
     // Calculate subscription end date
     const now = new Date();
