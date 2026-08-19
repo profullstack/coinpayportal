@@ -292,7 +292,12 @@ describe('Stripe Webhook - checkout.session.completed', () => {
       currency: 'usd',
       metadata: {
         coinpay_payment_id: 'pay_dash',
-        business_id: 'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+        // Must match the business on the mocked `payments` row: the webhook now
+        // refuses to confirm a payment that belongs to a different business
+        // than the session says (CP-001). The two ids come from the same
+        // metadata object but are written at different times, and only one of
+        // them used to be caller-controlled.
+        business_id: 'biz_123',
         merchant_id: 'merch_d0rz',
         platform_fee_amount: '100',
       },
@@ -319,7 +324,7 @@ describe('Stripe Webhook - checkout.session.completed', () => {
       .find((v: any) => v && v.upsert);
     expect(txTable.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        business_id: 'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+        business_id: 'biz_123',
         merchant_id: 'merch_d0rz',
         amount: 10000,
         status: 'completed',
@@ -340,7 +345,12 @@ describe('Stripe Webhook - checkout.session.completed', () => {
       currency: 'usd',
       metadata: {
         coinpay_payment_id: 'pay_dash',
-        business_id: 'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+        // Must match the business on the mocked `payments` row: the webhook now
+        // refuses to confirm a payment that belongs to a different business
+        // than the session says (CP-001). The two ids come from the same
+        // metadata object but are written at different times, and only one of
+        // them used to be caller-controlled.
+        business_id: 'biz_123',
         merchant_id: 'merch_d0rz',
         platform_fee_amount: '100',
       },
@@ -358,7 +368,7 @@ describe('Stripe Webhook - checkout.session.completed', () => {
 
     expect(mockSendPaymentWebhook).toHaveBeenCalledWith(
       expect.anything(),
-      'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+      'biz_123',
       'pay_dash',
       'payment.confirmed',
       expect.objectContaining({
@@ -380,7 +390,7 @@ describe('Stripe Webhook - checkout.session.completed', () => {
       last_payment_error: { message: 'Your card was declined.' },
       metadata: {
         coinpay_payment_id: 'pay_failed',
-        business_id: 'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+        business_id: 'biz_123',
         merchant_id: 'merch_d0rz',
       },
     };
@@ -397,7 +407,7 @@ describe('Stripe Webhook - checkout.session.completed', () => {
 
     expect(mockSendPaymentWebhook).toHaveBeenCalledWith(
       expect.anything(),
-      'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+      'biz_123',
       'pay_failed',
       'payment.failed',
       expect.objectContaining({
@@ -418,7 +428,7 @@ describe('Stripe Webhook - checkout.session.completed', () => {
       currency: 'usd',
       metadata: {
         merchant_id: 'merch_d0rz',
-        business_id: 'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+        business_id: 'biz_123',
         platform_fee_amount: '50',
       },
     };
@@ -442,7 +452,7 @@ describe('Stripe Webhook - checkout.session.completed', () => {
       .find((v: any) => v && v.upsert);
     expect(txTable.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        business_id: 'b198c6dc-4c3b-4a54-994c-a750c1a580cd',
+        business_id: 'biz_123',
         merchant_id: 'merch_d0rz',
         stripe_payment_intent_id: 'pi_pi_succ_1',
         stripe_charge_id: 'ch_x',

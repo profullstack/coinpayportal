@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sanitizeStripeMetadata } from '@/lib/stripe/metadata';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
@@ -207,7 +208,7 @@ export async function POST(request: NextRequest) {
 
     const method = payment_method ?? (currency.toLowerCase() === 'card' ? 'card' : 'crypto');
     const baseMetadata: Record<string, unknown> = {
-      ...(metadata || {}),
+      ...sanitizeStripeMetadata(metadata, 'payments/widget/create'),
       source: 'payments.js',
     };
     if (description) baseMetadata.description = description;

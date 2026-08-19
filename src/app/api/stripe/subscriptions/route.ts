@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sanitizeStripeMetadata } from '@/lib/stripe/metadata';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { listAccessibleOwnerMerchantIds } from '@/lib/auth/authz';
@@ -134,7 +135,7 @@ export async function POST(request: NextRequest) {
       // A caller that sends `merchant_id` or `platform_fee_percent` cannot
       // overwrite what the webhook reads back.
       metadata: {
-        ...metadata,
+        ...sanitizeStripeMetadata(metadata, 'stripe/subscriptions'),
         plan_id: plan.id,
         merchant_id: merchantId,
         business_id: plan.business_id,

@@ -235,6 +235,23 @@ async function handleCheckoutSessionCompleted(session: any) {
       return;
     }
 
+    // The payment named in the session must belong to the session's business.
+    //
+    // Both values come from the same metadata object, but they are set at
+    // different times by different code: `business_id` is written by the
+    // platform when the session is created, `coinpay_payment_id` was writable by
+    // the caller (CP-001, now stripped by sanitizeStripeMetadata). Comparing
+    // them means an injected id from an older session — or any future path that
+    // reintroduces caller-controlled metadata — cannot confirm a payment that
+    // belongs to someone else.
+    if (businessId && fullPayment.business_id && fullPayment.business_id !== businessId) {
+      console.error(
+        `[Stripe Webhook] Refusing to confirm payment ${coinpayPaymentId}: it belongs to ` +
+        `business ${fullPayment.business_id}, not ${businessId} (session ${session.id})`
+      );
+      return;
+    }
+
     // Update metadata to mark as card-confirmed, preserving existing metadata
     const updatedMetadata = {
       ...fullPayment.metadata,

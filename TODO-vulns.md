@@ -135,7 +135,7 @@ audit than whether its bespoke ownership query is correct.
 | `NEW-15` | `FIXED` | `escrow/[id]/events` — clone of `CP-021`, fixed by the shared helper. |
 | `C-02` | `FIXED` | 8 of 16 routes on the `apiKeyBusinessId` contract. |
 | `C-03` / `G-1.2-01` | `FIXED` | `payment-methods/manual` — capability check missing. |
-| `CP-001` | `UNVERIFIED` | Injectable Stripe metadata. |
+| `CP-001` | `FIXED` | Injectable Stripe metadata. |
 | `CP-003` | `FIXED` | Cross-tenant DID rebind. |
 | `CP-015` | `FIXED` | `payments/create-for-merchant` authenticates with the raw issuer key. |
 | `CP-023` | `FIXED` | Wallet-slot squatting. |

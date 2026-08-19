@@ -27,6 +27,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { sanitizeStripeMetadata } from '@/lib/stripe/metadata';
 import { platformMayManageMerchant } from '@/lib/p2p/platform-ownership';
 import { hashApiKey } from '@/lib/auth/scoped-keys';
 import { screenCheckout } from '@/lib/fraud/screen';
@@ -190,7 +191,7 @@ export async function POST(request: NextRequest) {
     }
 
     const baseMetadata: Record<string, unknown> = {
-      ...(metadata || {}),
+      ...sanitizeStripeMetadata(metadata, 'payments/create-for-merchant'),
       platform: platform.name,
       platform_did: platform.did,
       cross_network: true,
