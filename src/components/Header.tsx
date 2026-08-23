@@ -278,7 +278,7 @@ export default function Header() {
 
         {/* Mobile menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-gray-800 py-4">
+          <div className="md:hidden border-t border-gray-800 py-4 max-h-[calc(100dvh_-_5rem)] overflow-y-auto overscroll-contain">
             <div className="space-y-1">
               {currentNav.map((item) => (
                 <Link
