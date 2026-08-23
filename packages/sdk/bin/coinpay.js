@@ -387,6 +387,12 @@ ${colors.cyan}Commands:${colors.reset}
 
   ${colors.bright}business${colors.reset}
     create                Create a new business
+      --name <name>       Required
+      --category <slug>   Required; see: coinpay business categories
+      --description <s>   Optional
+      --webhook-url <url> Optional; enables webhooks and a generated secret
+      --webhook-secret <s>  Optional; supply your own instead
+    categories            List the valid business category slugs
     get <id>              Get business details
     list                  List businesses
     update <id>           Update business
@@ -1375,16 +1381,41 @@ async function handleBusiness(subcommand, args, flags) {
   
   switch (subcommand) {
     case 'create': {
-      const { name, 'webhook-url': webhookUrl } = flags;
-      
-      if (!name) {
-        print.error('Required: --name');
+      const {
+        name,
+        category,
+        description,
+        'webhook-url': webhookUrl,
+        'webhook-secret': webhookSecret,
+      } = flags;
+
+      if (!name || !category) {
+        // The API has required a category since businesses started being
+        // classified on create, and this command had no way to send one -- so it
+        // failed with "Select a valid business category" and no route to fixing
+        // it. Naming the flag here is cheaper than reading the taxonomy.
+        print.error('Required: --name <name> --category <slug>');
+        print.info('Categories: coinpay business categories');
         return;
       }
-      
-      const business = await client.createBusiness({ name, webhookUrl });
+
+      const business = await client.createBusiness({
+        name,
+        category,
+        description,
+        webhookUrl,
+        webhookSecret,
+      });
       print.success('Business created');
       print.json(business);
+      break;
+    }
+
+    case 'categories': {
+      // Fetched rather than hardcoded: the taxonomy is server-side and a stale
+      // copy in the CLI is how "Select a valid business category" happens twice.
+      const result = await client.listBusinessCategories();
+      print.json(result);
       break;
     }
     
