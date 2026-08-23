@@ -97,7 +97,8 @@ export interface Payment {
 
 /**
  * Public payment data - safe to expose without authentication.
- * Excludes: business_id, merchant_wallet_address, metadata
+ * Excludes: business_id, merchant_wallet_address, and all of metadata
+ * except the checkout URL the customer is meant to be sent to.
  */
 export interface PublicPayment {
   id: string;
@@ -115,6 +116,13 @@ export interface PublicPayment {
   tx_hash?: string | null;
   /** Forward of the funds to the merchant. Null until the payment is forwarded. */
   forward_tx_hash?: string | null;
+  /**
+   * Pruned metadata. Only the card checkout URL is published; the rest of the
+   * row's metadata (wallet source, fee breakdown, user ids, redirect targets)
+   * stays private. The checkout page reads stripe_checkout_url to decide
+   * whether to offer a "Pay with Card" tab.
+   */
+  metadata?: { stripe_checkout_url?: string } | null;
 }
 
 export interface PaymentResult {
@@ -402,6 +410,9 @@ const PUBLIC_PAYMENT_FIELDS = [
   'expires_at',
   'tx_hash',
   'forward_tx_hash',
+  // Fetched only so the card checkout URL can be projected out of it below.
+  // Never return this column as-is: it holds internal fee math and user ids.
+  'metadata',
 ].join(',');
 
 /**
@@ -427,9 +438,20 @@ export async function getPaymentPublic(
     }
 
     // Cast through unknown since Supabase returns generic type
+    const { metadata, ...publicFields } = payment as unknown as PublicPayment & {
+      metadata?: Record<string, unknown> | null;
+    };
+    const checkoutUrl = metadata?.stripe_checkout_url;
+
     return {
       success: true,
-      payment: payment as unknown as PublicPayment,
+      payment: {
+        ...publicFields,
+        metadata:
+          typeof checkoutUrl === 'string' && checkoutUrl.length > 0
+            ? { stripe_checkout_url: checkoutUrl }
+            : null,
+      },
     };
   } catch (error) {
     return {
