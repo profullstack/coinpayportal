@@ -14,7 +14,6 @@ import {
   isFailedCryptoStatus,
   isSuccessfulCardStatus,
   isSuccessfulCryptoStatus,
-  toNumber,
 } from '@/lib/stats/analytics-series';
 
 const PERIOD_DAYS: Record<string, number> = {
