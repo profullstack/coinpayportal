@@ -67,7 +67,18 @@ export interface CreatePaymentInput {
   amount: number;
   currency: string;
   blockchain: Blockchain;
-  merchant_wallet_address?: string; // Optional - will use platform wallet if not provided
+  /**
+   * Override for where the merchant's net leg forwards to.
+   *
+   * Optional, and omitting it does NOT mean the platform keeps the money: the
+   * create-payment route resolves the business's own wallet for the chain, falls
+   * back to the account-global one, and refuses the payment with "No <coin>
+   * wallet configured for this business" when neither exists. The comment here
+   * used to say "will use platform wallet if not provided", which is not what any
+   * caller does and led at least one integration to hardcode a payee it did not
+   * need. See getPaymentReceivingWallet.
+   */
+  merchant_wallet_address?: string;
   metadata?: Record<string, any>;
   /**
    * Payment window in minutes. Defaults to the 15-minute checkout window.
@@ -86,7 +97,8 @@ export interface Payment {
   status: string;
   crypto_amount?: number;
   crypto_currency?: string;
-  merchant_wallet_address?: string; // Optional - may use platform wallet
+  /** Resolved payee: the override, else the business or account-global wallet. */
+  merchant_wallet_address?: string;
   payment_address?: string;
   tx_hash?: string;
   confirmations?: number;
