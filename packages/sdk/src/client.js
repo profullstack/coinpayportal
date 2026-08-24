@@ -454,21 +454,59 @@ export class CoinPayClient {
 
   /**
    * Create a new business
+   *
+   * Field names are snake_case because that is what the API reads. This used to
+   * send `webhookUrl`, which POST /api/businesses does not look at -- it reads
+   * `input.webhook_url` -- so every business created through the SDK came back
+   * with a null webhook_url and no webhook secret, silently. The value was
+   * accepted, echoed nowhere, and dropped.
+   *
+   * `category` is required by the API and was not sent at all, so
+   * `coinpay business create` failed outright with "Select a valid business
+   * category" and there was no flag to supply one. Valid slugs live in
+   * src/lib/business/taxonomy.ts.
+   *
    * @param {Object} params - Business parameters
    * @param {string} params.name - Business name
+   * @param {string} params.category - Taxonomy slug; required by the API
+   * @param {string} [params.description]
    * @param {string} [params.webhookUrl] - Webhook URL
+   * @param {string} [params.webhookSecret] - Supply one, or the API generates it
    * @param {Object} [params.walletAddresses] - Wallet addresses by chain
    * @returns {Promise<Object>} Created business
    */
-  async createBusiness({ name, webhookUrl, walletAddresses }) {
+  async createBusiness({
+    name,
+    category,
+    description,
+    webhookUrl,
+    webhookSecret,
+    walletAddresses,
+  }) {
     return this.request('/businesses', {
       method: 'POST',
       body: JSON.stringify({
         name,
-        webhookUrl,
+        category,
+        description,
+        webhook_url: webhookUrl,
+        webhook_secret: webhookSecret,
         walletAddresses,
       }),
     });
+  }
+
+  /**
+   * The taxonomy a business may be created with.
+   *
+   * Fetched rather than bundled: a copy inside the SDK goes stale the moment a
+   * category is added, and a stale copy is how "Select a valid business category"
+   * happens a second time.
+   *
+   * @returns {Promise<Object>} { success, categories: [{ slug, label, group, baseRisk }] }
+   */
+  async listBusinessCategories() {
+    return this.request('/businesses/categories', { method: 'GET' });
   }
 
   /**
