@@ -3,8 +3,19 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { listAccessibleBusinessIds } from '@/lib/auth/authz';
 import { getJwtSecret } from '@/lib/secrets';
-
-const TREND_DAYS = 14;
+import {
+  TREND_DAYS,
+  buildSeries,
+  getCardFeeUsd,
+  getCardVolumeUsd,
+  getCryptoFeeUsd,
+  getCryptoVolumeUsd,
+  isFailedCardStatus,
+  isFailedCryptoStatus,
+  isSuccessfulCardStatus,
+  isSuccessfulCryptoStatus,
+  toNumber,
+} from '@/lib/stats/analytics-series';
 
 const PERIOD_DAYS: Record<string, number> = {
   day: 1,
@@ -44,61 +55,6 @@ function emptyTrendSeries(): TrendSeries {
     failure_rate: Array(TREND_DAYS).fill(0),
     fees_usd: Array(TREND_DAYS).fill(0),
   };
-}
-
-function toNumber(value: unknown): number {
-  const parsed = typeof value === 'number' ? value : parseFloat(String(value ?? '0'));
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function isSuccessfulCryptoStatus(status: unknown): boolean {
-  return ['completed', 'forwarded', 'forwarding'].includes(String(status || '').toLowerCase());
-}
-
-function isSuccessfulCardStatus(status: unknown): boolean {
-  return ['completed', 'succeeded'].includes(String(status || '').toLowerCase());
-}
-
-function isFailedCryptoStatus(status: unknown): boolean {
-  return ['failed', 'expired', 'forwarding_failed', 'settle_failed', 'settlement_failed']
-    .includes(String(status || '').toLowerCase());
-}
-
-function isFailedCardStatus(status: unknown): boolean {
-  return ['failed', 'canceled', 'cancelled', 'requires_payment_method']
-    .includes(String(status || '').toLowerCase());
-}
-
-function getCryptoVolumeUsd(payment: any): number {
-  return toNumber(payment.amount ?? payment.amount_usd);
-}
-
-function getCryptoFeeUsd(payment: any): number {
-  const feeUsd = toNumber(payment.fee_usd);
-  if (feeUsd > 0) return feeUsd;
-
-  const feeAmount = toNumber(payment.fee_amount);
-  const cryptoAmount = toNumber(payment.crypto_amount);
-  const usdAmount = getCryptoVolumeUsd(payment);
-
-  if (feeAmount > 0 && cryptoAmount > 0 && usdAmount > 0) {
-    return (feeAmount / cryptoAmount) * usdAmount;
-  }
-
-  return 0;
-}
-
-function getCardVolumeUsd(transaction: any): number {
-  const amountCents = toNumber(transaction.amount);
-  if (amountCents > 0) return amountCents / 100;
-  return toNumber(transaction.amount_usd);
-}
-
-function getCardFeeUsd(transaction: any): number {
-  return (
-    toNumber(transaction.stripe_fee_amount ?? transaction.stripe_fee) +
-    toNumber(transaction.platform_fee_amount ?? transaction.platform_fee)
-  ) / 100;
 }
 
 function buildTrendLabels() {
@@ -177,110 +133,6 @@ function buildTrends(cryptoPayments: any[], cardTransactions: any[]) {
   finalizeFailureRates(all);
 
   return { labels, all, crypto, card };
-}
-
-type SeriesPoint = {
-  label: string;
-  crypto_volume_usd: number;
-  card_volume_usd: number;
-  total_volume_usd: number;
-  crypto_count: number;
-  card_count: number;
-  total_count: number;
-};
-
-function startOfUTCDay(d: Date): Date {
-  const x = new Date(d);
-  x.setUTCHours(0, 0, 0, 0);
-  return x;
-}
-
-/**
- * Build a bucketed time series (successful volume + transaction counts, split by
- * rail) over [windowStart, windowEnd). Granularity adapts to the span so the
- * chart never has thousands of points: daily up to ~3 months, weekly up to ~2
- * years, monthly beyond that.
- */
-function buildSeries(
-  cryptoPayments: any[],
-  cardTransactions: any[],
-  windowStart: Date,
-  windowEnd: Date
-): { granularity: 'day' | 'week' | 'month'; points: SeriesPoint[] } {
-  const dayMs = 86400000;
-  const start = startOfUTCDay(windowStart);
-  const spanDays = Math.max(1, Math.ceil((windowEnd.getTime() - start.getTime()) / dayMs));
-  const granularity: 'day' | 'week' | 'month' =
-    spanDays <= 92 ? 'day' : spanDays <= 740 ? 'week' : 'month';
-
-  const indexOf = (t: number): number => {
-    if (granularity === 'month') {
-      const d = new Date(t);
-      return (d.getUTCFullYear() - start.getUTCFullYear()) * 12 + (d.getUTCMonth() - start.getUTCMonth());
-    }
-    const binMs = granularity === 'week' ? 7 * dayMs : dayMs;
-    return Math.floor((t - start.getTime()) / binMs);
-  };
-  const labelForIndex = (i: number): string => {
-    if (granularity === 'month') {
-      const dt = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1));
-      return dt.toISOString().slice(0, 7); // YYYY-MM
-    }
-    const binMs = granularity === 'week' ? 7 * dayMs : dayMs;
-    return new Date(start.getTime() + i * binMs).toISOString().slice(0, 10); // YYYY-MM-DD
-  };
-
-  const lastIndex = Math.max(0, indexOf(windowEnd.getTime() - 1));
-  const points: SeriesPoint[] = [];
-  for (let i = 0; i <= lastIndex; i++) {
-    points.push({
-      label: labelForIndex(i),
-      crypto_volume_usd: 0,
-      card_volume_usd: 0,
-      total_volume_usd: 0,
-      crypto_count: 0,
-      card_count: 0,
-      total_count: 0,
-    });
-  }
-
-  const add = (rows: any[], kind: 'crypto' | 'card') => {
-    for (const row of rows || []) {
-      if (!row.created_at) continue;
-      const t = new Date(row.created_at).getTime();
-      if (t < start.getTime() || t >= windowEnd.getTime()) continue;
-      const i = indexOf(t);
-      if (i < 0 || i >= points.length) continue;
-      const p = points[i];
-      if (kind === 'crypto') {
-        p.crypto_count += 1;
-        p.total_count += 1;
-        if (isSuccessfulCryptoStatus(row.status)) {
-          const v = getCryptoVolumeUsd(row);
-          p.crypto_volume_usd += v;
-          p.total_volume_usd += v;
-        }
-      } else {
-        p.card_count += 1;
-        p.total_count += 1;
-        if (isSuccessfulCardStatus(row.status)) {
-          const v = getCardVolumeUsd(row);
-          p.card_volume_usd += v;
-          p.total_volume_usd += v;
-        }
-      }
-    }
-  };
-  add(cryptoPayments, 'crypto');
-  add(cardTransactions, 'card');
-
-  for (const p of points) {
-    p.crypto_volume_usd = Number(p.crypto_volume_usd.toFixed(2));
-    p.card_volume_usd = Number(p.card_volume_usd.toFixed(2));
-    p.total_volume_usd = Number(p.total_volume_usd.toFixed(2));
-  }
-
-  return { granularity, points };
 }
 
 /**
