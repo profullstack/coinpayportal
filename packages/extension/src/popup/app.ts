@@ -30,6 +30,14 @@ import {
   type FiatCurrency,
 } from '../core/fiat.js';
 
+/**
+ * The topbar brand. Not `installedName()`: the full "CoinPay Portal Wallet"
+ * does not fit beside the Lock button in a 360px popup. It must still be more
+ * than the bare "CoinPay" it used to read — claiming a brand name we cannot
+ * document ownership of is what got the store listing disabled.
+ */
+const BRAND_SHORT = 'CoinPay Portal';
+
 interface CreateFlow {
   mnemonic: string;
   words: string[];
@@ -57,7 +65,7 @@ export async function start(): Promise<void> {
 function renderWelcome(): void {
   const bar = walletBarPlaceholder();
   mount(
-    header('CoinPay Wallet'),
+    header(installedName()),
     bar,
     note('Non-custodial. Your keys never leave this device.'),
     el('div', { class: 'stack' }, [
@@ -271,7 +279,7 @@ async function renderWallet(): Promise<void> {
 
     mount(
       el('div', { class: 'topbar' }, [
-        el('div', { class: 'brand' }, [logo(20), el('h1', { class: 'title', text: 'CoinPay' })]),
+        el('div', { class: 'brand' }, [logo(20), el('h1', { class: 'title', text: BRAND_SHORT })]),
         button('Lock', async () => {
           await call({ type: 'lock' });
           renderUnlock();
@@ -1006,11 +1014,28 @@ export function installedVersion(): string {
   }
 }
 
+/**
+ * What this extension is called, straight from the manifest for the same reason
+ * the version is: the store listing was renamed to "CoinPay Portal Wallet"
+ * while the popup went on calling itself "CoinPay Wallet", so the browser's
+ * extension list and the extension's own chrome disagreed. Reading the manifest
+ * means that cannot drift again. The literal is only for contexts with no
+ * `chrome.runtime` at all — tests, and the popup opened as a plain page.
+ */
+export function installedName(): string {
+  try {
+    return chrome.runtime.getManifest().name;
+  } catch {
+    return 'CoinPay Portal Wallet';
+  }
+}
+
 export function renderFooter(): void {
   const footer = document.getElementById('footer');
   if (!footer) return;
   const version = installedVersion();
-  footer.textContent = version ? `CoinPay Wallet v${version}` : 'CoinPay Wallet';
+  const name = installedName();
+  footer.textContent = version ? `${name} v${version}` : name;
 }
 
 function fail(status: HTMLElement, msg: string): void {

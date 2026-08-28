@@ -8,11 +8,11 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-import { renderFooter, installedVersion } from '../app.js';
+import { renderFooter, installedVersion, installedName } from '../app.js';
 import { logo, brand } from '../dom.js';
 
-function stubManifest(version: string) {
-  vi.stubGlobal('chrome', { runtime: { getManifest: () => ({ version }) } });
+function stubManifest(version: string, name = 'CoinPay Portal Wallet') {
+  vi.stubGlobal('chrome', { runtime: { getManifest: () => ({ version, name }) } });
 }
 
 beforeEach(() => {
@@ -28,7 +28,7 @@ describe('version footer', () => {
     stubManifest('0.4.1');
     renderFooter();
 
-    expect(document.getElementById('footer')!.textContent).toBe('CoinPay Wallet v0.4.1');
+    expect(document.getElementById('footer')!.textContent).toBe('CoinPay Portal Wallet v0.4.1');
   });
 
   it('tracks the manifest rather than a hardcoded string', () => {
@@ -44,7 +44,19 @@ describe('version footer', () => {
     renderFooter();
 
     expect(installedVersion()).toBe('');
-    expect(document.getElementById('footer')!.textContent).toBe('CoinPay Wallet');
+    expect(installedName()).toBe('CoinPay Portal Wallet');
+    expect(document.getElementById('footer')!.textContent).toBe('CoinPay Portal Wallet');
+  });
+
+  it('tracks the manifest name rather than a hardcoded string', () => {
+    // The store listing was renamed while the popup went on calling itself
+    // something else, so the browser's extension list and the extension's own
+    // chrome disagreed. The name has to come from the same place the version
+    // does or it drifts again.
+    stubManifest('1.2.3', 'Renamed Wallet');
+    renderFooter();
+
+    expect(document.getElementById('footer')!.textContent).toBe('Renamed Wallet v1.2.3');
   });
 
   it('does not throw when the footer element is missing', () => {
