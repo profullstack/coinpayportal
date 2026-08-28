@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "CoinPay Portal Wallet",
   "description": "Non-custodial multi-chain CoinPay wallet with one-click x402 payments and bulk payouts.",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvd6F0ByGMFO/ZfxK/kyuYMrlBlmwY0u2I9MfRRYf88YA2YQVmiUqM2444gPxyI4rhTyejAZX9IwMDwY0N+kgclQArkfTmbs+mo7E/RCgrMFy+FreMlrqEm5LACIKPgVZjzWUEjDxQGnmpNtvXWUN2ZN9srKF+Efr2tFKVZMwBKd3cJeh+4XGw0+AN6CKDbURWvgm6op+5bL4lTv+aJ8LbfC45ouEOsxHZgdN2HuC3x4kE232oStYYjmigr2NSKgE835U2nKO+hY7fCzBntMp8VI9hUkCDBwZwxbcWFQmtMKqJa6Mu3lgcwJQPYRzx9hujehn2OSsPE6b2k/jOYVtcwIDAQAB",
   "action": {
     "default_title": "CoinPay",
