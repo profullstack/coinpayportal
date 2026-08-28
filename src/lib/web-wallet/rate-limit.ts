@@ -120,6 +120,10 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   // Each swap quote costs two calls to the ChangeNOW third-party API, so an
   // unlimited anonymous endpoint is a quota-exhaustion lever against us.
   'swap_quote': { limit: 20, windowSeconds: 60 },            // 20/min per IP
+  // An on-ramp quote fans out to every configured source at once, so one
+  // request here is several third-party calls. Tighter than swap_quote for
+  // that reason: the multiplier is the whole point of the endpoint.
+  'onramp_quote': { limit: 15, windowSeconds: 60 },          // 15/min per IP
   // The trust graph is only meaningful if attestations are expensive to mint.
   'reputation_attest': { limit: 10, windowSeconds: 60 },     // 10/min per caller
   // A boolean "is this address a CoinPay merchant?" oracle. Unauthenticated by
