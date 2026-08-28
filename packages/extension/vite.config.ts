@@ -4,10 +4,20 @@ import { dirname, resolve } from 'node:path';
 import { copyFileSync, cpSync, mkdirSync } from 'node:fs';
 
 const root = dirname(fileURLToPath(import.meta.url));
-const outDir = resolve(root, 'dist');
+/**
+ * `dist/` by default; `OUT_DIR` lets the release packager build every target
+ * side by side instead of overwriting one directory three times (Safari in
+ * particular needs its unpacked tree to survive — Xcode's converter reads it).
+ */
+const outDir = process.env.OUT_DIR ? resolve(process.env.OUT_DIR) : resolve(root, 'dist');
 
-/** chrome (default) | firefox — chooses which manifest ships as manifest.json. */
-const target = process.env.TARGET === 'firefox' ? 'firefox' : 'chrome';
+/** chrome (default) | firefox | safari — chooses which manifest ships as manifest.json. */
+const TARGETS = ['chrome', 'firefox', 'safari'] as const;
+const requested = process.env.TARGET ?? 'chrome';
+if (!TARGETS.includes(requested as (typeof TARGETS)[number])) {
+  throw new Error(`TARGET must be one of ${TARGETS.join(', ')} — got "${requested}"`);
+}
+const target = requested as (typeof TARGETS)[number];
 
 /**
  * Copy the non-bundled extension assets into dist after the JS build:

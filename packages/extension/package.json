@@ -7,7 +7,13 @@
   "scripts": {
     "build": "vite build",
     "build:firefox": "TARGET=firefox vite build",
+    "build:safari": "TARGET=safari vite build",
     "dev": "vite build --watch",
+    "package": "node scripts/package.mjs",
+    "screenshots": "node scripts/make-screenshots.mjs",
+    "publish:chrome": "node scripts/publish-chrome.mjs",
+    "publish:firefox": "node scripts/publish-firefox.mjs",
+    "publish:safari": "./scripts/safari-convert.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit"

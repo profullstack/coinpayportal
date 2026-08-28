@@ -1,0 +1,93 @@
+name: Extension release
+
+# Cutting an extension release used to be entirely by hand — nothing triggered
+# on `extension-v*`, so a bumped package.json published nothing and 0.9.3 sat
+# unreleased for two weeks. Tagging now builds every channel and attaches the
+# self-hosted asset that tronbrowser.dev packs its .crx from.
+#
+# Store submission stays opt-in (`workflow_dispatch`), because both stores put
+# a submission in front of a human reviewer and that is not something a tag
+# push should do by itself.
+
+on:
+  push:
+    tags:
+      - 'extension-v*'
+  workflow_dispatch:
+    inputs:
+      chrome:
+        description: 'Upload the package to the Chrome Web Store draft'
+        type: boolean
+        default: false
+      firefox:
+        description: 'Submit a new version to addons.mozilla.org'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --filter @profullstack/coinpay-extension... --frozen-lockfile
+
+      - name: Test
+        run: pnpm --filter @profullstack/coinpay-extension test
+
+      - name: Package every channel
+        run: pnpm --filter @profullstack/coinpay-extension package
+
+      - name: Check the tag matches the packaged version
+        if: startsWith(github.ref, 'refs/tags/extension-v')
+        run: |
+          tagged="${GITHUB_REF_NAME#extension-v}"
+          packaged=$(node -p "require('./packages/extension/package.json').version")
+          if [ "$tagged" != "$packaged" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package version $packaged" >&2
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension-packages
+          path: packages/extension/release/*.zip
+
+      # The release asset keeps its fixed name: tronbrowser.dev and every
+      # install instruction already point at `coinpay-wallet.zip`.
+      - name: Attach the self-hosted archive to the release
+        if: startsWith(github.ref, 'refs/tags/extension-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            packages/extension/release/coinpay-wallet.zip --clobber
+
+      - name: Chrome Web Store
+        if: inputs.chrome
+        working-directory: packages/extension
+        env:
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+        run: node scripts/publish-chrome.mjs
+
+      - name: addons.mozilla.org
+        if: inputs.firefox
+        working-directory: packages/extension
+        env:
+          FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
+          FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
+          FIREFOX_ADDON_ID: ${{ secrets.FIREFOX_ADDON_ID }}
+        run: node scripts/publish-firefox.mjs
