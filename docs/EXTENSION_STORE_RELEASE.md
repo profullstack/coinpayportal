@@ -3,12 +3,12 @@
 The extension ships through four channels off one build. Everything except the
 Safari step runs on any machine.
 
-| Channel | Identity | Automated? |
-|---|---|---|
-| Chrome Web Store | `pmckmdnikecngblpjdlhgnimickinfkp` | package upload yes, listing no |
-| addons.mozilla.org | `coinpay@profullstack.com` (addon `3061765`, slug `coinpay-wallet`) | yes, end to end |
-| Safari / Mac App Store | `com.profullstack.coinpay-wallet` | needs a Mac |
-| GitHub release + tronbrowser.dev | `jmojjohoigoecfkjlobdmiejcdjjbhnb` | tag + asset, manual |
+| Channel | Identity | Automated? | Status as of 2026-08-28 |
+|---|---|---|---|
+| Chrome Web Store | `pmckmdnikecngblpjdlhgnimickinfkp` | package upload yes, listing no | package uploaded, not published |
+| addons.mozilla.org | `coinpay@profullstack.com` (addon `3061765`, slug `coinpay-wallet`) | yes, end to end | **disabled by Mozilla — see below** |
+| Safari / Mac App Store | `com.profullstack.coinpay-wallet` | needs a Mac | not started |
+| GitHub release + tronbrowser.dev | `jmojjohoigoecfkjlobdmiejcdjjbhnb` | tag + asset | live at `extension-v0.10.0` |
 
 ## Credentials
 
@@ -106,6 +106,33 @@ node scripts/publish-firefox.mjs --previews   # re-attach screenshots
 uploads the package, waits for AMO's linter, creates the version, attaches the
 source archive, and uploads the screenshots. A listed version then waits in a
 human review queue.
+
+### The listing is currently disabled by Mozilla
+
+Addon `3061765` was created on 2026-08-28 and reached `nominated` with the
+package (0 linter errors, 0 warnings), the source archive and both screenshots
+attached. Within roughly ten minutes it went to `disabled`, and
+`/addons/addon/3061765/` now answers:
+
+```json
+{ "is_disabled_by_developer": false, "is_disabled_by_mozilla": true }
+```
+
+Version 0.10.0 still exists with `file.status: "disabled"` and
+`reviewed: null` — so it was **never reviewed and rejected**; the add-on was
+administratively disabled. `PATCH is_disabled: false` on either the add-on or
+the version returns 403, so it cannot be undone through the API. The public
+page at `/firefox/addon/coinpay-wallet/` 404s.
+
+The developer account itself looks healthy (`is_addon_developer: true`, not
+banned or deleted), and it is the shared "Profullstack, Inc." AMO account.
+
+**This needs a human.** Check the AMO developer email and the developer hub at
+https://addons.mozilla.org/en-US/developers/addon/coinpay-wallet/edit for the
+disable notice — Mozilla sends a reason — and appeal or correct from there.
+Do not simply re-submit under the same `coinpay@profullstack.com` guid; a
+second submission is likely to be disabled the same way until the underlying
+reason is resolved.
 
 Keep the manifest's `browser_specific_settings.gecko.data_collection_permissions`
 accurate. It currently declares `financialAndPaymentInfo`, which is what the
