@@ -100,7 +100,15 @@ request a limit increase from the dashboard before `--publish` will succeed.
 node scripts/publish-firefox.mjs --validate   # linter only, submits nothing
 node scripts/publish-firefox.mjs              # new version of the listing
 node scripts/publish-firefox.mjs --previews   # re-attach screenshots
+node scripts/publish-firefox.mjs --metadata   # re-push listing copy only
 ```
+
+`--metadata` exists because AMO accepts `privacy_policy` in the
+`POST /addons/addon/` body and then silently drops it: 0.10.0 went up declaring
+it collects `financialAndPaymentInfo` while the record read
+`has_privacy_policy: false`. It only sticks on a follow-up PATCH, so the submit
+path now runs one and re-reads the add-on to confirm, and throws rather than
+reporting success if the policy did not attach.
 
 `--create` is for the first listing only and has already been used. The script
 uploads the package, waits for AMO's linter, creates the version, attaches the
@@ -127,12 +135,34 @@ page at `/firefox/addon/coinpay-wallet/` 404s.
 The developer account itself looks healthy (`is_addon_developer: true`, not
 banned or deleted), and it is the shared "Profullstack, Inc." AMO account.
 
-**This needs a human.** Check the AMO developer email and the developer hub at
-https://addons.mozilla.org/en-US/developers/addon/coinpay-wallet/edit for the
-disable notice — Mozilla sends a reason — and appeal or correct from there.
-Do not simply re-submit under the same `coinpay@profullstack.com` guid; a
-second submission is likely to be disabled the same way until the underlying
-reason is resolved.
+**The notice, received 2026-08-28:** Acceptable Use → Blocked → *"Deceptive or
+misleading: This content does not comply with Mozilla's prohibition of
+deceptive, misleading, or fraudulent activity using its products."* It is
+boilerplate and names no specific element of the submission.
+
+Three defects were found in the 0.10.0 submission and all three are fixed in
+0.10.1. (a) The listing name. "CoinPay Wallet" is a bare brand name this
+account cannot document ownership of, and unrelated crypto payment businesses
+trade under it; it is now "CoinPay Portal Wallet", anchored to a domain the
+publisher operates. Of the three this is the only one that explains the
+ten-minute turnaround, the absent review and the single-add-on scope together —
+the account's other add-ons stayed public throughout. (b) The approval
+screenshot depicted an invented payment with no indication the values were
+fictional; it now carries a badge, a caption disclosure and self-evidently fake
+values. (c) The privacy policy was never attached — see `--metadata` above.
+
+**Order of operations, and it matters:** appeal first, everything else after.
+*Every* write to a Mozilla-disabled add-on returns 403 — not just
+`is_disabled`, but plain listing metadata too — so `--metadata`, `--previews`
+and a new version all fail until the disable is lifted. Find the appeal link in
+Mozilla's decision email (that is the documented channel; there is no public
+appeal form) or start from the developer hub at
+https://addons.mozilla.org/en-US/developers/addon/coinpay-wallet/edit. A drafted
+appeal is at `~/exports/coinpay-wallet-amo-appeal.md`.
+
+Do not re-run `--create` or submit under a new guid. The slug and
+`coinpay@profullstack.com` are taken, and a second submission of a disabled
+add-on reads as evasion, which is its own violation.
 
 Keep the manifest's `browser_specific_settings.gecko.data_collection_permissions`
 accurate. It currently declares `financialAndPaymentInfo`, which is what the
