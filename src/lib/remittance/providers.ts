@@ -10,6 +10,7 @@ import { Corridor, RemittanceProvider, servesCorridor } from './types';
 import { BitsoProvider } from './bitso';
 import { TransfiProvider } from './transfi';
 import { YellowCardProvider } from './yellowcard';
+import { CybridProvider } from './cybrid';
 import { StubRemittanceProvider } from './stub';
 
 let registry: RemittanceProvider[] | null = null;
@@ -26,6 +27,7 @@ export function getRemittanceProviders(): RemittanceProvider[] {
     new BitsoProvider(),
     new TransfiProvider(),
     new YellowCardProvider(),
+    new CybridProvider(),
     new StubRemittanceProvider(),
   ];
   return registry;

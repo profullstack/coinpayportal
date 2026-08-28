@@ -83,7 +83,7 @@ describe('GET /api/remittance/quote', () => {
     const body = await response.json();
 
     expect(response.status).toBe(400);
-    expect(body.supported).toEqual(['MX', 'PH', 'NG', 'VN']);
+    expect(body.supported).toEqual(['MX', 'PH', 'NG', 'VN', 'CA']);
   });
 
   it('rejects a payout method the corridor does not offer', async () => {

@@ -14,12 +14,20 @@ import { useState, useEffect, useCallback, useRef } from 'react';
  * form says so plainly rather than presenting a button that would lie.
  */
 
-/** Published corridor costs, for the comparison strip. */
-const INCUMBENT_COST_PCT: Record<string, { pct: number; note: string }> = {
+/**
+ * Published corridor costs, for the comparison strip.
+ *
+ * Canada is deliberately not in the same league as the rest. Wise moves
+ * USD→CAD for well under 1%, so quoting a 4.5%-style incumbent there would be
+ * inventing a win. `mature` marks the corridors where the honest claim is speed
+ * rather than price.
+ */
+const INCUMBENT_COST_PCT: Record<string, { pct: number; note: string; mature?: boolean }> = {
   MX: { pct: 4.5, note: 'Typical US→Mexico transfer' },
   PH: { pct: 6.0, note: 'Typical US→Philippines transfer' },
   NG: { pct: 5.5, note: 'Typical US→Nigeria transfer' },
   VN: { pct: 5.0, note: 'Typical US→Vietnam transfer' },
+  CA: { pct: 0.75, note: 'Wise US→Canada, typical', mature: true },
 };
 
 const COUNTRY_NAME: Record<string, string> = {
@@ -27,6 +35,7 @@ const COUNTRY_NAME: Record<string, string> = {
   PH: 'Philippines',
   NG: 'Nigeria',
   VN: 'Vietnam',
+  CA: 'Canada',
 };
 
 const METHOD_LABEL: Record<string, string> = {
@@ -429,23 +438,41 @@ export function SendMoneyForm() {
           )}
 
           {/* The comparison that is the whole argument */}
-          {savingsPct !== null && savingsPct > 0 && incumbent && (
+          {incumbent && headlineCostPct != null && (
             <div className="mt-5 rounded-lg bg-black/30 p-4">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-400">{incumbent.note}</span>
-                <span className="text-gray-300 tabular-nums">≈ {incumbent.pct.toFixed(1)}%</span>
+                <span className="text-gray-300 tabular-nums">≈ {incumbent.pct.toFixed(2)}%</span>
               </div>
               <div className="mt-1 flex items-center justify-between text-sm">
                 <span className="text-gray-400">This transfer</span>
-                <span className="text-green-400 tabular-nums">
-                  {headlineCostPct!.toFixed(2)}%
+                <span
+                  className={`tabular-nums ${
+                    savingsPct !== null && savingsPct > 0 ? 'text-green-400' : 'text-gray-300'
+                  }`}
+                >
+                  {headlineCostPct.toFixed(2)}%
                 </span>
               </div>
-              <p className="mt-3 text-xs text-gray-500">
-                About {savingsPct.toFixed(1)} percentage points cheaper, or roughly $
-                {((savingsPct / 100) * (Number(amount) || 0)).toFixed(2)} more reaching them on
-                this transfer.
-              </p>
+
+              {/* On a mature corridor the honest claim is speed, not price. */}
+              {incumbent.mature ? (
+                <p className="mt-3 text-xs text-gray-500">
+                  {COUNTRY_NAME[country]} is already well served — the established options are
+                  cheap here, so this is about matching them on price and settling from
+                  stablecoin in minutes, not about undercutting them.
+                </p>
+              ) : savingsPct !== null && savingsPct > 0 ? (
+                <p className="mt-3 text-xs text-gray-500">
+                  About {savingsPct.toFixed(1)} percentage points cheaper, or roughly $
+                  {((savingsPct / 100) * (Number(amount) || 0)).toFixed(2)} more reaching them on
+                  this transfer.
+                </p>
+              ) : (
+                <p className="mt-3 text-xs text-gray-500">
+                  This transfer is not cheaper than the usual route on this corridor.
+                </p>
+              )}
             </div>
           )}
 

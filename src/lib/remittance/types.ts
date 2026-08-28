@@ -19,7 +19,7 @@
  */
 
 /** Corridors we serve. Sending side is always the US. */
-export type Corridor = 'US-MX' | 'US-PH' | 'US-NG' | 'US-VN';
+export type Corridor = 'US-MX' | 'US-PH' | 'US-NG' | 'US-VN' | 'US-CA';
 
 /** How the recipient actually gets the money. */
 export type PayoutMethod = 'bank' | 'ewallet' | 'cash_pickup' | 'debit_card';
@@ -46,6 +46,16 @@ export interface CorridorSpec {
    * rather than publishing a confident wrong number.
    */
   fxReferenceContested?: boolean;
+  /**
+   * Set for developed-market corridors where incumbents are already efficient.
+   *
+   * The cost argument that carries US→MX or US→NG does not carry here: Wise
+   * moves USD→CAD for well under 1% all-in, so we are at parity rather than an
+   * order of magnitude cheaper. The corridor is still worth serving — settling
+   * from stablecoin in minutes has its own value — but the UI must not dress
+   * parity up as a saving.
+   */
+  matureCorridor?: boolean;
 }
 
 export const CORRIDORS: Record<Corridor, CorridorSpec> = {
@@ -96,6 +106,18 @@ export const CORRIDORS: Record<Corridor, CorridorSpec> = {
       bank: ['napas247', 'vietqr'],
       ewallet: ['momo', 'zalopay', 'vnpay'],
     },
+  },
+  'US-CA': {
+    corridor: 'US-CA',
+    destinationCountry: 'CA',
+    payoutCurrency: 'CAD',
+    methods: ['bank'],
+    networks: {
+      // Interac e-Transfer is the dominant CAD rail and settles in minutes
+      // under CAD 10,000; EFT is the batch alternative for larger amounts.
+      bank: ['interac', 'eft'],
+    },
+    matureCorridor: true,
   },
 };
 

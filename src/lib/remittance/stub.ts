@@ -26,6 +26,7 @@ const REFERENCE_FX: Record<string, number> = {
   // Official NFEM rate; the parallel market sits a few percent above it.
   NGN: 1347,
   VND: 26300,
+  CAD: 1.37,
 };
 
 interface StubShape {
@@ -68,7 +69,7 @@ const STUB_SHAPES: StubShape[] = [
 export class StubRemittanceProvider implements RemittanceProvider {
   readonly id = 'stub';
   readonly label = 'Development stub';
-  readonly corridors: Corridor[] = ['US-MX', 'US-PH', 'US-NG', 'US-VN'];
+  readonly corridors: Corridor[] = ['US-MX', 'US-PH', 'US-NG', 'US-VN', 'US-CA'];
 
   isConfigured(): boolean {
     if (process.env.NODE_ENV === 'production') return false;

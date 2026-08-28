@@ -1,6 +1,6 @@
 # Remittance
 
-Crypto in, local fiat out. US→Mexico, Philippines, Nigeria and Vietnam.
+Crypto in, local fiat out. US→Mexico, Philippines, Nigeria, Vietnam and Canada.
 
 Strategy: [`plans/fiat-onramp-strategy.md`](../plans/fiat-onramp-strategy.md).
 
@@ -30,6 +30,12 @@ mid-market FX and publishes the margin it recovers.
 | US→PH | ~5–7% | GCash, Maya, InstaPay, PESONet, cash pickup | TransFi |
 | US→NG | ~5.5% | NIP (every bank), OPay/PalmPay/Kuda | Yellow Card |
 | US→VN | ~5% | NAPAS 247, VietQR, MoMo/ZaloPay/VNPay | TransFi |
+| US→CA | **~0.75%** | Interac e-Transfer, EFT | Cybrid |
+
+Canada is the odd one out and is marked `matureCorridor`. Wise moves USD→CAD
+for well under 1%, so the cost argument that carries every other corridor does
+not carry there — we are at parity, and the page says so rather than inventing
+a saving. What that corridor buys is settling from stablecoin in minutes.
 
 Measured against that, a live Bitso quote today is **1000 USDC → ~16,929 MXN at
 17.02, on a $5.50 total fee** — around 0.55% all-in.
@@ -40,6 +46,7 @@ Measured against that, a live Bitso quote today is **1000 USDC → ~16,929 MXN a
 |---|---|---|
 | `TRANSFI_API_KEY` | for US→PH and US→VN | The only partner serving those two corridors |
 | `YELLOWCARD_API_KEY` | for US→NG | Stablecoin into NGN over NIP |
+| `CYBRID_API_KEY` | for US→CA | Stablecoin into CAD over Interac or EFT |
 | `BITSO_API_KEY` / `BITSO_API_SECRET` | to settle MX | Quoting works without them; payouts will not |
 | `BITSO_FEE_PCT` | no | Commercial rate, default `0.5` |
 | `BITSO_FEE_FIXED_USD` | no | Default `0` |
@@ -127,8 +134,8 @@ webhooks. Shipping a route that instructs a partner to pay someone without first
 recording that we did so would be worse than not having the route.
 
 The Bitso adapter is verified against the live public API, including that Bitso
-lists no `usdc_mxn` book. The TransFi and Yellow Card adapters are written
-against documented shapes and have **not** been run against a real key;
+lists no `usdc_mxn` book. The TransFi, Yellow Card and Cybrid adapters are
+written against documented shapes and have **not** been run against a real key;
 `parseQuote` drops anything it cannot interpret, so a bad mapping shows up as a
 missing partner rather than a wrong price. That means Mexico is proven end to
 end and the other three corridors are not.
