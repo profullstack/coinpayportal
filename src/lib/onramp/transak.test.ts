@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TransakProvider, parseQuote } from './transak';
+import { TransakProvider, parseQuote, transakHosts } from './transak';
 import type { OnrampQuoteParams } from './types';
 
 global.fetch = vi.fn();
@@ -131,6 +131,33 @@ describe('TransakProvider', () => {
     process.env = { ...originalEnv };
     delete process.env.TRANSAK_API_KEY;
     expect(new TransakProvider().isConfigured()).toBe(false);
+  });
+
+  it('targets the staging hosts when asked', async () => {
+    // A new partner account issues a staging key first; production is unlocked
+    // only after KYB. Sending a staging key to the production host fails in a
+    // way that reads like a bad credential.
+    process.env.TRANSAK_ENVIRONMENT = 'staging';
+    expect(transakHosts()).toEqual({
+      api: 'https://api-stg.transak.com',
+      widget: 'https://global-stg.transak.com',
+    });
+
+    const session = await new TransakProvider().createSession({
+      fiatCurrency: 'USD',
+      fiatAmount: 100,
+      cryptoAsset: 'BTC',
+      walletAddress: 'bc1qexample',
+    });
+    expect(new URL(session.url).origin).toBe('https://global-stg.transak.com');
+  });
+
+  it('defaults to production when the environment is unset or unrecognised', () => {
+    delete process.env.TRANSAK_ENVIRONMENT;
+    expect(transakHosts().widget).toBe('https://global.transak.com');
+
+    process.env.TRANSAK_ENVIRONMENT = 'nonsense';
+    expect(transakHosts().widget).toBe('https://global.transak.com');
   });
 
   it('maps our asset symbols onto Transak code and network', async () => {

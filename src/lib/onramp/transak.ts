@@ -25,8 +25,25 @@ import {
   ONRAMP_ASSET_MAP,
 } from './types';
 
-const TRANSAK_API_URL = 'https://api.transak.com';
-const TRANSAK_WIDGET_URL = 'https://global.transak.com';
+/**
+ * Transak runs staging on separate hosts, and a staging key is what a new
+ * partner account issues first — production is unlocked only after KYB. Sending
+ * a staging key to the production host fails in a way that reads like a bad
+ * credential, so the environment is switchable rather than hardcoded.
+ */
+const TRANSAK_HOSTS = {
+  production: { api: 'https://api.transak.com', widget: 'https://global.transak.com' },
+  staging: { api: 'https://api-stg.transak.com', widget: 'https://global-stg.transak.com' },
+} as const;
+
+export type TransakEnvironment = keyof typeof TRANSAK_HOSTS;
+
+/** Defaults to production; set TRANSAK_ENVIRONMENT=staging while testing. */
+export function transakHosts(): (typeof TRANSAK_HOSTS)[TransakEnvironment] {
+  return process.env.TRANSAK_ENVIRONMENT === 'staging'
+    ? TRANSAK_HOSTS.staging
+    : TRANSAK_HOSTS.production;
+}
 
 /** Our asset symbols to Transak's (cryptoCurrencyCode, network) pair. */
 const TRANSAK_NETWORK: Record<string, string> = {
@@ -192,7 +209,7 @@ export class TransakProvider implements OnrampProvider {
     const pm = params.paymentMethod && PAYMENT_METHOD_TO_TRANSAK[params.paymentMethod];
     if (pm) query.set('paymentMethod', pm);
 
-    const response = await fetch(`${TRANSAK_API_URL}/api/v1/pricing/public/quotes?${query}`, {
+    const response = await fetch(`${transakHosts().api}/api/v1/pricing/public/quotes?${query}`, {
       signal,
     });
 
@@ -234,14 +251,14 @@ export class TransakProvider implements OnrampProvider {
     return {
       source: this.id,
       provider: 'transak',
-      url: `${TRANSAK_WIDGET_URL}?${query}`,
+      url: `${transakHosts().widget}?${query}`,
       sessionId: null,
       expiresAt: null,
     };
   }
 
   async listAssets(signal?: AbortSignal): Promise<OnrampAssets> {
-    const response = await fetch(`${TRANSAK_API_URL}/api/v2/currencies/crypto-currencies`, {
+    const response = await fetch(`${transakHosts().api}/api/v2/currencies/crypto-currencies`, {
       signal,
     });
 
