@@ -247,9 +247,23 @@ export async function getRemittanceQuotes(
     }
   }
 
-  const ranked = rankQuotes(
-    raw.map((quote) => priceAgainstMidMarket(quote, sendValueUsd, midMarketFxRate))
-  );
+  const priced = raw.map((quote) => priceAgainstMidMarket(quote, sendValueUsd, midMarketFxRate));
+
+  // Where the reference rate is contested, the derived margin compares two
+  // different markets. The figure is still worth showing, but never without
+  // saying what it is measured against.
+  if (spec.fxReferenceContested && midMarketFxRate !== null) {
+    for (const quote of priced) {
+      if (quote.fxMarginPct !== null) {
+        quote.warnings = [
+          ...quote.warnings,
+          `${spec.payoutCurrency} has no single mid-market rate — this margin is measured against the official rate and the street rate differs`,
+        ];
+      }
+    }
+  }
+
+  const ranked = rankQuotes(priced);
 
   return {
     quotes: ranked,

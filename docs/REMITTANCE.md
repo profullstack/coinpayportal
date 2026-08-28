@@ -1,6 +1,6 @@
 # Remittance
 
-Crypto in, local fiat out. US→Mexico and US→Philippines.
+Crypto in, local fiat out. US→Mexico, Philippines, Nigeria and Vietnam.
 
 Strategy: [`plans/fiat-onramp-strategy.md`](../plans/fiat-onramp-strategy.md).
 
@@ -24,10 +24,12 @@ mid-market FX and publishes the margin it recovers.
 
 ## What you are undercutting
 
-| Corridor | Incumbent all-in | Payout rails |
-|---|---|---|
-| US→MX | ~4.5% | SPEI (24/7), cash pickup, DiMo |
-| US→PH | ~5–7% | GCash, Maya, InstaPay, PESONet, cash pickup |
+| Corridor | Incumbent all-in | Payout rails | Partner |
+|---|---|---|---|
+| US→MX | ~4.5% | SPEI (24/7), cash pickup, DiMo | Bitso |
+| US→PH | ~5–7% | GCash, Maya, InstaPay, PESONet, cash pickup | TransFi |
+| US→NG | ~5.5% | NIP (every bank), OPay/PalmPay/Kuda | Yellow Card |
+| US→VN | ~5% | NAPAS 247, VietQR, MoMo/ZaloPay/VNPay | TransFi |
 
 Measured against that, a live Bitso quote today is **1000 USDC → ~16,929 MXN at
 17.02, on a $5.50 total fee** — around 0.55% all-in.
@@ -36,7 +38,8 @@ Measured against that, a live Bitso quote today is **1000 USDC → ~16,929 MXN a
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `TRANSFI_API_KEY` | for US→PH | The only partner here serving the Philippines |
+| `TRANSFI_API_KEY` | for US→PH and US→VN | The only partner serving those two corridors |
+| `YELLOWCARD_API_KEY` | for US→NG | Stablecoin into NGN over NIP |
 | `BITSO_API_KEY` / `BITSO_API_SECRET` | to settle MX | Quoting works without them; payouts will not |
 | `BITSO_FEE_PCT` | no | Commercial rate, default `0.5` |
 | `BITSO_FEE_FIXED_USD` | no | Default `0` |
@@ -85,6 +88,29 @@ deliberate.
 Corridors, their payout rails and named networks, which have a live partner, and
 which stablecoins may fund a transfer.
 
+## The naira caveat
+
+NGN has an official rate and a parallel-market rate a few percent apart. Our FX
+reference quotes the official one, so a partner pricing off the market it
+actually trades in can look like it has a *negative* margin. That is two
+different markets being compared, not a bargain. `US-NG` carries
+`fxReferenceContested`, and the router attaches a warning to every quote in that
+corridor rather than publishing a confident wrong number.
+
+The same effect shows up mildly on Mexico, where Bitso's book can beat the
+reference by a few tenths of a percent. The UI never quotes a total cost below
+the fee actually charged, so a reference disagreement can never make us look
+cheaper than we are.
+
+## The page
+
+`/remittance` — pick a destination, enter an amount, see what lands, with the
+fee and rate margin split out and the corridor's typical cost beside it.
+Destinations come from `/api/remittance/corridors`, so a corridor with no
+partner shows as unavailable instead of silently missing.
+
+It quotes but cannot send, and says so.
+
 ## Adding a corridor or partner
 
 Add a `CorridorSpec` to `CORRIDORS` in `types.ts`, implement
@@ -101,10 +127,11 @@ webhooks. Shipping a route that instructs a partner to pay someone without first
 recording that we did so would be worse than not having the route.
 
 The Bitso adapter is verified against the live public API, including that Bitso
-lists no `usdc_mxn` book. The TransFi adapter is written against documented
-shapes and has **not** been run against a real key; `parseQuote` drops anything
-it cannot interpret, so a bad mapping shows up as a missing partner rather than
-a wrong price.
+lists no `usdc_mxn` book. The TransFi and Yellow Card adapters are written
+against documented shapes and have **not** been run against a real key;
+`parseQuote` drops anything it cannot interpret, so a bad mapping shows up as a
+missing partner rather than a wrong price. That means Mexico is proven end to
+end and the other three corridors are not.
 
 Corridor cost benchmarks come from secondary sources citing World Bank Q1 2025
 data — the World Bank corridor pages refuse automated fetches. Verify the exact

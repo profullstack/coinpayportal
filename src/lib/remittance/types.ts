@@ -19,7 +19,7 @@
  */
 
 /** Corridors we serve. Sending side is always the US. */
-export type Corridor = 'US-MX' | 'US-PH';
+export type Corridor = 'US-MX' | 'US-PH' | 'US-NG' | 'US-VN';
 
 /** How the recipient actually gets the money. */
 export type PayoutMethod = 'bank' | 'ewallet' | 'cash_pickup' | 'debit_card';
@@ -35,6 +35,17 @@ export interface CorridorSpec {
    * Philippines the e-wallet choice matters more than the bank rail does.
    */
   networks: Partial<Record<PayoutMethod, string[]>>;
+  /**
+   * Set when no single "mid-market" rate is meaningful for this currency.
+   *
+   * The naira trades at a persistent premium on the parallel market over the
+   * official NFEM rate — a few percent apart at the time of writing. Our FX
+   * reference quotes the official one, so a partner pricing off the street rate
+   * looks like it has a *negative* margin. That is an artefact of comparing two
+   * different markets, not a bargain, and the router says so on the quote
+   * rather than publishing a confident wrong number.
+   */
+  fxReferenceContested?: boolean;
 }
 
 export const CORRIDORS: Record<Corridor, CorridorSpec> = {
@@ -61,6 +72,29 @@ export const CORRIDORS: Record<Corridor, CorridorSpec> = {
       // bank rails do.
       ewallet: ['gcash', 'maya'],
       cash_pickup: ['cebuana', 'mlhuillier', 'palawan'],
+    },
+  },
+  'US-NG': {
+    corridor: 'US-NG',
+    destinationCountry: 'NG',
+    payoutCurrency: 'NGN',
+    methods: ['bank', 'ewallet'],
+    networks: {
+      // NIP (NIBSS Instant Payment) reaches every Nigerian bank, and the
+      // fintech wallets are built on top of it rather than beside it.
+      bank: ['nip'],
+      ewallet: ['opay', 'palmpay', 'kuda'],
+    },
+    fxReferenceContested: true,
+  },
+  'US-VN': {
+    corridor: 'US-VN',
+    destinationCountry: 'VN',
+    payoutCurrency: 'VND',
+    methods: ['bank', 'ewallet'],
+    networks: {
+      bank: ['napas247', 'vietqr'],
+      ewallet: ['momo', 'zalopay', 'vnpay'],
     },
   },
 };

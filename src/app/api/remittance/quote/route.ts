@@ -7,7 +7,7 @@
  * Query params:
  *   asset:   stablecoin the sender is funding with, e.g. USDC or USDC_POL
  *   amount:  amount of that asset
- *   to:      destination country, ISO 3166-1 alpha-2 — MX or PH
+ *   to:      destination country, ISO 3166-1 alpha-2 — MX, PH, NG or VN
  *   method:  optional payout rail — bank | ewallet | cash_pickup | debit_card
  *   network: optional named rail, e.g. spei or gcash
  *
@@ -20,11 +20,18 @@ import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { getRemittanceQuotes } from '@/lib/remittance/router';
 import { isCorridorAvailable } from '@/lib/remittance/providers';
 import {
+  CORRIDORS,
   PayoutMethod,
+  SUPPORTED_CORRIDORS,
   SUPPORTED_SEND_ASSETS,
   corridorFor,
   isSupportedSendAsset,
 } from '@/lib/remittance/types';
+
+/** Destinations we serve, derived so adding a corridor needs no route change. */
+const SUPPORTED_DESTINATIONS = SUPPORTED_CORRIDORS.map(
+  (corridor) => CORRIDORS[corridor].destinationCountry
+);
 
 const PAYOUT_METHODS: PayoutMethod[] = ['bank', 'ewallet', 'cash_pickup', 'debit_card'];
 
@@ -71,7 +78,7 @@ export async function GET(request: NextRequest) {
     const spec = corridorFor(to);
     if (!spec) {
       return NextResponse.json(
-        { error: `Unsupported destination: ${to}`, supported: ['MX', 'PH'] },
+        { error: `Unsupported destination: ${to}`, supported: SUPPORTED_DESTINATIONS },
         { status: 400 }
       );
     }
@@ -107,7 +114,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         {
           error: `No partner is configured for ${spec.corridor}`,
-          detail: 'Set TRANSFI_API_KEY to enable this corridor.',
+          detail: `No partner has credentials for ${spec.destinationCountry}.`,
         },
         { status: 503 }
       );

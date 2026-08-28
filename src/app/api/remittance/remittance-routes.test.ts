@@ -83,7 +83,7 @@ describe('GET /api/remittance/quote', () => {
     const body = await response.json();
 
     expect(response.status).toBe(400);
-    expect(body.supported).toEqual(['MX', 'PH']);
+    expect(body.supported).toEqual(['MX', 'PH', 'NG', 'VN']);
   });
 
   it('rejects a payout method the corridor does not offer', async () => {
@@ -119,7 +119,7 @@ describe('GET /api/remittance/quote', () => {
 
     const response = await getQuote(quoteRequest('asset=USDC&amount=1000&to=PH'));
     expect(response.status).toBe(503);
-    expect((await response.json()).detail).toContain('TRANSFI_API_KEY');
+    expect((await response.json()).detail).toContain('PH');
   });
 
   it('reports which partners failed when none could quote', async () => {

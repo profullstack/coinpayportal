@@ -1,9 +1,10 @@
 /**
- * TransFi — covers both corridors from one API.
+ * TransFi — covers three corridors from one API.
  *
- * SPEI for Mexico, GCash/Maya plus InstaPay/PESONet for the Philippines, across
- * 53 countries with real Southeast Asia depth. It is the only partner here that
- * serves US→PH, so without it that corridor has no live source at all.
+ * SPEI for Mexico, GCash/Maya plus InstaPay/PESONet for the Philippines, and
+ * MoMo/ZaloPay plus NAPAS 247 and VietQR for Vietnam — 53 countries with real
+ * Southeast Asia depth. It is the only partner here serving US→PH and US→VN,
+ * so without it both corridors have no live source at all.
  *
  * Docs: https://docs.transfi.com
  *
@@ -137,7 +138,7 @@ export function parseQuote(
 export class TransfiProvider implements RemittanceProvider {
   readonly id = 'transfi';
   readonly label = 'TransFi';
-  readonly corridors: Corridor[] = ['US-MX', 'US-PH'];
+  readonly corridors: Corridor[] = ['US-MX', 'US-PH', 'US-VN'];
 
   private get apiKey(): string {
     return process.env.TRANSFI_API_KEY || '';

@@ -282,6 +282,63 @@ describe('getRemittanceQuotes', () => {
     expect(result.best?.fxMarginPct).toBeNull();
   });
 
+  it('flags the contested naira reference rather than publishing a confident number', async () => {
+    // NGN has an official rate and a parallel rate a few percent apart. Our FX
+    // reference quotes the official one, so the derived margin compares two
+    // different markets and must say so.
+    mockedFx.mockResolvedValue(1_347);
+
+    const result = await getRemittanceQuotes(
+      { ...params, destinationCountry: 'NG' },
+      {
+        providers: [
+          fakeProvider('yellowcard', {
+            corridors: ['US-NG'],
+            quotes: [
+              rawQuote({
+                provider: 'yellowcard',
+                corridor: 'US-NG',
+                payoutCurrency: 'NGN',
+                receiveAmount: 1_390_000,
+              }),
+            ],
+          }),
+        ],
+      }
+    );
+
+    expect(result.corridor).toBe('US-NG');
+    expect(result.best?.warnings.some((w) => w.includes('no single mid-market rate'))).toBe(true);
+  });
+
+  it('does not flag a corridor whose reference rate is settled', async () => {
+    const result = await getRemittanceQuotes(params, {
+      providers: [fakeProvider('alpha', { quotes: [rawQuote()] })],
+    });
+
+    expect(result.best?.warnings).toEqual([]);
+  });
+
+  it('quotes the Vietnam corridor', async () => {
+    const result = await getRemittanceQuotes(
+      { ...params, destinationCountry: 'VN' },
+      {
+        providers: [
+          fakeProvider('transfi', {
+            corridors: ['US-VN'],
+            quotes: [
+              rawQuote({ provider: 'transfi', corridor: 'US-VN', payoutCurrency: 'VND' }),
+            ],
+          }),
+        ],
+      }
+    );
+
+    expect(result.corridor).toBe('US-VN');
+    expect(result.payoutCurrency).toBe('VND');
+    expect(result.best?.provider).toBe('transfi');
+  });
+
   it('rejects a send asset that is not a stablecoin we accept', async () => {
     await expect(
       getRemittanceQuotes({ ...params, sendAsset: 'BTC' }, { providers: [] })

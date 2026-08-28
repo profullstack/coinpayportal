@@ -9,6 +9,7 @@
 import { Corridor, RemittanceProvider, servesCorridor } from './types';
 import { BitsoProvider } from './bitso';
 import { TransfiProvider } from './transfi';
+import { YellowCardProvider } from './yellowcard';
 import { StubRemittanceProvider } from './stub';
 
 let registry: RemittanceProvider[] | null = null;
@@ -21,7 +22,12 @@ let registry: RemittanceProvider[] | null = null;
  * picked up.
  */
 export function getRemittanceProviders(): RemittanceProvider[] {
-  registry ??= [new BitsoProvider(), new TransfiProvider(), new StubRemittanceProvider()];
+  registry ??= [
+    new BitsoProvider(),
+    new TransfiProvider(),
+    new YellowCardProvider(),
+    new StubRemittanceProvider(),
+  ];
   return registry;
 }
 
