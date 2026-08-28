@@ -395,6 +395,21 @@ async function checkSolanaBalance(address: string, rpcUrl: string): Promise<Bala
  * Turn a lamport balance into a `BalanceResult`, looking up the funding
  * signature only when there is actually something there. Shared by the primed
  * and unprimed paths so both report identically.
+ *
+ * The signature lookup is the *evidence* for the balance, not a decoration on
+ * it. It used to be best-effort — every failure mode fell through to
+ * `{ balance, txHash: undefined }`, and a settling balance with no funding
+ * transaction confirmed the payment exactly as a real one would. That is the
+ * state reported in #290: a SOL payment `confirmed`, `tx_hash` null, and
+ * `getSignaturesForAddress` empty for the derived address.
+ *
+ * A balance and an empty signature list cannot both be true — lamports only
+ * arrive at an address by transaction — so the two reads disagreeing means one
+ * of them is wrong, and neither is worth settling on. Both cases below fail
+ * closed for the same reason `BalanceResult.error` exists (BL-01): a reading we
+ * could not complete must not drive a state transition. `processPayment`
+ * already refuses to expire a payment carrying an `error`, so failing closed
+ * costs a cycle's delay and never writes the payment off.
  */
 async function solanaBalanceResult(
   address: string,
@@ -406,7 +421,6 @@ async function solanaBalanceResult(
 
   // Only funded addresses cost this extra call, which is a small fraction of
   // the pending set — the rest are still waiting for money to arrive.
-  let txHash: string | undefined;
   try {
     const sigResponse = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
@@ -419,20 +433,45 @@ async function solanaBalanceResult(
       }),
     });
 
-    if (sigResponse.ok) {
-      const sigData = await sigResponse.json();
-      if (sigData.result && sigData.result.length > 0) {
-        txHash = sigData.result[0].signature;
-        console.log(`[Monitor] SOL tx hash for ${address}: ${txHash}`);
-      }
-    } else {
+    if (!sigResponse.ok) {
       await drainResponse(sigResponse);
+      console.error(
+        `[Monitor] SOL funding-signature lookup for ${address} failed: ${sigResponse.status} — ` +
+          `refusing to settle ${balance} SOL on an unverified balance.`
+      );
+      return { balance: 0, error: `solanaBalanceResult: signature lookup ${sigResponse.status}` };
     }
+
+    const sigData = await sigResponse.json();
+
+    // Only an array is an answer. An RPC-level error, or any other shape, is
+    // the lookup failing — not the chain telling us the address is untouched.
+    if (!Array.isArray(sigData.result)) {
+      console.error(
+        `[Monitor] SOL funding-signature lookup for ${address} returned no usable result — ` +
+          `refusing to settle ${balance} SOL on an unverified balance.`
+      );
+      return { balance: 0, error: 'solanaBalanceResult: signature lookup returned no result' };
+    }
+
+    if (sigData.result.length === 0) {
+      console.error(
+        `[Monitor] SOL address ${address} reports ${balance} SOL but has no transactions on chain — ` +
+          `contradictory reads, refusing to settle. (#290)`
+      );
+      return { balance: 0, error: 'solanaBalanceResult: balance with no funding transaction' };
+    }
+
+    const txHash = sigData.result[0].signature;
+    console.log(`[Monitor] SOL tx hash for ${address}: ${txHash}`);
+    return { balance, txHash };
   } catch (txError) {
     console.error(`[Monitor] Error fetching SOL transactions for ${address}:`, txError);
+    return {
+      balance: 0,
+      error: txError instanceof Error ? txError.message : String(txError),
+    };
   }
-
-  return { balance, txHash };
 }
 
 async function checkSolanaTokenBalance(

@@ -226,3 +226,156 @@ describe('processPayment expiry', () => {
     expect(updates[0].status).toBe('expired');
   });
 });
+
+/**
+ * #290.
+ *
+ * A SOL invoice settled with nothing behind it: the payment reported
+ * `confirmed`, `tx_hash` was null, and `getSignaturesForAddress` returned an
+ * empty result for the derived address. The funding-signature lookup was
+ * best-effort — a failed lookup, a malformed answer and "this address has never
+ * been transacted with" all fell through to the same `{ balance, txHash:
+ * undefined }`, and a settling balance confirmed the payment with no evidence
+ * that any money had arrived.
+ *
+ * Lamports only reach an address by transaction, so a positive balance next to
+ * an empty signature list is two RPC reads contradicting each other. Neither is
+ * worth settling on.
+ */
+describe('SOL settlement requires a funding transaction', () => {
+  const mockFetch = vi.fn();
+
+  function makeSupabase() {
+    const updates: Array<Record<string, unknown>> = [];
+    const client = {
+      from: () => ({
+        update: (values: Record<string, unknown>) => {
+          updates.push(values);
+          return { eq: async () => ({ error: null }) };
+        },
+      }),
+    };
+    return { client: client as never, updates };
+  }
+
+  /** Answers `getBalance` with `lamports` and `getSignaturesForAddress` with `signatures`. */
+  function mockChain(lamports: number, signatures: unknown) {
+    mockFetch.mockImplementation(async (_url: string, init: any) => {
+      const { method } = JSON.parse(init.body);
+      if (method === 'getSignaturesForAddress') {
+        if (signatures === 'unavailable') {
+          return { ok: false, status: 503, json: async () => ({}), text: async () => 'upstream down' };
+        }
+        return jsonOk({ result: signatures });
+      }
+      return jsonOk({ result: { value: lamports } });
+    });
+  }
+
+  const pendingPayment = {
+    id: 'pay-290',
+    payment_address: ADDRESSES[0],
+    blockchain: 'SOL',
+    crypto_amount: '1.5',
+    expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+  };
+
+  beforeEach(() => {
+    resetSolBalanceCache();
+    mockFetch.mockReset();
+    vi.stubGlobal('fetch', mockFetch);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('reports a balance with no funding transaction as unreadable', async () => {
+    mockChain(1_500_000_000, []);
+
+    const result = await checkBalance(ADDRESSES[0], 'SOL');
+
+    expect(result.balance).toBe(0);
+    expect(result.error).toMatch(/no funding transaction/);
+  });
+
+  it('does not confirm a payment whose balance no transaction delivered', async () => {
+    mockChain(1_500_000_000, []);
+    const { client, updates } = makeSupabase();
+
+    const result = await processPayment(client, pendingPayment as never);
+
+    expect(result.confirmed).toBe(false);
+    expect(updates).toHaveLength(0);
+  });
+
+  it('does not expire that payment either — the reading is what is in doubt', async () => {
+    mockChain(1_500_000_000, []);
+    const { client, updates } = makeSupabase();
+
+    const result = await processPayment(
+      client,
+      { ...pendingPayment, expires_at: new Date(Date.now() - 60_000).toISOString() } as never
+    );
+
+    expect(result.expired).toBe(false);
+    expect(updates).toHaveLength(0);
+  });
+
+  it('refuses to settle when the signature lookup itself fails', async () => {
+    mockChain(1_500_000_000, 'unavailable');
+
+    const result = await checkBalance(ADDRESSES[0], 'SOL');
+
+    expect(result.balance).toBe(0);
+    expect(result.error).toMatch(/signature lookup 503/);
+  });
+
+  it('refuses to settle on a signature response that is not a list', async () => {
+    // An RPC-level error body carries no `result` array. That is the lookup
+    // failing, not the chain saying the address is untouched.
+    mockChain(1_500_000_000, undefined);
+
+    const result = await checkBalance(ADDRESSES[0], 'SOL');
+
+    expect(result.balance).toBe(0);
+    expect(result.error).toMatch(/no result/);
+  });
+
+  it('still settles a genuinely funded address, and records its tx hash', async () => {
+    // The control: the fix must not make real payments unsettleable.
+    mockChain(1_500_000_000, [{ signature: 'sig-real' }]);
+    const { client, updates } = makeSupabase();
+
+    const balanceResult = await checkBalance(ADDRESSES[0], 'SOL');
+    expect(balanceResult.balance).toBe(1.5);
+    expect(balanceResult.txHash).toBe('sig-real');
+    expect(balanceResult.error).toBeUndefined();
+
+    const result = await processPayment(client, pendingPayment as never);
+
+    expect(result.confirmed).toBe(true);
+    expect(updates[0]).toMatchObject({ status: 'confirmed', tx_hash: 'sig-real' });
+  });
+
+  it('applies to the primed path too, which is how the monitor reads balances', async () => {
+    // A cycle primes balances in one batched call; the per-address check then
+    // reads the cache. Both paths share `solanaBalanceResult`, so the evidence
+    // requirement has to hold on the primed side as well.
+    mockFetch.mockResolvedValueOnce(
+      jsonOk({ jsonrpc: '2.0', result: { value: [{ lamports: 1_500_000_000 }] }, id: 1 })
+    );
+    await primeSolanaBalances([ADDRESSES[0]], 'https://rpc.example');
+
+    mockFetch.mockResolvedValue(jsonOk({ jsonrpc: '2.0', result: [], id: 1 }));
+
+    const result = await checkBalance(ADDRESSES[0], 'SOL');
+
+    expect(result.balance).toBe(0);
+    expect(result.error).toMatch(/no funding transaction/);
+  });
+});
