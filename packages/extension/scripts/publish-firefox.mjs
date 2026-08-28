@@ -5,6 +5,7 @@
  *   node scripts/publish-firefox.mjs --validate   # upload + linter report only
  *   node scripts/publish-firefox.mjs --create     # first-ever listing
  *   node scripts/publish-firefox.mjs --version    # a new version of the listing
+ *   node scripts/publish-firefox.mjs --metadata   # re-push listing copy only
  *
  * Credentials (the `brisk-news-extensions` logicsrc vault holds the shared
  * Profullstack, Inc. AMO account):
@@ -154,6 +155,41 @@ async function uploadPreviews(addonId) {
   }
 }
 
+/**
+ * Push the listing copy onto the add-on and prove the privacy policy stuck.
+ *
+ * AMO accepts `privacy_policy` in the `POST /addons/addon/` body and then
+ * silently drops it: the 0.10.0 listing declared it collects
+ * `financialAndPaymentInfo` while the record read `has_privacy_policy: false`,
+ * which is a wallet telling the store it handles payment data and offering
+ * users no policy. It only sticks on a follow-up PATCH, so this runs after
+ * every create and every version, and the result is verified rather than
+ * assumed — a policy that failed to attach is not allowed to look like success.
+ */
+async function syncListingMetadata(addonId) {
+  await api(`/addons/addon/${addonId}/`, {
+    method: 'PATCH',
+    json: {
+      name: en(listing.name),
+      summary: en(listing.summary),
+      description: en(listing.description),
+      homepage: en(listing.homepageUrl),
+      support_url: en(listing.supportUrl),
+      privacy_policy: en(listing.firefox.privacyPolicyText),
+    },
+  });
+
+  const after = await api(`/addons/addon/${addonId}/`);
+  if (!after.has_privacy_policy) {
+    throw new Error(
+      `privacy policy did not attach to add-on ${addonId} — the listing declares ` +
+        `${(listing.firefox.dataCollectionPermissions || []).join(', ') || 'data collection'} ` +
+        'and must not go to review without one',
+    );
+  }
+  process.stdout.write('[firefox] listing metadata synced, privacy policy attached\n');
+}
+
 async function main() {
   // Screenshots are listing metadata, not a version — attaching them must not
   // require pushing a package the store has already got.
@@ -161,6 +197,14 @@ async function main() {
     const addonId = process.env.FIREFOX_ADDON_ID;
     if (!addonId) throw new Error('FIREFOX_ADDON_ID is not set');
     await uploadPreviews(addonId);
+    return;
+  }
+
+  // Listing copy is not a version either — correcting it must not need a build.
+  if (args.has('--metadata')) {
+    const addonId = process.env.FIREFOX_ADDON_ID;
+    if (!addonId) throw new Error('FIREFOX_ADDON_ID is not set');
+    await syncListingMetadata(addonId);
     return;
   }
 
@@ -221,6 +265,7 @@ async function main() {
     process.stdout.write('[firefox] attached source archive\n');
   }
 
+  await syncListingMetadata(addonId);
   await uploadPreviews(addonId);
 
   process.stdout.write(

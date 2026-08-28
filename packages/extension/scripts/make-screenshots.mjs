@@ -70,22 +70,31 @@ const CANVAS = { width: 1280, height: 800 };
  * The approval window normally reads this from the background worker, which
  * only has one when a site is mid-payment. Rather than photograph the
  * "Nothing to approve" empty state — which would say the opposite of what the
- * caption claims — the page's own RPC call is answered with a representative
- * request, so the screenshot is the real approval UI with sample values.
+ * caption claims — the page's own RPC call is answered with a stand-in
+ * request, so the screenshot is the real approval UI with invented values.
+ *
+ * Because the values are invented, the shot is marked `sample: true` and
+ * carries both a "SAMPLE DATA" badge in the frame and a disclosure line in the
+ * caption. A store screenshot of a payment tool that shows a specific amount
+ * and payee reads as the record of a transaction unless it says otherwise, and
+ * an unlabelled one is what Mozilla disabled the 0.10.0 listing over. Keep the
+ * values self-evidently fake (see `payTo` below) and keep the label.
  */
 const SAMPLE_X402 = {
   kind: 'payX402',
   requestId: 'sample',
-  origin: 'https://ugig.net',
+  origin: 'https://example.com',
   needsUnlock: false,
   summary: {
     network: 'Base',
     chainId: 8453,
     amount: '2.50',
     assetSymbol: 'USDC',
-    payTo: '0x8f3B2c0A5D91e47a6F2c1B8e0D4a97C5E3b1F62d',
-    resource: 'https://ugig.net/api/invoices/4821/export',
-    description: 'Invoice export — 62 line items',
+    // Not a usable address: the zero address is unmistakably a placeholder, so
+    // the shot cannot be read as advertising a payment to a real payee.
+    payTo: '0x0000000000000000000000000000000000000000',
+    resource: 'https://example.com/api/invoices/1234/export',
+    description: 'Example invoice — sample data',
   },
 };
 
@@ -93,9 +102,9 @@ const SAMPLE_X402 = {
  * Composite a capture onto the store canvas. Runs inside the browser so the
  * only image dependency is Chromium's own decoder — nothing to install.
  */
-async function composite(page, pngBase64, { headline, sub }) {
+async function composite(page, pngBase64, { headline, sub, note, sample }) {
   return page.evaluate(
-    async ({ pngBase64, headline, sub, CANVAS }) => {
+    async ({ pngBase64, headline, sub, note, sample, CANVAS }) => {
       const canvas = document.createElement('canvas');
       canvas.width = CANVAS.width;
       canvas.height = CANVAS.height;
@@ -151,6 +160,30 @@ async function composite(page, pngBase64, { headline, sub }) {
       ctx.drawImage(img, x, y, w, h);
       ctx.restore();
 
+      // Shots rendered from stand-in values carry the label in the pixels, not
+      // just in the caption — the image travels alone once a store crops it.
+      if (sample) {
+        const label = 'SAMPLE DATA';
+        ctx.font = '700 15px system-ui, sans-serif';
+        const padX = 12;
+        const bw = ctx.measureText(label).width + padX * 2;
+        const bh = 28;
+        const bx = x + w - bw - 16;
+        const by = y + 16;
+        const br = 6;
+        ctx.fillStyle = '#f59e0b';
+        ctx.beginPath();
+        ctx.moveTo(bx + br, by);
+        ctx.arcTo(bx + bw, by, bx + bw, by + bh, br);
+        ctx.arcTo(bx + bw, by + bh, bx, by + bh, br);
+        ctx.arcTo(bx, by + bh, bx, by, br);
+        ctx.arcTo(bx, by, bx + bw, by, br);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#0b1120';
+        ctx.fillText(label, bx + padX, by + 19);
+      }
+
       // Caption block, wrapped by hand — canvas has no text layout.
       const left = 96;
       ctx.fillStyle = '#7dd3fc';
@@ -174,6 +207,16 @@ async function composite(page, pngBase64, { headline, sub }) {
         lineY += 36;
       }
 
+      if (note) {
+        ctx.fillStyle = '#f59e0b';
+        ctx.font = '400 18px system-ui, sans-serif';
+        lineY += 16;
+        for (const line of wrap(ctx, note, maxWidth)) {
+          ctx.fillText(line, left, lineY);
+          lineY += 26;
+        }
+      }
+
       function wrap(context, text, width) {
         const words = text.split(' ');
         const lines = [];
@@ -193,7 +236,7 @@ async function composite(page, pngBase64, { headline, sub }) {
 
       return canvas.toDataURL('image/png').split(',')[1];
     },
-    { pngBase64, headline, sub, CANVAS },
+    { pngBase64, headline, sub, note, sample, CANVAS },
   );
 }
 
@@ -310,6 +353,23 @@ async function main() {
     });
     await popup.waitForTimeout(600);
     await createWallet(popup);
+
+    // The wallet view paints "Loading balances…" and only lists the derived
+    // addresses once the balance call has returned or failed. A fixed wait
+    // photographed the placeholder — an empty wallet under a caption about
+    // five chains — so wait for the rows themselves and let a timeout fail the
+    // run rather than ship a shot of a loading state.
+    await popup.waitForSelector('.accounts .account', { timeout: 30_000 });
+    await popup
+      .waitForFunction(
+        () => document.querySelector('.total-value')?.textContent?.trim() !== '…',
+        { timeout: 15_000 },
+      )
+      .catch(() => {
+        // Offline or unregistered: the total stays a placeholder but every
+        // address and balance below it is real, which is what the shot is for.
+      });
+
     await fitToContent(popup, 372);
     shots.push({
       id: '1-wallet',
@@ -346,6 +406,8 @@ async function main() {
       page: approval,
       headline: 'One click to pay',
       sub: 'Sites request payment over x402. You see the amount, the chain and the payee before anything is signed.',
+      note: 'Illustration only. The amount, payee and invoice shown are made-up placeholders — this is not a record of a real payment.',
+      sample: true,
     });
 
     for (const shot of shots) {

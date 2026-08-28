@@ -1,2 +1,5 @@
 dist/
 release/
+
+# Uncomposited captures — the store serves the 1280x800 composites beside them.
+store-assets/raw-*.png
