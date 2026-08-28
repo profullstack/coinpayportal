@@ -124,6 +124,9 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   // request here is several third-party calls. Tighter than swap_quote for
   // that reason: the multiplier is the whole point of the endpoint.
   'onramp_quote': { limit: 15, windowSeconds: 60 },          // 15/min per IP
+  // Same fan-out shape as onramp_quote, and each quote also costs a crypto
+  // spot lookup and an FX lookup on top of the partner calls.
+  'remittance_quote': { limit: 15, windowSeconds: 60 },      // 15/min per IP
   // The trust graph is only meaningful if attestations are expensive to mint.
   'reputation_attest': { limit: 10, windowSeconds: 60 },     // 10/min per caller
   // A boolean "is this address a CoinPay merchant?" oracle. Unauthenticated by
