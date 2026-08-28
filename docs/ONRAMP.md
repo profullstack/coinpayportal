@@ -88,6 +88,21 @@ Assets we can receive, payment methods, and which sources are configured.
 Reports our supported list rather than the union of provider catalogues: an
 asset a provider sells but the wallet cannot receive is not purchasable.
 
+## National payment rails
+
+Onramper names each country's instant rail rather than calling it a generic
+bank transfer, so the adapter maps them explicitly: Interac (CA), SPEI (MX),
+InstaPay and PESONet (PH), NIP (NG), NAPAS and VietQR (VN), SEPA (IE and the
+euro area), Faster Payments (UK), ACH (US), UPI (IN).
+
+Without those entries each one falls through to `other`, and a
+`method=bank_transfer` filter silently drops the only rail a local buyer would
+reach for — the rail people actually use is never the generic one.
+
+Wallets are a separate method (`ewallet`), not a bank transfer: GCash and Maya
+in the Philippines, MoMo, ZaloPay and VNPay in Vietnam, OPay and PalmPay in
+Nigeria. In several of those markets the wallet is the dominant way to pay.
+
 ## Adding a source
 
 Implement `OnrampProvider` (`src/lib/onramp/types.ts`) and add it to the

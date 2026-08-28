@@ -8,7 +8,7 @@
  *   fiat:    ISO 4217 currency being spent (default USD)
  *   amount:  fiat amount to spend
  *   asset:   our asset symbol, e.g. BTC or USDC_POL
- *   method:  optional rail — bank_transfer | card | apple_pay | google_pay | pix
+ *   method:  optional rail — bank_transfer | card | apple_pay | google_pay | ewallet | pix
  *   country: optional ISO 3166-1 alpha-2; providers gate fees and availability on it
  *
  * Example: /api/onramp/quote?fiat=USD&amount=500&asset=BTC&method=bank_transfer
@@ -30,6 +30,7 @@ const PAYMENT_METHODS: OnrampPaymentMethod[] = [
   'card',
   'apple_pay',
   'google_pay',
+  'ewallet',
   'pix',
 ];
 

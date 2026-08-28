@@ -109,9 +109,9 @@ describe('TransfiProvider', () => {
     expect(provider.isConfigured()).toBe(false);
   });
 
-  it('serves the three corridors it covers', () => {
+  it('serves the four corridors it covers', () => {
     // The only partner here reaching the Philippines or Vietnam.
-    expect(provider.corridors).toEqual(['US-MX', 'US-PH', 'US-VN']);
+    expect(provider.corridors).toEqual(['US-MX', 'US-PH', 'US-VN', 'US-IE']);
   });
 
   it('asks for the corridor currency and country', async () => {

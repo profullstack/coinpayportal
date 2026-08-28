@@ -17,10 +17,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 /**
  * Published corridor costs, for the comparison strip.
  *
- * Canada is deliberately not in the same league as the rest. Wise moves
- * USD→CAD for well under 1%, so quoting a 4.5%-style incumbent there would be
- * inventing a win. `mature` marks the corridors where the honest claim is speed
- * rather than price.
+ * Canada and Ireland are deliberately not in the same league as the rest. Wise
+ * moves USD→CAD and USD→EUR for well under 1%, so quoting a 4.5%-style
+ * incumbent against them would be inventing a win. `mature` marks the corridors
+ * where the honest claim is speed rather than price.
  */
 const INCUMBENT_COST_PCT: Record<string, { pct: number; note: string; mature?: boolean }> = {
   MX: { pct: 4.5, note: 'Typical US→Mexico transfer' },
@@ -28,6 +28,7 @@ const INCUMBENT_COST_PCT: Record<string, { pct: number; note: string; mature?: b
   NG: { pct: 5.5, note: 'Typical US→Nigeria transfer' },
   VN: { pct: 5.0, note: 'Typical US→Vietnam transfer' },
   CA: { pct: 0.75, note: 'Wise US→Canada, typical', mature: true },
+  IE: { pct: 0.65, note: 'Wise US→Ireland, typical', mature: true },
 };
 
 const COUNTRY_NAME: Record<string, string> = {
@@ -36,6 +37,7 @@ const COUNTRY_NAME: Record<string, string> = {
   NG: 'Nigeria',
   VN: 'Vietnam',
   CA: 'Canada',
+  IE: 'Ireland',
 };
 
 const METHOD_LABEL: Record<string, string> = {

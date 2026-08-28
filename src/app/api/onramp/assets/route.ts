@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
       // Assets we can actually receive. The provider-side lists are a superset
       // and are not what a caller should render a picker from.
       assets: ONRAMP_SUPPORTED_ASSETS,
-      paymentMethods: ['bank_transfer', 'card', 'apple_pay', 'google_pay', 'pix'],
+      paymentMethods: ['bank_transfer', 'card', 'apple_pay', 'google_pay', 'ewallet', 'pix'],
       sources: providers.map((provider) => ({
         id: provider.id,
         label: provider.label,

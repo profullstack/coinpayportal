@@ -39,6 +39,31 @@ const PAYMENT_METHOD_FROM_ONRAMPER: Record<string, OnrampPaymentMethod> = {
   sepabanktransfer: 'bank_transfer',
   fasterpayments: 'bank_transfer',
   ach: 'bank_transfer',
+  // National instant rails, which Onramper exposes by name rather than as a
+  // generic bank transfer. Without these each one falls through to 'other',
+  // and a bank_transfer filter silently drops the only rail a local buyer
+  // would reach for — the rail people actually use is never the generic one.
+  interac: 'bank_transfer', // Canada
+  interacetransfer: 'bank_transfer',
+  spei: 'bank_transfer', // Mexico
+  instapay: 'bank_transfer', // Philippines
+  pesonet: 'bank_transfer',
+  nip: 'bank_transfer', // Nigeria
+  nigeriabanktransfer: 'bank_transfer',
+  napas: 'bank_transfer', // Vietnam
+  vietqr: 'bank_transfer',
+  upi: 'bank_transfer', // India
+  pixtransfer: 'pix', // Brazil
+  // Wallets are not bank transfers, and in several of these markets they are
+  // the dominant way to pay.
+  gcash: 'ewallet', // Philippines
+  maya: 'ewallet',
+  paymaya: 'ewallet',
+  momo: 'ewallet', // Vietnam
+  zalopay: 'ewallet',
+  vnpay: 'ewallet',
+  opay: 'ewallet', // Nigeria
+  palmpay: 'ewallet',
   applepay: 'apple_pay',
   googlepay: 'google_pay',
   pix: 'pix',
@@ -239,7 +264,7 @@ export class OnramperProvider implements OnrampProvider {
       source: this.id,
       fiat: ids(body?.message?.fiat).map((id) => id.toUpperCase()),
       crypto: ids(body?.message?.crypto),
-      paymentMethods: ['bank_transfer', 'card', 'apple_pay', 'google_pay'],
+      paymentMethods: ['bank_transfer', 'card', 'apple_pay', 'google_pay', 'ewallet'],
     };
   }
 }

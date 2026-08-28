@@ -81,10 +81,31 @@ describe('parseQuote', () => {
   });
 
   it('normalises every bank rail onto one payment method', () => {
-    for (const id of ['banktransfer', 'sepabanktransfer', 'fasterpayments', 'ach']) {
+    // Interac included: it is how Canadians pay, and without it a
+    // bank_transfer filter drops the only rail a Canadian buyer would use.
+    for (const id of [
+      'banktransfer',
+      'sepabanktransfer',
+      'fasterpayments',
+      'ach',
+      'interac',
+      'interacetransfer',
+    ]) {
       const quote = parseQuote({ ramp: 'r', payout: 1, paymentMethod: id }, params);
       expect(quote!.paymentMethod).toBe('bank_transfer');
     }
+  });
+
+  it('quotes a Canadian buyer in CAD', () => {
+    // The route puts no allowlist on fiat, so a CAD purchase needs no special
+    // casing — this pins that it stays true.
+    const quote = parseQuote(
+      { ramp: 'moonpay', payout: 0.004, paymentMethod: 'interac' },
+      { ...params, fiatCurrency: 'CAD' }
+    );
+
+    expect(quote!.fiatCurrency).toBe('CAD');
+    expect(quote!.paymentMethod).toBe('bank_transfer');
   });
 
   it('falls back to "other" for an unrecognised rail rather than guessing', () => {

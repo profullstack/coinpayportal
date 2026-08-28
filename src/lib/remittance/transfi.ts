@@ -1,5 +1,5 @@
 /**
- * TransFi — covers three corridors from one API.
+ * TransFi — covers four corridors from one API.
  *
  * SPEI for Mexico, GCash/Maya plus InstaPay/PESONet for the Philippines, and
  * MoMo/ZaloPay plus NAPAS 247 and VietQR for Vietnam — 53 countries with real
@@ -138,7 +138,7 @@ export function parseQuote(
 export class TransfiProvider implements RemittanceProvider {
   readonly id = 'transfi';
   readonly label = 'TransFi';
-  readonly corridors: Corridor[] = ['US-MX', 'US-PH', 'US-VN'];
+  readonly corridors: Corridor[] = ['US-MX', 'US-PH', 'US-VN', 'US-IE'];
 
   private get apiKey(): string {
     return process.env.TRANSFI_API_KEY || '';

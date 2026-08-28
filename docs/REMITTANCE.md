@@ -1,6 +1,7 @@
 # Remittance
 
-Crypto in, local fiat out. US→Mexico, Philippines, Nigeria, Vietnam and Canada.
+Crypto in, local fiat out. US→Mexico, Philippines, Nigeria, Vietnam, Canada
+and Ireland.
 
 Strategy: [`plans/fiat-onramp-strategy.md`](../plans/fiat-onramp-strategy.md).
 
@@ -31,11 +32,13 @@ mid-market FX and publishes the margin it recovers.
 | US→NG | ~5.5% | NIP (every bank), OPay/PalmPay/Kuda | Yellow Card |
 | US→VN | ~5% | NAPAS 247, VietQR, MoMo/ZaloPay/VNPay | TransFi |
 | US→CA | **~0.75%** | Interac e-Transfer, EFT | Cybrid |
+| US→IE | **~0.65%** | SEPA Instant, SCT | TransFi |
 
-Canada is the odd one out and is marked `matureCorridor`. Wise moves USD→CAD
-for well under 1%, so the cost argument that carries every other corridor does
-not carry there — we are at parity, and the page says so rather than inventing
-a saving. What that corridor buys is settling from stablecoin in minutes.
+Canada and Ireland are the odd ones out and are marked `matureCorridor`. Wise
+moves USD→CAD and USD→EUR for well under 1%, so the cost argument that carries
+the other corridors does not carry there — we are at parity, and the page says
+so rather than inventing a saving. What those corridors buy is settling from
+stablecoin in minutes.
 
 Measured against that, a live Bitso quote today is **1000 USDC → ~16,929 MXN at
 17.02, on a $5.50 total fee** — around 0.55% all-in.

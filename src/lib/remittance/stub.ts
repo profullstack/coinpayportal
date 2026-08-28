@@ -27,6 +27,7 @@ const REFERENCE_FX: Record<string, number> = {
   NGN: 1347,
   VND: 26300,
   CAD: 1.37,
+  EUR: 0.92,
 };
 
 interface StubShape {
@@ -69,7 +70,14 @@ const STUB_SHAPES: StubShape[] = [
 export class StubRemittanceProvider implements RemittanceProvider {
   readonly id = 'stub';
   readonly label = 'Development stub';
-  readonly corridors: Corridor[] = ['US-MX', 'US-PH', 'US-NG', 'US-VN', 'US-CA'];
+  readonly corridors: Corridor[] = [
+    'US-MX',
+    'US-PH',
+    'US-NG',
+    'US-VN',
+    'US-CA',
+    'US-IE',
+  ];
 
   isConfigured(): boolean {
     if (process.env.NODE_ENV === 'production') return false;

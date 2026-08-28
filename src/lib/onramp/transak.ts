@@ -67,6 +67,11 @@ const PAYMENT_METHOD_FROM_TRANSAK: Record<string, OnrampPaymentMethod> = {
   pm_ach_bank_transfer: 'bank_transfer',
   pm_us_wire_bank_transfer: 'bank_transfer',
   pm_pix: 'pix',
+  pm_gcash: 'ewallet',
+  pm_open_banking: 'bank_transfer',
+  inr_bank_transfer: 'bank_transfer',
+  pm_upi: 'bank_transfer',
+  pm_interac: 'bank_transfer',
 };
 
 const PAYMENT_METHOD_TO_TRANSAK: Partial<Record<OnrampPaymentMethod, string>> = {
@@ -280,7 +285,7 @@ export class TransakProvider implements OnrampProvider {
       // crypto side to decide whether an asset is quotable at all.
       fiat: [],
       crypto: [...new Set(crypto)],
-      paymentMethods: ['bank_transfer', 'card', 'apple_pay', 'google_pay'],
+      paymentMethods: ['bank_transfer', 'card', 'apple_pay', 'google_pay', 'ewallet'],
     };
   }
 }

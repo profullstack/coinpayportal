@@ -20,6 +20,7 @@ export type OnrampPaymentMethod =
   | 'card'
   | 'apple_pay'
   | 'google_pay'
+  | 'ewallet'
   | 'pix'
   | 'other';
 

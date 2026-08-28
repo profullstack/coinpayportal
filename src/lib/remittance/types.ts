@@ -19,7 +19,13 @@
  */
 
 /** Corridors we serve. Sending side is always the US. */
-export type Corridor = 'US-MX' | 'US-PH' | 'US-NG' | 'US-VN' | 'US-CA';
+export type Corridor =
+  | 'US-MX'
+  | 'US-PH'
+  | 'US-NG'
+  | 'US-VN'
+  | 'US-CA'
+  | 'US-IE';
 
 /** How the recipient actually gets the money. */
 export type PayoutMethod = 'bank' | 'ewallet' | 'cash_pickup' | 'debit_card';
@@ -50,10 +56,10 @@ export interface CorridorSpec {
    * Set for developed-market corridors where incumbents are already efficient.
    *
    * The cost argument that carries US→MX or US→NG does not carry here: Wise
-   * moves USD→CAD for well under 1% all-in, so we are at parity rather than an
-   * order of magnitude cheaper. The corridor is still worth serving — settling
-   * from stablecoin in minutes has its own value — but the UI must not dress
-   * parity up as a saving.
+   * moves USD→CAD or USD→EUR for well under 1% all-in, so we are at parity
+   * rather than an order of magnitude cheaper. These corridors are still worth
+   * serving — settling from stablecoin in minutes has its own value — but the
+   * UI must not dress parity up as a saving.
    */
   matureCorridor?: boolean;
 }
@@ -116,6 +122,18 @@ export const CORRIDORS: Record<Corridor, CorridorSpec> = {
       // Interac e-Transfer is the dominant CAD rail and settles in minutes
       // under CAD 10,000; EFT is the batch alternative for larger amounts.
       bank: ['interac', 'eft'],
+    },
+    matureCorridor: true,
+  },
+  'US-IE': {
+    corridor: 'US-IE',
+    destinationCountry: 'IE',
+    payoutCurrency: 'EUR',
+    methods: ['bank'],
+    networks: {
+      // SEPA Instant clears in seconds and is the default across the euro
+      // area; plain SCT is the next-business-day fallback.
+      bank: ['sepa_instant', 'sepa'],
     },
     matureCorridor: true,
   },
