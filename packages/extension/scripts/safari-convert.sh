@@ -27,7 +27,7 @@ set -euo pipefail
 PKG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNPACKED="$PKG_ROOT/release/unpacked-safari"
 PROJECT_DIR="$PKG_ROOT/release/safari"
-APP_NAME="CoinPay Wallet"
+APP_NAME="CoinPay Portal Wallet"
 BUNDLE_ID="com.profullstack.coinpay-wallet"
 VERSION="$(node -p "require('$PKG_ROOT/package.json').version")"
 

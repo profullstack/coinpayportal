@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "CoinPay Wallet",
+  "name": "CoinPay Portal Wallet",
   "description": "Non-custodial multi-chain CoinPay wallet with one-click x402 payments and bulk payouts.",
   "version": "0.10.0",
   "browser_specific_settings": {

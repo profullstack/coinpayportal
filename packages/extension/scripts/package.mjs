@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Build every distribution channel of the CoinPay Wallet extension and write
+ * Build every distribution channel of the CoinPay Portal Wallet extension and write
  * store-ready archives to `packages/extension/release/`.
  *
  *   node scripts/package.mjs

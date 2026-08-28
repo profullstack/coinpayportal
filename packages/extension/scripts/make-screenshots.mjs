@@ -188,7 +188,7 @@ async function composite(page, pngBase64, { headline, sub, note, sample }) {
       const left = 96;
       ctx.fillStyle = '#7dd3fc';
       ctx.font = '600 20px system-ui, sans-serif';
-      ctx.fillText('COINPAY WALLET', left, 250);
+      ctx.fillText('COINPAY PORTAL WALLET', left, 250);
 
       ctx.fillStyle = '#ffffff';
       ctx.font = '700 52px system-ui, sans-serif';

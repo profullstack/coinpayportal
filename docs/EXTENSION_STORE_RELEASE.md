@@ -1,4 +1,4 @@
-# Releasing the CoinPay Wallet extension
+# Releasing the CoinPay Portal Wallet extension
 
 The extension ships through four channels off one build. Everything except the
 Safari step runs on any machine.
