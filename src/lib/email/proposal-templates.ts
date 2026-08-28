@@ -37,6 +37,14 @@ export interface ProposalDecidedData {
   amount: number;
   currency: string;
   decision: 'accepted' | 'rejected';
+  /**
+   * Who is receiving this mail.
+   *
+   * The call to action depends on it, not only on the decision. Creating an
+   * invoice is a merchant action, so offering it to a client sends them to a
+   * page that cannot do what the button promised.
+   */
+  recipient: 'merchant' | 'client';
   message?: string | null;
   link: string;
 }
@@ -185,6 +193,9 @@ export function proposalCounteredTemplate(data: ProposalCounteredData) {
 /** Final outcome notification. */
 export function proposalDecidedTemplate(data: ProposalDecidedData) {
   const accepted = data.decision === 'accepted';
+  // Only the merchant can turn an accepted proposal into an invoice. The client
+  // gets the same news with a link to the proposal they can actually open.
+  const cta = accepted && data.recipient === 'merchant' ? 'Create Invoice' : 'View Proposal';
   const content = `
     <div>
       <h2 style="color: ${accepted ? '#059669' : '#dc2626'};">
@@ -202,7 +213,7 @@ export function proposalDecidedTemplate(data: ProposalDecidedData) {
       ${data.message ? `<p style="color: #6b7280; font-style: italic;">${escapeHtml(data.message)}</p>` : ''}
 
       <div style="text-align: center;">
-        <a href="${data.link}" class="button">${accepted ? 'Create Invoice' : 'View Proposal'}</a>
+        <a href="${data.link}" class="button">${cta}</a>
       </div>
     </div>
   `;
