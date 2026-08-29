@@ -753,23 +753,54 @@ describe('Blockchain Providers', () => {
       expect(typeof broadcastTransaction).toBe('function');
     });
 
-    it('should require TATUM_API_KEY for UTXO fetching', async () => {
+    // Regression: UTXOs used to be fetched from Tatum's
+    // `GET /v3/bitcoin/utxo/{address}`, which addresses a UTXO by tx hash and
+    // output index rather than by address. Every call 404'd, so no BTC payment
+    // could ever be forwarded and deposits stayed at the intermediary address.
+    it('should fetch UTXOs by address from Esplora without a Tatum key', async () => {
+      const axios = (await import('axios')).default;
       const provider = new BitcoinProvider('https://blockchain.info');
-      
-      // Save original env
+
       const originalKey = process.env.TATUM_API_KEY;
       delete process.env.TATUM_API_KEY;
-      
-      // Access private method
+
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        data: [
+          { txid: 'aa'.repeat(32), vout: 0, value: 84768, status: { confirmed: true } },
+        ],
+      } as any);
+
       const getUTXOs = (provider as any).getUTXOs.bind(provider);
-      
-      // Should throw error when API key is not set
-      await expect(getUTXOs('1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa')).rejects.toThrow('TATUM_API_KEY not configured');
-      
-      // Restore
+      const utxos = await getUTXOs('1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa');
+
+      expect(axios.get).toHaveBeenCalledWith(
+        'https://blockstream.info/api/address/1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa/utxo'
+      );
+      // Esplora reports satoshis directly — no BTC-to-sat conversion.
+      expect(utxos).toEqual([{ txid: 'aa'.repeat(32), vout: 0, value: 84768 }]);
+
       if (originalKey) {
         process.env.TATUM_API_KEY = originalKey;
       }
+    });
+
+    // Signing over an unconfirmed output risks building on a transaction that
+    // can still be replaced, which would invalidate the forward we broadcast.
+    it('should ignore unconfirmed UTXOs', async () => {
+      const axios = (await import('axios')).default;
+      const provider = new BitcoinProvider('https://blockchain.info');
+
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        data: [
+          { txid: 'bb'.repeat(32), vout: 0, value: 1000, status: { confirmed: true } },
+          { txid: 'cc'.repeat(32), vout: 1, value: 2000, status: { confirmed: false } },
+        ],
+      } as any);
+
+      const getUTXOs = (provider as any).getUTXOs.bind(provider);
+      const utxos = await getUTXOs('1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa');
+
+      expect(utxos).toEqual([{ txid: 'bb'.repeat(32), vout: 0, value: 1000 }]);
     });
   });
 

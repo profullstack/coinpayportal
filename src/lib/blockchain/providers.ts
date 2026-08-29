@@ -123,29 +123,57 @@ export class BitcoinProvider implements BlockchainProvider {
   }
 
   /**
-   * Fetch UTXOs for an address using Tatum API
+   * Esplora (Blockstream) base URL for this network.
+   *
+   * The payment monitor already reads balances from this API, so sourcing the
+   * spendable UTXOs from it too means the set we sign over is the same set the
+   * monitor used to decide the payment was funded.
+   */
+  private esploraBase(): string {
+    return this.isTestnet
+      ? 'https://blockstream.info/testnet/api'
+      : 'https://blockstream.info/api';
+  }
+
+  /**
+   * Fetch the spendable UTXOs for an address.
+   *
+   * This used to call Tatum's `GET /v3/bitcoin/utxo/{address}`, which does not
+   * exist: that route addresses a single UTXO by transaction hash and output
+   * index, so passing an address returned 404 on every call. Tatum's only
+   * address-shaped UTXO route takes an xpub, which we do not hold for these
+   * per-payment deposit addresses. So every BTC forward failed with
+   * "Failed to fetch UTXOs: ... status code 404", the payment was left in
+   * `forwarding_failed`, and the deposit stayed at the intermediary address
+   * while the merchant's invoice already read as paid.
+   *
+   * Esplora answers by address, needs no API key, and is already the monitor's
+   * source of truth for the same addresses.
+   *
+   * Only confirmed UTXOs are returned. Signing over an unconfirmed output
+   * risks building on a transaction that can still be replaced, which would
+   * invalidate the forward we are about to broadcast.
    */
   protected async getUTXOs(address: string): Promise<UTXO[]> {
-    const apiKey = process.env.TATUM_API_KEY;
-    if (!apiKey) {
-      throw new Error('TATUM_API_KEY not configured');
-    }
-
     try {
       const response = await axios.get(
-        `https://api.tatum.io/v3/bitcoin/utxo/${address}`,
-        {
-          headers: {
-            'x-api-key': apiKey,
-          },
-        }
+        `${this.esploraBase()}/address/${address}/utxo`
       );
 
-      return response.data.map((utxo: any) => ({
-        txid: utxo.txHash,
-        vout: utxo.index,
-        value: Math.round(parseFloat(utxo.value) * 100000000), // Convert BTC to satoshis
-      }));
+      const utxos: UTXO[] = (response.data || [])
+        .filter((utxo: any) => utxo?.status?.confirmed)
+        .map((utxo: any) => ({
+          txid: utxo.txid,
+          vout: utxo.vout,
+          value: utxo.value, // Esplora reports satoshis already
+        }));
+
+      const skipped = (response.data?.length ?? 0) - utxos.length;
+      if (skipped > 0) {
+        console.log(`[BTC] Ignoring ${skipped} unconfirmed UTXO(s) for ${address}`);
+      }
+
+      return utxos;
     } catch (error) {
       console.error('[BTC] Failed to fetch UTXOs:', error);
       throw new Error(`Failed to fetch UTXOs: ${error}`);
@@ -153,30 +181,60 @@ export class BitcoinProvider implements BlockchainProvider {
   }
 
   /**
-   * Broadcast a signed transaction using Tatum API
+   * Fetch a raw transaction as hex.
+   *
+   * Needed as `nonWitnessUtxo` when signing: these deposit addresses are
+   * legacy P2PKH, so the signer needs the full previous transaction rather
+   * than just the output. Read from the same API as the UTXO set so a
+   * disagreement between two providers cannot produce an unsignable input.
+   */
+  private async getRawTransactionHex(txid: string): Promise<string> {
+    const response = await axios.get(`${this.esploraBase()}/tx/${txid}/hex`);
+    return typeof response.data === 'string' ? response.data.trim() : String(response.data);
+  }
+
+  /**
+   * Broadcast a signed transaction.
+   *
+   * Tatum stays the primary broadcaster, but a forward that is built and
+   * signed and then cannot be published leaves the funds stranded exactly as
+   * if it had never run — so fall back to Esplora, which needs no key, rather
+   * than failing the send outright.
    */
   protected async broadcastTransaction(txHex: string): Promise<string> {
     const apiKey = process.env.TATUM_API_KEY;
-    if (!apiKey) {
-      throw new Error('TATUM_API_KEY not configured');
+
+    if (apiKey) {
+      try {
+        const response = await axios.post(
+          'https://api.tatum.io/v3/bitcoin/broadcast',
+          { txData: txHex },
+          {
+            headers: {
+              'x-api-key': apiKey,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+
+        return response.data.txId;
+      } catch (error: any) {
+        console.error(
+          '[BTC] Tatum broadcast failed, falling back to Esplora:',
+          error.response?.data || error
+        );
+      }
     }
 
     try {
-      const response = await axios.post(
-        'https://api.tatum.io/v3/bitcoin/broadcast',
-        { txData: txHex },
-        {
-          headers: {
-            'x-api-key': apiKey,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      const response = await axios.post(`${this.esploraBase()}/tx`, txHex, {
+        headers: { 'Content-Type': 'text/plain' },
+      });
 
-      return response.data.txId;
+      return typeof response.data === 'string' ? response.data.trim() : String(response.data);
     } catch (error: any) {
       console.error('[BTC] Failed to broadcast transaction:', error.response?.data || error);
-      throw new Error(`Failed to broadcast transaction: ${error.response?.data?.message || error}`);
+      throw new Error(`Failed to broadcast transaction: ${error.response?.data || error}`);
     }
   }
 
@@ -229,10 +287,7 @@ export class BitcoinProvider implements BlockchainProvider {
       // Add inputs
       for (const utxo of utxos) {
         // Fetch the raw transaction to get the full output script
-        const rawTxResponse = await axios.get(
-          `https://blockchain.info/rawtx/${utxo.txid}?format=hex`
-        );
-        const rawTx = rawTxResponse.data;
+        const rawTx = await this.getRawTransactionHex(utxo.txid);
 
         psbt.addInput({
           hash: utxo.txid,
@@ -358,10 +413,7 @@ export class BitcoinProvider implements BlockchainProvider {
 
       // Add inputs
       for (const utxo of utxos) {
-        const rawTxResponse = await axios.get(
-          `https://blockchain.info/rawtx/${utxo.txid}?format=hex`
-        );
-        const rawTx = rawTxResponse.data;
+        const rawTx = await this.getRawTransactionHex(utxo.txid);
 
         psbt.addInput({
           hash: utxo.txid,
