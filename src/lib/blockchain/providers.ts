@@ -75,8 +75,16 @@ export class BitcoinProvider implements BlockchainProvider {
   private network: bitcoin.Network;
   private isTestnet: boolean;
 
-  // Bitcoin transaction fee in satoshis per byte (conservative estimate)
+  // Fee rate used only when the live estimate cannot be fetched.
   private static readonly SATOSHIS_PER_BYTE = 20;
+  // Floor and ceiling for the live estimate, in satoshis per vbyte.
+  //
+  // The floor keeps a transaction above the relay minimum so a forward is not
+  // built and signed only to be dropped by the network. The ceiling stops a
+  // fee spike from consuming a small deposit outright — better to confirm
+  // slowly than to hand most of a $15 payment to miners.
+  private static readonly MIN_SATOSHIS_PER_BYTE = 2;
+  private static readonly MAX_SATOSHIS_PER_BYTE = 50;
   // Minimum output value (dust limit)
   private static readonly DUST_LIMIT = 546;
 
@@ -247,6 +255,45 @@ export class BitcoinProvider implements BlockchainProvider {
   }
 
   /**
+   * Current fee rate in satoshis per vbyte.
+   *
+   * This was a flat 20 sat/vB. Forwards are small, single-input sweeps of a
+   * per-payment deposit address, so the fee is a fixed ~260 bytes against
+   * whatever that one payment was worth: at 20 sat/vB a $15 payment loses
+   * about a quarter of its value to miners, and the merchant receives the
+   * remainder with no record of why. A flat rate is also wrong in the other
+   * direction — it silently underpays whenever the network is busier than the
+   * constant assumed, leaving the forward unconfirmed.
+   *
+   * Esplora's estimate for a 3-block target tracks the real market. Clamped at
+   * both ends, and falling back to the old constant if the estimate cannot be
+   * read, so a provider outage cannot produce an unrelayable transaction.
+   */
+  private async getFeeRate(): Promise<number> {
+    try {
+      const response = await axios.get(`${this.esploraBase()}/fee-estimates`);
+      const estimate = Number(response.data?.['3']);
+
+      if (!Number.isFinite(estimate) || estimate <= 0) {
+        throw new Error(`Unusable fee estimate: ${response.data?.['3']}`);
+      }
+
+      const rate = Math.min(
+        Math.max(Math.ceil(estimate), BitcoinProvider.MIN_SATOSHIS_PER_BYTE),
+        BitcoinProvider.MAX_SATOSHIS_PER_BYTE
+      );
+      console.log(`[BTC] Fee rate: ${rate} sat/vB (estimate ${estimate})`);
+      return rate;
+    } catch (error) {
+      console.error(
+        `[BTC] Fee estimate unavailable, falling back to ${BitcoinProvider.SATOSHIS_PER_BYTE} sat/vB:`,
+        error
+      );
+      return BitcoinProvider.SATOSHIS_PER_BYTE;
+    }
+  }
+
+  /**
    * Send a Bitcoin transaction
    */
   async sendTransaction(
@@ -273,7 +320,7 @@ export class BitcoinProvider implements BlockchainProvider {
 
       // Estimate fee (2 outputs: recipient + change)
       const estimatedSize = this.estimateTxSize(utxos.length, 2);
-      const fee = estimatedSize * BitcoinProvider.SATOSHIS_PER_BYTE;
+      const fee = estimatedSize * (await this.getFeeRate());
 
       console.log(`[BTC] Balance: ${totalAvailable} sats, amount: ${amountSatoshis} sats, fee: ${fee} sats`);
 
@@ -372,7 +419,7 @@ export class BitcoinProvider implements BlockchainProvider {
 
       // Estimate fee (outputs + change)
       const estimatedSize = this.estimateTxSize(utxos.length, outputs.length + 1);
-      const fee = estimatedSize * BitcoinProvider.SATOSHIS_PER_BYTE;
+      const fee = estimatedSize * (await this.getFeeRate());
 
       console.log(`[BTC] Split: balance=${totalAvailable}, total=${totalToSend}, fee=${fee}`);
 

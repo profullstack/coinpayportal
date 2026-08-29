@@ -804,6 +804,51 @@ describe('Blockchain Providers', () => {
     });
   });
 
+  describe('Bitcoin Fee Rate', () => {
+    // A flat 20 sat/vB handed roughly a quarter of a $15 forward to miners.
+    it('should use the live 3-block estimate', async () => {
+      const axios = (await import('axios')).default;
+      const provider = new BitcoinProvider('https://blockchain.info');
+
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        data: { '1': 4.2, '3': 3.1, '6': 2.0 },
+      } as any);
+
+      const getFeeRate = (provider as any).getFeeRate.bind(provider);
+      expect(await getFeeRate()).toBe(4); // ceil(3.1) clamped into range
+    });
+
+    it('should floor the rate so a forward stays relayable', async () => {
+      const axios = (await import('axios')).default;
+      const provider = new BitcoinProvider('https://blockchain.info');
+
+      vi.mocked(axios.get).mockResolvedValueOnce({ data: { '3': 0.09 } } as any);
+
+      const getFeeRate = (provider as any).getFeeRate.bind(provider);
+      expect(await getFeeRate()).toBe(2);
+    });
+
+    it('should cap the rate so a spike cannot consume a small deposit', async () => {
+      const axios = (await import('axios')).default;
+      const provider = new BitcoinProvider('https://blockchain.info');
+
+      vi.mocked(axios.get).mockResolvedValueOnce({ data: { '3': 900 } } as any);
+
+      const getFeeRate = (provider as any).getFeeRate.bind(provider);
+      expect(await getFeeRate()).toBe(50);
+    });
+
+    it('should fall back to the static rate when the estimate is unavailable', async () => {
+      const axios = (await import('axios')).default;
+      const provider = new BitcoinProvider('https://blockchain.info');
+
+      vi.mocked(axios.get).mockRejectedValueOnce(new Error('network down'));
+
+      const getFeeRate = (provider as any).getFeeRate.bind(provider);
+      expect(await getFeeRate()).toBe(20);
+    });
+  });
+
   describe('Key Format Handling', () => {
     it('should document supported key formats for each blockchain', () => {
       // Bitcoin: 32-byte hex private key (now implemented with Tatum API)
