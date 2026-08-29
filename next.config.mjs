@@ -48,11 +48,17 @@ const nextConfig = {
             // 'unsafe-eval' has been removed to prevent script injection attacks.
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' https://datafa.st https://crawlproof.com https://invitejs.trustpilot.com",
+              // cdn.plaid.com serves Plaid Link, used on /finances to connect a
+              // bank. It needs BOTH entries: the script, and frame-src for the
+              // iframe Link renders itself into. Without the frame-src entry it
+              // falls back to default-src 'self', the script loads fine, and
+              // the dialog simply never appears.
+              "script-src 'self' 'unsafe-inline' https://datafa.st https://crawlproof.com https://invitejs.trustpilot.com https://cdn.plaid.com",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https: https://crawlproof.com",
               "font-src 'self' data:",
               "connect-src 'self' https: wss: https://crawlproof.com",
+              "frame-src 'self' https://cdn.plaid.com",
               "object-src 'none'",
               "frame-ancestors 'none'",
               "base-uri 'self'",

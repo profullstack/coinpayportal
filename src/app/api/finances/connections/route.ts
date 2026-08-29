@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireMerchant } from '@/lib/auth/merchant-guard';
 import { listConnections, createConnection } from '@/lib/finances/sync';
 import { claimSetupToken, redactAccessUrl } from '@/lib/finances/simplefin';
+import { isPlaidEnabled } from '@/lib/finances/provider';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +16,13 @@ export async function GET(req: NextRequest) {
 
   try {
     return NextResponse.json(
-      { connections: await listConnections(guard.id) },
+      {
+        connections: await listConnections(guard.id),
+        // Whether to offer the Plaid button at all. Sent with the connections
+        // rather than from its own endpoint so the page cannot render a link
+        // option in the moment before a second request answers.
+        plaidEnabled: isPlaidEnabled(),
+      },
       { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch (err) {

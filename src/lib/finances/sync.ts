@@ -3,7 +3,6 @@ import { getSupabaseAdmin } from '../supabase/server';
 import { encrypt, decrypt } from '../crypto/encryption';
 import { requireEncryptionKey } from '../crypto/require-key';
 import {
-  fetchAccountSet,
   collectErrors,
   parseAmount,
   unixToIso,
@@ -11,6 +10,8 @@ import {
   redactAccessUrl,
   type SimpleFinAccount,
 } from './simplefin';
+import { fetchAccountSetForProvider } from './provider';
+import { removePlaidItem } from './plaid';
 import { inferAccountKind, categorizeTransaction } from './classify';
 
 /**
@@ -130,6 +131,44 @@ export async function createConnection(params: {
 }
 
 /**
+ * Store a Plaid access token as a connection.
+ *
+ * Separate from `createConnection` because the credentials are not
+ * interchangeable: a SimpleFIN access URL is a URL and is validated as one,
+ * whereas a Plaid access token is an opaque string. They share the column —
+ * both are "the encrypted credential for this connection" — but nothing else.
+ *
+ * The label defaults to the institution name resolved at exchange time, which
+ * is also what names the account's org on every subsequent sync.
+ */
+export async function createPlaidConnection(params: {
+  merchantId: string;
+  accessToken: string;
+  label?: string | null;
+}): Promise<FinanceConnectionRow> {
+  if (!params.accessToken.trim()) {
+    throw new Error('Plaid returned an empty access token');
+  }
+
+  const key = requireEncryptionKey('finance connection storage');
+  const supabase = getSupabaseAdmin();
+
+  const { data, error } = await supabase
+    .from('finance_connections')
+    .insert({
+      provider: 'plaid',
+      merchant_id: params.merchantId,
+      label: params.label?.trim() || null,
+      access_url_encrypted: encrypt(params.accessToken, key),
+    })
+    .select(CONNECTION_COLUMNS)
+    .single();
+
+  if (error) throw new Error(`Could not save the Plaid connection: ${error.message}`);
+  return data as FinanceConnectionRow;
+}
+
+/**
  * One merchant's connections, without their credentials.
  *
  * There is no unscoped variant of this on purpose. `SIMPLEFIN_ACCESS_URL` is
@@ -164,25 +203,37 @@ export async function listConnections(merchantId: string): Promise<FinanceConnec
  * feed to another whose credential happened to be undecryptable. Failing is
  * the only safe answer.
  */
-async function getAccessUrl(connectionId: string, merchantId: string): Promise<string> {
+async function getConnectionCredential(
+  connectionId: string,
+  merchantId: string,
+): Promise<{ provider: string; credential: string; label: string | null }> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from('finance_connections')
-    .select('id, access_url_encrypted')
+    .select('id, provider, label, access_url_encrypted')
     .eq('id', connectionId)
     .eq('merchant_id', merchantId)
     .single();
 
   if (error || !data) throw new Error('Finance connection not found');
 
+  const provider = (data.provider as string) ?? 'simplefin';
   const key = requireEncryptionKey('finance connection access');
   try {
-    return decrypt(data.access_url_encrypted as string, key);
+    return {
+      provider,
+      credential: decrypt(data.access_url_encrypted as string, key),
+      label: (data.label as string | null) ?? null,
+    };
   } catch (err) {
+    // Both providers issue single-use link credentials, so neither can be
+    // rotated in place — the only route back is a fresh link either way.
+    const relink =
+      provider === 'plaid' ? 'the connection must be linked again through Plaid' : 'the connection must be re-linked with a new setup token';
     throw new Error(
-      `Stored SimpleFIN credential could not be decrypted (${
+      `Stored ${provider} credential could not be decrypted (${
         err instanceof Error ? err.message : 'unknown error'
-      }). ENCRYPTION_KEY may have changed; the connection must be re-linked with a new setup token.`,
+      }). ENCRYPTION_KEY may have changed; ${relink}.`,
     );
   }
 }
@@ -245,10 +296,14 @@ export async function syncConnection(
   const windowDays = Math.min(Math.max(Math.floor(days) || DEFAULT_SYNC_DAYS, 1), MAX_SYNC_DAYS);
 
   try {
-    const accessUrl = await getAccessUrl(connectionId, merchantId);
+    const { provider, credential, label } = await getConnectionCredential(connectionId, merchantId);
     const startDate = new Date(Date.now() - windowDays * 86_400_000);
 
-    const set = await fetchAccountSet(accessUrl, { startDate, pending: true });
+    const set = await fetchAccountSetForProvider(provider, credential, {
+      startDate,
+      pending: true,
+      orgName: label,
+    });
     const reported = collectErrors(set);
     const errors = reported.filter((message) => !isAdvisory(message));
     const notices = reported.filter(isAdvisory);
@@ -272,6 +327,9 @@ export async function syncConnection(
 
     // --- transactions -------------------------------------------------------
     const txRows: Record<string, unknown>[] = [];
+    // Ids of pending rows that an incoming posted row replaces. Only providers
+    // that re-id on posting populate this; see SimpleFinTransaction.supersedes.
+    const supersededIds: string[] = [];
     for (const account of set.accounts) {
       const accountId = idByExternal.get(account.id);
       if (!accountId) continue;
@@ -285,6 +343,8 @@ export async function syncConnection(
 
         const mcc =
           tx.mcc === null || tx.mcc === undefined || tx.mcc === '' ? null : String(tx.mcc);
+
+        if (tx.supersedes) supersededIds.push(tx.supersedes);
 
         txRows.push({
           account_id: accountId,
@@ -319,6 +379,24 @@ export async function syncConnection(
 
     if (txRows.length > 0) {
       await chunkedUpsert('finance_transactions', txRows, 'account_id,external_id');
+    }
+
+    // Drop the pending rows the posted ones just replaced. Done AFTER the
+    // upsert so a failure mid-write leaves a duplicate — visible and fixed by
+    // the next sync — rather than a hole where the charge has vanished
+    // entirely. Chunked for the same reason countNewTransactions pages: a long
+    // `in()` list becomes a URL long enough to fail as a bare `fetch failed`.
+    if (supersededIds.length > 0) {
+      const accountIds = [...idByExternal.values()];
+      for (let i = 0; i < supersededIds.length; i += UPSERT_CHUNK) {
+        const chunk = supersededIds.slice(i, i + UPSERT_CHUNK);
+        const { error } = await supabase
+          .from('finance_transactions')
+          .delete()
+          .in('account_id', accountIds)
+          .in('external_id', chunk);
+        if (error) throw new Error(`Could not clear superseded transactions: ${error.message}`);
+      }
     }
 
     const status: SyncResult['status'] = errors.length > 0 ? 'partial' : 'ok';
@@ -429,6 +507,33 @@ export async function syncAllConnections(
  */
 export async function deleteConnection(connectionId: string, merchantId: string): Promise<void> {
   const supabase = getSupabaseAdmin();
+
+  // Revoke upstream BEFORE dropping our row. Deleting first would destroy the
+  // only copy of the token while Plaid still holds a live read feed into the
+  // merchant's bank, with nothing left to revoke it with.
+  //
+  // SimpleFIN has no revoke endpoint — an access URL is disabled at the bridge
+  // by its owner — so this applies to Plaid alone.
+  let toRevoke: string | null = null;
+  try {
+    const { provider, credential } = await getConnectionCredential(connectionId, merchantId);
+    if (provider === 'plaid') toRevoke = credential;
+  } catch {
+    // Missing row, or a credential we can no longer decrypt. Neither can be
+    // revoked and neither should block the merchant from clearing the row.
+  }
+
+  if (toRevoke) {
+    try {
+      await removePlaidItem(toRevoke);
+    } catch (err) {
+      // An item already gone upstream is the outcome we wanted. Anything else
+      // is a token still live at Plaid, so refuse rather than lose the handle.
+      const code = (err as { code?: string })?.code;
+      if (code !== 'ITEM_NOT_FOUND' && code !== 'INVALID_ACCESS_TOKEN') throw err;
+    }
+  }
+
   const { error } = await supabase
     .from('finance_connections')
     .delete()
