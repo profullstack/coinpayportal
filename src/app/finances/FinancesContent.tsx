@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePlaidLink } from './usePlaidLink';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { requireAuth } from '@/lib/auth/client';
@@ -137,6 +138,10 @@ export default function FinancesContent() {
   const [setupToken, setSetupToken] = useState('');
   const [linking, setLinking] = useState(false);
   const [showLink, setShowLink] = useState(false);
+  // Whether this deployment offers Plaid alongside SimpleFIN. Server-decided:
+  // Plaid bills per connected account, so the button appears only where the
+  // deployment has opted in.
+  const [plaidEnabled, setPlaidEnabled] = useState(false);
 
   const loadOverview = useCallback(async () => {
     // Bounces to /login when there is no session, the same way /dashboard does.
@@ -162,7 +167,11 @@ export default function FinancesContent() {
 
       setSummary((await summaryRes.json()).summary);
       setAccounts((await accountsRes.json()).accounts ?? []);
-      if (connectionsRes.ok) setConnections((await connectionsRes.json()).connections ?? []);
+      if (connectionsRes.ok) {
+        const connectionsData = await connectionsRes.json();
+        setConnections(connectionsData.connections ?? []);
+        setPlaidEnabled(connectionsData.plaidEnabled === true);
+      }
     } catch {
       setError('Network error loading finances.');
     } finally {
@@ -277,6 +286,26 @@ export default function FinancesContent() {
     }
   };
 
+  const handlePlaidLinked = useCallback(
+    async (institutionName: string | null) => {
+      setShowLink(false);
+      setError(null);
+      setNotice(
+        institutionName
+          ? `${institutionName} connected. Run a sync to pull balances.`
+          : 'Connection linked. Run a sync to pull balances.',
+      );
+      await loadOverview();
+    },
+    [loadOverview],
+  );
+
+  const { open: openPlaid, starting: plaidStarting } = usePlaidLink({
+    authHeaders,
+    onLinked: handlePlaidLinked,
+    onError: setError,
+  });
+
   const updateAccount = async (id: string, patch: Record<string, unknown>) => {
     try {
       const res = await fetch(`/api/finances/accounts/${id}`, {
@@ -388,6 +417,7 @@ export default function FinancesContent() {
       {showLink && (
         <section className="mb-8 rounded-lg border border-slate-700 bg-slate-900/50 p-6">
           <h2 className="text-lg font-semibold text-white mb-2">Link an institution</h2>
+          <PlaidOption enabled={plaidEnabled} starting={plaidStarting} onOpen={openPlaid} />
           <p className="text-sm text-gray-400 mb-4">
             Paste a SimpleFIN setup token from{' '}
             <a
@@ -432,10 +462,17 @@ export default function FinancesContent() {
         <section className="rounded-lg border border-slate-700 bg-slate-900/50 p-8">
           <h2 className="text-lg font-semibold text-white mb-2">Connect your accounts</h2>
           <p className="text-sm text-gray-400 mb-6">
-            CoinPay reads your balances and transactions through SimpleFIN, an independent
-            service that holds the bank connections. Access is read-only — nothing here can
-            move money.
+            CoinPay reads your balances and transactions through an independent service that
+            holds the bank connection. Access is read-only — nothing here can move money.
           </p>
+
+          <PlaidOption enabled={plaidEnabled} starting={plaidStarting} onOpen={openPlaid} />
+
+          {plaidEnabled && (
+            <p className="text-sm text-gray-400 mb-4">
+              Or connect through SimpleFIN instead, if your bank is not listed:
+            </p>
+          )}
 
           <ol className="space-y-4 text-sm text-gray-300 mb-6">
             <li className="flex gap-3">
@@ -819,6 +856,41 @@ export default function FinancesContent() {
           </section>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * The Plaid path, offered ahead of the SimpleFIN token because it is the one a
+ * merchant can finish without leaving the page.
+ *
+ * Renders nothing at all when Plaid is off for this deployment — an inert or
+ * explanatory button would just be an invitation to a dead end.
+ */
+function PlaidOption({
+  enabled,
+  starting,
+  onOpen,
+}: {
+  enabled: boolean;
+  starting: boolean;
+  onOpen: () => void;
+}) {
+  if (!enabled) return null;
+
+  return (
+    <div className="mb-6 rounded border border-slate-600 bg-slate-950/60 p-4">
+      <button
+        onClick={onOpen}
+        disabled={starting}
+        className="rounded bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-500 disabled:opacity-50"
+      >
+        {starting ? 'Opening…' : 'Connect a bank or card'}
+      </button>
+      <p className="mt-3 text-sm text-gray-400">
+        Sign in to your bank in a secure window. Works with most US banks and credit cards, and
+        takes about a minute. Access is read-only.
+      </p>
     </div>
   );
 }
