@@ -200,6 +200,49 @@ describe('finances Plaid provider', () => {
       expect(set.accounts[1].transactions?.map((t) => t.id)).toEqual(['b']);
     });
 
+    /**
+     * Plaid gives a charge a NEW transaction_id when it posts, pointing back at
+     * the pending row via pending_transaction_id. Transactions upsert on that
+     * id, so without carrying it forward the pending row is never removed and a
+     * single card charge is stored — and summed — twice.
+     */
+    it('names the pending row a posted transaction replaces', async () => {
+      vi.mocked(global.fetch).mockResolvedValueOnce(
+        page([
+          {
+            transaction_id: 'posted-1',
+            account_id: 'acct-1',
+            amount: 25,
+            date: '2026-08-21',
+            name: 'Coffee',
+            pending: false,
+            pending_transaction_id: 'pending-1',
+          },
+        ]),
+      );
+
+      const set = await fetchPlaidAccountSet('token');
+      expect(set.accounts[0].transactions?.[0].supersedes).toBe('pending-1');
+    });
+
+    it('leaves supersedes unset on a transaction that replaces nothing', async () => {
+      vi.mocked(global.fetch).mockResolvedValueOnce(
+        page([
+          {
+            transaction_id: 'plain-1',
+            account_id: 'acct-1',
+            amount: 25,
+            date: '2026-08-21',
+            name: 'Coffee',
+            pending_transaction_id: null,
+          },
+        ]),
+      );
+
+      const set = await fetchPlaidAccountSet('token');
+      expect(set.accounts[0].transactions?.[0].supersedes).toBeUndefined();
+    });
+
     it('carries the merchant name through as payee for categorisation', async () => {
       vi.mocked(global.fetch).mockResolvedValueOnce(
         page([

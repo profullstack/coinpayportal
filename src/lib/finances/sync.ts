@@ -327,6 +327,9 @@ export async function syncConnection(
 
     // --- transactions -------------------------------------------------------
     const txRows: Record<string, unknown>[] = [];
+    // Ids of pending rows that an incoming posted row replaces. Only providers
+    // that re-id on posting populate this; see SimpleFinTransaction.supersedes.
+    const supersededIds: string[] = [];
     for (const account of set.accounts) {
       const accountId = idByExternal.get(account.id);
       if (!accountId) continue;
@@ -340,6 +343,8 @@ export async function syncConnection(
 
         const mcc =
           tx.mcc === null || tx.mcc === undefined || tx.mcc === '' ? null : String(tx.mcc);
+
+        if (tx.supersedes) supersededIds.push(tx.supersedes);
 
         txRows.push({
           account_id: accountId,
@@ -374,6 +379,24 @@ export async function syncConnection(
 
     if (txRows.length > 0) {
       await chunkedUpsert('finance_transactions', txRows, 'account_id,external_id');
+    }
+
+    // Drop the pending rows the posted ones just replaced. Done AFTER the
+    // upsert so a failure mid-write leaves a duplicate — visible and fixed by
+    // the next sync — rather than a hole where the charge has vanished
+    // entirely. Chunked for the same reason countNewTransactions pages: a long
+    // `in()` list becomes a URL long enough to fail as a bare `fetch failed`.
+    if (supersededIds.length > 0) {
+      const accountIds = [...idByExternal.values()];
+      for (let i = 0; i < supersededIds.length; i += UPSERT_CHUNK) {
+        const chunk = supersededIds.slice(i, i + UPSERT_CHUNK);
+        const { error } = await supabase
+          .from('finance_transactions')
+          .delete()
+          .in('account_id', accountIds)
+          .in('external_id', chunk);
+        if (error) throw new Error(`Could not clear superseded transactions: ${error.message}`);
+      }
     }
 
     const status: SyncResult['status'] = errors.length > 0 ? 'partial' : 'ok';

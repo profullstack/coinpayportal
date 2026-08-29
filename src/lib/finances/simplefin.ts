@@ -40,6 +40,18 @@ export interface SimpleFinTransaction {
   mcc?: string | number | null;
   pending?: boolean;
   extra?: Record<string, unknown>;
+  /**
+   * Id of a pending transaction that this one replaces.
+   *
+   * Not part of the SimpleFIN protocol — SimpleFIN keeps the same id when a
+   * transaction posts, so it never sets this. Plaid issues a NEW id on posting
+   * and points back at the pending one, so without this the pending row is
+   * never removed and a single charge is stored, and summed, twice.
+   *
+   * This shape is the internal one (see ./provider.ts), which is why a
+   * provider-neutral field lives on it.
+   */
+  supersedes?: string;
 }
 
 export interface SimpleFinAccount {

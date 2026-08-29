@@ -215,6 +215,8 @@ interface PlaidTransaction {
   merchant_name?: string | null;
   original_description?: string | null;
   pending?: boolean;
+  /** Set on a POSTED transaction, naming the pending row it replaces. */
+  pending_transaction_id?: string | null;
 }
 
 /** Plaid types that represent money owed rather than money held. */
@@ -278,6 +280,11 @@ function mapTransaction(transaction: PlaidTransaction): SimpleFinTransaction {
   };
 
   if (transaction.merchant_name) mapped.payee = transaction.merchant_name;
+
+  // Plaid re-ids a charge when it posts, so this posted row and the pending row
+  // it replaces have DIFFERENT ids. Upserting on the id alone would keep both,
+  // and every pending card charge would end up counted twice.
+  if (transaction.pending_transaction_id) mapped.supersedes = transaction.pending_transaction_id;
 
   const transactedAt = unixSeconds(transaction.authorized_date);
   if (transactedAt !== undefined) mapped.transacted_at = transactedAt;
