@@ -35,6 +35,9 @@ describe('finances Plaid provider', () => {
     process.env = {
       ...originalEnv,
       PLAID_CLIENT_ID: 'test-client',
+      // Placeholder credentials for the sandbox config path. The provider only
+      // reads them to decide it is configured; every call below is mocked.
+      // threatcrush-disable-next-line secret-generic-credential
       PLAID_SECRET: 'test-secret',
       PLAID_ENV: 'sandbox',
     };
@@ -347,6 +350,9 @@ describe('finances Plaid provider', () => {
 
     it('keeps a completed link when the institution lookup fails', async () => {
       vi.mocked(global.fetch)
+        // `access_token` is the Plaid response field name, and this is the value a
+        // mocked fetch hands back — no request in this file leaves the process.
+        // threatcrush-disable-next-line secret-generic-credential
         .mockResolvedValueOnce(jsonResponse({ access_token: 'access-1', item_id: 'item-1' }))
         .mockResolvedValueOnce(jsonResponse({ error_code: 'INTERNAL_SERVER_ERROR' }, false, 500));
 
@@ -358,6 +364,9 @@ describe('finances Plaid provider', () => {
 
     it('resolves the institution name for the connection label', async () => {
       vi.mocked(global.fetch)
+        // `access_token` is the Plaid response field name, and this is the value a
+        // mocked fetch hands back — no request in this file leaves the process.
+        // threatcrush-disable-next-line secret-generic-credential
         .mockResolvedValueOnce(jsonResponse({ access_token: 'access-1', item_id: 'item-1' }))
         .mockResolvedValueOnce(jsonResponse({ item: { institution_id: 'ins_1' } }))
         .mockResolvedValueOnce(jsonResponse({ institution: { name: 'Chase' } }));
