@@ -79,7 +79,7 @@ echo "✅ Next.js build artifacts found (BUILD_ID: $(cat /app/.next/BUILD_ID))"
 
 # Start the app (limit heap like scripts/start.sh does)
 echo "Starting Next.js on ${HOST}:${PORT}..."
-NODE_OPTIONS="--max-old-space-size=512 --unhandled-rejections=warn" \
+NODE_OPTIONS="--max-old-space-size=2048 --unhandled-rejections=warn" \
   NODE_ENV=production HOST="${HOST}" PORT="${PORT}" pnpm start &
 APP_PID=$!
 

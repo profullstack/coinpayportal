@@ -1,6 +1,7 @@
 #!/bin/sh
 # Railway start script
 
-# Limit heap to 512MB — forces GC earlier, prevents runaway memory
-export NODE_OPTIONS="--max-old-space-size=512 --unhandled-rejections=warn"
+# Cap the heap well above steady-state so GC has headroom. 512 was too low:
+# it OOM-killed production on 2026-08-29 (see entrypoint.sh).
+export NODE_OPTIONS="--max-old-space-size=2048 --unhandled-rejections=warn"
 exec pnpm start
