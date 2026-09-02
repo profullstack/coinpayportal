@@ -10,15 +10,20 @@ interface ThirdPartyTabProps {
 }
 
 const HANDLE_PLACEHOLDERS: Record<string, string> = {
+  paypal_manual: 'paypal.me/yourname',
   venmo: '@your-venmo-username',
   cashapp: '$yourcashtag',
   zelle: 'email or phone linked to Zelle',
 };
 
 /**
- * The consolidated "3rd Party" payment settings tab: PayPal (merchant-connected
- * API credentials) plus the manual P2P rails (Venmo / Cash App / Zelle). Every
- * method is OFF until the merchant sets it up here.
+ * The "3rd Party" payment settings tab: the manual P2P rails — PayPal.Me, Venmo,
+ * Cash App and Zelle — where CoinPay never touches the money. The merchant shows
+ * their own handle, the customer pays them directly, and the merchant marks the
+ * invoice paid. Every method is OFF until a handle is saved.
+ *
+ * The automated PayPal rail is NOT here; it lives in the PayPal mode. PayPal
+ * appears in both places as two genuinely different products that share a brand.
  */
 export function ThirdPartyTab({ businessId }: ThirdPartyTabProps) {
   const router = useRouter();
@@ -71,16 +76,18 @@ export function ThirdPartyTab({ businessId }: ThirdPartyTabProps) {
 
   return (
     <div className="space-y-10">
-      {/* PayPal used to be configured inline here. It is now a full payment rail
-          with its own onboarding, transactions and refunds, so it lives in the
-          PayPal mode above — two places to connect the same account is how a
-          merchant ends up with a half-configured one. */}
+      {/* The AUTOMATED PayPal rail is configured in the PayPal mode, not here —
+          two places to connect the same account is how a merchant ends up with a
+          half-configured one. PayPal.Me below is a different product that
+          happens to share the brand: a handle we display, with no API behind it. */}
       <section>
-        <h3 className="text-lg font-semibold text-gray-100 mb-1">PayPal</h3>
+        <h3 className="text-lg font-semibold text-gray-100 mb-1">Automated PayPal</h3>
         <p className="text-xs text-gray-500">
-          PayPal has moved to its own tab. Use the{' '}
-          <span className="font-medium text-gray-300">🅿️ PayPal</span> mode at the top of this page
-          to connect an account, see transactions and issue refunds.
+          To have CoinPay create and capture PayPal payments for you — with webhooks, refunds and a
+          transactions dashboard — use the{' '}
+          <span className="font-medium text-gray-300">🅿️ PayPal</span> mode at the top of this page.
+          If you would rather just show customers a PayPal.Me link and mark invoices paid yourself,
+          set that up below instead.
         </p>
       </section>
 
@@ -97,8 +104,9 @@ export function ThirdPartyTab({ businessId }: ThirdPartyTabProps) {
           </button>
         </div>
         <p className="text-xs text-gray-500 mb-2">
-          Venmo, Cash App, and Zelle. Customers pay you directly with your handle and you mark the
-          invoice paid — no CoinPay fee, and no account linking required. Each is off until you save a handle.
+          PayPal.Me, Venmo, Cash App, and Zelle. Customers pay you directly with your handle and you
+          mark the invoice paid — no CoinPay fee, no API keys, and no account linking required. Each
+          is off until you save a handle.
           Set handles once in <a href="/settings/payment-methods" className="text-purple-400 hover:text-purple-300 underline">Settings → Payment Methods</a> and import them here.
         </p>
         {importMsg && <p className="text-xs text-emerald-400 mb-3">{importMsg}</p>}

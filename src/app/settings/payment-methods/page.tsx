@@ -13,6 +13,7 @@ interface AccountManualDefault {
 }
 
 const HANDLE_PLACEHOLDERS: Record<string, string> = {
+  paypal_manual: 'paypal.me/yourname',
   venmo: '@your-venmo-username',
   cashapp: '$yourcashtag',
   zelle: 'email or phone linked to Zelle',
