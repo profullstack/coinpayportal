@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { authFetch } from '@/lib/auth/client';
-import { PayPalConnectTab } from './PayPalConnectTab';
 import { ManualMethodCard, type ManualMethodState } from './ManualMethodCard';
 
 interface ThirdPartyTabProps {
@@ -72,12 +71,17 @@ export function ThirdPartyTab({ businessId }: ThirdPartyTabProps) {
 
   return (
     <div className="space-y-10">
+      {/* PayPal used to be configured inline here. It is now a full payment rail
+          with its own onboarding, transactions and refunds, so it lives in the
+          PayPal mode above — two places to connect the same account is how a
+          merchant ends up with a half-configured one. */}
       <section>
         <h3 className="text-lg font-semibold text-gray-100 mb-1">PayPal</h3>
-        <p className="text-xs text-gray-500 mb-4">
-          Connect your PayPal account to accept PayPal payments on invoices. Off until connected.
+        <p className="text-xs text-gray-500">
+          PayPal has moved to its own tab. Use the{' '}
+          <span className="font-medium text-gray-300">🅿️ PayPal</span> mode at the top of this page
+          to connect an account, see transactions and issue refunds.
         </p>
-        <PayPalConnectTab businessId={businessId} />
       </section>
 
       <section>
