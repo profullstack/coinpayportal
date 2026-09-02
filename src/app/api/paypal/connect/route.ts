@@ -11,9 +11,21 @@ function getSupabase() {
 
 /**
  * POST /api/paypal/connect
- * Connect a business's own PayPal REST app credentials so it can accept PayPal
- * payments on invoices. Credentials are validated against PayPal (by fetching an
- * access token) before the secret is encrypted and stored.
+ *
+ * @deprecated Connect through PayPal instead: POST /api/paypal/connect/onboard.
+ *
+ * Stores a business's own PayPal REST app credentials. This was the original
+ * connection method and the dashboard no longer offers it, for two reasons:
+ *
+ *  - it asks a merchant to copy a client secret out of PayPal and paste it into
+ *    us, when PayPal's own OAuth onboarding needs neither;
+ *  - PayPal treats the resulting calls as first-party and rejects
+ *    `platform_fees` on them, so the connection can never carry CoinPay's
+ *    commission.
+ *
+ * It stays reachable because businesses connected this way exist in production
+ * and the invoice flows still read that shape. Do not build anything new on it.
+ * See docs/PAYPAL-PAYMENTS.md.
  */
 export async function POST(request: NextRequest) {
   const supabase = getSupabase();
