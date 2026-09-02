@@ -164,6 +164,38 @@ The merchant webhook is dispatched after the row commits and failures there are
 swallowed: a merchant endpoint being down must not make PayPal retry a capture
 already banked.
 
+### The abandoned-tab case, and why a third path exists
+
+Both settlement paths can be missing at once:
+
+- the payer approves on PayPal and closes the tab, so there is no return leg;
+- and webhook verification needs **platform partner credentials**, so a merchant
+  connected with their own credentials (mode 2) gets no webhook at all.
+
+That combination left an order APPROVED at PayPal and `pending` here. Nobody was
+charged — capture never happened — but the sale was silently lost.
+
+`reconcilePaypalTransactions()` closes it. It runs from the existing per-minute
+cron cycle (`/api/cron/monitor-payments`) and, for each pending or approved row
+older than 10 minutes, asks PayPal what actually happened:
+
+| PayPal order status | Action |
+|---|---|
+| `APPROVED` | Capture and settle — the case this exists for |
+| `COMPLETED` | Settle from PayPal's report; do not capture again |
+| `CREATED` / `SAVED` / `PAYER_ACTION_REQUIRED` | Leave pending, expire after 6 hours |
+| gone (`RESOURCE_NOT_FOUND`) | Mark expired |
+| transient error | Leave pending and retry next cycle |
+
+Everything routes through `settlePaypalCapture()`, so a row the sweep settles is
+indistinguishable from one the webhook settled — same fee maths, same merchant
+webhook, same idempotency guard. If the real webhook lands mid-sweep, one of the
+two matches zero rows and stops.
+
+It is bounded to 25 rows per cycle, and the expiry write is guarded with
+`.in('status', ['pending','approved'])` so a payment that completes between the
+read and the write is never walked backwards.
+
 ## Webhooks
 
 Point a PayPal webhook at `POST /api/paypal/webhook` and set `PAYPAL_WEBHOOK_ID`

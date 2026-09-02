@@ -20,6 +20,7 @@ import { runInvoiceMonitorCycle, runInvoiceSchedulerCycle } from '@/lib/payments
 import { expireEndedSubscriptions } from '@/lib/subscriptions/service';
 import { isCronSecret } from '@/lib/auth/secret-compare';
 import { processWebhookRetryQueue } from '@/lib/webhooks/retry-queue';
+import { reconcilePaypalTransactions } from '@/lib/paypal/reconcile';
 import { redeliverQueuedWebhook } from '@/lib/webhooks/service';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -99,6 +100,15 @@ export async function GET(request: NextRequest) {
       redeliverQueuedWebhook(supabase, row)
     );
 
+    // Finish PayPal orders the payer approved and then abandoned.
+    //
+    // Capture normally happens on the payer's return leg or on
+    // PAYMENT.CAPTURE.COMPLETED. Both can be missing at once: a closed tab
+    // removes the first, and webhooks need platform partner credentials, which
+    // a merchant using their own credentials does not have. That left an
+    // approved order uncaptured and the sale silently lost.
+    const paypalReconcile = await reconcilePaypalTransactions(supabase);
+
     // Downgrade merchants whose paid period has ended. isPaidTier also checks
     // the end date on every read, so a missed sweep cannot extend a plan — this
     // keeps the stored state honest as well.
@@ -116,6 +126,7 @@ export async function GET(request: NextRequest) {
       invoices: invoiceStats,
       invoiceScheduler: invoiceSchedulerStats,
       webhookRetries: webhookRetryStats,
+      paypalReconcile,
       subscriptionExpiry,
     };
 
