@@ -4,42 +4,61 @@ PayPal is a first-class payment rail in CoinPayPortal, alongside crypto and
 Stripe Connect. This document covers how it works, how it differs from the
 Stripe rail, and what has to be configured before it can take money.
 
-## How a merchant connects
+## Three ways a merchant can take PayPal
 
-**Merchants connect by signing in to PayPal — there is nothing to copy or paste.**
-"Connect with PayPal" sends them through PayPal Partner Referrals, PayPal's OAuth
-onboarding for platforms: they sign in to their own PayPal account, approve
-CoinPay, and come back connected. CoinPay then acts on their behalf using
-`PayPal-Auth-Assertion`, exactly as the Stripe rail acts on a connected account.
+Ordered by setup cost, cheapest first. All three coexist.
 
-Funds settle directly to the merchant's own PayPal balance. CoinPay never holds
-them, and takes its commission as a PayPal `platform_fees` entry on each order.
+### 1. PayPal.Me — no integration at all
 
-### The deprecated credential mode
+The merchant saves a PayPal.Me link the way they save Venmo / Cash App / Zelle
+handles, under Business → 3rd Party. The customer pays them directly and the
+merchant marks the invoice paid. CoinPay is display and bookkeeping only; it
+never touches the money and takes no fee.
 
-An earlier version asked merchants to paste a REST app Client ID and Secret.
-That path is **no longer offered in the dashboard**, for two reasons:
+This is entirely catalog-driven: the `paypal_manual` row in
+`payment_method_catalog` (migration `20260902160000_paypal_manual_method.sql`)
+is the whole feature. It is a **separate `method_id` from `paypal`** on purpose
+— the manual list selects on `integration_type = 'manual'`, so overloading the
+automated row would either hide that rail or drag this one into the payment
+resolver. Two products that share a brand.
 
-- it made the merchant handle a client secret that OAuth onboarding never needs;
-- PayPal treats those calls as **first-party** and rejects `platform_fees` on
-  them, so such a connection can never carry CoinPay's commission — it earns 0%.
+### 2. Own API credentials — the default automated rail
 
-`POST /api/paypal/connect` still exists and still works, because businesses
-connected that way are live in production and the invoice flows read that shape.
-It is marked deprecated in code. Nothing new should be built on it.
+The merchant creates a REST app in their own PayPal Developer Dashboard and
+pastes the Client ID and Secret. Minutes of work, entirely on their side, and
+**it needs nothing from PayPal beyond a developer account**. They get the full
+rail: order creation, capture, webhooks, refunds, transactions dashboard.
 
-| | **Partner** (how merchants connect) | **Self-serve** (deprecated, legacy rows) |
+CoinPay earns **0%** here, because PayPal rejects `platform_fees` on a
+first-party order. That is the accepted trade for it working without
+underwriting, and it is why this is the mode the dashboard leads with.
+
+### 3. Connect with PayPal — OAuth, and the only mode that earns
+
+PayPal Partner Referrals: the merchant signs in to their own PayPal account and
+approves CoinPay, with nothing to copy or paste. CoinPay then acts on their
+behalf via `PayPal-Auth-Assertion` and takes a tiered `platform_fees` cut, the
+same economics as the Stripe destination charge.
+
+**This requires CoinPay to be an approved PayPal Commerce Platform partner** —
+an application, an integration checklist, videos, and a review, not a config
+toggle. The button therefore only appears when the server actually holds partner
+credentials; offering it otherwise sends the merchant to something that cannot
+work.
+
+| | **2. Own credentials** | **3. Connect with PayPal** |
 |---|---|---|
-| How the merchant connects | Signs in to PayPal and approves CoinPay | Pasted their own Client ID + Secret |
-| Who CoinPay authenticates as | The platform, acting on the merchant | The merchant |
-| Where funds land | The merchant's PayPal account, directly | The merchant's PayPal account, directly |
-| **CoinPay commission** | **Tiered `platform_fees` (1% free / 0.5% paid)** | **None — 0%** |
-| Offered in the dashboard | Yes | No |
+| Merchant effort | Paste 2 values | Sign in, approve |
+| Needs PayPal approval of CoinPay | No | **Yes** |
+| Who CoinPay authenticates as | The merchant | The platform, acting on the merchant |
+| Where funds land | Merchant's PayPal, directly | Merchant's PayPal, directly |
+| **CoinPay commission** | **0%** | **1% free / 0.5% paid** |
 
-Both shapes coexist at runtime. `paypal_accounts.connection_mode` records which
-one a row is, and `resolvePaypalContext()` in `src/lib/paypal/accounts.ts`
-resolves either into a single calling context, so no payment code branches on
-mode.
+Modes 2 and 3 write the same tables. `paypal_accounts.connection_mode` records
+which a row is, and `resolvePaypalContext()` in `src/lib/paypal/accounts.ts`
+resolves either into one calling context, so no payment code branches on mode.
+That is what lets mode 2 ship now and mode 3 arrive later without rework —
+existing merchants can be migrated when approval lands.
 
 ## Configuration
 
@@ -55,11 +74,9 @@ team vault `coinpayportal--prod`, not in a `.env` file.
 | `PAYPAL_BN_CODE` | recommended | Partner attribution id (BN code) |
 | `PAYPAL_ENVIRONMENT` | no | `sandbox` or `live` (default `live`) |
 
-With none of these set, **no business can connect PayPal**: the dashboard says
-onboarding is unavailable and asks for an administrator, and the webhook endpoint
-returns 503. Existing connections keep working. There is deliberately no
-credential-paste fallback — the fix is to configure the server, not to offer a
-mode that earns nothing and hands the merchant a secret to manage.
+With none of these set the app works normally: merchants connect with their own
+credentials (mode 2), the "Connect with PayPal" button is hidden, and the webhook
+endpoint returns 503. Only the commission-bearing mode is unavailable.
 
 Getting the partner credentials is an account task, not a code one — CoinPay
 must be enrolled in **PayPal Commerce Platform (PPCP)** as a partner, which
@@ -198,7 +215,7 @@ failure would invite the merchant to refund twice.
 | `POST /api/paypal/connect/onboard` | Start partner onboarding | `POST /api/stripe/connect/onboard` |
 | `PATCH /api/paypal/connect/onboard` | Finish / re-check onboarding | (implicit in account retrieve) |
 | `GET /api/paypal/connect/status/{businessId}` | Connection state | `GET /api/stripe/connect/status/{id}` |
-| `POST /api/paypal/connect` | **Deprecated** — paste own credentials | — |
+| `POST /api/paypal/connect` | Connect own credentials (default) | — |
 | `DELETE /api/paypal/connect` | Disconnect | `POST /api/stripe/connect/disconnect` |
 | `POST /api/paypal/payments/create` | Open an order | `POST /api/stripe/payments/create` |
 | `POST /api/paypal/payments/capture` | Capture (payer-facing, unauthenticated) | — |

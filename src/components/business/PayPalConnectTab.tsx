@@ -27,17 +27,47 @@ interface PaypalStatus {
   onboarding_pending?: boolean;
 }
 
+/**
+ * PayPal connection settings.
+ *
+ * Two ways in, and which one leads is a deliberate product call rather than an
+ * accident of ordering:
+ *
+ *  - **Own credentials (default).** The merchant pastes a Client ID and Secret
+ *    from their own PayPal REST app. Minutes of work, entirely on their side,
+ *    and it needs nothing from PayPal beyond a developer account. CoinPay earns
+ *    no commission on this mode because PayPal refuses `platform_fees` on a
+ *    first-party order — that is the trade for it being available today.
+ *
+ *  - **Connect with PayPal (when configured).** PayPal Partner Referrals, which
+ *    is PayPal's OAuth onboarding: nothing to copy or paste, and CoinPay's
+ *    commission rides along as a platform fee. It only appears when the server
+ *    has partner credentials, because CoinPay must be an APPROVED PayPal
+ *    Commerce Platform partner for it to work at all — an application and
+ *    review process, not a config toggle.
+ *
+ * Leading with the credential form is what makes PayPal usable before that
+ * approval lands. Both write the same tables and every payment route treats the
+ * result identically (see resolvePaypalContext).
+ */
 export function PayPalConnectTab({ businessId }: PayPalConnectTabProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<PaypalStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [onboarding, setOnboarding] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Self-serve form state
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [environment, setEnvironment] = useState<'sandbox' | 'live'>('live');
+  const [email, setEmail] = useState('');
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -126,7 +156,7 @@ export function PayPalConnectTab({ businessId }: PayPalConnectTabProps) {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ business_id: businessId }),
+          body: JSON.stringify({ business_id: businessId, email: email.trim() || undefined }),
         },
         router
       );
@@ -144,6 +174,50 @@ export function PayPalConnectTab({ businessId }: PayPalConnectTabProps) {
       setError('Failed to start PayPal onboarding.');
     }
     setOnboarding(false);
+  };
+
+  const handleConnect = async () => {
+    setError('');
+    setSuccess('');
+    if (!clientId.trim() || !clientSecret.trim()) {
+      setError('Both Client ID and Secret are required.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await authFetch(
+        '/api/paypal/connect',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            business_id: businessId,
+            client_id: clientId.trim(),
+            client_secret: clientSecret.trim(),
+            environment,
+            email: email.trim() || undefined,
+          }),
+        },
+        router
+      );
+      if (!result) {
+        setSaving(false);
+        return;
+      }
+      const { response, data } = result;
+      if (response.ok && data.success) {
+        setSuccess('PayPal connected. This business can now take PayPal payments.');
+        setClientId('');
+        setClientSecret('');
+        setEmail('');
+        await fetchStatus();
+      } else {
+        setError(data.error || 'Failed to connect PayPal.');
+      }
+    } catch {
+      setError('Failed to connect PayPal.');
+    }
+    setSaving(false);
   };
 
   const handleDisconnect = async () => {
@@ -186,7 +260,7 @@ export function PayPalConnectTab({ businessId }: PayPalConnectTabProps) {
     );
   }
 
-  const partnerAvailable = status?.partner_mode_available !== false;
+  const partnerAvailable = status?.partner_mode_available === true;
   const isPartner = status?.connection_mode === 'partner';
 
   return (
@@ -269,18 +343,6 @@ export function PayPalConnectTab({ businessId }: PayPalConnectTabProps) {
               )}
             </div>
 
-            {/* The commercial difference between the two modes, stated plainly.
-                Self-serve cannot carry a platform fee because PayPal rejects
-                platform_fees on a first-party order. */}
-            {!status.platform_fee_supported && (
-              <div className="text-xs text-gray-400 bg-gray-900/60 border border-gray-700 rounded-lg p-3">
-                Payments on this connection go to your PayPal account in full — CoinPay takes no
-                commission, because PayPal does not allow a platform fee on an account connected
-                with its own API credentials.
-                {partnerAvailable && ' Reconnect through CoinPay to use the managed integration.'}
-              </div>
-            )}
-
             <div className="pt-3 border-t border-gray-700">
               {!showDisconnectConfirm ? (
                 <button
@@ -318,74 +380,141 @@ export function PayPalConnectTab({ businessId }: PayPalConnectTabProps) {
           </div>
         ) : (
           <div className="py-6 px-6 bg-gray-800 rounded-lg">
-            <div className="text-center mb-5">
-              <div className="text-4xl mb-3">🅿️</div>
-              {status?.onboarding_pending ? (
-                <>
-                  <p className="text-sm text-gray-300 mb-1 font-medium">
-                    PayPal onboarding is in progress.
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                    Finish every step in PayPal and confirm your account email, then refresh. This
-                    business cannot take PayPal payments until PayPal reports it as able to receive
-                    them.
-                  </p>
-                  <div className="flex gap-2 justify-center">
-                    <button
-                      onClick={finishOnboarding}
-                      disabled={finishing}
-                      className="px-5 py-2 bg-gray-700 text-gray-200 text-sm font-medium rounded-lg hover:bg-gray-600 disabled:opacity-50"
-                    >
-                      {finishing ? 'Checking…' : 'Refresh status'}
-                    </button>
-                    <button
-                      onClick={handleOnboard}
-                      disabled={onboarding}
-                      className="px-5 py-2 bg-[#0070ba] text-white text-sm font-medium rounded-lg hover:bg-[#005ea6] disabled:opacity-50"
-                    >
-                      {onboarding ? 'Starting…' : 'Resume onboarding'}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <p className="text-sm text-gray-400 dark:text-gray-500 mb-1">
-                  This business is not connected to PayPal yet.
+            {status?.onboarding_pending ? (
+              <div className="text-center">
+                <div className="text-4xl mb-3">🅿️</div>
+                <p className="text-sm text-gray-300 mb-1 font-medium">
+                  PayPal onboarding is in progress.
                 </p>
-              )}
-            </div>
-
-            {!status?.onboarding_pending && (
-              partnerAvailable ? (
-                <div className="max-w-md mx-auto text-center">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                  Finish every step in PayPal and confirm your account email, then refresh. This
+                  business cannot take PayPal payments until PayPal reports it as able to receive
+                  them.
+                </p>
+                <div className="flex gap-2 justify-center">
+                  <button
+                    onClick={finishOnboarding}
+                    disabled={finishing}
+                    className="px-5 py-2 bg-gray-700 text-gray-200 text-sm font-medium rounded-lg hover:bg-gray-600 disabled:opacity-50"
+                  >
+                    {finishing ? 'Checking…' : 'Refresh status'}
+                  </button>
                   <button
                     onClick={handleOnboard}
                     disabled={onboarding}
-                    className="w-full px-6 py-2.5 bg-[#0070ba] text-white text-sm font-semibold rounded-lg hover:bg-[#005ea6] disabled:opacity-50"
+                    className="px-5 py-2 bg-[#0070ba] text-white text-sm font-medium rounded-lg hover:bg-[#005ea6] disabled:opacity-50"
                   >
-                    {onboarding ? 'Starting…' : 'Connect with PayPal'}
+                    {onboarding ? 'Starting…' : 'Resume onboarding'}
                   </button>
-                  <p className="mt-3 text-[11px] text-gray-500">
-                    You&apos;ll sign in to your own PayPal account and approve CoinPay. Nothing to
-                    copy or paste. Payments settle directly to your PayPal balance — CoinPay never
-                    holds your funds and takes its commission as a PayPal platform fee.
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="text-center mb-5">
+                  <div className="text-4xl mb-3">🅿️</div>
+                  <p className="text-sm text-gray-400 dark:text-gray-500 mb-1">
+                    This business is not connected to PayPal yet.
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Create a REST API app in your{' '}
+                    <a
+                      href="https://developer.paypal.com/dashboard/applications"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:text-blue-300 underline"
+                    >
+                      PayPal Developer Dashboard
+                    </a>{' '}
+                    and paste its Client ID and Secret below. Payments go straight to your PayPal
+                    account.
                   </p>
                 </div>
-              ) : (
-                /* No fallback credential form on purpose. Pasting a REST app
-                   secret creates a connection PayPal treats as first-party,
-                   which cannot carry a platform fee — so it earns nothing and
-                   asks the merchant to handle a secret. Fix the server config
-                   instead of offering the worse path. */
-                <div className="max-w-md mx-auto text-center">
-                  <p className="text-sm text-yellow-400">
-                    PayPal onboarding isn&apos;t available on this server yet.
-                  </p>
-                  <p className="mt-2 text-[11px] text-gray-500">
-                    An administrator needs to configure CoinPay&apos;s PayPal partner credentials
-                    before businesses can connect.
-                  </p>
+
+                <div className="max-w-md mx-auto space-y-3">
+                  <div>
+                    <label htmlFor="pp-env" className="block text-xs font-medium text-gray-300 mb-1">
+                      Environment
+                    </label>
+                    <select
+                      id="pp-env"
+                      value={environment}
+                      onChange={(e) => setEnvironment(e.target.value as 'sandbox' | 'live')}
+                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    >
+                      <option value="live">Live (real payments)</option>
+                      <option value="sandbox">Sandbox (testing)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="pp-client-id" className="block text-xs font-medium text-gray-300 mb-1">
+                      Client ID
+                    </label>
+                    <input
+                      id="pp-client-id"
+                      type="text"
+                      value={clientId}
+                      onChange={(e) => setClientId(e.target.value)}
+                      placeholder="PayPal REST app Client ID"
+                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm text-gray-100 font-mono focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="pp-secret" className="block text-xs font-medium text-gray-300 mb-1">
+                      Secret
+                    </label>
+                    <input
+                      id="pp-secret"
+                      type="password"
+                      value={clientSecret}
+                      onChange={(e) => setClientSecret(e.target.value)}
+                      placeholder="PayPal REST app Secret"
+                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm text-gray-100 font-mono focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      Stored encrypted. Only used to create and capture payments on your account.
+                    </p>
+                  </div>
+                  <div>
+                    <label htmlFor="pp-email" className="block text-xs font-medium text-gray-300 mb-1">
+                      PayPal email (optional)
+                    </label>
+                    <input
+                      id="pp-email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@business.com"
+                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  <button
+                    onClick={handleConnect}
+                    disabled={saving || !clientId.trim() || !clientSecret.trim()}
+                    className="w-full px-6 py-2 bg-[#0070ba] text-white text-sm font-medium rounded-lg hover:bg-[#005ea6] disabled:opacity-50"
+                  >
+                    {saving ? 'Connecting…' : 'Connect PayPal'}
+                  </button>
                 </div>
-              )
+
+                {/* Only offered once the server actually holds partner credentials.
+                    Showing it otherwise sends the merchant to a button that
+                    cannot work — CoinPay has to be an approved PayPal Commerce
+                    Platform partner, which is an application, not a setting. */}
+                {partnerAvailable && (
+                  <div className="max-w-md mx-auto mt-6 pt-5 border-t border-gray-700 text-center">
+                    <p className="text-xs text-gray-500 mb-2">
+                      Or skip the copying and paste — sign in to PayPal instead:
+                    </p>
+                    <button
+                      onClick={handleOnboard}
+                      disabled={onboarding}
+                      className="w-full px-6 py-2 bg-gray-700 text-white text-sm font-medium rounded-lg hover:bg-gray-600 disabled:opacity-50"
+                    >
+                      {onboarding ? 'Starting…' : 'Connect with PayPal'}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
