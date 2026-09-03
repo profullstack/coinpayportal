@@ -31,6 +31,7 @@ const RESERVED_EXACT = new Set([
   'platform_fee_percent',
   'stripe_account_id',
   'scope',
+  'idempotency_key',
 ]);
 
 const RESERVED_PREFIX = 'coinpay_';

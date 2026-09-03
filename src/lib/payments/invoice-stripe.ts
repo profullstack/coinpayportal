@@ -32,13 +32,18 @@ export interface InvoiceStripeCheckout {
 export async function createInvoiceStripeCheckout(
   supabase: SupabaseClient,
   invoice: InvoiceForStripe,
-  isPaidTier: boolean
+  isPaidTier: boolean,
+  idempotencyKey?: string
 ): Promise<InvoiceStripeCheckout | null> {
-  const { data: stripeAccount } = await supabase
+  const { data: stripeAccount, error: stripeAccountError } = await supabase
     .from('stripe_accounts')
     .select('stripe_account_id, charges_enabled')
     .eq('business_id', invoice.business_id)
-    .single();
+    .maybeSingle();
+
+  if (stripeAccountError) {
+    throw new Error(`Failed to resolve Stripe account: ${stripeAccountError.message}`);
+  }
 
   if (!stripeAccount?.stripe_account_id || !stripeAccount.charges_enabled) {
     return null;
@@ -72,41 +77,44 @@ export async function createInvoiceStripeCheckout(
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com';
   const stripe = await getStripe();
-  const session = await stripe.checkout.sessions.create({
-    ...(screening.decision === 'verify'
-      ? { payment_method_options: { card: { request_three_d_secure: 'any' as const } } }
-      : {}),
-    line_items: [
-      {
-        price_data: {
-          currency: 'usd',
-          product_data: { name: `Invoice ${invoice.invoice_number}` },
-          unit_amount: amountCents,
+  const session = await stripe.checkout.sessions.create(
+    {
+      ...(screening.decision === 'verify'
+        ? { payment_method_options: { card: { request_three_d_secure: 'any' as const } } }
+        : {}),
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: { name: `Invoice ${invoice.invoice_number}` },
+            unit_amount: amountCents,
+          },
+          quantity: 1,
         },
-        quantity: 1,
+      ],
+      mode: 'payment',
+      payment_intent_data: {
+        application_fee_amount: platformFeeAmount,
+        transfer_data: {
+          destination: stripeAccount.stripe_account_id,
+        },
+        metadata: {
+          coinpay_invoice_id: invoice.id,
+          business_id: invoice.business_id,
+          merchant_id: invoice.businesses?.merchant_id,
+        },
       },
-    ],
-    mode: 'payment',
-    payment_intent_data: {
-      application_fee_amount: platformFeeAmount,
-      transfer_data: {
-        destination: stripeAccount.stripe_account_id,
-      },
+      success_url: `${appUrl}/invoices/${invoice.id}/pay?status=success`,
+      cancel_url: `${appUrl}/invoices/${invoice.id}/pay`,
       metadata: {
         coinpay_invoice_id: invoice.id,
         business_id: invoice.business_id,
         merchant_id: invoice.businesses?.merchant_id,
+        platform_fee_amount: platformFeeAmount.toString(),
       },
     },
-    success_url: `${appUrl}/invoices/${invoice.id}/pay?status=success`,
-    cancel_url: `${appUrl}/invoices/${invoice.id}/pay`,
-    metadata: {
-      coinpay_invoice_id: invoice.id,
-      business_id: invoice.business_id,
-      merchant_id: invoice.businesses?.merchant_id,
-      platform_fee_amount: platformFeeAmount.toString(),
-    },
-  });
+    idempotencyKey ? { idempotencyKey } : undefined
+  );
 
   return { stripeCheckoutUrl: session.url!, stripeSessionId: session.id };
 }

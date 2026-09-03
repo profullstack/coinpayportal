@@ -68,6 +68,11 @@ export interface CreatePaymentInput {
   currency: string;
   blockchain: Blockchain;
   /**
+   * Server-controlled retry key. Keep this separate from caller metadata so a
+   * public integration cannot reserve another flow's idempotency namespace.
+   */
+  idempotency_key?: string;
+  /**
    * Override for where the merchant's net leg forwards to.
    *
    * Optional, and omitting it does NOT mean the platform keeps the money: the
@@ -140,6 +145,8 @@ export interface PublicPayment {
 export interface PaymentResult {
   success: boolean;
   payment?: Payment;
+  /** True when an existing payment satisfied an idempotent retry. */
+  replayed?: boolean;
   error?: string;
 }
 
@@ -153,6 +160,56 @@ export interface PaymentListResult {
   success: boolean;
   payments?: Payment[];
   error?: string;
+}
+
+function getIdempotencyKey(input: CreatePaymentInput): string | null {
+  const value = input.idempotency_key;
+  if (typeof value !== 'string') return null;
+
+  const key = value.trim();
+  return key || null;
+}
+
+async function findIdempotentPayment(
+  supabase: SupabaseClient,
+  businessId: string,
+  idempotencyKey: string
+): Promise<{ payment: Payment | null; error: string | null }> {
+  const { data, error } = await supabase
+    .from('payments')
+    .select('*')
+    .eq('business_id', businessId)
+    .eq('metadata->>idempotency_key', idempotencyKey)
+    .maybeSingle();
+
+  return {
+    payment: data ? (data as Payment) : null,
+    error: error?.message || null,
+  };
+}
+
+function matchesIdempotentRequest(payment: Payment, input: CreatePaymentInput): boolean {
+  const samePayee =
+    input.merchant_wallet_address === undefined ||
+    (payment.merchant_wallet_address || '') === input.merchant_wallet_address;
+
+  return (
+    Number(payment.amount) === input.amount &&
+    payment.currency.toUpperCase() === input.currency.toUpperCase() &&
+    payment.blockchain === input.blockchain &&
+    samePayee
+  );
+}
+
+function replayPayment(payment: Payment, input: CreatePaymentInput): PaymentResult {
+  if (!matchesIdempotentRequest(payment, input)) {
+    return {
+      success: false,
+      error: 'Idempotency key was already used with different payment parameters',
+    };
+  }
+
+  return { success: true, payment, replayed: true };
 }
 
 /**
@@ -188,6 +245,24 @@ export async function createPayment(
         success: false,
         error: businessIdResult.error.errors[0].message,
       };
+    }
+
+    const idempotencyKey = getIdempotencyKey(input);
+    if (idempotencyKey && idempotencyKey.length > 255) {
+      return {
+        success: false,
+        error: 'Idempotency key must be at most 255 characters',
+      };
+    }
+
+    // This guard is also enforced by a unique database index. The read avoids
+    // rate lookups and address allocation for ordinary retries; the conflict
+    // recovery below handles two requests that pass this read concurrently.
+    if (idempotencyKey) {
+      const existing = await findIdempotentPayment(supabase, input.business_id, idempotencyKey);
+      if (existing.payment) {
+        return replayPayment(existing.payment, input);
+      }
     }
 
     // Calculate crypto amount
@@ -235,6 +310,12 @@ export async function createPayment(
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + windowMinutes);
 
+    // Never trust the metadata bag to control payment idempotency. Public
+    // integrations pass metadata through this service, while the first-class
+    // field above is populated only by the route or an internal workflow.
+    const paymentMetadata = { ...input.metadata };
+    delete paymentMetadata.idempotency_key;
+
     // Build payment data - merchant_wallet_address is optional
     const paymentData: Record<string, any> = {
       business_id: input.business_id,
@@ -245,7 +326,8 @@ export async function createPayment(
       crypto_amount: cryptoAmount, // Includes network fee
       crypto_currency: cryptoCurrency,
       metadata: {
-        ...input.metadata,
+        ...paymentMetadata,
+        ...(idempotencyKey && { idempotency_key: idempotencyKey }),
         network_fee_usd: networkFeeUsd,
         // network_fee_amount and total_amount are denominated in
         // input.currency; total_amount_usd is the same total in USD.
@@ -270,6 +352,20 @@ export async function createPayment(
       .single();
 
     if (error || !payment) {
+      // A concurrent request may have inserted the same idempotency key after
+      // our pre-read. Return its row and never allocate another HD address.
+      if (idempotencyKey && error?.code === '23505') {
+        const existing = await findIdempotentPayment(supabase, input.business_id, idempotencyKey);
+        if (existing.payment) {
+          return replayPayment(existing.payment, input);
+        }
+
+        return {
+          success: false,
+          error: existing.error || 'Idempotent payment is still being created; retry shortly',
+        };
+      }
+
       return {
         success: false,
         error: error?.message || 'Failed to create payment',
@@ -314,15 +410,22 @@ export async function createPayment(
         // `expired` is the terminal state the schema actually has for a payment
         // that can never be completed, and the monitor already ignores it. The
         // reason is recorded in metadata either way.
+        const failedMetadata = {
+          ...(payment.metadata && typeof payment.metadata === 'object'
+            ? payment.metadata
+            : paymentMetadata),
+          error: addressResult.error,
+          failure_reason: 'address_generation_failed',
+        };
+        // Releasing the key is essential: otherwise the unique index makes a
+        // transient address-allocation failure poison every future retry.
+        delete failedMetadata.idempotency_key;
+
         const { error: markError } = await supabase
           .from('payments')
           .update({
             status: 'expired',
-            metadata: {
-              ...input.metadata,
-              error: addressResult.error,
-              failure_reason: 'address_generation_failed',
-            }
+            metadata: failedMetadata,
           })
           .eq('id', payment.id);
 

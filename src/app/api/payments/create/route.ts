@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createHash } from 'node:crypto';
 import { createPayment, Blockchain } from '@/lib/payments/service';
 import { authenticateRequest, isMerchantAuth, isBusinessAuth, hasScope } from '@/lib/auth/middleware';
 import {
@@ -64,6 +65,46 @@ function blockchainToCrypto(blockchain: Blockchain): string {
 
 type PaymentMethod = 'crypto' | 'card' | 'both';
 
+type CardPaymentRow = {
+  id: string;
+  amount: string | number;
+  currency: string;
+  blockchain?: string | null;
+  metadata?: Record<string, any> | null;
+  [key: string]: any;
+};
+
+async function findCardPaymentByIdempotencyKey(
+  supabase: any,
+  businessId: string,
+  idempotencyKey: string
+): Promise<{ payment: CardPaymentRow | null; error: string | null }> {
+  const { data, error } = await supabase
+    .from('payments')
+    .select('*')
+    .eq('business_id', businessId)
+    .eq('metadata->>idempotency_key', idempotencyKey)
+    .maybeSingle();
+
+  return {
+    payment: data as CardPaymentRow | null,
+    error: error?.message || null,
+  };
+}
+
+function cardPaymentMatchesRequest(payment: CardPaymentRow, amount: number): boolean {
+  return (
+    Number(payment.amount) === amount &&
+    payment.currency.toUpperCase() === 'USD' &&
+    payment.metadata?.payment_method === 'card'
+  );
+}
+
+function cardStripeIdempotencyKey(businessId: string, idempotencyKey: string): string {
+  const digest = createHash('sha256').update(`${businessId}:${idempotencyKey}`).digest('hex');
+  return `payment:${digest}`;
+}
+
 /**
  * Create a Stripe Checkout Session for a payment using the merchant's connected account.
  * Returns { stripe_checkout_url, stripe_session_id } or throws.
@@ -78,6 +119,7 @@ async function createStripeCheckoutSession(
   clientIp?: string | null,
   successUrl?: string,
   cancelUrl?: string,
+  idempotencyKey?: string
 ): Promise<{ stripe_checkout_url: string; stripe_session_id: string }> {
   // Look up stripe connected account by business
   const { data: stripeAccount } = await supabase
@@ -123,43 +165,46 @@ async function createStripeCheckoutSession(
   }
 
   const stripe = await getStripe();
-  const session = await stripe.checkout.sessions.create({
-    // Elevated risk: force 3-D Secure so liability for a stolen card moves back
-    // to the issuer.
-    ...(screening.decision === 'verify'
-      ? { payment_method_options: { card: { request_three_d_secure: 'any' as const } } }
-      : {}),
-    line_items: [
-      {
-        price_data: {
-          currency: 'usd',
-          product_data: { name: description || 'Payment' },
-          unit_amount: amountCents,
+  const session = await stripe.checkout.sessions.create(
+    {
+      // Elevated risk: force 3-D Secure so liability for a stolen card moves back
+      // to the issuer.
+      ...(screening.decision === 'verify'
+        ? { payment_method_options: { card: { request_three_d_secure: 'any' as const } } }
+        : {}),
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: { name: description || 'Payment' },
+            unit_amount: amountCents,
+          },
+          quantity: 1,
         },
-        quantity: 1,
+      ],
+      mode: 'payment',
+      payment_intent_data: {
+        application_fee_amount: platformFeeAmount,
+        transfer_data: {
+          destination: stripeAccount.stripe_account_id,
+        },
+        metadata: {
+          coinpay_payment_id: paymentId,
+          business_id: businessId,
+          merchant_id: merchantId,
+        },
       },
-    ],
-    mode: 'payment',
-    payment_intent_data: {
-      application_fee_amount: platformFeeAmount,
-      transfer_data: {
-        destination: stripeAccount.stripe_account_id,
-      },
+      success_url: successUrl || `${appUrl}/pay/${paymentId}?status=success`,
+      cancel_url: cancelUrl || `${appUrl}/pay/${paymentId}`,
       metadata: {
         coinpay_payment_id: paymentId,
         business_id: businessId,
         merchant_id: merchantId,
+        platform_fee_amount: platformFeeAmount.toString(),
       },
     },
-    success_url: successUrl || `${appUrl}/pay/${paymentId}?status=success`,
-    cancel_url: cancelUrl || `${appUrl}/pay/${paymentId}`,
-    metadata: {
-      coinpay_payment_id: paymentId,
-      business_id: businessId,
-      merchant_id: merchantId,
-      platform_fee_amount: platformFeeAmount.toString(),
-    },
-  });
+    idempotencyKey ? { idempotencyKey } : undefined
+  );
 
   return {
     stripe_checkout_url: session.url!,
@@ -316,29 +361,6 @@ export async function POST(request: NextRequest) {
       business_id = requestedBusinessId;
     }
 
-    if (idempotencyKey) {
-      const { data: existing } = await supabase
-        .from('payments')
-        .select('*')
-        .eq('business_id', business_id)
-        .eq('metadata->>idempotency_key', idempotencyKey)
-        .maybeSingle();
-
-      if (existing) {
-        console.log(`[Payment] Idempotent replay for key ${idempotencyKey} -> ${existing.id}`);
-        return NextResponse.json({
-          success: true,
-          idempotent_replay: true,
-          payment: {
-            ...existing,
-            amount_usd: existing.amount,
-            amount_crypto: existing.crypto_amount,
-            currency: existing.blockchain?.toLowerCase(),
-          },
-        });
-      }
-    }
-
     const access = await verifyBusinessAccess(supabase, business_id, merchantId);
     if (!access.ok) {
       return NextResponse.json(
@@ -390,18 +412,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Build metadata with optional redirect_url and description
-    const paymentMetadata: Record<string, any> = { ...metadata };
+    // Build metadata with optional redirect_url and description. Idempotency is
+    // an authenticated request field, not part of the caller-controlled bag.
+    const paymentMetadata: Record<string, any> =
+      metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? { ...metadata } : {};
+    delete paymentMetadata.idempotency_key;
     if (description) {
       paymentMetadata.description = description;
     }
     if (redirect_url) {
       paymentMetadata.redirect_url = redirect_url;
     }
-    if (idempotencyKey) {
-      paymentMetadata.idempotency_key = idempotencyKey;
-    }
-
     let cryptoPaymentResult: any = null;
     let stripeResult: { stripe_checkout_url: string; stripe_session_id: string } | null = null;
 
@@ -541,6 +562,7 @@ export async function POST(request: NextRequest) {
         currency: 'USD',
         blockchain: blockchainType,
         merchant_wallet_address: recipientAddress,
+        idempotency_key: idempotencyKey || undefined,
         metadata: Object.keys(paymentMetadata).length > 0
           ? { ...paymentMetadata, wallet_source: walletSource }
           : { wallet_source: walletSource },
@@ -555,58 +577,152 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      if (result.replayed) {
+        // Two identical requests can both pass the route-level pre-read. The
+        // service resolves the unique-index race to the winning payment; return
+        // the quota consumed by this retry and do not create another card
+        // session for an existing payment.
+        await releaseTransactionQuota(supabase, merchantId);
+        const existing = result.payment;
+        return NextResponse.json({
+          success: true,
+          idempotent_replay: true,
+          payment: {
+            ...existing,
+            amount_usd: existing?.amount,
+            amount_crypto: existing?.crypto_amount,
+            currency: existing?.blockchain?.toLowerCase(),
+          },
+        });
+      }
+
       cryptoPaymentResult = result.payment;
     }
 
-    // --- Card-only payment: create a stub payment record ---
+    let cardPaymentReplay = false;
+
+    // --- Card-only payment: create or resume one stub payment record ---
     if (paymentMethod === 'card' && !cryptoPaymentResult) {
-      // For card-only, we still need a payment record. Create a minimal one.
-      const paymentId = crypto.randomUUID();
-      const now = new Date().toISOString();
-      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-
-      const { data: cardPayment, error: cardPaymentError } = await supabase
-        .from('payments')
-        .insert({
-          id: paymentId,
+      if (idempotencyKey) {
+        const existing = await findCardPaymentByIdempotencyKey(
+          supabase,
           business_id,
-          amount: paymentAmount.toString(),
-          currency: 'USD',
-          blockchain: blockchainType || 'ETH', // fallback, not used for card
-          status: 'pending',
-          payment_address: '', // no crypto address for card-only
-          // `payment_address_id` is not a column on `payments` — it was dropped in a
-      // November 2025 migration and its absence is confirmed against the live
-      // schema. PostgREST rejects an insert naming an unknown column outright,
-      // so every card payment through this route failed with a 500 before it
-      // ever reached Stripe.
-          merchant_wallet_address: '',
-          metadata: {
-            ...paymentMetadata,
-            payment_method: 'card',
-          },
-          created_at: now,
-          updated_at: now,
-          expires_at: expiresAt,
-        })
-        .select()
-        .single();
-
-      if (cardPaymentError || !cardPayment) {
-        console.error('Failed to create card payment record:', cardPaymentError);
-        return NextResponse.json(
-          { success: false, error: 'Failed to create payment record' },
-          { status: 500 }
+          idempotencyKey
         );
+        if (existing.error) {
+          return NextResponse.json(
+            { success: false, error: 'Failed to verify payment idempotency' },
+            { status: 500 }
+          );
+        }
+        if (existing.payment) {
+          if (!cardPaymentMatchesRequest(existing.payment, paymentAmount)) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: 'Idempotency key was already used with different payment parameters',
+                code: 'IDEMPOTENCY_KEY_REUSED',
+              },
+              { status: 409 }
+            );
+          }
+          cryptoPaymentResult = existing.payment;
+          cardPaymentReplay = true;
+        }
       }
 
-      cryptoPaymentResult = cardPayment;
+      // For card-only, we still need a payment record. Create a minimal one.
+      if (!cryptoPaymentResult) {
+        const paymentId = crypto.randomUUID();
+        const now = new Date().toISOString();
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+        const { data: cardPayment, error: cardPaymentError } = await supabase
+          .from('payments')
+          .insert({
+            id: paymentId,
+            business_id,
+            amount: paymentAmount.toString(),
+            currency: 'USD',
+            blockchain: blockchainType || 'ETH', // fallback, not used for card
+            status: 'pending',
+            payment_address: '', // no crypto address for card-only
+            // `payment_address_id` is not a column on `payments` — it was dropped in a
+            // November 2025 migration and its absence is confirmed against the live
+            // schema. PostgREST rejects an insert naming an unknown column outright,
+            // so every card payment through this route failed with a 500 before it
+            // ever reached Stripe.
+            merchant_wallet_address: '',
+            metadata: {
+              ...paymentMetadata,
+              payment_method: 'card',
+              ...(idempotencyKey && { idempotency_key: idempotencyKey }),
+            },
+            created_at: now,
+            updated_at: now,
+            expires_at: expiresAt,
+          })
+          .select()
+          .single();
+
+        if (cardPaymentError || !cardPayment) {
+          if (idempotencyKey && cardPaymentError?.code === '23505') {
+            const winner = await findCardPaymentByIdempotencyKey(
+              supabase,
+              business_id,
+              idempotencyKey
+            );
+            if (winner.payment && cardPaymentMatchesRequest(winner.payment, paymentAmount)) {
+              cryptoPaymentResult = winner.payment;
+              cardPaymentReplay = true;
+            } else if (winner.payment) {
+              return NextResponse.json(
+                {
+                  success: false,
+                  error: 'Idempotency key was already used with different payment parameters',
+                  code: 'IDEMPOTENCY_KEY_REUSED',
+                },
+                { status: 409 }
+              );
+            } else {
+              return NextResponse.json(
+                {
+                  success: false,
+                  error: winner.error || 'Idempotent payment is still being created; retry shortly',
+                  code: 'PAYMENT_CREATION_IN_PROGRESS',
+                },
+                { status: 409 }
+              );
+            }
+          } else {
+            console.error('Failed to create card payment record:', cardPaymentError);
+            return NextResponse.json(
+              { success: false, error: 'Failed to create payment record' },
+              { status: 500 }
+            );
+          }
+        } else {
+          cryptoPaymentResult = cardPayment;
+        }
+      }
     }
 
     const paymentId = cryptoPaymentResult?.id;
+    if (cardPaymentReplay) {
+      const replayMetadata = cryptoPaymentResult?.metadata;
+      if (
+        typeof replayMetadata?.stripe_checkout_url === 'string' &&
+        typeof replayMetadata?.stripe_session_id === 'string'
+      ) {
+        stripeResult = {
+          stripe_checkout_url: replayMetadata.stripe_checkout_url,
+          stripe_session_id: replayMetadata.stripe_session_id,
+        };
+      }
+    }
 
     // --- Stripe Checkout Session ---
-    if (needsCard && paymentId) {
+    if (needsCard && paymentId && !stripeResult) {
       try {
         const amountCents = Math.round(paymentAmount * 100);
         stripeResult = await createStripeCheckoutSession(
@@ -619,10 +735,11 @@ export async function POST(request: NextRequest) {
           getClientIp(request),
           success_url,
           cancel_url,
+          idempotencyKey ? cardStripeIdempotencyKey(business_id, idempotencyKey) : undefined
         );
 
         // Store stripe info on the payment record
-        await supabase
+        const { error: stripeUpdateError } = await supabase
           .from('payments')
           .update({
             metadata: {
@@ -634,8 +751,34 @@ export async function POST(request: NextRequest) {
             updated_at: new Date().toISOString(),
           })
           .eq('id', paymentId);
-
+        if (stripeUpdateError) {
+          throw new Error('STRIPE_PAYMENT_UPDATE_FAILED');
+        }
       } catch (err: any) {
+        if (
+          paymentMethod === 'card' &&
+          idempotencyKey &&
+          !cardPaymentReplay &&
+          (err.message === 'FRAUD_BLOCKED' || err.message === 'STRIPE_NOT_CONNECTED')
+        ) {
+          const failedMetadata = {
+            ...(cryptoPaymentResult?.metadata || {}),
+            failure_reason: err.message.toLowerCase(),
+          };
+          delete failedMetadata.idempotency_key;
+          const { error: releaseError } = await supabase
+            .from('payments')
+            .update({
+              status: 'expired',
+              metadata: failedMetadata,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', paymentId);
+          if (releaseError) {
+            console.error('Failed to release card payment idempotency key:', releaseError);
+          }
+        }
+
         if (err.message === 'FRAUD_BLOCKED') {
           // Deliberately vague, matching the direct Stripe rail: telling a
           // fraudster which signal tripped is a tuning guide.
@@ -684,14 +827,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: true,
+        ...(cardPaymentReplay && { idempotent_replay: true }),
         payment: transformedPayment,
         usage: {
-          current: limitCheck.currentUsage + 1,
+          current: limitCheck.currentUsage + (cardPaymentReplay ? 0 : 1),
           limit: limitCheck.limit,
-          remaining: limitCheck.remaining !== null ? limitCheck.remaining - 1 : null,
-        }
+          remaining: limitCheck.remaining !== null
+            ? limitCheck.remaining - (cardPaymentReplay ? 0 : 1)
+            : null,
+        },
       },
-      { status: 201 }
+      { status: cardPaymentReplay ? 200 : 201 }
     );
   } catch (error) {
     console.error('Create payment error:', error);

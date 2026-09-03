@@ -103,6 +103,7 @@ describe('CLI Invoice Commands', () => {
     expect(result.output).toContain('Create a draft invoice');
     expect(result.output).toContain('Get invoice details');
     expect(result.output).toContain('Update editable fields on a draft invoice');
+    expect(result.output).toContain('Create payment details without emailing the client');
     expect(result.output).toContain('Create payment details and email the client');
     expect(result.output).toContain('Permanently delete a draft invoice');
   });
@@ -160,8 +161,8 @@ describe('CLI Invoice Commands', () => {
       amount: 125.5,
       currency: 'USD',
       status: 'draft',
-      shareUrl: new URL('/now/inv_123', baseUrl).toString(),
     });
+    expect(JSON.parse(result.stdout)).not.toHaveProperty('shareUrl');
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
       method: 'POST',
@@ -199,12 +200,12 @@ describe('CLI Invoice Commands', () => {
     const result = await runCLI(['invoice', 'create', '--amount', '10'], baseUrl);
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain(new URL('/now/inv_scoped', baseUrl).toString());
+    expect(result.stdout).not.toContain('/now/inv_scoped');
     expect(requests[0].body).not.toHaveProperty('business_id');
     expect(requests[0].body).toMatchObject({ amount: 10, currency: 'USD' });
   });
 
-  it('builds the share link from the configured web origin', async () => {
+  it('does not advertise a dead payment link for a draft', async () => {
     respond = () => ({
       status: 201,
       body: {
@@ -226,9 +227,7 @@ describe('CLI Invoice Commands', () => {
     );
 
     expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout).shareUrl).toBe(
-      new URL('/now/inv_custom', customBaseUrl).toString()
-    );
+    expect(JSON.parse(result.stdout)).not.toHaveProperty('shareUrl');
     expect(requests[0].url).toBe('/coinpay/api/invoices');
   });
 
@@ -579,6 +578,86 @@ describe('CLI Invoice Commands', () => {
     expect(result.status).not.toBe(0);
     expect(result.output).toMatch(/update was not confirmed.*notes/i);
     expect(requests.map((request) => request.method)).toEqual(['GET', 'PUT']);
+  });
+
+  it('publishes a draft with --yes and returns a live share link without email', async () => {
+    respond = (request) =>
+      request.method === 'GET'
+        ? { body: { success: true, invoice: invoiceFixture() } }
+        : {
+            body: {
+              success: true,
+              invoice: invoiceFixture({
+                status: 'sent',
+                payment_address: '0xpay',
+                user_id: 'private-user',
+                clients: { email: 'private@example.com' },
+              }),
+              paymentLink: new URL('/now/inv_mutation', baseUrl).toString(),
+              emailAttempted: false,
+              idempotentReplay: false,
+            },
+          };
+
+    const result = await runCLI(['invoice', 'publish', 'inv_mutation', '--yes', '--json'], baseUrl);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      id: 'inv_mutation',
+      status: 'sent',
+      paymentAddress: '0xpay',
+      shareUrl: new URL('/now/inv_mutation', baseUrl).toString(),
+      emailAttempted: false,
+      idempotentReplay: false,
+    });
+    expect(result.stdout).not.toContain('private-user');
+    expect(result.stdout).not.toContain('private@example.com');
+    expect(requests.map(({ method, url }) => ({ method, url }))).toEqual([
+      { method: 'GET', url: '/api/invoices/inv_mutation' },
+      { method: 'POST', url: '/api/invoices/inv_mutation/publish' },
+    ]);
+  });
+
+  it('returns an already-published invoice without another mutation request', async () => {
+    respond = () => ({
+      body: {
+        success: true,
+        invoice: invoiceFixture({ status: 'sent', payment_address: '0xexisting' }),
+      },
+    });
+
+    const result = await runCLI(['invoice', 'publish', 'inv_mutation', '--json', '--yes'], baseUrl);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: 'sent',
+      paymentAddress: '0xexisting',
+      emailAttempted: false,
+      idempotentReplay: true,
+    });
+    expect(requests.map((request) => request.method)).toEqual(['GET']);
+  });
+
+  it('requires confirmation and valid draft payment routing before publish', async () => {
+    respond = () => ({ body: { success: true, invoice: invoiceFixture() } });
+
+    const noConfirmation = await runCLI(['invoice', 'publish', 'inv_mutation'], baseUrl);
+    expect(noConfirmation.status).not.toBe(0);
+    expect(noConfirmation.output).toMatch(/interactive terminal.*--yes/i);
+    expect(requests.map((request) => request.method)).toEqual(['GET']);
+
+    requests = [];
+    respond = () => ({
+      body: {
+        success: true,
+        invoice: invoiceFixture({ crypto_currency: null }),
+      },
+    });
+    const missingCrypto = await runCLI(['invoice', 'publish', 'inv_mutation', '--yes'], baseUrl);
+    expect(missingCrypto.status).not.toBe(0);
+    expect(missingCrypto.output).toMatch(/crypto-currency before publishing/i);
+    expect(requests.map((request) => request.method)).toEqual(['GET']);
   });
 
   it('sends a draft with --yes, sanitizes JSON, and returns the share link', async () => {

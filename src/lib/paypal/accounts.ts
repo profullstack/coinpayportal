@@ -56,11 +56,16 @@ export async function businessHasPaypal(
   supabase: SupabaseClient,
   businessId: string
 ): Promise<boolean> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('paypal_accounts')
     .select('business_id, connected')
     .eq('business_id', businessId)
-    .single();
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to resolve PayPal account: ${error.message}`);
+  }
+
   return !!data?.connected;
 }
 

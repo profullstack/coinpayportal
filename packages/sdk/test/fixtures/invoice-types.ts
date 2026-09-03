@@ -6,6 +6,7 @@ import {
   getInvoice,
   getInvoicePaymentData,
   listInvoices,
+  publishInvoice,
   sendInvoice,
   updateInvoice,
   type CreateInvoiceParams,
@@ -33,5 +34,6 @@ void fetched;
 void listed;
 void updated;
 void deleteInvoice(client, 'inv_123');
+void publishInvoice(client, 'inv_123');
 void sendInvoice(client, 'inv_123');
 void getInvoicePaymentData(client, 'inv_123');

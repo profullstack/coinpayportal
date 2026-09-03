@@ -73,5 +73,6 @@ export function listInvoices(client: CoinPayClient, filters?: ListInvoicesParams
 export function getInvoice(client: CoinPayClient, id: string): Promise<Invoice>;
 export function updateInvoice(client: CoinPayClient, id: string, updates: UpdateInvoiceParams): Promise<Invoice>;
 export function deleteInvoice(client: CoinPayClient, id: string): Promise<Record<string, unknown>>;
+export function publishInvoice(client: CoinPayClient, id: string): Promise<Record<string, unknown>>;
 export function sendInvoice(client: CoinPayClient, id: string): Promise<Record<string, unknown>>;
 export function getInvoicePaymentData(client: CoinPayClient, id: string): Promise<Record<string, unknown>>;

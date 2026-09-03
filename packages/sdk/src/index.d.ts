@@ -51,6 +51,7 @@ export {
   listInvoices,
   updateInvoice,
   deleteInvoice,
+  publishInvoice,
   sendInvoice,
   getInvoicePaymentData,
   InvoiceStatus,

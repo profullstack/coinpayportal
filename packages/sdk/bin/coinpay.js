@@ -20,6 +20,7 @@ import {
   deleteInvoice,
   getInvoice,
   listInvoices,
+  publishInvoice,
   sendInvoice,
   updateInvoice,
   InvoiceStatus,
@@ -378,9 +379,10 @@ ${colors.cyan}Commands:${colors.reset}
     get <id>              Get invoice details
     list                  List invoices with optional filters
     update <id>           Update editable fields on a draft invoice
+    publish <id>          Create payment details without emailing the client
     send <id>             Create payment details and email the client
     delete <id>           Permanently delete a draft invoice
-      --yes               Skip confirmation for send/delete
+      --yes               Skip confirmation for publish/send/delete
 
   ${colors.bright}tokens${colors.reset}
     list                  List checkout tokens (--business-id, --active-only)
@@ -617,7 +619,7 @@ async function promptYesNoOnStderr(question) {
 async function confirmInvoiceMutation(flags, question) {
   if (flags.yes === true) return true;
   if (flags.json) {
-    throw new Error('--json requires --yes for invoice send/delete');
+    throw new Error('--json requires --yes for invoice publish/send/delete');
   }
   if (!process.stdin.isTTY) {
     throw new Error('Confirmation requires an interactive terminal; rerun with --yes');
@@ -979,10 +981,7 @@ function printInvoiceDetails(invoice, { shareUrl } = {}) {
   if (invoice.dueDate) print.info('Due: ' + invoice.dueDate);
   if (invoice.notes) print.info('Notes: ' + invoice.notes);
   if (shareUrl) {
-    const shareLabel = invoice.status === InvoiceStatus.DRAFT
-      ? 'Share link (opens after send): '
-      : 'Share link: ';
-    print.info(shareLabel + shareUrl);
+    print.info('Share link: ' + shareUrl);
   }
   console.log();
 }
@@ -1038,15 +1037,13 @@ async function handleInvoice(subcommand, args, flags) {
         walletId: flags['wallet-id'],
         merchantWalletAddress: flags['merchant-wallet-address'],
       });
-      const shareUrl = invoice.id ? getInvoiceShareUrl(invoice.id) : undefined;
-
       if (flags.json) {
-        print.json(shareUrl ? { ...invoice, shareUrl } : invoice);
+        print.json(invoice);
         break;
       }
 
       print.success('Draft invoice created');
-      printInvoiceDetails(invoice, { shareUrl });
+      printInvoiceDetails(invoice);
       break;
     }
 
@@ -1228,6 +1225,88 @@ async function handleInvoice(subcommand, args, flags) {
       break;
     }
 
+    case 'publish': {
+      rejectUnsupportedFlags(flags, ['yes']);
+      const id = requireSingleInvoiceId(args, 'publish');
+      const current = await getInvoice(client, id);
+      const existingShareUrl = getInvoiceShareUrl(id);
+
+      if (current.status === InvoiceStatus.SENT) {
+        if (!current.paymentAddress) {
+          throw new Error(
+            'Published invoice has no active payment address; refresh it in the web app'
+          );
+        }
+        if (flags.json) {
+          print.json({
+            ...current,
+            shareUrl: existingShareUrl,
+            emailAttempted: false,
+            idempotentReplay: true,
+          });
+          break;
+        }
+        print.success('Invoice is already published; no email sent');
+        printInvoiceDetails(current, { shareUrl: existingShareUrl });
+        break;
+      }
+
+      if (current.status !== InvoiceStatus.DRAFT) {
+        throw new Error(
+          'Only draft invoices can be published (current: ' + (current.status || 'unknown') + ')'
+        );
+      }
+      if (!current.cryptoCurrency) {
+        throw new Error('Set --crypto-currency before publishing this invoice');
+      }
+
+      const label = current.invoiceNumber || current.id;
+      const confirmed = await confirmInvoiceMutation(
+        flags,
+        'Publish ' +
+          label +
+          ' for ' +
+          current.amount +
+          ' ' +
+          (current.currency || '') +
+          ' using ' +
+          current.cryptoCurrency +
+          '? This creates live payment details but does not email the client.'
+      );
+      if (!confirmed) {
+        print.info('Aborted');
+        break;
+      }
+
+      const result = await publishInvoice(client, id);
+      const published = invoiceForOutput(result, id);
+      if (
+        result?.success === false ||
+        published.status !== InvoiceStatus.SENT ||
+        !published.paymentAddress
+      ) {
+        throw new Error('Invoice publish was not confirmed by the server');
+      }
+      const shareUrl =
+        typeof result?.paymentLink === 'string'
+          ? result.paymentLink
+          : getInvoiceShareUrl(published.id);
+
+      if (flags.json) {
+        print.json({
+          ...published,
+          shareUrl,
+          emailAttempted: false,
+          idempotentReplay: result?.idempotentReplay === true,
+        });
+        break;
+      }
+
+      print.success('Invoice published; no email sent');
+      printInvoiceDetails(published, { shareUrl });
+      break;
+    }
+
     case 'send': {
       rejectUnsupportedFlags(flags, ['yes']);
       const id = requireSingleInvoiceId(args, 'send');
@@ -1335,7 +1414,7 @@ async function handleInvoice(subcommand, args, flags) {
 
     default:
       print.error('Unknown invoice command: ' + subcommand);
-      print.info('Available: create, list, get, update, send, delete');
+      print.info('Available: create, list, get, update, publish, send, delete');
       process.exit(1);
   }
 }
@@ -3369,7 +3448,7 @@ const MENU_COMMANDS = [
   ['config', 'API key & endpoint (set-key, set-url, show)'],
   ['auth', 'Merchant account (register, login, me)'],
   ['payment', 'Payments (create, get, list, qr)'],
-  ['invoice', 'Invoices (create, list, get, update, send, delete)'],
+  ['invoice', 'Invoices (create, list, get, update, publish, send, delete)'],
   ['tokens', 'List checkout tokens'],
   ['business', 'Businesses (create, get, list, update)'],
   ['rates', 'Exchange rates (get, list)'],
@@ -3390,7 +3469,7 @@ const SUBCOMMANDS = {
   config: [['set-key', 'Set your API key'], ['set-url', 'Set custom API URL'], ['show', 'Show current configuration']],
   auth: [['register', 'Register new merchant account'], ['login', 'Login to merchant account'], ['me', 'Show current merchant info']],
   payment: [['create', 'Create a new payment'], ['get', 'Get payment details <id>'], ['list', 'List payments'], ['qr', 'Get payment QR code <id>']],
-  invoice: [['create', 'Create a draft invoice'], ['list', 'List invoices'], ['get', 'Get invoice details <id>'], ['update', 'Update a draft invoice <id>'], ['send', 'Send an invoice <id>'], ['delete', 'Delete a draft invoice <id>']],
+  invoice: [['create', 'Create a draft invoice'], ['list', 'List invoices'], ['get', 'Get invoice details <id>'], ['update', 'Update a draft invoice <id>'], ['publish', 'Publish an invoice <id>'], ['send', 'Send an invoice <id>'], ['delete', 'Delete a draft invoice <id>']],
   tokens: [['list', 'List checkout tokens']],
   business: [['create', 'Create a new business'], ['get', 'Get business details <id>'], ['list', 'List businesses'], ['update', 'Update business <id>']],
   rates: [['get', 'Get exchange rate <crypto>'], ['list', 'Get all exchange rates']],

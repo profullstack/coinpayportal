@@ -89,7 +89,7 @@ function setupMocks(overrides: { invoice?: any; stripeAccount?: any } = {}) {
       return {
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
-            single: vi.fn().mockResolvedValue({ data: stripeAccount, error: stripeAccount ? null : { code: 'PGRST116' } }),
+            maybeSingle: vi.fn().mockResolvedValue({ data: stripeAccount, error: null }),
           }),
         }),
       };
