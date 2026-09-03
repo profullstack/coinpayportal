@@ -7,7 +7,7 @@
  *
  * @example
  * import { CoinPayClient } from '@profullstack/coinpay';
- * import { createInvoice, sendInvoice, getInvoicePaymentData } from '@profullstack/coinpay';
+ * import { createInvoice, publishInvoice, sendInvoice, getInvoicePaymentData } from '@profullstack/coinpay';
  *
  * const client = new CoinPayClient({ apiKey: 'your-key' });
  *
@@ -177,6 +177,19 @@ export async function sendInvoice(client, id) {
     method: 'POST',
   });
   return data;
+}
+
+/**
+ * Publish an invoice without emailing the client.
+ * Generates live payment details that can be shared manually.
+ * @param {CoinPayClient} client
+ * @param {string} id - Draft invoice ID
+ * @returns {Promise<Object>} Publish result with invoice and payment link
+ */
+export async function publishInvoice(client, id) {
+  return client.request(`/invoices/${encodeURIComponent(id)}/publish`, {
+    method: 'POST',
+  });
 }
 
 /**

@@ -83,6 +83,7 @@ vi.mock('@/lib/payments/service', () => ({
 }));
 
 import { POST } from './route';
+import { releaseTransactionQuota } from '@/lib/entitlements/service';
 
 mockScreenCheckout.mockResolvedValue({
   decision: 'allow',
@@ -99,6 +100,15 @@ function mockSingleQuery(response: any) {
     single: vi.fn().mockResolvedValue(response),
     // resolveBusinessRole() in the team-authz path reads businesses via
     // .eq('id', …).maybeSingle(); the Stripe fee lookup still uses .single().
+    maybeSingle: vi.fn().mockResolvedValue(response),
+  };
+  query.eq.mockReturnValue(query);
+  return query;
+}
+
+function mockIdempotencyLookup(response: any) {
+  const query: any = {
+    eq: vi.fn(),
     maybeSingle: vi.fn().mockResolvedValue(response),
   };
   query.eq.mockReturnValue(query);
@@ -158,13 +168,14 @@ function setupMockChain(overrides: Record<string, any> = {}) {
   mockSupabase.from.mockImplementation((table: string) => merged[table] || {});
 }
 
-function makeRequest(body: Record<string, any>) {
+function makeRequest(body: Record<string, any>, headers: Record<string, string> = {}) {
   return new NextRequest('http://localhost:3000/api/payments/create', {
     method: 'POST',
     body: JSON.stringify(body),
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer test_token',
+      Authorization: 'Bearer test_token',
+      ...headers,
     },
   });
 }
@@ -189,6 +200,52 @@ describe('Unified Payment Creation - POST /api/payments/create', () => {
   });
 
   describe('payment_method=crypto (default)', () => {
+    it('returns quota when the service resolves a concurrent idempotent retry', async () => {
+      const existing = {
+        id: 'pay_existing',
+        business_id: 'biz_123',
+        amount: '40.00',
+        crypto_amount: '0.5',
+        blockchain: 'SOL',
+        status: 'pending',
+        payment_address: 'So11111111111111111111111111111111111111112',
+      };
+      const paymentTable = {
+        select: vi.fn().mockReturnValue(mockSingleQuery({ data: null, error: null })),
+        update: vi.fn().mockReturnValue({
+          eq: vi.fn().mockResolvedValue({ data: [{}] }),
+        }),
+      };
+      setupMockChain({ payments: paymentTable });
+      mockCreatePayment.mockResolvedValue({
+        success: true,
+        payment: existing,
+        replayed: true,
+      });
+
+      const response = await POST(
+        makeRequest(
+          {
+            business_id: 'biz_123',
+            amount_usd: 40,
+            currency: 'sol',
+            payment_method: 'both',
+          },
+          { 'Idempotency-Key': 'invoice:inv-1:initial' }
+        )
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toMatchObject({
+        success: true,
+        idempotent_replay: true,
+        payment: { id: 'pay_existing' },
+      });
+      expect(releaseTransactionQuota).toHaveBeenCalledWith(mockSupabase, 'merchant_123');
+      expect(mockStripe.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
     it('should create a crypto payment when no payment_method is specified', async () => {
       mockCreatePayment.mockResolvedValue({
         success: true,
@@ -268,6 +325,174 @@ describe('Unified Payment Creation - POST /api/payments/create', () => {
       expect(data.payment.stripe_session_id).toBe('cs_test_unified_123');
       // Stripe session was created
       expect(mockStripe.checkout.sessions.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('replays an existing card payment without creating another Stripe session', async () => {
+      const existing = {
+        id: 'payment_card_existing',
+        business_id: 'biz_123',
+        amount: '50.00',
+        currency: 'USD',
+        blockchain: 'ETH',
+        status: 'pending',
+        metadata: {
+          payment_method: 'card',
+          idempotency_key: 'card-order-1',
+          stripe_checkout_url: 'https://checkout.stripe.com/pay/cs_existing',
+          stripe_session_id: 'cs_existing',
+        },
+      };
+      const lookup = mockIdempotencyLookup({ data: existing, error: null });
+      const paymentTable = {
+        select: vi.fn(() => lookup),
+        insert: vi.fn(),
+      };
+      setupMockChain({ payments: paymentTable });
+
+      const response = await POST(
+        makeRequest(
+          {
+            business_id: 'biz_123',
+            amount_usd: 50,
+            payment_method: 'card',
+          },
+          { 'Idempotency-Key': 'card-order-1' }
+        )
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toMatchObject({
+        success: true,
+        idempotent_replay: true,
+        payment: {
+          id: 'payment_card_existing',
+          stripe_checkout_url: 'https://checkout.stripe.com/pay/cs_existing',
+          stripe_session_id: 'cs_existing',
+        },
+      });
+      expect(paymentTable.insert).not.toHaveBeenCalled();
+      expect(mockStripe.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a card idempotency key reused for a different amount', async () => {
+      const lookup = mockIdempotencyLookup({
+        data: {
+          id: 'payment_card_existing',
+          amount: '51.00',
+          currency: 'USD',
+          metadata: { payment_method: 'card', idempotency_key: 'card-order-1' },
+        },
+        error: null,
+      });
+      setupMockChain({ payments: { select: vi.fn(() => lookup) } });
+
+      const response = await POST(
+        makeRequest(
+          {
+            business_id: 'biz_123',
+            amount_usd: 50,
+            payment_method: 'card',
+          },
+          { 'Idempotency-Key': 'card-order-1' }
+        )
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(data.code).toBe('IDEMPOTENCY_KEY_REUSED');
+      expect(mockStripe.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
+    it('recovers the winning card payment after a concurrent insert', async () => {
+      const winner = {
+        id: 'payment_card_winner',
+        business_id: 'biz_123',
+        amount: '50.00',
+        currency: 'USD',
+        blockchain: 'ETH',
+        status: 'pending',
+        metadata: {
+          payment_method: 'card',
+          idempotency_key: 'card-order-race',
+          stripe_checkout_url: 'https://checkout.stripe.com/pay/cs_winner',
+          stripe_session_id: 'cs_winner',
+        },
+      };
+      const emptyLookup = mockIdempotencyLookup({ data: null, error: null });
+      const winnerLookup = mockIdempotencyLookup({ data: winner, error: null });
+      const paymentTable = {
+        select: vi.fn().mockReturnValueOnce(emptyLookup).mockReturnValueOnce(winnerLookup),
+        insert: vi.fn(() => ({
+          select: vi.fn(() => ({
+            single: vi.fn().mockResolvedValue({
+              data: null,
+              error: { code: '23505', message: 'duplicate key value' },
+            }),
+          })),
+        })),
+      };
+      setupMockChain({ payments: paymentTable });
+
+      const response = await POST(
+        makeRequest(
+          {
+            business_id: 'biz_123',
+            amount_usd: 50,
+            payment_method: 'card',
+          },
+          { 'Idempotency-Key': 'card-order-race' }
+        )
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toMatchObject({
+        idempotent_replay: true,
+        payment: { id: 'payment_card_winner' },
+      });
+      expect(mockStripe.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
+    it('uses a stable Stripe key when resuming an incomplete card payment', async () => {
+      const existing = {
+        id: 'payment_card_incomplete',
+        business_id: 'biz_123',
+        amount: '50.00',
+        currency: 'USD',
+        blockchain: 'ETH',
+        status: 'pending',
+        metadata: {
+          payment_method: 'card',
+          idempotency_key: 'card-order-incomplete',
+        },
+      };
+      const lookup = mockIdempotencyLookup({ data: existing, error: null });
+      const paymentTable = {
+        select: vi.fn(() => lookup),
+        update: vi.fn(() => ({
+          eq: vi.fn().mockResolvedValue({ error: null }),
+        })),
+      };
+      setupMockChain({ payments: paymentTable });
+
+      const response = await POST(
+        makeRequest(
+          {
+            business_id: 'biz_123',
+            amount_usd: 50,
+            payment_method: 'card',
+          },
+          { 'Idempotency-Key': 'card-order-incomplete' }
+        )
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockStripe.checkout.sessions.create).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ idempotencyKey: expect.stringMatching(/^payment:/) })
+      );
+      expect(paymentTable.update).toHaveBeenCalledTimes(1);
     });
 
     it('should return 400 when card is requested but no Stripe connect', async () => {

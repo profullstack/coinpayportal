@@ -46,6 +46,7 @@ describe('sanitizeStripeMetadata', () => {
       platform_fee_amount: '0',
       platform_fee_percent: '0',
       invoice_number: 'INV-9',
+      idempotency_key: 'invoice:someone-else:initial',
       note: 'fine',
     });
 
@@ -77,6 +78,7 @@ describe('isReservedStripeMetadataKey', () => {
     expect(isReservedStripeMetadataKey('coinpay_payment_id')).toBe(true);
     expect(isReservedStripeMetadataKey('business_id')).toBe(true);
     expect(isReservedStripeMetadataKey('platform_fee_amount')).toBe(true);
+    expect(isReservedStripeMetadataKey('idempotency_key')).toBe(true);
   });
 
   it('leaves integrator keys alone', () => {

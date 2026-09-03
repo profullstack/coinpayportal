@@ -596,9 +596,9 @@ coinpay payment qr pay_abc123
 ### Invoices
 
 Invoice creation is draft-only. It does not send the invoice or move funds.
-The create command prints the public `/now/{invoiceId}` payment link so it can be
-copied into chat. The payment page becomes available after the invoice is sent.
-Create's JSON output includes the same link as `shareUrl`.
+Drafts do not have a public payment link. Publish the draft to create payment
+details for manual sharing, or send it to create payment details and email the
+client.
 When using a business-scoped API key, --business-id may be omitted.
 
 ```bash
@@ -624,6 +624,13 @@ coinpay invoice update inv_abc123 \
   --due-date 2026-09-15 \
   --notes "Updated scope"
 
+# Publish creates real payment details without emailing the client. It asks for
+# confirmation and prints a live /now/{invoiceId} link for manual chat sharing.
+coinpay invoice publish inv_abc123
+
+# Non-interactive publish requires explicit confirmation.
+coinpay invoice publish inv_abc123 --yes --json
+
 # Send creates real payment details and emails the client. The command asks for
 # confirmation and prints the same /now/{invoiceId} link for manual chat sharing.
 coinpay invoice send inv_abc123
@@ -648,8 +655,9 @@ coinpay invoice list --status paid --json
 
 Only draft invoices can be updated or deleted. Draft and overdue invoices can
 be sent; sending an overdue invoice issues new payment details and emails the
-client again. `--yes` skips the confirmation for send/delete, and is required
-when either command runs without a terminal or with `--json`.
+client again. Only drafts can be published. `--yes` skips the confirmation for
+publish/send/delete, and is required when any of those commands runs without a
+terminal or with `--json`.
 
 `--wallet-id` updates the invoice's stored wallet reference. To change the
 actual settlement destination, use `--merchant-wallet-address` (or change the

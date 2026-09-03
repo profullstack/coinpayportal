@@ -33,6 +33,14 @@ vi.mock('@/lib/entitlements/service', () => ({
   isBusinessPaidTier: vi.fn().mockResolvedValue(false),
 }));
 
+vi.mock('@/lib/paypal/accounts', () => ({
+  businessHasPaypal: vi.fn().mockResolvedValue(false),
+}));
+
+vi.mock('@/lib/payment-methods/manual', () => ({
+  getEnabledManualMethods: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock('@/lib/email', () => ({
   sendEmail: vi.fn().mockResolvedValue({ success: true }),
 }));
@@ -152,7 +160,10 @@ describe('POST /api/invoices/[id]/send', () => {
             query.select = vi.fn(() => {
               if (updateNumber === 1) {
                 return {
-                  single: vi.fn().mockResolvedValue({ data: { ...invoice, status: 'sent' }, error: null }),
+                  maybeSingle: vi.fn().mockResolvedValue({
+                    data: { ...invoice, ...payload, status: 'sent' },
+                    error: null,
+                  }),
                 };
               }
 
@@ -173,13 +184,17 @@ describe('POST /api/invoices/[id]/send', () => {
         return {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
-              single: vi.fn().mockResolvedValue({ data: stripeAccount, error: stripeAccount ? null : { code: 'PGRST116' } }),
+              maybeSingle: vi.fn().mockResolvedValue({ data: stripeAccount, error: null }),
             }),
           }),
         };
       }
       return {
-        select: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ single: vi.fn().mockResolvedValue({ data: null, error: null }) }) }),
+        select: vi.fn().mockReturnValue({
+          eq: vi
+            .fn()
+            .mockReturnValue({ single: vi.fn().mockResolvedValue({ data: null, error: null }) }),
+        }),
       };
     });
   }
@@ -213,17 +228,21 @@ describe('POST /api/invoices/[id]/send', () => {
       subject: 'Invoice from Acme',
       html: '<p>Pay here</p>',
     });
-    expect(createPayment).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      business_id: 'biz-1',
-      amount: 100,
-      blockchain: 'SOL',
-      merchant_wallet_address: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',
-      metadata: expect.objectContaining({
-        source: 'invoice',
-        invoice_id: 'inv-1',
-        invoice_number: 'INV-001',
-      }),
-    }));
+    expect(createPayment).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        business_id: 'biz-1',
+        amount: 100,
+        blockchain: 'SOL',
+        merchant_wallet_address: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',
+        idempotency_key: 'invoice:inv-1:initial',
+        metadata: expect.objectContaining({
+          source: 'invoice',
+          invoice_id: 'inv-1',
+          invoice_number: 'INV-001',
+        }),
+      })
+    );
     expect(mockStripeCreate).toHaveBeenCalledTimes(1);
 
     // Verify the Stripe session was created with correct params
@@ -233,6 +252,9 @@ describe('POST /api/invoices/[id]/send', () => {
     expect(createCall.payment_intent_data.application_fee_amount).toBe(100); // 1% of 10000
     expect(createCall.metadata.coinpay_invoice_id).toBe('inv-1');
     expect(createCall.metadata.business_id).toBe('biz-1');
+    expect(mockStripeCreate.mock.calls[0][1]).toEqual({
+      idempotencyKey: 'invoice:inv-1:initial:stripe',
+    });
   });
 
   it('skips Stripe when no stripe_account_id (crypto-only)', async () => {
