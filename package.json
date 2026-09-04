@@ -54,7 +54,7 @@
     "@scure/bip32": "^1.3.3",
     "@scure/bip39": "^1.2.2",
     "@simplewebauthn/browser": "^13.3.0",
-    "@simplewebauthn/server": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.2",
     "@solana/web3.js": "^1.87.6",
     "@supabase/supabase-js": "^2.39.0",
     "@types/bs58": "^5.0.0",
