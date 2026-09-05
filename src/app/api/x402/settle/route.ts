@@ -37,7 +37,7 @@ import { splitTieredPayment } from '@/lib/payments/fees';
 import { resolveScopedKey, scopesSatisfy } from '@/lib/auth/scoped-keys';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { addressesEqual } from '@/lib/x402/address';
-import { isV2Payment } from '@/lib/x402/v2';
+import { evmChainId, isV2Payment } from '@/lib/x402/v2';
 import { EVM_NETWORKS, checkSchemeForNetwork } from '@/lib/x402/networks';
 
 function getSupabase() {
@@ -411,7 +411,21 @@ export async function POST(request: NextRequest) {
     // are independent fields on the proof, so a scheme the named network does
     // not support means the proof is malformed, not that it should be routed
     // somewhere else.
-    const schemeError = checkSchemeForNetwork(network, scheme);
+    //
+    // A v2 proof names its chain as CAIP-2 (`eip155:8453`), which the v1 table
+    // does not list, so the v1 check refused every v2 proof at the door with
+    // "Unsupported network" — after verify had already accepted and recorded
+    // it. Found 2026-09-05 by paying rssamplifier.com's gateway from a Node
+    // client: the buyer's money was authorized and nothing settled. A v2 proof
+    // is `exact` on an EVM chain by construction, and `evmChainId` is what
+    // settlement itself dispatches on, so that is the whole check for it.
+    const schemeError = isV2
+      ? scheme !== 'exact'
+        ? `Scheme ${scheme} is not valid for an x402 v2 proof`
+        : evmChainId(network) === null
+          ? `Unsupported network: ${network}`
+          : null
+      : checkSchemeForNetwork(network, scheme);
     if (schemeError) {
       return NextResponse.json({ error: schemeError }, { status: 400 });
     }
