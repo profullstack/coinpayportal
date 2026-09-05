@@ -1,3 +1,4 @@
+import { gate } from "@/lib/crawl-gateway";
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -158,7 +159,13 @@ function checkRateLimit(
  * Adds OWASP-recommended security headers to all responses,
  * CORS headers to API responses, and rate limiting to API routes.
  */
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
+  // Crawl gateway first: AI training crawlers get 402 Payment Required (or the
+  // sales page at /crawl) unless they present a paid pass. People, Googlebot
+  // and retrieval crawlers fall through to everything below.
+  const answer = await gate(request);
+  if (answer) return answer;
+
   const { pathname } = request.nextUrl;
   const isApiRoute = pathname.startsWith('/api/');
   const requestOrigin = request.headers.get('origin');
