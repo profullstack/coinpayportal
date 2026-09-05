@@ -1,7 +1,7 @@
 {
   "name": "@profullstack/coinpay",
-  "version": "0.8.0",
-  "description": "CoinPay SDK & CLI \u2014 Accept cryptocurrency payments (BTC, ETH, SOL, POL, BCH, USDC) with wallet and swap support",
+  "version": "0.9.0",
+  "description": "CoinPay SDK & CLI \u2014 Accept cryptocurrency and card payments (BTC, ETH, SOL, POL, BCH, USDC) with wallet, swap and a live finances dashboard",
   "type": "module",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
@@ -51,6 +51,13 @@
     },
     "./taskmarket": {
       "import": "./src/taskmarket.js"
+    },
+    "./finances": {
+      "import": "./src/finances.js",
+      "types": "./src/finances.d.ts"
+    },
+    "./finances-tui": {
+      "import": "./src/finances-tui.js"
     }
   },
   "files": [
@@ -89,7 +96,12 @@
     "payment-gateway",
     "merchant",
     "bip39",
-    "mnemonic"
+    "mnemonic",
+    "finances",
+    "tui",
+    "dashboard",
+    "plaid",
+    "simplefin"
   ],
   "author": "Profullstack, Inc.",
   "license": "MIT",
@@ -106,16 +118,16 @@
     "node": ">=20.0.0"
   },
   "devDependencies": {
-    "vitest": "^4.1.0",
     "eslint": "^8.57.0",
-    "prettier": "^3.4.1"
+    "prettier": "^3.4.1",
+    "vitest": "^4.1.0"
   },
-  "peerDependencies": {},
   "dependencies": {
-    "@scure/bip39": "^1.4.0",
-    "@scure/bip32": "^1.5.0",
+    "@inquirer/prompts": "^8.3.0",
     "@noble/curves": "^1.6.0",
     "@noble/hashes": "^1.5.0",
-    "@inquirer/prompts": "^8.3.0"
+    "@profullstack/hqtui": "^0.1.11",
+    "@scure/bip32": "^1.5.0",
+    "@scure/bip39": "^1.4.0"
   }
 }

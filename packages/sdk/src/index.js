@@ -181,6 +181,23 @@ import {
   CHAIN_IDS,
 } from './x402.js';
 
+import {
+  getFinanceSummary,
+  listFinanceAccounts,
+  listFinanceTransactions,
+  listFinanceConnections,
+  syncFinances,
+  getDashboardStats,
+  getFinanceAnalytics,
+  listCryptoPayments,
+  listCardTransactions,
+  listCardPayouts,
+  buildFinanceSnapshot,
+  collectFinanceSnapshot,
+  subscribeToPayments,
+  periodForDays,
+} from './finances.js';
+
 export {
   // Client
   CoinPayClient,
@@ -286,6 +303,22 @@ export {
   // Lightning
   LightningClient,
   
+  // Finances (bank feeds, earnings, commission, refunds)
+  getFinanceSummary,
+  listFinanceAccounts,
+  listFinanceTransactions,
+  listFinanceConnections,
+  syncFinances,
+  getDashboardStats,
+  getFinanceAnalytics,
+  listCryptoPayments,
+  listCardTransactions,
+  listCardPayouts,
+  buildFinanceSnapshot,
+  collectFinanceSnapshot,
+  subscribeToPayments,
+  periodForDays,
+
   // Auth
   registerMerchant,
   loginMerchant,
