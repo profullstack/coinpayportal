@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/server/optional-deps';
 import { sendPaymentWebhook } from '@/lib/webhooks/service';
+import { railFromCharge, settlementStatusFor, holdUntilFor } from '@/lib/payments/ach-hold';
 import { recordFraudEvent } from '@/lib/fraud/store';
 import { emailDomain, normalizeEmail } from '@/lib/fraud/signals';
 
@@ -127,6 +128,18 @@ export async function POST(request: NextRequest) {
         await handleCheckoutSessionCompleted(event.data.object);
         break;
 
+      // Delayed-notification methods (ACH) complete the Checkout Session while
+      // the debit is still unpaid, and settle — or fail — days later. Without
+      // these two the session above would be the only signal we ever got, and
+      // a returned debit would leave a row reading 'completed' forever.
+      case 'checkout.session.async_payment_succeeded':
+        await handleCheckoutSessionCompleted(event.data.object);
+        break;
+
+      case 'checkout.session.async_payment_failed':
+        await handleAsyncPaymentFailed(event.data.object);
+        break;
+
       case 'payment_intent.payment_failed':
         await handlePaymentIntentFailed(event.data.object);
         break;
@@ -212,6 +225,17 @@ async function handleCheckoutSessionCompleted(session: any) {
       // checkout sessions via /api/stripe/payments/create without a CoinPay payment record
       if (businessId) {
         console.log(`[Stripe Webhook] checkout.session.completed for external payment (business=${businessId})`);
+
+        // An ACH session completes before the money does: Stripe reports
+        // payment_status 'unpaid' here and sends async_payment_succeeded once
+        // the debit clears. Completing now would tell the merchant a bank
+        // transfer had settled at the moment the buyer clicked pay.
+        if (session.payment_status && session.payment_status !== 'paid') {
+          console.log(
+            `[Stripe Webhook] session ${session.id} is ${session.payment_status}; leaving it pending`
+          );
+          return;
+        }
 
         // Flip the placeholder row (created by /api/stripe/payments/create) to
         // completed, matched deterministically by the Checkout Session id. The old
@@ -579,6 +603,8 @@ async function handlePaymentSucceeded(paymentIntent: any) {
       ? (await stripe.balanceTransactions.retrieve(charge.balance_transaction as string)).fee
       : 0;
 
+    const rail = railFromCharge(charge);
+
     const completedFields = {
       merchant_id: merchantId,
       business_id: businessId,
@@ -590,8 +616,11 @@ async function handlePaymentSucceeded(paymentIntent: any) {
       stripe_balance_txn_id: charge.balance_transaction as string,
       stripe_fee_amount: stripeFee,
       net_to_merchant: paymentIntent.amount - stripeFee - platformFee,
-      status: 'completed',
-      rail: 'card',
+      // Read the rail off the charge rather than assuming card, and hold the
+      // ones that can still be returned after Stripe reports success.
+      status: settlementStatusFor(rail),
+      rail,
+      hold_until: holdUntilFor(rail, new Date()),
       ...customerFromCharge(charge, paymentIntent),
       updated_at: new Date().toISOString(),
     };
@@ -651,6 +680,34 @@ async function handlePaymentSucceeded(paymentIntent: any) {
 
   } catch (error) {
     console.error('Error handling payment succeeded:', error);
+  }
+}
+
+/**
+ * An ACH debit that was submitted and then came back.
+ *
+ * Marks the transaction failed. There is no merchant webhook to retract here
+ * precisely because the hold withheld it: a merchant told "paid" and then
+ * "actually, no" is the sequence this whole rail exists to avoid.
+ */
+async function handleAsyncPaymentFailed(session: any) {
+  const supabase = getSupabase();
+  try {
+    await supabase
+      .from('stripe_transactions')
+      .update({
+        status: 'failed',
+        hold_until: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('stripe_checkout_session_id', session.id);
+
+    console.warn('[Stripe Webhook] ACH debit returned', {
+      session: session.id,
+      business: session.metadata?.business_id,
+    });
+  } catch (error) {
+    console.error('Error handling async payment failure:', error);
   }
 }
 

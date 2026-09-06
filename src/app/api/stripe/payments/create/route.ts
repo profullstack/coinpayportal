@@ -7,6 +7,7 @@ import { authorizePaymentCreation } from '@/lib/auth/payment-auth';
 import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { getFeePercentage } from '@/lib/payments/fees';
+import { achPayInEnabled } from '@/lib/payments/ach-hold';
 
 function getSupabase() {
   return createClient(
@@ -129,6 +130,11 @@ export async function POST(request: NextRequest) {
       invoice_number: invoiceNumber,
     };
 
+    // Offer the bank rail only where it is safe to: behind the rollout flag, on
+    // USD, and never to a buyer the fraud layer has already flagged. See
+    // achPayInEnabled for why each of those three matters.
+    const offerAch = achPayInEnabled(currency, screening.decision);
+
     // Gateway Mode: destination charge, funds go directly to merchant
     const session = await (await getStripe()).checkout.sessions.create({
         line_items: [
@@ -142,6 +148,9 @@ export async function POST(request: NextRequest) {
           },
         ],
         mode: 'payment',
+        // Naming these at all overrides the merchant's dashboard configuration,
+        // so it is only done when ACH is actually being offered.
+        ...(offerAch ? { payment_method_types: ['card', 'us_bank_account'] as const } : {}),
         // Prefill the buyer's email on Stripe Checkout when the integration
         // already knows it (also captured on our side below, up front).
         ...(customerEmailValue ? { customer_email: customerEmailValue } : {}),
