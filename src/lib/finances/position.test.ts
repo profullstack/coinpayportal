@@ -54,7 +54,7 @@ describe('inferAccountScope', () => {
   });
 
   it('names a business account from the institution', () => {
-    expect(inferAccountScope('Operating', 'Mercury Business Inc')).toBe('business');
+    expect(inferAccountScope('Operating', 'Northwind Trading Ltd')).toBe('business');
   });
 
   it('falls back to personal, because there is no positive personal signal', () => {
@@ -82,7 +82,7 @@ describe('effectiveScope', () => {
   });
 
   it('reads the institution when the account name is silent', () => {
-    expect(effectiveScope({ name: 'Operating', org_name: 'Mercury Business Inc' })).toBe('business');
+    expect(effectiveScope({ name: 'Operating', org_name: 'Northwind Trading Ltd' })).toBe('business');
   });
 });
 
