@@ -180,6 +180,21 @@ authenticated senders, recipient details, and reconciliation against partner
 webhooks. Shipping a route that instructs a partner to pay someone without first
 recording that we did so would be worse than not having the route.
 
+One half of that reconciliation does now exist: `POST /api/transfi/webhook`
+accepts TransFi's deliveries, verifies the HMAC and records each one in
+`transfi_webhook_events`. It exists because TransFi's dashboard requires a
+webhook URL to complete provider setup, and it stops there on purpose — it
+records and acknowledges, and reconciles nothing, because there is no local
+transfer record for an event to settle against until initiation is built. The
+`handleEvent` seam in that route is where reconciliation lands when it is.
+
+Verification hashes the **raw request body** and never re-serialises it.
+TransFi's own samples disagree on this — their Node example hashes the raw body,
+their Python example hashes `json.dumps(body)` — and a verifier that parses and
+re-stringifies will disagree with the sender over nothing but spacing or key
+order. Their sample also reads `req.headers['X-Transfi-Hmac-Hash']`, which is
+`undefined` on any runtime that lower-cases header names, Node included.
+
 The Bitso adapter is verified against the live public API, including that Bitso
 lists no `usdc_mxn` book. **Mexico is the only corridor proven end to end**, and
 it is proven precisely because Bitso's public ticker needs no credentials.
