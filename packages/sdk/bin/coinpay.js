@@ -448,6 +448,8 @@ ${colors.cyan}Commands:${colors.reset}
       --interval <s>      Refresh every s seconds (default 30)
       --business-id <id>  Narrow payments to one business
     summary               Plain-text headline numbers (--json for machines)
+    position              Debt vs income, credits vs debits, recurring bills
+                            (also: coinpay finances debt)
     accounts              Linked bank and card accounts with balances
     ledger                Bank/card transactions (--limit, --search, --category, --account)
     connections           Linked institutions and their last sync
@@ -3484,7 +3486,7 @@ const MENU_COMMANDS = [
 const SUBCOMMANDS = {
   config: [['set-key', 'Set your API key'], ['set-url', 'Set custom API URL'], ['show', 'Show current configuration']],
   auth: [['register', 'Register new merchant account'], ['login', 'Login to merchant account'], ['me', 'Show current merchant info']],
-  finances: [['tui', 'Live dashboard (default)'], ['summary', 'Headline numbers as text'], ['accounts', 'Bank & card accounts'], ['ledger', 'Bank/card transactions'], ['connections', 'Linked institutions'], ['sync', 'Pull fresh bank data']],
+  finances: [['tui', 'Live dashboard (default)'], ['summary', 'Headline numbers as text'], ['position', 'Debt vs income, credits vs debits'], ['accounts', 'Bank & card accounts'], ['ledger', 'Bank/card transactions'], ['connections', 'Linked institutions'], ['sync', 'Pull fresh bank data']],
   payment: [['create', 'Create a new payment'], ['get', 'Get payment details <id>'], ['list', 'List payments'], ['qr', 'Get payment QR code <id>']],
   invoice: [['create', 'Create a draft invoice'], ['list', 'List invoices'], ['get', 'Get invoice details <id>'], ['update', 'Update a draft invoice <id>'], ['publish', 'Publish an invoice <id>'], ['send', 'Send an invoice <id>'], ['delete', 'Delete a draft invoice <id>']],
   tokens: [['list', 'List checkout tokens']],
@@ -3909,10 +3911,104 @@ function printFinanceSummary(snapshot, fmt) {
   line('Card payouts pending', money(snapshot.payout.pendingUsd));
   line(`Card payouts paid · ${win}`, money(snapshot.payout.paidUsd), colors.green);
 
+  if (snapshot.position) printPosition(snapshot.position, fmt, { heading: true });
+
   const failed = Object.keys(snapshot.errors);
   if (failed.length) {
     console.log('');
     print.warn(`Unavailable: ${failed.map((k) => `${k} (${snapshot.errors[k]})`).join('; ')}`);
+  }
+  console.log('');
+}
+
+/**
+ * Debt against income as text.
+ *
+ * Shared by `finances summary` (as one more section) and `finances position`
+ * (on its own, with the account and recurring detail the summary omits).
+ */
+function printPosition(position, fmt, { heading = false, detail = false } = {}) {
+  const { money, pct } = fmt;
+  const cur = position.currency || 'USD';
+  const look = `${Math.round(position.observedDays ?? position.lookbackDays)}d`;
+  const line = (label, value, color = '') => console.log(`  ${pad(label, 26)} ${color}${value}${colors.reset}`);
+
+  if (heading) console.log(`\n${colors.bright}Debt & income · ${look}${colors.reset}${colors.cyan}  (${position.monthsObserved} months)${colors.reset}`);
+
+  const inc = position.income;
+  const spend = position.spending;
+  const debt = position.debt;
+  const r = position.ratios;
+
+  line('Income', `${money(inc.total, cur)}  (${money(inc.perMonth, cur)}/mo)`, colors.green);
+  line('Spending', `${money(spend.total, cur)}  (${money(spend.perMonth, cur)}/mo)`, colors.red);
+  line('Net', `${money(position.net.total, cur)}  (${money(position.net.perMonth, cur)}/mo)`, position.net.total >= 0 ? colors.green : colors.red);
+  line('Kept of income', pct(position.net.savingsRate, 1));
+  line('Gross credits / debits', `${money(inc.grossCredits, cur)} / ${money(spend.grossDebits, cur)}`);
+  line('Total owed', money(debt.total, cur), colors.red);
+  line('  revolving / instalment', `${money(debt.revolving, cur)} / ${money(debt.instalment, cur)}`);
+  line('Debt paid per month', money(debt.servicePerMonth, cur), colors.green);
+  line('Fixed bills per month', money(position.recurring.monthlyTotal, cur), colors.yellow);
+  line('Clear in', debt.payoffMonths === null ? 'never at this rate' : `${debt.payoffMonths} months (${debt.payoffDate ? debt.payoffDate.slice(0, 10) : '—'})`, debt.payoffMonths === null ? colors.red : '');
+  line('Debt to income', r.debtToIncome === null ? '—' : `${r.debtToIncome.toFixed(2)}x`, (r.debtToIncome ?? 0) > 1 ? colors.red : colors.green);
+  line('Debt service ratio', pct(r.debtServiceRatio, 1), (r.debtServiceRatio ?? 0) > 0.36 ? colors.red : colors.green);
+  line('Months of cover', r.monthsOfCover === null ? '—' : r.monthsOfCover.toFixed(1));
+  line('Card utilisation', pct(r.creditUtilisation, 0));
+
+  for (const sc of position.scopes) {
+    line(`${sc.scope} (${sc.accounts} acct)`, `${money(sc.income, cur)} in · ${money(sc.spending, cur)} out · owes ${money(sc.debt, cur)}`);
+  }
+
+  if (position.confidence.noLiabilityAccounts) {
+    console.log('');
+    print.warn('No card or loan account is linked, so the debt figures are blind.');
+  }
+  if (position.confidence.uncategorisedShare > 0.25) {
+    console.log('');
+    print.warn(`${pct(position.confidence.uncategorisedShare, 0)} of transactions are uncategorised — the income/spending split is rough.`);
+  }
+
+  if (!detail) return;
+
+  if (position.months.length) {
+    console.log(`\n${colors.bright}Month by month${colors.reset}`);
+    printTable(position.months, [
+      { title: 'Month', align: 'left', render: (m) => (m.partial ? `${m.month} *` : m.month) },
+      { title: 'Income', align: 'right', render: (m) => money(m.income, cur) },
+      { title: 'Spending', align: 'right', render: (m) => money(m.spending, cur) },
+      { title: 'Net', align: 'right', render: (m) => money(m.net, cur) },
+      { title: 'Debt paid', align: 'right', render: (m) => money(m.debtService, cur) },
+      { title: 'Rows', align: 'right', render: (m) => String(m.transactions) },
+    ]);
+    console.log(`  ${colors.cyan}* partial month${colors.reset}`);
+  }
+
+  if (debt.accounts.length) {
+    console.log(`\n${colors.bright}Owed by account${colors.reset}`);
+    printTable(debt.accounts, [
+      { title: 'Institution', align: 'left', render: (d) => d.org || '—' },
+      { title: 'Account', align: 'left', render: (d) => d.name },
+      { title: 'Kind', align: 'left', render: (d) => d.kind },
+      { title: 'Side', align: 'left', render: (d) => d.scope },
+      { title: 'Owed', align: 'right', render: (d) => money(d.owed, cur) },
+      { title: 'Share', align: 'right', render: (d) => pct(d.share, 0) },
+      { title: `Paid ${look}`, align: 'right', render: (d) => money(d.paid, cur) },
+      { title: 'Clear in', align: 'right', render: (d) => (d.payoffMonths === null ? 'never' : `${d.payoffMonths} mo`) },
+    ]);
+  }
+
+  if (position.recurring.charges.length) {
+    console.log(`\n${colors.bright}Recurring${colors.reset}  ${colors.cyan}${money(position.recurring.monthlyTotal, cur)}/mo, of which ${money(position.recurring.monthlyDebtService, cur)} is debt${colors.reset}`);
+    printTable(position.recurring.charges, [
+      { title: 'Payee', align: 'left', render: (c) => c.payee },
+      { title: 'Amount', align: 'right', render: (c) => money(c.amount, cur) },
+      { title: 'Every', align: 'left', render: (c) => c.cadence },
+      { title: 'Seen', align: 'right', render: (c) => String(c.occurrences) },
+      { title: 'Last', align: 'left', render: (c) => c.lastSeen.slice(0, 10) },
+      { title: 'Next', align: 'left', render: (c) => c.nextExpected.slice(0, 10) },
+      { title: 'Per month', align: 'right', render: (c) => money(c.monthlyEquivalent, cur) },
+      { title: 'Kind', align: 'left', render: (c) => (c.isDebtService ? 'debt' : 'bill') },
+    ]);
   }
   console.log('');
 }
@@ -3955,6 +4051,25 @@ async function handleFinances(subcommand, args, flags) {
       if (flags.json) { print.json(snapshot); return; }
       const fmt = await import('../src/finances-tui.js');
       printFinanceSummary(snapshot, fmt);
+      return;
+    }
+
+    case 'position':
+    case 'debt':
+    case 'income': {
+      // Reads the summary route alone: everything on this screen comes from
+      // there, so there is no reason to fan out to eleven sources for it.
+      const { client } = financesClient();
+      const summary = await fin.getFinanceSummary(client, { days, includeHidden: Boolean(flags.hidden) });
+      const position = summary?.position;
+      if (!position) {
+        print.error('This CoinPay server does not report a debt-and-income position yet.');
+        process.exit(1);
+      }
+      if (flags.json) { print.json(position); return; }
+      const fmt = await import('../src/finances-tui.js');
+      console.log('');
+      printPosition(position, fmt, { heading: true, detail: true });
       return;
     }
 

@@ -1,8 +1,8 @@
 /**
  * `coinpay finances` — a live terminal dashboard for the merchant's money.
  *
- * Built on @profullstack/hqtui. Six screens: Overview, Bank & Cards, Ledger,
- * Crypto, Cards, Invoices & Escrow. Data comes from `collectFinanceSnapshot`
+ * Built on @profullstack/hqtui. Seven screens: Overview, Bank & Cards, Ledger,
+ * Crypto, Cards, Invoices & Escrow, Debt & Income. Data comes from `collectFinanceSnapshot`
  * on a timer, plus the payments server-sent-event stream for instant crypto
  * payment notices in the Live panel. Bank syncs are a keypress (`s`), never
  * automatic — the bank bridge allows about 24 pulls a day.
@@ -14,7 +14,7 @@
 
 import { collectFinanceSnapshot, subscribeToPayments, syncFinances } from './finances.js';
 
-const TABS = ['Overview', 'Bank & Cards', 'Ledger', 'Crypto', 'Cards', 'Invoices & Escrow'];
+const TABS = ['Overview', 'Bank & Cards', 'Ledger', 'Crypto', 'Cards', 'Invoices & Escrow', 'Debt & Income'];
 const WINDOWS = [7, 30, 90, 365];
 const LIVE_MAX = 200;
 
@@ -40,6 +40,13 @@ export function money(value, currency = 'USD', { compact = false } = {}) {
     fmtCache.set(key, fmt);
   }
   return fmt.format(n);
+}
+
+/** A ratio as a percentage. Null stays visibly absent rather than becoming 0%. */
+export function pct(value, digits = 0) {
+  const n = Number(value);
+  if (value === null || value === undefined || !Number.isFinite(n)) return '—';
+  return `${(n * 100).toFixed(digits)}%`;
 }
 
 export function shortDate(value) {
@@ -134,7 +141,7 @@ function moveSelection(p, delta) {
 }
 
 // The table each screen scrolls with the keyboard.
-const TAB_PANE = ['live', 'accounts', 'ledger', 'payments', 'cards', 'invoices'];
+const TAB_PANE = ['live', 'accounts', 'ledger', 'payments', 'cards', 'invoices', 'debts'];
 
 function pushLive(state, entry) {
   state.live.push({ time: clock(), ...entry });
@@ -561,7 +568,159 @@ function invoicesScreen(ui, state, theme) {
   });
 }
 
-const SCREENS = [overviewScreen, bankScreen, ledgerScreen, cryptoScreen, cardsScreen, invoicesScreen];
+/**
+ * Debt against income — the basic-accounting screen.
+ *
+ * Everything here comes from `snapshot.position`, computed server-side over
+ * six months rather than the dashboard window, because a monthly charge is
+ * invisible in thirty days of rows. The window selector therefore does not
+ * move these figures, which is why the panel states its own lookback.
+ */
+function positionScreen(ui, state, theme) {
+  const s = state.snapshot;
+  const p0 = s.position;
+  const cur = p0?.currency || s.bank.currency || 'USD';
+
+  if (!p0) {
+    emptyPanel(
+      ui,
+      theme,
+      'Debt & income',
+      s.bank.connections.length
+        ? 'The summary source is unavailable, so debt and income cannot be computed. Press r to retry.'
+        : 'No bank linked yet. Connect one at coinpayportal.com/finances, then press s to sync.',
+    );
+    return;
+  }
+
+  // The span the figures actually cover, which is what the feed holds — not
+  // the span that was requested.
+  const lookback = `${Math.round(p0.observedDays ?? p0.lookbackDays)}d`;
+  const inc = p0.income;
+  const spend = p0.spending;
+  const debt = p0.debt;
+  const r = p0.ratios;
+
+  ui.grid({ columns: ['1fr', '1fr', '1fr'], rows: [13, '1fr', 12], gap: 1 }, (grid) => {
+    grid.panel({ title: `Income vs spending · ${lookback}`, subtitle: `${p0.monthsObserved} months observed` }, (p) => {
+      p.keyValues([
+        { label: 'Income', value: money(inc.total, cur), color: theme.success },
+        { label: '  per month', value: money(inc.perMonth, cur), color: theme.success },
+        { label: 'Spending', value: money(spend.total, cur), color: theme.danger },
+        { label: '  per month', value: money(spend.perMonth, cur), color: theme.danger },
+        { label: 'Net', value: money(p0.net.total, cur), color: signed(theme, p0.net.total) },
+        { label: '  per month', value: money(p0.net.perMonth, cur), color: signed(theme, p0.net.perMonth) },
+        { label: 'Kept of income', value: pct(p0.net.savingsRate, 1), color: signed(theme, p0.net.savingsRate ?? 0) },
+        // The raw sides, so the netting above is auditable rather than magic.
+        { label: 'Gross credits', value: money(inc.grossCredits, cur), color: theme.muted },
+        { label: 'Gross debits', value: money(spend.grossDebits, cur), color: theme.muted },
+        { label: 'Refunds', value: money(spend.refunds, cur), color: theme.muted },
+      ], { labelWidth: 16 });
+    });
+
+    grid.panel({ title: 'Debt', subtitle: debt.total > 0 ? `${debt.accounts.length} accounts` : 'nothing owed' }, (p) => {
+      p.keyValues([
+        { label: 'Total owed', value: money(debt.total, cur), color: theme.danger },
+        { label: '  revolving', value: money(debt.revolving, cur) },
+        { label: '  instalment', value: money(debt.instalment, cur) },
+        { label: 'Paid per month', value: money(debt.servicePerMonth, cur), color: theme.success },
+        { label: 'Fixed bills/mo', value: money(p0.recurring.monthlyTotal, cur), color: theme.warning },
+        { label: 'Clear in', value: debt.payoffMonths === null ? 'never at this rate' : `${debt.payoffMonths} months`, color: debt.payoffMonths === null ? theme.danger : theme.foreground },
+        { label: 'Clear by', value: debt.payoffDate ? shortDate(debt.payoffDate) : '—', color: theme.muted },
+        { label: 'Card utilisation', value: pct(r.creditUtilisation, 0), color: (r.creditUtilisation ?? 0) > 0.3 ? theme.warning : theme.foreground },
+      ], { labelWidth: 16 });
+      if (p0.confidence.noLiabilityAccounts) {
+        p.text('No card or loan account is linked, so debt is unknown.', { fg: theme.warning });
+      }
+    });
+
+    grid.panel({ title: 'Ratios & split', subtitle: 'business vs personal' }, (p) => {
+      p.keyValues([
+        { label: 'Debt to income', value: r.debtToIncome === null ? '—' : `${r.debtToIncome.toFixed(2)}×`, color: (r.debtToIncome ?? 0) > 1 ? theme.danger : theme.success },
+        { label: 'Debt service', value: pct(r.debtServiceRatio, 1), color: (r.debtServiceRatio ?? 0) > 0.36 ? theme.danger : theme.success },
+        { label: 'Months of cover', value: r.monthsOfCover === null ? '—' : r.monthsOfCover.toFixed(1), color: (r.monthsOfCover ?? 0) < 3 ? theme.warning : theme.success },
+        ...p0.scopes.flatMap((sc) => [
+          { label: `${sc.scope} (${sc.accounts})`, value: `${money(sc.income, cur, { compact: true })} in · ${money(sc.spending, cur, { compact: true })} out`, color: theme.foreground },
+          { label: '  owes', value: money(sc.debt, cur), color: sc.debt > 0 ? theme.danger : theme.muted },
+        ]),
+      ], { labelWidth: 16 });
+      const share = p0.confidence.uncategorisedShare;
+      if (share > 0.25) {
+        p.text(`${pct(share, 0)} of rows are uncategorised — treat the split as rough.`, { fg: theme.warning });
+      }
+    });
+
+    grid.panel({ title: `Month by month · ${lookback}`, colSpan: 3, subtitle: 'income vs spending; first and last months are partial' }, (p) => {
+      const pts = p0.months;
+      if (!pts.length) {
+        p.text('No transactions in this window.', { fg: theme.muted });
+        return;
+      }
+      p.multiGraph(
+        [
+          { values: pts.map((m) => m.income), color: theme.success, label: 'income', fill: true },
+          { values: pts.map((m) => m.spending), color: theme.danger, label: 'spending' },
+          { values: pts.map((m) => m.debtService), color: theme.warning, label: 'debt paid' },
+        ],
+        {
+          min: 0,
+          axis: true,
+          axisFormat: (v) => money(v, cur, { compact: true }),
+          timeAxis: pts.map((m) => m.month.slice(2)),
+          legend: true,
+        },
+      );
+    });
+
+    grid.panel({ title: `Owed by account (${debt.accounts.length})`, colSpan: 2, footer: 'j/k scroll' }, (p) => {
+      if (!debt.accounts.length) {
+        p.text('No debt on any linked account.', { fg: theme.muted });
+        return;
+      }
+      const debts = pane(state, 'debts', debt.accounts.length);
+      p.table({
+        rows: debt.accounts,
+        selected: debts.selected,
+        offset: debts.offset,
+        followSelection: true,
+        scrollbar: true,
+        onScroll: (delta) => scrollPane(debts, delta),
+        onSelectRow: (row) => { debts.selected = debts.offset + row; },
+        columns: [
+          { key: 'org', title: 'Institution', width: 20, render: (x) => x.org || '—', color: theme.muted },
+          { key: 'name', title: 'Account', min: 14, max: 32 },
+          { key: 'kind', title: 'Kind', width: 8, color: theme.muted },
+          { key: 'scope', title: 'Side', width: 9, color: (x) => (x.scope === 'business' ? theme.info : theme.muted) },
+          { key: 'owed', title: 'Owed', width: 12, align: 'right', render: (x) => money(x.owed, cur), color: theme.danger },
+          { key: 'share', title: 'Share', width: 6, align: 'right', render: (x) => pct(x.share, 0), color: theme.muted },
+          { key: 'paid', title: `Paid ${lookback}`, width: 12, align: 'right', render: (x) => money(x.paid, cur), color: theme.success },
+          { key: 'payoffMonths', title: 'Clear in', width: 9, align: 'right', render: (x) => (x.payoffMonths === null ? 'never' : `${x.payoffMonths} mo`), color: (x) => (x.payoffMonths === null ? theme.danger : theme.foreground) },
+        ],
+      });
+    });
+
+    grid.panel({ title: `Recurring (${p0.recurring.charges.length})`, subtitle: `${money(p0.recurring.monthlyTotal, cur)}/mo` }, (p) => {
+      const charges = p0.recurring.charges;
+      if (!charges.length) {
+        p.text('Nothing recurring found in this window.', { fg: theme.muted });
+        return;
+      }
+      const max = Math.max(1, ...charges.map((c) => c.monthlyEquivalent));
+      p.meters(
+        charges.slice(0, 10).map((c) => ({
+          label: c.payee.slice(0, 16),
+          value: c.monthlyEquivalent,
+          max,
+          color: c.isDebtService ? theme.warning : theme.info,
+          text: `${money(c.monthlyEquivalent, cur, { compact: true })}/mo`,
+        })),
+        { labelWidth: 17, valueWidth: 9 },
+      );
+    });
+  });
+}
+
+const SCREENS = [overviewScreen, bankScreen, ledgerScreen, cryptoScreen, cardsScreen, invoicesScreen, positionScreen];
 
 // ── App ──
 
@@ -788,7 +947,7 @@ export async function runFinancesTui({ client, baseUrl, token, days = 30, interv
     const errorCount = state.snapshot ? Object.keys(state.snapshot.errors).length : 0;
     ui.statusBar({
       items: [
-        { key: '1-6', label: 'Screen' },
+        { key: '1-7', label: 'Screen' },
         { key: 'r', label: 'Refresh' },
         { key: 's', label: state.syncing ? 'Syncing…' : 'Sync bank', active: state.syncing },
         { key: 'w', label: `Window ${state.days}d` },
@@ -808,7 +967,7 @@ export async function runFinancesTui({ client, baseUrl, token, days = 30, interv
         width: 66,
         height: 20,
         message:
-          '1-6, Tab, ←/→ switch screens.\n' +
+          '1-7, Tab, ←/→ switch screens.\n' +
           'r refreshes now; refresh also runs every ' + Math.max(5, interval) + 's.\n' +
           's pulls fresh bank balances and transactions (rate-limited\n' +
           '  by the bank bridge, so it is never automatic).\n' +
@@ -816,7 +975,9 @@ export async function runFinancesTui({ client, baseUrl, token, days = 30, interv
           'p pauses the timer. ↑/↓ j/k, PgUp/PgDn, Home/End scroll.\n' +
           'Mouse: click tabs, scroll tables.\n\n' +
           'Commission paid = platform fees on crypto + card payments.\n' +
-          'Net earnings = gross − commission − processor fees − refunds.\n\n' +
+          'Net earnings = gross − commission − processor fees − refunds.\n' +
+          'Debt & Income covers 180 days regardless of w, and excludes\n' +
+          '  transfers and card payments from both sides.\n\n' +
           'Press any key to close.',
         buttons: [{ label: 'Close', focused: true }],
       });

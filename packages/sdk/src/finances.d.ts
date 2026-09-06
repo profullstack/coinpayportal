@@ -72,6 +72,8 @@ export interface FinanceSummary {
   transactionCount: number;
   oldestTransaction: string | null;
   newestTransaction: string | null;
+  /** Debt against income, over a longer window than `windowDays`. */
+  position: FinancePosition;
 }
 
 export interface FinanceSeriesPoint {
@@ -81,6 +83,89 @@ export interface FinanceSeriesPoint {
   cardUsd: number;
   commissionUsd: number;
   count: number;
+}
+
+export type AccountScope = 'business' | 'personal';
+export type RecurrenceCadence = 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'annual';
+
+/**
+ * Debt against income for a linked feed. Computed server-side over roughly
+ * six months, so it does not move with the dashboard window.
+ *
+ * Transfers and card payments are excluded from both `income` and `spending`:
+ * a feed holding both a checking account and the card it pays would otherwise
+ * count every card payment on both sides. The untouched totals are kept as
+ * `grossCredits` / `grossDebits` so the netting is auditable.
+ */
+export interface FinancePosition {
+  currency: string | null;
+  /** Days of history that were asked for. */
+  lookbackDays: number;
+  /** Days of history that exist, capped at `lookbackDays`. Divides the averages. */
+  observedDays: number;
+  monthsObserved: number;
+  months: Array<{
+    month: string;
+    income: number;
+    spending: number;
+    net: number;
+    debtService: number;
+    transactions: number;
+    partial: boolean;
+  }>;
+  income: { total: number; perMonth: number; grossCredits: number; transactions: number };
+  spending: { total: number; perMonth: number; grossDebits: number; refunds: number; transactions: number };
+  net: { total: number; perMonth: number; savingsRate: number | null };
+  debt: {
+    total: number;
+    revolving: number;
+    instalment: number;
+    accounts: Array<{
+      id: string;
+      name: string;
+      org: string | null;
+      kind: string;
+      scope: AccountScope;
+      owed: number;
+      share: number;
+      paid: number;
+      payoffMonths: number | null;
+    }>;
+    servicePerMonth: number;
+    payoffMonths: number | null;
+    payoffDate: string | null;
+  };
+  ratios: {
+    debtToIncome: number | null;
+    debtServiceRatio: number | null;
+    monthsOfCover: number | null;
+    creditUtilisation: number | null;
+  };
+  recurring: {
+    charges: Array<{
+      payee: string;
+      amount: number;
+      cadence: RecurrenceCadence;
+      occurrences: number;
+      lastSeen: string;
+      nextExpected: string;
+      monthlyEquivalent: number;
+      scope: AccountScope;
+      isDebtService: boolean;
+    }>;
+    monthlyTotal: number;
+    monthlyDebtService: number;
+  };
+  scopes: Array<{
+    scope: AccountScope;
+    accounts: number;
+    assets: number;
+    debt: number;
+    income: number;
+    spending: number;
+    net: number;
+  }>;
+  confidence: { uncategorisedShare: number; transactions: number; noLiabilityAccounts: boolean };
 }
 
 export interface FinanceSnapshot {
@@ -159,6 +244,8 @@ export interface FinanceSnapshot {
     ledger: FinanceTransaction[];
     ledgerTotal: number;
   };
+  /** Null when the summary source failed; the screen says so rather than showing zeros. */
+  position: FinancePosition | null;
   recent: {
     payments: Array<Record<string, unknown>>;
     cards: Array<Record<string, unknown>>;

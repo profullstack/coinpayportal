@@ -298,6 +298,12 @@ export function buildFinanceSnapshot(raw = {}, { days = 30, now = new Date() } =
   const refundsUsd = round2(card.refundedUsd + escrow.refundedUsd);
   const stats = raw.stats || null;
 
+  // Debt against income. Computed server-side, because it needs six months of
+  // rows and the ledger this snapshot carries is one page of the window.
+  // Absent when the summary route failed, and the screen says so rather than
+  // drawing zeros.
+  const position = summary?.position || null;
+
   return {
     generatedAt: now.toISOString(),
     windowDays: days,
@@ -322,6 +328,7 @@ export function buildFinanceSnapshot(raw = {}, { days = 30, now = new Date() } =
     invoices: { totals: invoiceTotals, counts: invoiceCounts, rows: invoices },
     payout,
     bank,
+    position,
     recent: {
       payments: payments.slice(0, 50),
       cards: cardTx.slice(0, 50),

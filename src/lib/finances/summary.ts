@@ -1,6 +1,7 @@
 import 'server-only';
 import { getSupabaseAdmin } from '../supabase/server';
 import { effectiveKind, isLiabilityKind, type AccountKind } from './classify';
+import { buildPosition, type Position, type PositionTransaction } from './position';
 
 /**
  * Reading the finance tables.
@@ -24,6 +25,19 @@ const PAGE_SIZE = 1000;
 
 /** Ceiling on rows pulled into memory for an aggregate. */
 const MAX_AGGREGATE_ROWS = 50_000;
+
+/**
+ * Minimum history the debt-and-income view is built from, whatever window the
+ * caller asked for.
+ *
+ * Recurring detection needs to see a charge at least three times before it can
+ * name a cadence, so a 7-day or 30-day request would find nothing and report
+ * "no recurring obligations" — which reads as a fact about the reader's
+ * finances rather than about the window. Six months settles monthly and
+ * quarterly charges. The cashflow figures still honour the requested window;
+ * only the position looks further back, and it says how far in `lookbackDays`.
+ */
+const POSITION_LOOKBACK_DAYS = 180;
 
 export interface FinanceAccount {
   id: string;
@@ -113,6 +127,12 @@ export interface FinanceSummary {
   transactionCount: number;
   oldestTransaction: string | null;
   newestTransaction: string | null;
+  /**
+   * Debt against income, credits against debits, and the recurring
+   * obligations behind them. Built from a longer window than the cashflow
+   * figures above — see `POSITION_LOOKBACK_DAYS`.
+   */
+  position: Position;
 }
 
 /**
@@ -409,8 +429,16 @@ export async function getSummary(
 
   const { totals, primaryCurrency, byKind, byInstitution } = aggregateAccounts(accounts);
 
-  // --- cashflow and categories ---------------------------------------------
-  const since = new Date(Date.now() - days * 86_400_000);
+  // --- cashflow, categories and position ------------------------------------
+  //
+  // One fetch covers both windows. The position needs at least six months to
+  // recognise a monthly charge, and the cashflow figures need whatever the
+  // caller asked for; pulling the longer span once and filtering the shorter
+  // one in memory costs a single query instead of two.
+  const now = new Date();
+  const lookbackDays = Math.max(days, POSITION_LOOKBACK_DAYS);
+  const since = new Date(now.getTime() - days * 86_400_000);
+  const lookbackSince = new Date(now.getTime() - lookbackDays * 86_400_000);
   const visibleIds = accounts.map((a) => a.id);
   const currencyByAccount = new Map(accounts.map((a) => [a.id, a.currency || 'USD']));
 
@@ -418,20 +446,29 @@ export async function getSummary(
   let moneyOut = 0;
   let transactionsInWindow = 0;
   const categoryTotals = new Map<string, CategoryTotal>();
+  const positionRows: PositionTransaction[] = [];
 
   if (visibleIds.length > 0) {
     const rows = await fetchAllRows<{
       account_id: string;
+      posted: string;
       amount: number;
       category: string | null;
+      payee: string | null;
+      description: string | null;
     }>(() =>
       supabase
         .from('finance_transactions')
-        .select('account_id, amount, category')
+        .select('account_id, posted, amount, category, payee, description')
         .in('account_id', visibleIds)
-        .gte('posted', since.toISOString())
+        .gte('posted', lookbackSince.toISOString())
         .order('posted', { ascending: false }) as never,
     );
+
+    // Parsed, not string-compared: `posted` arrives with whatever offset the
+    // institution used (`+00:00`, `-07:00`), and those do not sort lexically
+    // against a `Z` timestamp.
+    const sinceMs = since.getTime();
 
     for (const row of rows) {
       // Only the primary currency contributes to the headline cashflow;
@@ -440,6 +477,19 @@ export async function getSummary(
 
       const amount = Number(row.amount);
       if (!Number.isFinite(amount)) continue;
+
+      positionRows.push({
+        account_id: row.account_id,
+        posted: row.posted,
+        amount,
+        category: row.category,
+        payee: row.payee,
+        description: row.description,
+      });
+
+      // Everything below this line is the requested window only.
+      const postedMs = Date.parse(row.posted);
+      if (Number.isFinite(postedMs) && postedMs < sinceMs) continue;
 
       transactionsInWindow += 1;
       if (amount >= 0) moneyIn += amount;
@@ -455,6 +505,13 @@ export async function getSummary(
       categoryTotals.set(key, entry);
     }
   }
+
+  const position = buildPosition({
+    accounts,
+    transactions: positionRows,
+    lookbackDays,
+    now,
+  });
 
   // --- corpus extent --------------------------------------------------------
   let transactionCount = 0;
@@ -506,5 +563,6 @@ export async function getSummary(
     transactionCount,
     oldestTransaction,
     newestTransaction,
+    position,
   };
 }

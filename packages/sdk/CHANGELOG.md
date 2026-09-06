@@ -9,13 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `coinpay finances` (aliases `coinpay money`, `coinpay tui`): a live terminal
-  dashboard built on `@profullstack/hqtui`. Six screens — Overview, Bank & Cards,
-  Ledger, Crypto, Cards, Invoices & Escrow — showing gross volume, commission
+  dashboard built on `@profullstack/hqtui`. Seven screens — Overview, Bank &
+  Cards, Ledger, Crypto, Cards, Invoices & Escrow, Debt & Income — showing
+  gross volume, commission
   paid, processor fees, refunds, net earnings, bank assets and liabilities,
   cashflow, credit-card balances from the SimpleFIN/Plaid feeds, the ledger,
   crypto and card payment tables, invoices outstanding/overdue and escrow held.
   Refreshes on a timer and subscribes to the payments SSE stream so crypto
   payment events appear live. `s` syncs the bank feed on demand.
+- **Debt & Income** screen (`7`), and `coinpay finances position` (aliases
+  `debt`, `income`) as text. Income against spending per month, credits against
+  debits, total owed split into revolving and instalment, months to clear each
+  balance at its current payment rate, debt-to-income, debt-service ratio,
+  months of cover, card utilisation, detected recurring bills with their next
+  due date, and a business-versus-personal split of all of it — so the same
+  feed reads for a company or a person.
+  Transfers and card payments are excluded from both income and spending: a
+  feed holding both a checking account and the card it pays counts every card
+  payment twice otherwise. The raw sides remain visible as gross credits and
+  gross debits.
+  Built from about six months of history rather than the dashboard window,
+  because a monthly charge is invisible in thirty days of rows, and averaged
+  over the history that exists rather than the history requested.
 - Plain-text `coinpay finances summary|accounts|ledger|connections|sync`
   (`--json` on all of them) for scripts and for Node older than 22.6.
 - SDK `finances` module, also importable as `@profullstack/coinpay/finances`:
