@@ -128,6 +128,9 @@ export interface MerchantSettings {
   notifications_enabled: boolean;
   email_notifications: boolean;
   web_notifications: boolean;
+  /** Nightly payment digest. On by default; email_notifications still gates it. */
+  nightly_summary_enabled: boolean;
+  nightly_summary_last_sent_at: string | null;
   created_at: string;
   updated_at: string;
 }
