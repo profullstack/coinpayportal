@@ -49,7 +49,7 @@ describe('StubRemittanceProvider', () => {
 
   it('returns nothing for a corridor we do not serve', async () => {
     expect(
-      await provider.quote({ sendAsset: 'USDC', sendAmount: 500, destinationCountry: 'FR' })
+      await provider.quote({ sendAsset: 'USDC', sendAmount: 500, destinationCountry: 'JP' })
     ).toEqual([]);
   });
 

@@ -79,11 +79,17 @@ describe('GET /api/remittance/quote', () => {
   });
 
   it('rejects a destination outside our corridors', async () => {
-    const response = await getQuote(quoteRequest('asset=USDC&amount=1000&to=FR'));
+    const response = await getQuote(quoteRequest('asset=USDC&amount=1000&to=JP'));
     const body = await response.json();
 
     expect(response.status).toBe(400);
-    expect(body.supported).toEqual(['MX', 'PH', 'NG', 'VN', 'CA', 'IE']);
+    // Asserting the whole list would break every time a corridor is added, so
+    // pin the shape instead: a spread of regions present, and the rejected
+    // country absent.
+    expect(body.supported).toEqual(
+      expect.arrayContaining(['MX', 'PH', 'NG', 'IN', 'BR', 'PL', 'AU'])
+    );
+    expect(body.supported).not.toContain('JP');
   });
 
   it('rejects a payout method the corridor does not offer', async () => {

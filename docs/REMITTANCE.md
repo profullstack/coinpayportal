@@ -1,7 +1,7 @@
 # Remittance
 
-Crypto in, local fiat out. US→Mexico, Philippines, Nigeria, Vietnam, Canada
-and Ireland.
+Crypto in, local fiat out, across 43 corridors: Latin America, Africa, South
+and Southeast Asia, the Middle East, the euro area, Eastern Europe and Oceania.
 
 Strategy: [`plans/fiat-onramp-strategy.md`](../plans/fiat-onramp-strategy.md).
 
@@ -47,8 +47,9 @@ Measured against that, a live Bitso quote today is **1000 USDC → ~16,929 MXN a
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `TRANSFI_API_KEY` | for US→PH and US→VN | The only partner serving those two corridors |
-| `YELLOWCARD_API_KEY` | for US→NG | Stablecoin into NGN over NIP |
+| `TRANSFI_API_KEY` | for most of the map | The breadth partner: 37 corridors across Asia, MENA, Europe and South America. One missing key takes all of them down together |
+| `BITNOB_CLIENT_ID` / `BITNOB_CLIENT_SECRET` | for Africa | Six corridors — NG, KE, GH, ZA, UG, TZ. Both halves are required; signing needs the secret |
+| `YELLOWCARD_API_KEY` / `YELLOWCARD_API_SECRET` | second partner for US→NG | Stablecoin into NGN over NIP. Both halves required |
 | `CYBRID_API_KEY` | for US→CA | Stablecoin into CAD over Interac or EFT |
 | `BITSO_API_KEY` / `BITSO_API_SECRET` | to settle MX | Quoting works without them; payouts will not |
 | `BITSO_FEE_PCT` | no | Commercial rate, default `0.5` |
@@ -63,6 +64,48 @@ service, not in a `.env` file.
 source, so that corridor is quotable today, against a real order book, before
 anyone signs anything. The Philippines has no equivalent public rate and needs
 TransFi.
+
+## Coverage, and who covers it
+
+| Region | Corridors | Partner |
+|---|---|---|
+| North America | MX, CA | Bitso, Cybrid |
+| Africa | NG, KE, GH, ZA, UG, TZ | Bitnob, and Yellow Card for NG |
+| South Asia | IN, PK, BD, LK, NP | TransFi |
+| Southeast Asia | PH, VN, ID, TH, MY, SG | TransFi |
+| Middle East, North Africa | AE, SA, TR, EG | TransFi |
+| Euro area | IE, DE, FR, ES, IT, NL, PT | TransFi |
+| Eastern Europe | PL, RO, UA, CZ, HU, BG, RS | TransFi |
+| Oceania | AU | TransFi |
+| South America | BR, AR, CO, CL, PE | TransFi |
+
+Each corridor names the rail a recipient actually uses rather than "bank
+transfer": UPI and IMPS in India, Pix in Brazil, PromptPay in Thailand, BLIK in
+Poland, PayID over NPP in Australia, M-Pesa in Kenya and Tanzania, MTN MoMo in
+Ghana and Uganda. In the African and South Asian corridors the mobile wallet is
+the account of record, so `ewallet` is listed ahead of `bank`; paying into a
+bank and leaving the recipient to reach a branch defeats the point.
+
+**Two partners overlap on Nigeria on purpose.** Bitnob and Yellow Card both
+quote NGN and the router ranks them on delivered naira, so whichever actually
+pays more wins. Bitnob went in first for a practical reason: its sandbox keys
+are self-serve, so the adapter can be verified against a real response, whereas
+Yellow Card starts with a partnership call.
+
+**Coverage is a claim until a key proves it.** TransFi's corridor list is taken
+from its published payout countries and has not been confirmed key-in-hand for
+each one. A corridor it turns out not to serve fails as an empty quote list, so
+the cost of listing one too many is a corridor that reports as unavailable —
+never a wrong price.
+
+## A note on India
+
+`US-IN` is a compliance question before it is an engineering one. Inbound
+remittance to India runs under RBI rules, and INR is not freely convertible: a
+partner paying into UPI or IMPS does so under its own authorisation, and the
+crypto leg attracts its own treatment. The corridor and its rails are modelled
+here so the routing works the day a partner is licensed for it. Do not enable
+the corridor on the strength of a key alone.
 
 ## Endpoints
 
@@ -137,11 +180,27 @@ webhooks. Shipping a route that instructs a partner to pay someone without first
 recording that we did so would be worse than not having the route.
 
 The Bitso adapter is verified against the live public API, including that Bitso
-lists no `usdc_mxn` book. The TransFi, Yellow Card and Cybrid adapters are
-written against documented shapes and have **not** been run against a real key;
-`parseQuote` drops anything it cannot interpret, so a bad mapping shows up as a
-missing partner rather than a wrong price. That means Mexico is proven end to
-end and the other three corridors are not.
+lists no `usdc_mxn` book. **Mexico is the only corridor proven end to end**, and
+it is proven precisely because Bitso's public ticker needs no credentials.
+
+Every other adapter is written against documented shapes and has **not** been
+run against a real key. `parseQuote` drops anything it cannot interpret, so a
+bad mapping shows up as a missing partner rather than a wrong price. Two
+specific caveats worth carrying:
+
+- **Bitnob's authentication is verified, its field names are not.** The signing
+  scheme — `CLIENT_ID:TIMESTAMP:NONCE:PAYLOAD`, HMAC-SHA256 keyed with the
+  client secret, hex-encoded, across four `X-Auth-*` headers — is taken from
+  the published spec and pinned by a test that asserts the exact bytes. The
+  quote request and response shapes are not. `buildQuoteBody` and `parseQuote`
+  are the only two functions that should need correcting against a sandbox key.
+- **Yellow Card's canonical string is a guess.** Their docs return 403 to
+  automated fetches. The header format is right — `YcHmacV1 {apikey}:{sig}`
+  plus an ISO8601 `X-YC-Timestamp` — and the previous `Bearer` token was
+  definitively wrong, so this is closer. But the concatenation order inside
+  `signRequest` is conventional rather than read off their page. A wrong
+  signature fails as a 401, which the router reports as a partner that could
+  not quote.
 
 Corridor cost benchmarks come from secondary sources citing World Bank Q1 2025
 data — the World Bank corridor pages refuse automated fetches. Verify the exact

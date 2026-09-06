@@ -109,9 +109,20 @@ describe('TransfiProvider', () => {
     expect(provider.isConfigured()).toBe(false);
   });
 
-  it('serves the four corridors it covers', () => {
-    // The only partner here reaching the Philippines or Vietnam.
-    expect(provider.corridors).toEqual(['US-MX', 'US-PH', 'US-VN', 'US-IE']);
+  it('is the breadth partner across Asia, Europe and South America', () => {
+    // TransFi is the only listed partner for most of these, so a missing key
+    // takes the whole set down together.
+    expect(provider.corridors).toEqual(
+      expect.arrayContaining(['US-MX', 'US-PH', 'US-VN', 'US-IE', 'US-IN', 'US-BR', 'US-PL'])
+    );
+  });
+
+  it('leaves the African corridors to the partners licensed for them', () => {
+    // Bitnob and Yellow Card cover Africa. Listing them here would put TransFi
+    // in a ranking it cannot actually settle.
+    for (const corridor of ['US-NG', 'US-KE', 'US-GH', 'US-ZA', 'US-UG', 'US-TZ']) {
+      expect(provider.corridors).not.toContain(corridor);
+    }
   });
 
   it('asks for the corridor currency and country', async () => {
@@ -152,7 +163,7 @@ describe('TransfiProvider', () => {
   });
 
   it('returns nothing for a destination outside our corridors', async () => {
-    expect(await provider.quote({ ...params, destinationCountry: 'FR' })).toEqual([]);
+    expect(await provider.quote({ ...params, destinationCountry: 'JP' })).toEqual([]);
     expect(fetch).not.toHaveBeenCalled();
   });
 });

@@ -18,14 +18,68 @@
  * can flatter its own numbers.
  */
 
-/** Corridors we serve. Sending side is always the US. */
+/**
+ * Corridors we serve.
+ *
+ * The `US-` prefix is nominal. The sender funds with stablecoin, so there is no
+ * US fiat leg to speak of — the prefix records the jurisdiction the send side is
+ * priced in (USD), not a bank account we touch. What actually distinguishes a
+ * corridor is the destination: its currency, its payout rails and whether a
+ * partner is licensed to pay into it.
+ */
 export type Corridor =
+  // North America
   | 'US-MX'
-  | 'US-PH'
-  | 'US-NG'
-  | 'US-VN'
   | 'US-CA'
-  | 'US-IE';
+  // Africa
+  | 'US-NG'
+  | 'US-KE'
+  | 'US-GH'
+  | 'US-ZA'
+  | 'US-UG'
+  | 'US-TZ'
+  // South Asia
+  | 'US-IN'
+  | 'US-PK'
+  | 'US-BD'
+  | 'US-LK'
+  | 'US-NP'
+  // Southeast Asia
+  | 'US-PH'
+  | 'US-VN'
+  | 'US-ID'
+  | 'US-TH'
+  | 'US-MY'
+  | 'US-SG'
+  // Middle East and North Africa
+  | 'US-AE'
+  | 'US-SA'
+  | 'US-TR'
+  | 'US-EG'
+  // Euro area
+  | 'US-IE'
+  | 'US-DE'
+  | 'US-FR'
+  | 'US-ES'
+  | 'US-IT'
+  | 'US-NL'
+  | 'US-PT'
+  // Eastern Europe
+  | 'US-PL'
+  | 'US-RO'
+  | 'US-UA'
+  | 'US-CZ'
+  | 'US-HU'
+  | 'US-BG'
+  | 'US-RS'
+  // Oceania
+  | 'US-AU'
+  // South America
+  | 'US-BR'
+  | 'US-AR'
+  | 'US-CO'
+  | 'US-CL'
+  | 'US-PE';
 
 /** How the recipient actually gets the money. */
 export type PayoutMethod = 'bank' | 'ewallet' | 'cash_pickup' | 'debit_card';
@@ -136,6 +190,396 @@ export const CORRIDORS: Record<Corridor, CorridorSpec> = {
       bank: ['sepa_instant', 'sepa'],
     },
     matureCorridor: true,
+  },
+
+  // ---------------------------------------------------------------- Africa
+  // Mobile money is the account of record here, not the bank account. Paying
+  // into a bank and leaving the recipient to reach a branch defeats the point,
+  // so `ewallet` leads in every East and West African corridor below.
+  'US-KE': {
+    corridor: 'US-KE',
+    destinationCountry: 'KE',
+    payoutCurrency: 'KES',
+    methods: ['ewallet', 'bank'],
+    networks: {
+      // M-Pesa is not one wallet among several in Kenya; it is the rail.
+      ewallet: ['mpesa', 'airtel_money'],
+      bank: ['pesalink'],
+    },
+  },
+  'US-GH': {
+    corridor: 'US-GH',
+    destinationCountry: 'GH',
+    payoutCurrency: 'GHS',
+    methods: ['ewallet', 'bank'],
+    networks: {
+      ewallet: ['mtn_momo', 'telecel_cash', 'airteltigo_money'],
+      // GhIPSS Instant Pay is the interbank rail the wallets settle across.
+      bank: ['gip'],
+    },
+  },
+  'US-ZA': {
+    corridor: 'US-ZA',
+    destinationCountry: 'ZA',
+    payoutCurrency: 'ZAR',
+    methods: ['bank'],
+    networks: {
+      // PayShap is the instant low-value rail; EFT is the batch fallback.
+      bank: ['payshap', 'eft'],
+    },
+  },
+  'US-UG': {
+    corridor: 'US-UG',
+    destinationCountry: 'UG',
+    payoutCurrency: 'UGX',
+    methods: ['ewallet', 'bank'],
+    networks: {
+      ewallet: ['mtn_momo', 'airtel_money'],
+      bank: ['eft'],
+    },
+  },
+  'US-TZ': {
+    corridor: 'US-TZ',
+    destinationCountry: 'TZ',
+    payoutCurrency: 'TZS',
+    methods: ['ewallet', 'bank'],
+    networks: {
+      ewallet: ['mpesa', 'tigo_pesa', 'airtel_money'],
+      bank: ['tips'],
+    },
+  },
+
+  // ------------------------------------------------------------ South Asia
+  'US-IN': {
+    corridor: 'US-IN',
+    destinationCountry: 'IN',
+    payoutCurrency: 'INR',
+    methods: ['bank'],
+    networks: {
+      // UPI carries retail volume, IMPS is the 24/7 interbank rail beneath it,
+      // and NEFT is the batch fallback above UPI's per-transaction cap. India
+      // is a compliance question before it is an engineering one — see the
+      // inbound-remittance note in docs/REMITTANCE.md.
+      bank: ['upi', 'imps', 'neft'],
+    },
+  },
+  'US-PK': {
+    corridor: 'US-PK',
+    destinationCountry: 'PK',
+    payoutCurrency: 'PKR',
+    methods: ['bank', 'ewallet'],
+    networks: {
+      // Raast is the state instant rail; IBFT is the older interbank transfer.
+      bank: ['raast', 'ibft'],
+      ewallet: ['easypaisa', 'jazzcash'],
+    },
+  },
+  'US-BD': {
+    corridor: 'US-BD',
+    destinationCountry: 'BD',
+    payoutCurrency: 'BDT',
+    methods: ['ewallet', 'bank'],
+    networks: {
+      ewallet: ['bkash', 'nagad', 'rocket'],
+      bank: ['beftn', 'npsb'],
+    },
+  },
+  'US-LK': {
+    corridor: 'US-LK',
+    destinationCountry: 'LK',
+    payoutCurrency: 'LKR',
+    methods: ['bank'],
+    networks: {
+      bank: ['lankapay', 'ceft'],
+    },
+  },
+  'US-NP': {
+    corridor: 'US-NP',
+    destinationCountry: 'NP',
+    payoutCurrency: 'NPR',
+    methods: ['ewallet', 'bank'],
+    networks: {
+      ewallet: ['esewa', 'khalti'],
+      bank: ['connectips', 'fonepay'],
+    },
+  },
+
+  // -------------------------------------------------------- Southeast Asia
+  'US-ID': {
+    corridor: 'US-ID',
+    destinationCountry: 'ID',
+    payoutCurrency: 'IDR',
+    methods: ['bank', 'ewallet'],
+    networks: {
+      // BI-FAST is Bank Indonesia's instant rail; SKN is the batch clearing.
+      bank: ['bifast', 'skn'],
+      ewallet: ['gopay', 'ovo', 'dana', 'shopeepay'],
+    },
+  },
+  'US-TH': {
+    corridor: 'US-TH',
+    destinationCountry: 'TH',
+    payoutCurrency: 'THB',
+    methods: ['bank', 'ewallet'],
+    networks: {
+      // PromptPay resolves a national ID or phone number to an account, so a
+      // Thai recipient rarely needs to hand over bank details at all.
+      bank: ['promptpay'],
+      ewallet: ['truemoney'],
+    },
+  },
+  'US-MY': {
+    corridor: 'US-MY',
+    destinationCountry: 'MY',
+    payoutCurrency: 'MYR',
+    methods: ['bank', 'ewallet'],
+    networks: {
+      bank: ['duitnow', 'fpx'],
+      ewallet: ['touchngo', 'grabpay'],
+    },
+  },
+  'US-SG': {
+    corridor: 'US-SG',
+    destinationCountry: 'SG',
+    payoutCurrency: 'SGD',
+    methods: ['bank'],
+    networks: {
+      bank: ['paynow', 'fast'],
+    },
+    matureCorridor: true,
+  },
+
+  // ------------------------------------------- Middle East and North Africa
+  'US-AE': {
+    corridor: 'US-AE',
+    destinationCountry: 'AE',
+    payoutCurrency: 'AED',
+    methods: ['bank'],
+    networks: {
+      // Aani is the new instant rail; UAEFTS is the established interbank one.
+      bank: ['aani', 'uaefts'],
+    },
+    matureCorridor: true,
+  },
+  'US-SA': {
+    corridor: 'US-SA',
+    destinationCountry: 'SA',
+    payoutCurrency: 'SAR',
+    methods: ['bank'],
+    networks: {
+      bank: ['sarie', 'sadad'],
+    },
+    matureCorridor: true,
+  },
+  'US-TR': {
+    corridor: 'US-TR',
+    destinationCountry: 'TR',
+    payoutCurrency: 'TRY',
+    methods: ['bank', 'ewallet'],
+    networks: {
+      // FAST is Turkey's instant rail, EFT the older interbank transfer.
+      bank: ['fast', 'eft'],
+      ewallet: ['papara'],
+    },
+  },
+  'US-EG': {
+    corridor: 'US-EG',
+    destinationCountry: 'EG',
+    payoutCurrency: 'EGP',
+    methods: ['bank', 'ewallet'],
+    networks: {
+      bank: ['instapay', 'ach'],
+      ewallet: ['vodafone_cash', 'etisalat_cash'],
+    },
+    // The pound has repeatedly traded away from its official rate, so a partner
+    // pricing off the street looks mispriced against our reference. Same
+    // artefact as the naira: flag it rather than resolve it.
+    fxReferenceContested: true,
+  },
+
+  // ------------------------------------------------------------- Euro area
+  // Every euro corridor is the same two rails and differs only by the country
+  // the recipient banks in. SEPA Instant clears in seconds; plain SCT is the
+  // next-business-day fallback. Wise already moves USD→EUR for well under 1%,
+  // so all of these are mature: what we sell is settling from stablecoin in
+  // minutes, not a cheaper rate.
+  'US-DE': {
+    corridor: 'US-DE',
+    destinationCountry: 'DE',
+    payoutCurrency: 'EUR',
+    methods: ['bank'],
+    networks: { bank: ['sepa_instant', 'sepa'] },
+    matureCorridor: true,
+  },
+  'US-FR': {
+    corridor: 'US-FR',
+    destinationCountry: 'FR',
+    payoutCurrency: 'EUR',
+    methods: ['bank'],
+    networks: { bank: ['sepa_instant', 'sepa'] },
+    matureCorridor: true,
+  },
+  'US-ES': {
+    corridor: 'US-ES',
+    destinationCountry: 'ES',
+    payoutCurrency: 'EUR',
+    methods: ['bank'],
+    networks: { bank: ['sepa_instant', 'sepa'] },
+    matureCorridor: true,
+  },
+  'US-IT': {
+    corridor: 'US-IT',
+    destinationCountry: 'IT',
+    payoutCurrency: 'EUR',
+    methods: ['bank'],
+    networks: { bank: ['sepa_instant', 'sepa'] },
+    matureCorridor: true,
+  },
+  'US-NL': {
+    corridor: 'US-NL',
+    destinationCountry: 'NL',
+    payoutCurrency: 'EUR',
+    methods: ['bank'],
+    networks: { bank: ['sepa_instant', 'sepa'] },
+    matureCorridor: true,
+  },
+  'US-PT': {
+    corridor: 'US-PT',
+    destinationCountry: 'PT',
+    payoutCurrency: 'EUR',
+    methods: ['bank'],
+    networks: { bank: ['sepa_instant', 'sepa'] },
+    matureCorridor: true,
+  },
+
+  // -------------------------------------------------------- Eastern Europe
+  // In the EU or its payment area but outside the euro, so the payout lands in
+  // local currency and the FX leg is real rather than nominal.
+  'US-PL': {
+    corridor: 'US-PL',
+    destinationCountry: 'PL',
+    payoutCurrency: 'PLN',
+    methods: ['bank', 'ewallet'],
+    networks: {
+      bank: ['express_elixir', 'elixir'],
+      // BLIK is a phone-number transfer most Poles reach for ahead of an IBAN.
+      ewallet: ['blik'],
+    },
+  },
+  'US-RO': {
+    corridor: 'US-RO',
+    destinationCountry: 'RO',
+    payoutCurrency: 'RON',
+    methods: ['bank'],
+    networks: { bank: ['sent', 'sepa'] },
+  },
+  'US-UA': {
+    corridor: 'US-UA',
+    destinationCountry: 'UA',
+    payoutCurrency: 'UAH',
+    methods: ['bank'],
+    networks: {
+      bank: ['sep', 'privat24'],
+    },
+    // Capital controls hold an official rate the cash market does not honour,
+    // so the reference disagrees with what a partner can actually transact.
+    fxReferenceContested: true,
+  },
+  'US-CZ': {
+    corridor: 'US-CZ',
+    destinationCountry: 'CZ',
+    payoutCurrency: 'CZK',
+    methods: ['bank'],
+    networks: { bank: ['certis', 'sepa'] },
+  },
+  'US-HU': {
+    corridor: 'US-HU',
+    destinationCountry: 'HU',
+    payoutCurrency: 'HUF',
+    methods: ['bank'],
+    networks: { bank: ['afr', 'sepa'] },
+  },
+  'US-BG': {
+    corridor: 'US-BG',
+    destinationCountry: 'BG',
+    payoutCurrency: 'BGN',
+    methods: ['bank'],
+    networks: { bank: ['bisera', 'sepa'] },
+  },
+  'US-RS': {
+    corridor: 'US-RS',
+    destinationCountry: 'RS',
+    payoutCurrency: 'RSD',
+    methods: ['bank'],
+    networks: { bank: ['ips', 'sepa'] },
+  },
+
+  // --------------------------------------------------------------- Oceania
+  'US-AU': {
+    corridor: 'US-AU',
+    destinationCountry: 'AU',
+    payoutCurrency: 'AUD',
+    methods: ['bank'],
+    networks: {
+      // NPP clears in seconds and PayID addresses it by phone or email; BECS
+      // is the overnight batch rail.
+      bank: ['npp', 'payid', 'becs'],
+    },
+    matureCorridor: true,
+  },
+
+  // --------------------------------------------------------- South America
+  'US-BR': {
+    corridor: 'US-BR',
+    destinationCountry: 'BR',
+    payoutCurrency: 'BRL',
+    methods: ['bank'],
+    networks: {
+      // Pix is instant, free to the recipient and universal. There is no
+      // reason to offer a Brazilian recipient anything else.
+      bank: ['pix'],
+    },
+  },
+  'US-AR': {
+    corridor: 'US-AR',
+    destinationCountry: 'AR',
+    payoutCurrency: 'ARS',
+    methods: ['bank', 'ewallet'],
+    networks: {
+      bank: ['cvu', 'cbu'],
+      ewallet: ['mercadopago'],
+    },
+    // The sharpest case of this anywhere: Argentina's official and parallel
+    // rates have at times differed by more than half. A margin computed
+    // against the official reference here is not a number worth publishing.
+    fxReferenceContested: true,
+  },
+  'US-CO': {
+    corridor: 'US-CO',
+    destinationCountry: 'CO',
+    payoutCurrency: 'COP',
+    methods: ['bank', 'ewallet'],
+    networks: {
+      bank: ['pse', 'ach_co'],
+      ewallet: ['nequi', 'daviplata'],
+    },
+  },
+  'US-CL': {
+    corridor: 'US-CL',
+    destinationCountry: 'CL',
+    payoutCurrency: 'CLP',
+    methods: ['bank'],
+    networks: { bank: ['cce', 'khipu'] },
+  },
+  'US-PE': {
+    corridor: 'US-PE',
+    destinationCountry: 'PE',
+    payoutCurrency: 'PEN',
+    methods: ['bank', 'ewallet'],
+    networks: {
+      bank: ['cce'],
+      ewallet: ['yape', 'plin'],
+    },
   },
 };
 

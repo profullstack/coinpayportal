@@ -138,7 +138,63 @@ export function parseQuote(
 export class TransfiProvider implements RemittanceProvider {
   readonly id = 'transfi';
   readonly label = 'TransFi';
-  readonly corridors: Corridor[] = ['US-MX', 'US-PH', 'US-VN', 'US-IE'];
+  /**
+   * TransFi is the breadth partner: one API, one key, many countries. It is the
+   * only listed partner for most of Asia, Eastern Europe and South America, so
+   * a single missing key takes those corridors down together — which is why
+   * `/api/remittance/corridors` reports availability per corridor rather than
+   * letting the page assume a region is served.
+   *
+   * Coverage below is claimed from TransFi's published payout countries and has
+   * not been confirmed key-in-hand for every corridor. A corridor it turns out
+   * not to serve fails as an empty quote list, not as a wrong price, so the
+   * cost of listing one too many is a corridor that shows as unavailable.
+   */
+  readonly corridors: Corridor[] = [
+    // Latin America
+    'US-MX',
+    'US-BR',
+    'US-AR',
+    'US-CO',
+    'US-CL',
+    'US-PE',
+    // Southeast Asia
+    'US-PH',
+    'US-VN',
+    'US-ID',
+    'US-TH',
+    'US-MY',
+    'US-SG',
+    // South Asia
+    'US-IN',
+    'US-PK',
+    'US-BD',
+    'US-LK',
+    'US-NP',
+    // Middle East and North Africa
+    'US-AE',
+    'US-SA',
+    'US-TR',
+    'US-EG',
+    // Euro area
+    'US-IE',
+    'US-DE',
+    'US-FR',
+    'US-ES',
+    'US-IT',
+    'US-NL',
+    'US-PT',
+    // Eastern Europe
+    'US-PL',
+    'US-RO',
+    'US-UA',
+    'US-CZ',
+    'US-HU',
+    'US-BG',
+    'US-RS',
+    // Oceania
+    'US-AU',
+  ];
 
   private get apiKey(): string {
     return process.env.TRANSFI_API_KEY || '';
@@ -150,7 +206,10 @@ export class TransfiProvider implements RemittanceProvider {
 
   async quote(params: RemittanceQuoteParams, signal?: AbortSignal): Promise<RawRemittanceQuote[]> {
     const spec = corridorFor(params.destinationCountry);
-    if (!spec) return [];
+    // Also guard on our own corridor list: TransFi is listed for many
+    // countries, but a direct caller must not reach the API for one it does
+    // not serve.
+    if (!spec || !this.corridors.includes(spec.corridor)) return [];
 
     const query = new URLSearchParams({
       sendCurrency: 'USD',

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { YellowCardProvider, parseQuote } from './yellowcard';
+import { YellowCardProvider, parseQuote, signRequest } from './yellowcard';
 import type { RemittanceQuoteParams } from './types';
 
 global.fetch = vi.fn();
@@ -68,7 +68,11 @@ describe('YellowCardProvider', () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env = { ...originalEnv, YELLOWCARD_API_KEY: 'test-key' };
+    process.env = {
+      ...originalEnv,
+      YELLOWCARD_API_KEY: 'test-key',
+      YELLOWCARD_API_SECRET: 'test-secret',
+    };
   });
 
   afterEach(() => {
@@ -79,6 +83,32 @@ describe('YellowCardProvider', () => {
     process.env = { ...originalEnv };
     delete process.env.YELLOWCARD_API_KEY;
     expect(provider.isConfigured()).toBe(false);
+  });
+
+  it('needs the secret as well as the key', () => {
+    // Signing needs both. A key on its own would report Nigeria as available
+    // and then fail every quote against it.
+    expect(provider.isConfigured()).toBe(true);
+
+    delete process.env.YELLOWCARD_API_SECRET;
+    expect(provider.isConfigured()).toBe(false);
+  });
+
+  it('authenticates with YcHmacV1 and a timestamp, never a bearer token', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { localAmount: 1 } }),
+    } as unknown as Response);
+
+    await provider.quote(params);
+
+    const init = vi.mocked(fetch).mock.calls[0][1];
+    const headers = init!.headers as Record<string, string>;
+
+    expect(headers.Authorization).toMatch(/^YcHmacV1 test-key:/);
+    expect(headers.Authorization).not.toContain('Bearer');
+    // ISO8601, which is what their spec asks for rather than a Unix epoch.
+    expect(headers['X-YC-Timestamp']).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it('serves only Nigeria', () => {
@@ -106,5 +136,21 @@ describe('YellowCardProvider', () => {
     } as unknown as Response);
 
     await expect(provider.quote(params)).rejects.toThrow('Yellow Card API error 401');
+  });
+});
+
+describe('signRequest', () => {
+  it('is deterministic for the same request', () => {
+    const a = signRequest('k', 's', 'GET', '/business/quotes', '2026-09-06T00:00:00.000Z');
+    const b = signRequest('k', 's', 'GET', '/business/quotes', '2026-09-06T00:00:00.000Z');
+
+    expect(a.Authorization).toBe(b.Authorization);
+  });
+
+  it('changes when the path changes', () => {
+    const a = signRequest('k', 's', 'GET', '/business/quotes', '2026-09-06T00:00:00.000Z');
+    const b = signRequest('k', 's', 'GET', '/business/payments', '2026-09-06T00:00:00.000Z');
+
+    expect(a.Authorization).not.toBe(b.Authorization);
   });
 });

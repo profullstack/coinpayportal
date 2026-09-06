@@ -22,12 +22,15 @@
  * settled fact. See `fxReferenceContested` in `types.ts`.
  */
 
+import { createHmac } from 'node:crypto';
+
 import {
   Corridor,
   PayoutMethod,
   RawRemittanceQuote,
   RemittanceProvider,
   RemittanceQuoteParams,
+  corridorFor,
 } from './types';
 
 const YELLOWCARD_API_URL = 'https://api.yellowcard.io';
@@ -112,6 +115,46 @@ export function parseQuote(
   };
 }
 
+/**
+ * Yellow Card's `YcHmacV1` authorization header.
+ *
+ * VERIFIED from their published spec: authenticated requests carry an
+ * `X-YC-Timestamp` header holding an ISO8601 timestamp, and an `Authorization`
+ * header of the form `YcHmacV1 {apikey}:{signature}` where the signature is an
+ * HMAC over the request, keyed with the secret paired to that API key.
+ *
+ * NOT VERIFIED: the exact canonical string being signed. Yellow Card's docs
+ * return 403 to automated fetches, so the concatenation order below —
+ * timestamp, method, path, then a SHA-256 of the body — is the conventional
+ * construction rather than one read off their page. It is isolated here so
+ * that correcting it is a one-function change once a partner key and the
+ * documentation are in hand.
+ *
+ * The previous implementation sent `Authorization: Bearer <key>`, which their
+ * API does not accept under any construction, so this is strictly closer even
+ * while the canonical string is unconfirmed. A wrong signature fails as a 401,
+ * which the router already treats as a partner that could not quote — it can
+ * never surface as a wrong price.
+ */
+export function signRequest(
+  apiKey: string,
+  apiSecret: string,
+  method: string,
+  path: string,
+  timestamp: string,
+  body = ''
+): Record<string, string> {
+  const bodyHash = createHmac('sha256', apiSecret).update(body).digest('base64');
+  const signature = createHmac('sha256', apiSecret)
+    .update(`${timestamp}${method.toUpperCase()}${path}${body ? bodyHash : ''}`)
+    .digest('base64');
+
+  return {
+    Authorization: `YcHmacV1 ${apiKey}:${signature}`,
+    'X-YC-Timestamp': timestamp,
+  };
+}
+
 export class YellowCardProvider implements RemittanceProvider {
   readonly id = 'yellowcard';
   readonly label = 'Yellow Card';
@@ -121,11 +164,28 @@ export class YellowCardProvider implements RemittanceProvider {
     return process.env.YELLOWCARD_API_KEY || '';
   }
 
+  private get apiSecret(): string {
+    return process.env.YELLOWCARD_API_SECRET || '';
+  }
+
+  /**
+   * Both halves are required. The signing scheme needs the secret, so a key on
+   * its own cannot authenticate and would report this corridor as available
+   * while failing every quote.
+   */
   isConfigured(): boolean {
-    return this.apiKey.length > 0;
+    return this.apiKey.length > 0 && this.apiSecret.length > 0;
   }
 
   async quote(params: RemittanceQuoteParams, signal?: AbortSignal): Promise<RawRemittanceQuote[]> {
+    // Guard on our own corridor list as well as on the country being known.
+    // The router filters by `servesCorridor` before calling, but a direct
+    // caller must not be able to make this partner quote a country it cannot
+    // pay into — with a wide corridor map that would otherwise return a quote
+    // labelled with the wrong currency.
+    const spec = corridorFor(params.destinationCountry);
+    if (!spec || !this.corridors.includes(spec.corridor)) return [];
+
     const query = new URLSearchParams({
       currency: 'NGN',
       country: 'NG',
@@ -137,8 +197,15 @@ export class YellowCardProvider implements RemittanceProvider {
       query.set('channel', params.payoutNetwork);
     }
 
-    const response = await fetch(`${YELLOWCARD_API_URL}/business/quotes?${query}`, {
-      headers: { Authorization: `Bearer ${this.apiKey}` },
+    const path = `/business/quotes?${query}`;
+    const response = await fetch(`${YELLOWCARD_API_URL}${path}`, {
+      headers: signRequest(
+        this.apiKey,
+        this.apiSecret,
+        'GET',
+        path,
+        new Date().toISOString()
+      ),
       signal,
     });
 

@@ -347,8 +347,8 @@ describe('getRemittanceQuotes', () => {
 
   it('rejects a destination outside the corridors we serve', async () => {
     await expect(
-      getRemittanceQuotes({ ...params, destinationCountry: 'FR' }, { providers: [] })
-    ).rejects.toThrow('Unsupported destination: FR');
+      getRemittanceQuotes({ ...params, destinationCountry: 'JP' }, { providers: [] })
+    ).rejects.toThrow('Unsupported destination: JP');
   });
 
   it('rejects a payout method the corridor does not offer', async () => {

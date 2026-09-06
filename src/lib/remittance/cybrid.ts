@@ -24,6 +24,7 @@ import {
   RawRemittanceQuote,
   RemittanceProvider,
   RemittanceQuoteParams,
+  corridorFor,
 } from './types';
 
 const CYBRID_API_URL = 'https://bank.production.cybrid.app';
@@ -105,6 +106,14 @@ export class CybridProvider implements RemittanceProvider {
   }
 
   async quote(params: RemittanceQuoteParams, signal?: AbortSignal): Promise<RawRemittanceQuote[]> {
+    // Guard on our own corridor list as well as on the country being known.
+    // The router filters by `servesCorridor` before calling, but a direct
+    // caller must not be able to make this partner quote a country it cannot
+    // pay into — with a wide corridor map that would otherwise return a quote
+    // labelled with the wrong currency.
+    const spec = corridorFor(params.destinationCountry);
+    if (!spec || !this.corridors.includes(spec.corridor)) return [];
+
     const response = await fetch(`${CYBRID_API_URL}/api/quotes`, {
       method: 'POST',
       headers: {
