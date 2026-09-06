@@ -5,6 +5,30 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-09-05
+
+### Added
+- `coinpay finances` (aliases `coinpay money`, `coinpay tui`): a live terminal
+  dashboard built on `@profullstack/hqtui`. Six screens — Overview, Bank & Cards,
+  Ledger, Crypto, Cards, Invoices & Escrow — showing gross volume, commission
+  paid, processor fees, refunds, net earnings, bank assets and liabilities,
+  cashflow, credit-card balances from the SimpleFIN/Plaid feeds, the ledger,
+  crypto and card payment tables, invoices outstanding/overdue and escrow held.
+  Refreshes on a timer and subscribes to the payments SSE stream so crypto
+  payment events appear live. `s` syncs the bank feed on demand.
+- Plain-text `coinpay finances summary|accounts|ledger|connections|sync`
+  (`--json` on all of them) for scripts and for Node older than 22.6.
+- SDK `finances` module, also importable as `@profullstack/coinpay/finances`:
+  `getFinanceSummary`, `listFinanceAccounts`, `listFinanceTransactions`,
+  `listFinanceConnections`, `syncFinances`, `getDashboardStats`,
+  `getFinanceAnalytics`, `listCryptoPayments`, `listCardTransactions`,
+  `listCardPayouts`, the pure `buildFinanceSnapshot()`, `collectFinanceSnapshot()`
+  and `subscribeToPayments()` (SSE with reconnect).
+
+### Changed
+- New dependency `@profullstack/hqtui` (zero runtime deps of its own). The
+  dashboard needs Node 22.6+; every other command still runs on Node 20.
+
 ## [0.6.11] - 2026-03-19
 
 ### Added

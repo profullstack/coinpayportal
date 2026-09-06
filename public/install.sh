@@ -186,6 +186,9 @@ ensure_node_via_mise() {
         _major="$(echo "$_v" | cut -d. -f1)"
         if [ "${_major:-0}" -ge 18 ]; then
             ok "Node.js v$_v (system)"
+            if [ "${_major:-0}" -lt 22 ]; then
+                warn "\`coinpay finances\` (the live dashboard) needs Node 22.6+; every other command works on v$_v"
+            fi
             unset _v _major
             return 0
         fi
@@ -193,10 +196,10 @@ ensure_node_via_mise() {
     fi
 
     ensure_mise
-    info "installing Node.js 20 via mise"
+    info "installing Node.js 22 via mise"
     MISE_YES=1; export MISE_YES
-    mise install node@20    >/dev/null 2>&1 || warn "mise install node@20 had warnings"
-    mise use --global node@20 >/dev/null 2>&1 || warn "mise use --global node@20 had warnings"
+    mise install node@22    >/dev/null 2>&1 || warn "mise install node@22 had warnings"
+    mise use --global node@22 >/dev/null 2>&1 || warn "mise use --global node@22 had warnings"
 
     # Trust the config mise just wrote (it refuses to read untrusted
     # config.toml files by default — would break every later `node`/`npm`).

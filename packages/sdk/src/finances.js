@@ -346,7 +346,9 @@ export async function collectFinanceSnapshot(client, { days = 30, limit = 100, b
     analytics: () => getFinanceAnalytics(client, { period: periodForDays(days), businessId }),
     payments: () => listCryptoPayments(client, { limit, businessId, dateFrom: since }),
     cardTransactions: () => listCardTransactions(client, { limit, businessId, dateFrom: since }),
-    escrows: () => client.listEscrows({ limit }),
+    // Raw route on purpose: the SDK's listEscrows camel-cases fields and the
+    // snapshot reads the API's snake_case shape like every other source.
+    escrows: () => client.request(`/escrow${query({ limit })}`),
     invoices: () => client.request('/invoices'),
     payouts: () => listCardPayouts(client, { limit }),
   };
@@ -358,6 +360,13 @@ export async function collectFinanceSnapshot(client, { days = 30, limit = 100, b
     if (result.status === 'fulfilled') raw[names[i]] = result.value;
     else raw.errors[names[i]] = result.reason?.message || String(result.reason);
   });
+
+  // One failing source is a hole in the picture; every source failing means
+  // the API or the session is gone, and a page of zeros would be a lie.
+  if (Object.keys(raw.errors).length === names.length) {
+    const first = raw.errors[names[0]];
+    throw new Error(`Could not load finances: ${first}`);
+  }
 
   return buildFinanceSnapshot(raw, { days });
 }

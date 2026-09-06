@@ -690,6 +690,41 @@ coinpay webhook logs biz_123
 coinpay webhook test biz_123 --event payment.completed
 ```
 
+### Finances — your money in one place
+
+```bash
+coinpay finances                 # live dashboard (needs `coinpay login`)
+coinpay finances --days 90       # window for earnings / cashflow: 7, 30, 90, 365
+coinpay finances summary         # plain text, --json for machines
+coinpay finances accounts        # linked bank & credit-card accounts (SimpleFIN / Plaid)
+coinpay finances ledger --search anthropic --limit 20
+coinpay finances connections     # institutions and their last sync
+coinpay finances sync            # pull fresh balances (rate-limited by the bank bridge)
+```
+
+The dashboard has six screens (`1`–`6`, `Tab`): **Overview** (gross volume, crypto vs
+cards, commission paid, processor fees, refunds, net earnings, bank position, cashflow,
+invoices, escrow, payouts, a volume-vs-commission graph and a live feed), **Bank &
+Cards**, **Ledger**, **Crypto**, **Cards**, **Invoices & Escrow**. `r` refreshes, `s`
+syncs the bank feed, `w` cycles the window, `p` pauses, `?` shows help, `q` quits. It
+refreshes every 30 seconds (`--interval`) and listens to the payments event stream, so
+a crypto payment shows up the moment it is detected.
+
+It is built on [@profullstack/hqtui](https://hqtui.com) and needs Node 22.6+; the
+plain-text subcommands work on Node 20. Bank data needs the merchant session from
+`coinpay login` (business API keys are refused on purpose).
+
+From the SDK:
+
+```js
+import { CoinPayClient } from '@profullstack/coinpay';
+import { collectFinanceSnapshot } from '@profullstack/coinpay/finances';
+
+const client = new CoinPayClient({ apiKey: sessionToken });
+const snapshot = await collectFinanceSnapshot(client, { days: 30 });
+console.log(snapshot.earnings.netUsd, snapshot.bank.liabilities, snapshot.invoices.totals.overdue);
+```
+
 ---
 
 ## Webhook Integration

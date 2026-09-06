@@ -234,8 +234,8 @@ function overviewScreen(ui, state, theme) {
         { label: 'Escrow held', value: `${money(esc.heldUsd)}  (${esc.held})`, color: theme.info },
         { label: `Escrow released · ${win}`, value: `${money(esc.releasedUsd)}  (${esc.released})` },
         { label: `Escrow refunded · ${win}`, value: `${money(esc.refundedUsd)}  (${esc.refunded})`, color: esc.refunded ? theme.danger : theme.muted },
-        { label: 'Card payouts pending', value: money(s.payout.pendingUsd) },
-        { label: `Card payouts paid · ${win}`, value: money(s.payout.paidUsd), color: theme.success },
+        { label: 'Payouts pending', value: money(s.payout.pendingUsd) },
+        { label: `Payouts paid · ${win}`, value: money(s.payout.paidUsd), color: theme.success },
       ], { labelWidth: 22 });
     });
 
@@ -302,8 +302,8 @@ function bankScreen(ui, state, theme) {
         onScroll: (delta) => scrollPane(accounts, delta),
         onSelectRow: (row) => { accounts.selected = accounts.offset + row; },
         columns: [
-          { key: 'org_name', title: 'Institution', min: 10, render: (r) => r.org_name || '—', color: theme.muted },
-          { key: 'name', title: 'Account', min: 12 },
+          { key: 'org_name', title: 'Institution', width: 22, render: (r) => r.org_name || '—', color: theme.muted },
+          { key: 'name', title: 'Account', min: 14, max: 36 },
           { key: 'effective_kind', title: 'Kind', width: 10, color: (r) => (r.is_liability ? theme.danger : theme.success) },
           { key: 'display_balance', title: 'Balance', width: 13, align: 'right', render: (r) => money(r.display_balance ?? r.balance ?? 0, r.currency || cur), color: (r) => (r.is_liability ? theme.danger : theme.success) },
           { key: 'available_balance', title: 'Available', width: 12, align: 'right', render: (r) => (r.available_balance == null ? '—' : money(r.available_balance, r.currency || cur)), color: theme.muted },
@@ -312,7 +312,7 @@ function bankScreen(ui, state, theme) {
       });
     });
 
-    grid.column({ gap: 1 }, (col) => {
+    grid.cell({ gap: 1 }, (col) => {
       col.panel({ title: 'Owed by institution', size: Math.min(14, b.byInstitution.length + 3) }, (p) => {
         const rows = b.byInstitution.filter((i) => i.liabilities > 0 || i.assets > 0);
         const max = Math.max(1, ...rows.map((i) => Math.max(i.liabilities, i.assets)));
@@ -372,15 +372,15 @@ function ledgerScreen(ui, state, theme) {
         onSelectRow: (row) => { ledger.selected = ledger.offset + row; },
         columns: [
           { key: 'posted', title: 'Date', width: 10, render: (r) => shortDate(r.transacted_at || r.posted), color: theme.muted },
-          { key: 'account_name', title: 'Account', width: 20, render: (r) => `${r.org_name ? r.org_name.split(' ')[0] + ' ' : ''}${r.account_name}` },
-          { key: 'payee', title: 'Payee / description', min: 14, render: (r) => r.payee || r.description || r.memo || '—' },
+          { key: 'account_name', title: 'Account', width: 26, render: (r) => `${r.org_name ? r.org_name.split(' ')[0] + ' ' : ''}${r.account_name}` },
+          { key: 'payee', title: 'Payee / description', min: 14, max: 40, render: (r) => r.payee || r.description || r.memo || '—' },
           { key: 'category', title: 'Category', width: 14, render: (r) => r.category || '—', color: theme.muted },
           { key: 'pending', title: '', width: 1, render: (r) => (r.pending ? '•' : ''), color: theme.warning },
           { key: 'amount', title: 'Amount', width: 12, align: 'right', render: (r) => money(r.amount, r.currency || cur), color: (r) => signed(theme, r.amount) },
         ],
       });
     });
-    grid.column({ gap: 1 }, (col) => {
+    grid.cell({ gap: 1 }, (col) => {
       col.panel({ title: `Cashflow · ${state.days}d`, size: 7 }, (p) => {
         p.keyValues([
           { label: 'In', value: money(b.cashflow.moneyIn, cur), color: theme.success },
@@ -421,7 +421,7 @@ function cryptoScreen(ui, state, theme) {
         onSelectRow: (row) => { payments.selected = payments.offset + row; },
         columns: [
           { key: 'created_at', title: 'When', width: 11, render: (r) => shortDateTime(r.created_at), color: theme.muted },
-          { key: 'business_name', title: 'Business', min: 10, render: (r) => r.business_name || shortId(r.business_id) },
+          { key: 'business_name', title: 'Business', min: 10, max: 28, render: (r) => r.business_name || shortId(r.business_id) },
           { key: 'currency', title: 'Chain', width: 9 },
           { key: 'amount_usd', title: 'USD', width: 10, align: 'right', render: (r) => money(r.amount_usd) },
           { key: 'amount_crypto', title: 'Crypto', width: 13, align: 'right', render: (r) => String(num(r.amount_crypto).toFixed(6)), color: theme.muted },
@@ -431,7 +431,7 @@ function cryptoScreen(ui, state, theme) {
         ],
       });
     });
-    grid.column({ gap: 1 }, (col) => {
+    grid.cell({ gap: 1 }, (col) => {
       col.panel({ title: 'Totals', size: 9 }, (p) => {
         p.keyValues([
           { label: 'Volume', value: money(s.earnings.cryptoVolumeUsd), color: theme.primary },
@@ -472,17 +472,17 @@ function cardsScreen(ui, state, theme) {
         onSelectRow: (row) => { cards.selected = cards.offset + row; },
         columns: [
           { key: 'created_at', title: 'When', width: 11, render: (r) => shortDateTime(r.created_at), color: theme.muted },
-          { key: 'business_name', title: 'Business', min: 10, render: (r) => r.business_name || shortId(r.business_id) },
-          { key: 'customer_email', title: 'Customer', min: 10, render: (r) => r.customer_name || r.customer_email || '—', color: theme.muted },
+          { key: 'business_name', title: 'Business', min: 10, max: 26, render: (r) => r.business_name || shortId(r.business_id) },
+          { key: 'customer_email', title: 'Customer', min: 10, max: 26, render: (r) => r.customer_name || r.customer_email || '—', color: theme.muted },
           { key: 'amount_cents', title: 'Amount', width: 10, align: 'right', render: (r) => money(num(r.amount_cents) / 100, (r.currency || 'usd').toUpperCase()) },
           { key: 'platform_fee_amount', title: 'Commission', width: 10, align: 'right', render: (r) => money(num(r.platform_fee_amount) / 100), color: theme.warning },
           { key: 'stripe_fee_amount', title: 'Proc fee', width: 9, align: 'right', render: (r) => money(num(r.stripe_fee_amount) / 100), color: theme.muted },
           { key: 'net_to_merchant', title: 'Net', width: 10, align: 'right', render: (r) => money(num(r.net_to_merchant) / 100), color: theme.success },
-          { key: 'status', title: 'Status', width: 10, color: (r) => statusColor(theme, r.status) },
+          { key: 'status', title: 'Status', width: 11, color: (r) => statusColor(theme, r.status) },
         ],
       });
     });
-    grid.column({ gap: 1 }, (col) => {
+    grid.cell({ gap: 1 }, (col) => {
       col.panel({ title: 'Totals' }, (p) => {
         p.keyValues([
           { label: 'Volume', value: money(s.earnings.cardVolumeUsd), color: theme.primary },
@@ -505,57 +505,58 @@ function invoicesScreen(ui, state, theme) {
   const s = state.snapshot;
   const invoices = s.invoices.rows;
   const escrows = s.recent.escrows;
-  ui.grid({ rows: ['1fr', '1fr'], gap: 1 }, (grid) => {
-    grid.panel({
-      title: `Invoices (${invoices.length})`,
-      subtitle: `outstanding ${money(s.invoices.totals.outstanding)} · overdue ${money(s.invoices.totals.overdue)} · paid ${money(s.invoices.totals.paid)}`,
-    }, (p) => {
-      if (!invoices.length) { p.text('No invoices.', { fg: theme.muted }); return; }
-      const inv = pane(state, 'invoices', invoices.length);
-      p.table({
-        rows: invoices,
-        selected: inv.selected,
-        offset: inv.offset,
-        followSelection: true,
-        scrollbar: true,
-        onScroll: (delta) => scrollPane(inv, delta),
-        onSelectRow: (row) => { inv.selected = inv.offset + row; },
-        columns: [
-          { key: 'invoice_number', title: 'No.', width: 9 },
-          { key: 'clients', title: 'Client', min: 10, render: (r) => r.clients?.name || r.clients?.email || '—' },
-          { key: 'businesses', title: 'Business', min: 10, render: (r) => r.businesses?.name || '—', color: theme.muted },
-          { key: 'amount', title: 'Amount', width: 11, align: 'right', render: (r) => money(r.amount, r.currency || 'USD') },
-          { key: 'status', title: 'Status', width: 10, color: (r) => statusColor(theme, r.status) },
-          { key: 'due_date', title: 'Due', width: 10, render: (r) => shortDate(r.due_date), color: (r) => (r.due_date && r.status !== 'paid' && new Date(r.due_date) < new Date() ? theme.danger : theme.muted) },
-          { key: 'paid_at', title: 'Paid', width: 10, render: (r) => shortDate(r.paid_at), color: theme.success },
-        ],
-      });
+  ui.panel({
+    title: `Invoices (${invoices.length})`,
+    subtitle: `outstanding ${money(s.invoices.totals.outstanding)} · overdue ${money(s.invoices.totals.overdue)} · paid ${money(s.invoices.totals.paid)}`,
+    size: '55%',
+  }, (p) => {
+    if (!invoices.length) { p.text('No invoices.', { fg: theme.muted }); return; }
+    const inv = pane(state, 'invoices', invoices.length);
+    p.table({
+      rows: invoices,
+      selected: inv.selected,
+      offset: inv.offset,
+      followSelection: true,
+      scrollbar: true,
+      onScroll: (delta) => scrollPane(inv, delta),
+      onSelectRow: (row) => { inv.selected = inv.offset + row; },
+      columns: [
+        { key: 'invoice_number', title: 'No.', width: 9 },
+        { key: 'clients', title: 'Client', min: 10, max: 28, render: (r) => r.clients?.name || r.clients?.email || '—' },
+        { key: 'businesses', title: 'Business', min: 10, max: 26, render: (r) => r.businesses?.name || '—', color: theme.muted },
+        { key: 'amount', title: 'Amount', width: 11, align: 'right', render: (r) => money(r.amount, r.currency || 'USD') },
+        { key: 'status', title: 'Status', width: 10, color: (r) => statusColor(theme, r.status) },
+        { key: 'due_date', title: 'Due', width: 10, render: (r) => shortDate(r.due_date), color: (r) => (r.due_date && r.status !== 'paid' && new Date(r.due_date) < new Date() ? theme.danger : theme.muted) },
+        { key: 'paid_at', title: 'Paid', width: 10, render: (r) => shortDate(r.paid_at), color: theme.success },
+        { key: 'crypto_currency', title: 'Settles in', width: 10, render: (r) => r.settlement_method || r.crypto_currency || '—', color: theme.muted },
+      ],
     });
-    grid.panel({
-      title: `Escrow (${escrows.length})`,
-      subtitle: `held ${money(s.escrow.heldUsd)} · released ${money(s.escrow.releasedUsd)} · refunded ${money(s.escrow.refundedUsd)}`,
-    }, (p) => {
-      if (!escrows.length) { p.text('No escrows.', { fg: theme.muted }); return; }
-      const esc = pane(state, 'escrows', escrows.length);
-      p.table({
-        rows: escrows,
-        selected: esc.selected,
-        offset: esc.offset,
-        followSelection: true,
-        scrollbar: true,
-        onScroll: (delta) => scrollPane(esc, delta),
-        onSelectRow: (row) => { esc.selected = esc.offset + row; },
-        columns: [
-          { key: 'created_at', title: 'Created', width: 10, render: (r) => shortDate(r.created_at), color: theme.muted },
-          { key: 'chain', title: 'Chain', width: 6 },
-          { key: 'amount_usd', title: 'USD', width: 10, align: 'right', render: (r) => money(r.amount_usd) },
-          { key: 'amount', title: 'Amount', width: 13, align: 'right', render: (r) => num(r.amount).toFixed(6), color: theme.muted },
-          { key: 'fee_amount', title: 'Fee', width: 8, align: 'right', render: (r) => (r.fee_tx_hash ? money((num(r.fee_amount) / Math.max(num(r.amount), 1e-12)) * num(r.amount_usd)) : '—'), color: theme.warning },
-          { key: 'status', title: 'Status', width: 10, color: (r) => statusColor(theme, r.status) },
-          { key: 'metadata', title: 'Description', min: 10, render: (r) => String(r.metadata?.description || r.beneficiary_email || '').slice(0, 60), color: theme.muted },
-          { key: 'settled_at', title: 'Settled', width: 10, render: (r) => shortDate(r.settled_at || r.released_at || r.refunded_at), color: theme.muted },
-        ],
-      });
+  });
+  ui.spacer(1);
+  ui.panel({
+    title: `Escrow (${escrows.length})`,
+    subtitle: `held ${money(s.escrow.heldUsd)} · released ${money(s.escrow.releasedUsd)} · refunded ${money(s.escrow.refundedUsd)}`,
+  }, (p) => {
+    if (!escrows.length) { p.text('No escrows.', { fg: theme.muted }); return; }
+    const esc = pane(state, 'escrows', escrows.length);
+    p.table({
+      rows: escrows,
+      selected: esc.selected,
+      offset: esc.offset,
+      followSelection: true,
+      scrollbar: true,
+      onScroll: (delta) => scrollPane(esc, delta),
+      onSelectRow: (row) => { esc.selected = esc.offset + row; },
+      columns: [
+        { key: 'created_at', title: 'Created', width: 10, render: (r) => shortDate(r.created_at), color: theme.muted },
+        { key: 'chain', title: 'Chain', width: 9 },
+        { key: 'amount_usd', title: 'USD', width: 10, align: 'right', render: (r) => money(r.amount_usd) },
+        { key: 'amount', title: 'Amount', width: 13, align: 'right', render: (r) => num(r.amount).toFixed(6), color: theme.muted },
+        { key: 'fee_amount', title: 'Fee', width: 8, align: 'right', render: (r) => (r.fee_tx_hash ? money((num(r.fee_amount) / Math.max(num(r.amount), 1e-12)) * num(r.amount_usd)) : '—'), color: theme.warning },
+        { key: 'status', title: 'Status', width: 10, color: (r) => statusColor(theme, r.status) },
+        { key: 'metadata', title: 'Description', min: 10, max: 50, render: (r) => String(r.metadata?.description || r.beneficiary_email || '').slice(0, 60), color: theme.muted },
+        { key: 'settled_at', title: 'Settled', width: 10, render: (r) => shortDate(r.settled_at || r.released_at || r.refunded_at), color: theme.muted },
+      ],
     });
   });
 }
@@ -804,8 +805,8 @@ export async function runFinancesTui({ client, baseUrl, token, days = 30, interv
     if (state.showHelp) {
       ui.modal({
         title: 'CoinPay Finances — Help',
-        width: 64,
-        height: 17,
+        width: 66,
+        height: 20,
         message:
           '1-6, Tab, ←/→ switch screens.\n' +
           'r refreshes now; refresh also runs every ' + Math.max(5, interval) + 's.\n' +
