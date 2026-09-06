@@ -30,14 +30,12 @@ import { getConfiguredProviders, getProviderById } from '@/lib/onramp/providers'
 import {
   ONRAMP_SUPPORTED_ASSETS,
   OnrampPaymentMethod,
+  addressFormatChain,
   isOnrampSupported,
   settlementChain,
 } from '@/lib/onramp/types';
 import { validateAddress } from '@/lib/blockchain/wallets';
 import type { BlockchainType } from '@/lib/blockchain/providers';
-
-/** Chains `validateAddress` can actually judge. Anything else it returns false for. */
-const VALIDATABLE_CHAINS = new Set(['BTC', 'BCH', 'ETH', 'POL', 'SOL']);
 
 export async function POST(request: NextRequest) {
   try {
@@ -87,14 +85,16 @@ export async function POST(request: NextRequest) {
     // A purchase delivered to a wrong-chain address is unrecoverable, and the
     // ramp will not catch it. Check where we can; where the validator has no
     // opinion, do not invent one and reject a perfectly good address.
-    const chain = settlementChain(asset);
-    if (chain && VALIDATABLE_CHAINS.has(chain)) {
-      if (!validateAddress(walletAddress, chain as BlockchainType)) {
-        return NextResponse.json(
-          { error: `Invalid ${chain} address for ${asset}` },
-          { status: 400 }
-        );
-      }
+    // Validate against the chain whose address *format* applies, which on an
+    // EVM L2 is Ethereum's rather than the L2's own. A null means we have no
+    // validator for it and the address is taken on trust. The message names
+    // the settlement chain, because that is the one the buyer chose.
+    const format = addressFormatChain(asset);
+    if (format && !validateAddress(walletAddress, format as BlockchainType)) {
+      return NextResponse.json(
+        { error: `Invalid ${settlementChain(asset)} address for ${asset}` },
+        { status: 400 }
+      );
     }
 
     const configured = getConfiguredProviders();

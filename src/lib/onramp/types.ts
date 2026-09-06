@@ -196,6 +196,11 @@ export const ONRAMP_ASSET_MAP: Record<string, { asset: string; network: string }
   USDC_ETH: { asset: 'usdc', network: 'ethereum' },
   USDC_POL: { asset: 'usdc', network: 'polygon' },
   USDC_SOL: { asset: 'usdc', network: 'solana' },
+  // Base is where x402 settles, so it is the one chain an agent wallet must be
+  // fundable on. The rest of the codebase has known USDC_BASE since the x402
+  // work; this module was the only place still missing it, which meant the
+  // chain our own machine payments run on could not be bought into at all.
+  USDC_BASE: { asset: 'usdc', network: 'base' },
 };
 
 /** Assets we can deliver an on-ramp purchase into. */
@@ -224,15 +229,50 @@ const NETWORK_TO_CHAIN: Record<string, string> = {
   dogecoin: 'DOGE',
   ripple: 'XRP',
   cardano: 'ADA',
+  base: 'BASE',
+};
+
+/**
+ * The chains whose address format `validateAddress` can actually judge.
+ *
+ * Anything outside this set has no validator, so a destination on it is
+ * accepted unchecked.
+ */
+const ADDRESS_FORMAT_OF: Record<string, string> = {
+  BTC: 'BTC',
+  BCH: 'BCH',
+  ETH: 'ETH',
+  POL: 'POL',
+  SOL: 'SOL',
+  // Base is an EVM chain: its addresses *are* Ethereum addresses, so ETH is
+  // the right validator rather than no validator. Without this line a Base
+  // purchase would skip validation altogether and a Solana address would sail
+  // through into a flow that can never deliver to it.
+  BASE: 'ETH',
 };
 
 /**
  * The chain an asset actually settles on — `USDC_POL` settles on POL, not USDC.
  *
- * Needed to validate a destination address: a Polygon USDC purchase sent to a
- * Solana address is unrecoverable, and the ramp will not check for us.
+ * This is the truthful answer, and what to show a user or record on an order.
+ * For deciding how to validate a destination address, use
+ * {@link addressFormatChain} instead: those differ on EVM L2s, where the
+ * settlement chain is Base but the address format is Ethereum's.
  */
 export function settlementChain(cryptoAsset: string): string | null {
   const mapping = ONRAMP_ASSET_MAP[cryptoAsset];
   return mapping ? NETWORK_TO_CHAIN[mapping.network] ?? null : null;
+}
+
+/**
+ * The chain whose address format a destination must satisfy, or null when we
+ * have no validator for it.
+ *
+ * A Polygon USDC purchase sent to a Solana address is unrecoverable and the
+ * ramp will not check for us, so this is the last line of defence before a
+ * user's money leaves for an address that can never receive it.
+ */
+export function addressFormatChain(cryptoAsset: string): string | null {
+  const chain = settlementChain(cryptoAsset);
+  return chain ? ADDRESS_FORMAT_OF[chain] ?? null : null;
 }

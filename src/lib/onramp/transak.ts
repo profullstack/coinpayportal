@@ -56,6 +56,7 @@ const TRANSAK_NETWORK: Record<string, string> = {
   dogecoin: 'mainnet',
   ripple: 'mainnet',
   cardano: 'mainnet',
+  base: 'base',
 };
 
 const PAYMENT_METHOD_FROM_TRANSAK: Record<string, OnrampPaymentMethod> = {
