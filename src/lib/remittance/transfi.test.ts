@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TransfiProvider, parseQuote } from './transfi';
+import { TransfiProvider, parseQuote , authHeader } from './transfi';
 import type { RemittanceQuoteParams } from './types';
 
 global.fetch = vi.fn();
@@ -96,7 +96,11 @@ describe('TransfiProvider', () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env = { ...originalEnv, TRANSFI_API_KEY: 'test-key' };
+    process.env = {
+      ...originalEnv,
+      TRANSFI_API_KEY: 'test-key',
+      TRANSFI_API_SECRET: 'test-secret',
+    };
   });
 
   afterEach(() => {
@@ -106,6 +110,15 @@ describe('TransfiProvider', () => {
   it('is unconfigured without a key', () => {
     process.env = { ...originalEnv };
     delete process.env.TRANSFI_API_KEY;
+    expect(provider.isConfigured()).toBe(false);
+  });
+
+  it('needs the secret as well as the key', () => {
+    // Basic auth needs both halves. A key on its own would report all 37 of
+    // these corridors as available and then fail every quote against them.
+    expect(provider.isConfigured()).toBe(true);
+
+    delete process.env.TRANSFI_API_SECRET;
     expect(provider.isConfigured()).toBe(false);
   });
 
@@ -149,7 +162,11 @@ describe('TransfiProvider', () => {
     await provider.quote(params);
 
     const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
-    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-key');
+    // Basic over key:secret. This previously asserted a bearer token, which
+    // TransFi does not accept — the test agreed with the bug.
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      authHeader('test-key', 'test-secret')
+    );
   });
 
   it('surfaces an API error rather than returning an empty ranking', async () => {
@@ -165,5 +182,27 @@ describe('TransfiProvider', () => {
   it('returns nothing for a destination outside our corridors', async () => {
     expect(await provider.quote({ ...params, destinationCountry: 'JP' })).toEqual([]);
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('TransFi authentication', () => {
+  it('is Basic over apiKey:apiSecret, never a bearer token', () => {
+    // This adapter shipped sending `Bearer <key>`, which TransFi does not
+    // accept under any construction — every request would have 401'd the moment
+    // a real key was set, and that 401 is indistinguishable from an expired
+    // credential. Pinned to the exact bytes so it cannot regress again.
+    expect(authHeader('user', 'pass')).toBe(`Basic ${Buffer.from('user:pass').toString('base64')}`);
+    expect(authHeader('user', 'pass')).not.toContain('Bearer');
+  });
+
+  it('keeps a colon in the secret intact', () => {
+    // Only the first colon separates the pair; a secret containing one must
+    // survive the round trip.
+    const decoded = Buffer.from(
+      authHeader('user', 'pa:ss').replace('Basic ', ''),
+      'base64'
+    ).toString();
+
+    expect(decoded).toBe('user:pa:ss');
   });
 });

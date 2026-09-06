@@ -47,7 +47,7 @@ Measured against that, a live Bitso quote today is **1000 USDC → ~16,929 MXN a
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `TRANSFI_API_KEY` | for most of the map | The breadth partner: 37 corridors across Asia, MENA, Europe and South America. One missing key takes all of them down together |
+| `TRANSFI_API_KEY` / `TRANSFI_API_SECRET` | for most of the map | The breadth partner: 37 corridors across Asia, MENA, Europe and South America. One missing key takes all of them down together |
 | `BITNOB_CLIENT_ID` / `BITNOB_CLIENT_SECRET` | for Africa | Six corridors — NG, KE, GH, ZA, UG, TZ. Both halves are required; signing needs the secret |
 | `YELLOWCARD_API_KEY` / `YELLOWCARD_API_SECRET` | second partner for US→NG | Stablecoin into NGN over NIP. Both halves required |
 | `CYBRID_API_KEY` | for US→CA | Stablecoin into CAD over Interac or EFT |
@@ -55,6 +55,7 @@ Measured against that, a live Bitso quote today is **1000 USDC → ~16,929 MXN a
 | `BITSO_FEE_PCT` | no | Commercial rate, default `0.5` |
 | `BITSO_FEE_FIXED_USD` | no | Default `0` |
 | `BITSO_NETWORK_FEE_USD` | no | Default `0.5` |
+| `TRANSFI_ENVIRONMENT` | no | `sandbox` to hit api-sandbox.transfi.com; sandbox and production credentials are separate pairs |
 | `REMITTANCE_ENABLE_STUB` | dev only | `1` enables synthetic quotes; ignored in production |
 
 Keys belong in the `coinpayportal--prod` logicsrc vault and on the Railway

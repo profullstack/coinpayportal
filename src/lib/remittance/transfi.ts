@@ -25,7 +25,29 @@ import {
   corridorFor,
 } from './types';
 
-const TRANSFI_API_URL = 'https://api.transfi.com';
+const TRANSFI_API_URL = {
+  sandbox: 'https://api-sandbox.transfi.com',
+  production: 'https://api.transfi.com',
+} as const;
+
+/**
+ * TransFi's `Basic` authorization header.
+ *
+ * Base64 of `apiKey:apiSecret`, where the key is the username half of the pair
+ * and the secret is the password half. Both come from
+ * displai.transfi.com → Settings → API Credentials, and sandbox and production
+ * issue *separate* pairs.
+ *
+ * Exported so a test can assert the exact bytes. This adapter previously sent
+ * `Authorization: Bearer <key>`, which TransFi does not accept under any
+ * construction — it would have failed every request the moment a real key was
+ * configured, and the resulting 401 is indistinguishable from an expired
+ * credential, so the mistake would have survived a long time. The same class of
+ * bug was in the Yellow Card adapter.
+ */
+export function authHeader(apiKey: string, apiSecret: string): string {
+  return `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`;
+}
 
 /** Our payout methods mapped onto TransFi's, per corridor. */
 const METHOD_TO_TRANSFI: Record<PayoutMethod, string> = {
@@ -200,8 +222,26 @@ export class TransfiProvider implements RemittanceProvider {
     return process.env.TRANSFI_API_KEY || '';
   }
 
+  private get apiSecret(): string {
+    return process.env.TRANSFI_API_SECRET || '';
+  }
+
+  /** Sandbox and production credentials are separate; default to production. */
+  private get baseUrl(): string {
+    return process.env.TRANSFI_ENVIRONMENT === 'sandbox'
+      ? TRANSFI_API_URL.sandbox
+      : TRANSFI_API_URL.production;
+  }
+
+  /**
+   * Both halves are required.
+   *
+   * Basic auth needs the secret as well as the key, so a key on its own would
+   * report all 37 of these corridors as available and then fail every quote
+   * against them.
+   */
   isConfigured(): boolean {
-    return this.apiKey.length > 0;
+    return this.apiKey.length > 0 && this.apiSecret.length > 0;
   }
 
   async quote(params: RemittanceQuoteParams, signal?: AbortSignal): Promise<RawRemittanceQuote[]> {
@@ -225,8 +265,14 @@ export class TransfiProvider implements RemittanceProvider {
       query.set('payoutNetwork', params.payoutNetwork);
     }
 
-    const response = await fetch(`${TRANSFI_API_URL}/v1/payouts/quote?${query}`, {
-      headers: { Authorization: `Bearer ${this.apiKey}` },
+    // NOTE: the base URL and the auth scheme are verified against TransFi's
+    // published docs; this *path* is not. Their current reference documents
+    // `/v3/balance`, so `/v1/payouts/quote` may well be a stale version. It is
+    // left as-is rather than guessed at: a wrong path fails as a 404 that this
+    // adapter surfaces, whereas inventing one could silently hit a different
+    // endpoint. Confirm it against a sandbox key before trusting a quote.
+    const response = await fetch(`${this.baseUrl}/v1/payouts/quote?${query}`, {
+      headers: { Authorization: authHeader(this.apiKey, this.apiSecret) },
       signal,
     });
 
