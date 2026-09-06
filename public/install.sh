@@ -312,6 +312,31 @@ install_cli() {
     ( cd "$_src" && tar -cf - . ) | ( cd "$PKG_DIR.new" && tar -xf - )
     rm -rf "$_tmp"
 
+    # Drop devDependencies and scripts from the staged copy before installing.
+    #
+    # `--omit=dev` only decides what gets WRITTEN to node_modules; npm still
+    # resolves the dev tree to build its ideal tree, peer sets included. npm
+    # 10.9.8 crashes doing exactly that on vitest's peer graph:
+    #
+    #   TypeError: Cannot read properties of null (reading 'edgesOut')
+    #       at #loadPeerSet (@npmcli/arborist/lib/arborist/build-ideal-tree.js)
+    #
+    # npm 11 resolves the same tree fine, so this surfaced only for people on
+    # npm 10 and only once vitest's peers moved under a floating `^4.1.0`.
+    # This install is a runtime deployment and never runs the test suite, so
+    # the honest fix is to not declare development dependencies here at all.
+    # Removing `scripts` too keeps tarball lifecycle hooks from running.
+    if ! node -e '
+        const fs = require("fs");
+        const p = process.argv[1] + "/package.json";
+        const j = JSON.parse(fs.readFileSync(p, "utf8"));
+        delete j.devDependencies;
+        delete j.scripts;
+        fs.writeFileSync(p, JSON.stringify(j, null, 2) + "\n");
+    ' "$PKG_DIR.new" 2>/dev/null; then
+        warn "could not trim devDependencies; installing the full tree instead"
+    fi
+
     info "installing runtime dependencies (npm public registry — no auth)"
     if ! ( cd "$PKG_DIR.new" && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 ); then
         # Retry verbosely so the user sees the failure.
