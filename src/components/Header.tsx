@@ -64,10 +64,24 @@ export default function Header() {
     router.refresh();
   };
 
-  const PUBLIC_ROUTES = new Set(['/', '/web-wallet', '/docs', '/blog', '/pricing', '/did']);
+  // Routes a logged-out visitor may reach directly. Anything absent from this
+  // set is rewritten to /login by getNavHref below, so a public page that is
+  // missing here is worse than unlinked — it is linked to a login wall.
+  const PUBLIC_ROUTES = new Set([
+    '/',
+    '/web-wallet',
+    '/docs',
+    '/blog',
+    '/pricing',
+    '/did',
+    '/remittance',
+  ]);
 
   const navigation = [
     { name: 'Home', href: '/' },
+    // Quoting needs no account, so this sits in the public nav rather than
+    // behind the dashboard.
+    { name: 'Remittance', href: '/remittance' },
     { name: 'Wallet', href: '/web-wallet' },
     { name: 'API', href: '/docs' },
     { name: 'Blog', href: '/blog' },
@@ -79,6 +93,7 @@ export default function Header() {
 
   const loggedInNavigation = [
     { name: 'Dashboard', href: '/dashboard' },
+    { name: 'Remittance', href: '/remittance' },
     { name: 'Proposals', href: '/proposals' },
     { name: 'Invoices', href: '/invoices' },
     { name: 'Escrow', href: '/escrow' },
