@@ -309,6 +309,20 @@ install_cli() {
     ( cd "$_src" && tar -cf - . ) | ( cd "$PKG_DIR.new" && tar -xf - )
     rm -rf "$_tmp"
 
+    # npm builds the ideal tree from the whole manifest and only prunes
+    # afterwards, so it still resolves the peer graph of devDependencies under
+    # `--omit=dev`. A dev-only version skew — a test runner sitting a major
+    # behind one of its own plugins, say — therefore crashes the install of a
+    # handful of runtime packages that depend on none of it, with
+    # "Cannot read properties of null (reading 'edgesOut')" and no clue which
+    # dependency caused it (npm 10.9.x). Nothing installed here ever runs the
+    # test suite, so drop them from the staged manifest and resolution cannot
+    # see them at all. The lockfile goes with them, since it describes a tree
+    # that no longer matches.
+    node -e 'const f=require("fs"),p=process.argv[1]+"/package.json",m=JSON.parse(f.readFileSync(p,"utf8"));delete m.devDependencies;f.writeFileSync(p,JSON.stringify(m,null,2)+"\n")' "$PKG_DIR.new" \
+        || warn "could not strip devDependencies from the staged manifest; the install may fail on an unrelated dev-only conflict"
+    rm -f "$PKG_DIR.new/package-lock.json"
+
     info "installing runtime dependencies (npm public registry — no auth)"
     if ! ( cd "$PKG_DIR.new" && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 ); then
         # Retry verbosely so the user sees the failure.
