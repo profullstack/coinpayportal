@@ -31,6 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Built from about six months of history rather than the dashboard window,
   because a monthly charge is invisible in thirty days of rows, and averaged
   over the history that exists rather than the history requested.
+- `coinpay finances scope <account-id> <business|personal|clear>`, and a `Side`
+  column on the accounts table. Which set of books an account belongs to was a
+  guess from its name, which reads "Business Checking" correctly and is blind to
+  a personal card carrying company spend. The correction is now stored in
+  `finance_accounts.scope_override`, wins over the guess, and survives a re-sync
+  — the same contract as `kind_override`. An overridden account is marked with a
+  trailing `*`, so a wrong split is traceable to a guess rather than a decision.
 - Plain-text `coinpay finances summary|accounts|ledger|connections|sync`
   (`--json` on all of them) for scripts and for Node older than 22.6.
 - SDK `finances` module, also importable as `@profullstack/coinpay/finances`:

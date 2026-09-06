@@ -697,6 +697,7 @@ coinpay finances                 # live dashboard (needs `coinpay login`)
 coinpay finances --days 90       # window for earnings / cashflow: 7, 30, 90, 365
 coinpay finances summary         # plain text, --json for machines
 coinpay finances position        # debt vs income, credits vs debits (also: debt)
+coinpay finances scope <id> business   # put an account on the company's books
 coinpay finances accounts        # linked bank & credit-card accounts (SimpleFIN / Plaid)
 coinpay finances ledger --search anthropic --limit 20
 coinpay finances connections     # institutions and their last sync
@@ -717,6 +718,13 @@ a person: income against spending per month, total owed split into revolving and
 instalment, months to clear each balance at its current payment rate, debt-to-income,
 debt-service ratio, months of cover, card utilisation, the recurring bills it found with
 their next due date, and a business-versus-personal split of all of it.
+
+The business/personal split starts as a guess from the account name, which gets
+"Business Checking (4672)" right and cannot see a personal card carrying company
+spend. Correct it with `coinpay finances scope <account-id> business|personal`,
+or `clear` to hand it back to the guess. The correction is stored separately from
+the derived value, so a re-sync cannot clobber it, and corrected accounts carry a
+trailing `*` in the `Side` column.
 
 Two things about those numbers. Transfers and card payments are excluded from both
 income and spending — a feed holding both a checking account and the card it pays

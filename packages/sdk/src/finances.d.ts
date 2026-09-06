@@ -15,11 +15,15 @@ export interface FinanceAccount {
   balance_date: string | null;
   kind: AccountKind;
   kind_override: string | null;
+  /** Operator correction for which side of the books, or null for the guess. */
+  scope_override: string | null;
   is_hidden: boolean;
   last_seen_at: string;
   effective_kind: AccountKind;
   is_liability: boolean;
   display_balance: number | null;
+  /** `scope_override` when set, otherwise derived from the account name. */
+  effective_scope: AccountScope;
 }
 
 export interface FinanceTransaction {
@@ -86,6 +90,21 @@ export interface FinanceSeriesPoint {
 }
 
 export type AccountScope = 'business' | 'personal';
+
+export interface UpdateFinanceAccountInput {
+  /** Corrected account kind, or null to use the derived guess. */
+  kind?: string | null;
+  /** Which side of the books, or null to use the name-derived guess. */
+  scope?: AccountScope | null;
+  /** Drop a closed or duplicate account out of the totals. */
+  hidden?: boolean;
+}
+
+export function updateFinanceAccount(
+  client: CoinPayClient,
+  accountId: string,
+  input: UpdateFinanceAccountInput,
+): Promise<FinanceAccount>;
 export type RecurrenceCadence = 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'annual';
 
 /**

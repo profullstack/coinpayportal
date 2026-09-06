@@ -60,6 +60,12 @@ export type AccountScope = 'business' | 'personal';
 const BUSINESS_PATTERN =
   /\b(business|commercial|corporate|corp|company|co\.|llc|l\.l\.c|inc\b|incorporated|ltd|limited|merchant|payroll|vendor|operating|escrow)\b/i;
 
+export const ACCOUNT_SCOPES: AccountScope[] = ['business', 'personal'];
+
+export function isAccountScope(value: unknown): value is AccountScope {
+  return typeof value === 'string' && (ACCOUNT_SCOPES as string[]).includes(value);
+}
+
 export function inferAccountScope(
   name: string | null | undefined,
   orgName?: string | null,
@@ -68,6 +74,22 @@ export function inferAccountScope(
     if (haystack.trim() && BUSINESS_PATTERN.test(haystack)) return 'business';
   }
   return 'personal';
+}
+
+/**
+ * The scope actually in force: an operator override always beats the guess.
+ *
+ * Mirrors `effectiveKind`. The guess is right about an account named
+ * "Business Checking" and blind to a personal card carrying company spend, so
+ * the correction has to be stored and has to win.
+ */
+export function effectiveScope(row: {
+  name?: string | null;
+  org_name?: string | null;
+  scope_override?: string | null;
+}): AccountScope {
+  if (isAccountScope(row.scope_override)) return row.scope_override;
+  return inferAccountScope(row.name, row.org_name);
 }
 
 /** The account fields this module reads. Structural, so tests need no database. */
@@ -80,6 +102,8 @@ export interface PositionAccount {
   available_balance?: number | null;
   effective_kind: AccountKind;
   is_liability: boolean;
+  /** Operator correction; when set it decides the scope outright. */
+  scope_override?: string | null;
 }
 
 /** The transaction fields this module reads. */
@@ -372,9 +396,7 @@ export function buildPosition({
   // be arithmetic on incomparable units.
   const inScope = currency ? accounts.filter((a) => (a.currency || 'USD') === currency) : accounts;
   const accountById = new Map(inScope.map((a) => [a.id, a]));
-  const scopeOf = new Map<string, AccountScope>(
-    inScope.map((a) => [a.id, inferAccountScope(a.name, a.org_name)]),
-  );
+  const scopeOf = new Map<string, AccountScope>(inScope.map((a) => [a.id, effectiveScope(a)]));
 
   const rows = transactions
     .filter((t) => accountById.has(t.account_id))

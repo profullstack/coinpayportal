@@ -1,7 +1,13 @@
 import 'server-only';
 import { getSupabaseAdmin } from '../supabase/server';
 import { effectiveKind, isLiabilityKind, type AccountKind } from './classify';
-import { buildPosition, type Position, type PositionTransaction } from './position';
+import {
+  buildPosition,
+  effectiveScope,
+  type AccountScope,
+  type Position,
+  type PositionTransaction,
+} from './position';
 
 /**
  * Reading the finance tables.
@@ -52,6 +58,7 @@ export interface FinanceAccount {
   balance_date: string | null;
   kind: AccountKind;
   kind_override: string | null;
+  scope_override: string | null;
   is_hidden: boolean;
   last_seen_at: string;
 }
@@ -81,6 +88,8 @@ export interface AccountView extends FinanceAccount {
    * for money owed. Read alongside `is_liability` — never summed on its own.
    */
   display_balance: number | null;
+  /** `scope_override` when set, otherwise derived from the account name. */
+  effective_scope: AccountScope;
 }
 
 export interface CurrencyTotals {
@@ -175,6 +184,7 @@ export function toAccountView(row: FinanceAccount): AccountView {
     // so negate rather than abs — an overpaid card correctly shows as owing a
     // negative amount, which is true and visible.
     display_balance: balance === null ? null : liability ? -balance : balance,
+    effective_scope: effectiveScope(row),
   };
 }
 
@@ -208,7 +218,7 @@ export async function listAccounts(
   let query = supabase
     .from('finance_accounts')
     .select(
-      'id, connection_id, external_id, org_name, org_domain, name, currency, balance, available_balance, balance_date, kind, kind_override, is_hidden, last_seen_at',
+      'id, connection_id, external_id, org_name, org_domain, name, currency, balance, available_balance, balance_date, kind, kind_override, scope_override, is_hidden, last_seen_at',
     )
     .in('connection_id', connectionIds)
     .order('org_name', { ascending: true })
