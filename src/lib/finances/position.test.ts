@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 
 import {
   buildPosition,
+  effectiveScope,
   inferAccountScope,
+  isAccountScope,
   recurrenceKey,
   type PositionAccount,
   type PositionTransaction,
@@ -20,6 +22,7 @@ function account(partial: Partial<PositionAccount>): PositionAccount {
     available_balance: partial.available_balance ?? null,
     effective_kind: partial.effective_kind ?? 'checking',
     is_liability: partial.is_liability ?? false,
+    scope_override: partial.scope_override ?? null,
   };
 }
 
@@ -57,6 +60,39 @@ describe('inferAccountScope', () => {
   it('falls back to personal, because there is no positive personal signal', () => {
     expect(inferAccountScope('A L Checking (XXXX4989)', 'Bay Federal Credit Union')).toBe('personal');
     expect(inferAccountScope(null, null)).toBe('personal');
+  });
+});
+
+describe('effectiveScope', () => {
+  it('lets a stored override beat the name', () => {
+    // The case the name cannot see: a personal-looking card carrying company
+    // spend, and a business-named account that is really the owner's.
+    expect(effectiveScope({ name: 'Costco Anywhere Visa', scope_override: 'business' })).toBe('business');
+    expect(effectiveScope({ name: 'Business Checking (4672)', scope_override: 'personal' })).toBe('personal');
+  });
+
+  it('falls back to the guess when there is no override', () => {
+    expect(effectiveScope({ name: 'Business Checking (4672)', scope_override: null })).toBe('business');
+    expect(effectiveScope({ name: 'A L Checking' })).toBe('personal');
+  });
+
+  it('ignores a junk override rather than inventing a third set of books', () => {
+    expect(effectiveScope({ name: 'Business Checking', scope_override: 'corporate' })).toBe('business');
+    expect(effectiveScope({ name: 'A L Checking', scope_override: '' })).toBe('personal');
+  });
+
+  it('reads the institution when the account name is silent', () => {
+    expect(effectiveScope({ name: 'Operating', org_name: 'Mercury Business Inc' })).toBe('business');
+  });
+});
+
+describe('isAccountScope', () => {
+  it('accepts only the two sides', () => {
+    expect(isAccountScope('business')).toBe(true);
+    expect(isAccountScope('personal')).toBe(true);
+    expect(isAccountScope('corporate')).toBe(false);
+    expect(isAccountScope(null)).toBe(false);
+    expect(isAccountScope(undefined)).toBe(false);
   });
 });
 
@@ -415,6 +451,31 @@ describe('buildPosition — months and confidence', () => {
 });
 
 describe('buildPosition — business against personal', () => {
+  it('routes an account to the overridden side, not the guessed one', () => {
+    const p = buildPosition({
+      accounts: [
+        // Reads personal by name; the operator says it is the company card.
+        account({
+          id: 'card',
+          name: 'Costco Anywhere Visa (4294)',
+          effective_kind: 'credit',
+          is_liability: true,
+          balance: -5000,
+          scope_override: 'business',
+        }),
+      ],
+      transactions: [tx({ account_id: 'card', amount: -900, category: 'software' })],
+      lookbackDays: 30.44,
+      now: NOW,
+    });
+    const business = p.scopes.find((s) => s.scope === 'business');
+    expect(business?.debt).toBe(5000);
+    expect(business?.spending).toBe(900);
+    expect(p.scopes.find((s) => s.scope === 'personal')).toBeUndefined();
+    expect(p.debt.accounts[0].scope).toBe('business');
+  });
+
+
   it('splits flows and debt by the side each account sits on', () => {
     const p = buildPosition({
       accounts: [

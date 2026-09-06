@@ -312,6 +312,9 @@ function bankScreen(ui, state, theme) {
           { key: 'org_name', title: 'Institution', width: 22, render: (r) => r.org_name || '—', color: theme.muted },
           { key: 'name', title: 'Account', min: 14, max: 36 },
           { key: 'effective_kind', title: 'Kind', width: 10, color: (r) => (r.is_liability ? theme.danger : theme.success) },
+          // A trailing * marks a stored correction, so a wrong split is
+          // traceable to a guess rather than to someone's decision.
+          { key: 'effective_scope', title: 'Side', width: 10, render: (r) => `${r.effective_scope || '—'}${r.scope_override ? '*' : ''}`, color: (r) => (r.effective_scope === 'business' ? theme.info : theme.muted) },
           { key: 'display_balance', title: 'Balance', width: 13, align: 'right', render: (r) => money(r.display_balance ?? r.balance ?? 0, r.currency || cur), color: (r) => (r.is_liability ? theme.danger : theme.success) },
           { key: 'available_balance', title: 'Available', width: 12, align: 'right', render: (r) => (r.available_balance == null ? '—' : money(r.available_balance, r.currency || cur)), color: theme.muted },
           { key: 'balance_date', title: 'As of', width: 10, render: (r) => shortDate(r.balance_date), color: theme.muted },

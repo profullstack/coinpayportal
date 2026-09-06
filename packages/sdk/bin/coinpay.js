@@ -450,6 +450,8 @@ ${colors.cyan}Commands:${colors.reset}
     summary               Plain-text headline numbers (--json for machines)
     position              Debt vs income, credits vs debits, recurring bills
                             (also: coinpay finances debt)
+    scope <id> <side>     Put an account on the business or personal books
+                            (side: business | personal | clear)
     accounts              Linked bank and card accounts with balances
     ledger                Bank/card transactions (--limit, --search, --category, --account)
     connections           Linked institutions and their last sync
@@ -3486,7 +3488,7 @@ const MENU_COMMANDS = [
 const SUBCOMMANDS = {
   config: [['set-key', 'Set your API key'], ['set-url', 'Set custom API URL'], ['show', 'Show current configuration']],
   auth: [['register', 'Register new merchant account'], ['login', 'Login to merchant account'], ['me', 'Show current merchant info']],
-  finances: [['tui', 'Live dashboard (default)'], ['summary', 'Headline numbers as text'], ['position', 'Debt vs income, credits vs debits'], ['accounts', 'Bank & card accounts'], ['ledger', 'Bank/card transactions'], ['connections', 'Linked institutions'], ['sync', 'Pull fresh bank data']],
+  finances: [['tui', 'Live dashboard (default)'], ['summary', 'Headline numbers as text'], ['position', 'Debt vs income, credits vs debits'], ['scope', 'Set an account business or personal'], ['accounts', 'Bank & card accounts'], ['ledger', 'Bank/card transactions'], ['connections', 'Linked institutions'], ['sync', 'Pull fresh bank data']],
   payment: [['create', 'Create a new payment'], ['get', 'Get payment details <id>'], ['list', 'List payments'], ['qr', 'Get payment QR code <id>']],
   invoice: [['create', 'Create a draft invoice'], ['list', 'List invoices'], ['get', 'Get invoice details <id>'], ['update', 'Update a draft invoice <id>'], ['publish', 'Publish an invoice <id>'], ['send', 'Send an invoice <id>'], ['delete', 'Delete a draft invoice <id>']],
   tokens: [['list', 'List checkout tokens']],
@@ -4073,6 +4075,30 @@ async function handleFinances(subcommand, args, flags) {
       return;
     }
 
+    case 'scope': {
+      // Which set of books an account belongs to. The name-derived guess is
+      // right about "Business Checking" and blind to a personal card carrying
+      // company spend, so the correction is stored and always wins.
+      const { client } = financesClient();
+      const accountId = args[0];
+      const value = (args[1] || '').toLowerCase();
+      if (!accountId) {
+        print.error('Usage: coinpay finances scope <account-id> <business|personal|clear>  (ids: coinpay finances accounts)');
+        process.exit(1);
+      }
+      const scope = value === 'clear' || value === 'auto' || value === '' ? null : value;
+      if (scope !== null && scope !== 'business' && scope !== 'personal') {
+        print.error(`Unknown scope '${value}'. Use business, personal, or clear.`);
+        process.exit(1);
+      }
+      const account = await fin.updateFinanceAccount(client, accountId, { scope });
+      if (flags.json) { print.json({ account }); return; }
+      print.success(
+        `${account.name} → ${account.effective_scope}${scope === null ? ' (derived from the name again)' : ''}`,
+      );
+      return;
+    }
+
     case 'accounts': {
       const { client } = financesClient();
       const accounts = await fin.listFinanceAccounts(client, { includeHidden: Boolean(flags.hidden) });
@@ -4084,6 +4110,7 @@ async function handleFinances(subcommand, args, flags) {
         { title: 'Institution', render: (a) => a.org_name || '—' },
         { title: 'Account', render: (a) => a.name },
         { title: 'Kind', render: (a) => a.effective_kind || a.kind },
+        { title: 'Side', render: (a) => `${a.effective_scope || '—'}${a.scope_override ? '*' : ''}` },
         { title: 'Balance', align: 'right', render: (a) => money(a.display_balance ?? a.balance ?? 0, a.currency || 'USD') },
         { title: 'Available', align: 'right', render: (a) => (a.available_balance == null ? '—' : money(a.available_balance, a.currency || 'USD')) },
         { title: 'As of', render: (a) => shortDate(a.balance_date) },

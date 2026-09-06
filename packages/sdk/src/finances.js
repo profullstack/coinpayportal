@@ -69,6 +69,28 @@ export async function listFinanceTransactions(client, filters = {}) {
   );
 }
 
+/**
+ * Correct one account: which side of the books it is on, what kind it is, or
+ * whether it counts at all.
+ *
+ * Every field here is an operator correction stored beside the imported value,
+ * never over it, so the next sync re-deriving its guess cannot clobber the
+ * correction. Pass `null` for an override to hand the account back to the
+ * heuristic. Balances and transactions are deliberately not writable.
+ */
+export async function updateFinanceAccount(client, accountId, { kind, scope, hidden } = {}) {
+  const body = {};
+  if (kind !== undefined) body.kind_override = kind;
+  if (scope !== undefined) body.scope_override = scope;
+  if (hidden !== undefined) body.is_hidden = hidden;
+  if (Object.keys(body).length === 0) throw new Error('Nothing to update');
+  const data = await client.request(`/finances/accounts/${encodeURIComponent(accountId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+  return data.account;
+}
+
 /** Linked institutions and their last sync outcome. */
 export async function listFinanceConnections(client) {
   return client.request('/finances/connections');
