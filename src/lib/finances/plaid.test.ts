@@ -333,7 +333,7 @@ describe('finances Plaid provider', () => {
   });
 
   describe('link and exchange', () => {
-    it('asks for transactions in the US and identifies the user by merchant id', async () => {
+    it('asks for transactions and liabilities in the US, identifying the user by merchant id', async () => {
       vi.mocked(global.fetch).mockResolvedValueOnce(
         jsonResponse({ link_token: 'link-1', expiration: '2026-08-29T10:00:00Z' }),
       );
@@ -342,10 +342,38 @@ describe('finances Plaid provider', () => {
 
       const body = JSON.parse((vi.mocked(global.fetch).mock.calls[0][1] as RequestInit).body as string);
       expect(body).toMatchObject({
-        products: ['transactions'],
+        // Liabilities is the only source for a loan's payment schedule, and a
+        // product cannot be added to an item after it is linked.
+        products: ['transactions', 'liabilities'],
         country_codes: ['US'],
         user: { client_user_id: 'merchant-1' },
       });
+    });
+
+    it('honours PLAID_PRODUCTS for a deployment that will not pay for liabilities', async () => {
+      vi.stubEnv('PLAID_PRODUCTS', 'transactions');
+      vi.mocked(global.fetch).mockResolvedValueOnce(
+        jsonResponse({ link_token: 'link-1', expiration: '2026-08-29T10:00:00Z' }),
+      );
+
+      await createLinkToken({ clientUserId: 'merchant-1' });
+
+      const body = JSON.parse((vi.mocked(global.fetch).mock.calls[0][1] as RequestInit).body as string);
+      expect(body.products).toEqual(['transactions']);
+      vi.unstubAllEnvs();
+    });
+
+    it('falls back to the default when PLAID_PRODUCTS is blank rather than asking for nothing', async () => {
+      vi.stubEnv('PLAID_PRODUCTS', '  ,  ');
+      vi.mocked(global.fetch).mockResolvedValueOnce(
+        jsonResponse({ link_token: 'link-1', expiration: '2026-08-29T10:00:00Z' }),
+      );
+
+      await createLinkToken({ clientUserId: 'merchant-1' });
+
+      const body = JSON.parse((vi.mocked(global.fetch).mock.calls[0][1] as RequestInit).body as string);
+      expect(body.products).toEqual(['transactions', 'liabilities']);
+      vi.unstubAllEnvs();
     });
 
     it('keeps a completed link when the institution lookup fails', async () => {

@@ -370,6 +370,22 @@ export async function fetchPlaidAccountSet(
   };
 }
 
+/**
+ * Which Plaid products to request when linking.
+ *
+ * Defaults to transactions plus liabilities, because this is a debt-and-income
+ * dashboard and liabilities is the only source for a loan's payment schedule.
+ * `PLAID_PRODUCTS` overrides it as a comma-separated list, for deployments
+ * that would rather not pay for what they do not show.
+ */
+export function getProducts(): string[] {
+  const raw = (process.env.PLAID_PRODUCTS || '').trim();
+  if (!raw) return ['transactions', 'liabilities'];
+  const products = raw.split(',').map((p) => p.trim()).filter(Boolean);
+  if (products.length === 0) return ['transactions', 'liabilities'];
+  return products;
+}
+
 /** Create a short-lived token for Plaid Link, the client-side connect UI. */
 export async function createLinkToken(params: {
   /** Stable, non-PII id for the end user. The merchant id. */
@@ -382,9 +398,18 @@ export async function createLinkToken(params: {
     {
       client_name: config.clientName,
       user: { client_user_id: params.clientUserId },
-      // `transactions` covers cards too: a credit card arrives as an account of
-      // type `credit` on the same item, so no extra product is needed.
-      products: ['transactions'],
+      // `transactions` covers cards for *balances*: a credit card arrives as an
+      // account of type `credit` on the same item. It does not cover what a
+      // debt view actually needs — the lender's own next payment due date,
+      // last payment, APR and original principal live behind `liabilities`.
+      // Without it a car loan shows a balance and nothing else, and "when is
+      // the next payment due" can only be guessed from payment history.
+      //
+      // Products cannot be added to an item after it is linked, so leaving
+      // this out means re-linking every account later to get it back. Plaid
+      // bills liabilities separately, per account per month, so a deployment
+      // that only wants cashflow can drop it via PLAID_PRODUCTS.
+      products: getProducts(),
       country_codes: ['US'],
       language: 'en',
       ...(params.webhookUrl ? { webhook: params.webhookUrl } : {}),
