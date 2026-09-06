@@ -582,14 +582,21 @@ function positionScreen(ui, state, theme) {
   const cur = p0?.currency || s.bank.currency || 'USD';
 
   if (!p0) {
-    emptyPanel(
-      ui,
-      theme,
-      'Debt & income',
-      s.bank.connections.length
-        ? 'The summary source is unavailable, so debt and income cannot be computed. Press r to retry.'
-        : 'No bank linked yet. Connect one at coinpayportal.com/finances, then press s to sync.',
-    );
+    // Three different reasons, and saying the wrong one sends the reader to
+    // the wrong fix. No connection is a setup step; a failed summary is worth
+    // retrying; a summary that simply carries no `position` means the server
+    // predates this screen, which no amount of retrying will change.
+    let why;
+    if (!s.bank.connections.length) {
+      why = 'No bank linked yet. Connect one at coinpayportal.com/finances, then press s to sync.';
+    } else if (s.errors.summary) {
+      why = `The summary source failed (${s.errors.summary}), so debt and income cannot be computed. Press r to retry.`;
+    } else {
+      why =
+        'This CoinPay server does not report a debt-and-income position yet. ' +
+        'It arrives with the next deploy; every other screen works meanwhile.';
+    }
+    emptyPanel(ui, theme, 'Debt & income', why);
     return;
   }
 
