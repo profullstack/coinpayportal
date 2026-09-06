@@ -96,7 +96,12 @@ export async function POST(request: NextRequest) {
     // A handler that throws still returns 200 with the error on the ledger row:
     // a TransFi retry would hit the same bug and only delay the queue.
     processingError = err instanceof Error ? err.message.slice(0, 1000) : 'Unknown handler error';
-    console.error(`[TransFi] Handler for ${eventType} failed:`, err);
+    // Keep `eventType` an ARGUMENT, never part of the format string. It comes
+    // from the request body, and console.error treats its first argument as a
+    // format string — an eventType of "%s%s" would swallow `err` and garble the
+    // log line that is the only record of the failure. Do not "tidy" this back
+    // into a template literal (CodeQL js/tainted-format-string).
+    console.error('[TransFi] Handler failed for event type:', eventType, err);
   }
 
   await supabase
