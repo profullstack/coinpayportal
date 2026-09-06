@@ -39,6 +39,11 @@ import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { addressesEqual } from '@/lib/x402/address';
 import { evmChainId, isV2Payment } from '@/lib/x402/v2';
 import { EVM_NETWORKS, checkSchemeForNetwork } from '@/lib/x402/networks';
+import {
+  authoriseAgentSpend,
+  recordAgentSpend,
+  type AgentAuthorisation,
+} from '@/lib/agents/authorise';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -531,6 +536,10 @@ export async function POST(request: NextRequest) {
     // Route to the appropriate settlement method
     let result: { txHash: string; pending?: boolean; confirmed?: boolean; instant?: boolean; confirmations?: number };
 
+    // Set on the v2 path only, which is the only rail where refusing is still
+    // possible: every other one settles a transfer the payer already broadcast.
+    let agentCheck: AgentAuthorisation | null = null;
+
     try {
       if (isV2) {
         // v2: nothing has been broadcast yet. Settling IS the broadcast — the
@@ -545,6 +554,30 @@ export async function POST(request: NextRequest) {
           throw new Error('v2 settlement needs payload.authorization and payload.signature');
         }
 
+        // If the payer is a registered agent wallet, this is the last moment
+        // its spending limits can be enforced: nothing has moved yet, and the
+        // next line is the broadcast. Refusing here costs the payer nothing;
+        // refusing after it would be impossible.
+        agentCheck = await authoriseAgentSpend(supabase, {
+          payer: authorization.from,
+          amountUnits: expectedAmount,
+          network,
+          nonce: authorization.nonce,
+        });
+        if (!agentCheck.allowed) {
+          await releaseSettleClaim();
+          return NextResponse.json(
+            {
+              error: agentCheck.message,
+              reason: agentCheck.reason,
+              agent: { id: agentCheck.agentId, name: agentCheck.agentName },
+              limitUsd: agentCheck.limitUsd,
+              remainingUsd: agentCheck.remainingUsd,
+            },
+            { status: 403 }
+          );
+        }
+
         // Imported here rather than at module scope: this pulls in the gas
         // relayer and, through it, the system wallet, which drags ethers' `ws`
         // dependency into every consumer of this route.
@@ -557,6 +590,13 @@ export async function POST(request: NextRequest) {
           signature,
         });
         result = { txHash: settled.txHash, confirmed: true };
+
+        // Only now, with the transfer broadcast, does the spend count against
+        // the agent's allowance. Recording it earlier would let a failed
+        // broadcast burn an allowance the agent never got to use.
+        if (agentCheck.agentId) {
+          await recordAgentSpend(supabase, agentCheck, result.txHash);
+        }
       } else if (network === 'lightning') {
         // Lightning: funds already arrived at the merchant's node. Confirm our
         // own ledger says so rather than taking the payer's word.
