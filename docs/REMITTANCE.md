@@ -71,7 +71,7 @@ TransFi.
 | Region | Corridors | Partner |
 |---|---|---|
 | North America | MX, CA | Bitso, Cybrid |
-| Africa | NG, KE, GH, ZA, UG, TZ | Bitnob, and Yellow Card for NG |
+| Africa | NG, KE, GH, ZA, UG, TZ | Bitnob; TransFi for all but UG; Yellow Card for NG |
 | South Asia | IN, PK, BD, LK, NP | TransFi |
 | Southeast Asia | PH, VN, ID, TH, MY, SG | TransFi |
 | Middle East, North Africa | AE, SA, TR, EG | TransFi |

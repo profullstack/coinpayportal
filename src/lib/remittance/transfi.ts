@@ -173,6 +173,23 @@ export class TransfiProvider implements RemittanceProvider {
    * cost of listing one too many is a corridor that shows as unavailable.
    */
   readonly corridors: Corridor[] = [
+    // Africa
+    //
+    // TransFi publishes NGN payouts over OPay, PalmPay and bank transfer —
+    // the same rails modelled for US-NG — plus Ghana, Kenya, Tanzania and
+    // South Africa. These were previously left out on the assumption that
+    // Africa was Bitnob and Yellow Card's territory, which was wrong: it made
+    // Nigeria depend on the two partners with the slowest onboarding and left
+    // the corridor dark for anyone holding only a TransFi key.
+    //
+    // Overlap is the point. The router ranks on delivered local currency, so
+    // whichever partner is configured serves it, and if several are, the one
+    // that actually pays more wins.
+    'US-NG',
+    'US-GH',
+    'US-KE',
+    'US-TZ',
+    'US-ZA',
     // Latin America
     'US-MX',
     'US-BR',

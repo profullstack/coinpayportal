@@ -130,12 +130,21 @@ describe('TransfiProvider', () => {
     );
   });
 
-  it('leaves the African corridors to the partners licensed for them', () => {
-    // Bitnob and Yellow Card cover Africa. Listing them here would put TransFi
-    // in a ranking it cannot actually settle.
-    for (const corridor of ['US-NG', 'US-KE', 'US-GH', 'US-ZA', 'US-UG', 'US-TZ']) {
-      expect(provider.corridors).not.toContain(corridor);
+  it('serves the African corridors it publishes, Nigeria included', () => {
+    // This test previously asserted the opposite, on the assumption that Africa
+    // belonged to Bitnob and Yellow Card. TransFi publishes NGN payouts over
+    // OPay, PalmPay and bank transfer, so excluding it made Nigeria depend on
+    // the two slowest partners to onboard and kept the corridor dark for anyone
+    // holding only a TransFi key.
+    for (const corridor of ['US-NG', 'US-GH', 'US-KE', 'US-TZ', 'US-ZA']) {
+      expect(provider.corridors).toContain(corridor);
     }
+  });
+
+  it('leaves Uganda to Bitnob, which is the partner that publishes it', () => {
+    // Breadth is not a licence to claim everything: an over-claimed corridor
+    // reports available and then returns nothing.
+    expect(provider.corridors).not.toContain('US-UG');
   });
 
   it('asks for the corridor currency and country', async () => {
