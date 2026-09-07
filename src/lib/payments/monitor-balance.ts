@@ -112,58 +112,117 @@ async function checkBitcoinBalance(address: string): Promise<BalanceResult> {
   }
 }
 
+/** CryptoAPIs base for the current (2024-12-12) UTXO address routes. */
+const CRYPTO_APIS_BCH_BASE =
+  'https://rest.cryptoapis.io/addresses-latest/utxo/bitcoin-cash/mainnet';
+
 /**
- * Check balance for a Bitcoin Cash address
+ * Second opinion on a BCH balance, used only when CryptoAPIs cannot answer.
+ *
+ * Keyless, and deliberately a different operator: the failure this guards
+ * against is the one BCH already walked into, where the single provider
+ * retired the endpoint out from under us and every lookup failed at once.
+ *
+ * Returns null rather than a balance when the address is unknown to the index
+ * (Haskoin answers 404 for an address it has never seen, which is also what an
+ * invalid address returns). Reporting that as 0 would be indistinguishable
+ * from a genuine empty address, and 0 is the answer that decides a payment.
+ */
+async function checkBCHBalanceHaskoin(address: string): Promise<number | null> {
+  try {
+    const response = await fetchWithTimeout(
+      `https://api.haskoin.com/bch/address/${address}/balance`
+    );
+    if (!response.ok) {
+      await drainResponse(response);
+      return null;
+    }
+    const data = await response.json();
+    if (typeof data?.confirmed !== 'number') return null;
+    // Haskoin reports satoshis; every caller here works in BCH.
+    return data.confirmed / 100_000_000;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check balance for a Bitcoin Cash address.
+ *
+ * The CryptoAPIs route this used to call (`/blockchain-data/bitcoin-cash/...`)
+ * belongs to a retired API version and now answers `endpoint_deprecated` to
+ * every request — the key is fine, the endpoint is gone. Since this oracle
+ * feeds invoices and escrow, BCH balances had stopped resolving entirely.
+ * `/addresses-latest/utxo/...` is the current equivalent and returns the same
+ * `confirmedBalance.amount` shape, so only the URLs and the transaction id
+ * field needed to move.
  */
 async function checkBCHBalance(address: string): Promise<BalanceResult> {
   try {
-    if (!CRYPTO_APIS_KEY) {
+    let balance: number | null = null;
+
+    if (CRYPTO_APIS_KEY) {
+      const response = await fetchWithTimeout(`${CRYPTO_APIS_BCH_BASE}/${address}/balance`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': CRYPTO_APIS_KEY,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        balance = parseFloat(data.data?.item?.confirmedBalance?.amount || '0');
+      } else {
+        const errorText = await response.text();
+        console.error(
+          `[Monitor] Failed to fetch BCH balance for ${address}: ${response.status} - ${errorText}`
+        );
+      }
+    } else {
       console.error('[Monitor] CRYPTO_APIS_KEY not configured for BCH');
-      return { balance: 0, error: 'checkBCHBalance: lookup failed' };
     }
-    const url = `https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet/addresses/${address}`;
-    
-    const response = await fetchWithTimeout(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': CRYPTO_APIS_KEY,
-      },
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[Monitor] Failed to fetch BCH balance for ${address}: ${response.status} - ${errorText}`);
-      return { balance: 0, error: 'checkBCHBalance: lookup failed' };
+
+    if (balance === null) {
+      balance = await checkBCHBalanceHaskoin(address);
+      if (balance === null) {
+        return { balance: 0, error: 'checkBCHBalance: lookup failed' };
+      }
+      console.log(`[Monitor] BCH balance for ${address} served by Haskoin fallback`);
     }
-    
-    const data = await response.json();
-    const balance = parseFloat(data.data?.item?.confirmedBalance?.amount || '0');
-    
-    // Get the latest transaction hash if there's a balance
+
+    // Get the latest transaction hash if there's a balance. Best effort: a
+    // missing hash costs a link in the dashboard, not a missed payment.
     let txHash: string | undefined;
-    if (balance > 0) {
+    if (balance > 0 && CRYPTO_APIS_KEY) {
       try {
-        const txUrl = `https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet/addresses/${address}/transactions`;
-        const txResponse = await fetchWithTimeout(txUrl, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': CRYPTO_APIS_KEY,
-          },
-        });
+        const txResponse = await fetchWithTimeout(
+          `${CRYPTO_APIS_BCH_BASE}/${address}/transactions?limit=1`,
+          {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Key': CRYPTO_APIS_KEY,
+            },
+          }
+        );
         if (txResponse.ok) {
           const txData = await txResponse.json();
-          if (txData.data?.items && txData.data.items.length > 0) {
-            txHash = txData.data.items[0].transactionId;
+          const item = txData.data?.items?.[0];
+          // The current schema names this `id` (`transactionId` on the old
+          // route addressed an input's funding transaction, not this one).
+          if (item) {
+            txHash = item.id ?? item.hash;
             console.log(`[Monitor] BCH tx hash for ${address}: ${txHash}`);
           }
+        } else {
+          await drainResponse(txResponse);
         }
       } catch (txError) {
         console.error(`[Monitor] Error fetching BCH transactions for ${address}:`, txError);
       }
     }
-    
+
     return { balance, txHash };
   } catch (error) {
     console.error(`[Monitor] Error checking BCH balance for ${address}:`, error);

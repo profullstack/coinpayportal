@@ -1300,7 +1300,32 @@ export class BitcoinCashProvider extends BitcoinProvider {
     const legacyAddress = this.toLegacyAddress(address);
     console.log(`[BCH] Fetching UTXOs for ${address} (legacy: ${legacyAddress})`);
 
-    // Try Blockchair API first (most reliable for BCH UTXOs)
+    // Try Haskoin first: keyless, and the only source in this chain verified
+    // to still answer. Blockchair rate-limits hard without a key (HTTP 430),
+    // fullstack.cash below has retired its v5 API, and the CryptoAPIs
+    // unspent-outputs route is gated behind a paid plan on our subscription.
+    // An address with nothing to spend answers `[]`, not an error.
+    try {
+      const haskoinUrl = `https://api.haskoin.com/bch/address/${address}/unspent?limit=100`;
+      const response = await axios.get(haskoinUrl);
+      const utxos = Array.isArray(response.data) ? response.data : [];
+      console.log(`[BCH] Haskoin found ${utxos.length} UTXOs`);
+
+      if (utxos.length > 0) {
+        return utxos.map((utxo: any) => ({
+          txid: utxo.txid,
+          vout: utxo.index,
+          value: utxo.value, // satoshis
+        }));
+      }
+    } catch (haskoinError: any) {
+      console.error(
+        '[BCH] Haskoin UTXO fetch failed:',
+        haskoinError.response?.status || haskoinError.message
+      );
+    }
+
+    // Then Blockchair
     try {
       const blockchairUrl = `https://api.blockchair.com/bitcoin-cash/dashboards/address/${legacyAddress}?limit=100`;
       console.log(`[BCH] Blockchair UTXO URL: ${blockchairUrl}`);
@@ -1581,41 +1606,31 @@ export class BitcoinCashProvider extends BitcoinProvider {
     return this.sendSplitTransaction(from, [{ address: to, amount }], privateKey);
   }
 
+  /**
+   * Read the confirmed BCH balance.
+   *
+   * Tatum used to lead here, but its `/v3/bcash/address/balance/{address}`
+   * route now rejects any address with "xpub must be a valid mainnet BCH
+   * xpub" — the key is still good for `/v3/bitcoin/` and `/v3/dogecoin/`,
+   * it is this chain's route that changed. With Blockchair behind it also
+   * rate-limiting to HTTP 430 without a key, both arms failed and this
+   * returned "0", which is indistinguishable from an empty address.
+   */
   async getBalance(address: string): Promise<string> {
     try {
-      const apiKey = process.env.TATUM_API_KEY;
-      
       // Convert to legacy address for API calls
       const legacyAddress = this.toLegacyAddress(address);
       console.log(`[BCH Provider] Original address: ${address}`);
       console.log(`[BCH Provider] Legacy address: ${legacyAddress}`);
-      
-      if (!apiKey) {
-        // Fallback to Blockchair API which supports both formats
-        try {
-          const blockchairUrl = `https://api.blockchair.com/bitcoin-cash/dashboards/address/${legacyAddress}`;
-          console.log(`[BCH Provider] Blockchair URL: ${blockchairUrl}`);
-          const response = await axios.get(blockchairUrl);
-          const balance = response.data?.data?.[legacyAddress]?.address?.balance || 0;
-          return (balance / 100000000).toString();
-        } catch (blockchairError) {
-          console.error('[BCH] Blockchair API failed:', blockchairError);
-          return '0';
-        }
+
+      const response = await axios.get(
+        `https://api.haskoin.com/bch/address/${address}/balance`
+      );
+      if (typeof response.data?.confirmed !== 'number') {
+        throw new Error('Haskoin returned no confirmed balance');
       }
-
-      const tatumUrl = `https://api.tatum.io/v3/bcash/address/balance/${legacyAddress}`;
-      console.log(`[BCH Provider] Tatum URL: ${tatumUrl}`);
-      const response = await axios.get(tatumUrl, {
-        headers: {
-          'x-api-key': apiKey,
-        },
-      });
-
-      // Tatum returns balance in BCH
-      const incoming = parseFloat(response.data.incoming || '0');
-      const outgoing = parseFloat(response.data.outgoing || '0');
-      return (incoming - outgoing).toString();
+      // Haskoin reports satoshis.
+      return (response.data.confirmed / 100000000).toString();
     } catch (error: any) {
       console.error(`[BCH] Failed to fetch BCH balance for ${address}:`, error.response?.status, '-', JSON.stringify(error.response?.data || error.message));
       

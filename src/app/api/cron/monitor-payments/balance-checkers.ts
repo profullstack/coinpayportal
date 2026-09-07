@@ -175,34 +175,13 @@ export async function checkBCHBalance(address: string): Promise<number> {
     console.log(`[Monitor BCH] Original address: ${address}`);
     console.log(`[Monitor BCH] Legacy address: ${legacyAddress}`);
     
-    // Try Tatum API first (most reliable for BCH)
-    const tatumApiKey = process.env.TATUM_API_KEY;
-    if (tatumApiKey) {
-      try {
-        const tatumUrl = `https://api.tatum.io/v3/bcash/address/balance/${legacyAddress}`;
-        console.log(`[Monitor BCH] Tatum URL: ${tatumUrl}`);
-        
-        const response = await fetchWithTimeout(tatumUrl, {
-          method: 'GET',
-          headers: { 'x-api-key': tatumApiKey },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          const incoming = parseFloat(data.incoming || '0');
-          const outgoing = parseFloat(data.outgoing || '0');
-          const balance = incoming - outgoing;
-          console.log(`[Monitor BCH] Tatum response: incoming=${incoming}, outgoing=${outgoing}, balance=${balance}`);
-          return balance;
-        } else {
-          const errorText = await response.text();
-          console.error(`[Monitor BCH] Tatum failed for ${legacyAddress}: ${response.status} - ${errorText}`);
-        }
-      } catch (tatumError) {
-        console.error(`[Monitor BCH] Tatum error for ${legacyAddress}:`, tatumError);
-      }
-    }
-    
+    // Tatum used to lead this chain as "most reliable for BCH". Its
+    // `/v3/bcash/address/balance/{address}` route now rejects an address
+    // outright — "xpub must be a valid mainnet BCH xpub" — for legacy and
+    // CashAddr alike, while the same key still works on `/v3/bitcoin/` and
+    // `/v3/dogecoin/`. It was answering nothing but an error on every cycle,
+    // so CryptoAPIs (which was already second, and works) now leads.
+    //
     // Try CryptoAPIs
     const cryptoApisKey = CRYPTO_APIS_KEY || process.env.CRYPTOAPIS_API_KEY || '';
     console.log(`[Monitor BCH] CRYPTO_APIS_KEY configured: ${cryptoApisKey ? 'yes (length=' + cryptoApisKey.length + ')' : 'no'}`);
@@ -238,22 +217,25 @@ export async function checkBCHBalance(address: string): Promise<number> {
       }
     }
     
-    // Fallback to fullstack.cash
+    // Fallback to Haskoin. This slot was fullstack.cash, whose v5 API is gone:
+    // it now serves the marketing page for these routes, and it does so with
+    // HTTP 200, so the request looks like a success and only the missing
+    // `success` field kept a stray HTML body from being read as a balance.
     try {
-      const fullstackUrl = `https://api.fullstack.cash/v5/electrumx/balance/${address}`;
-      const fullstackResponse = await fetchWithTimeout(fullstackUrl);
-      
-      if (fullstackResponse.ok) {
-        const fullstackData = await fullstackResponse.json();
-        if (fullstackData.success) {
-          const balanceSatoshis = (fullstackData.balance?.confirmed || 0) + (fullstackData.balance?.unconfirmed || 0);
-          return balanceSatoshis / 100_000_000;
+      const haskoinResponse = await fetchWithTimeout(
+        `https://api.haskoin.com/bch/address/${address}/balance`
+      );
+      if (haskoinResponse.ok) {
+        const haskoinData = await haskoinResponse.json();
+        if (typeof haskoinData?.confirmed === 'number') {
+          console.log(`[Monitor BCH] Haskoin balance: ${haskoinData.confirmed} sat`);
+          return haskoinData.confirmed / 100_000_000;
         }
       }
-    } catch (fullstackError) {
-      console.error(`[Monitor BCH] Fullstack.cash error for ${address}:`, fullstackError);
+    } catch (haskoinError) {
+      console.error(`[Monitor BCH] Haskoin error for ${address}:`, haskoinError);
     }
-    
+
     // Fallback to Blockchair
     try {
       const blockchairUrl = `https://api.blockchair.com/bitcoin-cash/dashboards/address/${legacyAddress}`;

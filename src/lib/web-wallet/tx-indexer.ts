@@ -188,42 +188,76 @@ async function fetchBCHHistory(
     ? address.substring(12)
     : address;
 
-  // Try fullstack.cash electrumx endpoint first (free, no key)
-  try {
-    const resp = await fetch(
-      `https://api.fullstack.cash/v5/electrumx/transactions/${address}`
-    );
-    if (resp.ok) {
-      const data: {
-        success?: boolean;
-        transactions?: Array<{
-          tx_hash: string;
-          height: number;
-        }>;
-      } = await resp.json();
+  // CryptoAPIs first. This slot was fullstack.cash, whose v5 API is gone —
+  // it answers these paths with its marketing HTML under a 200, so the
+  // request looked successful and only the absent `success` field stopped a
+  // web page being parsed as a transaction list.
+  //
+  // The replacement is also strictly better data: fullstack.cash returned
+  // only a hash and a height, so every transaction was recorded as incoming
+  // with an amount of 0 regardless of what it actually was. CryptoAPIs
+  // reports senders and recipients, so direction and amount are real.
+  const cryptoKey = process.env.CRYPTO_APIS_KEY;
+  if (cryptoKey) {
+    try {
+      const resp = await fetch(
+        `https://rest.cryptoapis.io/addresses-latest/utxo/bitcoin-cash/mainnet/${cleanAddr}/transactions?limit=${MAX_TXS}`,
+        { headers: { 'Content-Type': 'application/json', 'X-API-Key': cryptoKey } }
+      );
+      if (resp.ok) {
+        const data: {
+          data?: {
+            items?: Array<{
+              id?: string;
+              hash?: string;
+              timestamp?: number;
+              recipients?: Array<{ address?: string; value?: { amount?: string } }>;
+              senders?: Array<{ address?: string; value?: { amount?: string } }>;
+              minedInBlock?: { height?: number };
+            }>;
+          };
+        } = await resp.json();
 
-      if (data.success && data.transactions) {
-        const results: IndexedTransaction[] = [];
-        for (const tx of data.transactions.slice(0, MAX_TXS)) {
-          results.push({
-            txHash: tx.tx_hash,
-            chain: 'BCH',
-            direction: 'incoming', // Can't determine without full tx details
-            amount: '0', // Would need additional API call for amounts
-            fromAddress: 'unknown',
-            toAddress: address,
-            status: tx.height > 0 ? 'confirmed' : 'pending',
-            confirmations: tx.height > 0 ? 1 : 0,
-            timestamp: new Date().toISOString(),
-            blockNumber: tx.height > 0 ? tx.height : undefined,
+        const items = data.data?.items;
+        if (items?.length) {
+          // Compare on the bare CashAddr: the API always answers with the
+          // "bitcoincash:" prefix whether or not the query carried one.
+          const matches = (a?: string) =>
+            !!a && a.replace(/^bitcoincash:/, '') === cleanAddr;
+
+          return items.slice(0, MAX_TXS).map((tx): IndexedTransaction => {
+            const credited = (tx.recipients || [])
+              .filter((r) => matches(r.address))
+              .reduce((sum, r) => sum + parseFloat(r.value?.amount || '0'), 0);
+            const isOutgoing = (tx.senders || []).some((s) => matches(s.address));
+            const height = tx.minedInBlock?.height;
+
+            return {
+              txHash: tx.id || tx.hash || '',
+              chain: 'BCH',
+              direction: isOutgoing ? 'outgoing' : 'incoming',
+              amount: (isOutgoing
+                ? (tx.senders || [])
+                    .filter((s) => matches(s.address))
+                    .reduce((sum, s) => sum + parseFloat(s.value?.amount || '0'), 0) - credited
+                : credited
+              ).toString(),
+              fromAddress: isOutgoing ? address : (tx.senders?.[0]?.address ?? 'unknown'),
+              toAddress: isOutgoing ? (tx.recipients?.[0]?.address ?? 'unknown') : address,
+              status: height ? 'confirmed' : 'pending',
+              confirmations: height ? 1 : 0,
+              timestamp: tx.timestamp
+                ? new Date(tx.timestamp * 1000).toISOString()
+                : new Date().toISOString(),
+              blockNumber: height,
+            };
           });
         }
-        return results;
       }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[TxIndexer] BCH CryptoAPIs failed: ${msg}`);
     }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[TxIndexer] BCH fullstack.cash failed: ${msg}`);
   }
 
   // Fallback: Blockchair (limited free requests)
