@@ -8,15 +8,17 @@
 
 import { BankTransferProvider } from './types';
 import { StubBankProvider } from './stub';
+import { ColumnProvider } from './column-provider';
 
 let registry: BankTransferProvider[] | null = null;
 
 /** Every known originator, configured or not. */
 export function getBankProviders(): BankTransferProvider[] {
-  // Column's adapter is not registered yet: its wire format is unverified and
-  // an unimplemented originator that reports itself configured would be worse
-  // than one that is absent. See the note at the top of ./column.ts.
-  registry ??= [new StubBankProvider()];
+  // Column first: it is the real originator, and the stub only reports itself
+  // configured in development. The adapter is now written against a live
+  // sandbox rather than against documentation — see ./column-provider.ts for
+  // the two shapes the docs got wrong.
+  registry ??= [new ColumnProvider(), new StubBankProvider()];
   return registry;
 }
 

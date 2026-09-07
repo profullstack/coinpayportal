@@ -14,9 +14,12 @@
  * `entry_class_code` (PPD, CCD, WEB), the `counterparty_id` /
  * `bank_account_id` references, and the status lifecycle mapped below.
  *
- * NOT VERIFIED: the request and response wire format, authentication, and the
- * base URL, which their object reference does not state. **The HTTP adapter is
- * therefore deliberately not written yet.** Three adapters in this codebase
+ * NOW VERIFIED against a live sandbox (2026-09-07): authentication is HTTP
+ * Basic with an EMPTY username and the key as password; the base URL is
+ * https://api.column.com for both environments; and the request shapes are
+ * implemented in ./column-provider.ts. Two things the documentation implied
+ * were wrong — `account_type` is lowercase while transfer `type` is uppercase,
+ * and NACHA caps receiver_name/receiver_id at 22/15 characters on WEB. Three adapters in this codebase
  * were written blind against documentation and two had real defects — Yellow
  * Card could never have authenticated at all. Repeating that on a rail that
  * moves money out of customers' bank accounts, rather than one that returns a
