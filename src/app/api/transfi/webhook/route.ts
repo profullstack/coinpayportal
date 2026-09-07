@@ -123,8 +123,9 @@ export async function POST(request: NextRequest) {
  * obvious place to land and the route above does not need reshaping to accept
  * it.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- the parameters
-// are the seam's contract; they are unused only until reconciliation lands.
+// The parameters are the seam's contract; they are unused only until
+// reconciliation lands.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function handleEvent(eventType: string, event: unknown): Promise<void> {
   return;
 }
