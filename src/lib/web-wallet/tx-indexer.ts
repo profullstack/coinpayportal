@@ -44,13 +44,13 @@ export interface SyncResult {
 function getRpcEndpoints(): Record<string, string> {
   return {
     BTC: process.env.BITCOIN_RPC_URL || 'https://blockstream.info/api',
-    ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-    POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    ETH: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+    POL: process.env.POLYGON_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
     SOL:
       process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
       process.env.SOLANA_RPC_URL ||
       'https://api.mainnet-beta.solana.com',
-    BNB: process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org',
+    BNB: process.env.BNB_RPC_URL || process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org',
     BASE: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
   };
 }
@@ -1090,31 +1090,67 @@ async function fetchDOGEHistory(address: string): Promise<IndexedTransaction[]> 
   }
 }
 
+/**
+ * Second source for DOGE history, used when Blockcypher fails or rate-limits.
+ *
+ * This was dogechain.info until it began answering every request — API and
+ * site alike — with a 403, which left Blockcypher's keyless tier (~200
+ * requests/day) as the only source and turned a rate-limit into an empty
+ * history. Tatum replaces it using the key already provisioned for BTC/BCH.
+ *
+ * Tatum reports outputs but not input addresses, so direction is inferred from
+ * whether the address is paid by the transaction. That misreads a send as a
+ * receive when the send returns change to the same address — acceptable in a
+ * fallback that only runs when the primary source is unavailable, and the
+ * amount credited is still the amount this address actually received.
+ */
 async function fetchDOGEHistoryFallback(address: string): Promise<IndexedTransaction[]> {
   try {
-    const resp = await fetch(`https://dogechain.info/api/v1/address/transactions/${address}`);
+    const apiKey = process.env.TATUM_API_KEY;
+    if (!apiKey) return [];
+    const headers = { 'x-api-key': apiKey };
+
+    const resp = await fetch(
+      `https://api.tatum.io/v3/dogecoin/transaction/address/${address}?pageSize=${MAX_TXS}`,
+      { headers }
+    );
     if (!resp.ok) return [];
 
-    const data: {
-      transactions?: Array<{
-        hash: string;
-        time: number;
-        value: string;
-        confirmations?: number;
-      }>;
-    } = await resp.json();
+    const txs: Array<{
+      hash: string;
+      time: number;
+      blockNumber?: number;
+      outputs?: Array<{ address?: string; value?: string }>;
+    }> = await resp.json();
 
-    return (data.transactions || []).slice(0, MAX_TXS).map((tx): IndexedTransaction => ({
-      txHash: tx.hash,
-      chain: 'DOGE',
-      direction: parseFloat(tx.value) >= 0 ? 'incoming' : 'outgoing',
-      amount: Math.abs(parseFloat(tx.value)).toString(),
-      fromAddress: 'unknown',
-      toAddress: address,
-      status: (tx.confirmations || 0) >= 6 ? 'confirmed' : 'pending',
-      confirmations: tx.confirmations || 0,
-      timestamp: new Date(tx.time * 1000).toISOString(),
-    }));
+    // Confirmations are not on the transaction, so derive them from the tip.
+    let tipHeight = 0;
+    try {
+      const infoResp = await fetch('https://api.tatum.io/v3/dogecoin/info', { headers });
+      if (infoResp.ok) tipHeight = (await infoResp.json()).blocks || 0;
+    } catch {
+      // Leave confirmations at 0 rather than dropping the history entirely.
+    }
+
+    return (txs || []).slice(0, MAX_TXS).map((tx): IndexedTransaction => {
+      const credited = (tx.outputs || [])
+        .filter((o) => o.address === address)
+        .reduce((sum, o) => sum + parseFloat(o.value || '0'), 0);
+      const confirmations =
+        tipHeight && tx.blockNumber ? Math.max(0, tipHeight - tx.blockNumber + 1) : 0;
+
+      return {
+        txHash: tx.hash,
+        chain: 'DOGE',
+        direction: credited > 0 ? 'incoming' : 'outgoing',
+        amount: Math.abs(credited).toString(),
+        fromAddress: 'unknown',
+        toAddress: address,
+        status: confirmations >= 6 ? 'confirmed' : 'pending',
+        confirmations,
+        timestamp: new Date(tx.time * 1000).toISOString(),
+      };
+    });
   } catch {
     return [];
   }

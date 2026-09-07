@@ -11,8 +11,8 @@ import { fetchWithTimeout } from '@/lib/http/fetch-timeout';
 const RPC_ENDPOINTS: Record<string, string> = {
   BTC: process.env.BITCOIN_RPC_URL || 'https://blockstream.info/api',
   BCH: process.env.BCH_RPC_URL || 'https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet',
-  ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-  POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+  ETH: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+  POL: process.env.POLYGON_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
   SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
   BNB: process.env.BNB_RPC_URL || 'https://bsc-dataseed.binance.org',
   XRP: process.env.XRP_RPC_URL || 'https://s1.ripple.com:51234',
@@ -537,11 +537,18 @@ async function checkDOGEBalance(address: string): Promise<BalanceResult> {
       const balance = (data.balance || 0) / 1e8;
       return { balance };
     }
-    // Fallback to dogechain
-    const fallbackResponse = await fetchWithTimeout(`https://dogechain.info/api/v1/address/balance/${address}`);
-    if (fallbackResponse.ok) {
-      const data = await fallbackResponse.json();
-      if (data.success === 1) {
+    // Fallback to Tatum. dogechain.info used to serve this fallback but now
+    // returns 403 to every request, so a Blockcypher rate-limit (its keyless
+    // tier is ~200 requests/day) would report a funded address as empty.
+    const apiKey = process.env.TATUM_API_KEY;
+    if (apiKey) {
+      const fallbackResponse = await fetchWithTimeout(
+        `https://api.tatum.io/v3/dogecoin/address/balance/${address}`,
+        { headers: { 'x-api-key': apiKey } }
+      );
+      if (fallbackResponse.ok) {
+        const data = await fallbackResponse.json();
+        // Tatum reports DOGE, not satoshis.
         const balance = parseFloat(data.balance || '0');
         return { balance };
       }

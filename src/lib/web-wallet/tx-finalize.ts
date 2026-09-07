@@ -12,8 +12,8 @@
 const RPC_ENDPOINTS: Record<string, string> = {
   BTC: process.env.BITCOIN_RPC_URL || 'https://blockstream.info/api',
   BCH: process.env.BCH_RPC_URL || 'https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet',
-  ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-  POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+  ETH: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+  POL: process.env.POLYGON_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
   SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
 };
 

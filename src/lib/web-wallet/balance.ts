@@ -44,12 +44,12 @@ function getRpcEndpoints(): Record<string, string> {
   return {
     BTC: process.env.BITCOIN_RPC_URL || 'https://blockstream.info/api',
     BCH: process.env.BCH_RPC_URL || 'https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet',
-    ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-    POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    ETH: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+    POL: process.env.POLYGON_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
     SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
     BNB: process.env.BNB_RPC_URL || 'https://bsc-dataseed.binance.org',
     BASE: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
-    DOGE: process.env.DOGE_RPC_URL || 'https://dogechain.info/api/v1',
+    DOGE: process.env.DOGE_RPC_URL || 'https://api.blockcypher.com/v1/doge/main',
     XRP: process.env.XRP_RPC_URL || 'https://s1.ripple.com:51234',
     ADA: process.env.ADA_RPC_URL || 'https://cardano-mainnet.blockfrost.io/api/v0',
   };
@@ -326,17 +326,23 @@ async function fetchDOGEBalance(address: string): Promise<string> {
     console.error('DOGE Blockcypher balance fetch failed:', err);
   }
 
-  // Fallback to Dogechain
+  // Fallback to Tatum. dogechain.info held this slot until it started
+  // returning 403 to every request; Tatum reuses the key already provisioned
+  // for BTC/BCH rather than adding a credential.
   try {
-    const resp = await fetch(`https://dogechain.info/api/v1/address/balance/${address}`);
-    if (resp.ok) {
-      const data = await resp.json();
-      if (data.success === 1) {
+    const apiKey = process.env.TATUM_API_KEY;
+    if (apiKey) {
+      const resp = await fetch(`https://api.tatum.io/v3/dogecoin/address/balance/${address}`, {
+        headers: { 'x-api-key': apiKey },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        // Tatum reports DOGE, not satoshis.
         return data.balance || '0';
       }
     }
   } catch (err) {
-    console.error('DOGE Dogechain balance fetch failed:', err);
+    console.error('DOGE Tatum balance fetch failed:', err);
   }
 
   throw new Error('All DOGE balance APIs failed');

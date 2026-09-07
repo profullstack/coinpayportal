@@ -123,24 +123,24 @@ describe('Blockchain Providers', () => {
 
   describe('EthereumProvider', () => {
     it('should create an Ethereum provider', () => {
-      const provider = new EthereumProvider('https://eth.llamarpc.com');
+      const provider = new EthereumProvider('https://ethereum-rpc.publicnode.com');
       expect(provider.chain).toBe('ETH');
-      expect(provider.rpcUrl).toBe('https://eth.llamarpc.com');
+      expect(provider.rpcUrl).toBe('https://ethereum-rpc.publicnode.com');
     });
 
     it('should return required confirmations for Ethereum', () => {
-      const provider = new EthereumProvider('https://eth.llamarpc.com');
+      const provider = new EthereumProvider('https://ethereum-rpc.publicnode.com');
       expect(provider.getRequiredConfirmations()).toBe(12);
     });
 
     it('should have sendTransaction method', () => {
-      const provider = new EthereumProvider('https://eth.llamarpc.com');
+      const provider = new EthereumProvider('https://ethereum-rpc.publicnode.com');
       expect(provider.sendTransaction).toBeDefined();
       expect(typeof provider.sendTransaction).toBe('function');
     });
 
     it('should accept hex-encoded private key for sendTransaction', async () => {
-      const provider = new EthereumProvider('https://eth.llamarpc.com');
+      const provider = new EthereumProvider('https://ethereum-rpc.publicnode.com');
       
       // Ethereum private keys are 32 bytes (64 hex chars)
       const hexPrivateKey = '0'.repeat(64);
@@ -156,7 +156,7 @@ describe('Blockchain Providers', () => {
     });
 
     it('should handle 0x-prefixed private keys', async () => {
-      const provider = new EthereumProvider('https://eth.llamarpc.com');
+      const provider = new EthereumProvider('https://ethereum-rpc.publicnode.com');
       
       // Ethereum accepts both with and without 0x prefix
       const hexPrivateKey = '0x' + '0'.repeat(64);
@@ -168,24 +168,24 @@ describe('Blockchain Providers', () => {
 
   describe('PolygonProvider', () => {
     it('should create a Polygon provider', () => {
-      const provider = new PolygonProvider('https://polygon-rpc.com');
+      const provider = new PolygonProvider('https://polygon-bor-rpc.publicnode.com');
       expect(provider.chain).toBe('POL');
-      expect(provider.rpcUrl).toBe('https://polygon-rpc.com');
+      expect(provider.rpcUrl).toBe('https://polygon-bor-rpc.publicnode.com');
     });
 
     it('should return required confirmations for Polygon', () => {
-      const provider = new PolygonProvider('https://polygon-rpc.com');
+      const provider = new PolygonProvider('https://polygon-bor-rpc.publicnode.com');
       expect(provider.getRequiredConfirmations()).toBe(128);
     });
 
     it('should inherit sendTransaction from EthereumProvider', () => {
-      const provider = new PolygonProvider('https://polygon-rpc.com');
+      const provider = new PolygonProvider('https://polygon-bor-rpc.publicnode.com');
       expect(provider.sendTransaction).toBeDefined();
       expect(typeof provider.sendTransaction).toBe('function');
     });
 
     it('should use same key format as Ethereum (32-byte hex)', async () => {
-      const provider = new PolygonProvider('https://polygon-rpc.com');
+      const provider = new PolygonProvider('https://polygon-bor-rpc.publicnode.com');
       
       // Polygon uses same key format as Ethereum
       const hexPrivateKey = '0'.repeat(64);
@@ -860,10 +860,10 @@ describe('Blockchain Providers', () => {
       expect(bchProvider.sendTransaction).toBeDefined();
 
       // Ethereum/Polygon: 32-byte hex (with or without 0x prefix)
-      const ethProvider = new EthereumProvider('https://eth.llamarpc.com');
+      const ethProvider = new EthereumProvider('https://ethereum-rpc.publicnode.com');
       expect(ethProvider.sendTransaction).toBeDefined();
 
-      const polProvider = new PolygonProvider('https://polygon-rpc.com');
+      const polProvider = new PolygonProvider('https://polygon-bor-rpc.publicnode.com');
       expect(polProvider.sendTransaction).toBeDefined();
 
       // Solana: 32-byte seed (hex) OR 64-byte keypair (hex or base58)
@@ -907,12 +907,12 @@ describe('Blockchain Providers', () => {
     });
 
     it('should return EthereumProvider for ETH', () => {
-      const provider = getProvider('ETH', 'https://eth.llamarpc.com');
+      const provider = getProvider('ETH', 'https://ethereum-rpc.publicnode.com');
       expect(provider.chain).toBe('ETH');
     });
 
     it('should return PolygonProvider for POL', () => {
-      const provider = getProvider('POL', 'https://polygon-rpc.com');
+      const provider = getProvider('POL', 'https://polygon-bor-rpc.publicnode.com');
       expect(provider.chain).toBe('POL');
     });
 
@@ -936,12 +936,12 @@ describe('Blockchain Providers', () => {
 
     it('should return default RPC URL for ETH', () => {
       const url = getRpcUrl('ETH');
-      expect(url).toBe('https://eth.llamarpc.com');
+      expect(url).toBe('https://ethereum-rpc.publicnode.com');
     });
 
     it('should return default RPC URL for POL', () => {
       const url = getRpcUrl('POL');
-      expect(url).toBe('https://polygon-rpc.com');
+      expect(url).toBe('https://polygon-bor-rpc.publicnode.com');
     });
 
     it('should return default RPC URL for SOL', () => {

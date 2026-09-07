@@ -42,8 +42,8 @@ const CHAIN_TO_SYSTEM_WALLET: Record<number, SystemBlockchain> = {
 };
 
 const RPC_BY_CHAIN_ID: Record<number, string | undefined> = {
-  1: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-  137: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+  1: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+  137: process.env.POLYGON_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
   8453: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
 };
 

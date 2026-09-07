@@ -55,8 +55,8 @@ function getSupabase() {
 /** RPC endpoints by network */
 const RPC_URLS: Record<string, string> = {
   base: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
-  ethereum: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-  polygon: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+  ethereum: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+  polygon: process.env.POLYGON_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
 };
 
 
