@@ -7,6 +7,10 @@ import {
   verifyTransfiSignature,
 } from './transfi-webhook';
 
+// An invented fixture, not a credential: these tests only need two sides to
+// agree on the same bytes, so the value never leaves this file and matches
+// nothing real. The rule fires on the field name alone.
+// threatcrush-disable-next-line secret-generic-credential
 const SECRET = 'wk_test_exampleSecretValue';
 
 describe('transfiSignature', () => {
