@@ -1,10 +1,25 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 const GITHUB_REPO_URL = 'https://github.com/profullstack/coinpayportal';
+
+interface NavItem {
+  name: string;
+  href: string;
+  /**
+   * Shown inline on desktop. Everything else moves into the "More" menu.
+   *
+   * The nav had grown to ten entries logged out and thirteen logged in, which
+   * left no room beside the logo and the auth buttons and pushed the whole bar
+   * into a cramped line. Marking the handful that earn a permanent slot is
+   * clearer than slicing the array by an index that silently re-sorts the menu
+   * whenever an item is inserted.
+   */
+  primary?: boolean;
+}
 
 export default function Header() {
   const router = useRouter();
@@ -12,7 +27,11 @@ export default function Header() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Mark as hydrated and check if user is logged in
@@ -50,6 +69,40 @@ export default function Header() {
     };
   }, []);
 
+  /**
+   * Close the dropdowns on an outside click or Escape.
+   *
+   * Without this a dropdown stays open until its own button is clicked again,
+   * so opening "More" and then clicking anywhere else leaves a panel floating
+   * over the page. The user menu had the same gap and is fixed here too.
+   */
+  useEffect(() => {
+    if (!moreMenuOpen && !userMenuOpen) return;
+
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
+      if (moreMenuOpen && !moreMenuRef.current?.contains(target)) setMoreMenuOpen(false);
+      if (userMenuOpen && !userMenuRef.current?.contains(target)) setUserMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMoreMenuOpen(false);
+        setUserMenuOpen(false);
+      }
+    };
+
+    // `mousedown` rather than `click` so the panel is gone before a link
+    // underneath it receives the press.
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [moreMenuOpen, userMenuOpen]);
+
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
@@ -78,31 +131,36 @@ export default function Header() {
     '/explorer',
   ]);
 
-  const navigation = [
-    { name: 'Home', href: '/' },
+  // `primary` marks the entries kept inline on desktop; the rest live under
+  // "More". Logged out, the five are the ones a visitor evaluating the product
+  // actually needs: what it costs, how to integrate, and the two things they
+  // can use without signing up.
+  const navigation: NavItem[] = [
+    { name: 'Home', href: '/', primary: true },
+    { name: 'Wallet', href: '/web-wallet', primary: true },
+    // Reading the chain needs no account.
+    { name: 'Explorer', href: '/explorer', primary: true },
+    { name: 'Pricing', href: '/pricing', primary: true },
+    { name: 'API', href: '/docs', primary: true },
     // Quoting needs no account, so this sits in the public nav rather than
     // behind the dashboard.
     { name: 'Remittance', href: '/remittance' },
-    { name: 'Wallet', href: '/web-wallet' },
-    // Reading the chain needs no account either.
-    { name: 'Explorer', href: '/explorer' },
-    { name: 'API', href: '/docs' },
     { name: 'Blog', href: '/blog' },
     { name: 'DID', href: '/did' },
     { name: 'Reputation', href: '/reputation' },
-    { name: 'Pricing', href: '/pricing' },
     { name: 'x402', href: '/x402' },
   ];
 
-  const loggedInNavigation = [
-    { name: 'Dashboard', href: '/dashboard' },
+  // Logged in, the five are the daily surfaces; the occasional ones move down.
+  const loggedInNavigation: NavItem[] = [
+    { name: 'Dashboard', href: '/dashboard', primary: true },
+    { name: 'Invoices', href: '/invoices', primary: true },
+    { name: 'Wallet', href: '/web-wallet', primary: true },
+    { name: 'Explorer', href: '/explorer', primary: true },
+    { name: 'API', href: '/docs', primary: true },
     { name: 'Remittance', href: '/remittance' },
     { name: 'Proposals', href: '/proposals' },
-    { name: 'Invoices', href: '/invoices' },
     { name: 'Escrow', href: '/escrow' },
-    { name: 'Wallet', href: '/web-wallet' },
-    { name: 'Explorer', href: '/explorer' },
-    { name: 'API', href: '/docs' },
     { name: 'Blog', href: '/blog' },
     { name: 'Developer', href: '/dashboard/oauth' },
     { name: 'DID', href: '/did' },
@@ -111,6 +169,8 @@ export default function Header() {
   ];
 
   const currentNav = isLoggedIn ? loggedInNavigation : navigation;
+  const primaryNav = currentNav.filter((item) => item.primary);
+  const overflowNav = currentNav.filter((item) => !item.primary);
 
   const getNavHref = (href: string) => {
     if (isLoggedIn || PUBLIC_ROUTES.has(href)) return href;
@@ -131,17 +191,56 @@ export default function Header() {
           </Link>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex md:items-center md:space-x-8">
-            {currentNav.map((item) => (
+          <div className="hidden md:flex md:items-center md:space-x-6 lg:space-x-8">
+            {primaryNav.map((item) => (
               <Link
                 key={item.name}
                 href={getNavHref(item.href)}
-                className="text-sm font-medium text-gray-300 hover:text-white transition-colors"
+                className="text-sm font-medium text-gray-300 hover:text-white transition-colors whitespace-nowrap"
               >
                 {item.name}
               </Link>
             ))}
-            
+
+            {/* Overflow menu */}
+            {overflowNav.length > 0 && (
+              <div className="relative" ref={moreMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setMoreMenuOpen(!moreMenuOpen)}
+                  aria-expanded={moreMenuOpen}
+                  aria-haspopup="true"
+                  className="flex items-center gap-1 text-sm font-medium text-gray-300 hover:text-white transition-colors"
+                >
+                  More
+                  <svg
+                    className={`h-4 w-4 transition-transform ${moreMenuOpen ? 'rotate-180' : ''}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {moreMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-48 rounded-md border border-gray-700 bg-gray-900 py-1 shadow-lg">
+                    {overflowNav.map((item) => (
+                      <Link
+                        key={item.name}
+                        href={getNavHref(item.href)}
+                        className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white"
+                        onClick={() => setMoreMenuOpen(false)}
+                      >
+                        {item.name}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Source link, on every page rather than just the homepage — the
                 docs are where developers spend their time, and that is exactly
                 where "can I read the code?" needs answering without a hunt. */}
@@ -161,9 +260,11 @@ export default function Header() {
             {/* Auth Buttons / User Menu */}
             {isHydrated && isLoggedIn ? (
               <div className="flex items-center space-x-4">
-                <div className="relative">
+                <div className="relative" ref={userMenuRef}>
                   <button
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
+                    aria-expanded={userMenuOpen}
+                    aria-haspopup="true"
                     className="flex items-center space-x-2 text-sm font-medium text-gray-300 hover:text-white transition-colors"
                   >
                     <div className="h-8 w-8 rounded-full bg-purple-600 flex items-center justify-center">
@@ -299,7 +400,7 @@ export default function Header() {
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-gray-800 py-4 max-h-[calc(100dvh_-_5rem)] overflow-y-auto overscroll-contain">
             <div className="space-y-1">
-              {currentNav.map((item) => (
+              {primaryNav.map((item) => (
                 <Link
                   key={item.name}
                   href={getNavHref(item.href)}
@@ -309,7 +410,48 @@ export default function Header() {
                   {item.name}
                 </Link>
               ))}
-              
+
+              {/* Mobile overflow. The drawer scrolls, so this is not about
+                  fitting — it is about not opening onto a wall of thirteen
+                  undifferentiated links. Expanding in place keeps everything
+                  one tap away, which a nested drawer would not. */}
+              {overflowNav.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setMobileMoreOpen(!mobileMoreOpen)}
+                    aria-expanded={mobileMoreOpen}
+                    className="flex w-full items-center justify-between rounded-md px-3 py-2 text-base font-medium text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
+                  >
+                    More
+                    <svg
+                      className={`h-5 w-5 transition-transform ${mobileMoreOpen ? 'rotate-180' : ''}`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      aria-hidden="true"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {mobileMoreOpen &&
+                    overflowNav.map((item) => (
+                      <Link
+                        key={item.name}
+                        href={getNavHref(item.href)}
+                        className="block rounded-md py-2 pl-6 pr-3 text-base font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
+                        onClick={() => {
+                          setMobileMenuOpen(false);
+                          setMobileMoreOpen(false);
+                        }}
+                      >
+                        {item.name}
+                      </Link>
+                    ))}
+                </>
+              )}
+
               <a
                 href={GITHUB_REPO_URL}
                 target="_blank"
