@@ -4,7 +4,7 @@
  * Grouped because each is a single API with no family to share:
  *
  *   SOL  JSON-RPC — keyless, but the public endpoint throttles hard
- *   XRP  xrplcluster.com — `account_tx` returns history to ledger 32570
+ *   XRP  s1.ripple.com — `account_tx` returns history to ledger 32570
  *   ADA  Koios — keyless, so no Blockfrost key is needed for any of this
  */
 
@@ -163,7 +163,34 @@ async function getSolBlock(ref: string): Promise<ExplorerBlock> {
 
 // ── XRP Ledger ──────────────────────────────────────────────────────────────
 
-const XRP_RPC = process.env.XRP_RPC_URL || 'https://xrplcluster.com';
+/**
+ * XRP endpoints, tried in order.
+ *
+ * s1.ripple.com leads because it is what the payment monitor already uses,
+ * so it is known to answer from our production network. xrplcluster.com is a
+ * community cluster behind Cloudflare: it answers fine from a workstation but
+ * refused every request from the deployed app, which is the usual shape of a
+ * datacenter-IP block. Keeping it as the second entry costs nothing and
+ * covers an s1 outage.
+ */
+const XRP_ENDPOINTS = [
+  process.env.XRP_RPC_URL,
+  'https://s1.ripple.com:51234/',
+  'https://xrplcluster.com',
+].filter((u): u is string => Boolean(u));
+
+/** POST to the first XRP endpoint that answers. */
+async function xrpPost<T>(body: unknown): Promise<T> {
+  let lastError: unknown;
+  for (const endpoint of XRP_ENDPOINTS) {
+    try {
+      return await postJson<T>(endpoint, body);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new UpstreamError('All XRP endpoints failed');
+}
 
 interface XrpTx {
   hash?: string;
@@ -204,9 +231,9 @@ function xrpToTx(tx: XrpTx, meta: unknown, validated?: boolean): ExplorerTransac
 }
 
 async function getXrpTransaction(hash: string): Promise<ExplorerTransaction> {
-  const body = await postJson<{
+  const body = await xrpPost<{
     result?: XrpTx & { meta?: unknown; validated?: boolean; error?: string };
-  }>(XRP_RPC, { method: 'tx', params: [{ transaction: hash, binary: false }] });
+  }>({ method: 'tx', params: [{ transaction: hash, binary: false }] });
   const r = body.result;
   if (!r || r.error) throw new NotFoundError();
   return xrpToTx(r, r.meta, r.validated);
@@ -214,13 +241,13 @@ async function getXrpTransaction(hash: string): Promise<ExplorerTransaction> {
 
 async function getXrpAddress(address: string): Promise<ExplorerAddress> {
   const [info, history] = await Promise.all([
-    postJson<{ result?: { account_data?: { Balance?: string }; error?: string } }>(XRP_RPC, {
+    xrpPost<{ result?: { account_data?: { Balance?: string }; error?: string } }>({
       method: 'account_info',
       params: [{ account: address, ledger_index: 'validated' }],
     }),
-    postJson<{
+    xrpPost<{
       result?: { transactions?: Array<{ tx?: XrpTx; meta?: unknown; validated?: boolean }> };
-    }>(XRP_RPC, { method: 'account_tx', params: [{ account: address, limit: MAX_TXS }] }).catch(
+    }>({ method: 'account_tx', params: [{ account: address, limit: MAX_TXS }] }).catch(
       () => ({ result: { transactions: [] } })
     ),
   ]);
@@ -240,7 +267,7 @@ async function getXrpAddress(address: string): Promise<ExplorerAddress> {
 
 async function getXrpBlock(ref: string): Promise<ExplorerBlock> {
   const isHeight = /^\d+$/.test(ref);
-  const body = await postJson<{
+  const body = await xrpPost<{
     result?: {
       ledger?: {
         ledger_hash?: string;
@@ -250,7 +277,7 @@ async function getXrpBlock(ref: string): Promise<ExplorerBlock> {
       };
       error?: string;
     };
-  }>(XRP_RPC, {
+  }>({
     method: 'ledger',
     params: [
       isHeight
