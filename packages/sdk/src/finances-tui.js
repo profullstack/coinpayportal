@@ -1006,3 +1006,14 @@ export async function runFinancesTui({ client, baseUrl, token, days = 30, interv
 }
 
 export { TABS as FINANCE_TABS, WINDOWS as FINANCE_WINDOWS };
+
+/**
+ * The screen renderers, in tab order.
+ *
+ * Exported so a frame can be drawn without a client, a token or a terminal:
+ * each takes `(ui, state, theme)` and is a pure function of the snapshot, so
+ * hqtui's renderToText can produce the real screen from a fixture. That is what
+ * the hqtui.com showcase captures, and it is the only way to assert on this
+ * layout at all.
+ */
+export { SCREENS as FINANCE_SCREENS };
