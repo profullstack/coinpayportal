@@ -10,7 +10,6 @@
  * liabilities. The numbers are plausible rather than real, and no client, token
  * or account is involved in producing this frame.
  */
-// @ts-expect-error — the SDK is plain JavaScript with no type declarations.
 import { FINANCE_SCREENS } from "../packages/sdk/src/finances-tui.js";
 
 const DAY = 86_400_000;
