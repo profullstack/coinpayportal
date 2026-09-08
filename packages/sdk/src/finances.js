@@ -53,6 +53,34 @@ export async function listFinanceAccounts(client, { includeHidden = false } = {}
   return data.accounts || [];
 }
 
+/**
+ * Every transaction in the window, not just the first page.
+ *
+ * The API caps a page well below what it will report as `total` (ask for 5000
+ * and you get 500), so a single call quietly returns a partial ledger. That is
+ * fine for a dashboard and useless for books: a report that silently drops
+ * two thirds of the year cannot be reconciled against anything, and nothing in
+ * the output would say so.
+ */
+export async function listAllFinanceTransactions(client, { startDate, pageSize = 500, max = 20000 } = {}) {
+  const rows = [];
+  let offset = 0;
+  let total = 0;
+
+  for (;;) {
+    const page = await listFinanceTransactions(client, { limit: pageSize, offset, startDate });
+    const batch = page?.rows ?? [];
+    total = Number(page?.total) || total;
+    rows.push(...batch);
+    offset += batch.length;
+    // Stop on a short page as well as on the count: a `total` that disagrees
+    // with what is actually returned must not spin this forever.
+    if (!batch.length || rows.length >= total || rows.length >= max) break;
+  }
+
+  return { rows, total: total || rows.length, complete: rows.length >= total };
+}
+
 /** The ledger, newest first. Returns `{ rows, total, limit, offset }`. */
 export async function listFinanceTransactions(client, filters = {}) {
   return client.request(
@@ -315,6 +343,14 @@ export function buildFinanceSnapshot(raw = {}, { days = 30, now = new Date() } =
     plaidEnabled: Boolean(raw.connections?.plaidEnabled),
     ledger: raw.transactions?.rows || [],
     ledgerTotal: raw.transactions?.total ?? 0,
+    /**
+     * Whether the ledger above is the whole window or one page of it.
+     *
+     * Carried rather than inferred from lengths: a caller cannot tell a short
+     * final page from a truncated one, and anything printing a coverage line
+     * has to know which it is holding before it makes a claim about the period.
+     */
+    ledgerComplete: raw.transactions?.complete ?? ((raw.transactions?.rows?.length ?? 0) >= (raw.transactions?.total ?? 0)),
   };
 
   const refundsUsd = round2(card.refundedUsd + escrow.refundedUsd);
@@ -364,12 +400,17 @@ export function buildFinanceSnapshot(raw = {}, { days = 30, now = new Date() } =
  * Fetch everything and build a snapshot. Routes fail independently: a 500
  * from one of them lands in `snapshot.errors[name]` and its section is empty.
  */
-export async function collectFinanceSnapshot(client, { days = 30, limit = 100, businessId } = {}) {
+export async function collectFinanceSnapshot(client, { days = 30, limit = 100, businessId, allTransactions = false } = {}) {
   const since = Number.isFinite(days) && days > 0 ? new Date(Date.now() - days * 86400000).toISOString() : undefined;
   const sources = {
     summary: () => getFinanceSummary(client, { days }),
     accounts: () => listFinanceAccounts(client),
-    transactions: () => listFinanceTransactions(client, { limit, startDate: since }),
+    // The dashboard wants one page and wants it now; a report wants the whole
+    // window, because a document that silently holds a fifth of the year
+    // cannot be reconciled against anything.
+    transactions: () => (allTransactions
+      ? listAllFinanceTransactions(client, { startDate: since })
+      : listFinanceTransactions(client, { limit, startDate: since })),
     connections: () => listFinanceConnections(client),
     stats: () => getDashboardStats(client, { businessId }),
     analytics: () => getFinanceAnalytics(client, { period: periodForDays(days), businessId }),
