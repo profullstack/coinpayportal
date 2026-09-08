@@ -4025,6 +4025,58 @@ async function handleFinances(subcommand, args, flags) {
     case 'dashboard':
     case 'watch': {
       const { client, token, baseUrl } = financesClient();
+
+      // A document for somebody who bills by the hour. Every question it
+      // answers up front is a question nobody pays to have asked, so it
+      // defaults to the whole transaction list and a year of history.
+      if (flags.pdf || flags.report) {
+        const reportDays = Number.isFinite(parsedDays) && parsedDays > 0 ? parsedDays : 365;
+        const limit = Number.parseInt(String(flags.limit ?? ''), 10);
+        const snapshot = await fin.collectFinanceSnapshot(client, {
+          days: reportDays,
+          limit: Number.isFinite(limit) && limit > 0 ? limit : 5000,
+          businessId: flags['business-id'],
+          // Page the whole window. Asking for 5000 returns 500, and a report
+          // built on one page understates the period without saying so.
+          allTransactions: true,
+        });
+        const { buildFinanceReportHtml } = await import('../src/finances-report.js');
+        const html = buildFinanceReportHtml(snapshot, {
+          preparedFor: typeof flags.for === 'string' ? flags.for : '',
+          preparedBy: typeof flags.by === 'string' ? flags.by : '',
+          entity: typeof flags.entity === 'string' ? flags.entity : '',
+          includeTransactions: !flags['no-transactions'],
+          transactionLimit: 0,
+          title: typeof flags.title === 'string' ? flags.title : 'Financial summary',
+        });
+
+        const stamp = new Date().toISOString().slice(0, 10);
+        const base = typeof flags.pdf === 'string' && flags.pdf
+          ? String(flags.pdf).replace(/\.pdf$/i, '')
+          : `finances-${stamp}`;
+        const pdfPath = `${base}.pdf`;
+        const htmlOut = `${base}.html`;
+
+        const { writeFileSync } = await import('node:fs');
+        writeFileSync(htmlOut, html, 'utf8');
+
+        const { htmlToPdf, installHint } = await import('../src/pdf.js');
+        const result = await htmlToPdf(html, pdfPath);
+        if (result.ok) {
+          console.log(`Wrote ${pdfPath}`);
+          console.log(`       ${htmlOut}`);
+        } else {
+          // The HTML is the report. Losing the PDF is a downgrade, not a failure.
+          console.log(`Wrote ${htmlOut}`);
+          console.log('');
+          console.log('Could not render a PDF on this machine.');
+          console.log(installHint(result.tried));
+          console.log('');
+          console.log('Or open the HTML in a browser and print it to PDF.');
+        }
+        return;
+      }
+
       const wantsText = flags.plain || flags.json || !process.stdout.isTTY || !process.stdin.isTTY;
       if (wantsText) {
         const snapshot = await fin.collectFinanceSnapshot(client, { days, businessId: flags['business-id'] });
