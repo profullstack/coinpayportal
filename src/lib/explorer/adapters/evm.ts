@@ -99,6 +99,11 @@ export async function getEvmTransaction(
   };
 }
 
+/** Height of the chain tip, for the network stats panels. */
+export async function getEvmTipHeight(chainId: string): Promise<number> {
+  return Number(fromHex(await rpc<string>(chainId, 'eth_blockNumber', [])));
+}
+
 export async function getEvmBlock(chainId: string, ref: string): Promise<ExplorerBlock> {
   const isHeight = /^\d+$/.test(ref);
   const block = await rpc<{

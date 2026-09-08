@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getAddress, getChain, NotFoundError } from '@/lib/explorer';
+import { getAddress, getChain, getUsdRate, toUsd, NotFoundError } from '@/lib/explorer';
 import { Field, SearchForm, truncate, TxRow } from '@/components/explorer/ui';
 import { SITE_URL } from '@/lib/blog';
 
@@ -44,13 +45,18 @@ export default async function AddressPage({ params }: RouteParams) {
     );
   }
 
+  const rate = await getUsdRate(c.id);
+  const balanceUsd = toUsd(info.balance, rate);
+
   return (
     <div className="container mx-auto max-w-4xl px-4 py-16">
       <SearchForm />
 
       <div className="mt-8 mb-6 flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-bold text-white">Address</h1>
-        <span className="text-sm text-gray-400">{c.name}</span>
+        <Link href={`/explorer/${c.id}`} className="text-sm text-blue-400 hover:text-blue-300">
+          {c.name}
+        </Link>
       </div>
 
       <dl className="rounded-lg border border-gray-700 bg-gray-800/50 px-6">
@@ -61,6 +67,7 @@ export default async function AddressPage({ params }: RouteParams) {
           <span className="text-lg font-semibold">
             {info.balance} {c.symbol}
           </span>
+          {balanceUsd && <span className="ml-2 text-gray-400">({balanceUsd})</span>}
         </Field>
         <Field label="Transactions">
           {info.txCount !== null ? info.txCount.toLocaleString() : '—'}
@@ -80,7 +87,7 @@ export default async function AddressPage({ params }: RouteParams) {
       ) : (
         <ul className="rounded-lg border border-gray-700 bg-gray-800/50 px-6">
           {info.transactions.map((tx) => (
-            <TxRow key={tx.hash} tx={tx} symbol={c.symbol} />
+            <TxRow key={tx.hash} tx={tx} symbol={c.symbol} usdRate={rate} />
           ))}
         </ul>
       )}

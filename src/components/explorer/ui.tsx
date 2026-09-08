@@ -3,6 +3,7 @@
  */
 
 import Link from 'next/link';
+import { toUsd } from '@/lib/explorer/price';
 import type { ExplorerTransaction } from '@/lib/explorer';
 
 /** Shorten a hash or address for display, keeping both ends recognisable. */
@@ -63,7 +64,16 @@ export function Field({ label, children }: { label: string; children: React.Reac
 }
 
 /** A compact transaction row, used on address and block pages. */
-export function TxRow({ tx, symbol }: { tx: ExplorerTransaction; symbol: string }) {
+export function TxRow({
+  tx,
+  symbol,
+  usdRate = null,
+}: {
+  tx: ExplorerTransaction;
+  symbol: string;
+  usdRate?: number | null;
+}) {
+  const usd = toUsd(tx.amount, usdRate);
   return (
     <li className="border-b border-gray-800 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -77,6 +87,7 @@ export function TxRow({ tx, symbol }: { tx: ExplorerTransaction; symbol: string 
           {tx.amount !== '' && (
             <span className="text-sm text-white">
               {tx.amount} {symbol}
+              {usd && <span className="ml-2 text-gray-400">({usd})</span>}
             </span>
           )}
           <StatusPill status={tx.status} />

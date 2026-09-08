@@ -4,14 +4,16 @@
  */
 
 import { getChain } from './chains';
-import { getUtxoAddress, getUtxoBlock, getUtxoTransaction } from './adapters/utxo';
-import { getEvmAddress, getEvmBlock, getEvmTransaction } from './adapters/evm';
-import { getMiscAddress, getMiscBlock, getMiscTransaction } from './adapters/misc';
+import { getUtxoAddress, getUtxoBlock, getUtxoTipHeight, getUtxoTransaction } from './adapters/utxo';
+import { getEvmAddress, getEvmBlock, getEvmTipHeight, getEvmTransaction } from './adapters/evm';
+import { getMiscAddress, getMiscBlock, getMiscTipHeight, getMiscTransaction } from './adapters/misc';
+import { getUsdRate } from './price';
 import { NotFoundError } from './types';
 import type { ExplorerAddress, ExplorerBlock, ExplorerTransaction } from './types';
 
 export * from './types';
 export { EXPLORER_CHAINS, getChain } from './chains';
+export { getUsdRate, getUsdRates, toUsd, formatUsd, formatUnitPrice } from './price';
 
 function familyOf(chainId: string): 'utxo' | 'evm' | 'solana' | 'xrp' | 'cardano' {
   const chain = getChain(chainId);
@@ -41,6 +43,67 @@ export async function getBlock(chainId: string, ref: string): Promise<ExplorerBl
   if (family === 'utxo') return getUtxoBlock(chainId, ref);
   if (family === 'evm') return getEvmBlock(chainId, ref);
   return getMiscBlock(chainId, ref);
+}
+
+/** Current tip height for a chain. */
+export async function getTipHeight(chainId: string): Promise<number> {
+  const family = familyOf(chainId);
+  if (family === 'utxo') return getUtxoTipHeight(chainId);
+  if (family === 'evm') return getEvmTipHeight(chainId);
+  return getMiscTipHeight(chainId);
+}
+
+export interface ChainOverview {
+  chainId: string;
+  /** Null when the chain could not be reached. */
+  tipHeight: number | null;
+  /** The tip block, when it could be loaded. */
+  latestBlock: ExplorerBlock | null;
+  usdRate: number | null;
+  error?: string;
+}
+
+/**
+ * Everything the chain landing page shows: where the chain is, what its
+ * newest block holds, and what its asset is worth.
+ *
+ * Each part is allowed to fail on its own. A chain whose node is down still
+ * renders with a price, and a rate provider outage still leaves the block
+ * data readable — the alternative is one slow upstream blanking the page.
+ */
+export async function getChainOverview(
+  chainId: string,
+  opts: { withBlock?: boolean } = {}
+): Promise<ChainOverview> {
+  const [heightResult, rateResult] = await Promise.allSettled([
+    getTipHeight(chainId),
+    getUsdRate(chainId),
+  ]);
+
+  const tipHeight = heightResult.status === 'fulfilled' ? heightResult.value : null;
+  const usdRate = rateResult.status === 'fulfilled' ? rateResult.value : null;
+
+  let latestBlock: ExplorerBlock | null = null;
+  if (opts.withBlock && tipHeight !== null) {
+    try {
+      latestBlock = await getBlock(chainId, String(tipHeight));
+    } catch {
+      latestBlock = null;
+    }
+  }
+
+  return {
+    chainId,
+    tipHeight,
+    latestBlock,
+    usdRate,
+    error:
+      heightResult.status === 'rejected'
+        ? heightResult.reason instanceof Error
+          ? heightResult.reason.message
+          : String(heightResult.reason)
+        : undefined,
+  };
 }
 
 // ── Search ──────────────────────────────────────────────────────────────────

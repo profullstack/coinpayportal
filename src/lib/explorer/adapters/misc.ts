@@ -385,9 +385,17 @@ async function getAdaBlock(ref: string): Promise<ExplorerBlock> {
     hash = rows[0].hash;
   }
 
-  const rows = await postJson<
-    Array<{ hash: string; block_height?: number; block_time?: number; tx_count?: number }>
-  >(`${KOIOS}/block_info`, { _block_hashes: [hash] });
+  // block_info carries the header; the transaction hashes live on a separate
+  // endpoint, so they are fetched alongside and allowed to fail on their own.
+  const [rows, txRows] = await Promise.all([
+    postJson<Array<{ hash: string; block_height?: number; block_time?: number; tx_count?: number }>>(
+      `${KOIOS}/block_info`,
+      { _block_hashes: [hash] }
+    ),
+    postJson<Array<{ tx_hash?: string }>>(`${KOIOS}/block_txs`, { _block_hashes: [hash] }).catch(
+      () => [] as Array<{ tx_hash?: string }>
+    ),
+  ]);
   if (!rows?.length) throw new NotFoundError();
   const b = rows[0];
 
@@ -397,10 +405,41 @@ async function getAdaBlock(ref: string): Promise<ExplorerBlock> {
     hash: b.hash,
     timestamp: b.block_time ? new Date(b.block_time * 1000).toISOString() : null,
     txCount: b.tx_count ?? null,
+    txHashes: txRows
+      .map((t) => t.tx_hash)
+      .filter((h): h is string => Boolean(h))
+      .slice(0, MAX_TXS),
   };
 }
 
 // ── Dispatch ────────────────────────────────────────────────────────────────
+
+/** Height of the chain tip, for the network stats panels. */
+export async function getMiscTipHeight(chainId: string): Promise<number> {
+  if (chainId === 'sol') {
+    // Solana's "height" in the explorer sense is the slot, which is what
+    // getBlock is addressed by.
+    return solRpc<number>('getSlot', []);
+  }
+  if (chainId === 'xrp') {
+    // The last *validated* ledger, not ledger_current: the current one is
+    // still open, and its contents can still change.
+    const body = await xrpPost<{ result?: { ledger_index?: number } }>({
+      method: 'ledger',
+      params: [{ ledger_index: 'validated' }],
+    });
+    const index = body.result?.ledger_index;
+    if (typeof index !== 'number') throw new UpstreamError('No ledger index');
+    return index;
+  }
+  // Koios lists blocks over GET, newest first.
+  const resp = await fetchWithTimeout(`${KOIOS}/blocks?limit=1`);
+  if (!resp.ok) throw new UpstreamError(`HTTP ${resp.status}`);
+  const rows = (await resp.json()) as Array<{ block_height?: number }>;
+  const height = rows?.[0]?.block_height;
+  if (typeof height !== 'number') throw new UpstreamError('No tip height');
+  return height;
+}
 
 export async function getMiscTransaction(
   chainId: string,

@@ -227,6 +227,24 @@ export async function getUtxoAddress(chainId: string, address: string): Promise<
   };
 }
 
+/** Height of the chain tip, for the network stats panels. */
+export async function getUtxoTipHeight(chainId: string): Promise<number> {
+  if (chainId === 'btc') {
+    const height = await btcTip();
+    if (height === null) throw new UpstreamError('No tip height');
+    return height;
+  }
+  if (chainId === 'bch') {
+    const height = await bchTip();
+    if (height === null) throw new UpstreamError('No tip height');
+    return height;
+  }
+  // BlockCypher reports the chain tip on the network root document.
+  const info = await getJson<{ height?: number }>('https://api.blockcypher.com/v1/doge/main');
+  if (typeof info.height !== 'number') throw new UpstreamError('No tip height');
+  return info.height;
+}
+
 export async function getUtxoBlock(chainId: string, ref: string): Promise<ExplorerBlock> {
   const isHeight = /^\d+$/.test(ref);
 
@@ -245,12 +263,18 @@ export async function getUtxoBlock(chainId: string, ref: string): Promise<Explor
       timestamp?: number;
       tx_count?: number;
     }>(`https://blockstream.info/api/block/${hash}`);
+    // Esplora keeps the transaction ids on a separate route, so this is one
+    // extra request rather than a bigger block payload.
+    const txids = await getJson<string[]>(
+      `https://blockstream.info/api/block/${block.id}/txids`
+    ).catch(() => [] as string[]);
     return {
       chainId,
       height: block.height,
       hash: block.id,
       timestamp: block.timestamp ? new Date(block.timestamp * 1000).toISOString() : null,
       txCount: block.tx_count ?? null,
+      txHashes: txids.slice(0, MAX_TXS),
     };
   }
 

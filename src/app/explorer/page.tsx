@@ -1,9 +1,64 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { classifySearch, searchHref, EXPLORER_CHAINS, getChain } from '@/lib/explorer';
+import {
+  classifySearch,
+  searchHref,
+  EXPLORER_CHAINS,
+  formatUnitPrice,
+  getChain,
+  getChainOverview,
+} from '@/lib/explorer';
 import { SearchForm } from '@/components/explorer/ui';
 import { SITE_URL } from '@/lib/blog';
+
+/**
+ * Live height and price for every network.
+ *
+ * Each chain is fetched independently and allowed to fail on its own, so one
+ * unreachable node leaves a single dash rather than blanking the grid. Ten
+ * chains in parallel is ten upstream calls, which is why this only runs on
+ * the unsearched landing page.
+ */
+async function NetworkGrid() {
+  const overviews = await Promise.all(
+    EXPLORER_CHAINS.map((chain) => getChainOverview(chain.id))
+  );
+
+  return (
+    <div className="mt-10">
+      <h2 className="mb-4 text-lg font-semibold text-white">Networks</h2>
+      <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {overviews.map((o) => {
+          const chain = getChain(o.chainId);
+          if (!chain) return null;
+          return (
+            <li key={o.chainId}>
+              <Link
+                href={`/explorer/${o.chainId}`}
+                className="block rounded-lg border border-gray-700 bg-gray-800/50 px-4 py-3 hover:border-blue-500"
+              >
+                <div className="flex items-baseline justify-between">
+                  <span className="font-semibold text-white">{chain.name}</span>
+                  <span className="text-sm text-gray-400">{chain.symbol}</span>
+                </div>
+                <div className="mt-2 flex items-baseline justify-between text-sm">
+                  <span className="text-white">{formatUnitPrice(o.usdRate)}</span>
+                  <span className="text-gray-500">
+                    {o.tipHeight !== null ? `#${o.tipHeight.toLocaleString()}` : 'unreachable'}
+                  </span>
+                </div>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-3 text-xs text-gray-500">
+        Prices in USD. Block heights are read live from each network.
+      </p>
+    </div>
+  );
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -72,22 +127,7 @@ export default async function ExplorerPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      {!query && (
-        <div className="mt-10">
-          <h2 className="mb-4 text-lg font-semibold text-white">Supported networks</h2>
-          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {EXPLORER_CHAINS.map((chain) => (
-              <li
-                key={chain.id}
-                className="rounded-lg border border-gray-700 bg-gray-800/50 px-4 py-3"
-              >
-                <span className="font-semibold text-white">{chain.name}</span>
-                <span className="ml-2 text-sm text-gray-400">{chain.symbol}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {!query && <NetworkGrid />}
     </div>
   );
 }

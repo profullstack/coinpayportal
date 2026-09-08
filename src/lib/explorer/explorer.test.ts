@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { classifySearch, searchHref, getChain, EXPLORER_CHAINS } from './index';
 import { fromBaseUnits, fromHex, sumBaseUnits } from './units';
+import { formatUnitPrice, formatUsd, toUsd } from './price';
 
 describe('fromBaseUnits', () => {
   it('scales satoshis to BTC', () => {
@@ -167,5 +168,56 @@ describe('getChain', () => {
       expect(chain.symbol.length).toBeGreaterThan(0);
       expect(chain.decimals).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('formatUsd', () => {
+  it('formats an ordinary amount with two decimals and separators', () => {
+    expect(formatUsd(1234.5)).toBe('$1,234.50');
+  });
+
+  it('keeps precision below a cent instead of collapsing to $0.00', () => {
+    // A dust transfer reading as zero dollars looks like a bug, and on DOGE
+    // or ADA a genuine transfer can land here.
+    expect(formatUsd(0.0004)).toBe('$0.00040');
+  });
+
+  it('renders exact zero plainly', () => {
+    expect(formatUsd(0)).toBe('$0.00');
+  });
+
+  it('does not render NaN', () => {
+    expect(formatUsd(Number.NaN)).toBe('—');
+  });
+});
+
+describe('toUsd', () => {
+  it('multiplies a native amount by the rate', () => {
+    expect(toUsd('2', 100)).toBe('$200.00');
+  });
+
+  it('returns null with no rate, so the caller omits the line', () => {
+    expect(toUsd('2', null)).toBeNull();
+  });
+
+  it('returns null for an unpriceable amount', () => {
+    expect(toUsd('', 100)).toBeNull();
+    expect(toUsd('not a number', 100)).toBeNull();
+    expect(toUsd(null, 100)).toBeNull();
+  });
+});
+
+describe('formatUnitPrice', () => {
+  it('uses significant digits for sub-dollar assets', () => {
+    // DOGE and ADA trade well under a dollar; two decimals would erase them.
+    expect(formatUnitPrice(0.0911974)).toBe('$0.0912');
+  });
+
+  it('uses two decimals above a dollar', () => {
+    expect(formatUnitPrice(79275.4)).toBe('$79,275.40');
+  });
+
+  it('renders an em dash when unpriced', () => {
+    expect(formatUnitPrice(null)).toBe('—');
   });
 });

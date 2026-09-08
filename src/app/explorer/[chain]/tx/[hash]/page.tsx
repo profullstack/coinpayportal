@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getChain, getTransaction, NotFoundError } from '@/lib/explorer';
+import { getChain, getTransaction, getUsdRate, toUsd, NotFoundError } from '@/lib/explorer';
 import { Field, formatTime, SearchForm, StatusPill, truncate } from '@/components/explorer/ui';
 import { SITE_URL } from '@/lib/blog';
 
@@ -45,6 +45,12 @@ export default async function TransactionPage({ params }: RouteParams) {
     );
   }
 
+  // Priced after the transaction resolves, and allowed to be null: a rate
+  // outage should cost the USD line, not the page.
+  const rate = await getUsdRate(c.id);
+  const amountUsd = toUsd(tx.amount, rate);
+  const feeUsd = toUsd(tx.fee, rate);
+
   return (
     <div className="container mx-auto max-w-4xl px-4 py-16">
       <SearchForm />
@@ -52,7 +58,9 @@ export default async function TransactionPage({ params }: RouteParams) {
       <div className="mt-8 mb-6 flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-bold text-white">Transaction</h1>
         <StatusPill status={tx.status} />
-        <span className="text-sm text-gray-400">{c.name}</span>
+        <Link href={`/explorer/${c.id}`} className="text-sm text-blue-400 hover:text-blue-300">
+          {c.name}
+        </Link>
       </div>
 
       <dl className="rounded-lg border border-gray-700 bg-gray-800/50 px-6">
@@ -61,8 +69,12 @@ export default async function TransactionPage({ params }: RouteParams) {
         </Field>
         <Field label="Amount">
           {tx.amount || '—'} {tx.amount ? c.symbol : ''}
+          {amountUsd && <span className="ml-2 text-gray-400">({amountUsd})</span>}
         </Field>
-        <Field label="Fee">{tx.fee ? `${tx.fee} ${c.symbol}` : '—'}</Field>
+        <Field label="Fee">
+          {tx.fee ? `${tx.fee} ${c.symbol}` : '—'}
+          {feeUsd && <span className="ml-2 text-gray-400">({feeUsd})</span>}
+        </Field>
         <Field label="Block">
           {tx.blockHeight !== null ? (
             <Link
@@ -113,6 +125,9 @@ export default async function TransactionPage({ params }: RouteParams) {
                   )}
                   <span className="ml-auto text-white">
                     {t.amount} {c.symbol}
+                    {toUsd(t.amount, rate) && (
+                      <span className="ml-2 text-gray-400">({toUsd(t.amount, rate)})</span>
+                    )}
                   </span>
                 </div>
               </li>

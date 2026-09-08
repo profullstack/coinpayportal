@@ -52,7 +52,9 @@ export default async function BlockPage({ params }: RouteParams) {
         <h1 className="text-2xl font-bold text-white">
           Block {block.height.toLocaleString()}
         </h1>
-        <span className="text-sm text-gray-400">{c.name}</span>
+        <Link href={`/explorer/${c.id}`} className="text-sm text-blue-400 hover:text-blue-300">
+          {c.name}
+        </Link>
       </div>
 
       <dl className="rounded-lg border border-gray-700 bg-gray-800/50 px-6">
