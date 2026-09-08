@@ -38,6 +38,18 @@ const nextConfig = {
           { key: 'Cache-Control', value: 'public, max-age=300' },
         ],
       },
+      // mta-sts.coinpayportal.com is a custom domain on this same Railway
+      // service, because MTA-STS requires the policy to be served over HTTPS
+      // from that exact hostname with a valid certificate. Serving it here is
+      // the cheapest way to get one, but it means the whole site answers on a
+      // second hostname. Only /.well-known/mta-sts.txt is meant to be fetched
+      // there, and only by mail servers, so keep the rest out of search
+      // results rather than publishing a duplicate of the site.
+      {
+        source: '/(.*)',
+        has: [{ type: 'host', value: 'mta-sts.coinpayportal.com' }],
+        headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }],
+      },
       {
         source: '/(.*)',
         headers: [
