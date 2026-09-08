@@ -456,6 +456,8 @@ export async function forwardPaymentSecurely(
   paymentId: string
 ): Promise<SecureForwardingResult> {
   let sensitiveData: { privateKey?: string } = {};
+  let claimAcquired = false;
+  let broadcastStarted = false;
 
   try {
     // Get payment details
@@ -546,6 +548,12 @@ export async function forwardPaymentSecurely(
       };
     }
 
+    const rpcUrl = getRpcUrl(addressData.cryptocurrency);
+    const provider = getProvider(addressData.cryptocurrency, rpcUrl);
+    if (!isEVMToken(addressData.cryptocurrency) && !isSolanaToken(addressData.cryptocurrency) && !provider.sendTransaction) {
+      return { success: false, error: `Manual forwarding required for ${addressData.cryptocurrency}` };
+    }
+
     // Claim the payment before any on-chain work.
     //
     // confirmed -> forwarding used to be an unconditional write, so the
@@ -568,6 +576,7 @@ export async function forwardPaymentSecurely(
         error: 'Payment is already being forwarded by another worker',
       };
     }
+    claimAcquired = true;
 
     // Check if merchant has a paid subscription tier for commission rate
     // Paid tier (Professional) = 0.5% commission, Free tier (Starter) = 1% commission
@@ -694,14 +703,14 @@ export async function forwardPaymentSecurely(
       console.log(`[SECURE] Withholding ${gasReserve} ${addressData.cryptocurrency} as gas reserve`);
     }
 
-    // Get blockchain provider
-    const rpcUrl = getRpcUrl(addressData.cryptocurrency);
-    const provider = getProvider(addressData.cryptocurrency, rpcUrl);
-
     let merchantTxHash: string | undefined;
     let platformTxHash: string | undefined;
+    const broadcastStartedAt = new Date().toISOString();
 
     try {
+      // A thrown provider call may already have broadcast a transaction. From
+      // this point on, only reconciliation can establish that retry is safe.
+      broadcastStarted = true;
       if (isEVMToken(addressData.cryptocurrency)) {
         const tokenTxHashes = await forwardEVMTokenSplit(
           addressData.cryptocurrency,
@@ -783,15 +792,14 @@ export async function forwardPaymentSecurely(
 
           console.log(`[SECURE] Forwarded payment ${paymentId}: merchant=${merchantTxHash}, platform=${platformTxHash}`);
         }
-      } else {
-        // For blockchains without sendTransaction support
-        console.log(`[SECURE] Manual forwarding required for ${addressData.cryptocurrency}`);
-        merchantTxHash = `manual_${paymentId}_merchant`;
-        platformTxHash = `manual_${paymentId}_platform`;
+      }
+
+      if (![merchantTxHash, platformTxHash].every(hash => typeof hash === 'string' && hash.trim())) {
+        throw new Error('Provider did not return transaction hashes');
       }
 
       // Update payment with forwarding details
-      const { error: updateError } = await supabase
+      const { data: completed, error: updateError } = await supabase
         .from('payments')
         .update({
           status: 'forwarded',
@@ -801,11 +809,13 @@ export async function forwardPaymentSecurely(
           forwarded_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
-        .eq('id', paymentId);
+        .eq('id', paymentId)
+        .eq('status', 'forwarding')
+        .select('id');
 
-      if (updateError) {
+      if (updateError || !completed?.length) {
         console.error(`[SECURE] Failed to update payment ${paymentId} to forwarded:`, updateError);
-        throw new Error(`Database update failed: ${updateError.message}`);
+        throw new Error(updateError ? `Database update failed: ${updateError.message}` : 'Payment state changed before forwarding completion was recorded');
       }
 
       console.log(`[SECURE] Payment ${paymentId} status updated to 'forwarded'`);
@@ -827,18 +837,24 @@ export async function forwardPaymentSecurely(
       }
 
       // Send webhook notification
-      await sendPaymentWebhook(supabase, payment.business_id, paymentId, 'payment.forwarded', {
-        amount_crypto: payment.crypto_amount.toString(),
-        amount_usd: payment.amount?.toString() || '0',
-        currency: addressData.cryptocurrency,
-        status: 'forwarded',
-        merchant_amount: merchantAmount,
-        platform_fee: platformFee,
-        tx_hash: merchantTxHash,
-        merchant_tx_hash: merchantTxHash,
-        platform_tx_hash: platformTxHash,
-        metadata: payment.metadata || undefined,
-      });
+      try {
+        await sendPaymentWebhook(supabase, payment.business_id, paymentId, 'payment.forwarded', {
+          amount_crypto: payment.crypto_amount.toString(),
+          amount_usd: payment.amount?.toString() || '0',
+          currency: addressData.cryptocurrency,
+          status: 'forwarded',
+          merchant_amount: merchantAmount,
+          platform_fee: platformFee,
+          tx_hash: merchantTxHash,
+          merchant_tx_hash: merchantTxHash,
+          platform_tx_hash: platformTxHash,
+          metadata: payment.metadata || undefined,
+        });
+      } catch (notificationError) {
+        // The transfer and its database record already succeeded. Notification
+        // delivery must never put this payment back on the retry path.
+        console.error(`[SECURE] Forwarded payment ${paymentId} notification failed:`, notificationError);
+      }
 
       return {
         success: true,
@@ -848,35 +864,60 @@ export async function forwardPaymentSecurely(
         platformFee,
       };
     } catch (txError) {
-      // Persist forwarding failure details for debugging/retry queue processors
+      // Preserve the claim even when the provider or the final database write
+      // fails. A stale balance or missing hash is not proof of no broadcast.
       const forwardingError = txError instanceof Error ? txError.message : String(txError);
       const existingMetadata = (payment.metadata && typeof payment.metadata === 'object') ? payment.metadata : {};
+      console.error(`[SECURE] Forwarding outcome requires reconciliation for ${paymentId}:`, {
+        error: forwardingError, merchantTxHash, platformTxHash,
+      });
 
-      await supabase
+      const { error: reconciliationError } = await supabase
         .from('payments')
         .update({
-          status: 'forwarding_failed',
+          ...(merchantTxHash ? { forward_tx_hash: merchantTxHash } : {}),
           metadata: {
             ...existingMetadata,
+            reconciliation_required: true,
+            forwarding_started_at: broadcastStartedAt,
+            ...(merchantTxHash ? { forwarding_merchant_tx_hash: merchantTxHash } : {}),
+            ...(platformTxHash ? { forwarding_platform_tx_hash: platformTxHash } : {}),
             forwarding_error: forwardingError,
             forwarding_failed_at: new Date().toISOString(),
           },
           updated_at: new Date().toISOString(),
         })
-        .eq('id', paymentId);
+        .eq('id', paymentId)
+        .eq('status', 'forwarding');
 
-      console.error(`[SECURE] Transaction failed for payment ${paymentId}:`, txError);
+      if (reconciliationError) {
+        console.error(`[SECURE] Could not record reconciliation details for ${paymentId}:`, reconciliationError);
+      }
 
       return {
         success: false,
-        error: txError instanceof Error ? txError.message : 'Transaction failed',
+        error: `Forwarding outcome requires reconciliation before retry: ${forwardingError}`,
       };
     }
   } catch (error) {
+    if (claimAcquired && !broadcastStarted) {
+      try {
+        const { error: releaseError } = await supabase
+          .from('payments')
+          .update({ status: 'confirmed', updated_at: new Date().toISOString() })
+          .eq('id', paymentId)
+          .eq('status', 'forwarding');
+        if (releaseError) console.error(`[SECURE] Could not release pre-broadcast claim for ${paymentId}:`, releaseError);
+      } catch (releaseError) {
+        console.error(`[SECURE] Could not release pre-broadcast claim for ${paymentId}:`, releaseError);
+      }
+    }
     console.error(`[SECURE] Forwarding failed for payment ${paymentId}:`, error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Forwarding failed',
+      error: broadcastStarted
+        ? `Forwarding outcome requires reconciliation before retry: ${error instanceof Error ? error.message : 'Forwarding failed'}`
+        : error instanceof Error ? error.message : 'Forwarding failed',
     };
   } finally {
     // CRITICAL: Clear sensitive data from memory
@@ -913,8 +954,14 @@ export async function retryForwardingSecurely(
     };
   }
 
-  // Check if eligible for retry
-  if (!['forwarding_failed', 'confirmed'].includes(payment.status)) {
+  // Old failures may have happened after a partial or unacknowledged send.
+  // Keep the record intact until an operator has reconciled the outcome.
+  if (payment.status === 'forwarding_failed') {
+    return { success: false, error: 'Legacy forwarding failure requires reconciliation before retry' };
+  }
+
+  // Only known pre-broadcast failures release back to confirmed automatically.
+  if (payment.status !== 'confirmed') {
     return {
       success: false,
       error: `Cannot retry forwarding for payment with status: ${payment.status}`,

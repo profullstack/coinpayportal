@@ -159,6 +159,7 @@ export async function confirmAndForwardPayment(
   balance: number,
   now: Date,
 ): Promise<boolean> {
+  if (payment.status === 'forwarding' || payment.status === 'forwarding_failed') return false;
   const { data: claimed, error: claimError } = await supabase
     .from('payments')
     .update({
@@ -210,7 +211,7 @@ export async function confirmAndForwardPayment(
  *                       is a quote-validity window, not a promise that nothing
  *                       will arrive later; customers pay invoices days late.
  *   confirmed         — the deposit was seen but forwarding never ran.
- *   forwarding_failed — forwarding threw. The retry queue is supposed to catch
+ *   forwarding_failed — forwarding threw. The retry queue used to catch
  *                       these, but anything that exhausted its attempts (or was
  *                       never enqueued) is orphaned permanently.
  *   forwarding        — a forward started and never completed.
@@ -219,27 +220,18 @@ export async function confirmAndForwardPayment(
  * `forwarding_failed`, not `expired` — so scanning only expired rows would
  * leave most of it stuck.
  *
- * Two guards keep this safe:
- *   - the funds must still be at the address, which proves no earlier forward
- *     succeeded (important for `forwarding`, where a transaction could
- *     otherwise be in flight and get double-sent);
- *   - rows must be older than STUCK_MIN_AGE_MINUTES, so this never races the
- *     normal path on a payment that is being handled right now.
+ * In-flight/ambiguous forwarding claims must never be reopened by this scan.
+ * An unchanged balance or old quote expiry cannot establish that no transaction
+ * was broadcast. Legacy forwarding_failed rows are also excluded until an
+ * operator reconciles them; this scan is not a transaction reconciliation service.
  *
  * Bounded deliberately — each check is a chain RPC call, so this walks the most
  * recent rows rather than the entire history.
  */
-const STUCK_STATUSES = ['expired', 'confirmed', 'forwarding_failed', 'forwarding'];
+const STUCK_STATUSES = ['expired', 'confirmed'];
 const STUCK_LOOKBACK_DAYS = 30;
 const STUCK_MIN_AGE_MINUTES = 30;
 const STUCK_SCAN_LIMIT = 50;
-
-/**
- * How long a recorded on-chain broadcast is left alone before the rescan will
- * consider re-driving it. Well past normal confirmation on every supported
- * chain, so a slow mempool is never mistaken for a failed send.
- */
-const BROADCAST_SETTLE_GRACE_MS = 6 * 60 * 60 * 1000;
 
 export async function rescanLateDeposits(
   supabase: SupabaseClient,
@@ -248,6 +240,22 @@ export async function rescanLateDeposits(
 ): Promise<void> {
   const since = new Date(now.getTime() - STUCK_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
   const until = new Date(now.getTime() - STUCK_MIN_AGE_MINUTES * 60 * 1000);
+
+  // Excluded payments must remain visible without consuming the scan's 50 slots
+  // or performing balance checks that might be mistaken for reconciliation.
+  try {
+    const { count, error: heldError } = await supabase.from('payments')
+      .select('id', { count: 'exact', head: true })
+      .in('status', ['forwarding', 'forwarding_failed'])
+      .lte('updated_at', until.toISOString());
+    if (heldError || count === null) throw heldError || new Error('Reconciliation count unavailable');
+    if (count && count > 0) {
+      console.warn('Payments excluded from automatic forwarding need reconciliation', { count, olderThan: until.toISOString() });
+    }
+  } catch (heldError) {
+    console.error('Failed to count payments awaiting forwarding reconciliation:', heldError);
+    stats.errors++;
+  }
 
   const { data: stuckPayments, error } = await supabase
     .from('payments')
@@ -279,28 +287,15 @@ export async function rescanLateDeposits(
   }
 
   for (const payment of stuckPayments || []) {
-    stats.checked++;
     try {
-      // A payment already in 'forwarding' WITH a recorded transaction hash has
-      // been broadcast. "Funds still at the address" does not prove that send
-      // failed — it may simply not be mined yet, and on a congested chain that
-      // window is longer than STUCK_MIN_AGE_MINUTES. Re-driving it there is
-      // precisely the double-send this rescan is supposed to avoid, so a known
-      // broadcast is given much longer to settle before being touched.
-      if (payment.status === 'forwarding' && payment.forward_tx_hash) {
-        const lastTouched = new Date(payment.updated_at || payment.created_at).getTime();
-        if (Number.isFinite(lastTouched) && now.getTime() - lastTouched < BROADCAST_SETTLE_GRACE_MS) {
-          console.log(
-            `Payment ${payment.id} has an in-flight forward (${payment.forward_tx_hash}); ` +
-              'leaving it to settle rather than re-broadcasting',
-          );
-          continue;
-        }
+      if (payment.status === 'forwarding' || payment.status === 'forwarding_failed') {
+        console.log(`Payment ${payment.id} has an in-flight or uncertain forward; leaving it for reconciliation`);
+        continue;
       }
+      stats.checked++;
 
       const balance = await checkBalance(payment.payment_address, payment.blockchain);
-      // Funds still present ⇒ no earlier forward succeeded, so re-driving this
-      // payment cannot double-send.
+      // Sufficient balance is a funding check, not proof of no previous send.
       if (!isSufficientPayment(balance, payment.crypto_amount)) continue;
 
       console.log(

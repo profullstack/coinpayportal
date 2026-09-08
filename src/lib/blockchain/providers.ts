@@ -594,6 +594,12 @@ export class EthereumProvider implements BlockchainProvider {
   ): Promise<string> {
     try {
       const wallet = new ethers.Wallet(privateKey, this.provider);
+      if (ethers.getAddress(from) !== wallet.address) {
+        throw new Error('Sender address does not match the signing wallet');
+      }
+      const destination = ethers.getAddress(to);
+      let valueToSend = ethers.parseEther(amount);
+      if (valueToSend <= 0n) throw new Error('Transfer amount must be positive');
       
       // Get current balance and gas price to calculate max sendable
       const balance = await this.provider.getBalance(wallet.address);
@@ -601,8 +607,6 @@ export class EthereumProvider implements BlockchainProvider {
       const gasLimit = BigInt(21000); // Standard ETH transfer gas limit
       const gasPrice = feeData.gasPrice || BigInt(20000000000); // 20 gwei fallback
       const gasCost = gasLimit * gasPrice;
-      
-      let valueToSend = ethers.parseEther(amount);
       
       console.log(`[ETH] Balance: ${ethers.formatEther(balance)} ETH, requested: ${amount} ETH, gas cost: ${ethers.formatEther(gasCost)} ETH`);
       
@@ -633,7 +637,7 @@ export class EthereumProvider implements BlockchainProvider {
       }
       
       const tx = await wallet.sendTransaction({
-        to,
+        to: destination,
         value: valueToSend,
         gasLimit,
         gasPrice,
@@ -658,6 +662,18 @@ export class EthereumProvider implements BlockchainProvider {
   ): Promise<string> {
     try {
       const wallet = new ethers.Wallet(privateKey, this.provider);
+      if (ethers.getAddress(from) !== wallet.address) {
+        throw new Error('Sender address does not match the signing wallet');
+      }
+      if (recipients.length === 0) throw new Error('At least one recipient is required');
+      // Validate the entire split before the first RPC or transfer. A bad later
+      // recipient must not leave an already-paid earlier leg behind.
+      const transfers = recipients.map(recipient => {
+        const address = ethers.getAddress(recipient.address);
+        const value = ethers.parseEther(recipient.amount);
+        if (value <= 0n) throw new Error('Every split amount must be positive');
+        return { address, value };
+      });
       
       // Get current balance and gas price
       const balance = await this.provider.getBalance(wallet.address);
@@ -669,8 +685,8 @@ export class EthereumProvider implements BlockchainProvider {
       
       // Calculate total requested
       let totalRequested = BigInt(0);
-      for (const recipient of recipients) {
-        totalRequested += ethers.parseEther(recipient.amount);
+      for (const recipient of transfers) {
+        totalRequested += recipient.value;
       }
       
       console.log(`[ETH] Split: balance=${ethers.formatEther(balance)}, total=${ethers.formatEther(totalRequested)}, gas=${ethers.formatEther(totalGasCost)}`);
@@ -689,8 +705,8 @@ export class EthereumProvider implements BlockchainProvider {
       
       const txHashes: string[] = [];
       
-      for (const recipient of recipients) {
-        let valueToSend = ethers.parseEther(recipient.amount);
+      for (const recipient of transfers) {
+        let valueToSend = recipient.value;
         if (ratio < BigInt(1000000)) {
           valueToSend = (valueToSend * ratio) / BigInt(1000000);
         }

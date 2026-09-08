@@ -14,7 +14,7 @@ vi.mock('@/lib/subscriptions/service', () => ({
   handleSubscriptionPaymentConfirmed: vi.fn(),
 }));
 
-import { rescanLateDeposits } from './payment-monitor';
+import { confirmAndForwardPayment, rescanLateDeposits } from './payment-monitor';
 import { checkBalance } from './balance-checkers';
 import { sendWebhook } from './webhook';
 
@@ -40,7 +40,7 @@ function expiredPayment(overrides: Record<string, any> = {}) {
 
 function mockSupabase(
   expiredRows: any[],
-  opts: { isEscrow?: boolean; claimed?: boolean } = {},
+  opts: { isEscrow?: boolean; claimed?: boolean; heldCount?: number; heldError?: boolean } = {},
 ) {
   // The confirm write is a compare-and-swap:
   //   .update({status:'confirmed'}).eq('id', …).eq('status', observed).select()
@@ -58,7 +58,11 @@ function mockSupabase(
 
   const statusFilter = vi.fn();
   const rescanChain = {
-    select: vi.fn().mockReturnValue({
+    select: vi.fn().mockImplementation((_columns: string, options?: { head?: boolean }) => options?.head ? {
+      in: vi.fn().mockReturnValue({ lte: vi.fn().mockResolvedValue({
+        count: opts.heldCount ?? 0, error: opts.heldError ? new Error('synthetic count failure') : null,
+      }) }),
+    } : {
       in: statusFilter.mockReturnValue({
         not: vi.fn().mockReturnValue({
           neq: vi.fn().mockReturnValue({
@@ -196,28 +200,53 @@ describe('rescanLateDeposits', () => {
     expect(fetch).not.toHaveBeenCalled(); // …but settlement stays manual
   });
 
-  it('scans every state that can strand funds, not just expired', async () => {
+  it('excludes held forwarding claims from the limited database scan', async () => {
     vi.mocked(checkBalance).mockResolvedValue(0 as any);
     const { supabase, statusFilter } = mockSupabase([]);
 
     await rescanLateDeposits(supabase, now, stats);
 
-    // An on-chain audit put most stranded value in forwarding_failed, so
-    // scanning only 'expired' would miss the bulk of it.
     const [, statuses] = statusFilter.mock.calls[0];
-    expect(statuses).toEqual(
-      expect.arrayContaining(['expired', 'confirmed', 'forwarding_failed', 'forwarding']),
-    );
+    expect(statuses).toEqual(['expired', 'confirmed']);
   });
 
-  it('re-drives a forwarding_failed payment whose funds are still present', async () => {
+  it('does not re-drive a legacy failure even when funds still appear present', async () => {
     vi.mocked(checkBalance).mockResolvedValue(1.35938662 as any);
-    const { supabase } = mockSupabase([expiredPayment({ status: 'forwarding_failed' })]);
+    const { supabase, paymentsUpdate } = mockSupabase([expiredPayment({ status: 'forwarding_failed' })]);
 
     await rescanLateDeposits(supabase, now, stats);
 
-    expect(stats.confirmed).toBe(1);
-    expect(fetch).toHaveBeenCalled();
+    expect(stats.confirmed).toBe(0);
+    expect(stats.checked).toBe(0);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(checkBalance).not.toHaveBeenCalled();
+    expect(paymentsUpdate).not.toHaveBeenCalled();
+  });
+
+  it('reports the excluded backlog count without touching payment rows', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { supabase, paymentsUpdate } = mockSupabase([], { heldCount: 51 });
+      await rescanLateDeposits(supabase, now, stats);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('need reconciliation'), expect.objectContaining({ count: 51 }));
+      expect(paymentsUpdate).not.toHaveBeenCalled();
+      expect(checkBalance).not.toHaveBeenCalled();
+    } finally { warn.mockRestore(); }
+  });
+
+  it('reports an unavailable backlog count instead of treating it as zero', async () => {
+    const { supabase } = mockSupabase([], { heldError: true });
+    await rescanLateDeposits(supabase, now, stats);
+    expect(stats.errors).toBe(1);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('blocks direct confirmation of a legacy forwarding failure', async () => {
+    const { supabase, paymentsUpdate } = mockSupabase([]);
+    expect(await confirmAndForwardPayment(supabase, expiredPayment({ status: 'forwarding_failed' }) as any, 2, now)).toBe(false);
+    expect(paymentsUpdate).not.toHaveBeenCalled();
+    expect(sendWebhook).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('will not re-drive a stuck forward once the funds have left', async () => {
@@ -229,6 +258,26 @@ describe('rescanLateDeposits', () => {
 
     expect(stats.confirmed).toBe(0);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [null, '2026-08-13T23:59:59Z'],
+    [null, '2026-07-31T00:00:00Z'],
+    ['synthetic-inflight-hash', '2026-08-13T23:59:59Z'],
+    ['synthetic-inflight-hash', '2026-07-31T00:00:00Z'],
+    [null, 'invalid-date'],
+  ])('never reopens forwarding with hash %s and updated time %s', async (forward_tx_hash, updated_at) => {
+    vi.mocked(checkBalance).mockResolvedValue(1.35938662 as any);
+    const { supabase, paymentsUpdate } = mockSupabase([
+      expiredPayment({ status: 'forwarding', forward_tx_hash, updated_at }),
+    ]);
+    await rescanLateDeposits(supabase, now, stats);
+    expect(stats.confirmed).toBe(0);
+    expect(stats.checked).toBe(0);
+    expect(paymentsUpdate).not.toHaveBeenCalled();
+    expect(checkBalance).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sendWebhook).not.toHaveBeenCalled();
   });
 
   it('keeps going when one address fails to check', async () => {
@@ -244,5 +293,15 @@ describe('rescanLateDeposits', () => {
 
     expect(stats.errors).toBe(1);
     expect(stats.confirmed).toBe(1);
+  });
+
+  it('direct confirmation cannot reopen a forwarding claim either', async () => {
+    const { supabase, paymentsUpdate } = mockSupabase([]);
+    const payment = expiredPayment({ status: 'forwarding' });
+    expect(await confirmAndForwardPayment(supabase, payment as any, 1.35938662, now)).toBe(false);
+    expect(paymentsUpdate).not.toHaveBeenCalled();
+    expect(checkBalance).not.toHaveBeenCalled();
+    expect(sendWebhook).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
