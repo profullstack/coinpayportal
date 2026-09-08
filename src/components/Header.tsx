@@ -75,6 +75,7 @@ export default function Header() {
     '/pricing',
     '/did',
     '/remittance',
+    '/explorer',
   ]);
 
   const navigation = [
@@ -83,6 +84,8 @@ export default function Header() {
     // behind the dashboard.
     { name: 'Remittance', href: '/remittance' },
     { name: 'Wallet', href: '/web-wallet' },
+    // Reading the chain needs no account either.
+    { name: 'Explorer', href: '/explorer' },
     { name: 'API', href: '/docs' },
     { name: 'Blog', href: '/blog' },
     { name: 'DID', href: '/did' },
@@ -98,6 +101,7 @@ export default function Header() {
     { name: 'Invoices', href: '/invoices' },
     { name: 'Escrow', href: '/escrow' },
     { name: 'Wallet', href: '/web-wallet' },
+    { name: 'Explorer', href: '/explorer' },
     { name: 'API', href: '/docs' },
     { name: 'Blog', href: '/blog' },
     { name: 'Developer', href: '/dashboard/oauth' },
