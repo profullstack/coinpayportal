@@ -64,6 +64,13 @@ const API_KEY_LIMIT = 600;
  * integration's burst.
  */
 const API_KEY_IP_CEILING = 1200;
+/**
+ * The public block explorer. One page view is one request here but three
+ * upstream JSON-RPC calls, so this bucket is what stands between a scraper and
+ * our metered node quota. Generous enough that nobody reading the site will
+ * meet it, low enough that automated enumeration stops being free.
+ */
+const EXPLORER_LIMIT = 120;
 const WINDOW_MS = 60_000; // 1 minute
 
 // Cleanup stale entries every 5 minutes
@@ -183,6 +190,43 @@ export async function proxy(request: NextRequest) {
       return new NextResponse(null, { status: 403 });
     }
     return new NextResponse(null, { status: 204, headers: corsHeaders });
+  }
+
+  // Rate limiting for the public block explorer.
+  //
+  // This block sits before the API one because the guard below it is
+  // `pathname.startsWith('/api/')`, and /explorer is a *page* route — so it
+  // was never rate limited at all, by anything. It is also unauthenticated by
+  // design (a block explorer has no login) and rendered `force-dynamic`, and
+  // every transaction page costs three upstream JSON-RPC calls against our
+  // paid Infura endpoints. That combination is a free, metered, public RPC
+  // proxy, and it was being used as one.
+  //
+  // The budget is deliberately looser than the general API limit: a human
+  // reading the explorer clicks through blocks and transactions in bursts, and
+  // each page is one request, not one per call.
+  if (pathname.startsWith('/explorer')) {
+    const clientIp =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      null;
+
+    if (clientIp) {
+      const rl = bump(`explorer:${clientIp}`, EXPLORER_LIMIT, Date.now());
+      if (!rl.allowed) {
+        const retryAfter = Math.ceil((rl.resetAt - Date.now()) / 1000);
+        return new NextResponse('Too many requests', {
+          status: 429,
+          headers: {
+            'Content-Type': 'text/plain',
+            'Retry-After': String(retryAfter),
+            'X-RateLimit-Limit': String(rl.limit),
+            'X-RateLimit-Remaining': '0',
+            'X-RateLimit-Reset': String(Math.ceil(rl.resetAt / 1000)),
+          },
+        });
+      }
+    }
   }
 
   // Rate limiting for API routes
