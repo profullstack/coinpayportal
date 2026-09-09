@@ -1,4 +1,5 @@
 import { gate } from "@/lib/crawl-gateway";
+import { meter } from "@/lib/throttle";
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -40,117 +41,17 @@ function getCorsHeaders(requestOrigin: string | null): Record<string, string> {
 
 // ── Rate Limiting ──────────────────────────────────────────
 
-interface RateLimitEntry {
-  count: number;
-  resetAt: number;
-}
-
-const rateLimitMap = new Map<string, RateLimitEntry>();
-
-const GENERAL_LIMIT = 60;
-const AUTH_LIMIT = 10;
 /**
- * Server-to-server integrations arrive from one host, so an IP bucket sized for
- * a single browser throttles a whole merchant. ugig.net minting payment
- * requests for its accepted-invoice queue sends ~80 creates in a burst and got
- * "Too many requests" partway through, which surfaced to the payer as invoices
- * that silently would not prepare. Credentialed callers get their own bucket.
+ * The limiter that used to live here is now @profullstack/throttle, configured
+ * in lib/throttle.ts. It differs in one way that matters: it meters every
+ * route, not just `/api/`. The scraper that walked 19,000 `/explorer` URLs a
+ * day never touched an API path, so none of this code ever saw it.
+ *
+ * Re-exported because the credential rule is the same one, and the tests that
+ * pin it -- the wallet extension's `Wallet` scheme, an integration's bearer
+ * token -- are worth keeping pointed at the behaviour rather than at a copy.
  */
-const API_KEY_LIMIT = 600;
-/**
- * The credential above is unverified at this layer — the route handler is what
- * actually authenticates it. So a caller could mint buckets by rotating junk
- * keys; this ceiling bounds that per host while staying far above any real
- * integration's burst.
- */
-const API_KEY_IP_CEILING = 1200;
-const WINDOW_MS = 60_000; // 1 minute
-
-// Cleanup stale entries every 5 minutes
-if (typeof globalThis !== 'undefined') {
-  setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of rateLimitMap) {
-      if (entry.resetAt <= now) {
-        rateLimitMap.delete(key);
-      }
-    }
-  }, 5 * 60_000);
-}
-
-interface RateLimitResult {
-  allowed: boolean;
-  limit: number;
-  remaining: number;
-  resetAt: number;
-}
-
-function bump(key: string, limit: number, now: number): RateLimitResult {
-  let entry = rateLimitMap.get(key);
-
-  if (!entry || entry.resetAt <= now) {
-    entry = { count: 0, resetAt: now + WINDOW_MS };
-    rateLimitMap.set(key, entry);
-  }
-
-  entry.count++;
-
-  return {
-    allowed: entry.count <= limit,
-    limit,
-    remaining: Math.max(0, limit - entry.count),
-    resetAt: entry.resetAt,
-  };
-}
-
-/** FNV-1a, so a raw API key never becomes a map key we might dump or log. */
-function fingerprint(value: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < value.length; i++) {
-    hash ^= value.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(36);
-}
-
-/** The credential presented, if any. Unverified here — the route handler authenticates. */
-export function presentedCredential(
-  headers: { get(name: string): string | null }
-): string | null {
-  const authorization = headers.get('authorization');
-  if (authorization) {
-    // Any auth scheme, not just Bearer. The wallet extension signs with
-    // `Authorization: Wallet <walletId>:<signature>:<timestamp>` (see
-    // packages/extension/src/core/api.ts), and matching Bearer alone dropped it
-    // into the anonymous per-IP bucket — which a bulk payout exhausts in
-    // seconds, since every payment costs a prepare-tx plus a broadcast.
-    const match = /^(\S+)\s+(\S+)/.exec(authorization.trim());
-    if (match) return match[2];
-  }
-  const apiKey = headers.get('x-api-key')?.trim();
-  return apiKey ? apiKey : null;
-}
-
-function checkRateLimit(
-  ip: string,
-  isAuth: boolean,
-  credential: string | null
-): RateLimitResult {
-  const now = Date.now();
-
-  // Auth endpoints stay IP-bucketed whatever headers accompany them, or a
-  // brute-force attempt would just bolt on an Authorization header to buy a
-  // bigger budget.
-  if (isAuth) return bump(`auth:${ip}`, AUTH_LIMIT, now);
-
-  if (!credential) return bump(`api:${ip}`, GENERAL_LIMIT, now);
-
-  // Both buckets are charged; the host ceiling is what a key-rotating caller
-  // cannot escape, so a denial there wins over a healthy per-key budget.
-  const ceiling = bump(`apikey-ip:${ip}`, API_KEY_IP_CEILING, now);
-  const perKey = bump(`apikey:${fingerprint(credential)}`, API_KEY_LIMIT, now);
-  return ceiling.allowed ? perKey : ceiling;
-}
+export { presentedCredential } from '@profullstack/throttle';
 
 // ── Proxy ───────────────────────────────────────────────────
 
@@ -165,6 +66,15 @@ export async function proxy(request: NextRequest) {
   // and retrieval crawlers fall through to everything below.
   const answer = await gate(request);
   if (answer) return answer;
+
+  /*
+   * Then the site-wide allowance, which meters every route: 100 requests a
+   * minute per caller, and going over is answered 402 with the same offer the
+   * gate makes rather than 429. Before CORS and the security headers, because
+   * there is no point dressing a response we are about to refuse.
+   */
+  const overLimit = await meter(request);
+  if (overLimit) return overLimit;
 
   const { pathname } = request.nextUrl;
   const isApiRoute = pathname.startsWith('/api/');
@@ -183,65 +93,6 @@ export async function proxy(request: NextRequest) {
       return new NextResponse(null, { status: 403 });
     }
     return new NextResponse(null, { status: 204, headers: corsHeaders });
-  }
-
-  // Rate limiting for API routes
-  if (isApiRoute) {
-    const clientIp =
-      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      request.headers.get('x-real-ip') ||
-      null;
-    const isAuthEndpoint = pathname.startsWith('/api/auth/');
-
-    // Skip rate limiting if we can't identify the client
-    if (!clientIp) {
-      const response = NextResponse.next();
-      addSecurityHeaders(response, isApiRoute, requestOrigin, isOnion);
-      const noIpCorsHeaders = getCorsHeaders(requestOrigin);
-      if (noIpCorsHeaders['Access-Control-Allow-Origin']) {
-        for (const [k, v] of Object.entries(noIpCorsHeaders)) {
-          response.headers.set(k, v);
-        }
-      }
-      return response;
-    }
-
-    const rl = checkRateLimit(
-      clientIp,
-      isAuthEndpoint,
-      presentedCredential(request.headers)
-    );
-    const corsHeaders = getCorsHeaders(requestOrigin);
-
-    if (!rl.allowed) {
-      const retryAfter = Math.ceil((rl.resetAt - Date.now()) / 1000);
-      return new NextResponse(
-        JSON.stringify({ success: false, error: 'Too many requests' }),
-        {
-          status: 429,
-          headers: {
-            'Content-Type': 'application/json',
-            'Retry-After': String(retryAfter),
-            'X-RateLimit-Limit': String(rl.limit),
-            'X-RateLimit-Remaining': '0',
-            'X-RateLimit-Reset': String(Math.ceil(rl.resetAt / 1000)),
-            ...corsHeaders,
-          },
-        }
-      );
-    }
-
-    const response = NextResponse.next();
-
-    // Security headers
-    addSecurityHeaders(response, isApiRoute, requestOrigin, isOnion);
-
-    // Rate limit headers
-    response.headers.set('X-RateLimit-Limit', String(rl.limit));
-    response.headers.set('X-RateLimit-Remaining', String(rl.remaining));
-    response.headers.set('X-RateLimit-Reset', String(Math.ceil(rl.resetAt / 1000)));
-
-    return response;
   }
 
   const response = NextResponse.next();
