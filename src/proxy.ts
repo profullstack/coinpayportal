@@ -1,5 +1,7 @@
 import { gate } from "@/lib/crawl-gateway";
+import { EXPLORER_PASS_PATH, explorerGate, explorerSell } from "@/lib/explorer-gateway";
 import { meter } from "@/lib/throttle";
+import { presentedCredential } from '@profullstack/throttle';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -41,17 +43,129 @@ function getCorsHeaders(requestOrigin: string | null): Record<string, string> {
 
 // ── Rate Limiting ──────────────────────────────────────────
 
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+const rateLimitMap = new Map<string, RateLimitEntry>();
+
 /**
- * The limiter that used to live here is now @profullstack/throttle, configured
- * in lib/throttle.ts. It differs in one way that matters: it meters every
- * route, not just `/api/`. The scraper that walked 19,000 `/explorer` URLs a
- * day never touched an API path, so none of this code ever saw it.
+ * The per-minute allowance that used to live here -- the anonymous bucket, the
+ * auth bucket, the per-credential budget and its host ceiling -- is now
+ * @profullstack/throttle, configured in lib/throttle.ts. It differs in one way
+ * that matters: it meters every route, not just `/api/`. The scraper that
+ * walked 19,000 `/explorer` URLs a day never touched an API path, so none of
+ * this code ever saw it.
  *
- * Re-exported because the credential rule is the same one, and the tests that
- * pin it -- the wallet extension's `Wallet` scheme, an integration's bearer
- * token -- are worth keeping pointed at the behaviour rather than at a copy.
+ * What stays here is the explorer's *daily* accounting, which the package does
+ * not express: its windows are minutes, and the cost being controlled below is
+ * per page over a day rather than per second.
  */
-export { presentedCredential } from '@profullstack/throttle';
+/**
+ * The public block explorer, in three tiers.
+ *
+ * One page view is one request here but THREE upstream JSON-RPC calls, so the
+ * per-minute cap alone was the wrong instrument. At the old 120/min a single
+ * IP could still spend 21,600 calls an hour — more than the entire burn that
+ * prompted the limit — and the read-through cache does not help, because a
+ * client walking distinct transaction hashes misses on every one.
+ *
+ * So: a burst cap that no reader will ever meet, a free daily allowance, and
+ * then payment. A person browsing does not open thirty pages in a minute or
+ * two hundred in a day; something that does is a client, and a client can pay
+ * for what it costs us.
+ */
+const EXPLORER_BURST = 30;
+const EXPLORER_FREE_PER_DAY = 200;
+/**
+ * A caller presenting a credential is an integration or an agent rather than a
+ * browser, and those legitimately read more. Unverified at this layer, exactly
+ * as in the package's credential budget — the ceiling below is what stops it
+ * being a way to buy a bigger allowance by inventing a key.
+ */
+const EXPLORER_CREDENTIALED_PER_DAY = 2_000;
+/** What no caller from one host gets past, however many credentials it mints. */
+const EXPLORER_IP_PER_DAY = 5_000;
+const WINDOW_MS = 60_000; // 1 minute
+const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * Daily buckets live a thousand times longer than per-minute ones, so the
+ * sweep below cannot be what bounds this map any more: a spray of addresses
+ * would sit in memory for a day. Oldest-reset-first eviction bounds it.
+ */
+const MAX_RATE_LIMIT_ENTRIES = 50_000;
+
+// Cleanup stale entries every 5 minutes
+if (typeof globalThis !== 'undefined') {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of rateLimitMap) {
+      if (entry.resetAt <= now) {
+        rateLimitMap.delete(key);
+      }
+    }
+  }, 5 * 60_000);
+}
+
+interface RateLimitResult {
+  allowed: boolean;
+  limit: number;
+  remaining: number;
+  resetAt: number;
+}
+
+/**
+ * Drop the entries closest to expiring when the map is full.
+ *
+ * Only reached once there are more live buckets than any real traffic
+ * produces, and it sheds the ones with least life left, so an eviction costs a
+ * caller the tail of a window rather than a fresh allowance.
+ */
+function evictOldest(): void {
+  if (rateLimitMap.size < MAX_RATE_LIMIT_ENTRIES) return;
+  const victims = [...rateLimitMap.entries()]
+    .sort((a, b) => a[1].resetAt - b[1].resetAt)
+    .slice(0, Math.ceil(MAX_RATE_LIMIT_ENTRIES / 10));
+  for (const [key] of victims) rateLimitMap.delete(key);
+}
+
+function bump(key: string, limit: number, now: number, windowMs = WINDOW_MS): RateLimitResult {
+  let entry = rateLimitMap.get(key);
+
+  if (!entry || entry.resetAt <= now) {
+    evictOldest();
+    entry = { count: 0, resetAt: now + windowMs };
+    rateLimitMap.set(key, entry);
+  }
+
+  entry.count++;
+
+  return {
+    allowed: entry.count <= limit,
+    limit,
+    remaining: Math.max(0, limit - entry.count),
+    resetAt: entry.resetAt,
+  };
+}
+
+/** FNV-1a, so a raw API key never becomes a map key we might dump or log. */
+function fingerprint(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/**
+ * Re-exported because the credential rule is the same one the package applies,
+ * and the tests that pin it -- the wallet extension's `Wallet` scheme, an
+ * integration's bearer token -- are worth keeping pointed at the behaviour
+ * rather than at a copy. The explorer tiers below use it as a local binding.
+ */
+export { presentedCredential };
 
 // ── Proxy ───────────────────────────────────────────────────
 
@@ -69,9 +183,13 @@ export async function proxy(request: NextRequest) {
 
   /*
    * Then the site-wide allowance, which meters every route: 100 requests a
-   * minute per caller, and going over is answered 402 with the same offer the
-   * gate makes rather than 429. Before CORS and the security headers, because
-   * there is no point dressing a response we are about to refuse.
+   * minute per caller, and going over is answered with the same offer the gate
+   * makes rather than a bare 429. Before CORS and the security headers,
+   * because there is no point dressing a response we are about to refuse.
+   *
+   * The explorer's own tiers below are stricter and settle a different
+   * question -- how much a caller may read in a day, not in a minute -- so
+   * they still bind for `/explorer` after this has let a request through.
    */
   const overLimit = await meter(request);
   if (overLimit) return overLimit;
@@ -93,6 +211,72 @@ export async function proxy(request: NextRequest) {
       return new NextResponse(null, { status: 403 });
     }
     return new NextResponse(null, { status: 204, headers: corsHeaders });
+  }
+
+  // Rate limiting for the public block explorer.
+  //
+  // This block sits before the API one because the guard below it is
+  // `pathname.startsWith('/api/')`, and /explorer is a *page* route — so it
+  // was never rate limited at all, by anything. It is also unauthenticated by
+  // design (a block explorer has no login) and rendered `force-dynamic`, and
+  // every transaction page costs three upstream JSON-RPC calls against our
+  // paid Infura endpoints. That combination is a free, metered, public RPC
+  // proxy, and it was being used as one.
+  //
+  // A per-minute cap alone was the wrong instrument, because the cost is per
+  // page and not per second: at the old 120/min one address could still spend
+  // 21,600 upstream calls an hour without ever being refused. The tiers below
+  // cap the burst, give a day's reading away, and then ask whoever is still
+  // going to pay for it — see EXPLORER_BURST and src/lib/explorer-gateway.ts.
+  //
+  // The sales page is excluded, or the only page that explains the charge
+  // would itself be behind it.
+  // The page that explains the charge and takes the payment.
+  if (pathname === EXPLORER_PASS_PATH) {
+    return await explorerSell(request);
+  }
+
+  if (pathname.startsWith('/explorer') && pathname !== EXPLORER_PASS_PATH) {
+    const clientIp =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      null;
+
+    if (clientIp) {
+      const now = Date.now();
+      const burst = bump(`explorer:${clientIp}`, EXPLORER_BURST, now);
+      if (!burst.allowed) {
+        const retryAfter = Math.ceil((burst.resetAt - now) / 1000);
+        return new NextResponse('Too many requests', {
+          status: 429,
+          headers: {
+            'Content-Type': 'text/plain',
+            'Retry-After': String(retryAfter),
+            'X-RateLimit-Limit': String(burst.limit),
+            'X-RateLimit-Remaining': '0',
+            'X-RateLimit-Reset': String(Math.ceil(burst.resetAt / 1000)),
+          },
+        });
+      }
+
+      // Both buckets are charged, and the host ceiling wins a disagreement:
+      // the per-credential allowance is the generous one, so it must not be
+      // reachable simply by presenting a different unverified key each day.
+      const credential = presentedCredential(request.headers);
+      const daily = credential
+        ? bump(`explorer-day:${fingerprint(credential)}`, EXPLORER_CREDENTIALED_PER_DAY, now, DAY_MS)
+        : bump(`explorer-day:${clientIp}`, EXPLORER_FREE_PER_DAY, now, DAY_MS);
+      const ceiling = bump(`explorer-day-ip:${clientIp}`, EXPLORER_IP_PER_DAY, now, DAY_MS);
+
+      if (!daily.allowed || !ceiling.allowed) {
+        // Over the allowance: the gateway answers with a 402 and an offer, or
+        // with the sales page for a browser — unless this caller already holds
+        // a pass or is settling a payment right now, in which case it returns
+        // null and the request carries on as any other.
+        const answer = await explorerGate(request);
+        if (answer) return answer;
+      }
+    }
   }
 
   const response = NextResponse.next();

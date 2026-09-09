@@ -1,6 +1,90 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { proxy, presentedCredential } from './proxy';
+
+/**
+ * The explorer tiers.
+ *
+ * The cost here is per page, not per second: each explorer view is three
+ * upstream JSON-RPC calls. A per-minute cap alone left one address able to
+ * spend 21,600 of them an hour without ever being refused, which is why there
+ * is a daily allowance and a price behind it.
+ */
+describe('explorer tiers', () => {
+  const get = (path: string, ip: string, headers: Record<string, string> = {}) =>
+    new NextRequest(`https://coinpayportal.com${path}`, {
+      method: 'GET',
+      headers: { 'x-forwarded-for': ip, ...headers },
+    });
+
+  it('caps the burst well below what a reader would ever do', async () => {
+    const ip = '203.0.113.40';
+    let allowed = 0;
+    for (let i = 0; i < 40; i++) {
+      const response = await proxy(get(`/explorer/eth/tx/0x${i}`, ip));
+      if (response.status === 429) break;
+      allowed++;
+    }
+    // 30/min: nobody clicks that fast, and enumeration stops being cheap.
+    expect(allowed).toBe(30);
+  });
+
+  it('refuses rather than serving once a caller is past its allowance', async () => {
+    // The distinction that matters: 429 says come back later, 402 says buy a
+    // pass. Either way the page is not served, which is the point — before
+    // this, request 121 was answered normally.
+    const ip = '203.0.113.41';
+    let refused = 0;
+    for (let i = 0; i < 60; i++) {
+      const response = await proxy(get(`/explorer/eth/tx/0x${i}`, ip));
+      if (response.status === 429 || response.status === 402) refused++;
+    }
+    expect(refused).toBeGreaterThan(0);
+  });
+
+  it('asks for payment, not patience, once the free day is spent', async () => {
+    // Isolating the daily tier from the burst needs time to move: the burst
+    // window has to reset repeatedly while the daily one does not. Without
+    // this the burst answers first and the 402 branch is never reached, so a
+    // test that only asserted "refused" would pass with the payment path
+    // completely broken.
+    vi.useFakeTimers();
+    try {
+      const ip = '203.0.113.44';
+      let sawPaymentRequired = false;
+
+      // 30 a minute, past the 200/day free allowance.
+      for (let minute = 0; minute < 8 && !sawPaymentRequired; minute++) {
+        for (let i = 0; i < 30; i++) {
+          const response = await proxy(get(`/explorer/eth/tx/0x${minute}${i}`, ip));
+          if (response.status === 402) {
+            sawPaymentRequired = true;
+            break;
+          }
+        }
+        vi.advanceTimersByTime(61_000);
+      }
+
+      expect(sawPaymentRequired).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves the sales page reachable', async () => {
+    // A page you can be refused for reading cannot be the page that explains
+    // the charge.
+    const response = await proxy(get('/explorer-pass', '203.0.113.42'));
+    expect(response.status).not.toBe(429);
+    expect(response.status).not.toBe(404);
+  });
+
+  it('does not gate the rest of the site', async () => {
+    const response = await proxy(get('/pricing', '203.0.113.43'));
+    expect(response.status).not.toBe(429);
+    expect(response.status).not.toBe(402);
+  });
+});
 
 /**
  * The limiter's store is module-level with no reset hook, so every test uses a
@@ -83,8 +167,12 @@ describe('proxy rate limiting', () => {
     expect(allowed).toBe(100);
   });
 
+  // Deliberately not an /explorer path. That prefix has its own, stricter
+  // tiers (30/min, then a daily allowance) which answer first, so it can no
+  // longer show what this test is about: that an ordinary page route is
+  // metered at all now, where before only `/api/` was.
   it('meters a page route too, not only /api/', async () => {
-    const allowed = await countUntilLimited('/explorer/eth/tx/0xabc', '10.1.0.9', 140);
+    const allowed = await countUntilLimited('/pricing', '10.1.0.9', 140);
     expect(allowed).toBe(100);
   });
 
