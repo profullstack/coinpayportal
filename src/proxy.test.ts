@@ -159,9 +159,21 @@ describe('presentedCredential', () => {
 });
 
 describe('proxy rate limiting', () => {
+  // 100/min is the house default in @profullstack/throttle, and it now applies
+  // to every route rather than just /api/ -- which is the whole point of the
+  // change: the scraper that prompted it never touched an API path.
   it('caps an anonymous API caller at the general limit', async () => {
-    const allowed = await countUntilLimited('/api/rates', '10.1.0.1', 80);
-    expect(allowed).toBe(60);
+    const allowed = await countUntilLimited('/api/rates', '10.1.0.1', 140);
+    expect(allowed).toBe(100);
+  });
+
+  // Deliberately not an /explorer path. That prefix has its own, stricter
+  // tiers (30/min, then a daily allowance) which answer first, so it can no
+  // longer show what this test is about: that an ordinary page route is
+  // metered at all now, where before only `/api/` was.
+  it('meters a page route too, not only /api/', async () => {
+    const allowed = await countUntilLimited('/pricing', '10.1.0.9', 140);
+    expect(allowed).toBe(100);
   });
 
   // The regression that broke bulk invoice payments: ugig.net mints one payment

@@ -1,5 +1,7 @@
 import { gate } from "@/lib/crawl-gateway";
 import { EXPLORER_PASS_PATH, explorerGate, explorerSell } from "@/lib/explorer-gateway";
+import { meter } from "@/lib/throttle";
+import { presentedCredential } from '@profullstack/throttle';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -48,23 +50,18 @@ interface RateLimitEntry {
 
 const rateLimitMap = new Map<string, RateLimitEntry>();
 
-const GENERAL_LIMIT = 60;
-const AUTH_LIMIT = 10;
 /**
- * Server-to-server integrations arrive from one host, so an IP bucket sized for
- * a single browser throttles a whole merchant. ugig.net minting payment
- * requests for its accepted-invoice queue sends ~80 creates in a burst and got
- * "Too many requests" partway through, which surfaced to the payer as invoices
- * that silently would not prepare. Credentialed callers get their own bucket.
+ * The per-minute allowance that used to live here -- the anonymous bucket, the
+ * auth bucket, the per-credential budget and its host ceiling -- is now
+ * @profullstack/throttle, configured in lib/throttle.ts. It differs in one way
+ * that matters: it meters every route, not just `/api/`. The scraper that
+ * walked 19,000 `/explorer` URLs a day never touched an API path, so none of
+ * this code ever saw it.
+ *
+ * What stays here is the explorer's *daily* accounting, which the package does
+ * not express: its windows are minutes, and the cost being controlled below is
+ * per page over a day rather than per second.
  */
-const API_KEY_LIMIT = 600;
-/**
- * The credential above is unverified at this layer — the route handler is what
- * actually authenticates it. So a caller could mint buckets by rotating junk
- * keys; this ceiling bounds that per host while staying far above any real
- * integration's burst.
- */
-const API_KEY_IP_CEILING = 1200;
 /**
  * The public block explorer, in three tiers.
  *
@@ -84,8 +81,8 @@ const EXPLORER_FREE_PER_DAY = 200;
 /**
  * A caller presenting a credential is an integration or an agent rather than a
  * browser, and those legitimately read more. Unverified at this layer, exactly
- * as with API_KEY_LIMIT above — the ceiling below is what stops it being a way
- * to buy a bigger allowance by inventing a key.
+ * as in the package's credential budget — the ceiling below is what stops it
+ * being a way to buy a bigger allowance by inventing a key.
  */
 const EXPLORER_CREDENTIALED_PER_DAY = 2_000;
 /** What no caller from one host gets past, however many credentials it mints. */
@@ -162,44 +159,13 @@ function fingerprint(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
-/** The credential presented, if any. Unverified here — the route handler authenticates. */
-export function presentedCredential(
-  headers: { get(name: string): string | null }
-): string | null {
-  const authorization = headers.get('authorization');
-  if (authorization) {
-    // Any auth scheme, not just Bearer. The wallet extension signs with
-    // `Authorization: Wallet <walletId>:<signature>:<timestamp>` (see
-    // packages/extension/src/core/api.ts), and matching Bearer alone dropped it
-    // into the anonymous per-IP bucket — which a bulk payout exhausts in
-    // seconds, since every payment costs a prepare-tx plus a broadcast.
-    const match = /^(\S+)\s+(\S+)/.exec(authorization.trim());
-    if (match) return match[2];
-  }
-  const apiKey = headers.get('x-api-key')?.trim();
-  return apiKey ? apiKey : null;
-}
-
-function checkRateLimit(
-  ip: string,
-  isAuth: boolean,
-  credential: string | null
-): RateLimitResult {
-  const now = Date.now();
-
-  // Auth endpoints stay IP-bucketed whatever headers accompany them, or a
-  // brute-force attempt would just bolt on an Authorization header to buy a
-  // bigger budget.
-  if (isAuth) return bump(`auth:${ip}`, AUTH_LIMIT, now);
-
-  if (!credential) return bump(`api:${ip}`, GENERAL_LIMIT, now);
-
-  // Both buckets are charged; the host ceiling is what a key-rotating caller
-  // cannot escape, so a denial there wins over a healthy per-key budget.
-  const ceiling = bump(`apikey-ip:${ip}`, API_KEY_IP_CEILING, now);
-  const perKey = bump(`apikey:${fingerprint(credential)}`, API_KEY_LIMIT, now);
-  return ceiling.allowed ? perKey : ceiling;
-}
+/**
+ * Re-exported because the credential rule is the same one the package applies,
+ * and the tests that pin it -- the wallet extension's `Wallet` scheme, an
+ * integration's bearer token -- are worth keeping pointed at the behaviour
+ * rather than at a copy. The explorer tiers below use it as a local binding.
+ */
+export { presentedCredential };
 
 // ── Proxy ───────────────────────────────────────────────────
 
@@ -214,6 +180,19 @@ export async function proxy(request: NextRequest) {
   // and retrieval crawlers fall through to everything below.
   const answer = await gate(request);
   if (answer) return answer;
+
+  /*
+   * Then the site-wide allowance, which meters every route: 100 requests a
+   * minute per caller, and going over is answered with the same offer the gate
+   * makes rather than a bare 429. Before CORS and the security headers,
+   * because there is no point dressing a response we are about to refuse.
+   *
+   * The explorer's own tiers below are stricter and settle a different
+   * question -- how much a caller may read in a day, not in a minute -- so
+   * they still bind for `/explorer` after this has let a request through.
+   */
+  const overLimit = await meter(request);
+  if (overLimit) return overLimit;
 
   const { pathname } = request.nextUrl;
   const isApiRoute = pathname.startsWith('/api/');
@@ -298,65 +277,6 @@ export async function proxy(request: NextRequest) {
         if (answer) return answer;
       }
     }
-  }
-
-  // Rate limiting for API routes
-  if (isApiRoute) {
-    const clientIp =
-      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      request.headers.get('x-real-ip') ||
-      null;
-    const isAuthEndpoint = pathname.startsWith('/api/auth/');
-
-    // Skip rate limiting if we can't identify the client
-    if (!clientIp) {
-      const response = NextResponse.next();
-      addSecurityHeaders(response, isApiRoute, requestOrigin, isOnion);
-      const noIpCorsHeaders = getCorsHeaders(requestOrigin);
-      if (noIpCorsHeaders['Access-Control-Allow-Origin']) {
-        for (const [k, v] of Object.entries(noIpCorsHeaders)) {
-          response.headers.set(k, v);
-        }
-      }
-      return response;
-    }
-
-    const rl = checkRateLimit(
-      clientIp,
-      isAuthEndpoint,
-      presentedCredential(request.headers)
-    );
-    const corsHeaders = getCorsHeaders(requestOrigin);
-
-    if (!rl.allowed) {
-      const retryAfter = Math.ceil((rl.resetAt - Date.now()) / 1000);
-      return new NextResponse(
-        JSON.stringify({ success: false, error: 'Too many requests' }),
-        {
-          status: 429,
-          headers: {
-            'Content-Type': 'application/json',
-            'Retry-After': String(retryAfter),
-            'X-RateLimit-Limit': String(rl.limit),
-            'X-RateLimit-Remaining': '0',
-            'X-RateLimit-Reset': String(Math.ceil(rl.resetAt / 1000)),
-            ...corsHeaders,
-          },
-        }
-      );
-    }
-
-    const response = NextResponse.next();
-
-    // Security headers
-    addSecurityHeaders(response, isApiRoute, requestOrigin, isOnion);
-
-    // Rate limit headers
-    response.headers.set('X-RateLimit-Limit', String(rl.limit));
-    response.headers.set('X-RateLimit-Remaining', String(rl.remaining));
-    response.headers.set('X-RateLimit-Reset', String(Math.ceil(rl.resetAt / 1000)));
-
-    return response;
   }
 
   const response = NextResponse.next();
