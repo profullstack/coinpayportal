@@ -17,11 +17,30 @@ import { EVM_CHAIN_IDS, evmRpcUrl } from '../chains';
 import { NotFoundError, UpstreamError } from '../types';
 import type { ExplorerAddress, ExplorerBlock, ExplorerTransaction } from '../types';
 import { fromBaseUnits, fromHex } from '../units';
+import { explorerCacheKey, readCache, ttlFor, writeCache, writeCacheError } from '../rpc-cache';
 
 const MAX_TXS = 25;
 const ETHERSCAN_V2 = 'https://api.etherscan.io/v2/api';
 
+/**
+ * One JSON-RPC read, served from cache when it can be.
+ *
+ * `/explorer` is public, unauthenticated and `force-dynamic`, so before this
+ * every page view went to the upstream node — and a transaction page is three
+ * calls. A hundred requests for the same hash cost a hundred lookups. Since
+ * most of what the explorer serves is immutable once mined, the cache turns
+ * repeat traffic into a single upstream call; see `ttlFor` for which reads are
+ * held long and which are not.
+ *
+ * Rate limiting bounds who may ask; this bounds what asking actually costs.
+ * Both are needed: the limiter alone would still let allowed traffic re-query
+ * the same immutable block forever.
+ */
 async function rpc<T>(chainId: string, method: string, params: unknown[]): Promise<T> {
+  const key = explorerCacheKey(chainId, method, params);
+  const cached = readCache(key); // replays a cached rejection
+  if (cached.hit) return cached.value as T;
+
   let resp: Response;
   try {
     resp = await fetchWithTimeout(evmRpcUrl(chainId), {
@@ -38,7 +57,14 @@ async function rpc<T>(chainId: string, method: string, params: unknown[]): Promi
   }
   const body = (await resp.json()) as { result?: T; error?: { message?: string } };
   if (body.error) throw new UpstreamError(body.error.message || 'RPC error');
-  if (body.result === null || body.result === undefined) throw new NotFoundError();
+  if (body.result === null || body.result === undefined) {
+    // A hash that is not on this chain is the request a scraper repeats, so
+    // remember the miss briefly rather than paying for it every time.
+    const notFound = new NotFoundError();
+    writeCacheError(key, notFound);
+    throw notFound;
+  }
+  writeCache(key, body.result, ttlFor(method, body.result));
   return body.result;
 }
 
