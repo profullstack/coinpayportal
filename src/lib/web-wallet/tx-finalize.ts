@@ -29,6 +29,36 @@ const REQUIRED_CONFIRMATIONS: Record<string, number> = {
   USDC_SOL: 32,
 };
 
+/**
+ * How long a broadcast transaction stays in the polling set.
+ *
+ * The cycle below used to select every `pending`/`confirming` row with a
+ * tx_hash, with no age bound and no give-up. A transaction that is never mined
+ * — dropped from the mempool, replaced, or broadcast against a chain we later
+ * stopped supporting — never leaves that set, because nothing on-chain will
+ * ever move it to `confirmed` or `failed`. So it is re-checked every cycle,
+ * forever.
+ *
+ * That is not theoretical: production accumulated 219 such rows, every one of
+ * them more than a week old and the oldest five weeks old, each costing up to
+ * three Infura calls (`eth_getTransactionReceipt` → `eth_blockNumber` →
+ * `eth_getBlockByNumber`) on every 15-second cycle of every replica. It was the
+ * single largest consumer on the account while the payments, escrow and x402
+ * rails were all completely idle.
+ *
+ * The slowest chain here wants 128 confirmations (POL, roughly five minutes),
+ * and BTC's 3 confirmations are about half an hour. A day is far beyond any of
+ * them: anything still unconfirmed after that is not slow, it is gone.
+ *
+ * Rows past the cutoff keep their status — this only stops spending RPC calls
+ * on them. Deciding what a month-old unconfirmed transaction should *become* is
+ * a separate call, and not one to make silently from a polling loop.
+ */
+const MAX_TRACKING_AGE_MS = parseInt(
+  process.env.WALLET_TX_MAX_TRACKING_MS || String(24 * 60 * 60 * 1000),
+  10
+);
+
 // ── Types ──
 
 interface TxStatus {
@@ -54,6 +84,8 @@ export interface WalletTxCycleStats {
   confirmed: number;
   failed: number;
   errors: number;
+  /** Rows past MAX_TRACKING_AGE_MS that were not polled. */
+  staleSkipped: number;
 }
 
 // ── Chain-specific status checkers ──
@@ -263,20 +295,56 @@ function checkOnChain(txHash: string, chain: string): Promise<TxStatus | null> {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function runWalletTxCycle(supabase: any): Promise<WalletTxCycleStats> {
-  const stats: WalletTxCycleStats = { checked: 0, confirmed: 0, failed: 0, errors: 0 };
+  const stats: WalletTxCycleStats = { checked: 0, confirmed: 0, failed: 0, errors: 0, staleSkipped: 0 };
   const now = new Date();
+  const trackingCutoff = new Date(now.getTime() - MAX_TRACKING_AGE_MS).toISOString();
 
+  // The age bound is what stops the loop spending RPC calls forever; see
+  // MAX_TRACKING_AGE_MS above.
+  //
+  // It also fixes a second fault the zombies were causing. This page is
+  // `limit(200)` ordered oldest-first, so once more than 200 rows match, the
+  // oldest 200 win and anything newer is never checked at all. Production sat
+  // at 219 matching rows, all of them stale — so the set was within 19 rows of
+  // starving live transactions of monitoring entirely, and every stale row
+  // added brought that closer. Excluding them by age keeps the page pointed at
+  // transactions that can still change.
   const { data, error: fetchError } = await supabase
     .from('wallet_transactions')
     .select('id, wallet_id, chain, tx_hash, status, confirmations, metadata')
     .in('status', ['pending', 'confirming'])
     .not('tx_hash', 'is', null)
+    .gte('created_at', trackingCutoff)
     .limit(200)
     .order('created_at', { ascending: true });
 
   if (fetchError) {
     console.error('[WalletTxMonitor] Failed to fetch:', fetchError.message);
     return stats;
+  }
+
+  // Count what we are deliberately not polling, so a growing backlog of
+  // never-confirming transactions stays visible instead of silently vanishing
+  // from the logs the moment we stop looking at it.
+  // Observability only — never let it take the cycle down with it, or a
+  // reporting query would cost us the payment monitoring it was added to watch.
+  try {
+    const staleResult = await supabase
+      .from('wallet_transactions')
+      .select('id', { count: 'exact', head: true })
+      .in('status', ['pending', 'confirming'])
+      .not('tx_hash', 'is', null)
+      .lt('created_at', trackingCutoff);
+    stats.staleSkipped = staleResult?.count || 0;
+  } catch (err) {
+    console.error('[WalletTxMonitor] Stale-row count failed:', err);
+  }
+
+  if (stats.staleSkipped > 0) {
+    console.log(
+      `[WalletTxMonitor] Not polling ${stats.staleSkipped} transaction(s) older than ` +
+      `${Math.round(MAX_TRACKING_AGE_MS / 3_600_000)}h — unconfirmed this long means dropped, not slow`
+    );
   }
 
   const txs = (data || []) as unknown as WalletTxRow[];

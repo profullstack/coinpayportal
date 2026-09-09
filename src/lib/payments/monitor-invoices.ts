@@ -22,8 +22,28 @@ interface InvoiceMonitorStats {
   errors: number;
 }
 
+/**
+ * How long an unpaid invoice keeps costing a balance check every cycle.
+ *
+ * An invoice stays `sent` until it is paid, and nothing ever retires one that
+ * simply never gets paid — so the sweep below re-checks it on every cycle
+ * indefinitely. Production has invoices from April still being polled in
+ * September, each one a balance call per cycle per replica against a chain RPC.
+ *
+ * The bound is deliberately generous rather than tight: unlike a broadcast
+ * transaction, a late invoice is a completely normal thing that a client may
+ * still pay, and a payment arriving after we stop watching is a real loss. Net
+ * terms rarely run past 90 days, so that is the default here, against 24 hours
+ * for a transaction. Tune with INVOICE_MAX_TRACKING_MS.
+ */
+const INVOICE_MAX_TRACKING_MS = parseInt(
+  process.env.INVOICE_MAX_TRACKING_MS || String(90 * 24 * 60 * 60 * 1000),
+  10
+);
+
 export async function runInvoiceMonitorCycle(supabase: any, now: Date): Promise<InvoiceMonitorStats> {
   const stats: InvoiceMonitorStats = { checked: 0, paid: 0, overdue: 0, reminders: 0, errors: 0 };
+  const trackingCutoff = new Date(now.getTime() - INVOICE_MAX_TRACKING_MS).toISOString();
 
   try {
     // 1. Check sent invoices for incoming payments
@@ -49,6 +69,9 @@ export async function runInvoiceMonitorCycle(supabase: any, now: Date): Promise<
           `)
           .eq('status', 'sent')
           .not('payment_address', 'is', null)
+          // See INVOICE_MAX_TRACKING_MS: an invoice nobody ever pays otherwise
+          // draws a balance check on every cycle for the rest of time.
+          .gte('created_at', trackingCutoff)
           .order('id', { ascending: true })
           .limit(pageSize);
         if (cursor) q = q.gt('id', cursor);
