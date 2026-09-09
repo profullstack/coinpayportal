@@ -1,4 +1,5 @@
 import { gate } from "@/lib/crawl-gateway";
+import { EXPLORER_PASS_PATH, explorerGate, explorerSell } from "@/lib/explorer-gateway";
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -65,13 +66,38 @@ const API_KEY_LIMIT = 600;
  */
 const API_KEY_IP_CEILING = 1200;
 /**
- * The public block explorer. One page view is one request here but three
- * upstream JSON-RPC calls, so this bucket is what stands between a scraper and
- * our metered node quota. Generous enough that nobody reading the site will
- * meet it, low enough that automated enumeration stops being free.
+ * The public block explorer, in three tiers.
+ *
+ * One page view is one request here but THREE upstream JSON-RPC calls, so the
+ * per-minute cap alone was the wrong instrument. At the old 120/min a single
+ * IP could still spend 21,600 calls an hour — more than the entire burn that
+ * prompted the limit — and the read-through cache does not help, because a
+ * client walking distinct transaction hashes misses on every one.
+ *
+ * So: a burst cap that no reader will ever meet, a free daily allowance, and
+ * then payment. A person browsing does not open thirty pages in a minute or
+ * two hundred in a day; something that does is a client, and a client can pay
+ * for what it costs us.
  */
-const EXPLORER_LIMIT = 120;
+const EXPLORER_BURST = 30;
+const EXPLORER_FREE_PER_DAY = 200;
+/**
+ * A caller presenting a credential is an integration or an agent rather than a
+ * browser, and those legitimately read more. Unverified at this layer, exactly
+ * as with API_KEY_LIMIT above — the ceiling below is what stops it being a way
+ * to buy a bigger allowance by inventing a key.
+ */
+const EXPLORER_CREDENTIALED_PER_DAY = 2_000;
+/** What no caller from one host gets past, however many credentials it mints. */
+const EXPLORER_IP_PER_DAY = 5_000;
 const WINDOW_MS = 60_000; // 1 minute
+const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * Daily buckets live a thousand times longer than per-minute ones, so the
+ * sweep below cannot be what bounds this map any more: a spray of addresses
+ * would sit in memory for a day. Oldest-reset-first eviction bounds it.
+ */
+const MAX_RATE_LIMIT_ENTRIES = 50_000;
 
 // Cleanup stale entries every 5 minutes
 if (typeof globalThis !== 'undefined') {
@@ -92,11 +118,27 @@ interface RateLimitResult {
   resetAt: number;
 }
 
-function bump(key: string, limit: number, now: number): RateLimitResult {
+/**
+ * Drop the entries closest to expiring when the map is full.
+ *
+ * Only reached once there are more live buckets than any real traffic
+ * produces, and it sheds the ones with least life left, so an eviction costs a
+ * caller the tail of a window rather than a fresh allowance.
+ */
+function evictOldest(): void {
+  if (rateLimitMap.size < MAX_RATE_LIMIT_ENTRIES) return;
+  const victims = [...rateLimitMap.entries()]
+    .sort((a, b) => a[1].resetAt - b[1].resetAt)
+    .slice(0, Math.ceil(MAX_RATE_LIMIT_ENTRIES / 10));
+  for (const [key] of victims) rateLimitMap.delete(key);
+}
+
+function bump(key: string, limit: number, now: number, windowMs = WINDOW_MS): RateLimitResult {
   let entry = rateLimitMap.get(key);
 
   if (!entry || entry.resetAt <= now) {
-    entry = { count: 0, resetAt: now + WINDOW_MS };
+    evictOldest();
+    entry = { count: 0, resetAt: now + windowMs };
     rateLimitMap.set(key, entry);
   }
 
@@ -202,29 +244,58 @@ export async function proxy(request: NextRequest) {
   // paid Infura endpoints. That combination is a free, metered, public RPC
   // proxy, and it was being used as one.
   //
-  // The budget is deliberately looser than the general API limit: a human
-  // reading the explorer clicks through blocks and transactions in bursts, and
-  // each page is one request, not one per call.
-  if (pathname.startsWith('/explorer')) {
+  // A per-minute cap alone was the wrong instrument, because the cost is per
+  // page and not per second: at the old 120/min one address could still spend
+  // 21,600 upstream calls an hour without ever being refused. The tiers below
+  // cap the burst, give a day's reading away, and then ask whoever is still
+  // going to pay for it — see EXPLORER_BURST and src/lib/explorer-gateway.ts.
+  //
+  // The sales page is excluded, or the only page that explains the charge
+  // would itself be behind it.
+  // The page that explains the charge and takes the payment.
+  if (pathname === EXPLORER_PASS_PATH) {
+    return await explorerSell(request);
+  }
+
+  if (pathname.startsWith('/explorer') && pathname !== EXPLORER_PASS_PATH) {
     const clientIp =
       request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
       request.headers.get('x-real-ip') ||
       null;
 
     if (clientIp) {
-      const rl = bump(`explorer:${clientIp}`, EXPLORER_LIMIT, Date.now());
-      if (!rl.allowed) {
-        const retryAfter = Math.ceil((rl.resetAt - Date.now()) / 1000);
+      const now = Date.now();
+      const burst = bump(`explorer:${clientIp}`, EXPLORER_BURST, now);
+      if (!burst.allowed) {
+        const retryAfter = Math.ceil((burst.resetAt - now) / 1000);
         return new NextResponse('Too many requests', {
           status: 429,
           headers: {
             'Content-Type': 'text/plain',
             'Retry-After': String(retryAfter),
-            'X-RateLimit-Limit': String(rl.limit),
+            'X-RateLimit-Limit': String(burst.limit),
             'X-RateLimit-Remaining': '0',
-            'X-RateLimit-Reset': String(Math.ceil(rl.resetAt / 1000)),
+            'X-RateLimit-Reset': String(Math.ceil(burst.resetAt / 1000)),
           },
         });
+      }
+
+      // Both buckets are charged, and the host ceiling wins a disagreement:
+      // the per-credential allowance is the generous one, so it must not be
+      // reachable simply by presenting a different unverified key each day.
+      const credential = presentedCredential(request.headers);
+      const daily = credential
+        ? bump(`explorer-day:${fingerprint(credential)}`, EXPLORER_CREDENTIALED_PER_DAY, now, DAY_MS)
+        : bump(`explorer-day:${clientIp}`, EXPLORER_FREE_PER_DAY, now, DAY_MS);
+      const ceiling = bump(`explorer-day-ip:${clientIp}`, EXPLORER_IP_PER_DAY, now, DAY_MS);
+
+      if (!daily.allowed || !ceiling.allowed) {
+        // Over the allowance: the gateway answers with a 402 and an offer, or
+        // with the sales page for a browser — unless this caller already holds
+        // a pass or is settling a payment right now, in which case it returns
+        // null and the request carries on as any other.
+        const answer = await explorerGate(request);
+        if (answer) return answer;
       }
     }
   }
