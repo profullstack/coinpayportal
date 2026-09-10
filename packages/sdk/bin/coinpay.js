@@ -4587,12 +4587,16 @@ async function handleOAuth(subcommand, args, flags) {
         description,
       });
 
+      // The API wraps the record: { success, client: { ..., client_secret }, warning }.
+      // Accept a bare record too so either shape prints.
+      const created = result.client ?? result;
+
       print.success('OAuth client created');
-      if (result.client_id) {
-        console.log(`\n  ${colors.bright}Client ID:${colors.reset}     ${result.client_id}`);
+      if (created.client_id) {
+        console.log(`\n  ${colors.bright}Client ID:${colors.reset}     ${created.client_id}`);
       }
-      if (result.client_secret) {
-        console.log(`  ${colors.bright}Client Secret:${colors.reset} ${colors.yellow}${result.client_secret}${colors.reset}`);
+      if (created.client_secret) {
+        console.log(`  ${colors.bright}Client Secret:${colors.reset} ${colors.yellow}${created.client_secret}${colors.reset}`);
         console.log();
         print.warn('Save the client secret — it is only shown once!');
       }
@@ -4610,13 +4614,15 @@ async function handleOAuth(subcommand, args, flags) {
       }
 
       const result = await client.getOAuthClient(id);
+      // GET /oauth/clients/:id also wraps the record as { success, client }.
+      const found = result.client ?? result;
 
-      print.success(`OAuth Client: ${result.name || id}`);
-      if (result.client_id) print.info(`  Client ID: ${result.client_id}`);
-      if (result.description) print.info(`  Description: ${result.description}`);
-      if (result.redirect_uris) print.info(`  Redirect URIs: ${result.redirect_uris.join(', ')}`);
-      if (result.scopes) print.info(`  Scopes: ${Array.isArray(result.scopes) ? result.scopes.join(', ') : result.scopes}`);
-      if (result.created_at) print.info(`  Created: ${result.created_at}`);
+      print.success(`OAuth Client: ${found.name || id}`);
+      if (found.client_id) print.info(`  Client ID: ${found.client_id}`);
+      if (found.description) print.info(`  Description: ${found.description}`);
+      if (found.redirect_uris) print.info(`  Redirect URIs: ${found.redirect_uris.join(', ')}`);
+      if (found.scopes) print.info(`  Scopes: ${Array.isArray(found.scopes) ? found.scopes.join(', ') : found.scopes}`);
+      if (found.created_at) print.info(`  Created: ${found.created_at}`);
 
       if (flags.json) print.json(result);
       break;
