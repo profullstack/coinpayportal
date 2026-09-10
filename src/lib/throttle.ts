@@ -50,6 +50,19 @@ export const throttle = createThrottle({
      */
     { path: "/api/webhooks/", limit: 600, credential: false },
   ],
+  /*
+   * What is being refused, and whether it was sold anything. Without this the
+   * only evidence a limit is working is traffic going down, which is exactly
+   * the signal that failed us: the 100/min limit WAS refusing requests and the
+   * scrape carried on regardless, and nothing recorded either fact.
+   */
+  onThrottle: (event) => {
+    console.log(
+      `[throttle] ${event.sold ? "402" : "429"} ${event.count}/${event.limit}` +
+        ` per ${event.windowSeconds}s ${new URL(event.url).pathname}` +
+        ` ua=${(event.userAgent ?? "-").slice(0, 80)}`
+    );
+  },
 });
 
 /** Resolves to a Response for a caller over the allowance, or undefined. */

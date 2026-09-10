@@ -8,6 +8,13 @@ import { getUtxoAddress, getUtxoBlock, getUtxoTipHeight, getUtxoTransaction } fr
 import { getEvmAddress, getEvmBlock, getEvmTipHeight, getEvmTransaction } from './adapters/evm';
 import { getMiscAddress, getMiscBlock, getMiscTipHeight, getMiscTransaction } from './adapters/misc';
 import { getUsdRate } from './price';
+import {
+  addressTtl,
+  blockTtl,
+  remember,
+  resultCacheKey,
+  transactionTtl,
+} from './result-cache';
 import { NotFoundError } from './types';
 import type { ExplorerAddress, ExplorerBlock, ExplorerTransaction } from './types';
 
@@ -21,28 +28,58 @@ function familyOf(chainId: string): 'utxo' | 'evm' | 'solana' | 'xrp' | 'cardano
   return chain.family;
 }
 
+/*
+ * The three reads a page makes are cached here rather than in each adapter.
+ *
+ * rpc-cache.ts covers the EVM adapter by keying on Ethereum method names,
+ * which the other two families have no equivalent of -- utxo fetches REST from
+ * Blockstream and Blockchair, misc posts Solana RPC, XRP's envelope and Koios
+ * REST. Wrapping at this level is one place instead of three key schemes, and
+ * the finality signal it reads (`status`, `confirmations`) lives on the domain
+ * object, which is a sounder thing to judge immutability by than a method
+ * name. See result-cache.ts, including what this deliberately does not fix.
+ */
+
 export async function getTransaction(
   chainId: string,
   hash: string
 ): Promise<ExplorerTransaction> {
   const family = familyOf(chainId);
-  if (family === 'utxo') return getUtxoTransaction(chainId, hash);
-  if (family === 'evm') return getEvmTransaction(chainId, hash);
-  return getMiscTransaction(chainId, hash);
+  return remember(
+    resultCacheKey(chainId, 'tx', hash),
+    () => {
+      if (family === 'utxo') return getUtxoTransaction(chainId, hash);
+      if (family === 'evm') return getEvmTransaction(chainId, hash);
+      return getMiscTransaction(chainId, hash);
+    },
+    transactionTtl
+  );
 }
 
 export async function getAddress(chainId: string, address: string): Promise<ExplorerAddress> {
   const family = familyOf(chainId);
-  if (family === 'utxo') return getUtxoAddress(chainId, address);
-  if (family === 'evm') return getEvmAddress(chainId, address);
-  return getMiscAddress(chainId, address);
+  return remember(
+    resultCacheKey(chainId, 'address', address),
+    () => {
+      if (family === 'utxo') return getUtxoAddress(chainId, address);
+      if (family === 'evm') return getEvmAddress(chainId, address);
+      return getMiscAddress(chainId, address);
+    },
+    addressTtl
+  );
 }
 
 export async function getBlock(chainId: string, ref: string): Promise<ExplorerBlock> {
   const family = familyOf(chainId);
-  if (family === 'utxo') return getUtxoBlock(chainId, ref);
-  if (family === 'evm') return getEvmBlock(chainId, ref);
-  return getMiscBlock(chainId, ref);
+  return remember(
+    resultCacheKey(chainId, 'block', ref),
+    () => {
+      if (family === 'utxo') return getUtxoBlock(chainId, ref);
+      if (family === 'evm') return getEvmBlock(chainId, ref);
+      return getMiscBlock(chainId, ref);
+    },
+    blockTtl
+  );
 }
 
 /** Current tip height for a chain. */

@@ -1,5 +1,6 @@
 import { gate } from "@/lib/crawl-gateway";
 import { EXPLORER_PASS_PATH, explorerGate, explorerSell } from "@/lib/explorer-gateway";
+import { countExplorerRefusal, watchExplorer } from "@/lib/explorer-watch";
 import { meter } from "@/lib/throttle";
 import { presentedCredential } from '@profullstack/throttle';
 import { NextResponse } from 'next/server';
@@ -191,6 +192,14 @@ export async function proxy(request: NextRequest) {
    * question -- how much a caller may read in a day, not in a minute -- so
    * they still bind for `/explorer` after this has let a request through.
    */
+  /*
+   * Counted before the throttle decides, so a refused request is still counted.
+   * A limit that hides the traffic it is turning away cannot be tuned against
+   * anything -- and this is the count that will say whether the explorer scrape
+   * is one caller or fifty. See lib/explorer-watch.ts.
+   */
+  if (request.nextUrl.pathname.startsWith("/explorer/")) watchExplorer(request);
+
   const overLimit = await meter(request);
   if (overLimit) return overLimit;
 
@@ -247,6 +256,14 @@ export async function proxy(request: NextRequest) {
       const burst = bump(`explorer:${clientIp}`, EXPLORER_BURST, now);
       if (!burst.allowed) {
         const retryAfter = Math.ceil((burst.resetAt - now) / 1000);
+        /*
+         * Refusals were silent, which cost us two days of guessing. The tiers
+         * here were demonstrably live and refusing while the scrape carried on
+         * at the same rate, and nothing recorded either half of that, so there
+         * was no way to tell "the limit is not working" from "the limit is
+         * working and this caller is not the one hitting it".
+         */
+        countExplorerRefusal('burst');
         return new NextResponse('Too many requests', {
           status: 429,
           headers: {
@@ -274,7 +291,10 @@ export async function proxy(request: NextRequest) {
         // a pass or is settling a payment right now, in which case it returns
         // null and the request carries on as any other.
         const answer = await explorerGate(request);
-        if (answer) return answer;
+        if (answer) {
+          countExplorerRefusal(daily.allowed ? 'ip-ceiling' : 'daily');
+          return answer;
+        }
       }
     }
   }
