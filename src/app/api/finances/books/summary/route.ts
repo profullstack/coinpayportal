@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   if (guard instanceof NextResponse) return guard;
   const q = req.nextUrl.searchParams;
   const scopeParam = q.get('scope');
-  const scope = scopeParam === 'personal' || scopeParam === 'all' ? scopeParam : 'business';
+  const scope: 'business' | 'personal' | 'all' = scopeParam === 'personal' ? 'personal' : scopeParam === 'all' ? 'all' : 'business';
   try {
     const tz = await resolveFinanceTimezone(guard.id, q.get('timezone'), { remember: false });
     if (!tz) return financeError('timezone_required', 'Pass an IANA timezone such as America/Los_Angeles', 400);
@@ -29,8 +29,9 @@ export async function GET(req: NextRequest) {
     let to = q.get('to');
     let period = rawPeriod;
     if (rawPeriod && /^\d{4}$/.test(rawPeriod)) {
-      from = `${rawPeriod}-01-01`;
-      to = `${Number(rawPeriod) + 1}-01-01`;
+      const year = Number.parseInt(rawPeriod, 10);
+      from = `${year}-01-01`;
+      to = `${year + 1}-01-01`;
       period = null;
     }
     const bounded = boundPeriod(resolvePeriod({ period, from, to, timezone: tz.timezone }), new Date());
