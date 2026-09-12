@@ -20,6 +20,9 @@ import { removePlaidItem } from './plaid';
 import { inferAccountKind, categorizeTransaction } from './classify';
 import { parseExactAmount, normalizeCurrency, type ExactAmount } from './decimal';
 import { checkRequestBudget, recordRequestUsage, BudgetExhaustedError, type RequestClass } from './budget';
+import { putObject } from './files';
+import { listRules, suggestFor, AUTO_ACCEPT_CONFIDENCE, type CategoryRule } from './books';
+import { inferAccountScope } from './position';
 
 /**
  * Pulling a provider's account set into Postgres.
@@ -320,7 +323,7 @@ export async function fetchForConnection(
   connectionId: string,
   merchantId: string,
   window: { start: Date; end?: Date; requestClass?: RequestClass; jobId?: string | null },
-): Promise<{ set: SimpleFinAccountSet; provider: string; label: string | null }> {
+): Promise<{ set: SimpleFinAccountSet; provider: string; label: string | null; protocolVersion: number | null }> {
   const { provider, credential, label, protocolVersion } = await getConnectionCredential(
     connectionId,
     merchantId,
@@ -333,7 +336,7 @@ export async function fetchForConnection(
     orgName: label,
     version: protocolVersion,
   });
-  return { set, provider, label };
+  return { set, provider, label, protocolVersion: protocolVersion ?? null };
 }
 
 /** Shape written to `finance_accounts`; omitted columns survive an update. */
@@ -437,6 +440,49 @@ export interface IngestOptions {
   window: IngestWindow;
   jobId?: string | null;
   requestClass: 'interactive' | 'background';
+  protocolVersion?: number | null;
+}
+
+/**
+ * Archive the provider's response as received. Encrypted on the private
+ * volume, hashed, with a row that says which request produced it, so any
+ * later question ("what did the bank actually send in August?") has an
+ * answer that does not depend on today's parser or today's rules.
+ */
+async function archivePayload(options: IngestOptions, errorsCount: number): Promise<string | null> {
+  const raw = options.set.rawBody;
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  try {
+    const stored = await putObject('payloads', options.merchantId, Buffer.from(raw, 'utf8'));
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase
+      .from('finance_provider_payloads')
+      .insert({
+        merchant_id: options.merchantId,
+        connection_id: options.connectionId,
+        job_id: options.jobId ?? null,
+        request_class: options.requestClass,
+        provider: options.provider,
+        protocol_version: options.protocolVersion ?? null,
+        requested_start: options.window.start.toISOString(),
+        requested_end: (options.window.end ?? new Date()).toISOString(),
+        bytes: stored.bytes,
+        content_hash: stored.sha256,
+        object_key: stored.objectKey,
+        key_version: stored.keyVersion,
+        accounts: options.set.accounts.length,
+        transactions: options.set.accounts.reduce((n, a) => n + (a.transactions?.length ?? 0), 0),
+        errors: errorsCount,
+      })
+      .select('id')
+      .single();
+    if (error) throw new Error(error.message);
+    return data.id as string;
+  } catch (err) {
+    // The archive is a record, not a gate: a full volume must not stop a sync.
+    console.error('[finances/sync] payload archive failed', err instanceof Error ? err.message : err);
+    return null;
+  }
 }
 
 /**
@@ -456,6 +502,13 @@ export async function ingestAccountSet(options: IngestOptions): Promise<SyncResu
   const errors = providerErrors.filter((e) => !isAdvisory(e.message));
   const notices = providerErrors.filter((e) => isAdvisory(e.message)).map((e) => e.message);
   const capped = notices.some(isCapNotice);
+  const payloadId = await archivePayload(options, errors.length);
+  let rules: CategoryRule[] = [];
+  try {
+    rules = await listRules(merchantId);
+  } catch (err) {
+    console.error('[finances/sync] rules unavailable', err instanceof Error ? err.message : err);
+  }
 
   // --- sources --------------------------------------------------------------
   const upstreamMeta = new Map<string, { name?: string; org_id?: string; org_url?: string; sfin_url?: string }>();
@@ -603,14 +656,20 @@ export async function ingestAccountSet(options: IngestOptions): Promise<SyncResu
 
   const { data: stored, error: storedError } = await supabase
     .from('finance_accounts')
-    .select('id, external_id, source_connection_id, currency')
+    .select('id, external_id, source_connection_id, currency, name, org_name, scope_override')
     .eq('connection_id', connectionId);
   if (storedError) throw new Error(`Could not read finance accounts: ${storedError.message}`);
 
   const idByIdentity = new Map<string, string>();
+  const scopeByAccountId = new Map<string, 'business' | 'personal'>();
   for (const row of stored ?? []) {
     idByIdentity.set(`${row.source_connection_id}::${row.external_id}`, row.id as string);
+    scopeByAccountId.set(
+      row.id as string,
+      (row.scope_override as 'business' | 'personal' | null) ?? inferAccountScope(row.name as string, row.org_name as string | null),
+    );
   }
+  const accountScopeFor = (id: string): 'business' | 'personal' => scopeByAccountId.get(id) ?? 'personal';
   const accountIdFor = (a: SimpleFinAccount): string | undefined => {
     const key = sourceKeyFor(provider, connectionId, a);
     const sourceId = sourceIdByKey.get(`${key.namespace}::${key.upstreamId}`);
@@ -693,20 +752,34 @@ export async function ingestAccountSet(options: IngestOptions): Promise<SyncResu
         if (!stats.last || posted > stats.last) stats.last = posted;
       }
 
+      const suggestion = suggestFor(
+        { payee: tx.payee ?? null, description: tx.description ?? null, memo: tx.memo ?? null, mcc, amount },
+        accountScopeFor(accountId),
+        rules,
+      );
       txRows.push({
         account_id: accountId,
         external_id: tx.id,
         ...content,
-        category: categorizeTransaction({
+        category: suggestion.category ?? categorizeTransaction({
           description: tx.description,
           payee: tx.payee,
           memo: tx.memo,
           mcc,
           amount: Number(amount),
         }),
+        category_source: suggestion.source,
+        category_confidence: suggestion.confidence,
+        tax_category: suggestion.taxCategory,
+        suggested_category: suggestion.category,
+        suggested_tax_category: suggestion.taxCategory,
+        suggested_confidence: suggestion.confidence,
+        suggested_by: suggestion.source,
+        ...(suggestion.source === 'rule' && suggestion.scope !== accountScopeFor(accountId) ? { scope_override: suggestion.scope } : {}),
         source_hash: transactionContent(content),
         updated_at: now,
       });
+      void AUTO_ACCEPT_CONFIDENCE;
     }
   }
 
@@ -735,8 +808,12 @@ export async function ingestAccountSet(options: IngestOptions): Promise<SyncResu
     // survive a provider edit to the description.
     const revision = (prior.revision ?? 1) + 1;
     transactionsRevised += 1;
-    const { category: _ignored, ...withoutCategory } = row;
-    void _ignored;
+    const {
+      category: _ignored, category_source: _s, category_confidence: _c, tax_category: _t, scope_override: _o,
+      suggested_category: _sc, suggested_tax_category: _st, suggested_confidence: _scf, suggested_by: _sb,
+      ...withoutCategory
+    } = row;
+    void _ignored; void _s; void _c; void _t; void _o; void _sc; void _st; void _scf; void _sb;
     rowsToWrite.push({ ...withoutCategory, revision, category: prior.category ?? row.category });
     revisionRows.push({
       transaction_id: prior.id,
@@ -798,6 +875,7 @@ export async function ingestAccountSet(options: IngestOptions): Promise<SyncResu
   const windowRows: Record<string, unknown>[] = [
     {
       job_id: jobId,
+      payload_id: payloadId,
       connection_id: connectionId,
       source_connection_id: null,
       account_id: null,
@@ -821,6 +899,7 @@ export async function ingestAccountSet(options: IngestOptions): Promise<SyncResu
     const accountErrors = errors.filter((e) => e.accountId === account.id);
     windowRows.push({
       job_id: jobId,
+      payload_id: payloadId,
       connection_id: connectionId,
       source_connection_id: sourceId,
       account_id: accountId,
@@ -998,6 +1077,7 @@ export async function syncConnection(
       window: { start: startDate, end: endDate },
       jobId,
       requestClass,
+      protocolVersion: fetched.protocolVersion,
     });
 
     await recordConnectionOutcome(connectionId, merchantId, {

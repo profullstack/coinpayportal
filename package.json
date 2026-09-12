@@ -33,6 +33,7 @@
     "plugins:build-zips": "./scripts/build-plugin-zips.sh"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
     "@coinbase/wallet-sdk": "^4.3.7",
     "@dayflow/core": "^3.3.6",
     "@dayflow/plugin-drag": "^1.2.6",

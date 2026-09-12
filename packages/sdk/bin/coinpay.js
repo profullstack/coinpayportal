@@ -169,6 +169,9 @@ const BOOLEAN_FLAGS = new Set([
   'no-pending',
   'liability-positive',
   'acknowledge',
+  'always',
+  'no-model',
+  'only-uncategorized',
   'plain',
   'no-stream',
   'hidden',
@@ -478,6 +481,14 @@ ${colors.cyan}Commands:${colors.reset}
     statements import <pdf>  Keep an original bank statement (--account, --period|--from/--to)
     statements list|get|download|reconcile|delete
                           Statement library; reconcile takes --report --opening --closing --currency
+    books [queue]         Transactions awaiting category review (--status, --scope, --search)
+    books confirm <id>    Confirm a row (--category, --tax, --scope, --note, --always makes a rule)
+    books confirm-all     Accept every pending suggestion (--yes)
+    books categorize      Rules, heuristics, then the model over unreviewed rows (--wait)
+    books rules [add|delete]  Merchant category rules
+    books summary         Totals by tax category (--period 2026|2026-Q3|2026-08, --scope)
+    books export          CPA pack (--period, --scope, --format csv|pdf|html|json, --output)
+    payloads [list|download <id>]  Raw provider responses, exactly as received
 
   ${colors.bright}escrow${colors.reset}
     create                Create a new escrow
@@ -4271,7 +4282,9 @@ async function handleFinances(subcommand, args, flags) {
     case 'coverage':
     case 'report':
     case 'reports':
-    case 'statements': {
+    case 'statements':
+    case 'books':
+    case 'payloads': {
       const { client } = financesClient();
       const { runFinancesCommand } = await import('../src/finances-commands.js');
       const code = await runFinancesCommand(subcommand, args, flags, {
@@ -4285,7 +4298,7 @@ async function handleFinances(subcommand, args, flags) {
 
     default:
       print.error(`Unknown finances command: ${subcommand}`);
-      console.log('Usage: coinpay finances [tui|summary|accounts|ledger|connections|sync|connect|disconnect|backfill|jobs|coverage|report|reports|statements]');
+      console.log('Usage: coinpay finances [tui|summary|accounts|ledger|connections|sync|connect|disconnect|backfill|jobs|coverage|report|reports|statements|books|payloads]');
       process.exit(1);
   }
 }

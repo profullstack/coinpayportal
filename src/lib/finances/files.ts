@@ -30,7 +30,7 @@ const MAGIC = Buffer.from('CPFD1');
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 
-export type ObjectKind = 'reports' | 'statements';
+export type ObjectKind = 'reports' | 'statements' | 'payloads';
 
 export interface StoredObject {
   objectKey: string;
@@ -70,7 +70,7 @@ export function resetDocumentKey(): void {
   cachedKey = null;
 }
 
-const KEY_PATTERN = /^(reports|statements)\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/;
+const KEY_PATTERN = /^(reports|statements|payloads)\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/;
 
 function pathFor(objectKey: string): string {
   if (!KEY_PATTERN.test(objectKey)) throw new Error('Invalid object key');

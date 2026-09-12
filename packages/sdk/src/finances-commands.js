@@ -404,6 +404,123 @@ export async function runFinancesCommand(subcommand, args, flags, ctx) {
         throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements [import <file>|list|get <id>|download <id>|reconcile <id>|delete <id>]');
       }
 
+      case 'books': {
+        const action = args[0] || 'queue';
+        if (action === 'queue' || action === 'list') {
+          const scope = typeof flags.scope === 'string' ? flags.scope : undefined;
+          const data = await api.listBooksQueue(client, {
+            status: typeof flags.status === 'string' ? flags.status : 'unreviewed',
+            scope,
+            accountId: typeof flags.account === 'string' ? flags.account : undefined,
+            search: typeof flags.search === 'string' ? flags.search : undefined,
+            limit: flags.limit ? Number(flags.limit) : undefined,
+            offset: flags.offset ? Number(flags.offset) : undefined,
+          });
+          emit(
+            data,
+            [`${data.unreviewed} row(s) awaiting review${data.modelEnabled ? '' : ' (model pass off: no ANTHROPIC_API_KEY on the server)'}`]
+              .concat(data.rows.map((r) => `${r.id}  ${(r.posted || '').slice(0, 10)}  ${r.amount} ${r.currency}  ${(r.payee || r.description || '').slice(0, 40).padEnd(40)}  ${r.category || '-'} / ${r.taxCategoryLabel} / ${r.scope}  [${r.suggestion ? r.suggestion.by : r.categorySource} ${Math.round(((r.categoryConfidence ?? (r.suggestion && r.suggestion.confidence) ?? 0)) * 100)}%]`))
+              .join('\n'),
+          );
+          return EXIT.OK;
+        }
+        if (action === 'confirm') {
+          const id = args[1];
+          if (!id) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books confirm <transaction-id> [--category c] [--tax t] [--scope business|personal] [--note …] [--always]');
+          const row = await api.reviewBooksTransaction(client, id, {
+            category: typeof flags.category === 'string' ? flags.category : undefined,
+            taxCategory: typeof flags.tax === 'string' ? flags.tax : undefined,
+            scope: typeof flags.scope === 'string' ? flags.scope : undefined,
+            note: typeof flags.note === 'string' ? flags.note : undefined,
+            createRule: flags.always === true,
+          });
+          emit({ transaction: row }, `Confirmed ${row.id}: ${row.category || '-'} / ${row.taxCategoryLabel} / ${row.scope}${flags.always ? ' (rule created)' : ''}`);
+          return EXIT.OK;
+        }
+        if (action === 'confirm-all') {
+          const data = await api.listBooksQueue(client, { status: 'unreviewed', limit: 500 });
+          if (!data.rows.length) { emit({ reviewed: 0 }, 'Nothing to confirm.'); return EXIT.OK; }
+          if (!flags.yes) throw new CliExit(EXIT.INVALID, `This accepts the suggestion on ${data.rows.length} row(s). Re-run with --yes.`);
+          const result = await api.bulkReviewBooks(client, data.rows.map((r) => r.id));
+          emit(result, `Confirmed ${result.reviewed} row(s) as suggested.`);
+          return EXIT.OK;
+        }
+        if (action === 'categorize') {
+          const data = await api.categorizeBooks(client, { useModel: flags['no-model'] ? false : true, onlyUncategorized: flags['only-uncategorized'] === true });
+          progress(`Queued ${describeJob(data.job)}${data.modelEnabled ? '' : ' (model pass off: no ANTHROPIC_API_KEY on the server)'}`);
+          let job = data.job;
+          if (flags.wait) job = await api.waitForFinanceJob(client, job.id, { onProgress: (j) => progress(describeJob(j)) });
+          const r = job.result || {};
+          emit({ job }, job.status === 'completed' ? `Examined ${r.examined ?? 0}: ${r.fromRules ?? 0} by rule, ${r.fromModel ?? 0} by model, ${r.autoAccepted ?? 0} accepted, ${r.queued ?? 0} for review` : describeJob(job));
+          return job.status === 'failed' ? EXIT.FAILURE : EXIT.OK;
+        }
+        if (action === 'rules') {
+          const sub = args[1];
+          if (sub === 'add') {
+            const pattern = args[2];
+            if (!pattern || typeof flags.category !== 'string') throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books rules add "<pattern>" --category c [--tax t] [--scope s] [--field payee|description] [--match exact|contains]');
+            const rule = await api.createBooksRule(client, { pattern, category: flags.category, taxCategory: typeof flags.tax === 'string' ? flags.tax : undefined, scope: typeof flags.scope === 'string' ? flags.scope : undefined, matchField: typeof flags.field === 'string' ? flags.field : 'payee', matchType: typeof flags.match === 'string' ? flags.match : 'exact' });
+            emit({ rule }, `Rule ${rule.id}: ${rule.match_field} ${rule.match_type} "${rule.pattern}" → ${rule.category}`);
+            return EXIT.OK;
+          }
+          if (sub === 'delete') {
+            if (!args[2]) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books rules delete <rule-id>');
+            const data = await api.deleteBooksRule(client, args[2]);
+            emit(data, 'Rule deleted.');
+            return EXIT.OK;
+          }
+          const rules = await api.listBooksRules(client);
+          emit({ rules }, rules.length ? rules.map((r) => `${r.id}  ${r.match_field} ${r.match_type} "${r.pattern}" → ${r.category}${r.tax_category ? ' / ' + r.tax_category : ''}${r.scope ? ' / ' + r.scope : ''}`).join('\n') : 'No rules.');
+          return EXIT.OK;
+        }
+        if (action === 'summary' || action === 'export') {
+          const period = typeof flags.period === 'string' ? flags.period : typeof flags.year === 'string' || typeof flags.year === 'number' ? String(flags.year) : null;
+          const from = typeof flags.from === 'string' ? flags.from : undefined;
+          const to = typeof flags.to === 'string' ? flags.to : undefined;
+          if (!period && !(from && to)) throw new CliExit(EXIT.INVALID, 'Pass --period 2026 (or 2026-Q3, 2026-08) or --from/--to');
+          const scope = typeof flags.scope === 'string' ? flags.scope : 'business';
+          const timezone = typeof flags.timezone === 'string' ? flags.timezone : undefined;
+          if (action === 'summary') {
+            const data = await api.getBooksSummary(client, { period: period || undefined, from, to, timezone, scope });
+            emit(
+              data,
+              [`${data.period.label} · ${scope} · ${data.rows} rows (${data.unreviewed} unreviewed, ${data.uncategorized} uncategorised)`]
+                .concat(data.totals.map((t) => `${t.currency}: income ${t.income} · expenses ${t.expenses} · net ${t.net} · excluded ${t.excluded}`))
+                .concat(data.lines.map((l) => `  ${l.label.padEnd(32)} ${l.currency} ${l.total.padStart(14)}  (${l.rows})${l.excluded ? '  excluded' : ''}`))
+                .concat([data.notice])
+                .join('\n'),
+            );
+            return EXIT.OK;
+          }
+          const format = typeof flags.format === 'string' ? flags.format.toLowerCase() : 'csv';
+          const file = await api.exportBooks(client, { period: period || undefined, from, to, timezone, scope, format });
+          const output = typeof flags.output === 'string' ? flags.output : file.filename || `books-${period || 'range'}.${format}`;
+          const path = writeDownload(output, Buffer.from(file.bytes), { overwrite: flags.overwrite === true });
+          emit({ output: path, bytes: file.bytes.length, unreviewed: Number(file.headers['x-unreviewed-rows'] || 0) }, `Wrote ${path} (${file.bytes.length} bytes; ${file.headers['x-unreviewed-rows'] || 0} unreviewed rows)`);
+          return EXIT.OK;
+        }
+        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books [queue|confirm <id>|confirm-all --yes|categorize|rules [add|delete]|summary|export]');
+      }
+
+      case 'payloads': {
+        const action = args[0] || 'list';
+        if (action === 'list') {
+          const data = await api.listFinancePayloads(client, { connectionId: typeof flags.connection === 'string' ? flags.connection : undefined, limit: flags.limit ? Number(flags.limit) : undefined });
+          emit(data, data.payloads.length ? data.payloads.map((p) => `${p.id}  ${p.fetchedAt}  ${p.provider}  ${p.requestClass}  ${p.accounts} accounts / ${p.transactions} tx / ${p.errors} errors  ${p.bytes} bytes`).join('\n') : 'No archived payloads yet.');
+          return EXIT.OK;
+        }
+        if (action === 'download') {
+          const id = args[1];
+          if (!id) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances payloads download <payload-id> --output <file.json>');
+          const file = await api.downloadFinancePayload(client, id);
+          const output = typeof flags.output === 'string' ? flags.output : file.filename || `${id}.json`;
+          const path = writeDownload(output, Buffer.from(file.bytes), { overwrite: flags.overwrite === true });
+          emit({ output: path, bytes: file.bytes.length, sha256: file.sha256 }, `Wrote ${path} (${file.bytes.length} bytes, as received from the provider)`);
+          return EXIT.OK;
+        }
+        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances payloads [list|download <id>]');
+      }
+
       default:
         return null;
     }
@@ -420,4 +537,4 @@ export async function runFinancesCommand(subcommand, args, flags, ctx) {
   }
 }
 
-export const EXTENDED_SUBCOMMANDS = ['connect', 'disconnect', 'consent', 'backfill', 'jobs', 'coverage', 'report', 'reports', 'statements'];
+export const EXTENDED_SUBCOMMANDS = ['connect', 'disconnect', 'consent', 'backfill', 'jobs', 'coverage', 'report', 'reports', 'statements', 'books', 'payloads'];
