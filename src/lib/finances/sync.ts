@@ -1186,17 +1186,14 @@ export async function setSyncConsent(
   const conn = await getConnection(connectionId, merchantId);
   if (!conn) throw new Error('Finance connection not found');
   const now = new Date();
-  const minute = randomSyncMinute();
-  const next = new Date(now);
-  next.setUTCHours(0, 0, 0, 0);
-  next.setUTCMinutes(minute);
-  if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-
+  // Opting in schedules the first sync at once; the daemon then keeps the
+  // configured interval (FINANCES_SCHEDULED_SYNC_INTERVAL_MINUTES, 30 by
+  // default) and the request budget does the throttling.
   const { data, error } = await supabase
     .from('finance_connections')
     .update(
       consent
-        ? { sync_consent_at: now.toISOString(), sync_minute: minute, next_sync_at: next.toISOString() }
+        ? { sync_consent_at: now.toISOString(), next_sync_at: now.toISOString() }
         : { sync_consent_at: null, next_sync_at: null },
     )
     .eq('id', connectionId)

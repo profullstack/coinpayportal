@@ -92,8 +92,19 @@ never a duplicate row.
 
 The worker runs inside the Next.js server (started from
 `src/instrumentation.ts` when `ENABLE_BACKGROUND_MONITOR=true`, or always
-with `FINANCES_WORKER_ENABLED=true`). A scheduler can drive it instead by
-POSTing `/api/cron/finance-worker` with the cron secret.
+with `FINANCES_WORKER_ENABLED=true`), the same daemon pattern as the payment
+monitor. A scheduler can drive it instead by POSTing
+`/api/cron/finance-worker` with the cron secret.
+
+**Background sync.** A connection the merchant opts in (the toggle on the
+Reports section, `POST /connections/:id/consent`, or `coinpay finances
+consent <id> on`) is synced by the daemon every
+`FINANCES_SCHEDULED_SYNC_INTERVAL_MINUTES` (30 by default), starting at
+once. Each pull is a normal 45-day rolling sync and records its fetch
+window, so coverage accumulates on its own. The per-credential budget
+throttles it: after the 16 background requests of a rolling day are spent,
+the next sync waits for the oldest one to age out, which settles at about
+one pull every 90 minutes.
 
 ## API
 
@@ -176,6 +187,7 @@ Nothing is auto-opened.
 | `FINANCES_REQUEST_BUDGET` / `FINANCES_BACKGROUND_BUDGET` | 20 / 16 | Per-credential requests per 24 h. |
 | `FINANCES_SIMPLEFIN_ALLOWED_HOSTS` | `beta-bridge.simplefin.org,bridge.simplefin.org` | Hosts a claim or access URL may point at. Everything else, including any IP literal, is refused before credentials are sent. |
 | `FINANCES_PDF_MAX_ROWS` | 20000 | Rows the PDF ledger carries before switching to an excerpt; CSV/JSON always hold every row. |
+| `FINANCES_SCHEDULED_SYNC_INTERVAL_MINUTES` | 30 (floor 15) | How often the in-process daemon syncs a connection that opted in. The budget above, not this number, is what keeps the bridge's daily allowance intact: once the background budget is spent the sync parks and resumes as requests age out. |
 | `FINANCES_REPORTS_ENABLED`, `FINANCES_STATEMENT_IMPORTS_ENABLED`, `FINANCES_SCHEDULED_SYNC_ENABLED` | on | Emergency switches. Setting one to `false` stops new work; nothing is dropped. |
 | `FINANCES_WORKER_ENABLED` | follows `ENABLE_BACKGROUND_MONITOR` | In-process worker loop. |
 

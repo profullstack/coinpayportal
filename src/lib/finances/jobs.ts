@@ -2,7 +2,7 @@ import 'server-only';
 import { randomUUID } from 'crypto';
 import { getSupabaseAdmin } from '../supabase/server';
 import { resolvePeriod, boundPeriod, planFetchWindows, PeriodError, type FetchWindowPlan } from './periods';
-import { checkRequestBudget, type RequestClass } from './budget';
+import { checkRequestBudget, scheduledSyncIntervalMs, type RequestClass } from './budget';
 import { fetchForConnection, ingestAccountSet, lifecycleStateFor, getConnection, DEFAULT_SYNC_DAYS, type SyncResult } from './sync';
 import { ProviderRequestError } from './simplefin';
 import { redactAccessUrl } from './simplefin';
@@ -540,16 +540,21 @@ async function runReportJob(job: FinanceJobRow): Promise<void> {
 }
 
 /**
- * Turn daily-sync consent into work. A connection whose `next_sync_at` has
- * passed gets one `scheduled_sync` job, and its next slot moves a day on.
- * Nothing is enqueued for a connection with a job already in flight.
+ * Turn sync consent into work, on the daemon's cadence.
+ *
+ * A connection whose `next_sync_at` has passed gets one `scheduled_sync`
+ * job and its next slot moves `scheduledSyncIntervalMs()` on (30 minutes by
+ * default). Nothing is enqueued for a connection with a job already in
+ * flight, so a sync parked on budget is not stacked behind another. This is
+ * the same in-process daemon pattern as the payment monitor; the budget, not
+ * the cadence, is what keeps the provider's daily allowance intact.
  */
 export async function enqueueScheduledSyncs(now: Date = new Date()): Promise<number> {
   if (process.env.FINANCES_SCHEDULED_SYNC_ENABLED === 'false') return 0;
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from('finance_connections')
-    .select('id, merchant_id, next_sync_at, sync_minute')
+    .select('id, merchant_id, next_sync_at')
     .not('sync_consent_at', 'is', null)
     .eq('lifecycle_state', 'active')
     .eq('is_active', true)
@@ -558,23 +563,24 @@ export async function enqueueScheduledSyncs(now: Date = new Date()): Promise<num
   if (error) throw new Error(`Could not read scheduled connections: ${error.message}`);
 
   let created = 0;
+  const interval = scheduledSyncIntervalMs();
   for (const row of data ?? []) {
     const { count } = await supabase
       .from('finance_jobs')
       .select('id', { count: 'exact', head: true })
       .eq('connection_id', row.id as string)
       .in('status', ['queued', 'running', 'waiting_for_budget']);
-    const next = new Date(now);
-    next.setUTCHours(0, 0, 0, 0);
-    next.setUTCMinutes((row.sync_minute as number | null) ?? 0);
-    while (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    const next = new Date(now.getTime() + interval);
     await supabase.from('finance_connections').update({ next_sync_at: next.toISOString() }).eq('id', row.id as string);
     if ((count ?? 0) > 0) continue;
+    // Keyed by the slot that was due, so two workers ticking at once create
+    // one job, and the next slot creates a fresh one.
+    const slot = typeof row.next_sync_at === 'string' ? row.next_sync_at : now.toISOString();
     await createRefreshJob({
       merchantId: row.merchant_id as string,
       connectionId: row.id as string,
       kind: 'scheduled_sync',
-      idempotencyKey: `scheduled:${row.id}:${now.toISOString().slice(0, 10)}`,
+      idempotencyKey: `scheduled:${row.id}:${slot}`,
     });
     created += 1;
   }

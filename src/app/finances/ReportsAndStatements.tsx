@@ -69,13 +69,26 @@ interface Job {
   errorMessage: string | null;
 }
 
+interface ConnectionLite {
+  id: string;
+  provider: string;
+  label: string | null;
+  lifecycle_state?: string;
+  sync_consent_at?: string | null;
+  next_sync_at?: string | null;
+  last_synced_at?: string | null;
+}
+
 interface Props {
   accounts: AccountLite[];
+  connections?: ConnectionLite[];
   authHeaders: (extra?: HeadersInit) => HeadersInit;
   onNotice: (message: string | null) => void;
   onError: (message: string | null) => void;
   /** Which section to scroll to when mounted from a subroute. */
   focus?: 'reports' | 'statements' | null;
+  /** Called after a change the parent should reload connections for. */
+  onConnectionsChanged?: () => void;
 }
 
 type PeriodMode = 'month' | 'quarter' | 'custom';
@@ -114,9 +127,35 @@ function lastQuarterSelector(): string {
   return `${year}-Q${prev}`;
 }
 
-export default function ReportsAndStatements({ accounts, authHeaders, onNotice, onError, focus = null }: Props) {
+export default function ReportsAndStatements({ accounts, connections = [], authHeaders, onNotice, onError, focus = null, onConnectionsChanged }: Props) {
   const reportsRef = useRef<HTMLElement | null>(null);
   const statementsRef = useRef<HTMLElement | null>(null);
+  const [consentBusy, setConsentBusy] = useState<string | null>(null);
+
+  const toggleConsent = async (c: ConnectionLite) => {
+    const next = !c.sync_consent_at;
+    setConsentBusy(c.id);
+    onError(null);
+    try {
+      const res = await fetch(`/api/finances/connections/${c.id}/consent`, {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ dailySync: next }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(readError(data, 'Could not update background sync'));
+      onNotice(
+        next
+          ? 'Background sync on. The daemon pulls this connection every 30 minutes, within the provider request budget; the first pull starts now.'
+          : 'Background sync off for this connection.',
+      );
+      onConnectionsChanged?.();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not update background sync');
+    } finally {
+      setConsentBusy(null);
+    }
+  };
 
   // ---- report builder -----------------------------------------------------
   const [mode, setMode] = useState<PeriodMode>('month');
@@ -420,6 +459,34 @@ export default function ReportsAndStatements({ accounts, authHeaders, onNotice, 
             </p>
           </div>
         </div>
+
+        {connections.filter((c) => c.lifecycle_state !== 'disconnected').length > 0 && (
+          <div className="mt-3 rounded border border-slate-800 bg-slate-950/40 p-3">
+            <div className="text-xs text-gray-400 mb-1">
+              Background sync. The daemon pulls opted-in connections every 30 minutes, throttled to the provider request budget (20 a day per connection, 4 kept for Sync now).
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {connections
+                .filter((c) => c.lifecycle_state !== 'disconnected')
+                .map((c) => (
+                  <label key={c.id} className="flex items-center gap-2 rounded border border-slate-700 px-2 py-1 text-xs text-gray-200">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(c.sync_consent_at)}
+                      disabled={consentBusy === c.id}
+                      onChange={() => toggleConsent(c)}
+                    />
+                    {c.label || c.provider}
+                    <span className="text-gray-500">
+                      {c.sync_consent_at
+                        ? `next ${c.next_sync_at ? new Date(c.next_sync_at).toLocaleTimeString() : 'soon'}`
+                        : 'off'}
+                    </span>
+                  </label>
+                ))}
+            </div>
+          </div>
+        )}
 
         <div className="grid gap-3 md:grid-cols-4 mt-4">
           <label className="text-xs text-gray-400">

@@ -18,6 +18,22 @@ const WINDOW_MS = 24 * 3600 * 1000;
 
 export type RequestClass = 'interactive' | 'background';
 
+/**
+ * How often the in-process daemon syncs a connection that opted in.
+ *
+ * Default 30 minutes. The daemon does not police the bridge's allowance by
+ * cadence; it does it by the budget above: a scheduled sync that finds the
+ * background budget spent parks as `waiting_for_budget` and resumes when
+ * the oldest counted request ages out, so a short interval self-limits to
+ * about one sync per (24h / background budget) once the day fills up.
+ * Floor of 15 minutes so a typo cannot hammer the provider.
+ */
+export function scheduledSyncIntervalMs(env: NodeJS.ProcessEnv = process.env): number {
+  const minutes = Number(env.FINANCES_SCHEDULED_SYNC_INTERVAL_MINUTES ?? 30);
+  const bounded = Number.isFinite(minutes) ? Math.min(Math.max(minutes, 15), 7 * 1440) : 30;
+  return Math.round(bounded * 60_000);
+}
+
 export interface BudgetState {
   used: number;
   usedBackground: number;
