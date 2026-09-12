@@ -60,6 +60,50 @@ Other guarantees:
   pending item with no posting date is stored with a null `posted`, not
   1970 and not today.
 
+## Executive summary
+
+The PDF and HTML open with an executive summary, one per currency, for a
+reader who will never open the ledger: five stat tiles (money in, money
+out, net, average per month, cash on hand), plain-English highlights, five
+charts and a month table. The email body carries the same summary with
+table-drawn bars, so it reads in Gmail without the attachment.
+
+The summary is computed by `summarizeDataset()` in
+`src/lib/finances/report-summary.ts` from the same rows, in exact decimal,
+and stored in the dataset as `summary[]`. It differs from the gross bank
+flows in one deliberate way: **money in and money out exclude transfers
+between the owner's own accounts and card payments** (the `transfer` and
+`payment` categories). A paycheque moved to savings is not income twice
+and a card payment is not spending on top of the purchases it paid for.
+The gross flows are still printed beneath it, so the two never disagree
+silently.
+
+The charts, drawn as inline SVG for HTML and as jsPDF vector shapes for
+the PDF by `src/lib/finances/charts.ts`:
+
+- Money in vs money out by month (grouped bars).
+- Running total of money in minus money out (line).
+- Where the money went: spending by category, top eight plus "everything else".
+- Where the money came from: income by cleaned payee name, top six.
+- Current balances by account, money held to the right of zero and money
+  owed to the left.
+
+When the report carries a gap estimate, the same daily-mean method is
+applied to money in and money out for the missing days. Every month the
+estimate touches is drawn in a lighter tint **and** labelled `est.` or
+`part est.` on the axis, the line chart's marker is hollow for those
+months, and the month table names the days. Colour never carries the
+estimate alone. The palette (blue for money in, orange for money out, red
+for money owed) passes the colour-vision-deficiency and contrast checks in
+the house data-visualisation method.
+
+`scripts/preview-report.mts` renders a synthetic nine-month report to PDF
+and HTML so the summary can be looked at without a bank connection:
+
+```
+pnpm exec tsx scripts/preview-report.mts
+```
+
 ## Timezone
 
 Calendar boundaries are resolved in the merchant's saved finance timezone

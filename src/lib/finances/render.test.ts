@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderCsv, renderHtml, renderPdf, csvText, canonicalJson, GENERATED_BY_NOTICE, type ReportDataset } from './render';
+import { summarizeDataset } from './report-summary';
 
 function dataset(overrides: Partial<ReportDataset> = {}): ReportDataset {
   return {
@@ -54,6 +55,7 @@ function dataset(overrides: Partial<ReportDataset> = {}): ReportDataset {
     ],
     estimates: [],
     totalsWithEstimates: [],
+    summary: [],
     coverage: {
       local_export_complete: true,
       provider_coverage: 'partial',
@@ -115,6 +117,34 @@ describe('renderHtml', () => {
   it('labels a running period', () => {
     const html = renderHtml(dataset({ report: { ...dataset().report, periodToDate: true } }));
     expect(html).toContain('Period to date');
+  });
+});
+
+function summarized(): ReportDataset {
+  const ds = dataset();
+  return { ...ds, summary: summarizeDataset({ timezone: ds.report.timezone, start: ds.report.requestedStart, end: ds.report.effectiveEnd, accounts: ds.accounts, posted: ds.posted, estimates: [] }) };
+}
+
+describe('executive summary', () => {
+  it('leads the HTML with tiles, highlights and inline SVG charts, one block per currency', () => {
+    const html = renderHtml(summarized());
+    expect(html).toContain('Executive summary (EUR)');
+    expect(html).toContain('Executive summary (USD)');
+    expect(html.indexOf('Executive summary')).toBeLessThan(html.indexOf('Gross bank flows by currency'));
+    expect(html).toContain('Money in vs money out, by month');
+    expect(html).toContain('Running total: money in minus money out');
+    expect(html).toContain('<svg xmlns');
+    expect(html).toContain('money coming in from outside these accounts came to $0.10');
+    expect(html).not.toMatch(/<script/i);
+  });
+
+  it('renders a PDF that carries the summary pages', async () => {
+    const pdf = await renderPdf(summarized());
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    const plain = await renderPdf(dataset());
+    expect(pdf.length).toBeGreaterThan(plain.length);
+    const a = await renderPdf(summarized());
+    expect(a.equals(pdf)).toBe(true);
   });
 });
 
