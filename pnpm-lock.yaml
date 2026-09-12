@@ -351,8 +351,8 @@ importers:
         specifier: ^1.5.0
         version: 1.8.0
       '@profullstack/hqtui':
-        specifier: ^0.1.11
-        version: 0.1.11
+        specifier: ^0.5.0
+        version: 0.5.0
       '@scure/bip32':
         specifier: ^1.5.0
         version: 1.7.0
@@ -1623,8 +1623,8 @@ packages:
   '@profullstack/emailer@1.0.1':
     resolution: {integrity: sha512-/uhHJJGH+1xSSz3mJn6X+m6aruYjMD3JOaRp/d4R/YWlzpy07H9z0/JUleIyRyBPNmaANSIwjTZ7aVjaukOEpg==}
 
-  '@profullstack/hqtui@0.1.11':
-    resolution: {integrity: sha512-mDJBScaU+/81zpAG+hmjEvOKeLmCvx3AZ9DOTbJcVCKJdlVh77h9OAHa6UfzJPHbIGt7Xh0VwWZ9zIywyS3lgA==}
+  '@profullstack/hqtui@0.5.0':
+    resolution: {integrity: sha512-jDwILBmdQx8pQA0ao/tzzty8u5nFNS4XhvU9xXhZvdIaMeiF3HBJIVtP6cS6kigS4lXmHR7sztbb9QJpaWwhig==}
     engines: {bun: '>=1.1', node: '>=22.6'}
     hasBin: true
 
@@ -6806,7 +6806,7 @@ snapshots:
 
   '@profullstack/emailer@1.0.1': {}
 
-  '@profullstack/hqtui@0.1.11': {}
+  '@profullstack/hqtui@0.5.0': {}
 
   '@profullstack/referrals@0.1.0(react@19.2.0)':
     optionalDependencies:
