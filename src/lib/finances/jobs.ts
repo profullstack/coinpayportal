@@ -631,8 +631,10 @@ async function runEmailJob(initial: FinanceJobRow): Promise<void> {
   } catch (err) {
     if (err instanceof LeaseLostError) throw err;
     const message = (err instanceof Error ? err.message : 'Digest failed').slice(0, 1000);
+    const code = (err as { code?: string } | null)?.code;
+    // The week's report is still rendering: look again soon. Anything else backs off.
     if (job.attempts < job.max_attempts) {
-      await releaseWithStatus(job, 'queued', { run_after: new Date(Date.now() + backoffMs(job.attempts, { baseMs: 60_000 })).toISOString(), error_message: message });
+      await releaseWithStatus(job, 'queued', { run_after: new Date(Date.now() + backoffMs(code === 'report_not_ready' ? 0 : job.attempts, { baseMs: 30_000 })).toISOString(), error_message: message });
     } else {
       await releaseWithStatus(job, 'failed', { error_code: 'email_failed', error_message: message });
     }
