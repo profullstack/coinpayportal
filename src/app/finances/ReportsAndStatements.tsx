@@ -175,6 +175,32 @@ export default function ReportsAndStatements({ accounts, connections = [], authH
 
   const [reports, setReports] = useState<Report[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
+  const [emailFor, setEmailFor] = useState<string | null>(null);
+  const [emailTo, setEmailTo] = useState('');
+  const [emailMessage, setEmailMessage] = useState('');
+  const [emailFormats, setEmailFormats] = useState<string[]>(['pdf', 'csv']);
+  const [emailing, setEmailing] = useState(false);
+
+  const sendReportEmail = async (report: Report) => {
+    setEmailing(true);
+    onError(null);
+    try {
+      const res = await fetch(`/api/finances/reports/${report.id}/send`, {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ to: emailTo, formats: emailFormats, message: emailMessage || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(readError(data, 'Could not send the report'));
+      onNotice(`Sent ${report.period.label} to ${data.sent.join(', ')}${data.failed?.length ? ` (failed: ${data.failed.map((f: { to: string }) => f.to).join(', ')})` : ''}. Download link expires ${String(data.linkExpiresAt).slice(0, 10)}.`);
+      setEmailFor(null);
+      setEmailMessage('');
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not send the report');
+    } finally {
+      setEmailing(false);
+    }
+  };
 
   // ---- statements -----------------------------------------------------------
   const [statements, setStatements] = useState<Statement[]>([]);
@@ -639,12 +665,36 @@ export default function ReportsAndStatements({ accounts, connections = [], authH
                         {f.toUpperCase()}
                       </button>
                     ))}
+                  {(r.status === 'ready' || r.status === 'superseded') && (
+                    <button type="button" className={btnSecondary} onClick={() => { setEmailFor(emailFor === r.id ? null : r.id); }}>
+                      Email
+                    </button>
+                  )}
                   {r.status !== 'deleted' && (
                     <button type="button" className="rounded border border-red-500/30 px-3 py-2 text-xs text-red-300 hover:bg-red-500/10" onClick={() => deleteReport(r)}>
                       Delete
                     </button>
                   )}
                 </div>
+                {emailFor === r.id && (
+                  <div className="mt-3 rounded border border-slate-700 p-3">
+                    <div className="text-xs text-gray-400 mb-2">
+                      Email this report. Recipients get the files attached and a download link that needs no login and expires in 14 days. Bank data leaves CoinPay when you press send.
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-3">
+                      <input type="text" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="cpa@example.com, you@example.com" className={inputClass} />
+                      <input type="text" value={emailMessage} onChange={(e) => setEmailMessage(e.target.value)} placeholder="Optional note" className={inputClass} />
+                      <div className="flex items-center gap-2 text-xs text-gray-400">
+                        {['pdf', 'csv', 'json', 'html'].map((f) => (
+                          <label key={f}><input type="checkbox" className="mr-1" checked={emailFormats.includes(f)} onChange={(e) => setEmailFormats(e.target.checked ? [...emailFormats, f] : emailFormats.filter((x) => x !== f))} />{f.toUpperCase()}</label>
+                        ))}
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => sendReportEmail(r)} disabled={emailing || !emailTo.trim() || emailFormats.length === 0} className={`${btnPrimary} mt-2`}>
+                      {emailing ? 'Sending…' : 'Send'}
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

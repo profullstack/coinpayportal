@@ -30,7 +30,7 @@ import { redactAccessUrl } from './simplefin';
  * `run_after` set to when the oldest counted request ages out.
  */
 
-export type JobKind = 'backfill' | 'refresh' | 'scheduled_sync' | 'report' | 'categorize';
+export type JobKind = 'backfill' | 'refresh' | 'scheduled_sync' | 'report' | 'categorize' | 'email_report';
 export type JobStatus = 'queued' | 'running' | 'waiting_for_budget' | 'partial' | 'failed' | 'completed' | 'cancelled';
 
 export interface FinanceJobRow {
@@ -568,6 +568,38 @@ async function runCategorizeJob(initial: FinanceJobRow): Promise<void> {
   }
 }
 
+/** Send a scheduled digest. Retries like any job; a mail outage is not a lost week. */
+async function runEmailJob(initial: FinanceJobRow): Promise<void> {
+  const job = initial;
+  const { getScheduleById, sendDigest, markDigestSent } = await import('./schedules');
+  const scheduleId = job.params.scheduleId as string | undefined;
+  if (!scheduleId) {
+    await releaseWithStatus(job, 'failed', { error_code: 'invalid_job', error_message: 'Email job has no schedule' });
+    return;
+  }
+  try {
+    const schedule = await getScheduleById(scheduleId, job.merchant_id);
+    if (!schedule || !schedule.active) {
+      await releaseWithStatus(job, 'cancelled', { error_message: 'Schedule no longer active' });
+      return;
+    }
+    const outcome = await sendDigest(schedule);
+    if (outcome.sent.length > 0) await markDigestSent(scheduleId);
+    await releaseWithStatus(job, outcome.failed.length === 0 ? 'completed' : outcome.sent.length > 0 ? 'partial' : 'failed', {
+      result: { sent: outcome.sent.length, failed: outcome.failed, attached: outcome.attached, rows: outcome.rows, unreviewed: outcome.unreviewed },
+      ...(outcome.sent.length === 0 ? { error_code: 'email_failed', error_message: outcome.failed[0]?.error ?? 'send failed' } : {}),
+    });
+  } catch (err) {
+    if (err instanceof LeaseLostError) throw err;
+    const message = (err instanceof Error ? err.message : 'Digest failed').slice(0, 1000);
+    if (job.attempts < job.max_attempts) {
+      await releaseWithStatus(job, 'queued', { run_after: new Date(Date.now() + backoffMs(job.attempts, { baseMs: 60_000 })).toISOString(), error_message: message });
+    } else {
+      await releaseWithStatus(job, 'failed', { error_code: 'email_failed', error_message: message });
+    }
+  }
+}
+
 /** Queue a categorisation run; one active per merchant at a time. */
 export async function createCategorizeJob(params: { merchantId: string; useModel?: boolean; onlyUncategorized?: boolean }): Promise<FinanceJobRow> {
   const supabase = getSupabaseAdmin();
@@ -661,6 +693,12 @@ export async function runWorkerTick({
   } catch (err) {
     result.errors.push(`schedule: ${err instanceof Error ? err.message : String(err)}`);
   }
+  try {
+    const { enqueueScheduledEmails } = await import('./schedules');
+    result.scheduled += await enqueueScheduledEmails();
+  } catch (err) {
+    result.errors.push(`email schedule: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   while (result.claimed < maxJobs && Date.now() - startedAt < deadlineMs) {
     const { data, error } = await supabase.rpc('finance_claim_job', {
@@ -680,6 +718,7 @@ export async function runWorkerTick({
     try {
       if (job.kind === 'report') await runReportJob(job);
       else if (job.kind === 'categorize') await runCategorizeJob(job);
+      else if (job.kind === 'email_report') await runEmailJob(job);
       else await runSyncJob(job);
     } catch (err) {
       if (err instanceof LeaseLostError) {

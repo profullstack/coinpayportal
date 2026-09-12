@@ -116,3 +116,24 @@ coinpay finances payloads download <id> --output ./raw.json
 | `ANTHROPIC_API_KEY` | unset | Enables the model pass. Without it, rules and heuristics only. |
 | `FINANCES_CATEGORIZATION_MODEL` | `claude-opus-5` | Model used for suggestions, at low effort, 40 rows per request |
 | `FINANCES_MODEL_CATEGORIZATION` | on | `false` disables the model pass even with a key |
+
+## Emailing the pack, and the weekly digest
+
+`POST /api/finances/books/send` (`coinpay finances books send --to cpa@x.com,me@x.com --period 2026`)
+emails the CPA pack for a period to up to five addresses: the PDF and CSV
+attached (while they total under 8 MiB) plus a download link that needs no
+login. The link is a random token stored only as its SHA-256, expires after
+`FINANCES_SHARE_LINK_DAYS` (14) days, counts its downloads and can be
+revoked. The email body carries the period, per-currency totals and the
+unreviewed count, never a transaction. Sending bank data by email is the
+merchant's decision, one send at a time. Reports have the same:
+`POST /api/finances/reports/:id/send`, `coinpay finances reports send <id> --to …`.
+
+**Weekly digest.** `POST /api/finances/email-schedules` (`coinpay finances
+digest set --days mon,fri --hour 8 --to you@x.com`) schedules the previous
+seven days of the books, at the chosen local hour in the finance timezone,
+to the recipients, with the PDF and CSV attached. The worker turns a due
+schedule into an `email_report` job, so a mail outage retries rather than
+losing a week. `digest send-now` sends one immediately; `digest off`
+pauses it. The Books page has the same controls under Tax summary.
+
