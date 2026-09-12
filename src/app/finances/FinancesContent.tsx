@@ -68,8 +68,12 @@ type Summary = {
 
 type Connection = {
   id: string;
+  provider: string;
   label: string | null;
   is_active: boolean;
+  lifecycle_state?: string;
+  sync_consent_at?: string | null;
+  next_sync_at?: string | null;
   last_synced_at: string | null;
   last_sync_status: string | null;
   last_sync_error: string | null;
@@ -858,10 +862,14 @@ export default function FinancesContent({ focus = null }: { focus?: 'reports' | 
 
           <ReportsAndStatements
             accounts={accounts}
+            connections={connections}
             authHeaders={authHeaders}
             onNotice={setNotice}
             onError={setError}
             focus={focus}
+            onConnectionsChanged={() => {
+              void loadOverview();
+            }}
           />
         </>
       )}
