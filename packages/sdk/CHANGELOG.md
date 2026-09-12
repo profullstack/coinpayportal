@@ -5,6 +5,25 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-09-12
+
+### Added
+- `coinpay finances books queue|confirm|confirm-all|categorize|rules|summary|export|send`:
+  every transaction auto-categorised (rules, heuristics, and Claude when the
+  server has a key) with a review queue, an "always" flag that turns a
+  correction into a rule, a tax summary by year/quarter/month in exact
+  arithmetic, and the CPA pack as CSV/PDF/HTML/JSON.
+- `coinpay finances payloads list|download`: every raw provider response,
+  exactly as received.
+- `coinpay finances reports send <id> --to …` and `books send --to …`: email
+  a report or the pack with attachments plus an expiring no-login link.
+- `coinpay finances digest set|show|off|send-now`: a weekly digest on chosen
+  weekdays at a chosen local hour.
+- `coinpay finances consent <id> on|off`: opt a connection into the
+  30-minute background sync.
+- SDK: `finances-reports` gained the books, payloads, email and digest
+  functions with declarations.
+
 ## [0.10.0] - 2026-09-12
 
 ### Added
