@@ -1,6 +1,8 @@
 import { formatFixed, displayDecimalsFor, type ExactAmount } from './decimal';
 import type { AccountCoverage, ProviderCoverage } from './coverage';
 import type { GapEstimate } from './estimates';
+import { formatMoney, type ReportSummary } from './report-summary';
+import { summarySvgs, drawMonthlyFlows, drawCumulativeNet, drawRankedBars, drawBalances, PdfCanvas, CHART_COLORS, type Box } from './charts';
 
 /**
  * Report artifacts, all derived from one canonical dataset.
@@ -105,6 +107,12 @@ export interface ReportDataset {
    */
   estimates: GapEstimate[];
   totalsWithEstimates: Array<{ currency: string; credits: ExactAmount; debits: ExactAmount; net: ExactAmount }>;
+  /**
+   * The executive summary, one per currency: money in and out net of
+   * transfers, by month, by category and by source, and balances. Derived
+   * from `posted`, `accounts` and `estimates` by `summarizeDataset` in report-summary.ts.
+   */
+  summary: ReportSummary[];
   coverage: {
     local_export_complete: boolean;
     provider_coverage: ProviderCoverage;
@@ -266,8 +274,51 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{border-bottom:1px
 th{background:#f5f5f5;font-weight:600}td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 thead{display:table-header-group}tr{page-break-inside:avoid}
 .badge{display:inline-block;border:1px solid #999;border-radius:3px;padding:0 5px;font-size:11px;margin-right:4px}
-@media print{body{padding:0}}
+.tiles{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}
+.tile{flex:1 1 140px;border:1px solid #e5e5e5;border-radius:6px;padding:8px 10px;background:#fafaf9}
+.tile .l{font-size:11px;color:#52514e}.tile .v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}.tile .s{font-size:11px;color:#52514e;margin-top:2px}
+.highlights{margin:8px 0 12px;padding-left:18px}.highlights li{margin:3px 0}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin:8px 0}
+.chart{border:1px solid #e5e5e5;border-radius:6px;padding:6px;background:#fff}
+.est{color:#52514e;font-style:italic}
+@media print{body{padding:0}.charts{grid-template-columns:1fr 1fr}}
 `;
+
+function renderSummaryHtml(s: ReportSummary, multiCurrency: boolean): string {
+  const c = s.currency;
+  const svgs = summarySvgs(s);
+  const tile = (label: string, value: string, sub?: string) => `<div class="tile"><div class="l">${escapeHtml(label)}</div><div class="v">${escapeHtml(value)}</div>${sub ? `<div class="s">${escapeHtml(sub)}</div>` : ''}</div>`;
+  const estSub = s.estimate ? 'observed + estimated' : 'observed';
+  const monthRows = s.months
+    .map(
+      (m) =>
+        `<tr><td>${escapeHtml(m.label)}${m.estimatedDays > 0 ? ` <span class="est">(${m.estimatedDays === m.days ? 'estimated' : `${m.estimatedDays} of ${m.days} days estimated`})</span>` : ''}</td><td class="num">${escapeHtml(money(m.incomeWithEstimate, c))}</td><td class="num">${escapeHtml(money(m.spendingWithEstimate, c))}</td><td class="num">${escapeHtml(money(m.netWithEstimate, c))}</td><td class="num">${escapeHtml(money(m.cumulativeNet, c))}</td><td class="num">${escapeHtml(money(m.transfersIn, c))} / ${escapeHtml(money(m.transfersOut, c))}</td><td class="num">${m.rows}</td></tr>`,
+    )
+    .join('');
+  return `<h2>Executive summary${multiCurrency ? ` (${escapeHtml(c)})` : ''}</h2>
+<div class="meta">Money in and money out exclude transfers between the owner's own accounts and card payments, so nothing is counted twice. Every figure is ${escapeHtml(c)}; nothing is converted.${s.estimate ? ' Figures marked estimated are an extrapolation, not bank data.' : ''}</div>
+<div class="tiles">
+${tile('Money in', formatMoney(s.incomeWithEstimate, c), estSub)}
+${tile('Money out', formatMoney(s.spendingWithEstimate, c), estSub)}
+${tile('Net', formatMoney(s.netWithEstimate, c), s.monthsSpendingExceededIncome > 0 ? `spending exceeded income in ${s.monthsSpendingExceededIncome} of ${s.months.length} months` : 'income covered spending every month')}
+${tile('Average per month', `${formatMoney(s.monthlyMeanIncome, c)} in`, `${formatMoney(s.monthlyMeanSpending, c)} out, over ${s.observedDays} observed days`)}
+${tile('Cash on hand', formatMoney(s.cashOnHand, c), `as of ${(s.balancesAsOf ?? 'last sync').slice(0, 10)}${!isZeroText(s.owed) ? `; ${formatMoney(s.owed, c)} owed on cards and loans` : ''}`)}
+</div>
+<ul class="highlights">${s.highlights.map((h) => `<li>${escapeHtml(h)}</li>`).join('')}</ul>
+<div class="charts">
+<div class="chart">${svgs.monthly}</div>
+<div class="chart">${svgs.cumulative}</div>
+<div class="chart">${svgs.spending}</div>
+<div class="chart">${svgs.income}</div>
+<div class="chart">${svgs.balances}</div>
+</div>
+<table><thead><tr><th>Month</th><th class="num">Money in</th><th class="num">Money out</th><th class="num">Net</th><th class="num">Running total</th><th class="num">Transfers in / out</th><th class="num">Rows</th></tr></thead><tbody>${monthRows || '<tr><td colspan="7">No months in this period.</td></tr>'}</tbody></table>
+${s.estimate ? `<div class="meta est">${escapeHtml(s.estimate.basis)}</div>` : ''}`;
+}
+
+function isZeroText(amount: ExactAmount): boolean {
+  return /^-?0(\.0+)?$/.test(amount);
+}
 
 export function renderHtml(ds: ReportDataset): string {
   const tz = ds.report.timezone;
@@ -305,6 +356,8 @@ export function renderHtml(ds: ReportDataset): string {
     ? `<div class="warn"><strong>Warnings</strong><ul>${ds.coverage.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join('')}</ul></div>`
     : '';
 
+  const executiveSummary = (ds.summary ?? []).map((s) => renderSummaryHtml(s, ds.summary.length > 1)).join('');
+
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
@@ -315,6 +368,7 @@ export function renderHtml(ds: ReportDataset): string {
 <div class="meta">${badges.map((b) => `<span class="badge">${escapeHtml(b)}</span>`).join('')}</div>
 <div class="notice"><strong>${escapeHtml(GENERATED_BY_NOTICE)}</strong><br>${escapeHtml(ds.coverage.explanation)}<br>Local export complete: ${ds.coverage.local_export_complete ? 'yes' : 'NO'} · Provider coverage: ${escapeHtml(ds.coverage.provider_coverage)} · Reconciliation: ${escapeHtml(ds.coverage.reconciliation_status)}</div>
 ${warnings}
+${executiveSummary}
 <h2>Gross bank flows by currency</h2>
 <div class="meta">Credits are money into the account and debits money out. A credit is not automatically revenue and a debit is not automatically a deductible expense. Currencies are never combined.</div>
 <table><thead><tr><th>Currency</th><th class="num">Credits</th><th class="num">Debits</th><th class="num">Net activity</th><th class="num">Posted rows</th></tr></thead><tbody>${totalsRows || '<tr><td colspan="5">No posted activity in this period.</td></tr>'}</tbody></table>
@@ -350,6 +404,150 @@ ${ds.statements.length ? `<h2>Linked statements</h2><ul>${ds.statements.map((s) 
 export function pdfMaxRows(): number {
   const n = Number(process.env.FINANCES_PDF_MAX_ROWS ?? 20_000);
   return Number.isFinite(n) && n > 0 ? n : 20_000;
+}
+
+type PdfLike = import('jspdf').jsPDF;
+type AutoTableFn = typeof import('jspdf-autotable').default;
+
+const PAGE_W = 612;
+const PAGE_H = 792;
+
+/**
+ * The executive summary pages: stat tiles, the plain-English highlights,
+ * the five charts and the month table. Returns the y to continue from.
+ */
+function renderSummaryPdf(doc: PdfLike, autoTable: AutoTableFn, s: ReportSummary, multiCurrency: boolean, startY: number, margin: number): number {
+  const c = s.currency;
+  const width = PAGE_W - margin * 2;
+  let y = startY;
+  const ensure = (h: number) => {
+    if (y + h > PAGE_H - 40) {
+      doc.addPage();
+      y = margin;
+    }
+  };
+
+  ensure(120);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(CHART_COLORS.text);
+  doc.text(`Executive summary${multiCurrency ? ` (${c})` : ''}`, margin, y + 12);
+  y += 18;
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(CHART_COLORS.muted);
+  const intro = `Money in and money out exclude transfers between the owner's own accounts and card payments, so nothing is counted twice. Every figure is ${c}; nothing is converted.${s.estimate ? ' Figures marked estimated are an extrapolation, not bank data.' : ''}`;
+  const introLines = doc.splitTextToSize(intro, width) as string[];
+  doc.text(introLines, margin, y + 8);
+  y += 10 * introLines.length + 8;
+
+  // --- stat tiles -----------------------------------------------------------
+  const tiles: Array<[string, string, string]> = [
+    ['Money in', formatMoney(s.incomeWithEstimate, c), s.estimate ? 'observed + estimated' : 'observed'],
+    ['Money out', formatMoney(s.spendingWithEstimate, c), s.estimate ? 'observed + estimated' : 'observed'],
+    ['Net', formatMoney(s.netWithEstimate, c), s.monthsSpendingExceededIncome > 0 ? `out exceeded in ${s.monthsSpendingExceededIncome} of ${s.months.length} months` : 'income covered spending every month'],
+    ['Average per month', `${formatMoney(s.monthlyMeanIncome, c)} in`, `${formatMoney(s.monthlyMeanSpending, c)} out, over ${s.observedDays} observed days`],
+    ['Cash on hand', formatMoney(s.cashOnHand, c), `as of ${(s.balancesAsOf ?? 'last sync').slice(0, 10)}${!isZeroText(s.owed) ? `; ${formatMoney(s.owed, c)} owed` : ''}`],
+  ];
+  const gap = 8;
+  const tileW = (width - gap * (tiles.length - 1)) / tiles.length;
+  const tileH = 48;
+  tiles.forEach(([label, value, sub], i) => {
+    const x = margin + i * (tileW + gap);
+    doc.setFillColor('#fafaf9');
+    doc.setDrawColor(CHART_COLORS.grid);
+    doc.setLineWidth(0.75);
+    doc.roundedRect(x, y, tileW, tileH, 4, 4, 'FD');
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(CHART_COLORS.muted);
+    doc.text(label, x + 6, y + 11);
+    doc.setFontSize(value.length > 14 ? 9 : 11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(CHART_COLORS.text);
+    doc.text(value, x + 6, y + 25);
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(CHART_COLORS.muted);
+    const subLines = (doc.splitTextToSize(sub, tileW - 12) as string[]).slice(0, 2);
+    doc.text(subLines, x + 6, y + 34);
+  });
+  y += tileH + 10;
+
+  // --- highlights -----------------------------------------------------------
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(CHART_COLORS.text);
+  for (const h of s.highlights) {
+    const lines = doc.splitTextToSize(h, width - 12) as string[];
+    ensure(11 * lines.length + 2);
+    doc.text('•', margin + 2, y + 9);
+    doc.text(lines, margin + 12, y + 9);
+    y += 11 * lines.length + 2;
+  }
+  y += 6;
+
+  // --- charts ---------------------------------------------------------------
+  const cv = new PdfCanvas(doc);
+  const colW = (width - 16) / 2;
+  const chartFrame = (box: Box) => {
+    doc.setDrawColor(CHART_COLORS.grid);
+    doc.setLineWidth(0.75);
+    doc.roundedRect(box.x - 6, box.y - 6, box.w + 12, box.h + 12, 4, 4, 'S');
+  };
+  const row = (left: (b: Box) => void, right: (b: Box) => void, h: number) => {
+    ensure(h + 16);
+    const a: Box = { x: margin + 6, y: y + 6, w: colW - 12, h: h - 12 };
+    const b: Box = { x: margin + colW + 16 + 6, y: y + 6, w: colW - 12, h: h - 12 };
+    chartFrame(a);
+    chartFrame(b);
+    left(a);
+    right(b);
+    y += h + 12;
+  };
+  row(
+    (b) => drawMonthlyFlows(cv, b, s.months, c),
+    (b) => drawCumulativeNet(cv, b, s.months, c),
+    180,
+  );
+  const rankedH = 44 + 18 * Math.max(3, Math.max(s.spendingByCategory.length, s.incomeBySource.length));
+  row(
+    (b) => drawRankedBars(cv, b, s.spendingByCategory, c, 'Where the money went', CHART_COLORS.spending),
+    (b) => drawRankedBars(cv, b, s.incomeBySource, c, 'Where the money came from', CHART_COLORS.income),
+    rankedH,
+  );
+  const balancesH = 56 + 16 * Math.max(3, s.balances.length);
+  ensure(balancesH + 16);
+  const full: Box = { x: margin + 6, y: y + 6, w: width - 12, h: balancesH - 12 };
+  chartFrame(full);
+  drawBalances(cv, full, s.balances, c);
+  y += balancesH + 12;
+
+  // --- month table ----------------------------------------------------------
+  doc.setTextColor(0);
+  autoTable(doc, {
+    startY: y,
+    head: [['Month', 'Money in', 'Money out', 'Net', 'Running total', 'Transfers in / out', 'Rows']],
+    body: s.months.length
+      ? s.months.map((m) => [
+          `${m.label}${m.estimatedDays > 0 ? ` (${m.estimatedDays === m.days ? 'estimated' : `${m.estimatedDays} of ${m.days} days est.`})` : ''}`,
+          formatMoney(m.incomeWithEstimate, c),
+          formatMoney(m.spendingWithEstimate, c),
+          formatMoney(m.netWithEstimate, c),
+          formatMoney(m.cumulativeNet, c),
+          `${formatMoney(m.transfersIn, c)} / ${formatMoney(m.transfersOut, c)}`,
+          String(m.rows),
+        ])
+      : [['No months in this period', '', '', '', '', '', '']],
+    foot: s.estimate ? [[{ content: s.estimate.basis, colSpan: 7, styles: { fontSize: 6.5, textColor: [82, 81, 78], fontStyle: 'italic' } }]] : undefined,
+    showFoot: 'lastPage',
+    styles: { fontSize: 7.5, cellPadding: 2.5 },
+    headStyles: { fillColor: [235, 235, 235], textColor: 20 },
+    footStyles: { fillColor: [255, 255, 255] },
+    columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+    margin: { left: margin, right: margin },
+  });
+  return (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 18;
 }
 
 export async function renderPdf(ds: ReportDataset): Promise<Buffer> {
@@ -401,6 +599,21 @@ export async function renderPdf(ds: ReportDataset): Promise<Buffer> {
   }
   doc.setTextColor(0);
   y += 6;
+
+  for (const s of ds.summary ?? []) {
+    y = renderSummaryPdf(doc, autoTable, s, ds.summary.length > 1, y, margin);
+  }
+
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(CHART_COLORS.text);
+  doc.text('Gross bank flows by currency', margin, y + 11);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(CHART_COLORS.muted);
+  doc.text('Credits are money into the account and debits money out, transfers included. A credit is not automatically revenue and a debit is not automatically a deductible expense.', margin, y + 23, { maxWidth: 612 - margin * 2 });
+  doc.setTextColor(0);
+  y += 34;
 
   autoTable(doc, {
     startY: y,

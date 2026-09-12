@@ -21,6 +21,7 @@ import {
 } from './render';
 import { audit } from './audit';
 import { estimateLeadingGap, combineWithEstimate, type GapEstimate } from './estimates';
+import { summarizeDataset } from './report-summary';
 
 /**
  * Period reports.
@@ -607,6 +608,14 @@ export async function generateReport(
       accountTotals,
       estimates,
       totalsWithEstimates,
+      summary: summarizeDataset({
+        timezone: report.timezone,
+        start: report.requested_start,
+        end: report.effective_end,
+        accounts,
+        posted,
+        estimates,
+      }),
       coverage: {
         local_export_complete: true,
         provider_coverage: providerCoverage,
