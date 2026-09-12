@@ -814,7 +814,7 @@ export async function ingestAccountSet(options: IngestOptions): Promise<SyncResu
       ...withoutCategory
     } = row;
     void _ignored; void _s; void _c; void _t; void _o; void _sc; void _st; void _scf; void _sb;
-    rowsToWrite.push({ ...withoutCategory, revision, category: prior.category ?? row.category });
+    rowsToWrite.push({ ...withoutCategory, revision, category: prior.category ?? row.category, ...prior.bookkeeping });
     revisionRows.push({
       transaction_id: prior.id,
       revision,
@@ -947,6 +947,13 @@ interface ExistingTransaction {
   category: string | null;
   source_hash: string | null;
   revision: number | null;
+  /**
+   * The bookkeeping columns as stored. A revised row is written with these
+   * carried over: a PostgREST batch fills any key one row lacks with NULL,
+   * which would both wipe a reviewed category and trip the NOT NULL on
+   * `category_source`.
+   */
+  bookkeeping: Record<string, unknown>;
 }
 
 /**
@@ -969,7 +976,7 @@ async function readExisting(
     const { data, error } = await supabase
       .from('finance_transactions')
       .select(
-        'id, account_id, external_id, posted, transacted_at, amount, description, payee, memo, mcc, pending, category, source_hash, revision',
+        'id, account_id, external_id, posted, transacted_at, amount, description, payee, memo, mcc, pending, category, source_hash, revision, category_source, category_confidence, tax_category, scope_override, suggested_category, suggested_tax_category, suggested_confidence, suggested_by',
       )
       .in('account_id', accountIds)
       .order('id', { ascending: true })
@@ -991,6 +998,16 @@ async function readExisting(
         category: (row.category as string | null) ?? null,
         source_hash: (row.source_hash as string | null) ?? null,
         revision: (row.revision as number | null) ?? null,
+        bookkeeping: {
+          category_source: (row.category_source as string | null) ?? 'auto',
+          category_confidence: (row.category_confidence as number | null) ?? null,
+          tax_category: (row.tax_category as string | null) ?? null,
+          scope_override: (row.scope_override as string | null) ?? null,
+          suggested_category: (row.suggested_category as string | null) ?? null,
+          suggested_tax_category: (row.suggested_tax_category as string | null) ?? null,
+          suggested_confidence: (row.suggested_confidence as number | null) ?? null,
+          suggested_by: (row.suggested_by as string | null) ?? null,
+        },
       });
     }
     if (page.length < 1000) break;

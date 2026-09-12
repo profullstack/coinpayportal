@@ -568,23 +568,62 @@ async function runCategorizeJob(initial: FinanceJobRow): Promise<void> {
   }
 }
 
-/** Send a scheduled digest. Retries like any job; a mail outage is not a lost week. */
+/**
+ * Send an email job: a scheduled digest (`params.scheduleId`), a specific
+ * report (`params.reportId` + `params.to`), or the books for a period
+ * (`params.books` + `params.to`). Retries like any job; a mail outage is
+ * not a lost week.
+ */
 async function runEmailJob(initial: FinanceJobRow): Promise<void> {
   const job = initial;
   const { getScheduleById, sendDigest, markDigestSent } = await import('./schedules');
   const scheduleId = job.params.scheduleId as string | undefined;
-  if (!scheduleId) {
-    await releaseWithStatus(job, 'failed', { error_code: 'invalid_job', error_message: 'Email job has no schedule' });
+  const reportId = job.params.reportId as string | undefined;
+  const books = job.params.books as { period?: string; from?: string; to?: string; timezone: string; scope: 'business' | 'personal' | 'all' } | undefined;
+
+  if (!scheduleId && !reportId && !books) {
+    await releaseWithStatus(job, 'failed', { error_code: 'invalid_job', error_message: 'Email job has no schedule, report or books selection' });
     return;
   }
+  if (reportId || books) {
+    const { sendReportEmail, sendBooksEmail } = await import('./emailing');
+    try {
+      const common = {
+        merchantId: job.merchant_id,
+        to: job.params.to,
+        formats: Array.isArray(job.params.formats) ? (job.params.formats as string[]) : undefined,
+        message: typeof job.params.message === 'string' ? job.params.message : null,
+        attach: job.params.attach !== false,
+      };
+      const outcome = reportId
+        ? await sendReportEmail({ ...common, reportId })
+        : await sendBooksEmail({ ...common, selection: books!, subjectPrefix: typeof job.params.subjectPrefix === 'string' ? job.params.subjectPrefix : undefined });
+      await releaseWithStatus(job, outcome.failed.length === 0 ? 'completed' : outcome.sent.length > 0 ? 'partial' : 'failed', {
+        result: { sent: outcome.sent, failed: outcome.failed, attached: outcome.attached, linkExpiresAt: outcome.linkExpiresAt },
+        ...(outcome.sent.length === 0 ? { error_code: 'email_failed', error_message: outcome.failed[0]?.error ?? 'send failed' } : {}),
+      });
+    } catch (err) {
+      if (err instanceof LeaseLostError) throw err;
+      const message = (err instanceof Error ? err.message : 'Send failed').slice(0, 1000);
+      const code = (err as { code?: string } | null)?.code;
+      // A report that is not ready yet is worth waiting for; bad input is not.
+      if (code === 'report_not_ready' || (!code && job.attempts < job.max_attempts)) {
+        await releaseWithStatus(job, 'queued', { run_after: new Date(Date.now() + backoffMs(job.attempts, { baseMs: 30_000 })).toISOString(), error_message: message });
+      } else {
+        await releaseWithStatus(job, 'failed', { error_code: code ?? 'email_failed', error_message: message });
+      }
+    }
+    return;
+  }
+
   try {
-    const schedule = await getScheduleById(scheduleId, job.merchant_id);
+    const schedule = await getScheduleById(scheduleId!, job.merchant_id);
     if (!schedule || !schedule.active) {
       await releaseWithStatus(job, 'cancelled', { error_message: 'Schedule no longer active' });
       return;
     }
     const outcome = await sendDigest(schedule);
-    if (outcome.sent.length > 0) await markDigestSent(scheduleId);
+    if (outcome.sent.length > 0) await markDigestSent(scheduleId!);
     await releaseWithStatus(job, outcome.failed.length === 0 ? 'completed' : outcome.sent.length > 0 ? 'partial' : 'failed', {
       result: { sent: outcome.sent.length, failed: outcome.failed, attached: outcome.attached, rows: outcome.rows, unreviewed: outcome.unreviewed },
       ...(outcome.sent.length === 0 ? { error_code: 'email_failed', error_message: outcome.failed[0]?.error ?? 'send failed' } : {}),
