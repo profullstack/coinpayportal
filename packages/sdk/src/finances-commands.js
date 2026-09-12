@@ -58,7 +58,9 @@ function periodSelection(flags) {
   if (to && !iso.test(to)) throw new CliExit(EXIT.INVALID, `--to must be YYYY-MM-DD (got ${to})`);
   if (from && to && to <= from) throw new CliExit(EXIT.INVALID, '--to is exclusive and must be after --from');
   const timezone = typeof flags.timezone === 'string' ? flags.timezone : typeof flags.tz === 'string' ? flags.tz : undefined;
-  if (timezone !== undefined && !/^([A-Za-z]+(?:\/[A-Za-z0-9_+-]+)+|UTC)$/.test(timezone)) {
+  // Bounded repeat (an IANA name has at most three segments) so the check on
+  // a user-supplied flag carries no nested unbounded quantifier.
+  if (timezone !== undefined && (timezone.length > 64 || !/^(UTC|[A-Za-z]{1,32}(?:\/[A-Za-z0-9_+-]{1,32}){1,3})$/.test(timezone))) {
     throw new CliExit(EXIT.INVALID, `--timezone must be an IANA name such as America/Los_Angeles (got ${timezone})`);
   }
   return { period: period || undefined, from: from || undefined, to: to || undefined, timezone };

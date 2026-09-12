@@ -47,7 +47,11 @@ const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 export function isValidTimeZone(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   const tz = value.trim();
-  if (tz !== 'UTC' && !/^[A-Za-z]+(?:\/[A-Za-z0-9_+-]+)+$/.test(tz)) return false;
+  // Bounded on purpose: an IANA name is at most three slash-separated
+  // segments (America/Argentina/Buenos_Aires), and a fixed repeat count
+  // keeps the pattern free of nested unbounded quantifiers on user input.
+  if (tz.length > 64) return false;
+  if (tz !== 'UTC' && !/^[A-Za-z]{1,32}(?:\/[A-Za-z0-9_+-]{1,32}){1,3}$/.test(tz)) return false;
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: tz });
     return true;
