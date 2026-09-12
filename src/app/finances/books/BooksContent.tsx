@@ -265,7 +265,11 @@ export default function BooksContent() {
         setJob(data.job);
         if (['completed', 'failed'].includes(data.job.status)) {
           const r = data.job.result ?? {};
-          setNotice(data.job.status === 'completed' ? `Categorisation finished: ${r.examined ?? 0} examined, ${r.fromRules ?? 0} by rule, ${r.fromModel ?? 0} by model, ${r.autoAccepted ?? 0} accepted, ${r.queued ?? 0} for review.` : `Categorisation failed: ${data.job.errorMessage ?? 'unknown error'}`);
+          setNotice(
+            data.job.status === 'completed'
+              ? `Categorisation finished: ${r.examined ?? 0} examined, ${r.fromRules ?? 0} by rule, ${r.fromModel ?? 0} by model, ${r.autoAccepted ?? 0} accepted, ${r.queued ?? 0} for review.${r.modelError ? ` Model pass skipped: ${r.modelError}` : ''}`
+              : `Categorisation failed: ${data.job.errorMessage ?? 'unknown error'}`,
+          );
           setCategorizing(false);
           void loadQueue();
         }

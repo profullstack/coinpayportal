@@ -378,6 +378,8 @@ export interface CategorizeOutcome {
   fromHeuristics: number;
   autoAccepted: number;
   queued: number;
+  /** Why the model pass did not run, when it did not. */
+  modelError?: string;
 }
 
 /**
@@ -449,11 +451,13 @@ export async function runCategorization(
   }
 
   if (useModel && modelCandidates.length > 0) {
-    const { categorizeWithModel, isModelCategorizationEnabled } = await import('./categorize-model');
+    const { categorizeWithModel, isModelCategorizationEnabled, ModelUnavailableError } = await import('./categorize-model');
     if (isModelCategorizationEnabled()) {
       for (let i = 0; i < modelCandidates.length; i += 200) {
         const chunk = modelCandidates.slice(i, i + 200);
-        const suggestions = await categorizeWithModel(
+        let suggestions: Awaited<ReturnType<typeof categorizeWithModel>>;
+        try {
+          suggestions = await categorizeWithModel(
           chunk.map(({ row, scope }) => {
             const account = byId.get(row.account_id as string);
             return {
@@ -468,7 +472,17 @@ export async function runCategorization(
               accountScope: scope,
             };
           }),
-        );
+          );
+        } catch (err) {
+          if (err instanceof ModelUnavailableError) {
+            // Not retryable today: finish with what rules and heuristics gave
+            // us and say why the model did not weigh in.
+            outcome.modelError = err.message.slice(0, 500);
+            console.error('[finances/books] model pass skipped:', outcome.modelError);
+            break;
+          }
+          throw err;
+        }
         for (const [id, s] of suggestions) {
           outcome.fromModel += 1;
           const accept = s.confidence >= AUTO_ACCEPT_CONFIDENCE;

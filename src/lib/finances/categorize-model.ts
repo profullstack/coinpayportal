@@ -91,6 +91,31 @@ function getClient(): Anthropic {
   return client;
 }
 
+/**
+ * The model cannot be used right now, for a reason no retry will change:
+ * the org's usage cap, a bad key, or a permission problem. The caller
+ * finishes with rules and heuristics and records why.
+ */
+export class ModelUnavailableError extends Error {
+  code = 'model_unavailable' as const;
+  status: number | null;
+  constructor(message: string, status: number | null = null) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/** Classify an SDK error: unavailable-for-now versus a transient failure worth retrying. */
+export function classifyModelError(err: unknown): ModelUnavailableError | null {
+  if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
+    return new ModelUnavailableError(`Anthropic rejected the key: ${err.message}`, err.status ?? null);
+  }
+  if (err instanceof Anthropic.BadRequestError && /usage limit|spend limit|regain access/i.test(err.message)) {
+    return new ModelUnavailableError(`Anthropic usage limit reached: ${err.message}`, err.status ?? null);
+  }
+  return null;
+}
+
 /** Categorise up to `BATCH` rows per request; returns suggestions keyed by id. */
 export async function categorizeWithModel(rows: ModelInputRow[]): Promise<Map<string, ModelSuggestion>> {
   const out = new Map<string, ModelSuggestion>();
@@ -113,20 +138,28 @@ export async function categorizeWithModel(rows: ModelInputRow[]): Promise<Map<st
       }),
     );
 
-    const response = await anthropic.beta.messages.create({
-      model: MODEL,
-      max_tokens: 16000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      system: SYSTEM,
-      output_config: { effort: 'low', format: { type: 'json_schema', schema: OUTPUT_SCHEMA } },
-      messages: [
-        {
-          role: 'user',
-          content: `Categorise these transactions. Return one item per input id.\n\n${lines.join('\n')}`,
-        },
-      ],
-    });
+    let response: Awaited<ReturnType<typeof anthropic.beta.messages.create>>;
+    try {
+      response = await anthropic.beta.messages.create({
+        model: MODEL,
+        max_tokens: 16000,
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
+        system: SYSTEM,
+        output_config: { effort: 'low', format: { type: 'json_schema', schema: OUTPUT_SCHEMA } },
+        messages: [
+          {
+            role: 'user',
+            content: `Categorise these transactions. Return one item per input id.\n\n${lines.join('\n')}`,
+          },
+        ],
+      });
+    } catch (err) {
+      const unavailable = classifyModelError(err);
+      if (unavailable) throw unavailable;
+      throw err;
+    }
+    if (!('content' in response)) continue;
 
     if (response.stop_reason === 'refusal') continue;
     const text = response.content.find((b) => b.type === 'text');
