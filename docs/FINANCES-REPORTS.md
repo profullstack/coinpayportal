@@ -101,7 +101,7 @@ the house data-visualisation method.
 and HTML so the summary can be looked at without a bank connection:
 
 ```
-pnpm exec tsx scripts/preview-report.mts /tmp/coinpay-preview
+pnpm exec tsx scripts/preview-report.mts
 ```
 
 ## Timezone

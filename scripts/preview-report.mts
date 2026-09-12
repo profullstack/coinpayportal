@@ -2,16 +2,18 @@
  * Render a synthetic report (eight months, an estimated gap, twenty accounts)
  * to PDF and HTML so the executive summary can be looked at before it ships.
  *
- *   pnpm exec tsx scripts/preview-report.mts /tmp/out
+ *   pnpm exec tsx scripts/preview-report.mts [output-dir]
  */
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { renderHtml, renderPdf, GENERATED_BY_NOTICE, type ReportDataset, type ReportRow, type ReportAccount } from '../src/lib/finances/render';
 import { summarizeDataset } from '../src/lib/finances/report-summary';
 import { estimateLeadingGap, combineWithEstimate } from '../src/lib/finances/estimates';
 import { sumAmounts, negateAmount, isNegativeAmount, subtractAmounts } from '../src/lib/finances/decimal';
 
-const out = process.argv[2] ?? '/tmp/coinpay-preview';
+// An explicit directory is created as given; otherwise a fresh private one.
+const out = process.argv[2] ?? mkdtempSync(join(tmpdir(), 'coinpay-preview-'));
 mkdirSync(out, { recursive: true });
 
 const TZ = 'America/Los_Angeles';
