@@ -173,6 +173,7 @@ const BOOLEAN_FLAGS = new Set([
   'no-model',
   'only-uncategorized',
   'no-attach',
+  'estimate-gaps',
   'plain',
   'no-stream',
   'hidden',
@@ -477,7 +478,7 @@ ${colors.cyan}Commands:${colors.reset}
     coverage              What part of a period was ever fetched (--period, --account)
     report                Monthly/quarterly/custom activity report (--period 2026-08 |
                             --from/--to; --account, --scope, --timezone, --format pdf|csv|html|json,
-                            --output <file>, --strict, --wait, --json)
+                            --output <file>, --strict, --estimate-gaps, --wait, --json)
     reports [get|download|delete <id>]  Report history and downloads
     statements import <pdf>  Keep an original bank statement (--account, --period|--from/--to)
     statements list|get|download|reconcile|delete

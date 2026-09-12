@@ -20,6 +20,7 @@ import {
   type ReportAccount,
 } from './render';
 import { audit } from './audit';
+import { estimateLeadingGap, combineWithEstimate, type GapEstimate } from './estimates';
 
 /**
  * Period reports.
@@ -59,6 +60,7 @@ export interface FinanceReportRow {
   include_hidden: boolean;
   include_pending: boolean;
   strict: boolean;
+  estimate_gaps: boolean;
   status: string;
   local_export_complete: boolean | null;
   provider_coverage: ProviderCoverage | null;
@@ -80,7 +82,7 @@ export interface FinanceReportRow {
 
 /** Everything but the dataset, which is large and has its own accessor. */
 const REPORT_COLUMNS =
-  'id, merchant_id, job_id, revision, supersedes_report_id, superseded_by_report_id, period_kind, period_selector, period_label, timezone, requested_start, requested_end, effective_end, period_to_date, cutoff, scope, account_ids, include_hidden, include_pending, strict, status, local_export_complete, provider_coverage, reconciliation_status, dataset_hash, row_count, pending_count, totals, warnings, renderer_version, error_code, error_message, idempotency_key, created_at, generated_at, updated_at, deleted_at';
+  'id, merchant_id, job_id, revision, supersedes_report_id, superseded_by_report_id, period_kind, period_selector, period_label, timezone, requested_start, requested_end, effective_end, period_to_date, cutoff, scope, account_ids, include_hidden, include_pending, strict, estimate_gaps, status, local_export_complete, provider_coverage, reconciliation_status, dataset_hash, row_count, pending_count, totals, warnings, renderer_version, error_code, error_message, idempotency_key, created_at, generated_at, updated_at, deleted_at';
 
 export class ReportError extends Error {
   code: string;
@@ -115,6 +117,7 @@ export function toPublicReport(r: FinanceReportRow, artifacts: ArtifactRow[] = [
     includeHidden: r.include_hidden,
     includePending: r.include_pending,
     strict: r.strict,
+    estimateGaps: r.estimate_gaps,
     status: r.status,
     local_export_complete: r.local_export_complete,
     provider_coverage: r.provider_coverage,
@@ -158,6 +161,8 @@ export interface CreateReportInput {
   includePending?: boolean;
   formats?: ReportFormat[];
   strict?: boolean;
+  /** Fill the days before the first observed posting with a labelled extrapolation. */
+  estimateGaps?: boolean;
   idempotencyKey?: string | null;
 }
 
@@ -204,6 +209,7 @@ export async function createReport(input: CreateReportInput): Promise<{ report: 
   const requestFingerprint = JSON.stringify({
     selector: period.selector, tz: period.timezone, accountIds, scope: input.scope ?? 'all',
     includeHidden: input.includeHidden ?? false, includePending: input.includePending ?? true, strict: input.strict ?? false,
+    estimateGaps: input.estimateGaps ?? false,
   });
 
   if (key) {
@@ -218,7 +224,7 @@ export async function createReport(input: CreateReportInput): Promise<{ report: 
       const r = existing as FinanceReportRow;
       const fp = JSON.stringify({
         selector: r.period_selector, tz: r.timezone, accountIds: [...r.account_ids].sort(), scope: r.scope,
-        includeHidden: r.include_hidden, includePending: r.include_pending, strict: r.strict,
+        includeHidden: r.include_hidden, includePending: r.include_pending, strict: r.strict, estimateGaps: r.estimate_gaps,
       });
       if (fp !== requestFingerprint) throw new ReportError('idempotency_conflict', 'This Idempotency-Key was already used with a different request', 409);
       const job = r.job_id ? await jobById(r.job_id, input.merchantId) : null;
@@ -263,6 +269,7 @@ export async function createReport(input: CreateReportInput): Promise<{ report: 
       include_hidden: input.includeHidden ?? false,
       include_pending: input.includePending ?? true,
       strict: input.strict ?? false,
+      estimate_gaps: input.estimateGaps ?? false,
       status: 'queued',
       idempotency_key: key,
     })
@@ -506,6 +513,34 @@ export async function generateReport(
       rows: t.rows,
     }));
 
+    // Opt-in estimates for the leading gap, per currency. Observed totals are
+    // untouched; the estimate is its own section and its own labelled sum.
+    const estimates: GapEstimate[] = [];
+    const totalsWithEstimates: ReportDataset['totalsWithEstimates'] = [];
+    if (report.estimate_gaps) {
+      const currencyOf = new Map(accounts.map((a) => [a.id, a.currency]));
+      for (const t of totals) {
+        let firstPosted: string | null = null;
+        for (const row of posted) {
+          if (currencyOf.get(row.accountId) !== t.currency || !row.posted) continue;
+          if (!firstPosted || row.posted < firstPosted) firstPosted = row.posted;
+        }
+        const estimate = estimateLeadingGap({
+          currency: t.currency,
+          start: report.requested_start,
+          end: report.effective_end,
+          timezone: report.timezone,
+          firstPosted,
+          observedCredits: t.credits,
+          observedDebits: t.debits,
+        });
+        if (estimate) {
+          estimates.push(estimate);
+          totalsWithEstimates.push({ currency: t.currency, ...combineWithEstimate(t, estimate) });
+        }
+      }
+    }
+
     // --- coverage -------------------------------------------------------------
     const coverage = await computeCoverage(report.account_ids, report.requested_start, report.effective_end);
     const providerCoverage = summarizeCoverage(coverage);
@@ -520,6 +555,7 @@ export async function generateReport(
       for (const w of c.warnings) warnings.push(`${name}: ${w}`);
       if (account?.identityState === 'identity_review_required') warnings.push(`${name}: account identity needs review; two upstream logins reported the same account id.`);
     }
+    if (report.estimate_gaps) warnings.push('This report contains estimated figures for days the institutions supplied nothing for; see the Estimated period section.');
     const dedupedWarnings = [...new Set(warnings)].slice(0, 50);
 
     if (report.strict) {
@@ -569,6 +605,8 @@ export async function generateReport(
       pending,
       totals,
       accountTotals,
+      estimates,
+      totalsWithEstimates,
       coverage: {
         local_export_complete: true,
         provider_coverage: providerCoverage,
@@ -590,6 +628,9 @@ export async function generateReport(
         'Each currency is reported separately. Nothing is converted, and reward points are not money.',
         'Opening and closing balances are unavailable unless entered from a statement. The current balance carries the provider’s own timestamp and is not a period balance.',
         'Pending items are listed in an appendix and excluded from every total.',
+        ...(estimates.length
+          ? ['ESTIMATED FIGURES: at the account owner\u2019s request, the days before the first observed posting are filled with an extrapolation of the observed daily average. Estimates are shown in their own section and their own sum; they are not transactions, were not reported by any institution, and are not included in the observed totals.']
+          : []),
         'CoinPay payment revenue, card payouts and bank deposits are not combined here; a payout arriving in a bank account appears only as a bank credit.',
         `Rows are exactly those selected at ${raw.snapshot_at}; a later import produces a new revision, never a change to this one.`,
       ],

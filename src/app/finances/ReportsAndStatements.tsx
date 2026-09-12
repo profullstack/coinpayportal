@@ -167,6 +167,7 @@ export default function ReportsAndStatements({ accounts, connections = [], authH
   const [scope, setScope] = useState<'all' | 'business' | 'personal'>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [strict, setStrict] = useState(false);
+  const [estimateGaps, setEstimateGaps] = useState(false);
   const [coverage, setCoverage] = useState<{ provider_coverage: string; accounts: Array<{ accountId: string; name: string | null; coverage: string; fraction: number; capped: boolean }> } | null>(null);
   const [coverageLoading, setCoverageLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -322,7 +323,7 @@ export default function ReportsAndStatements({ accounts, connections = [], authH
       const res = await fetch('/api/finances/reports', {
         method: 'POST',
         headers: authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ ...periodQuery, timezone, accountIds: [...selected], scope, strict, formats: ['pdf', 'csv', 'json', 'html'] }),
+        body: JSON.stringify({ ...periodQuery, timezone, accountIds: [...selected], scope, strict, estimateGaps, formats: ['pdf', 'csv', 'json', 'html'] }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(readError(data, 'Could not queue the report'));
@@ -547,10 +548,16 @@ export default function ReportsAndStatements({ accounts, connections = [], authH
               <option value="personal">Personal</option>
             </select>
           </label>
-          <label className="text-xs text-gray-400 flex items-end gap-2 pb-2">
-            <input type="checkbox" checked={strict} onChange={(e) => setStrict(e.target.checked)} />
-            Strict: refuse unless provider history was fetched for the whole period
-          </label>
+          <div className="text-xs text-gray-400 flex flex-col gap-1 pb-2 justify-end">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={strict} onChange={(e) => setStrict(e.target.checked)} />
+              Strict: refuse unless provider history was fetched for the whole period
+            </label>
+            <label className="flex items-center gap-2" title="Fills the days before the first transaction the bank supplied with an extrapolation of the observed daily average. Shown in its own section, labelled as an estimate, never mixed into observed totals.">
+              <input type="checkbox" checked={estimateGaps} onChange={(e) => setEstimateGaps(e.target.checked)} />
+              Estimate the start of the period the bank did not supply (labelled as estimate)
+            </label>
+          </div>
         </div>
 
         <div className="mt-3 text-xs text-gray-400">Accounts ({selected.size} selected)</div>

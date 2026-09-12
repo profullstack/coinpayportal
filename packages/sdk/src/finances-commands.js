@@ -247,6 +247,7 @@ export async function runFinancesCommand(subcommand, args, flags, ctx) {
           includePendingAppendix: flags['no-pending'] ? false : true,
           formats: [format, 'json'],
           strict,
+          estimateGaps: flags['estimate-gaps'] === true,
           idempotencyKey: typeof flags['idempotency-key'] === 'string' ? flags['idempotency-key'] : undefined,
         });
         let report = created.report;

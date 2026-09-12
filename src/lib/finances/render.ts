@@ -1,5 +1,6 @@
 import { formatFixed, displayDecimalsFor, type ExactAmount } from './decimal';
 import type { AccountCoverage, ProviderCoverage } from './coverage';
+import type { GapEstimate } from './estimates';
 
 /**
  * Report artifacts, all derived from one canonical dataset.
@@ -97,6 +98,13 @@ export interface ReportDataset {
   pending: ReportRow[];
   totals: CurrencyTotals[];
   accountTotals: AccountTotals[];
+  /**
+   * Opt-in extrapolation for the days before the first observed posting,
+   * per currency. Never folded into `totals`; `totalsWithEstimates` is the
+   * separate, labelled sum.
+   */
+  estimates: GapEstimate[];
+  totalsWithEstimates: Array<{ currency: string; credits: ExactAmount; debits: ExactAmount; net: ExactAmount }>;
   coverage: {
     local_export_complete: boolean;
     provider_coverage: ProviderCoverage;
@@ -185,6 +193,12 @@ export function renderCsv(ds: ReportDataset): string {
   lines.push(`# ${GENERATED_BY_NOTICE}`);
   lines.push(`# Report ${ds.report.id} revision ${ds.report.revision}; period ${ds.report.periodLabel} (${ds.report.timezone}); generated ${ds.report.generatedAt}`);
   lines.push(`# Provider coverage: ${ds.coverage.provider_coverage}; local export complete: ${ds.coverage.local_export_complete}; posted rows: ${ds.posted.length}; pending rows: ${ds.pending.length}`);
+  for (const e of ds.estimates) {
+    lines.push(`# ESTIMATE ${e.currency}: ${e.gapStart} to ${e.gapEnd} (exclusive), ${e.missingDays} days not supplied by any institution; estimated credits ${e.estimatedCredits}, debits ${e.estimatedDebits}, net ${e.estimatedNet}. ${csvText(e.basis)}`);
+  }
+  for (const t of ds.totalsWithEstimates) {
+    lines.push(`# OBSERVED + ESTIMATED ${t.currency}: credits ${t.credits}, debits ${t.debits}, net ${t.net}`);
+  }
   lines.push(CSV_COLUMNS.join(','));
 
   const emit = (section: 'posted' | 'pending', row: ReportRow) => {
@@ -262,6 +276,7 @@ export function renderHtml(ds: ReportDataset): string {
   if (ds.report.periodToDate) badges.push('Period to date');
   if (ds.coverage.provider_coverage !== 'available_window_fetched') badges.push('History may be incomplete');
   if (ds.accounts.some((a) => a.openingBalance === null)) badges.push('Opening balance unavailable');
+  if (ds.estimates.length) badges.push('Contains estimated figures');
 
   const totalsRows = ds.totals
     .map(
@@ -303,6 +318,15 @@ ${warnings}
 <h2>Gross bank flows by currency</h2>
 <div class="meta">Credits are money into the account and debits money out. A credit is not automatically revenue and a debit is not automatically a deductible expense. Currencies are never combined.</div>
 <table><thead><tr><th>Currency</th><th class="num">Credits</th><th class="num">Debits</th><th class="num">Net activity</th><th class="num">Posted rows</th></tr></thead><tbody>${totalsRows || '<tr><td colspan="5">No posted activity in this period.</td></tr>'}</tbody></table>
+${ds.estimates.length ? `<h2>Estimated period (not observed)</h2>
+<div class="warn"><strong>The institutions supplied no transactions for part of this period. The figures below are an extrapolation of the observed daily average, requested by the account owner. They are not transactions and were not reported by any bank.</strong></div>
+<table><thead><tr><th>Currency</th><th>Estimated days</th><th class="num">Daily mean credits</th><th class="num">Daily mean debits</th><th class="num">Est. credits</th><th class="num">Est. debits</th><th class="num">Est. net</th></tr></thead><tbody>
+${ds.estimates.map((e) => `<tr><td>${escapeHtml(e.currency)}</td><td>${escapeHtml(e.gapStart)} to ${escapeHtml(e.gapEnd)} (excl.), ${e.missingDays} days</td><td class="num">${escapeHtml(money(e.dailyMeanCredits, e.currency))}</td><td class="num">${escapeHtml(money(e.dailyMeanDebits, e.currency))}</td><td class="num">${escapeHtml(money(e.estimatedCredits, e.currency))}</td><td class="num">${escapeHtml(money(e.estimatedDebits, e.currency))}</td><td class="num">${escapeHtml(money(e.estimatedNet, e.currency))}</td></tr><tr><td colspan="7" class="meta">${escapeHtml(e.basis)}</td></tr>`).join('')}
+</tbody></table>
+<h3 style="font-size:13px;margin:12px 0 4px">Observed + estimated, per currency</h3>
+<table><thead><tr><th>Currency</th><th class="num">Credits</th><th class="num">Debits</th><th class="num">Net</th></tr></thead><tbody>
+${ds.totalsWithEstimates.map((t) => `<tr><td>${escapeHtml(t.currency)}</td><td class="num">${escapeHtml(money(t.credits, t.currency))}</td><td class="num">${escapeHtml(money(t.debits, t.currency))}</td><td class="num">${escapeHtml(money(t.net, t.currency))}</td></tr>`).join('')}
+</tbody></table>` : ''}
 <h2>Accounts</h2>
 <table><thead><tr><th>Account</th><th>Currency</th><th class="num">Opening</th><th class="num">Credits</th><th class="num">Debits</th><th class="num">Net</th><th class="num">Closing</th><th class="num">Current balance</th><th>Coverage</th></tr></thead><tbody>${accountRows}</tbody></table>
 <div class="meta">Opening and closing balances are shown only when supplied from a statement. The current balance is the provider's latest figure with its own timestamp; it is not the closing balance of this period.</div>
@@ -389,6 +413,32 @@ export async function renderPdf(ds: ReportDataset): Promise<Buffer> {
     columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
     margin: { left: margin, right: margin },
   });
+
+  if (ds.estimates.length) {
+    const yEst = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
+    autoTable(doc, {
+      startY: yEst,
+      head: [[{ content: 'ESTIMATED PERIOD (NOT OBSERVED): the institutions supplied no transactions for these days; figures are an extrapolation of the observed daily average, requested by the account owner. Not transactions.', colSpan: 6, styles: { halign: 'left', fillColor: [255, 240, 240], textColor: [160, 20, 20] } }], ['Currency', 'Estimated days', 'Daily mean credits / debits', 'Est. credits', 'Est. debits', 'Est. net']],
+      body: ds.estimates.flatMap((e) => [
+        [e.currency, `${e.gapStart} to ${e.gapEnd} (excl.), ${e.missingDays} days`, `${money(e.dailyMeanCredits, e.currency)} / ${money(e.dailyMeanDebits, e.currency)}`, money(e.estimatedCredits, e.currency), money(e.estimatedDebits, e.currency), money(e.estimatedNet, e.currency)],
+        [{ content: e.basis, colSpan: 6, styles: { fontSize: 7, textColor: [90, 90, 90] } }],
+      ]),
+      styles: { fontSize: 8, cellPadding: 3 },
+      headStyles: { fillColor: [235, 235, 235], textColor: 20 },
+      columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+      margin: { left: margin, right: margin },
+    });
+    const yCombined = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+    autoTable(doc, {
+      startY: yCombined,
+      head: [['Observed + estimated', 'Credits', 'Debits', 'Net']],
+      body: ds.totalsWithEstimates.map((t) => [t.currency, money(t.credits, t.currency), money(t.debits, t.currency), money(t.net, t.currency)]),
+      styles: { fontSize: 8, cellPadding: 3 },
+      headStyles: { fillColor: [235, 235, 235], textColor: 20 },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+      margin: { left: margin, right: margin },
+    });
+  }
 
   const afterTotals = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
   autoTable(doc, {
