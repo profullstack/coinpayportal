@@ -344,3 +344,6 @@ export {
 };
 
 export default CoinPayClient;
+
+// Finance reports, sync jobs, coverage and the statement library.
+export * from './finances-reports.js';

@@ -49,6 +49,24 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     registerPostHogLogger();
 
+    // The finance job worker: backfills, scheduled syncs and report
+    // generation. Runs in-process alongside the payment monitor unless
+    // switched off; a deployment that prefers a scheduler can set
+    // FINANCES_WORKER_ENABLED=false and hit /api/cron/finance-worker instead.
+    const enableFinanceWorker =
+      process.env.FINANCES_WORKER_ENABLED === 'true' ||
+      (process.env.FINANCES_WORKER_ENABLED !== 'false' && process.env.ENABLE_BACKGROUND_MONITOR === 'true');
+    if (enableFinanceWorker) {
+      try {
+        const { startFinanceWorkerLoop } = await import('./lib/finances/jobs');
+        startFinanceWorkerLoop();
+      } catch (err) {
+        console.error('[Instrumentation] finance worker failed to start', err instanceof Error ? err.message : err);
+      }
+    } else {
+      console.log('[Instrumentation] Finance worker disabled');
+    }
+
     const enableBackgroundMonitor = process.env.ENABLE_BACKGROUND_MONITOR === 'true';
     if (!enableBackgroundMonitor) {
       console.log('[Instrumentation] Background monitor disabled (ENABLE_BACKGROUND_MONITOR != true)');

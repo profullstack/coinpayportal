@@ -78,6 +78,97 @@ export class CoinPayClient {
   }
 
   /**
+   * Fetch a binary body (a PDF, a CSV) rather than JSON.
+   *
+   * `request()` always parses JSON, which a file download is not. This
+   * returns the bytes plus the headers that describe them; an error body
+   * is still parsed as JSON so its `code` survives.
+   * @param {string} endpoint - API endpoint
+   * @param {Object} [options] - Fetch options
+   * @returns {Promise<{bytes: Uint8Array, contentType: string, filename: string|null, sha256: string|null, headers: Record<string,string>}>}
+   */
+  async requestBinary(endpoint, options = {}) {
+    if (!this.#apiKey) {
+      throw new Error('API key is required for authenticated requests.');
+    }
+    const url = `${this.#baseUrl}${endpoint}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.#timeout);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: { 'Authorization': `Bearer ${this.#apiKey}`, ...options.headers },
+      });
+      if (!response.ok) {
+        let data = {};
+        try { data = await response.json(); } catch { /* not JSON */ }
+        const structured = data && data.error && typeof data.error === 'object' ? data.error : null;
+        const error = new Error((structured && structured.message) || data.error || `HTTP ${response.status}`);
+        error.status = response.status;
+        error.response = data;
+        if (structured && structured.code) error.code = structured.code;
+        throw error;
+      }
+      const headers = {};
+      response.headers.forEach((value, key) => { headers[key] = value; });
+      const disposition = headers['content-disposition'] || '';
+      const match = /filename="?([^";]+)"?/i.exec(disposition);
+      return {
+        bytes: new Uint8Array(await response.arrayBuffer()),
+        contentType: headers['content-type'] || 'application/octet-stream',
+        filename: match ? match[1] : null,
+        sha256: headers['x-content-sha256'] || null,
+        headers,
+      };
+    } catch (error) {
+      if (error.name === 'AbortError') throw new Error(`Request timeout after ${this.#timeout}ms`);
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
+   * POST a multipart form (a file upload). The browser/undici sets the
+   * boundary, so no Content-Type is forced here.
+   * @param {string} endpoint - API endpoint
+   * @param {FormData} form - The form to send
+   * @returns {Promise<Object>} API response
+   */
+  async requestForm(endpoint, form) {
+    if (!this.#apiKey) {
+      throw new Error('API key is required for authenticated requests.');
+    }
+    const url = `${this.#baseUrl}${endpoint}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.#timeout);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        body: form,
+        signal: controller.signal,
+        headers: { 'Authorization': `Bearer ${this.#apiKey}` },
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        const structured = data && data.error && typeof data.error === 'object' ? data.error : null;
+        const error = new Error((structured && structured.message) || data.error || `HTTP ${response.status}`);
+        error.status = response.status;
+        error.response = data;
+        if (structured && structured.code) error.code = structured.code;
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      if (error.name === 'AbortError') throw new Error(`Request timeout after ${this.#timeout}ms`);
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
    * Make an unauthenticated API request (for registration/login)
    * @param {string} endpoint - API endpoint
    * @param {Object} [options] - Fetch options

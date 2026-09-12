@@ -45,6 +45,11 @@ function makeSupabase(fixtures: Record<string, unknown[]>) {
     };
     // `.single()` resolves to one row, or a not-found error when there is none
     // — which is exactly what a scoped lookup of someone else's row returns.
+    // `.maybeSingle()` resolves to the first row or null, never an error.
+    builder.maybeSingle = () => ({
+      then: (resolve: (v: unknown) => unknown) =>
+        resolve({ data: rows().length > 0 ? rows()[0] : null, error: null }),
+    });
     builder.single = () => ({
       then: (resolve: (v: unknown) => unknown) =>
         resolve(

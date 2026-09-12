@@ -17,7 +17,7 @@ import 'server-only';
  *               per connected account per month, so it is opt-in per deployment.
  */
 
-import { fetchAccountSet, type SimpleFinAccountSet } from './simplefin';
+import { fetchAccountSet, type SimpleFinAccountSet, type SimpleFinProtocolVersion } from './simplefin';
 import { fetchPlaidAccountSet, isPlaidConfigured } from './plaid';
 
 export const FINANCE_PROVIDERS = ['simplefin', 'plaid'] as const;
@@ -40,6 +40,10 @@ export function isPlaidEnabled(): boolean {
 
 export interface ProviderFetchOptions {
   startDate?: Date;
+  /** Exclusive end of the window. Defaults to now. */
+  endDate?: Date;
+  /** SimpleFIN protocol version pinned on the credential; omitted = tested default. */
+  version?: SimpleFinProtocolVersion;
   /** Include not-yet-posted transactions (SimpleFIN only; Plaid always sends them). */
   pending?: boolean;
   /** Institution label stored on the connection, used to name the account's org. */
@@ -62,13 +66,16 @@ export async function fetchAccountSetForProvider(
     case 'plaid':
       return fetchPlaidAccountSet(credential, {
         startDate: options.startDate,
+        endDate: options.endDate,
         orgName: options.orgName,
       });
 
     case 'simplefin':
       return fetchAccountSet(credential, {
         startDate: options.startDate,
+        endDate: options.endDate,
         pending: options.pending,
+        version: options.version,
       });
 
     default:

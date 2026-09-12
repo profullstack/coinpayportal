@@ -271,13 +271,20 @@ function mapAccount(
  * with entirely plausible-looking totals.
  */
 function mapTransaction(transaction: PlaidTransaction): SimpleFinTransaction {
+  const pending = transaction.pending === true;
+  const date = unixSeconds(transaction.date);
   const mapped: SimpleFinTransaction = {
     id: transaction.transaction_id,
-    posted: unixSeconds(transaction.date) ?? Math.floor(Date.now() / 1000),
+    // For a pending item Plaid's `date` is when it occurred, not when it
+    // posted — it has not. Leaving `posted` unset keeps it out of every
+    // period's posted ledger; a posted item with no date is left unset too and
+    // is quarantined downstream rather than stamped with today.
+    posted: pending ? null : date ?? null,
     amount: decimalString(-transaction.amount),
     description: transaction.name || transaction.original_description || undefined,
-    pending: transaction.pending === true,
+    pending,
   };
+  if (pending && date !== undefined) mapped.transacted_at = date;
 
   if (transaction.merchant_name) mapped.payee = transaction.merchant_name;
 
@@ -298,6 +305,8 @@ function mapTransaction(transaction: PlaidTransaction): SimpleFinTransaction {
 export interface PlaidFetchOptions {
   /** Only transactions posted on or after this instant. */
   startDate?: Date;
+  /** Only transactions posted before this instant. Defaults to now. */
+  endDate?: Date;
   /** Institution name, stored on the connection at link time. */
   orgName?: string | null;
   timeoutMs?: number;
@@ -317,7 +326,9 @@ export async function fetchPlaidAccountSet(
   accessToken: string,
   options: PlaidFetchOptions = {},
 ): Promise<SimpleFinAccountSet> {
-  const endDate = new Date();
+  // Plaid's end_date is an inclusive calendar date; the internal window is
+  // exclusive, so the day before the exclusive end is the last day asked for.
+  const endDate = options.endDate ? new Date(options.endDate.getTime() - 86_400_000) : new Date();
   const startDate = options.startDate ?? new Date(Date.now() - 45 * 86_400_000);
 
   const collected: PlaidTransaction[] = [];
