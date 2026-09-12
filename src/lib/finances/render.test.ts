@@ -52,6 +52,8 @@ function dataset(overrides: Partial<ReportDataset> = {}): ReportDataset {
       { accountId: 'a1', credits: '0.1', debits: '0.2', net: '-0.1', rows: 2 },
       { accountId: 'a2', credits: '50', debits: '0', net: '50', rows: 1 },
     ],
+    estimates: [],
+    totalsWithEstimates: [],
     coverage: {
       local_export_complete: true,
       provider_coverage: 'partial',

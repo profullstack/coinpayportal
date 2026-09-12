@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
 
   const body = await readJsonBody<{
     period?: unknown; from?: unknown; to?: unknown; timezone?: unknown; accountIds?: unknown; scope?: unknown;
-    includeHidden?: unknown; includePendingAppendix?: unknown; includePending?: unknown; formats?: unknown; strict?: unknown;
+    includeHidden?: unknown; includePendingAppendix?: unknown; includePending?: unknown; formats?: unknown; strict?: unknown; estimateGaps?: unknown;
   }>(req);
 
   const accountIds = Array.isArray(body.accountIds) ? body.accountIds.filter((v): v is string => typeof v === 'string') : null;
@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
       includePending: body.includePendingAppendix !== false && body.includePending !== false,
       formats,
       strict: body.strict === true,
+      estimateGaps: body.estimateGaps === true,
       idempotencyKey: idempotencyKeyFrom(req),
     });
     return financeJson({ report: toPublicReport(report), job: toPublicJob(job), timezone: tz }, 202);

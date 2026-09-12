@@ -156,12 +156,12 @@ export async function getFinanceCoverage(client, { period, from, to, timezone, a
  * use `waitForFinanceReport` to block until it is ready.
  */
 export async function createFinanceReport(client, {
-  period, from, to, timezone, accountIds, scope, includeHidden, includePendingAppendix, formats, strict, idempotencyKey,
+  period, from, to, timezone, accountIds, scope, includeHidden, includePendingAppendix, formats, strict, estimateGaps, idempotencyKey,
 } = {}) {
   return call(client, '/finances/reports', {
     method: 'POST',
     headers: headersWith(idempotencyKey),
-    body: JSON.stringify({ period, from, to, timezone, accountIds, scope, includeHidden, includePendingAppendix, formats, strict }),
+    body: JSON.stringify({ period, from, to, timezone, accountIds, scope, includeHidden, includePendingAppendix, formats, strict, estimateGaps }),
   });
 }
 

@@ -196,6 +196,8 @@ export function createFinanceReport(
     includePendingAppendix?: boolean;
     formats?: ReportFormat[];
     strict?: boolean;
+    /** Fill the days before the first observed posting with a labelled extrapolation. */
+    estimateGaps?: boolean;
     idempotencyKey?: string;
   },
 ): Promise<{ report: FinanceReport; job: FinanceJob }>;
