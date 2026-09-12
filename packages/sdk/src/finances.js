@@ -62,13 +62,16 @@ export async function listFinanceAccounts(client, { includeHidden = false } = {}
  * two thirds of the year cannot be reconciled against anything, and nothing in
  * the output would say so.
  */
-export async function listAllFinanceTransactions(client, { startDate, pageSize = 500, max = 20000 } = {}) {
+export async function listAllFinanceTransactions(client, { startDate, endDate, pageSize = 500, max = 20000 } = {}) {
   const rows = [];
   let offset = 0;
   let total = 0;
 
   for (;;) {
-    const page = await listFinanceTransactions(client, { limit: pageSize, offset, startDate });
+    // Both bounds are forwarded. An end date that was accepted here and
+    // dropped on the way to the API would return rows past the window and
+    // report the window as complete.
+    const page = await listFinanceTransactions(client, { limit: pageSize, offset, startDate, endDate });
     const batch = page?.rows ?? [];
     total = Number(page?.total) || total;
     rows.push(...batch);

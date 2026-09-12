@@ -31,7 +31,8 @@ export interface SimpleFinOrg {
 /** One transaction. Amounts are decimal strings, timestamps UNIX seconds. */
 export interface SimpleFinTransaction {
   id: string;
-  posted: number;
+  /** UNIX seconds. `0` or absent on a pending item that has not posted yet. */
+  posted?: number | null;
   amount: string;
   description?: string;
   payee?: string;
@@ -54,9 +55,24 @@ export interface SimpleFinTransaction {
   supersedes?: string;
 }
 
+/**
+ * An upstream bank login, as the 2.0 draft reports it. Two logins at the same
+ * institution can hand out the same account id, so an account's identity is
+ * `(conn_id, id)` rather than `id` alone.
+ */
+export interface SimpleFinConnection {
+  conn_id: string;
+  name?: string;
+  org_id?: string;
+  org_url?: string;
+  sfin_url?: string;
+}
+
 export interface SimpleFinAccount {
   id: string;
   name: string;
+  /** 2.0 draft: the upstream login this account came through. */
+  conn_id?: string;
   currency: string;
   balance: string;
   'available-balance'?: string;
@@ -74,9 +90,27 @@ export interface SimpleFinAccount {
  */
 export interface SimpleFinAccountSet {
   accounts: SimpleFinAccount[];
+  /** 2.0 draft: the upstream logins behind `accounts[].conn_id`. */
+  connections?: SimpleFinConnection[];
   errors?: string[];
   errlist?: unknown[];
   'x-api-message'?: string[];
+}
+
+/** Protocol versions this client has fixtures for. */
+export const SIMPLEFIN_PROTOCOL_VERSIONS = [1, 2] as const;
+export type SimpleFinProtocolVersion = (typeof SIMPLEFIN_PROTOCOL_VERSIONS)[number];
+
+/**
+ * A provider failure with its scope preserved. `connId`/`accountId` say which
+ * login or account the message is about, so one bank needing re-auth marks
+ * that source partial rather than the whole credential.
+ */
+export interface ProviderError {
+  code: string;
+  message: string;
+  connId: string | null;
+  accountId: string | null;
 }
 
 export interface FetchAccountsOptions {
@@ -92,6 +126,8 @@ export interface FetchAccountsOptions {
   accountIds?: string[];
   /** Abort the request after this many milliseconds. */
   timeoutMs?: number;
+  /** Which protocol shape to ask for. Omitted = the server's default. */
+  version?: SimpleFinProtocolVersion;
 }
 
 /** Credentials and endpoint pulled apart from an access URL. */
@@ -186,6 +222,92 @@ export function decodeSetupToken(setupToken: string): string {
   return decoded;
 }
 
+
+/**
+ * Hosts a claim URL or access URL may point at.
+ *
+ * A setup token is base64 of an arbitrary URL, and the server POSTs to it with
+ * no user in the loop. Without a list, a crafted token turns the claim route
+ * into a request forged from inside the deployment — to a metadata endpoint,
+ * a private service, or a listener that harvests the Basic credentials the
+ * access URL carries. Override with `FINANCES_SIMPLEFIN_ALLOWED_HOSTS`
+ * (comma-separated) for a self-hosted bridge.
+ */
+export const DEFAULT_ALLOWED_HOSTS = ['beta-bridge.simplefin.org', 'bridge.simplefin.org'];
+
+export function allowedProviderHosts(env: NodeJS.ProcessEnv = process.env): string[] {
+  const raw = env.FINANCES_SIMPLEFIN_ALLOWED_HOSTS;
+  if (!raw || !raw.trim()) return DEFAULT_ALLOWED_HOSTS;
+  return raw
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+const BLOCKED_HOST_PATTERNS = [
+  /^localhost$/i,
+  /\.local$/i,
+  /\.internal$/i,
+  /^metadata(\.google\.internal)?$/i,
+  /^\[?[0-9a-f:]*:[0-9a-f:]*\]?$/i, // any IPv6 literal
+  /^\d{1,3}(\.\d{1,3}){3}$/, // any IPv4 literal
+  /^0x[0-9a-f]+$/i,
+  /^\d+$/,
+];
+
+/**
+ * Refuse any URL a credential-bearing request must not be sent to.
+ *
+ * Checks the scheme, the host against the allowlist, the port, and rejects
+ * every IP literal outright — an allowlisted name resolving to a private
+ * address is the provider's DNS being wrong, which the allowlist cannot fix,
+ * but a literal `169.254.169.254` or `[::1]` never has a legitimate reason
+ * to appear here.
+ *
+ * @throws {Error} when the destination is not an approved HTTPS provider host
+ */
+export function assertAllowedProviderUrl(
+  rawUrl: string,
+  { allowedHosts = allowedProviderHosts(), purpose = 'provider' }: { allowedHosts?: string[]; purpose?: string } = {},
+): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`The SimpleFIN ${purpose} URL is not a valid URL`);
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`The SimpleFIN ${purpose} URL must use https`);
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (!host || BLOCKED_HOST_PATTERNS.some((p) => p.test(host))) {
+    throw new Error(`The SimpleFIN ${purpose} URL points at a host that is not allowed`);
+  }
+  if (parsed.port && parsed.port !== '443') {
+    throw new Error(`The SimpleFIN ${purpose} URL must use the default https port`);
+  }
+  if (!allowedHosts.includes(host)) {
+    throw new Error(
+      `The SimpleFIN ${purpose} URL host "${host}" is not an approved provider host`,
+    );
+  }
+}
+
+/**
+ * Sanitised reason for a claim that did not complete cleanly. Distinguishes
+ * "the token is provably unspent" from "we cannot tell" so the caller can
+ * give the right recovery instruction.
+ */
+export type ClaimOutcome = 'not_claimed' | 'unknown';
+
+export class ClaimError extends Error {
+  outcome: ClaimOutcome;
+  constructor(message: string, outcome: ClaimOutcome) {
+    super(message);
+    this.outcome = outcome;
+  }
+}
+
 /**
  * Exchange a setup token for an access URL. **Single use** — the caller owns
  * persisting the result, because a repeat claim returns 403 and the credential
@@ -200,6 +322,9 @@ export async function claimSetupToken(
   { timeoutMs = 30_000 }: { timeoutMs?: number } = {},
 ): Promise<string> {
   const claimUrl = decodeSetupToken(setupToken);
+  // Nothing has been sent yet: every failure up to the fetch leaves the token
+  // unspent, and says so.
+  assertAllowedProviderUrl(claimUrl, { purpose: 'claim' });
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -210,38 +335,91 @@ export async function claimSetupToken(
       method: 'POST',
       headers: { 'Content-Length': '0' },
       signal: controller.signal,
+      // A redirect would carry the POST to a destination nobody validated.
+      redirect: 'manual',
     });
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error('Timed out claiming the SimpleFIN setup token');
+      // The request may have landed. The bridge could have consumed the token
+      // and we never saw the answer, so replaying is not safe.
+      throw new ClaimError(
+        'Timed out claiming the SimpleFIN setup token. The token may or may not have been used; disable it at the bridge and generate a new one.',
+        'unknown',
+      );
     }
-    throw new Error(
-      `Could not reach the SimpleFIN bridge: ${err instanceof Error ? err.message : 'unknown error'}`,
+    throw new ClaimError(
+      `Could not reach the SimpleFIN bridge: ${err instanceof Error ? err.message : 'unknown error'}. The token may or may not have been used; if it was, disable it at the bridge and generate a new one.`,
+      'unknown',
     );
   } finally {
     clearTimeout(timer);
   }
 
+  if (response.status >= 300 && response.status < 400) {
+    throw new ClaimError(
+      'SimpleFIN bridge answered the claim with a redirect, which is not followed. Disable the token at the bridge and generate a new one.',
+      'unknown',
+    );
+  }
+
   if (response.status === 403) {
-    throw new Error(
+    throw new ClaimError(
       'This setup token has already been claimed. Setup tokens are single-use — generate a new one.',
+      'not_claimed',
+    );
+  }
+
+  if (response.status === 402) {
+    throw new ClaimError(
+      'The SimpleFIN bridge reports that its subscription needs attention before this token can be claimed.',
+      'not_claimed',
     );
   }
 
   if (!response.ok) {
-    throw new Error(`SimpleFIN bridge rejected the claim (HTTP ${response.status})`);
+    throw new ClaimError(
+      `SimpleFIN bridge rejected the claim (HTTP ${response.status})`,
+      response.status >= 500 ? 'unknown' : 'not_claimed',
+    );
   }
 
   const accessUrl = (await response.text()).trim();
   if (!/^https:\/\//i.test(accessUrl)) {
-    throw new Error('SimpleFIN bridge did not return an access URL');
+    throw new ClaimError('SimpleFIN bridge did not return an access URL', 'unknown');
   }
 
   // Fail here rather than at the first sync, while the operator still has the
   // context to fix it — the token is spent either way.
-  parseAccessUrl(accessUrl);
+  const parsedAccess = parseAccessUrl(accessUrl);
+  assertAllowedProviderUrl(parsedAccess.baseUrl, { purpose: 'access' });
 
   return accessUrl;
+}
+
+/** Stable codes a caller can act on without parsing a message. */
+export type ProviderErrorCode =
+  | 'provider_reconnect_required'
+  | 'provider_payment_required'
+  | 'provider_rate_limited'
+  | 'provider_error';
+
+export class ProviderRequestError extends Error {
+  code: ProviderErrorCode;
+  /** From `Retry-After`, when the provider sent one. */
+  retryAfterMs: number | null;
+  constructor(message: string, code: ProviderErrorCode, retryAfterMs: number | null = null) {
+    super(message);
+    this.code = code;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+function retryAfterMs(header: string | null): number | null {
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  const at = Date.parse(header);
+  return Number.isFinite(at) ? Math.max(0, at - Date.now()) : null;
 }
 
 /** UNIX seconds, which is what SimpleFIN's date parameters take. */
@@ -259,8 +437,10 @@ export async function fetchAccountSet(
   options: FetchAccountsOptions = {},
 ): Promise<SimpleFinAccountSet> {
   const parsed = parseAccessUrl(accessUrl);
+  assertAllowedProviderUrl(parsed.baseUrl, { purpose: 'access' });
 
   const params = new URLSearchParams();
+  if (options.version) params.set('version', String(options.version));
   if (options.startDate) params.set('start-date', String(toUnixSeconds(options.startDate)));
   if (options.endDate) params.set('end-date', String(toUnixSeconds(options.endDate)));
   if (options.pending) params.set('pending', '1');
@@ -279,6 +459,8 @@ export async function fetchAccountSet(
       headers: { Authorization: basicAuthHeader(parsed), Accept: 'application/json' },
       signal: controller.signal,
       cache: 'no-store',
+      // Credentials ride on this request; they go to the validated host only.
+      redirect: 'manual',
     });
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
@@ -291,14 +473,32 @@ export async function fetchAccountSet(
     clearTimeout(timer);
   }
 
+  if (response.status >= 300 && response.status < 400) {
+    throw new ProviderRequestError('SimpleFIN answered with a redirect, which is not followed', 'provider_error');
+  }
   if (response.status === 401 || response.status === 403) {
-    throw new Error('SimpleFIN rejected the stored credentials — the connection needs re-linking');
+    throw new ProviderRequestError(
+      'SimpleFIN rejected the stored credentials — the connection needs re-linking',
+      'provider_reconnect_required',
+    );
+  }
+  if (response.status === 402) {
+    // The bridge subscription lapsed. This is the merchant's bill with the
+    // provider, not something CoinPay pays or retries with a wallet.
+    throw new ProviderRequestError(
+      'The SimpleFIN bridge subscription needs attention before data can be fetched',
+      'provider_payment_required',
+    );
   }
   if (response.status === 429) {
-    throw new Error('SimpleFIN rate limit reached (about 24 requests per day). Try again later.');
+    throw new ProviderRequestError(
+      'SimpleFIN rate limit reached (about 24 requests per day). Try again later.',
+      'provider_rate_limited',
+      retryAfterMs(response.headers.get('retry-after')),
+    );
   }
   if (!response.ok) {
-    throw new Error(`SimpleFIN returned HTTP ${response.status}`);
+    throw new ProviderRequestError(`SimpleFIN returned HTTP ${response.status}`, 'provider_error');
   }
 
   const body = await response.text();
@@ -322,16 +522,51 @@ export async function fetchAccountSet(
  * failed sync can say which institution stopped answering.
  */
 export function collectErrors(set: SimpleFinAccountSet): string[] {
-  const out: string[] = [];
+  return collectProviderErrors(set).map((e) => e.message);
+}
+
+/**
+ * Every failure the provider reported, with scope and code intact.
+ *
+ * The 2.0 draft spells the text `msg` and scopes it with `conn_id` /
+ * `account_id`; v1 sends bare strings. An object in a shape neither version
+ * describes is kept as a generic warning rather than dropped — an unknown
+ * error is still an error, and silently losing it would let a failed source
+ * read as a healthy one with no accounts.
+ */
+export function collectProviderErrors(set: SimpleFinAccountSet): ProviderError[] {
+  const out: ProviderError[] = [];
+  const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
   for (const e of set.errors ?? []) {
-    if (typeof e === 'string' && e.trim()) out.push(e.trim());
+    const message = str(e);
+    if (message) out.push({ code: 'gen.', message, connId: null, accountId: null });
   }
   for (const e of set.errlist ?? []) {
-    if (typeof e === 'string' && e.trim()) out.push(e.trim());
-    else if (e && typeof e === 'object') {
+    const message = str(e);
+    if (message) {
+      out.push({ code: 'gen.', message, connId: null, accountId: null });
+      continue;
+    }
+    if (e && typeof e === 'object') {
       const rec = e as Record<string, unknown>;
-      const message = rec.message ?? rec.error ?? rec.detail;
-      if (typeof message === 'string' && message.trim()) out.push(message.trim());
+      const text = str(rec.msg) ?? str(rec.message) ?? str(rec.error) ?? str(rec.detail);
+      const code = str(rec.code) ?? 'gen.';
+      const connId = str(rec.conn_id) ?? str(rec.connection_id) ?? null;
+      const accountId = str(rec.account_id) ?? str(rec.account) ?? null;
+      out.push({
+        code,
+        message: text ?? `Provider reported an error (${code}) in an unrecognised format`,
+        connId,
+        accountId,
+      });
+    } else if (e !== null && e !== undefined) {
+      out.push({
+        code: 'gen.',
+        message: 'Provider reported an error in an unrecognised format',
+        connId: null,
+        accountId: null,
+      });
     }
   }
   return out;

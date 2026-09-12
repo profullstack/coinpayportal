@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireMerchant } from '@/lib/auth/merchant-guard';
 import { syncAllConnections, syncConnection, DEFAULT_SYNC_DAYS } from '@/lib/finances/sync';
+import { BudgetExhaustedError } from '@/lib/finances/budget';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,12 +62,22 @@ export async function POST(req: NextRequest) {
       status: results.some((r) => r.status === 'partial') ? 'partial' : 'ok',
     });
   } catch (err) {
+    // The local request budget is a 429 with a retry time, not a provider
+    // failure: nothing was sent upstream.
+    if (err instanceof BudgetExhaustedError) {
+      return NextResponse.json(
+        { error: err.message, code: err.code, retryAfter: err.nextAvailableAt },
+        { status: 429, headers: { 'Cache-Control': 'no-store' } },
+      );
+    }
     console.error('[finances/sync] failed', err);
     // The message is already credential-redacted by the sync layer, and it is
     // the only way an operator learns that a bank needs re-authenticating.
+    const code = (err as { code?: string } | null)?.code;
+    const status = code === 'provider_payment_required' ? 402 : code === 'provider_reconnect_required' ? 409 : code === 'provider_rate_limited' ? 429 : 502;
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Sync failed' },
-      { status: 502 },
+      { error: err instanceof Error ? err.message : 'Sync failed', ...(code ? { code } : {}) },
+      { status },
     );
   }
 }

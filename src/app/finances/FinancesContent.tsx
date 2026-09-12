@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePlaidLink } from './usePlaidLink';
+import ReportsAndStatements from './ReportsAndStatements';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { requireAuth } from '@/lib/auth/client';
@@ -111,7 +112,7 @@ function authHeaders(extra?: HeadersInit): HeadersInit {
   return headers;
 }
 
-export default function FinancesContent() {
+export default function FinancesContent({ focus = null }: { focus?: 'reports' | 'statements' | null } = {}) {
   const router = useRouter();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -854,6 +855,14 @@ export default function FinancesContent() {
               </div>
             )}
           </section>
+
+          <ReportsAndStatements
+            accounts={accounts}
+            authHeaders={authHeaders}
+            onNotice={setNotice}
+            onError={setError}
+            focus={focus}
+          />
         </>
       )}
     </div>

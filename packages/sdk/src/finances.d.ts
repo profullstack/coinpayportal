@@ -61,7 +61,20 @@ export interface FinanceConnection {
   last_sync_error: string | null;
   last_sync_accounts: number | null;
   last_sync_transactions: number | null;
+  /** SimpleFIN protocol shape pinned on the credential; null = tested default. */
+  protocol_version?: 1 | 2 | null;
+  /** When the merchant opted into a once-daily background sync; null = never. */
+  sync_consent_at?: string | null;
+  next_sync_at?: string | null;
+  lifecycle_state?: 'active' | 'reconnect_required' | 'payment_required' | 'disconnected' | string;
+  disconnected_at?: string | null;
 }
+
+/** Every transaction in a window, paged until exhausted or `max` is hit. */
+export function listAllFinanceTransactions(
+  client: CoinPayClient,
+  options?: { startDate?: string | Date; endDate?: string | Date; pageSize?: number; max?: number },
+): Promise<{ rows: FinanceTransaction[]; total: number; complete: boolean }>;
 
 export interface FinanceSummary {
   windowDays: number;

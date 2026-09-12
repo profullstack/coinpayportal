@@ -149,3 +149,4 @@ import { CoinPayClient } from './client.js';
 export default CoinPayClient;
 
 export * from './finances.js';
+export * from './finances-reports.js';

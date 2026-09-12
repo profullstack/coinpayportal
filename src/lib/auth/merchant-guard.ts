@@ -69,3 +69,44 @@ export async function requireMerchant(
 
   return { id: merchant.id, email: merchant.email ?? email };
 }
+
+/**
+ * `requireMerchant` for routes that change something.
+ *
+ * The guard above accepts the `token` cookie, which a browser attaches to
+ * any request bound for this origin — including one a hostile page makes.
+ * A bearer header cannot be forged that way, so it passes as-is. A cookie
+ * session is accepted only when the browser says the request came from this
+ * site: an `Origin` (or `Referer`) on the same host, or a `Sec-Fetch-Site`
+ * of `same-origin`/`none`. A request carrying neither is refused; every
+ * modern browser sends at least one of them.
+ */
+export async function requireMerchantForWrite(
+  req: NextRequest,
+): Promise<AuthenticatedMerchant | NextResponse> {
+  const guard = await requireMerchant(req);
+  if (guard instanceof NextResponse) return guard;
+
+  const usedBearer = Boolean(extractBearerToken(req.headers.get('authorization')));
+  if (usedBearer) return guard;
+
+  const expectedHost = (req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  const fetchSite = req.headers.get('sec-fetch-site');
+  if (fetchSite === 'same-origin' || fetchSite === 'none') return guard;
+
+  const origin = req.headers.get('origin') ?? req.headers.get('referer');
+  if (origin && expectedHost) {
+    try {
+      if (new URL(origin).host.toLowerCase() === expectedHost) return guard;
+    } catch {
+      // fall through to refusal
+    }
+  }
+  return NextResponse.json(
+    { error: 'Cross-site request refused', code: 'cross_site_request' },
+    { status: 403 },
+  );
+}

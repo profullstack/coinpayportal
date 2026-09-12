@@ -161,6 +161,14 @@ function createUnauthenticatedClient() {
 
 const BOOLEAN_FLAGS = new Set([
   'active',
+  // finances reports / statements
+  'wait',
+  'strict',
+  'setup-token-stdin',
+  'overwrite',
+  'no-pending',
+  'liability-positive',
+  'acknowledge',
   'plain',
   'no-stream',
   'hidden',
@@ -456,6 +464,20 @@ ${colors.cyan}Commands:${colors.reset}
     ledger                Bank/card transactions (--limit, --search, --category, --account)
     connections           Linked institutions and their last sync
     sync                  Pull fresh balances from the bank bridge (--days)
+    connect               Link SimpleFIN: token prompted without echo, or --setup-token-stdin
+    disconnect <id>       Stop syncs and drop the credential; history stays (--yes)
+    consent <id> on|off   Opt a connection into a once-daily background sync
+    backfill              Fetch a calendar period in safe chunks (--period 2026-Q2 |
+                            --from/--to, --connection, --timezone, --wait, --json)
+    jobs [get|cancel <id>] Persisted sync/report jobs; reading one costs no request
+    coverage              What part of a period was ever fetched (--period, --account)
+    report                Monthly/quarterly/custom activity report (--period 2026-08 |
+                            --from/--to; --account, --scope, --timezone, --format pdf|csv|html|json,
+                            --output <file>, --strict, --wait, --json)
+    reports [get|download|delete <id>]  Report history and downloads
+    statements import <pdf>  Keep an original bank statement (--account, --period|--from/--to)
+    statements list|get|download|reconcile|delete
+                          Statement library; reconcile takes --report --opening --closing --currency
 
   ${colors.bright}escrow${colors.reset}
     create                Create a new escrow
@@ -3488,7 +3510,7 @@ const MENU_COMMANDS = [
 const SUBCOMMANDS = {
   config: [['set-key', 'Set your API key'], ['set-url', 'Set custom API URL'], ['show', 'Show current configuration']],
   auth: [['register', 'Register new merchant account'], ['login', 'Login to merchant account'], ['me', 'Show current merchant info']],
-  finances: [['tui', 'Live dashboard (default)'], ['summary', 'Headline numbers as text'], ['position', 'Debt vs income, credits vs debits'], ['scope', 'Set an account business or personal'], ['accounts', 'Bank & card accounts'], ['ledger', 'Bank/card transactions'], ['connections', 'Linked institutions'], ['sync', 'Pull fresh bank data']],
+  finances: [['tui', 'Live dashboard (default)'], ['summary', 'Headline numbers as text'], ['position', 'Debt vs income, credits vs debits'], ['scope', 'Set an account business or personal'], ['accounts', 'Bank & card accounts'], ['ledger', 'Bank/card transactions'], ['connections', 'Linked institutions'], ['sync', 'Pull fresh bank data'], ['report', 'Monthly/quarterly activity report'], ['backfill', 'Fetch a calendar period'], ['statements', 'Original bank statements'], ['jobs', 'Sync and report jobs']],
   payment: [['create', 'Create a new payment'], ['get', 'Get payment details <id>'], ['list', 'List payments'], ['qr', 'Get payment QR code <id>']],
   invoice: [['create', 'Create a draft invoice'], ['list', 'List invoices'], ['get', 'Get invoice details <id>'], ['update', 'Update a draft invoice <id>'], ['publish', 'Publish an invoice <id>'], ['send', 'Send an invoice <id>'], ['delete', 'Delete a draft invoice <id>']],
   tokens: [['list', 'List checkout tokens']],
@@ -4241,9 +4263,29 @@ async function handleFinances(subcommand, args, flags) {
       return;
     }
 
+    case 'connect':
+    case 'disconnect':
+    case 'consent':
+    case 'backfill':
+    case 'jobs':
+    case 'coverage':
+    case 'report':
+    case 'reports':
+    case 'statements': {
+      const { client } = financesClient();
+      const { runFinancesCommand } = await import('../src/finances-commands.js');
+      const code = await runFinancesCommand(subcommand, args, flags, {
+        client,
+        out: (line) => console.log(line),
+        err: (line) => console.error(line),
+      });
+      if (code !== 0) process.exit(code);
+      return;
+    }
+
     default:
       print.error(`Unknown finances command: ${subcommand}`);
-      console.log('Usage: coinpay finances [tui|summary|accounts|ledger|connections|sync]');
+      console.log('Usage: coinpay finances [tui|summary|accounts|ledger|connections|sync|connect|disconnect|backfill|jobs|coverage|report|reports|statements]');
       process.exit(1);
   }
 }
