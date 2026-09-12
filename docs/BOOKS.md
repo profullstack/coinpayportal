@@ -130,10 +130,17 @@ merchant's decision, one send at a time. Reports have the same:
 `POST /api/finances/reports/:id/send`, `coinpay finances reports send <id> --to …`.
 
 **Weekly digest.** `POST /api/finances/email-schedules` (`coinpay finances
-digest set --days mon,fri --hour 8 --to you@x.com`) schedules the previous
-seven days of the books, at the chosen local hour in the finance timezone,
-to the recipients, with the PDF and CSV attached. The worker turns a due
-schedule into an `email_report` job, so a mail outage retries rather than
-losing a week. `digest send-now` sends one immediately; `digest off`
-pauses it. The Books page has the same controls under Tax summary.
+digest set --days mon --hour 6 --to you@x.com`) schedules a digest of the
+previous seven days, at the chosen local hour in the finance timezone, to
+the recipients. The digest is the week's **activity report** with its
+executive summary and charts in the email body and attached, plus the
+books pack for the same seven days (totals by tax category in the body,
+PDF and CSV attached). The worker turns a due schedule into an
+`email_report` job; that job creates the week's report revision under a
+stable idempotency key, retries every 30 seconds until the report worker
+has rendered it, and then sends once. If the report cannot be generated
+(no accounts in scope, or a failed render) the books pack goes out alone
+and says why. A mail outage retries rather than losing a week. `digest
+send-now` sends one immediately; `digest off` pauses it. The Books page
+has the same controls (weekdays, hour, recipients, scope) under Tax summary.
 
