@@ -295,6 +295,18 @@ export async function runFinancesCommand(subcommand, args, flags, ctx) {
           emit(data, data.reports.length ? data.reports.map(describeReport).join('\n') : 'No reports yet.');
           return EXIT.OK;
         }
+        if (action === 'send') {
+          const id = args[1];
+          if (!id || typeof flags.to !== 'string') throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances reports send <report-id> --to cpa@x.com,me@x.com [--format pdf,csv] [--message "…"] [--no-attach]');
+          const data = await api.sendFinanceReportEmail(client, id, {
+            to: listFlag(flags.to),
+            formats: flags.format ? listFlag(flags.format) : undefined,
+            message: typeof flags.message === 'string' ? flags.message : null,
+            attach: flags['no-attach'] ? false : true,
+          });
+          emit(data, `Sent to ${data.sent.join(', ') || 'nobody'}${data.failed.length ? `; failed: ${data.failed.map((f) => `${f.to} (${f.error})`).join(', ')}` : ''}. Attached: ${data.attached.join(', ') || 'none'}. Link (expires ${data.linkExpiresAt.slice(0, 10)}): ${data.linkUrl}`);
+          return data.sent.length > 0 ? EXIT.OK : EXIT.FAILURE;
+        }
         if (action === 'get' || action === 'download' || action === 'delete') {
           const id = args[1];
           if (!id) throw new CliExit(EXIT.INVALID, `Usage: coinpay finances reports ${action} <report-id>`);
@@ -316,7 +328,7 @@ export async function runFinancesCommand(subcommand, args, flags, ctx) {
           emit({ report: data.report, output: path, bytes: file.bytes.length, sha256: file.sha256 }, `Wrote ${path} (${file.bytes.length} bytes)`);
           return EXIT.OK;
         }
-        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances reports [list|get <id>|download <id>|delete <id>]');
+        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances reports [list|get <id>|download <id>|send <id>|delete <id>]');
       }
 
       case 'statements': {
@@ -473,6 +485,23 @@ export async function runFinancesCommand(subcommand, args, flags, ctx) {
           emit({ rules }, rules.length ? rules.map((r) => `${r.id}  ${r.match_field} ${r.match_type} "${r.pattern}" → ${r.category}${r.tax_category ? ' / ' + r.tax_category : ''}${r.scope ? ' / ' + r.scope : ''}`).join('\n') : 'No rules.');
           return EXIT.OK;
         }
+        if (action === 'send') {
+          if (typeof flags.to !== 'string') throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books send --to cpa@x.com,me@x.com --period 2026 [--scope business] [--format pdf,csv] [--message "…"]');
+          const period = typeof flags.period === 'string' ? flags.period : null;
+          const from = typeof flags.from === 'string' ? flags.from : undefined;
+          const toDate = typeof flags['to-date'] === 'string' ? flags['to-date'] : undefined;
+          if (!period && !(from && toDate)) throw new CliExit(EXIT.INVALID, 'Pass --period 2026 (or 2026-Q3, 2026-08) or --from/--to-date');
+          const data = await api.sendBooksEmail(client, {
+            to: listFlag(flags.to), period: period || undefined, from, toDate,
+            timezone: typeof flags.timezone === 'string' ? flags.timezone : undefined,
+            scope: typeof flags.scope === 'string' ? flags.scope : 'business',
+            formats: flags.format ? listFlag(flags.format) : undefined,
+            message: typeof flags.message === 'string' ? flags.message : null,
+            attach: flags['no-attach'] ? false : true,
+          });
+          emit(data, `Sent to ${data.sent.join(', ') || 'nobody'}${data.failed.length ? `; failed: ${data.failed.map((f) => `${f.to} (${f.error})`).join(', ')}` : ''}. ${data.rows} rows, ${data.unreviewed} unreviewed. Link (expires ${data.linkExpiresAt.slice(0, 10)}): ${data.linkUrl}`);
+          return data.sent.length > 0 ? EXIT.OK : EXIT.FAILURE;
+        }
         if (action === 'summary' || action === 'export') {
           const period = typeof flags.period === 'string' ? flags.period : typeof flags.year === 'string' || typeof flags.year === 'number' ? String(flags.year) : null;
           const from = typeof flags.from === 'string' ? flags.from : undefined;
@@ -499,7 +528,51 @@ export async function runFinancesCommand(subcommand, args, flags, ctx) {
           emit({ output: path, bytes: file.bytes.length, unreviewed: Number(file.headers['x-unreviewed-rows'] || 0) }, `Wrote ${path} (${file.bytes.length} bytes; ${file.headers['x-unreviewed-rows'] || 0} unreviewed rows)`);
           return EXIT.OK;
         }
-        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books [queue|confirm <id>|confirm-all --yes|categorize|rules [add|delete]|summary|export]');
+        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books [queue|confirm <id>|confirm-all --yes|categorize|rules [add|delete]|summary|export|send]');
+      }
+
+      case 'digest': {
+        const action = args[0] || 'show';
+        const DAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+        const describe = (s) => s
+          ? `${s.active ? 'on' : 'off'} · ${s.weekdays.map((d) => DAY_NAMES[d]).join(',')} at ${String(s.hour).padStart(2, '0')}:00 ${s.timezone} · ${s.scope} · to ${s.recipients.join(', ')}${s.nextRunAt ? ` · next ${s.nextRunAt}` : ''}${s.lastSentAt ? ` · last ${s.lastSentAt}` : ''}`
+          : 'No weekly digest configured. Set one with: coinpay finances digest set --days mon,fri --hour 8 --to you@example.com';
+        if (action === 'show') {
+          const s = await api.getWeeklyDigest(client);
+          emit({ schedule: s }, describe(s));
+          return EXIT.OK;
+        }
+        if (action === 'set' || action === 'on') {
+          const days = flags.days ? listFlag(flags.days).map((d) => { const i = DAY_NAMES.indexOf(d.toLowerCase().slice(0, 3)); return i === -1 ? Number(d) : i; }) : undefined;
+          if (days && days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) throw new CliExit(EXIT.INVALID, '--days takes names like mon,fri or numbers 0 (Sunday) to 6');
+          const s = await api.setWeeklyDigest(client, {
+            weekdays: days,
+            hour: flags.hour !== undefined ? Number(flags.hour) : undefined,
+            timezone: typeof flags.timezone === 'string' ? flags.timezone : undefined,
+            recipients: flags.to ? listFlag(flags.to) : undefined,
+            scope: typeof flags.scope === 'string' ? flags.scope : undefined,
+            formats: flags.format ? listFlag(flags.format) : undefined,
+            active: true,
+          });
+          emit({ schedule: s }, describe(s));
+          return EXIT.OK;
+        }
+        if (action === 'off' || action === 'pause') {
+          const s = await api.setWeeklyDigest(client, { active: false });
+          emit({ schedule: s }, describe(s));
+          return EXIT.OK;
+        }
+        if (action === 'delete') {
+          const data = await api.deleteWeeklyDigest(client);
+          emit(data, 'Weekly digest removed.');
+          return EXIT.OK;
+        }
+        if (action === 'send-now') {
+          const data = await api.sendWeeklyDigestNow(client);
+          emit(data, `Sent to ${data.sent.join(', ') || 'nobody'}${data.failed.length ? `; failed: ${data.failed.map((f) => `${f.to} (${f.error})`).join(', ')}` : ''}`);
+          return data.sent.length > 0 ? EXIT.OK : EXIT.FAILURE;
+        }
+        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances digest [show|set --days mon,fri --hour 8 --to a@x,b@y [--scope business]|off|delete|send-now]');
       }
 
       case 'payloads': {
@@ -537,4 +610,4 @@ export async function runFinancesCommand(subcommand, args, flags, ctx) {
   }
 }
 
-export const EXTENDED_SUBCOMMANDS = ['connect', 'disconnect', 'consent', 'backfill', 'jobs', 'coverage', 'report', 'reports', 'statements', 'books', 'payloads'];
+export const EXTENDED_SUBCOMMANDS = ['connect', 'disconnect', 'consent', 'backfill', 'jobs', 'coverage', 'report', 'reports', 'statements', 'books', 'payloads', 'digest'];

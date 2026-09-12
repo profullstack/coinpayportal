@@ -3,12 +3,20 @@
  * Handles sending emails via Mailgun API
  */
 
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer | Uint8Array;
+  contentType?: string;
+}
+
 export interface SendEmailInput {
   to: string;
   subject: string;
   html: string;
   from?: string;
   replyTo?: string;
+  /** Files to attach. Kept small by callers; providers cap a message around 40 MB. */
+  attachments?: EmailAttachment[];
 }
 
 export interface SendEmailResult {
@@ -88,6 +96,9 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
     formData.append('subject', input.subject);
     formData.append('html', input.html);
     formData.append('h:Reply-To', input.replyTo || replyTo);
+    for (const a of input.attachments ?? []) {
+      formData.append('attachment', new Blob([new Uint8Array(a.content)], { type: a.contentType || 'application/octet-stream' }), a.filename);
+    }
 
     // Send via Mailgun API
     const url = `https://api.mailgun.net/v3/${domain}/messages`;

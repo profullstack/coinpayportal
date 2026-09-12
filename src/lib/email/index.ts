@@ -11,6 +11,7 @@ import { sendEmail as mailgunSendEmail, sendBulkEmails as mailgunSendBulkEmails 
 import type { SendEmailInput, SendEmailResult } from './resend';
 
 export type { SendEmailInput, SendEmailResult };
+export type { EmailAttachment } from './resend';
 
 function useResend(): boolean {
   return !!process.env.RESEND_API_KEY;

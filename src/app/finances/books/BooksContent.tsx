@@ -113,6 +113,89 @@ export default function BooksContent() {
   const [summary, setSummary] = useState<{ lines: SummaryLine[]; totals: Array<{ currency: string; income: string; expenses: string; net: string; excluded: string }>; rows: number; unreviewed: number; uncategorized: number; notice: string; period: { label: string } } | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
+  // email + weekly digest
+  const [packTo, setPackTo] = useState('');
+  const [packMessage, setPackMessage] = useState('');
+  const [packSending, setPackSending] = useState(false);
+  const [digest, setDigest] = useState<{ id: string; weekdays: number[]; hour: number; timezone: string; recipients: string[]; scope: string; formats: string[]; active: boolean; lastSentAt: string | null; nextRunAt: string | null } | null>(null);
+  const [digestDays, setDigestDays] = useState<number[]>([1, 5]);
+  const [digestHour, setDigestHour] = useState(8);
+  const [digestTo, setDigestTo] = useState('');
+  const [digestScope, setDigestScope] = useState<'business' | 'personal' | 'all'>('business');
+  const [digestBusy, setDigestBusy] = useState(false);
+
+  const loadDigest = useCallback(async () => {
+    const res = await fetch('/api/finances/email-schedules', { headers: authHeaders(), cache: 'no-store' });
+    const data = await res.json();
+    if (res.ok && data.schedule) {
+      setDigest(data.schedule);
+      setDigestDays(data.schedule.weekdays);
+      setDigestHour(data.schedule.hour);
+      setDigestTo(data.schedule.recipients.join(', '));
+      setDigestScope(data.schedule.scope);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDigest();
+  }, [loadDigest]);
+
+  const sendPack = async () => {
+    setPackSending(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/finances/books/send', {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ to: packTo, period, scope: summaryScope, timezone: GUESSED_TZ, formats: ['pdf', 'csv'], message: packMessage || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(readError(data, 'Could not send the pack'));
+      setNotice(`Sent the ${period} ${summaryScope} pack to ${data.sent.join(', ')}${data.failed?.length ? ` (failed: ${data.failed.map((f: { to: string }) => f.to).join(', ')})` : ''}; ${data.unreviewed} rows were still unreviewed. Link expires ${String(data.linkExpiresAt).slice(0, 10)}.`);
+      setPackMessage('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not send the pack');
+    } finally {
+      setPackSending(false);
+    }
+  };
+
+  const saveDigest = async (active: boolean) => {
+    setDigestBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/finances/email-schedules', {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ weekdays: digestDays, hour: digestHour, timezone: GUESSED_TZ, recipients: digestTo.trim() ? digestTo : undefined, scope: digestScope, formats: ['pdf', 'csv'], active }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(readError(data, 'Could not save the digest'));
+      setDigest(data.schedule);
+      setNotice(active ? `Weekly digest on. Next send ${data.schedule.nextRunAt ? new Date(data.schedule.nextRunAt).toLocaleString() : 'soon'} to ${data.schedule.recipients.join(', ')}.` : 'Weekly digest paused.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save the digest');
+    } finally {
+      setDigestBusy(false);
+    }
+  };
+
+  const sendDigestNow = async () => {
+    setDigestBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/finances/email-schedules/send-now', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: '{}' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(readError(data, 'Could not send the digest'));
+      setNotice(`Digest sent to ${data.sent.join(', ')}${data.failed?.length ? ` (failed: ${data.failed.map((f: { to: string }) => f.to).join(', ')})` : ''}.`);
+      void loadDigest();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not send the digest');
+    } finally {
+      setDigestBusy(false);
+    }
+  };
+
   const PAGE = 50;
 
   const loadQueue = useCallback(async () => {
@@ -513,6 +596,41 @@ export default function BooksContent() {
               <p className="text-xs text-gray-500 mt-3">{summary.rows} rows · {summary.unreviewed} unreviewed · {summary.uncategorized} uncategorised. Confirm the queue to tighten these numbers before exporting.</p>
             </>
           )}
+
+          <div className="mt-6 rounded border border-slate-800 bg-slate-950/40 p-3">
+            <h3 className="text-sm font-semibold text-gray-200 mb-1">Email this pack</h3>
+            <p className="text-xs text-gray-500 mb-2">Sends the {period} {summaryScope} pack (PDF and CSV) as attachments plus a download link that needs no login and expires in 14 days. Bank data leaves CoinPay when you press send.</p>
+            <div className="grid gap-2 md:grid-cols-3">
+              <input type="text" value={packTo} onChange={(e) => setPackTo(e.target.value)} placeholder="cpa@example.com, you@example.com" className={inputClass} />
+              <input type="text" value={packMessage} onChange={(e) => setPackMessage(e.target.value)} placeholder="Optional note to the recipient" className={inputClass} />
+              <button type="button" onClick={sendPack} disabled={packSending || !packTo.trim()} className={btnPrimary}>{packSending ? 'Sending…' : 'Send pack'}</button>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded border border-slate-800 bg-slate-950/40 p-3">
+            <h3 className="text-sm font-semibold text-gray-200 mb-1">Weekly digest {digest?.active ? <span className="text-emerald-300 font-normal text-xs">on · next {digest.nextRunAt ? new Date(digest.nextRunAt).toLocaleString() : 'soon'}</span> : <span className="text-gray-500 font-normal text-xs">off</span>}</h3>
+            <p className="text-xs text-gray-500 mb-2">The previous seven days of your books, emailed on the days you pick at the hour you pick ({GUESSED_TZ}), with the PDF and CSV attached.</p>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-300">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label, day) => (
+                <label key={label} className={`rounded border px-2 py-1 cursor-pointer ${digestDays.includes(day) ? 'border-purple-500 text-gray-100' : 'border-slate-700 text-gray-500'}`}>
+                  <input type="checkbox" className="mr-1" checked={digestDays.includes(day)} onChange={(e) => setDigestDays(e.target.checked ? [...digestDays, day].sort() : digestDays.filter((d) => d !== day))} />{label}
+                </label>
+              ))}
+              <select value={digestHour} onChange={(e) => setDigestHour(Number(e.target.value))} className={inputClass}>
+                {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
+              </select>
+              <select value={digestScope} onChange={(e) => setDigestScope(e.target.value as typeof digestScope)} className={inputClass}>
+                <option value="business">Business</option><option value="personal">Personal</option><option value="all">All</option>
+              </select>
+              <input type="text" value={digestTo} onChange={(e) => setDigestTo(e.target.value)} placeholder="Recipients (default: your account email)" className={`${inputClass} w-72`} />
+            </div>
+            <div className="mt-2 flex gap-2">
+              <button type="button" onClick={() => saveDigest(true)} disabled={digestBusy || digestDays.length === 0} className={btnPrimary}>{digest?.active ? 'Save' : 'Turn on'}</button>
+              {digest?.active && <button type="button" onClick={() => saveDigest(false)} disabled={digestBusy} className={btnSecondary}>Pause</button>}
+              {digest && <button type="button" onClick={sendDigestNow} disabled={digestBusy} className={btnSecondary}>Send now</button>}
+              {digest?.lastSentAt && <span className="text-xs text-gray-500 self-center">last sent {new Date(digest.lastSentAt).toLocaleString()}</span>}
+            </div>
+          </div>
         </section>
       )}
     </div>

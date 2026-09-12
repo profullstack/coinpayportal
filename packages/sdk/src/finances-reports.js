@@ -315,3 +315,42 @@ export async function listFinancePayloads(client, { connectionId, limit, offset 
 export async function downloadFinancePayload(client, payloadId) {
   return client.requestBinary(`/finances/payloads/${encodeURIComponent(payloadId)}/download`);
 }
+
+// ── Email ──
+
+/** Email a ready report: attachments plus an expiring no-login link. */
+export async function sendFinanceReportEmail(client, reportId, { to, formats, message, attach, expiresInDays } = {}) {
+  return call(client, `/finances/reports/${encodeURIComponent(reportId)}/send`, {
+    method: 'POST',
+    body: JSON.stringify({ to, formats, message, attach, expiresInDays }),
+  });
+}
+
+/** Email the CPA pack for a period. `toDate` is the exclusive end for a custom range. */
+export async function sendBooksEmail(client, { to, period, from, toDate, timezone, scope, formats, message, attach, expiresInDays } = {}) {
+  return call(client, '/finances/books/send', {
+    method: 'POST',
+    body: JSON.stringify({ to, period, from, toDate, timezone, scope, formats, message, attach, expiresInDays }),
+  });
+}
+
+export async function getWeeklyDigest(client) {
+  const data = await call(client, '/finances/email-schedules');
+  return data.schedule;
+}
+
+export async function setWeeklyDigest(client, { weekdays, hour, timezone, recipients, scope, formats, active } = {}) {
+  const data = await call(client, '/finances/email-schedules', {
+    method: 'POST',
+    body: JSON.stringify({ weekdays, hour, timezone, recipients, scope, formats, active }),
+  });
+  return data.schedule;
+}
+
+export async function deleteWeeklyDigest(client) {
+  return call(client, '/finances/email-schedules', { method: 'DELETE' });
+}
+
+export async function sendWeeklyDigestNow(client) {
+  return call(client, '/finances/email-schedules/send-now', { method: 'POST', body: '{}' });
+}

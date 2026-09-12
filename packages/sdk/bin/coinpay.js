@@ -172,6 +172,7 @@ const BOOLEAN_FLAGS = new Set([
   'always',
   'no-model',
   'only-uncategorized',
+  'no-attach',
   'plain',
   'no-stream',
   'hidden',
@@ -489,6 +490,9 @@ ${colors.cyan}Commands:${colors.reset}
     books summary         Totals by tax category (--period 2026|2026-Q3|2026-08, --scope)
     books export          CPA pack (--period, --scope, --format csv|pdf|html|json, --output)
     payloads [list|download <id>]  Raw provider responses, exactly as received
+    reports send <id>     Email a report (--to a@x,b@y, --format pdf,csv, --message, --no-attach)
+    books send            Email the CPA pack (--to, --period, --scope, --format)
+    digest [show|set|off|send-now]  Weekly digest email (--days mon,fri --hour 8 --to …)
 
   ${colors.bright}escrow${colors.reset}
     create                Create a new escrow
@@ -4284,7 +4288,8 @@ async function handleFinances(subcommand, args, flags) {
     case 'reports':
     case 'statements':
     case 'books':
-    case 'payloads': {
+    case 'payloads':
+    case 'digest': {
       const { client } = financesClient();
       const { runFinancesCommand } = await import('../src/finances-commands.js');
       const code = await runFinancesCommand(subcommand, args, flags, {
@@ -4298,7 +4303,7 @@ async function handleFinances(subcommand, args, flags) {
 
     default:
       print.error(`Unknown finances command: ${subcommand}`);
-      console.log('Usage: coinpay finances [tui|summary|accounts|ledger|connections|sync|connect|disconnect|backfill|jobs|coverage|report|reports|statements|books|payloads]');
+      console.log('Usage: coinpay finances [tui|summary|accounts|ledger|connections|sync|connect|disconnect|backfill|jobs|coverage|report|reports|statements|books|payloads|digest]');
       process.exit(1);
   }
 }

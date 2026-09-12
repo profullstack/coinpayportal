@@ -5,7 +5,7 @@ export type ReconciliationStatus = 'not_attempted' | 'unavailable' | 'mismatch' 
 export type ReportFormat = 'pdf' | 'html' | 'csv' | 'json';
 export type ReportStatus = 'queued' | 'generating' | 'ready' | 'failed' | 'superseded' | 'deleted';
 export type JobStatus = 'queued' | 'running' | 'waiting_for_budget' | 'partial' | 'failed' | 'completed' | 'cancelled';
-export type JobKind = 'backfill' | 'refresh' | 'scheduled_sync' | 'report' | 'categorize';
+export type JobKind = 'backfill' | 'refresh' | 'scheduled_sync' | 'report' | 'categorize' | 'email_report';
 
 /** Thrown by every call here when the server answers with its structured error body. */
 export interface FinanceApiError extends Error {
@@ -317,3 +317,43 @@ export function getBooksSummary(
 export function exportBooks(client: CoinPayClient, options?: PeriodSelection & { scope?: 'business' | 'personal' | 'all'; format?: 'csv' | 'pdf' | 'html' | 'json' }): Promise<BinaryResponse>;
 export function listFinancePayloads(client: CoinPayClient, options?: { connectionId?: string; limit?: number; offset?: number }): Promise<{ payloads: Array<Record<string, unknown>>; total: number }>;
 export function downloadFinancePayload(client: CoinPayClient, payloadId: string): Promise<BinaryResponse>;
+
+export interface SendOutcome {
+  sent: string[];
+  failed: Array<{ to: string; error: string }>;
+  attached: string[];
+  linkUrl: string;
+  linkExpiresAt: string;
+}
+
+export interface WeeklyDigest {
+  id: string;
+  kind: 'weekly_digest';
+  weekdays: number[];
+  hour: number;
+  timezone: string;
+  recipients: string[];
+  scope: 'business' | 'personal' | 'all';
+  formats: string[];
+  active: boolean;
+  lastSentAt: string | null;
+  nextRunAt: string | null;
+  createdAt: string;
+}
+
+export function sendFinanceReportEmail(
+  client: CoinPayClient,
+  reportId: string,
+  options: { to: string | string[]; formats?: ReportFormat[]; message?: string | null; attach?: boolean; expiresInDays?: number },
+): Promise<SendOutcome>;
+export function sendBooksEmail(
+  client: CoinPayClient,
+  options: { to: string | string[]; period?: string; from?: string; toDate?: string; timezone?: string; scope?: 'business' | 'personal' | 'all'; formats?: string[]; message?: string | null; attach?: boolean; expiresInDays?: number },
+): Promise<SendOutcome & { unreviewed: number; rows: number }>;
+export function getWeeklyDigest(client: CoinPayClient): Promise<WeeklyDigest | null>;
+export function setWeeklyDigest(
+  client: CoinPayClient,
+  options?: { weekdays?: number[]; hour?: number; timezone?: string; recipients?: string[]; scope?: 'business' | 'personal' | 'all'; formats?: string[]; active?: boolean },
+): Promise<WeeklyDigest>;
+export function deleteWeeklyDigest(client: CoinPayClient): Promise<{ success: boolean }>;
+export function sendWeeklyDigestNow(client: CoinPayClient): Promise<SendOutcome>;
