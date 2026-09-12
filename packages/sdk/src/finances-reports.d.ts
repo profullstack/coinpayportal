@@ -5,7 +5,7 @@ export type ReconciliationStatus = 'not_attempted' | 'unavailable' | 'mismatch' 
 export type ReportFormat = 'pdf' | 'html' | 'csv' | 'json';
 export type ReportStatus = 'queued' | 'generating' | 'ready' | 'failed' | 'superseded' | 'deleted';
 export type JobStatus = 'queued' | 'running' | 'waiting_for_budget' | 'partial' | 'failed' | 'completed' | 'cancelled';
-export type JobKind = 'backfill' | 'refresh' | 'scheduled_sync' | 'report';
+export type JobKind = 'backfill' | 'refresh' | 'scheduled_sync' | 'report' | 'categorize';
 
 /** Thrown by every call here when the server answers with its structured error body. */
 export interface FinanceApiError extends Error {
@@ -241,3 +241,79 @@ export function reconcileFinanceStatement(
     acknowledge?: boolean;
   },
 ): Promise<FinanceReconciliation>;
+
+export interface BooksRow {
+  id: string;
+  accountId: string;
+  accountName: string;
+  orgName: string | null;
+  currency: string;
+  posted: string | null;
+  amount: string;
+  payee: string | null;
+  description: string | null;
+  memo: string | null;
+  category: string | null;
+  categorySource: 'auto' | 'rule' | 'model' | 'user';
+  categoryConfidence: number | null;
+  taxCategory: string | null;
+  taxCategoryLabel: string;
+  scope: 'business' | 'personal' | string;
+  scopeOverride: string | null;
+  accountScope: string;
+  reviewedAt: string | null;
+  note: string | null;
+  suggestion: { category: string | null; taxCategory: string | null; confidence: number | null; by: string | null } | null;
+}
+
+export interface BooksRule {
+  id: string;
+  match_field: 'payee' | 'description';
+  match_type: 'exact' | 'contains';
+  pattern: string;
+  category: string;
+  tax_category: string | null;
+  scope: 'business' | 'personal' | null;
+  hits: number;
+  active: boolean;
+  created_at: string;
+}
+
+export interface BooksSummaryLine {
+  taxCategory: string;
+  label: string;
+  currency: string;
+  total: string;
+  rows: number;
+  excluded: boolean;
+  income: boolean;
+}
+
+export function listBooksQueue(
+  client: CoinPayClient,
+  options?: { status?: 'unreviewed' | 'reviewed' | 'all'; scope?: 'business' | 'personal' | 'all'; accountId?: string; search?: string; start?: string; end?: string; limit?: number; offset?: number },
+): Promise<{ rows: BooksRow[]; total: number; unreviewed: number; categories: string[]; taxCategories: Array<{ id: string; label: string }>; modelEnabled: boolean }>;
+export function reviewBooksTransaction(
+  client: CoinPayClient,
+  transactionId: string,
+  options?: { category?: string | null; taxCategory?: string | null; scope?: 'business' | 'personal' | null; note?: string | null; createRule?: boolean },
+): Promise<BooksRow>;
+export function bulkReviewBooks(
+  client: CoinPayClient,
+  ids: string[],
+  options?: { category?: string | null; taxCategory?: string | null; scope?: 'business' | 'personal' | null; createRule?: boolean },
+): Promise<{ reviewed: number }>;
+export function categorizeBooks(client: CoinPayClient, options?: { useModel?: boolean; onlyUncategorized?: boolean }): Promise<{ job: FinanceJob; modelEnabled: boolean }>;
+export function listBooksRules(client: CoinPayClient): Promise<BooksRule[]>;
+export function createBooksRule(
+  client: CoinPayClient,
+  options: { matchField?: 'payee' | 'description'; matchType?: 'exact' | 'contains'; pattern: string; category: string; taxCategory?: string | null; scope?: 'business' | 'personal' | null },
+): Promise<BooksRule>;
+export function deleteBooksRule(client: CoinPayClient, ruleId: string): Promise<{ success: boolean }>;
+export function getBooksSummary(
+  client: CoinPayClient,
+  options?: PeriodSelection & { scope?: 'business' | 'personal' | 'all'; rows?: boolean },
+): Promise<{ period: Record<string, unknown>; scope: string; lines: BooksSummaryLine[]; totals: Array<{ currency: string; income: string; expenses: string; net: string; excluded: string }>; rows: number; unreviewed: number; uncategorized: number; notice: string; transactions?: BooksRow[] }>;
+export function exportBooks(client: CoinPayClient, options?: PeriodSelection & { scope?: 'business' | 'personal' | 'all'; format?: 'csv' | 'pdf' | 'html' | 'json' }): Promise<BinaryResponse>;
+export function listFinancePayloads(client: CoinPayClient, options?: { connectionId?: string; limit?: number; offset?: number }): Promise<{ payloads: Array<Record<string, unknown>>; total: number }>;
+export function downloadFinancePayload(client: CoinPayClient, payloadId: string): Promise<BinaryResponse>;

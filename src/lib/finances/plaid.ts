@@ -334,6 +334,7 @@ export async function fetchPlaidAccountSet(
   const collected: PlaidTransaction[] = [];
   let accounts: PlaidAccount[] = [];
   let total = 0;
+  const rawPages: unknown[] = [];
 
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const response = await plaidPost<{
@@ -351,6 +352,7 @@ export async function fetchPlaidAccountSet(
       options.timeoutMs,
     );
 
+    rawPages.push(response);
     // Later pages repeat the account list; the first is as good as any.
     if (page === 0) accounts = response.accounts ?? [];
     total = response.total_transactions ?? 0;
@@ -373,12 +375,19 @@ export async function fetchPlaidAccountSet(
 
   const orgName = options.orgName ?? null;
 
-  return {
+  const set: SimpleFinAccountSet = {
     accounts: accounts.map((account) =>
       mapAccount(account, byAccount.get(account.account_id) ?? [], orgName),
     ),
     errors: [],
   };
+  // The archive keeps what Plaid actually sent, page by page, not our mapping.
+  Object.defineProperty(set, 'rawBody', {
+    value: JSON.stringify({ provider: 'plaid', endpoint: '/transactions/get', pages: rawPages }),
+    enumerable: false,
+    writable: true,
+  });
+  return set;
 }
 
 /**

@@ -95,6 +95,12 @@ export interface SimpleFinAccountSet {
   errors?: string[];
   errlist?: unknown[];
   'x-api-message'?: string[];
+  /**
+   * The provider's response exactly as received, for the payload archive.
+   * Attached by the client, never sent by the provider, and stripped before
+   * the set is handed to anything that would serialise it.
+   */
+  rawBody?: string;
 }
 
 /** Protocol versions this client has fixtures for. */
@@ -514,6 +520,7 @@ export async function fetchAccountSet(
     throw new Error('SimpleFIN response did not contain an accounts array');
   }
 
+  Object.defineProperty(set, 'rawBody', { value: body, enumerable: false, writable: true });
   return set;
 }
 

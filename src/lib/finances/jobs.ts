@@ -30,7 +30,7 @@ import { redactAccessUrl } from './simplefin';
  * `run_after` set to when the oldest counted request ages out.
  */
 
-export type JobKind = 'backfill' | 'refresh' | 'scheduled_sync' | 'report';
+export type JobKind = 'backfill' | 'refresh' | 'scheduled_sync' | 'report' | 'categorize';
 export type JobStatus = 'queued' | 'running' | 'waiting_for_budget' | 'partial' | 'failed' | 'completed' | 'cancelled';
 
 export interface FinanceJobRow {
@@ -425,6 +425,7 @@ async function runSyncJob(initial: FinanceJobRow): Promise<void> {
         window: { start: new Date(window.start), end: new Date(window.end) },
         jobId: job.id,
         requestClass,
+        protocolVersion: fetched.protocolVersion,
       });
     } catch (err) {
       if (err instanceof LeaseLostError) throw err;
@@ -539,6 +540,53 @@ async function runReportJob(job: FinanceJobRow): Promise<void> {
   }
 }
 
+/** Re-derive category suggestions for every unreviewed row, then ask the model about the rest. */
+async function runCategorizeJob(initial: FinanceJobRow): Promise<void> {
+  let job = initial;
+  const { runCategorization } = await import('./books');
+  try {
+    const outcome = await runCategorization(job.merchant_id, {
+      useModel: job.params.useModel !== false,
+      onlyUncategorized: job.params.onlyUncategorized === true,
+      heartbeat: async () => {
+        job = await heartbeat(job);
+        return !job.cancel_requested;
+      },
+    });
+    await releaseWithStatus(job, job.cancel_requested ? 'cancelled' : 'completed', { result: { ...outcome } });
+  } catch (err) {
+    if (err instanceof LeaseLostError) throw err;
+    const message = redactAccessUrl(err instanceof Error ? err.message : 'Categorisation failed').slice(0, 1000);
+    if (job.attempts < job.max_attempts) {
+      await releaseWithStatus(job, 'queued', {
+        run_after: new Date(Date.now() + backoffMs(job.attempts, { baseMs: 30_000 })).toISOString(),
+        error_message: message,
+      });
+    } else {
+      await releaseWithStatus(job, 'failed', { error_code: 'categorize_failed', error_message: message });
+    }
+  }
+}
+
+/** Queue a categorisation run; one active per merchant at a time. */
+export async function createCategorizeJob(params: { merchantId: string; useModel?: boolean; onlyUncategorized?: boolean }): Promise<FinanceJobRow> {
+  const supabase = getSupabaseAdmin();
+  const { data: active } = await supabase
+    .from('finance_jobs')
+    .select(JOB_COLUMNS)
+    .eq('merchant_id', params.merchantId)
+    .eq('kind', 'categorize')
+    .in('status', ['queued', 'running', 'waiting_for_budget'])
+    .limit(1)
+    .maybeSingle();
+  if (active) return active as FinanceJobRow;
+  return createJob({
+    merchantId: params.merchantId,
+    kind: 'categorize',
+    params: { useModel: params.useModel !== false, onlyUncategorized: params.onlyUncategorized === true },
+  });
+}
+
 /**
  * Turn sync consent into work, on the daemon's cadence.
  *
@@ -631,6 +679,7 @@ export async function runWorkerTick({
 
     try {
       if (job.kind === 'report') await runReportJob(job);
+      else if (job.kind === 'categorize') await runCategorizeJob(job);
       else await runSyncJob(job);
     } catch (err) {
       if (err instanceof LeaseLostError) {

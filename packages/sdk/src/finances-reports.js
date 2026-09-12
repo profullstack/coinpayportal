@@ -255,3 +255,63 @@ export async function reconcileFinanceStatement(client, statementId, {
   });
   return data.reconciliation;
 }
+
+// ── Books ──
+
+/** Rows awaiting review (default) plus the category vocabularies. */
+export async function listBooksQueue(client, { status, scope, accountId, search, start, end, limit, offset } = {}) {
+  return call(client, `/finances/books/queue${query({ status, scope, account: accountId, search, start, end, limit, offset })}`);
+}
+
+/** Confirm one row. Omitted fields keep the row's current values. */
+export async function reviewBooksTransaction(client, transactionId, { category, taxCategory, scope, note, createRule } = {}) {
+  const data = await call(client, `/finances/books/transactions/${encodeURIComponent(transactionId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ category, taxCategory, scope, note, createRule }),
+  });
+  return data.transaction;
+}
+
+/** Confirm many rows; with no category given each row's suggestion is accepted. */
+export async function bulkReviewBooks(client, ids, { category, taxCategory, scope, createRule } = {}) {
+  return call(client, '/finances/books/bulk', { method: 'POST', body: JSON.stringify({ ids, category, taxCategory, scope, createRule }) });
+}
+
+/** Queue an auto-categorisation run over unreviewed rows. Answers with the job. */
+export async function categorizeBooks(client, { useModel = true, onlyUncategorized = false } = {}) {
+  return call(client, '/finances/books/categorize', { method: 'POST', body: JSON.stringify({ useModel, onlyUncategorized }) });
+}
+
+export async function listBooksRules(client) {
+  const data = await call(client, '/finances/books/rules');
+  return data.rules || [];
+}
+
+export async function createBooksRule(client, { matchField = 'payee', matchType = 'exact', pattern, category, taxCategory, scope } = {}) {
+  const data = await call(client, '/finances/books/rules', { method: 'POST', body: JSON.stringify({ matchField, matchType, pattern, category, taxCategory, scope }) });
+  return data.rule;
+}
+
+export async function deleteBooksRule(client, ruleId) {
+  return call(client, `/finances/books/rules/${encodeURIComponent(ruleId)}`, { method: 'DELETE' });
+}
+
+/** Totals by tax category for a year (`2026`), quarter or month. */
+export async function getBooksSummary(client, { period, from, to, timezone, scope, rows } = {}) {
+  return call(client, `/finances/books/summary${query({ period, from, to, timezone, scope, rows: rows ? 1 : undefined })}`);
+}
+
+/** The CPA pack as bytes. */
+export async function exportBooks(client, { period, from, to, timezone, scope, format = 'csv' } = {}) {
+  return client.requestBinary(`/finances/books/export${query({ period, from, to, timezone, scope, format })}`);
+}
+
+// ── Raw provider payloads ──
+
+export async function listFinancePayloads(client, { connectionId, limit, offset } = {}) {
+  return call(client, `/finances/payloads${query({ connection: connectionId, limit, offset })}`);
+}
+
+export async function downloadFinancePayload(client, payloadId) {
+  return client.requestBinary(`/finances/payloads/${encodeURIComponent(payloadId)}/download`);
+}
