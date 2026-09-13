@@ -704,7 +704,7 @@ coinpay finances connections     # institutions and their last sync
 coinpay finances sync            # pull fresh balances (rate-limited by the bank bridge)
 ```
 
-The dashboard has seven screens (`1`–`7`, `Tab`): **Overview** (gross volume, crypto vs
+The dashboard has seven screens (`1`–`7`, `←`/`→`): **Overview** (gross volume, crypto vs
 cards, commission paid, processor fees, refunds, net earnings, bank position, cashflow,
 invoices, escrow, payouts, a volume-vs-commission graph and a live feed), **Bank &
 Cards**, **Ledger**, **Crypto**, **Cards**, **Invoices & Escrow**, **Debt & Income**.
@@ -712,6 +712,13 @@ Cards**, **Ledger**, **Crypto**, **Cards**, **Invoices & Escrow**, **Debt & Inco
 syncs the bank feed, `w` cycles the window, `p` pauses, `?` shows help, `q` quits. It
 refreshes every 30 seconds (`--interval`) and listens to the payments event stream, so
 a crypto payment shows up the moment it is detected.
+
+Click **⧉ MD** on a summary pane to copy Markdown. The header copy button exports
+status, including bank connection health and detailed source errors. Each pane
+carries its displayed window, snapshot timestamp, stream status and partial-data
+warnings. Transaction rows and the live event log are excluded. Tab / Shift+Tab
+focus controls; Enter / Space copies the focused summary. Clipboard writes use
+OSC 52 and require terminal support, including when connected over SSH.
 
 **Debt & Income** is the basic-accounting view, and it reads the same for a company or
 a person: income against spending per month, total owed split into revolving and

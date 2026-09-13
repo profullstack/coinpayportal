@@ -337,7 +337,7 @@ importers:
         version: 8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.11
-        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/coverage-v8@1.6.1(supports-color@8.1.1)(vitest@4.1.11))(@vitest/ui@1.6.1(vitest@4.1.11))(jsdom@23.2.0(bufferutil@4.0.9)(supports-color@8.1.1)(utf-8-validate@5.0.10))(vite@8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/coverage-v8@1.6.1)(@vitest/ui@1.6.1)(jsdom@23.2.0(bufferutil@4.0.9)(supports-color@8.1.1)(utf-8-validate@5.0.10))(vite@8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
 
   packages/sdk:
     dependencies:
@@ -351,8 +351,8 @@ importers:
         specifier: ^1.5.0
         version: 1.8.0
       '@profullstack/hqtui':
-        specifier: ^0.5.0
-        version: 0.5.0
+        specifier: ^0.6.3
+        version: 0.6.3
       '@scure/bip32':
         specifier: ^1.5.0
         version: 1.7.0
@@ -368,7 +368,7 @@ importers:
         version: 3.6.2
       vitest:
         specifier: ^4.1.11
-        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/coverage-v8@1.6.1(supports-color@8.1.1)(vitest@4.1.11))(@vitest/ui@1.6.1(vitest@4.1.11))(jsdom@23.2.0(bufferutil@4.0.9)(supports-color@8.1.1)(utf-8-validate@5.0.10))(vite@8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/coverage-v8@1.6.1)(@vitest/ui@1.6.1)(jsdom@23.2.0(bufferutil@4.0.9)(supports-color@8.1.1)(utf-8-validate@5.0.10))(vite@8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
 
 packages:
 
@@ -1623,8 +1623,8 @@ packages:
   '@profullstack/emailer@1.0.1':
     resolution: {integrity: sha512-/uhHJJGH+1xSSz3mJn6X+m6aruYjMD3JOaRp/d4R/YWlzpy07H9z0/JUleIyRyBPNmaANSIwjTZ7aVjaukOEpg==}
 
-  '@profullstack/hqtui@0.5.0':
-    resolution: {integrity: sha512-jDwILBmdQx8pQA0ao/tzzty8u5nFNS4XhvU9xXhZvdIaMeiF3HBJIVtP6cS6kigS4lXmHR7sztbb9QJpaWwhig==}
+  '@profullstack/hqtui@0.6.3':
+    resolution: {integrity: sha512-RQmULiyNt6Qcz+M0x7Hn3sGN+2C766STHA8AZv4olcYpoMeQFzUW0NnOSXtbqgaUTZCeJLZPU4NHx6NQffVvkw==}
     engines: {bun: '>=1.1', node: '>=22.6'}
     hasBin: true
 
@@ -6806,7 +6806,7 @@ snapshots:
 
   '@profullstack/emailer@1.0.1': {}
 
-  '@profullstack/hqtui@0.5.0': {}
+  '@profullstack/hqtui@0.6.3': {}
 
   '@profullstack/referrals@0.1.0(react@19.2.0)':
     optionalDependencies:
@@ -10983,7 +10983,7 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/coverage-v8@1.6.1(supports-color@8.1.1)(vitest@4.1.11))(@vitest/ui@1.6.1(vitest@4.1.11))(jsdom@23.2.0(bufferutil@4.0.9)(supports-color@8.1.1)(utf-8-validate@5.0.10))(vite@8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0)):
+  vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/coverage-v8@1.6.1)(@vitest/ui@1.6.1)(jsdom@23.2.0(bufferutil@4.0.9)(supports-color@8.1.1)(utf-8-validate@5.0.10))(vite@8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.11
       '@vitest/mocker': 4.1.11(vite@8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
