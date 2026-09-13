@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/coinpay",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "CoinPay SDK & CLI \u2014 Accept cryptocurrency and card payments (BTC, ETH, SOL, POL, BCH, USDC) with wallet, swap and a live finances dashboard",
   "type": "module",
   "main": "./src/index.js",
@@ -139,7 +139,7 @@
     "@inquirer/prompts": "^8.3.0",
     "@noble/curves": "^1.6.0",
     "@noble/hashes": "^1.5.0",
-    "@profullstack/hqtui": "^0.5.0",
+    "@profullstack/hqtui": "^0.6.3",
     "@scure/bip32": "^1.5.0",
     "@scure/bip39": "^1.4.0"
   }

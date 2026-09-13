@@ -95,7 +95,7 @@ function num(v) {
 
 // ── State ──
 
-function createState(days) {
+export function createState(days) {
   return {
     tab: 0,
     days,
@@ -732,6 +732,111 @@ function positionScreen(ui, state, theme) {
 
 const SCREENS = [overviewScreen, bankScreen, ledgerScreen, cryptoScreen, cardsScreen, invoicesScreen, positionScreen];
 
+/** Context exported with each pane; the displayed snapshot can lag the requested window. */
+export function financeMarkdownContext(state) {
+  const s = state.snapshot;
+  return [
+    `CoinPay Finances · ${TABS[state.tab]}`,
+    `Payment business filter: ${state.businessId || 'all businesses'}; bank data is merchant-wide`,
+    `Displayed window: ${s?.windowDays ?? state.days} days`,
+    ...(s && s.windowDays !== state.days ? [`Requested window: ${state.days} days (refresh pending)`] : []),
+    `Snapshot: ${s?.generatedAt || 'not loaded'}`,
+    `Updates: ${state.loading ? 'refreshing' : state.paused ? 'paused' : 'live'}`,
+    `Payment stream: ${state.liveStatus}`,
+    ...(state.error ? [`Refresh failed: ${state.error}`] : []),
+    ...Object.entries(s?.errors || {}).map(([source, error]) => `Source unavailable — ${source}: ${error}`),
+    ...(s?.crypto.partial ? ['Crypto details cover a partial page.'] : []),
+    ...(s?.card.partial ? ['Card details, processor fees and refunds cover a partial page.'] : []),
+    ...(s?.position ? [`Debt & Income: ${s.position.observedDays ?? s.position.lookbackDays} days observed; independent of the dashboard window.`] : []),
+  ].join('\n');
+}
+
+/** Status can be copied without including any live payment or transaction rows. */
+export function financeStatusMarkdown(state, markdownText) {
+  return [
+    '## CoinPay status',
+    markdownText(financeMarkdownContext(state)),
+    `Bank sync: ${state.syncing ? 'running' : 'idle'}`,
+    ...(state.notice ? [markdownText(state.notice)] : []),
+    ...(state.snapshot?.bank.connections || []).map((c) => markdownText(
+      `${c.label || c.provider || 'Bank connection'}: ${c.is_active ? 'active' : 'inactive'}; last sync ${c.last_synced_at || 'never'} (${c.last_sync_status || 'unknown'})${c.last_sync_error ? `; ${c.last_sync_error}` : ''}`,
+    )),
+  ].join('\n\n') + '\n';
+}
+
+/** Draw the same summary controls in production and headless interaction tests. */
+export function renderFinancesTui(ui, state, t, { height, interval = 30, markdownText }) {
+  ui.row({ size: 1 }, (header) => {
+    header.text(' CoinPay ', { fg: t.title, bold: true, size: 10 });
+    header.tabs({
+      tabs: TABS.map((name, i) => `${i + 1} ${name}`),
+      active: state.tab,
+      onSelect: (index) => { state.tab = index; },
+    });
+    const right = [
+      state.paused ? 'paused' : state.loading ? 'loading…' : `${state.days}d`,
+      state.lastRefresh ? `updated ${ago(state.lastRefresh)}` : 'starting',
+      clock(),
+    ].join('  ');
+    header.text(`${right} `, { fg: state.paused ? t.warning : state.error ? t.danger : t.success, align: 'right' });
+    header.copyButton({ markdown: () => financeStatusMarkdown(state, markdownText), width: 6 });
+  });
+  ui.spacer(1);
+
+  ui.column({ size: height - 4 }, (body) => {
+    if (!state.snapshot) {
+      body.panel({ title: 'Finances' }, (p) => {
+        p.text(state.error ? `Could not load: ${state.error}` : 'Loading your numbers…', { fg: state.error ? t.danger : t.muted });
+        if (state.error) p.text('Press r to retry, q to quit.', { fg: t.muted });
+      });
+      return;
+    }
+    SCREENS[state.tab](body, state, t);
+  });
+
+  ui.spacer(1);
+  const errorCount = state.snapshot ? Object.keys(state.snapshot.errors).length : 0;
+  ui.statusBar({
+    items: [
+      { key: '1-7', label: 'Screen' },
+      { key: 'r', label: 'Refresh' },
+      { key: 's', label: state.syncing ? 'Syncing…' : 'Sync bank', active: state.syncing },
+      { key: 'w', label: `Window ${state.days}d` },
+      { key: 'p', label: state.paused ? 'Resume' : 'Pause', active: state.paused },
+      { key: '?', label: 'Help' },
+      { key: 'q', label: 'Quit' },
+    ],
+    right: [
+      ...(errorCount ? [{ label: `${errorCount} source${errorCount > 1 ? 's' : ''} unavailable`, color: t.warning }] : []),
+      { label: state.liveStatus, color: state.liveStatus === 'stream connected' ? t.success : t.muted },
+    ],
+  });
+
+  if (state.showHelp) {
+    ui.modal({
+      title: 'CoinPay Finances — Help',
+      width: 66,
+      height: 22,
+      message:
+        '1-7, ←/→ switch screens.\n' +
+        'r refreshes now; refresh also runs every ' + Math.max(5, interval) + 's.\n' +
+        's pulls fresh bank balances and transactions (rate-limited\n' +
+        '  by the bank bridge, so it is never automatic).\n' +
+        'w cycles the window: 7 → 30 → 90 → 365 days.\n' +
+        'p pauses the timer. ↑/↓ j/k, PgUp/PgDn, Home/End scroll.\n' +
+        'Mouse: click tabs, scroll tables.\n\n' +
+        '⧉ MD copies a summary. Tab focuses, Enter copies.\n\n' +
+        'Commission paid = platform fees on crypto + card payments.\n' +
+        'Net earnings = gross − commission − processor fees − refunds.\n' +
+        'Debt & Income covers 180 days regardless of w, and excludes\n' +
+        '  transfers and card payments from both sides.\n\n' +
+        'Esc or Close dismisses help.',
+      buttons: [{ label: 'Close', onPress: () => { state.showHelp = false; } }],
+      onDismiss: () => { state.showHelp = false; },
+    });
+  }
+}
+
 // ── App ──
 
 async function loadHqtui() {
@@ -755,8 +860,13 @@ async function loadHqtui() {
  */
 export async function runFinancesTui({ client, baseUrl, token, days = 30, interval = 30, businessId, limit = 100, theme } = {}) {
   const hqtui = await loadHqtui();
-  const app = await hqtui.createApp({ fps: 30, theme: theme || 'dark', quitKeys: ['ctrl+c', 'q'] });
   const state = createState(days);
+  state.businessId = businessId;
+  const app = await hqtui.createApp({
+    fps: 30, theme: theme || 'dark', quitKeys: ['ctrl+c', 'q'],
+    copyMarkdown: true,
+    markdownContext: () => financeMarkdownContext(state),
+  });
 
   let refreshing = false;
   let refreshTimer = null;
@@ -867,7 +977,6 @@ export async function runFinancesTui({ client, baseUrl, token, days = 30, interv
       return;
     }
     switch (name) {
-      case 'tab':
       case 'right':
       case 'l':
         state.tab = event.shift ? (state.tab + TABS.length - 1) % TABS.length : (state.tab + 1) % TABS.length;
@@ -925,74 +1034,7 @@ export async function runFinancesTui({ client, baseUrl, token, days = 30, interv
     app.invalidate();
   });
 
-  app.render(({ ui, theme: t, height }) => {
-    ui.row({ size: 1 }, (header) => {
-      header.text(' CoinPay ', { fg: t.title, bold: true, size: 10 });
-      header.tabs({
-        tabs: TABS.map((name, i) => `${i + 1} ${name}`),
-        active: state.tab,
-        onSelect: (index) => { state.tab = index; },
-      });
-      const right = [
-        state.paused ? 'paused' : state.loading ? 'loading…' : `${state.days}d`,
-        state.lastRefresh ? `updated ${ago(state.lastRefresh)}` : 'starting',
-        clock(),
-      ].join('  ');
-      header.text(`${right} `, { fg: state.paused ? t.warning : state.error ? t.danger : t.success, align: 'right' });
-    });
-    ui.spacer(1);
-
-    ui.column({ size: height - 4 }, (body) => {
-      if (!state.snapshot) {
-        body.panel({ title: 'Finances' }, (p) => {
-          p.text(state.error ? `Could not load: ${state.error}` : 'Loading your numbers…', { fg: state.error ? t.danger : t.muted });
-          if (state.error) p.text('Press r to retry, q to quit.', { fg: t.muted });
-        });
-        return;
-      }
-      SCREENS[state.tab](body, state, t);
-    });
-
-    ui.spacer(1);
-    const errorCount = state.snapshot ? Object.keys(state.snapshot.errors).length : 0;
-    ui.statusBar({
-      items: [
-        { key: '1-7', label: 'Screen' },
-        { key: 'r', label: 'Refresh' },
-        { key: 's', label: state.syncing ? 'Syncing…' : 'Sync bank', active: state.syncing },
-        { key: 'w', label: `Window ${state.days}d` },
-        { key: 'p', label: state.paused ? 'Resume' : 'Pause', active: state.paused },
-        { key: '?', label: 'Help' },
-        { key: 'q', label: 'Quit' },
-      ],
-      right: [
-        ...(errorCount ? [{ label: `${errorCount} source${errorCount > 1 ? 's' : ''} unavailable`, color: t.warning }] : []),
-        { label: state.liveStatus, color: state.liveStatus === 'stream connected' ? t.success : t.muted },
-      ],
-    });
-
-    if (state.showHelp) {
-      ui.modal({
-        title: 'CoinPay Finances — Help',
-        width: 66,
-        height: 20,
-        message:
-          '1-7, Tab, ←/→ switch screens.\n' +
-          'r refreshes now; refresh also runs every ' + Math.max(5, interval) + 's.\n' +
-          's pulls fresh bank balances and transactions (rate-limited\n' +
-          '  by the bank bridge, so it is never automatic).\n' +
-          'w cycles the window: 7 → 30 → 90 → 365 days.\n' +
-          'p pauses the timer. ↑/↓ j/k, PgUp/PgDn, Home/End scroll.\n' +
-          'Mouse: click tabs, scroll tables.\n\n' +
-          'Commission paid = platform fees on crypto + card payments.\n' +
-          'Net earnings = gross − commission − processor fees − refunds.\n' +
-          'Debt & Income covers 180 days regardless of w, and excludes\n' +
-          '  transfers and card payments from both sides.\n\n' +
-          'Press any key to close.',
-        buttons: [{ label: 'Close', focused: true }],
-      });
-    }
-  });
+  app.render(({ ui, theme: t, height }) => renderFinancesTui(ui, state, t, { height, interval, markdownText: hqtui.markdownText }));
 
   app.on('exit', () => {
     clearInterval(poll);
