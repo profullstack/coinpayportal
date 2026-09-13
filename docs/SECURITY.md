@@ -172,6 +172,26 @@ function verifyToken(token: string): TokenPayload {
 
 ## API Security
 
+### Request Interception
+
+This application uses Next.js 16. Its runtime entry point is `src/proxy.ts`,
+beside `src/app`. Keep crawler payment checks, site-wide throttling, explorer
+allowances, security headers, CORS and referral tracking in that entry point;
+do not add a separate root `middleware.ts`. Referral cookies are set only after
+all guards allow the request. Gateway responses, including HTTP 200 payment
+receipts and sales pages, must retain their body and status.
+
+Verify the entry point with real HTTP requests as well as direct function tests:
+
+```bash
+pnpm exec vitest run src/proxy.test.ts src/proxy-entry.test.ts src/proxy.runtime.test.ts src/lib/explorer-watch.test.ts
+```
+
+The HTTP suite copies the repository's interception files into an isolated
+Next.js app with local test routes. It verifies framework discovery, crawler
+refusals, explorer and site-wide limits, headers and referral cookies without
+calling blockchain providers or requiring payment credentials.
+
 ### Authentication & Authorization
 
 #### Rate Limiting

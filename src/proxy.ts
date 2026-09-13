@@ -3,6 +3,7 @@ import { EXPLORER_PASS_PATH, explorerGate, explorerSell } from "@/lib/explorer-g
 import { countExplorerRefusal, watchExplorer } from "@/lib/explorer-watch";
 import { meter } from "@/lib/throttle";
 import { presentedCredential } from '@profullstack/throttle';
+import { trackReferralCode } from '@profullstack/stack/referrals';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -171,11 +172,23 @@ export { presentedCredential };
 // ── Proxy ───────────────────────────────────────────────────
 
 /**
- * Security headers + CORS + Rate Limiting proxy
- * Adds OWASP-recommended security headers to all responses,
- * CORS headers to API responses, and rate limiting to API routes.
+ * The sole Next.js 16 interception entry point, beside src/app.
+ * Apply security headers to every outcome, including gateway receipts,
+ * payment challenges, rate-limit refusals and CORS preflight responses.
  */
 export async function proxy(request: NextRequest) {
+  const response = await handleRequest(request);
+  const host = request.headers.get('host') ?? '';
+  addSecurityHeaders(
+    response,
+    request.nextUrl.pathname.startsWith('/api/'),
+    request.headers.get('origin'),
+    host.endsWith('.onion')
+  );
+  return response;
+}
+
+async function handleRequest(request: NextRequest) {
   // Crawl gateway first: AI training crawlers get 402 Payment Required (or the
   // sales page at /crawl) unless they present a paid pass. People, Googlebot
   // and retrieval crawlers fall through to everything below.
@@ -185,8 +198,8 @@ export async function proxy(request: NextRequest) {
   /*
    * Then the site-wide allowance, which meters every route: 100 requests a
    * minute per caller, and going over is answered with the same offer the gate
-   * makes rather than a bare 429. Before CORS and the security headers,
-   * because there is no point dressing a response we are about to refuse.
+   * makes rather than a bare 429. The entry point applies CORS and security
+   * headers after this decision, including when the caller is refused.
    *
    * The explorer's own tiers below are stricter and settle a different
    * question -- how much a caller may read in a day, not in a minute -- so
@@ -206,13 +219,6 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isApiRoute = pathname.startsWith('/api/');
   const requestOrigin = request.headers.get('origin');
-  // The Tor hidden service listens on plain HTTP (HiddenServicePort 80 -> app).
-  // Tor Browser treats .onion as a secure origin and will CACHE an HSTS policy
-  // received here, then force every future request to https://<onion> — which
-  // has no TLS listener, so the site "won't load". Never emit HSTS on the onion.
-  const host = request.headers.get('host') ?? '';
-  const isOnion = host.endsWith('.onion');
-
   // Handle CORS preflight for API routes
   if (isApiRoute && request.method === 'OPTIONS') {
     const corsHeaders = getCorsHeaders(requestOrigin);
@@ -300,12 +306,15 @@ export async function proxy(request: NextRequest) {
   }
 
   const response = NextResponse.next();
-  addSecurityHeaders(response, isApiRoute, requestOrigin, isOnion);
+  // Only a request that passed every guard reaches referral tracking. A
+  // gateway can return a terminal 200 (a receipt or sales page), so checking
+  // status === 200 would also try to set cookies on those plain Responses.
+  trackReferralCode(request, response);
   return response;
 }
 
 function addSecurityHeaders(
-  response: NextResponse,
+  response: Response,
   isApiRoute: boolean,
   requestOrigin: string | null,
   isOnion: boolean
@@ -336,7 +345,16 @@ function addSecurityHeaders(
     const corsHeaders = getCorsHeaders(requestOrigin);
     if (corsHeaders['Access-Control-Allow-Origin']) {
       for (const [key, value] of Object.entries(corsHeaders)) {
-        response.headers.set(key, value);
+        const existing = response.headers.get(key);
+        if (key === 'Vary' && existing) {
+          // Gateways vary their offers by Accept, User-Agent and X-Payment.
+          // Preserve those fields when adding the API's origin policy.
+          if (!existing.split(',').some((field) => ['*', 'origin'].includes(field.trim().toLowerCase()))) {
+            response.headers.append(key, value);
+          }
+        } else {
+          response.headers.set(key, value);
+        }
       }
     }
   }
