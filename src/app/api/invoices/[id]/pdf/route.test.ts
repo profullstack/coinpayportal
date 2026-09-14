@@ -7,10 +7,11 @@ import { invoiceSnapshot, PUBLIC_INVOICE_PDF_FIELDS } from '@/lib/invoices/pdf';
 const db = vi.hoisted(() => ({ from: vi.fn(), select: vi.fn(), eq: vi.fn(), single: vi.fn() }));
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => db }));
 const id = '11111111-2222-4333-8444-555555555555';
+// PRIVATE-* values are synthetic markers used to detect accidental disclosure.
 const fixture = () => ({
   invoice_number: 'INV-001', status: 'sent', currency: 'USD', amount: '40.00',
   due_date: null, created_at: '2026-09-14T00:00:00+00:00', businesses: { name: 'Phuc Nguyen', id: 'PRIVATE-business' },
-  notes: 'PRIVATE-notes', metadata: { secret: 'PRIVATE-metadata' },
+  notes: 'PRIVATE-notes', metadata: { internal_note: 'PRIVATE-metadata' },
   clients: { email: 'PRIVATE-email', address: 'PRIVATE-address' },
   merchant_wallet_address: 'PRIVATE-wallet', payment_address: 'PRIVATE-deposit',
   stripe_checkout_url: 'https://private.example', crypto_amount: '987654321', fee_amount: 'SECRET-FEE',
