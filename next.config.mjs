@@ -2,6 +2,9 @@
 const nextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  outputFileTracingIncludes: {
+    '/api/invoices/*/pdf': ['./public/fonts/invoices/NotoSans-Regular.ttf'],
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: '2mb',
