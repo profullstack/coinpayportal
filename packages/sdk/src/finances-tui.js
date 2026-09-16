@@ -64,6 +64,12 @@ export function shortDateTime(value) {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function detailDateTime(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+}
+
 export function ago(value) {
   if (!value) return 'never';
   const ms = Date.now() - new Date(value).getTime();
@@ -143,6 +149,38 @@ function moveSelection(p, delta) {
 // The table each screen scrolls with the keyboard.
 const TAB_PANE = ['live', 'accounts', 'ledger', 'payments', 'cards', 'invoices', 'debts'];
 
+function activePane(state) {
+  return state.tab === 5 && state.invoicePane === 'escrows' ? 'escrows' : TAB_PANE[state.tab];
+}
+
+/** hqtui reports visible row numbers on clicks, but may move its viewport to
+ * follow keyboard selection or clamp the last page. Record the rows actually
+ * drawn instead of assuming that the requested offset is still on screen. */
+function selectableTable(panel, state, name, rows, columns) {
+  const selection = pane(state, name, rows.length);
+  const visibleRows = new Map();
+  panel.table({
+    rows,
+    columns,
+    selected: selection.selected,
+    offset: selection.offset,
+    followSelection: true,
+    scrollbar: true,
+    onRow: (_row, index, y) => {
+      visibleRows.set(y - 1, index);
+      if (y === 1) selection.offset = index;
+    },
+    onFocus: () => {
+      if (name === 'invoices' || name === 'escrows') state.invoicePane = name;
+    },
+    onScroll: (delta) => scrollPane(selection, delta),
+    onSelectRow: (visibleRow) => {
+      const index = visibleRows.get(visibleRow);
+      if (index !== undefined) selection.selected = index;
+    },
+  });
+}
+
 function pushLive(state, entry) {
   state.live.push({ time: clock(), ...entry });
   if (state.live.length > LIVE_MAX) state.live.splice(0, state.live.length - LIVE_MAX);
@@ -191,6 +229,27 @@ function signed(theme, value) {
 
 function emptyPanel(ui, theme, title, message) {
   ui.panel({ title }, (p) => p.text(message, { fg: theme.muted }));
+}
+
+/** Render the record under the pointer beside a table. Tables keep their
+ * selection in state, so a mouse click and j/k navigation show the same
+ * detail record without opening a second screen. */
+function selectedDetails(panel, title, row, fields, theme, options = {}) {
+  const { after, ...panelOptions } = options;
+  panel.panel({ title: row ? title : `${title} · none`, ...panelOptions }, (p) => {
+    if (!row) {
+      p.text('Click a row to inspect its details.', { fg: theme.muted });
+      after?.(p);
+      return;
+    }
+    for (const [label, value, color] of fields) {
+      p.text([
+        { text: `${label}: `, fg: theme.muted },
+        { text: value === null || value === undefined || value === '' ? '—' : String(value), fg: color || theme.foreground },
+      ], { wrap: true });
+    }
+    after?.(p);
+  });
 }
 
 function overviewScreen(ui, state, theme) {
@@ -297,18 +356,11 @@ function bankScreen(ui, state, theme) {
     emptyPanel(ui, theme, 'Bank & cards', 'No bank linked yet. Connect one at coinpayportal.com/finances (SimpleFIN or Plaid), then press s to sync.');
     return;
   }
+  const accounts = pane(state, 'accounts', b.accounts.length);
+  const selectedAccount = b.accounts[accounts.selected];
   ui.grid({ columns: ['3fr', '2fr'], gap: 1 }, (grid) => {
     grid.panel({ title: `Accounts (${b.accounts.length})`, footer: 'j/k scroll · s sync' }, (p) => {
-      const accounts = pane(state, 'accounts', b.accounts.length);
-      p.table({
-        rows: b.accounts,
-        selected: accounts.selected,
-        offset: accounts.offset,
-        followSelection: true,
-        scrollbar: true,
-        onScroll: (delta) => scrollPane(accounts, delta),
-        onSelectRow: (row) => { accounts.selected = accounts.offset + row; },
-        columns: [
+      selectableTable(p, state, 'accounts', b.accounts, [
           { key: 'org_name', title: 'Institution', width: 22, render: (r) => r.org_name || '—', color: theme.muted },
           { key: 'name', title: 'Account', min: 14, max: 36 },
           { key: 'effective_kind', title: 'Kind', width: 10, color: (r) => (r.is_liability ? theme.danger : theme.success) },
@@ -318,11 +370,19 @@ function bankScreen(ui, state, theme) {
           { key: 'display_balance', title: 'Balance', width: 13, align: 'right', render: (r) => money(r.display_balance ?? r.balance ?? 0, r.currency || cur), color: (r) => (r.is_liability ? theme.danger : theme.success) },
           { key: 'available_balance', title: 'Available', width: 12, align: 'right', render: (r) => (r.available_balance == null ? '—' : money(r.available_balance, r.currency || cur)), color: theme.muted },
           { key: 'balance_date', title: 'As of', width: 10, render: (r) => shortDate(r.balance_date), color: theme.muted },
-        ],
-      });
+      ]);
     });
 
     grid.cell({ gap: 1 }, (col) => {
+      selectedDetails(col, 'Selected account', selectedAccount, [
+        ['Institution', selectedAccount?.org_name],
+        ['Account', selectedAccount?.name],
+        ['Kind', selectedAccount?.effective_kind],
+        ['Side', selectedAccount?.effective_scope],
+        ['Balance', selectedAccount ? money(selectedAccount.display_balance ?? selectedAccount.balance ?? 0, selectedAccount.currency || cur) : null, selectedAccount?.is_liability ? theme.danger : theme.success],
+        ['As of', selectedAccount ? shortDateTime(selectedAccount.balance_date) : null],
+        ['Last seen', selectedAccount ? shortDateTime(selectedAccount.last_seen_at) : null],
+      ], theme, { size: '55%' });
       col.panel({ title: 'Owed by institution', size: Math.min(14, b.byInstitution.length + 3) }, (p) => {
         const rows = b.byInstitution.filter((i) => i.liabilities > 0 || i.assets > 0);
         const max = Math.max(1, ...rows.map((i) => Math.max(i.liabilities, i.assets)));
@@ -368,29 +428,31 @@ function ledgerScreen(ui, state, theme) {
     emptyPanel(ui, theme, 'Ledger', b.connections.length ? 'No transactions in this window. Press s to sync.' : 'No bank linked yet.');
     return;
   }
-  ui.grid({ columns: ['3fr', '1fr'], gap: 1 }, (grid) => {
+  const ledger = pane(state, 'ledger', b.ledger.length);
+  const selectedLedger = b.ledger[ledger.selected];
+  ui.grid({ columns: ['3fr', '2fr'], gap: 1 }, (grid) => {
     grid.panel({ title: `Ledger · ${state.days}d`, subtitle: `${b.ledger.length} of ${b.ledgerTotal}`, footer: 'newest first' }, (p) => {
-      const ledger = pane(state, 'ledger', b.ledger.length);
-      p.table({
-        rows: b.ledger,
-        selected: ledger.selected,
-        offset: ledger.offset,
-        followSelection: true,
-        scrollbar: true,
-        zebra: true,
-        onScroll: (delta) => scrollPane(ledger, delta),
-        onSelectRow: (row) => { ledger.selected = ledger.offset + row; },
-        columns: [
+      selectableTable(p, state, 'ledger', b.ledger, [
           { key: 'posted', title: 'Date', width: 10, render: (r) => shortDate(r.transacted_at || r.posted), color: theme.muted },
           { key: 'account_name', title: 'Account', width: 26, render: (r) => `${r.org_name ? r.org_name.split(' ')[0] + ' ' : ''}${r.account_name}` },
           { key: 'payee', title: 'Payee / description', min: 14, max: 40, render: (r) => r.payee || r.description || r.memo || '—' },
           { key: 'category', title: 'Category', width: 14, render: (r) => r.category || '—', color: theme.muted },
           { key: 'pending', title: '', width: 1, render: (r) => (r.pending ? '•' : ''), color: theme.warning },
           { key: 'amount', title: 'Amount', width: 12, align: 'right', render: (r) => money(r.amount, r.currency || cur), color: (r) => signed(theme, r.amount) },
-        ],
-      });
+      ]);
     });
     grid.cell({ gap: 1 }, (col) => {
+      selectedDetails(col, 'Selected transaction', selectedLedger, [
+        ['Date', selectedLedger ? shortDateTime(selectedLedger.transacted_at || selectedLedger.posted) : null],
+        ['Account', selectedLedger?.account_name],
+        ['Institution', selectedLedger?.org_name],
+        ['Payee', selectedLedger?.payee || selectedLedger?.description],
+        ['Category', selectedLedger?.category],
+        ['Amount', selectedLedger ? money(selectedLedger.amount, selectedLedger.currency || cur) : null, selectedLedger ? signed(theme, selectedLedger.amount) : undefined],
+        ['Description', selectedLedger?.description],
+        ['Memo', selectedLedger?.memo],
+        ['Transaction ID', selectedLedger?.id],
+      ], theme, { size: '60%' });
       col.panel({ title: `Cashflow · ${state.days}d`, size: 7 }, (p) => {
         p.keyValues([
           { label: 'In', value: money(b.cashflow.moneyIn, cur), color: theme.success },
@@ -414,22 +476,15 @@ function ledgerScreen(ui, state, theme) {
 function cryptoScreen(ui, state, theme) {
   const s = state.snapshot;
   const rows = s.recent.payments;
-  ui.grid({ columns: ['3fr', '1fr'], gap: 1 }, (grid) => {
+  const payments = pane(state, 'payments', rows.length);
+  const selectedPayment = rows[payments.selected];
+  ui.grid({ columns: ['3fr', '2fr'], gap: 1 }, (grid) => {
     grid.panel({ title: `Crypto payments · ${state.days}d`, subtitle: s.crypto.partial ? 'latest page' : undefined }, (p) => {
       if (!rows.length) {
         p.text('No crypto payments in this window.', { fg: theme.muted });
         return;
       }
-      const payments = pane(state, 'payments', rows.length);
-      p.table({
-        rows,
-        selected: payments.selected,
-        offset: payments.offset,
-        followSelection: true,
-        scrollbar: true,
-        onScroll: (delta) => scrollPane(payments, delta),
-        onSelectRow: (row) => { payments.selected = payments.offset + row; },
-        columns: [
+      selectableTable(p, state, 'payments', rows, [
           { key: 'created_at', title: 'When', width: 11, render: (r) => shortDateTime(r.created_at), color: theme.muted },
           { key: 'business_name', title: 'Business', min: 10, max: 28, render: (r) => r.business_name || shortId(r.business_id) },
           { key: 'currency', title: 'Chain', width: 9 },
@@ -438,10 +493,18 @@ function cryptoScreen(ui, state, theme) {
           { key: 'fee_amount', title: 'Fee', width: 8, align: 'right', render: (r) => (r.fee_amount ? money((num(r.fee_amount) / Math.max(num(r.amount_crypto), 1e-12)) * num(r.amount_usd)) : '—'), color: theme.warning },
           { key: 'status', title: 'Status', width: 11, color: (r) => statusColor(theme, r.status) },
           { key: 'tx_hash', title: 'Tx', width: 10, render: (r) => shortId(r.forward_tx_hash || r.tx_hash || '', 9), color: theme.muted },
-        ],
-      });
+      ]);
     });
     grid.cell({ gap: 1 }, (col) => {
+      selectedDetails(col, 'Selected crypto payment', selectedPayment, [
+        ['When', selectedPayment ? shortDateTime(selectedPayment.created_at) : null],
+        ['Business', selectedPayment?.business_name || selectedPayment?.business_id],
+        ['Status', selectedPayment?.status, selectedPayment ? statusColor(theme, selectedPayment.status) : undefined],
+        ['Chain', selectedPayment?.currency],
+        ['Crypto amount', selectedPayment ? num(selectedPayment.amount_crypto).toFixed(6) : null],
+        ['USD amount', selectedPayment ? money(selectedPayment.amount_usd) : null, theme.success],
+        ['Transaction', selectedPayment ? (selectedPayment.forward_tx_hash || selectedPayment.tx_hash) : null],
+      ], theme, { size: '60%' });
       col.panel({ title: 'Totals', size: 9 }, (p) => {
         p.keyValues([
           { label: 'Volume', value: money(s.earnings.cryptoVolumeUsd), color: theme.primary },
@@ -465,22 +528,15 @@ function cryptoScreen(ui, state, theme) {
 function cardsScreen(ui, state, theme) {
   const s = state.snapshot;
   const rows = s.recent.cards;
-  ui.grid({ columns: ['3fr', '1fr'], gap: 1 }, (grid) => {
+  const cards = pane(state, 'cards', rows.length);
+  const selectedCard = rows[cards.selected];
+  ui.grid({ columns: ['3fr', '2fr'], gap: 1 }, (grid) => {
     grid.panel({ title: `Card payments · ${state.days}d`, subtitle: s.card.partial ? 'latest page' : undefined }, (p) => {
       if (!rows.length) {
         p.text('No card payments in this window.', { fg: theme.muted });
         return;
       }
-      const cards = pane(state, 'cards', rows.length);
-      p.table({
-        rows,
-        selected: cards.selected,
-        offset: cards.offset,
-        followSelection: true,
-        scrollbar: true,
-        onScroll: (delta) => scrollPane(cards, delta),
-        onSelectRow: (row) => { cards.selected = cards.offset + row; },
-        columns: [
+      selectableTable(p, state, 'cards', rows, [
           { key: 'created_at', title: 'When', width: 11, render: (r) => shortDateTime(r.created_at), color: theme.muted },
           { key: 'business_name', title: 'Business', min: 10, max: 26, render: (r) => r.business_name || shortId(r.business_id) },
           { key: 'customer_email', title: 'Customer', min: 10, max: 26, render: (r) => r.customer_name || r.customer_email || '—', color: theme.muted },
@@ -489,10 +545,18 @@ function cardsScreen(ui, state, theme) {
           { key: 'stripe_fee_amount', title: 'Proc fee', width: 9, align: 'right', render: (r) => money(num(r.stripe_fee_amount) / 100), color: theme.muted },
           { key: 'net_to_merchant', title: 'Net', width: 10, align: 'right', render: (r) => money(num(r.net_to_merchant) / 100), color: theme.success },
           { key: 'status', title: 'Status', width: 11, color: (r) => statusColor(theme, r.status) },
-        ],
-      });
+      ]);
     });
     grid.cell({ gap: 1 }, (col) => {
+      selectedDetails(col, 'Selected card payment', selectedCard, [
+        ['When', selectedCard ? shortDateTime(selectedCard.created_at) : null],
+        ['Business', selectedCard?.business_name || selectedCard?.business_id],
+        ['Customer', selectedCard?.customer_name || selectedCard?.customer_email],
+        ['Status', selectedCard?.status, selectedCard ? statusColor(theme, selectedCard.status) : undefined],
+        ['Amount', selectedCard ? money(num(selectedCard.amount_cents) / 100, (selectedCard.currency || 'usd').toUpperCase()) : null],
+        ['Net to merchant', selectedCard ? money(num(selectedCard.net_to_merchant) / 100) : null, theme.success],
+        ['Payment ID', selectedCard?.id],
+      ], theme, { size: '55%' });
       col.panel({ title: 'Totals' }, (p) => {
         p.keyValues([
           { label: 'Volume', value: money(s.earnings.cardVolumeUsd), color: theme.primary },
@@ -515,58 +579,80 @@ function invoicesScreen(ui, state, theme) {
   const s = state.snapshot;
   const invoices = s.invoices.rows;
   const escrows = s.recent.escrows;
-  ui.panel({
-    title: `Invoices (${invoices.length})`,
-    subtitle: `outstanding ${money(s.invoices.totals.outstanding)} · overdue ${money(s.invoices.totals.overdue)} · paid ${money(s.invoices.totals.paid)}`,
-    size: '55%',
-  }, (p) => {
-    if (!invoices.length) { p.text('No invoices.', { fg: theme.muted }); return; }
-    const inv = pane(state, 'invoices', invoices.length);
-    p.table({
-      rows: invoices,
-      selected: inv.selected,
-      offset: inv.offset,
-      followSelection: true,
-      scrollbar: true,
-      onScroll: (delta) => scrollPane(inv, delta),
-      onSelectRow: (row) => { inv.selected = inv.offset + row; },
-      columns: [
-        { key: 'invoice_number', title: 'No.', width: 9 },
-        { key: 'clients', title: 'Client', min: 10, max: 28, render: (r) => r.clients?.name || r.clients?.email || '—' },
-        { key: 'businesses', title: 'Business', min: 10, max: 26, render: (r) => r.businesses?.name || '—', color: theme.muted },
-        { key: 'amount', title: 'Amount', width: 11, align: 'right', render: (r) => money(r.amount, r.currency || 'USD') },
-        { key: 'status', title: 'Status', width: 10, color: (r) => statusColor(theme, r.status) },
-        { key: 'due_date', title: 'Due', width: 10, render: (r) => shortDate(r.due_date), color: (r) => (r.due_date && r.status !== 'paid' && new Date(r.due_date) < new Date() ? theme.danger : theme.muted) },
-        { key: 'paid_at', title: 'Paid', width: 10, render: (r) => shortDate(r.paid_at), color: theme.success },
-        { key: 'crypto_currency', title: 'Settles in', width: 10, render: (r) => r.settlement_method || r.crypto_currency || '—', color: theme.muted },
-      ],
+  const inv = pane(state, 'invoices', invoices.length);
+  const esc = pane(state, 'escrows', escrows.length);
+  if (!state.invoicePane) state.invoicePane = invoices.length ? 'invoices' : 'escrows';
+  ui.grid({ columns: ['3fr', '2fr'], gap: 1 }, (grid) => {
+    grid.cell({ gap: 1 }, (col) => {
+      col.panel({
+        title: `Invoices (${invoices.length})`,
+        subtitle: `outstanding ${money(s.invoices.totals.outstanding)} · overdue ${money(s.invoices.totals.overdue)} · paid ${money(s.invoices.totals.paid)}`,
+        size: '55%',
+        footer: 'click row for details · j/k navigate',
+      }, (p) => {
+        if (!invoices.length) { p.text('No invoices.', { fg: theme.muted }); return; }
+        selectableTable(p, state, 'invoices', invoices, [
+          { key: 'invoice_number', title: 'No.', width: 9 },
+          { key: 'created_at', title: 'Created', width: 10, min: 10, render: (r) => shortDate(r.created_at), color: theme.muted },
+          { key: 'due_date', title: 'Due', width: 10, min: 10, render: (r) => shortDate(r.due_date), color: (r) => (r.due_date && !['paid', 'cancelled'].includes(r.status) && new Date(r.due_date) < new Date() ? theme.danger : theme.muted) },
+          { key: 'amount', title: 'Amount', width: 11, align: 'right', render: (r) => money(r.amount, r.currency || 'USD') },
+          { key: 'status', title: 'Status', width: 9, color: (r) => statusColor(theme, r.status) },
+          ...(p.width >= 65 ? [{ key: 'clients', title: 'Client', min: 8, max: 28, render: (r) => r.clients?.name || r.clients?.email || '—' }] : []),
+          ...(p.width >= 100 ? [
+            { key: 'sent_at', title: 'Sent', width: 10, render: (r) => shortDate(r.sent_at), color: theme.muted },
+            { key: 'paid_at', title: 'Paid', width: 10, render: (r) => shortDate(r.paid_at), color: theme.success },
+          ] : []),
+          ...(p.width >= 135 ? [{ key: 'businesses', title: 'Business', min: 10, max: 26, render: (r) => r.businesses?.name || '—', color: theme.muted }] : []),
+        ]);
+      });
+      col.panel({
+        title: `Escrow (${escrows.length})`,
+        subtitle: `held ${money(s.escrow.heldUsd)} · released ${money(s.escrow.releasedUsd)} · refunded ${money(s.escrow.refundedUsd)}`,
+        footer: 'click row for details · j/k navigate',
+      }, (p) => {
+        if (!escrows.length) { p.text('No escrows.', { fg: theme.muted }); return; }
+        selectableTable(p, state, 'escrows', escrows, [
+          { key: 'created_at', title: 'Created', width: 10, render: (r) => shortDate(r.created_at), color: theme.muted },
+          { key: 'chain', title: 'Chain', width: 8 },
+          { key: 'amount_usd', title: 'USD', width: 10, align: 'right', render: (r) => money(r.amount_usd) },
+          { key: 'status', title: 'Status', width: 10, color: (r) => statusColor(theme, r.status) },
+          { key: 'metadata', title: 'Description', min: 8, max: 50, render: (r) => String(r.metadata?.description || r.beneficiary_email || ''), color: theme.muted },
+          ...(p.width >= 100 ? [{ key: 'settled_at', title: 'Settled', width: 10, render: (r) => shortDate(r.settled_at || r.released_at || r.refunded_at), color: theme.muted }] : []),
+        ]);
+      });
     });
-  });
-  ui.spacer(1);
-  ui.panel({
-    title: `Escrow (${escrows.length})`,
-    subtitle: `held ${money(s.escrow.heldUsd)} · released ${money(s.escrow.releasedUsd)} · refunded ${money(s.escrow.refundedUsd)}`,
-  }, (p) => {
-    if (!escrows.length) { p.text('No escrows.', { fg: theme.muted }); return; }
-    const esc = pane(state, 'escrows', escrows.length);
-    p.table({
-      rows: escrows,
-      selected: esc.selected,
-      offset: esc.offset,
-      followSelection: true,
-      scrollbar: true,
-      onScroll: (delta) => scrollPane(esc, delta),
-      onSelectRow: (row) => { esc.selected = esc.offset + row; },
-      columns: [
-        { key: 'created_at', title: 'Created', width: 10, render: (r) => shortDate(r.created_at), color: theme.muted },
-        { key: 'chain', title: 'Chain', width: 9 },
-        { key: 'amount_usd', title: 'USD', width: 10, align: 'right', render: (r) => money(r.amount_usd) },
-        { key: 'amount', title: 'Amount', width: 13, align: 'right', render: (r) => num(r.amount).toFixed(6), color: theme.muted },
-        { key: 'fee_amount', title: 'Fee', width: 8, align: 'right', render: (r) => (r.fee_tx_hash ? money((num(r.fee_amount) / Math.max(num(r.amount), 1e-12)) * num(r.amount_usd)) : '—'), color: theme.warning },
-        { key: 'status', title: 'Status', width: 10, color: (r) => statusColor(theme, r.status) },
-        { key: 'metadata', title: 'Description', min: 10, max: 50, render: (r) => String(r.metadata?.description || r.beneficiary_email || '').slice(0, 60), color: theme.muted },
-        { key: 'settled_at', title: 'Settled', width: 10, render: (r) => shortDate(r.settled_at || r.released_at || r.refunded_at), color: theme.muted },
-      ],
+    grid.cell({ gap: 1 }, (col) => {
+      if (state.invoicePane === 'escrows') {
+        const row = escrows[esc.selected];
+        selectedDetails(col, 'Selected escrow', row, [
+          ['Created', detailDateTime(row?.created_at)],
+          ['Status', row?.status, row ? statusColor(theme, row.status) : undefined],
+          ['Chain', row?.chain],
+          ['USD amount', row ? money(row.amount_usd) : null],
+          ['Crypto amount', row?.amount],
+          ['Fee amount', row?.fee_amount],
+          ['Description', row?.metadata?.description || row?.beneficiary_email],
+          ['Settled', detailDateTime(row?.settled_at || row?.released_at || row?.refunded_at)],
+          ['Escrow ID', row?.id],
+        ], theme);
+      } else {
+        const row = invoices[inv.selected];
+        selectedDetails(col, 'Selected invoice', row, [
+          ['Invoice', row?.invoice_number || row?.id],
+          ['Created', detailDateTime(row?.created_at)],
+          ['Due', shortDate(row?.due_date)],
+          ['Sent', detailDateTime(row?.sent_at)],
+          ['Paid', detailDateTime(row?.paid_at)],
+          ['Client', row?.clients?.name],
+          ['Email', row?.clients?.email],
+          ['Business', row?.businesses?.name],
+          ['Amount', row ? money(row.amount, row.currency || 'USD') : null],
+          ['Status', row?.status, row ? statusColor(theme, row.status) : undefined],
+          ['Settles in', row?.settlement_method || row?.crypto_currency],
+          ['Notes', row?.notes],
+          ['Invoice ID', row?.id],
+        ], theme);
+      }
     });
   });
 }
@@ -611,7 +697,7 @@ function positionScreen(ui, state, theme) {
   const debt = p0.debt;
   const r = p0.ratios;
 
-  ui.grid({ columns: ['1fr', '1fr', '1fr'], rows: [13, '1fr', 12], gap: 1 }, (grid) => {
+  ui.grid({ columns: ['1fr', '1fr', '1fr'], rows: [13, 8, '1fr'], gap: 1 }, (grid) => {
     grid.panel({ title: `Income vs spending · ${lookback}`, subtitle: `${p0.monthsObserved} months observed` }, (p) => {
       p.keyValues([
         { label: 'Income', value: money(inc.total, cur), color: theme.success },
@@ -687,16 +773,7 @@ function positionScreen(ui, state, theme) {
         p.text('No debt on any linked account.', { fg: theme.muted });
         return;
       }
-      const debts = pane(state, 'debts', debt.accounts.length);
-      p.table({
-        rows: debt.accounts,
-        selected: debts.selected,
-        offset: debts.offset,
-        followSelection: true,
-        scrollbar: true,
-        onScroll: (delta) => scrollPane(debts, delta),
-        onSelectRow: (row) => { debts.selected = debts.offset + row; },
-        columns: [
+      selectableTable(p, state, 'debts', debt.accounts, [
           { key: 'org', title: 'Institution', width: 20, render: (x) => x.org || '—', color: theme.muted },
           { key: 'name', title: 'Account', min: 14, max: 32 },
           { key: 'kind', title: 'Kind', width: 8, color: theme.muted },
@@ -705,27 +782,40 @@ function positionScreen(ui, state, theme) {
           { key: 'share', title: 'Share', width: 6, align: 'right', render: (x) => pct(x.share, 0), color: theme.muted },
           { key: 'paid', title: `Paid ${lookback}`, width: 12, align: 'right', render: (x) => money(x.paid, cur), color: theme.success },
           { key: 'payoffMonths', title: 'Clear in', width: 9, align: 'right', render: (x) => (x.payoffMonths === null ? 'never' : `${x.payoffMonths} mo`), color: (x) => (x.payoffMonths === null ? theme.danger : theme.foreground) },
-        ],
-      });
+      ]);
     });
 
-    grid.panel({ title: `Recurring (${p0.recurring.charges.length})`, subtitle: `${money(p0.recurring.monthlyTotal, cur)}/mo` }, (p) => {
-      const charges = p0.recurring.charges;
-      if (!charges.length) {
-        p.text('Nothing recurring found in this window.', { fg: theme.muted });
-        return;
-      }
-      const max = Math.max(1, ...charges.map((c) => c.monthlyEquivalent));
-      p.meters(
-        charges.slice(0, 10).map((c) => ({
-          label: c.payee.slice(0, 16),
-          value: c.monthlyEquivalent,
-          max,
-          color: c.isDebtService ? theme.warning : theme.info,
-          text: `${money(c.monthlyEquivalent, cur, { compact: true })}/mo`,
-        })),
-        { labelWidth: 17, valueWidth: 9 },
-      );
+    grid.cell({ gap: 1 }, (col) => {
+      const selectedDebt = debt.accounts[pane(state, 'debts', debt.accounts.length).selected];
+      selectedDetails(col, 'Selected debt', selectedDebt, [
+        ['Institution', selectedDebt?.org],
+        ['Account', selectedDebt?.name],
+        ['Kind', selectedDebt?.kind],
+        ['Side', selectedDebt?.scope],
+        ['Owed', selectedDebt ? money(selectedDebt.owed, cur) : null, theme.danger],
+        [`Paid ${lookback}`, selectedDebt ? money(selectedDebt.paid, cur) : null, theme.success],
+        ['Payoff', selectedDebt?.payoffMonths == null ? '—' : `${selectedDebt.payoffMonths} months`],
+      ], theme, {
+        after: (p) => {
+          p.divider({ label: `Recurring · ${money(p0.recurring.monthlyTotal, cur)}/mo` });
+          const charges = p0.recurring.charges;
+          if (!charges.length) {
+            p.text('Nothing recurring found in this window.', { fg: theme.muted });
+            return;
+          }
+          const max = Math.max(1, ...charges.map((c) => c.monthlyEquivalent));
+          p.meters(
+            charges.slice(0, 10).map((c) => ({
+              label: c.payee.slice(0, 16),
+              value: c.monthlyEquivalent,
+              max,
+              color: c.isDebtService ? theme.warning : theme.info,
+              text: `${money(c.monthlyEquivalent, cur, { compact: true })}/mo`,
+            })),
+            { labelWidth: 17, valueWidth: 9 },
+          );
+        },
+      });
     });
   });
 }
@@ -824,7 +914,8 @@ export function renderFinancesTui(ui, state, t, { height, interval = 30, markdow
         '  by the bank bridge, so it is never automatic).\n' +
         'w cycles the window: 7 → 30 → 90 → 365 days.\n' +
         'p pauses the timer. ↑/↓ j/k, PgUp/PgDn, Home/End scroll.\n' +
-        'Mouse: click tabs, scroll tables.\n\n' +
+        'Mouse: click rows for details on the right; scroll tables.\n' +
+        'j/k follows the last invoice/escrow table clicked.\n\n' +
         '⧉ MD copies a summary. Tab focuses, Enter copies.\n\n' +
         'Commission paid = platform fees on crypto + card payments.\n' +
         'Net earnings = gross − commission − processor fees − refunds.\n' +
@@ -971,6 +1062,7 @@ export async function runFinancesTui({ client, baseUrl, token, days = 30, interv
       return;
     }
     const name = event.name;
+    const paneName = activePane(state);
     const digit = Number(name);
     if (Number.isInteger(digit) && name.length === 1 && digit >= 1 && digit <= TABS.length) {
       state.tab = digit - 1;
@@ -1006,25 +1098,25 @@ export async function runFinancesTui({ client, baseUrl, token, days = 30, interv
         break;
       case 'up':
       case 'k':
-        moveSelection(pane(state, TAB_PANE[state.tab], state.panes[TAB_PANE[state.tab]]?.total ?? 0), state.tab === 0 ? 1 : -1);
+        moveSelection(pane(state, paneName, state.panes[paneName]?.total ?? 0), state.tab === 0 ? 1 : -1);
         break;
       case 'down':
       case 'j':
-        moveSelection(pane(state, TAB_PANE[state.tab], state.panes[TAB_PANE[state.tab]]?.total ?? 0), state.tab === 0 ? -1 : 1);
+        moveSelection(pane(state, paneName, state.panes[paneName]?.total ?? 0), state.tab === 0 ? -1 : 1);
         break;
       case 'pageup':
-        scrollPane(pane(state, TAB_PANE[state.tab], state.panes[TAB_PANE[state.tab]]?.total ?? 0), state.tab === 0 ? 1 : -1, 10);
+        scrollPane(pane(state, paneName, state.panes[paneName]?.total ?? 0), state.tab === 0 ? 1 : -1, 10);
         break;
       case 'pagedown':
-        scrollPane(pane(state, TAB_PANE[state.tab], state.panes[TAB_PANE[state.tab]]?.total ?? 0), state.tab === 0 ? -1 : 1, 10);
+        scrollPane(pane(state, paneName, state.panes[paneName]?.total ?? 0), state.tab === 0 ? -1 : 1, 10);
         break;
       case 'home': {
-        const p = pane(state, TAB_PANE[state.tab], state.panes[TAB_PANE[state.tab]]?.total ?? 0);
+        const p = pane(state, paneName, state.panes[paneName]?.total ?? 0);
         p.selected = 0; p.offset = state.tab === 0 ? Math.max(0, p.total - 1) : 0;
         break;
       }
       case 'end': {
-        const p = pane(state, TAB_PANE[state.tab], state.panes[TAB_PANE[state.tab]]?.total ?? 0);
+        const p = pane(state, paneName, state.panes[paneName]?.total ?? 0);
         p.selected = Math.max(0, p.total - 1); p.offset = state.tab === 0 ? 0 : p.selected;
         break;
       }
