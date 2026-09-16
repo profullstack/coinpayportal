@@ -78,7 +78,7 @@ function report(now: number): void {
  * Record that a tier turned a request away, so the summary line says whether
  * the limits are biting at all -- and which one.
  */
-export function countExplorerRefusal(tier: 'burst' | 'daily' | 'ip-ceiling'): void {
+export function countExplorerRefusal(tier: 'burst' | 'daily' | 'ip-ceiling' | 'shared-daily' | 'shared-burst' | 'shared-unavailable' | 'account-daily' | 'account-burst' | 'account-unavailable' | 'abuse'): void {
   try {
     refusals.set(tier, (refusals.get(tier) ?? 0) + 1);
   } catch {

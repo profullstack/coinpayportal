@@ -1,6 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { proxy, presentedCredential } from './proxy';
+vi.mock('./lib/explorer-abuse', () => ({ checkExplorerAbuse: () => ({ blocked: false }) }));
+import * as budget from './lib/explorer-budget';
+
+// These tests isolate the per-caller tiers; shared-budget tests exercise the fleet cap.
+beforeEach(() => vi.spyOn(budget, 'reserveExplorerRead').mockReturnValue('allowed'));
 
 /**
  * The explorer tiers.
