@@ -5,6 +5,18 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] - 2026-09-16
+
+### Added
+- Invoice creation and due dates remain visible in the finance TUI table;
+  selected invoices show created, due, sent and paid dates in the detail panel.
+- Right-side details for selected accounts, ledger rows, crypto and card
+  payments, invoices, escrows and debt accounts.
+
+### Fixed
+- Row clicks select the correct record after scrolling or resizing. Keyboard
+  navigation follows the last selected invoice or escrow table.
+
 ## [0.11.0] - 2026-09-12
 
 ### Added
