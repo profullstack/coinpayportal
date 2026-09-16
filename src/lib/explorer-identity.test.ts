@@ -1,7 +1,8 @@
+import { randomBytes } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import { generateToken } from './auth/jwt';
 import { explorerAccount } from './explorer-identity';
-const secret = 'explorer-test-secret';
+const secret = randomBytes(32).toString('hex');
 const req = (token: string) => new Request('https://coinpayportal.com/explorer', { headers: { cookie: `token=${token}` } });
 afterEach(() => vi.unstubAllEnvs());
 it('uses the verified account identity across refreshed sessions', () => {
