@@ -1,3 +1,6 @@
+import { explorerAccount } from "@/lib/explorer-identity";
+import { checkExplorerAbuse } from "@/lib/explorer-abuse";
+import { reserveExplorerRead, reserveExplorerAccountRead } from "@/lib/explorer-budget";
 import { gate } from "@/lib/crawl-gateway";
 import { EXPLORER_PASS_PATH, explorerGate, explorerSell } from "@/lib/explorer-gateway";
 import { countExplorerRefusal, watchExplorer } from "@/lib/explorer-watch";
@@ -189,6 +192,24 @@ export async function proxy(request: NextRequest) {
 }
 
 async function handleRequest(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+  const isExplorer = path === '/explorer' || path.startsWith('/explorer/');
+  const account = isExplorer ? explorerAccount(request) : null;
+  // A ban precedes the payment gateway: paying or rotating tokens cannot
+  // override an abuse decision. The login and pass pages remain reachable.
+  const abuse = isExplorer ? checkExplorerAbuse(request, account) : null;
+  if (abuse?.blocked) {
+    watchExplorer(request);
+    countExplorerRefusal('abuse');
+    return new NextResponse('Explorer access temporarily blocked for abusive traffic', {
+      status: 403,
+      headers: {
+        'Cache-Control': 'private, no-store',
+        ...(abuse.retryAfterSeconds ? { 'Retry-After': String(abuse.retryAfterSeconds) } : {}),
+      },
+    });
+  }
+
   // Crawl gateway first: AI training crawlers get 402 Payment Required (or the
   // sales page at /crawl) unless they present a paid pass. People, Googlebot
   // and retrieval crawlers fall through to everything below.
@@ -251,7 +272,8 @@ async function handleRequest(request: NextRequest) {
     return await explorerSell(request);
   }
 
-  if (pathname.startsWith('/explorer') && pathname !== EXPLORER_PASS_PATH) {
+  if (pathname === '/explorer' || pathname.startsWith('/explorer/')) {
+    let paid = false;
     const clientIp =
       request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
       request.headers.get('x-real-ip') ||
@@ -291,7 +313,7 @@ async function handleRequest(request: NextRequest) {
         : bump(`explorer-day:${clientIp}`, EXPLORER_FREE_PER_DAY, now, DAY_MS);
       const ceiling = bump(`explorer-day-ip:${clientIp}`, EXPLORER_IP_PER_DAY, now, DAY_MS);
 
-      if (!daily.allowed || !ceiling.allowed) {
+      if (!account && (!daily.allowed || !ceiling.allowed)) {
         // Over the allowance: the gateway answers with a 402 and an offer, or
         // with the sales page for a browser — unless this caller already holds
         // a pass or is settling a payment right now, in which case it returns
@@ -299,6 +321,22 @@ async function handleRequest(request: NextRequest) {
         const answer = await explorerGate(request);
         if (answer) {
           countExplorerRefusal(daily.allowed ? 'ip-ceiling' : 'daily');
+          return answer;
+        }
+        paid = true;
+      }
+    }
+
+    // Charge only requests that survived the existing guards. This bucket is
+    // independent of IP and unverified credentials, and also covers callers
+    // without forwarding headers. A verified paid pass can exceed it.
+    if (!paid) {
+      const budget = account ? reserveExplorerAccountRead(account) : reserveExplorerRead();
+      if (budget !== 'allowed') {
+        const answer = await explorerGate(request);
+        if (answer) {
+          countExplorerRefusal(account ? `account-${budget}` : `shared-${budget}`);
+          answer.headers.set('Cache-Control', 'private, no-store');
           return answer;
         }
       }

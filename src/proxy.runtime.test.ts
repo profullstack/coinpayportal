@@ -27,9 +27,11 @@ beforeAll(async () => {
       }
     }
   }
-  for (const file of ['crawl-gateway.ts', 'explorer-gateway.ts', 'explorer-watch.ts', 'throttle.ts']) {
+  for (const file of ['explorer-abuse.ts', 'explorer-identity.ts', 'explorer-budget.ts', 'crawl-gateway.ts', 'explorer-gateway.ts', 'explorer-watch.ts', 'throttle.ts']) {
     await cp(join(root, 'src/lib', file), join(fixture, 'src/lib', file));
   }
+  await mkdir(join(fixture, 'src/lib/auth'), { recursive: true });
+  await cp(join(root, 'src/lib/auth/jwt.ts'), join(fixture, 'src/lib/auth/jwt.ts'));
   await writeFile(join(fixture, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
   await writeFile(join(fixture, 'next.config.mjs'), 'export default { agentRules: false };');
   await writeFile(join(fixture, 'tsconfig.json'), JSON.stringify({
