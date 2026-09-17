@@ -113,6 +113,52 @@ Direction is always from CoinPay's point of view: `debit` pulls from the
 user's bank into us, `credit` pays out to them. `/banking` is the merchant
 page over these routes.
 
+## Paying by bank, wherever a payment is taken
+
+ACH is offered as a way to pay on the payment page and the invoice page, next
+to crypto, card and PayPal. The buyer enters the name on the account, routing
+number, account number and type; the routing number is checked against the ABA
+checksum, the fraud layer must say `allow`, and the charge must be in USD.
+
+A pay-in is a bank transfer of kind `payin` tied to `payment_id` or
+`invoice_id`, with the platform fee recorded at the merchant's tier. The
+payer's account becomes a counterparty with role `payer`: it is never listed
+on the merchant's page and can never be a payout destination.
+
+**A submitted debit is not a paid invoice.** Nothing happens to the payment or
+invoice until the transfer is `completed` (settled and past the hold). Then the
+payment is `confirmed` or the invoice `paid` with `settlement_method: 'ach'`,
+and the merchant webhook fires (`payment.confirmed` / `invoice.paid`). A return
+that lands after completion reverses it: the payment becomes `failed`, the
+invoice goes back to `sent`, and the merchant is told again
+(`payment.failed` / `invoice.payment_returned`) with the return code. Both
+writes are conditional on the current status, so a repeated cron tick cannot
+confirm or notify twice. See `src/lib/banking/payin.ts`.
+
+| Route | Purpose |
+|---|---|
+| `GET/POST /api/payments/:id/ach` | Is bank payment offered; start one; poll it |
+| `GET/POST /api/invoices/:id/ach` | The same for an invoice |
+
+## Balance and payouts
+
+`balanceFromLedger` in `service.ts` is what a merchant may pay out: completed
+pay-ins and funding count in (net of fee), payouts count out from the moment
+they are originated, and a pay-in returned after completion counts out again.
+A payout above the balance is refused with 409. Two concurrent payouts can
+both pass the check; the ledger then goes negative and the next is refused,
+which is the accepted bound until a reservation exists.
+
+**Where the money sits.** Every debit lands in the account
+`COLUMN_BANK_ACCOUNT_ID` names and every payout leaves it, so that account
+holds merchants' money between the two. `plans/fiat-onramp-strategy.md` is
+explicit that holding merchant funds is money transmission. The way out is
+Column's platform model, where each merchant is a Column entity with its own
+account and a pay-in lands there directly; that needs Column to approve the
+platform structure and a per-merchant KYB flow, neither of which is built.
+Until then this is the exposure, and it is the reason the rail is not switched
+on by a config value alone.
+
 ## Configuration
 
 | Variable | Purpose |
@@ -133,8 +179,9 @@ so the handling code is tested from the start.
 
 ## Status
 
-Domain, registry, stub, Column adapter, the caller, routes, sweep, page and
-tests are in. What is not: a Column production account. Column onboards the
+Domain, registry, stub, Column adapter, the caller, routes, sweep, page,
+pay-by-bank on the payment and invoice pages, the balance ledger and tests
+are in. What is not: a Column production account. Column onboards the
 originating entity (KYB) and issues the bank account that
 `COLUMN_BANK_ACCOUNT_ID` names; until both env vars are set,
 `getActiveBankProvider()` returns null, `/api/banking` reports

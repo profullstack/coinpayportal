@@ -1,4 +1,9 @@
-# ACH pay-in
+# ACH pay-in (Stripe rail, superseded)
+
+> Stripe access was lost on 2026-09-06, so this rail cannot be used. ACH as a
+> way to pay now runs on Column through `src/lib/banking`; see
+> `docs/BANK-TRANSFERS.md`, "Paying by bank". This page is kept for the hold
+> reasoning, which the Column pay-in reuses.
 
 Buyers pay from a US bank account instead of a card. Stripe's `us_bank_account`
 method on Checkout, on the existing Connect destination-charge flow, with a hold

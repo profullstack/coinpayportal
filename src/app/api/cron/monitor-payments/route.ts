@@ -26,6 +26,7 @@ import { releaseExpiredAchHolds } from '@/lib/payments/ach-hold';
 import { sweepBankTransfers } from '@/lib/banking/service';
 import { SupabaseBankStore } from '@/lib/banking/store';
 import { bankTransfersEnabled } from '@/lib/banking/providers';
+import { applyPayinTransition } from '@/lib/banking/payin';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -154,8 +155,13 @@ export async function GET(request: NextRequest) {
     // such, when no originator is configured.
     const bankTransferSweep = bankTransfersEnabled()
       ? await sweepBankTransfers({ store: new SupabaseBankStore(supabase as never) }, now, {
-          onTransition: (before, after) => {
-            console.log('[banking] transfer', after.id, `${before.status} -> ${after.status}`, after.return_code ?? '');
+          onTransition: async (before, after) => {
+            console.log('[banking] transfer', after.id, after.kind, `${before.status} -> ${after.status}`, after.return_code ?? '');
+            // A completed pay-in marks its payment or invoice paid and tells
+            // the merchant; a return after completion reverses it. Nothing
+            // happens at settlement, which is the point of the hold.
+            const effect = await applyPayinTransition(supabase as never, before, after);
+            if (effect) console.log('[banking] payin', after.id, effect, after.payment_id ?? after.invoice_id);
           },
         })
       : { skipped: true };

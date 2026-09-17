@@ -20,9 +20,20 @@ export interface BankCounterpartyRow {
   routing_number: string;
   account_last4: string;
   status: 'active' | 'removed';
+  /** merchant = the merchant's own account (listed, payable to); payer = a buyer's, used once. */
+  role: CounterpartyRole;
+  payer_email: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export type CounterpartyRole = 'merchant' | 'payer';
+
+/**
+ * What a transfer is for. It is what makes a balance computable: payins and
+ * funding add to what a merchant may pay out, payouts subtract.
+ */
+export type TransferKind = 'payin' | 'funding' | 'payout';
 
 export interface BankTransferRow {
   id: string;
@@ -31,7 +42,15 @@ export interface BankTransferRow {
   provider: string;
   provider_transfer_id: string | null;
   direction: TransferDirection;
+  kind: TransferKind;
+  payment_id: string | null;
+  invoice_id: string | null;
+  payer_email: string | null;
   amount_minor: number;
+  /** Platform fee, minor units. Zero on funding and payout. */
+  fee_minor: number;
+  /** What the merchant keeps: amount minus fee on a payin, the amount otherwise. */
+  net_minor: number;
   currency: string;
   status: TransferStatus;
   provider_status: string | null;
@@ -57,7 +76,13 @@ export type NewTransferRow = Pick<
   | 'business_id'
   | 'provider'
   | 'direction'
+  | 'kind'
+  | 'payment_id'
+  | 'invoice_id'
+  | 'payer_email'
   | 'amount_minor'
+  | 'fee_minor'
+  | 'net_minor'
   | 'currency'
   | 'counterparty_id'
   | 'bank_counterparty_id'
@@ -96,6 +121,11 @@ export interface BankStore {
   listInFlight(limit: number): Promise<BankTransferRow[]>;
   /** Completed transfers that settled after `settledAfter` and were not polled since `polledBefore`. */
   listReturnable(settledAfter: string, polledBefore: string, limit: number): Promise<BankTransferRow[]>;
+
+  /** Every transfer that counts towards a merchant's balance (all kinds, all statuses). */
+  listLedger(merchantId: string): Promise<BankTransferRow[]>;
+  /** Payin transfers for one payment or invoice, newest first. */
+  listPayinsFor(ref: { paymentId?: string | null; invoiceId?: string | null }): Promise<BankTransferRow[]>;
 }
 
 const IN_FLIGHT: readonly TransferStatus[] = ['initiated', 'pending', 'settled'];
@@ -133,6 +163,7 @@ export class SupabaseBankStore implements BankStore {
       .select('*')
       .eq('merchant_id', merchantId)
       .eq('status', 'active')
+      .eq('role', 'merchant')
       .order('created_at', { ascending: false });
     if (businessId) query = query.eq('business_id', businessId);
     const { data, error } = await query;
@@ -236,6 +267,26 @@ export class SupabaseBankStore implements BankStore {
     if (error) throw new Error(`bank_transfers returnable read failed: ${error.message}`);
     return (data as BankTransferRow[]) ?? [];
   }
+
+  async listLedger(merchantId: string): Promise<BankTransferRow[]> {
+    const { data, error } = await this.supabase
+      .from('bank_transfers')
+      .select('*')
+      .eq('merchant_id', merchantId)
+      .limit(5000);
+    if (error) throw new Error(`bank_transfers ledger read failed: ${error.message}`);
+    return (data as BankTransferRow[]) ?? [];
+  }
+
+  async listPayinsFor(ref: { paymentId?: string | null; invoiceId?: string | null }): Promise<BankTransferRow[]> {
+    let query = this.supabase.from('bank_transfers').select('*').eq('kind', 'payin');
+    if (ref.paymentId) query = query.eq('payment_id', ref.paymentId);
+    else if (ref.invoiceId) query = query.eq('invoice_id', ref.invoiceId);
+    else return [];
+    const { data, error } = await query.order('created_at', { ascending: false });
+    if (error) throw new Error(`bank_transfers payin read failed: ${error.message}`);
+    return (data as BankTransferRow[]) ?? [];
+  }
 }
 
 /**
@@ -278,6 +329,7 @@ export class MemoryBankStore implements BankStore {
       (row) =>
         row.merchant_id === merchantId &&
         row.status === 'active' &&
+        row.role === 'merchant' &&
         (!businessId || row.business_id === businessId),
     );
   }
@@ -365,5 +417,20 @@ export class MemoryBankStore implements BankStore {
           (row.last_polled_at === null || row.last_polled_at < polledBefore),
       )
       .slice(0, limit);
+  }
+
+  async listLedger(merchantId: string): Promise<BankTransferRow[]> {
+    return [...this.transfers.values()].filter((row) => row.merchant_id === merchantId);
+  }
+
+  async listPayinsFor(ref: { paymentId?: string | null; invoiceId?: string | null }): Promise<BankTransferRow[]> {
+    return [...this.transfers.values()]
+      .filter(
+        (row) =>
+          row.kind === 'payin' &&
+          ((ref.paymentId && row.payment_id === ref.paymentId) ||
+            (ref.invoiceId && row.invoice_id === ref.invoiceId)),
+      )
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
   }
 }

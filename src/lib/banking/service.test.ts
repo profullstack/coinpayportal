@@ -10,6 +10,9 @@ import {
   transitionFor,
   BankTransferError,
   ORPHAN_AFTER_MS,
+  originatePayin,
+  balanceFromLedger,
+  availableBalanceMinor,
 } from './service';
 import type { BankTransfer, BankTransferProvider } from './types';
 
@@ -244,6 +247,12 @@ describe('transitionFor', () => {
     last_polled_at: null,
     last_error: null,
     updated_at: '2026-09-10T00:00:00.000Z',
+    kind: 'funding' as const,
+    payment_id: null,
+    invoice_id: null,
+    payer_email: null,
+    fee_minor: 0,
+    net_minor: 100,
   };
   const remote = (status: BankTransfer['status'], extra: Partial<BankTransfer> = {}): BankTransfer => ({
     id: 'stub_txf_1',
@@ -371,7 +380,13 @@ describe('sweepBankTransfers', () => {
       business_id: null,
       provider: 'stub',
       direction: 'debit',
+      kind: 'funding',
+      payment_id: null,
+      invoice_id: null,
+      payer_email: null,
       amount_minor: 777,
+      fee_minor: 0,
+      net_minor: 777,
       currency: 'USD',
       counterparty_id: cp.provider_counterparty_id,
       bank_counterparty_id: cp.id,
@@ -422,5 +437,94 @@ describe('sweepBankTransfers', () => {
     expect(stats.checked).toBe(2);
     expect(store.transfers.get(a.id)!.last_error).toContain('503');
     expect(store.transfers.get(b.id)!.last_error).toBeNull();
+  });
+});
+
+describe('originatePayin', () => {
+  const payer = { holderName: 'Grace Hopper', routingNumber: '021000021', accountNumber: '9988776655', accountType: 'checking' as const, email: 'grace@example.com' };
+  const input = { paymentId: 'pay_1', merchantId: MERCHANT, businessId: 'biz_1', amountMinor: 10_000, currency: 'USD', feeMinor: 100, payer };
+
+  it('creates a payer counterparty that never appears in the merchant list', async () => {
+    const row = await originatePayin(input, deps());
+    expect(row.kind).toBe('payin');
+    expect(row.payment_id).toBe('pay_1');
+    expect(row.net_minor).toBe(9_900);
+    expect(row.idempotency_key).toBe('payin:payment:pay_1:1');
+    expect(JSON.stringify([...store.counterparties.values()])).not.toContain('9988776655');
+    expect(await store.listCounterparties(MERCHANT)).toEqual([]);
+  });
+
+  it('returns the live attempt instead of debiting twice', async () => {
+    const first = await originatePayin(input, deps());
+    const spy = vi.spyOn(provider, 'createTransfer');
+    const second = await originatePayin({ ...input, payer: { ...payer, accountNumber: '1111' } }, deps());
+    expect(second.id).toBe(first.id);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('allows a fresh attempt after a failed one, under a new key', async () => {
+    provider.createTransfer = async () => {
+      throw new Error('rejected');
+    };
+    const failed = await originatePayin(input, deps());
+    expect(failed.status).toBe('failed');
+    provider.createTransfer = StubBankProvider.prototype.createTransfer.bind(provider);
+    const retry = await originatePayin(input, deps());
+    expect(retry.id).not.toBe(failed.id);
+    expect(retry.idempotency_key).toBe('payin:payment:pay_1:2');
+  });
+
+  it('refuses to pay out to a payer account', async () => {
+    await originatePayin(input, deps());
+    const payerRow = [...store.counterparties.values()].find((c) => c.role === 'payer')!;
+    await expect(
+      originateTransfer({ merchantId: MERCHANT, bankCounterpartyId: payerRow.id, direction: 'credit', amountMinor: 1, currency: 'USD', idempotencyKey: 'k' }, deps()),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('validates fee and amount', async () => {
+    await expect(originatePayin({ ...input, feeMinor: 10_000 }, deps())).rejects.toMatchObject({ status: 400 });
+    await expect(originatePayin({ ...input, amountMinor: 0 }, deps())).rejects.toMatchObject({ status: 400 });
+    await expect(originatePayin({ ...input, paymentId: null, invoiceId: null }, deps())).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe('balance and payouts', () => {
+  const ledgerRow = (over: Partial<Parameters<typeof balanceFromLedger>[0][number]>) =>
+    ({ kind: 'payin', status: 'completed', amount_minor: 1000, net_minor: 990, completed_at: 'x', ...over }) as Parameters<typeof balanceFromLedger>[0][number];
+
+  it('counts completed payins net of fee, subtracts payouts, and reverses returned payins', () => {
+    expect(balanceFromLedger([ledgerRow({})])).toBe(990);
+    expect(balanceFromLedger([ledgerRow({ status: 'settled' })])).toBe(0);
+    expect(balanceFromLedger([ledgerRow({}), ledgerRow({ kind: 'payout', status: 'initiated', amount_minor: 500 })])).toBe(490);
+    expect(balanceFromLedger([ledgerRow({}), ledgerRow({ kind: 'payout', status: 'failed', amount_minor: 500 })])).toBe(990);
+    expect(balanceFromLedger([ledgerRow({ status: 'returned' })])).toBe(-990);
+    expect(balanceFromLedger([ledgerRow({ status: 'returned', completed_at: null })])).toBe(0);
+    expect(balanceFromLedger([ledgerRow({ kind: 'funding', net_minor: 1000 })])).toBe(1000);
+  });
+
+  it('refuses a payout above the available balance, and allows one within it', async () => {
+    const cp = await linked();
+    await expect(
+      originateTransfer({ merchantId: MERCHANT, bankCounterpartyId: cp.id, direction: 'credit', amountMinor: 1, currency: 'USD', idempotencyKey: 'p1' }, deps()),
+    ).rejects.toMatchObject({ status: 409, message: expect.stringContaining('Insufficient') });
+
+    // A payin completes: settle, then pass the hold.
+    const payin = await originatePayin(
+      { paymentId: 'pay_9', merchantId: MERCHANT, businessId: 'biz_1', amountMinor: 10_000, currency: 'USD', feeMinor: 100, payer: { holderName: 'G H', routingNumber: '021000021', accountNumber: '12345678', accountType: 'checking' } },
+      deps(),
+    );
+    provider.advance(payin.provider_transfer_id!, 'settled');
+    await sweepBankTransfers(deps(), clock);
+    clock = new Date(clock.getTime() + 6 * 24 * 60 * 60 * 1000);
+    await sweepBankTransfers(deps(), clock);
+    expect(await availableBalanceMinor(MERCHANT, store)).toBe(9_900);
+
+    const payout = await originateTransfer({ merchantId: MERCHANT, bankCounterpartyId: cp.id, direction: 'credit', amountMinor: 9_900, currency: 'USD', idempotencyKey: 'p2' }, deps());
+    expect(payout.kind).toBe('payout');
+    expect(await availableBalanceMinor(MERCHANT, store)).toBe(0);
+    await expect(
+      originateTransfer({ merchantId: MERCHANT, bankCounterpartyId: cp.id, direction: 'credit', amountMinor: 1, currency: 'USD', idempotencyKey: 'p3' }, deps()),
+    ).rejects.toMatchObject({ status: 409 });
   });
 });
