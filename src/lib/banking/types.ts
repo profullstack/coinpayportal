@@ -140,8 +140,74 @@ export interface BankTransferProvider {
   /** Currencies and rails this originator can actually move. */
   readonly currencies: readonly string[];
   isConfigured(): boolean;
+  /**
+   * Register a user's bank account with the originator.
+   *
+   * The full account number goes to the provider and nowhere else: this
+   * codebase keeps the provider's reference and the last four digits, so a
+   * database read can never yield a debitable account.
+   */
+  createCounterparty(request: BankCounterpartyRequest, signal?: AbortSignal): Promise<BankCounterparty>;
   createTransfer(request: BankTransferRequest, signal?: AbortSignal): Promise<BankTransfer>;
   getTransfer(id: string, signal?: AbortSignal): Promise<BankTransfer | null>;
+}
+
+/** A US bank account as the user types it. Never persisted in this shape. */
+export interface BankCounterpartyRequest {
+  /** Name on the account, as the bank knows it. */
+  holderName: string;
+  /** Nine-digit ABA routing number. */
+  routingNumber: string;
+  /** The account number. Leaves this process only towards the provider. */
+  accountNumber: string;
+  accountType: BankAccountType;
+}
+
+export type BankAccountType = 'checking' | 'savings';
+
+/** The provider's record of a user's bank account, minus anything debitable. */
+export interface BankCounterparty {
+  /** The provider's id for the account. */
+  id: string;
+  provider: string;
+  holderName: string;
+  accountType: BankAccountType;
+  routingNumber: string;
+  accountLast4: string;
+}
+
+/**
+ * Reject a bank account before it reaches an originator.
+ *
+ * The routing number check is the ABA checksum, which catches a transposed
+ * digit before a provider charges for the attempt or, worse, accepts a number
+ * that routes to a different bank.
+ */
+export function validateCounterpartyRequest(request: BankCounterpartyRequest): string | null {
+  if (!request.holderName || request.holderName.trim().length < 2) {
+    return 'holderName is required';
+  }
+  if (!/^\d{9}$/.test(request.routingNumber)) {
+    return 'routingNumber must be nine digits';
+  }
+  if (!isValidAbaRoutingNumber(request.routingNumber)) {
+    return 'routingNumber failed its checksum';
+  }
+  if (!/^\d{4,17}$/.test(request.accountNumber)) {
+    return 'accountNumber must be 4 to 17 digits';
+  }
+  if (request.accountType !== 'checking' && request.accountType !== 'savings') {
+    return 'accountType must be checking or savings';
+  }
+  return null;
+}
+
+/** The ABA routing number checksum: weights 3,7,1 repeating, total divisible by 10. */
+export function isValidAbaRoutingNumber(routing: string): boolean {
+  if (!/^\d{9}$/.test(routing)) return false;
+  const weights = [3, 7, 1, 3, 7, 1, 3, 7, 1];
+  const total = weights.reduce((sum, weight, i) => sum + weight * Number(routing[i]), 0);
+  return total % 10 === 0;
 }
 
 /**

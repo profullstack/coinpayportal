@@ -23,10 +23,13 @@
 import { createHash } from 'node:crypto';
 
 import {
+  BankCounterparty,
+  BankCounterpartyRequest,
   BankTransfer,
   BankTransferProvider,
   BankTransferRequest,
   TransferDirection,
+  validateCounterpartyRequest,
   validateTransferRequest,
 } from './types';
 import { normalizeColumnStatus, toColumnType, fromColumnType } from './column';
@@ -144,6 +147,47 @@ export class ColumnProvider implements BankTransferProvider {
    */
   private authHeader(): string {
     return `Basic ${Buffer.from(`:${this.apiKey}`).toString('base64')}`;
+  }
+
+  /**
+   * POST /counterparties, verified against the sandbox: `account_number` and
+   * `routing_number` are required, `account_type` is LOWERCASE (the transfer
+   * `type` on the same API is uppercase), and the id comes back as `cpty_…`.
+   */
+  async createCounterparty(
+    request: BankCounterpartyRequest,
+    signal?: AbortSignal,
+  ): Promise<BankCounterparty> {
+    const invalid = validateCounterpartyRequest(request);
+    if (invalid) throw new Error(`Invalid bank account: ${invalid}`);
+
+    const response = await fetch(`${COLUMN_API_URL}/counterparties`, {
+      method: 'POST',
+      headers: { Authorization: this.authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        routing_number: request.routingNumber,
+        account_number: request.accountNumber,
+        account_type: request.accountType,
+        name: request.holderName.trim(),
+      }),
+      signal,
+    });
+
+    const parsed = (await response.json().catch(() => ({}))) as ColumnTransferResponse & {
+      routing_number?: string;
+      account_number_last_four?: string;
+    };
+    if (!response.ok) throw new Error(describeError(parsed, response.status));
+    if (!parsed.id) throw new Error('Column returned a counterparty without an id');
+
+    return {
+      id: parsed.id,
+      provider: this.id,
+      holderName: request.holderName.trim(),
+      accountType: request.accountType,
+      routingNumber: parsed.routing_number ?? request.routingNumber,
+      accountLast4: request.accountNumber.slice(-4),
+    };
   }
 
   async createTransfer(request: BankTransferRequest, signal?: AbortSignal): Promise<BankTransfer> {

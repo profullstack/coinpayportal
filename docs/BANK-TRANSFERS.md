@@ -59,36 +59,68 @@ the exact case it exists to prevent — hence required rather than optional.
 
 ## Column
 
-The intended originator: a nationally chartered bank exposing ACH primitives
-directly, chosen over a processor on top of a sponsor bank because there is no
+The originator: a nationally chartered bank exposing ACH primitives directly,
+chosen over a processor on top of a sponsor bank because there is no
 intermediary whose risk appetite can withdraw the rail underneath us.
 
-**The HTTP adapter is not written yet, on purpose.** Verified from Column's
-published ACH transfer object: field names, `CREDIT`/`DEBIT`, `amount` in
-cents, `currency_code`, `effective_on`, `entry_class_code`, the counterparty
-references, and the status lifecycle — all of which are mapped and tested in
-`src/lib/banking/column.ts`. Not verified: the wire format, authentication and
-base URL, which their object reference does not state.
+`src/lib/banking/column-provider.ts` is written against a live sandbox, not
+against documentation, after three adapters in this repo were written blind
+and two had defects. Two things the sandbox corrected: counterparty
+`account_type` is lowercase while transfer `type` is uppercase in the same API,
+and NACHA caps `receiver_name` at 22 and `receiver_id` at 15 characters on
+`WEB`, enforced by rejection. Auth is HTTP Basic with an empty username and
+the key as the password. Column echoes `Idempotency-Key`, so a retried create
+returns the original transfer.
 
-Three adapters in this repo were written blind against documentation and two
-had real defects; Yellow Card's could never have authenticated at all. Doing
-that again on a rail that moves money out of customers' bank accounts, rather
-than one that returns a price, is not a trade worth making. The adapter goes in
-when there is a sandbox key to check it against, and `providers.ts` does not
-register Column until then — an unimplemented originator reporting itself
-configured is worse than an absent one.
+## The caller
 
-An unrecognised Column status maps to `pending`, never to a terminal state.
-They can add statuses without asking us, and guessing `completed` would release
-funds on a transfer whose real state we cannot read.
+`src/lib/banking/service.ts` is what moves money, over the `/api/banking`
+routes and from the payments cron.
+
+**Insert first, originate second.** A transfer row is written as `initiated`
+with its idempotency key before the originator is called. The unique index on
+that key is therefore what stops two racing requests from originating twice,
+which no application-level check can promise. If the provider rejects the
+transfer, the row is marked `failed` with the reason. If the process dies
+between the insert and the provider call, the row is left without a provider
+id and the sweep re-submits it two minutes later under the same key, so an
+originator that did receive the first attempt returns it rather than debiting
+again.
+
+**The sweep** (`sweepBankTransfers`, called from `/api/cron/monitor-payments`)
+polls every in-flight transfer. When the provider reports settlement it
+records `settled_at`, starts a hold of `BANK_TRANSFER_HOLD_DAYS`, and marks
+the transfer `completed` once the hold passes. Completed transfers are
+re-checked once a day for sixty days, and a return in that window is recorded
+as a return with its code, after completion. A `failed` or `canceled` word
+from the provider never un-settles money that has moved.
+
+**Bank accounts** are linked through `POST /api/banking/accounts`. The
+account number goes to the originator and is not stored: `bank_counterparties`
+holds the provider's reference, the routing number and the last four digits.
+The routing number is checked against the ABA checksum before any provider
+call.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/banking` | Whether a rail is enabled, which originator, the hold |
+| `GET/POST /api/banking/accounts` | Linked bank accounts; link one |
+| `DELETE /api/banking/accounts/:id` | Stop using an account (kept for history) |
+| `GET/POST /api/banking/transfers` | Transfers; originate one. `idempotencyKey` required, or an `Idempotency-Key` header |
+| `GET /api/banking/transfers/:id` | One transfer |
+
+Direction is always from CoinPay's point of view: `debit` pulls from the
+user's bank into us, `credit` pays out to them. `/banking` is the merchant
+page over these routes.
 
 ## Configuration
 
 | Variable | Purpose |
 |---|---|
+| `COLUMN_API_KEY` | Column API key. A `test_` key is the sandbox; the base URL is the same |
+| `COLUMN_BANK_ACCOUNT_ID` | The Column bank account transfers originate from. Required with the key: a key alone authenticates and then fails every transfer |
+| `BANK_TRANSFER_HOLD_DAYS` | Days after settlement before a transfer is reported complete. Default 5 |
 | `BANKING_ENABLE_STUB` | `1` enables the in-memory stub. Ignored in production |
-
-No Column variables yet; they land with the adapter.
 
 ## The stub
 
@@ -101,7 +133,10 @@ so the handling code is tested from the start.
 
 ## Status
 
-Domain, registry, stub, Column status mapping, schema and tests are in. No
-money can move: no originator is registered, `getActiveBankProvider()` returns
-null, and callers must handle that. Next step is a Column sandbox account,
-then the adapter.
+Domain, registry, stub, Column adapter, the caller, routes, sweep, page and
+tests are in. What is not: a Column production account. Column onboards the
+originating entity (KYB) and issues the bank account that
+`COLUMN_BANK_ACCOUNT_ID` names; until both env vars are set,
+`getActiveBankProvider()` returns null, `/api/banking` reports
+`enabled: false`, and no money can move. Wires and the stablecoin to USD
+payout leg remain unbuilt.
