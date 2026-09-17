@@ -189,3 +189,51 @@ describe('ColumnProvider.getTransfer', () => {
     expect(transfer!.returnCode).toBe('R01');
   });
 });
+
+describe('createCounterparty', () => {
+  const account = {
+    holderName: 'Ada Lovelace',
+    routingNumber: '021000021',
+    accountNumber: '000123456789',
+    accountType: 'checking' as const,
+  };
+
+  it('sends account_type in lowercase and keeps only the last four', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: 'cpty_new', routing_number: '021000021', account_number_last_four: '6789' }),
+    });
+
+    const result = await new ColumnProvider().createCounterparty(account);
+
+    const [url, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe('https://api.column.com/counterparties');
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body.account_type).toBe('checking');
+    expect(body.routing_number).toBe('021000021');
+    expect(body.account_number).toBe('000123456789');
+    expect(result).toMatchObject({ id: 'cpty_new', provider: 'column', accountLast4: '6789' });
+    expect(JSON.stringify(result)).not.toContain('000123456789');
+  });
+
+  it('rejects a bad routing number before any request', async () => {
+    await expect(
+      new ColumnProvider().createCounterparty({ ...account, routingNumber: '123456789' }),
+    ).rejects.toThrow(/checksum/);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("surfaces Column's structured error", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        code: 'invalid_field_value',
+        message: 'invalid account_type',
+        details: { invalid_enum: 'CHECKING' },
+      }),
+    });
+    await expect(new ColumnProvider().createCounterparty(account)).rejects.toThrow(/invalid_field_value/);
+  });
+});

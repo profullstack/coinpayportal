@@ -23,6 +23,9 @@ import { processWebhookRetryQueue } from '@/lib/webhooks/retry-queue';
 import { reconcilePaypalTransactions } from '@/lib/paypal/reconcile';
 import { redeliverQueuedWebhook, sendPaymentWebhook } from '@/lib/webhooks/service';
 import { releaseExpiredAchHolds } from '@/lib/payments/ach-hold';
+import { sweepBankTransfers } from '@/lib/banking/service';
+import { SupabaseBankStore } from '@/lib/banking/store';
+import { bankTransfersEnabled } from '@/lib/banking/providers';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -145,6 +148,18 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Advance bank transfers (ACH via src/lib/banking): poll in-flight ones,
+    // start the hold at settlement, complete after it, and keep re-checking
+    // completed transfers for late returns. Skipped entirely, and reported as
+    // such, when no originator is configured.
+    const bankTransferSweep = bankTransfersEnabled()
+      ? await sweepBankTransfers({ store: new SupabaseBankStore(supabase as never) }, now, {
+          onTransition: (before, after) => {
+            console.log('[banking] transfer', after.id, `${before.status} -> ${after.status}`, after.return_code ?? '');
+          },
+        })
+      : { skipped: true };
+
     // Downgrade merchants whose paid period has ended. isPaidTier also checks
     // the end date on every read, so a missed sweep cannot extend a plan — this
     // keeps the stored state honest as well.
@@ -165,6 +180,7 @@ export async function GET(request: NextRequest) {
       paypalReconcile,
       subscriptionExpiry,
       achHoldsReleased: releasedAchHolds.length,
+      bankTransfers: bankTransferSweep,
     };
 
     console.log('Monitor complete:', response);

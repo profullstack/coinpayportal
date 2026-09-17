@@ -16,10 +16,13 @@
  */
 
 import {
+  BankCounterparty,
+  BankCounterpartyRequest,
   BankTransfer,
   BankTransferProvider,
   BankTransferRequest,
   TransferStatus,
+  validateCounterpartyRequest,
   validateTransferRequest,
 } from './types';
 
@@ -36,6 +39,20 @@ export class StubBankProvider implements BankTransferProvider {
   isConfigured(): boolean {
     // Same guard as the remittance stub: opt-in, and never in production.
     return process.env.BANKING_ENABLE_STUB === '1' && process.env.NODE_ENV !== 'production';
+  }
+
+  async createCounterparty(request: BankCounterpartyRequest): Promise<BankCounterparty> {
+    const invalid = validateCounterpartyRequest(request);
+    if (invalid) throw new Error(`Invalid bank account: ${invalid}`);
+
+    return {
+      id: `stub_cpty_${++this.counter}`,
+      provider: this.id,
+      holderName: request.holderName.trim(),
+      accountType: request.accountType,
+      routingNumber: request.routingNumber,
+      accountLast4: request.accountNumber.slice(-4),
+    };
   }
 
   async createTransfer(request: BankTransferRequest): Promise<BankTransfer> {
