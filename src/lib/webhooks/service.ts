@@ -98,7 +98,9 @@ export type WebhookEvent =
   | 'escrow.resolved'
   | 'escrow.refunded'
   | 'escrow.expired'
-  | 'invoice.paid';
+  | 'invoice.paid'
+  // An ACH pay-in returned after the invoice was marked paid; the invoice is owed again.
+  | 'invoice.payment_returned';
 
 /**
  * Webhook payload structure

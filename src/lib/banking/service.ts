@@ -21,7 +21,7 @@
  */
 
 import { getBankProviders, getActiveBankProvider } from './providers';
-import type { BankStore, BankCounterpartyRow, BankTransferRow, TransferPatch } from './store';
+import type { BankStore, BankCounterpartyRow, BankTransferRow, TransferKind, TransferPatch } from './store';
 import { DuplicateIdempotencyKeyError } from './store';
 import {
   BankAccountType,
@@ -116,7 +116,35 @@ export async function linkBankAccount(
     account_type: counterparty.accountType,
     routing_number: counterparty.routingNumber,
     account_last4: counterparty.accountLast4,
+    role: 'merchant',
+    payer_email: null,
   });
+}
+
+/**
+ * What a merchant may pay out right now, in minor units.
+ *
+ * Payins and funding count once they have completed (settled and past the
+ * hold), payouts count from the moment they are originated so two payouts
+ * cannot both spend the same dollar, and a payin that was returned after it
+ * completed counts against the balance because that money already went out.
+ */
+export function balanceFromLedger(rows: readonly BankTransferRow[]): number {
+  let balance = 0;
+  for (const row of rows) {
+    if (row.kind === 'payout') {
+      if (row.status !== 'failed' && row.status !== 'canceled') balance -= row.amount_minor;
+      continue;
+    }
+    // payin or funding
+    if (row.status === 'completed') balance += row.net_minor;
+    if (row.status === 'returned' && row.completed_at) balance -= row.net_minor;
+  }
+  return balance;
+}
+
+export async function availableBalanceMinor(merchantId: string, store: BankStore): Promise<number> {
+  return balanceFromLedger(await store.listLedger(merchantId));
 }
 
 export interface OriginateTransferInput {
@@ -170,6 +198,11 @@ export async function originateTransfer(
     throw new BankTransferError('Bank account belongs to a different business', 403);
   }
 
+  if (counterparty.role !== 'merchant') {
+    // A payer's account is used once, to pay. It is never a payout destination.
+    throw new BankTransferError('Unknown bank account', 404);
+  }
+
   const currency = input.currency.toUpperCase();
   const request = {
     direction: input.direction,
@@ -185,6 +218,22 @@ export async function originateTransfer(
     throw new BankTransferError(`${provider.label} cannot move ${currency}`, 400);
   }
 
+  const kind: TransferKind = input.direction === 'credit' ? 'payout' : 'funding';
+  if (kind === 'payout') {
+    // A payout leaves the originating account, which holds every merchant's
+    // money. Without this check a merchant could pay out what another merchant
+    // was owed. Two concurrent payouts can still both pass it; the ledger then
+    // goes negative and the next one is refused, which is the accepted bound
+    // until a reservation exists.
+    const available = await availableBalanceMinor(input.merchantId, deps.store);
+    if (input.amountMinor > available) {
+      throw new BankTransferError(
+        `Insufficient balance: ${(available / 100).toFixed(2)} ${currency} available`,
+        409,
+      );
+    }
+  }
+
   let row: BankTransferRow;
   try {
     row = await deps.store.insertTransfer({
@@ -192,7 +241,13 @@ export async function originateTransfer(
       business_id: input.businessId ?? counterparty.business_id ?? null,
       provider: provider.id,
       direction: input.direction,
+      kind,
+      payment_id: null,
+      invoice_id: null,
+      payer_email: null,
       amount_minor: input.amountMinor,
+      fee_minor: 0,
+      net_minor: input.amountMinor,
       currency,
       counterparty_id: counterparty.provider_counterparty_id,
       bank_counterparty_id: counterparty.id,
@@ -206,6 +261,125 @@ export async function originateTransfer(
       const winner = await deps.store.findTransferByIdempotencyKey(key);
       if (winner && winner.merchant_id === input.merchantId) return winner;
       throw new BankTransferError('idempotencyKey is already in use', 409);
+    }
+    throw err;
+  }
+
+  return submitToProvider(row, provider, request, deps);
+}
+
+export interface OriginatePayinInput {
+  /** Exactly one of paymentId or invoiceId. */
+  paymentId?: string | null;
+  invoiceId?: string | null;
+  merchantId: string;
+  businessId: string;
+  amountMinor: number;
+  currency: string;
+  /** Platform fee in minor units, already computed at the merchant's tier. */
+  feeMinor: number;
+  description?: string | null;
+  payer: {
+    holderName: string;
+    routingNumber: string;
+    accountNumber: string;
+    accountType: BankAccountType;
+    email?: string | null;
+  };
+}
+
+/**
+ * A buyer pays a payment or an invoice from their bank account.
+ *
+ * The payer's account becomes a counterparty with role 'payer': never listed
+ * on the merchant's page and never a payout destination. The debit is a
+ * transfer of kind 'payin' tied to the payment or invoice. One attempt may be
+ * in flight per payment; a failed attempt may be followed by another, which
+ * is what the attempt number in the idempotency key allows.
+ *
+ * Nothing here touches the payment or invoice row. That happens in ./payin.ts
+ * when the sweep reports the transfer complete, because a submitted ACH debit
+ * is not a paid invoice.
+ */
+export async function originatePayin(input: OriginatePayinInput, deps: BankingDeps): Promise<BankTransferRow> {
+  const provider = resolveProvider(deps);
+  const ref = input.paymentId ? { paymentId: input.paymentId } : { invoiceId: input.invoiceId };
+  if (!ref.paymentId && !ref.invoiceId) throw new BankTransferError('paymentId or invoiceId is required', 400);
+
+  const previous = await deps.store.listPayinsFor(ref);
+  const live = previous.find((row) => row.status !== 'failed' && row.status !== 'canceled');
+  if (live) return live; // already paying by bank; the page polls this row
+
+  const currency = input.currency.toUpperCase();
+  if (!provider.currencies.includes(currency)) {
+    throw new BankTransferError(`${provider.label} cannot move ${currency}`, 400);
+  }
+  if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
+    throw new BankTransferError('amountMinor must be a positive integer', 400);
+  }
+  if (!Number.isInteger(input.feeMinor) || input.feeMinor < 0 || input.feeMinor >= input.amountMinor) {
+    throw new BankTransferError('feeMinor is out of range', 400);
+  }
+
+  const payerRequest = {
+    holderName: input.payer.holderName,
+    routingNumber: input.payer.routingNumber.replace(/\s+/g, ''),
+    accountNumber: input.payer.accountNumber.replace(/\s+/g, ''),
+    accountType: input.payer.accountType,
+  };
+  const invalid = validateCounterpartyRequest(payerRequest);
+  if (invalid) throw new BankTransferError(invalid, 400);
+
+  const counterparty = await provider.createCounterparty(payerRequest);
+  const stored = await deps.store.insertCounterparty({
+    merchant_id: input.merchantId,
+    business_id: input.businessId,
+    provider: provider.id,
+    provider_counterparty_id: counterparty.id,
+    holder_name: counterparty.holderName,
+    account_type: counterparty.accountType,
+    routing_number: counterparty.routingNumber,
+    account_last4: counterparty.accountLast4,
+    role: 'payer',
+    payer_email: input.payer.email?.trim() || null,
+  });
+
+  const attempt = previous.length + 1;
+  const key = `payin:${ref.paymentId ? 'payment' : 'invoice'}:${ref.paymentId ?? ref.invoiceId}:${attempt}`;
+  const request = {
+    direction: 'debit' as const,
+    amountMinor: input.amountMinor,
+    currency,
+    counterpartyId: counterparty.id,
+    idempotencyKey: key,
+    description: input.description?.trim() || undefined,
+  };
+
+  let row: BankTransferRow;
+  try {
+    row = await deps.store.insertTransfer({
+      merchant_id: input.merchantId,
+      business_id: input.businessId,
+      provider: provider.id,
+      direction: 'debit',
+      kind: 'payin',
+      payment_id: ref.paymentId ?? null,
+      invoice_id: ref.invoiceId ?? null,
+      payer_email: input.payer.email?.trim() || null,
+      amount_minor: input.amountMinor,
+      fee_minor: input.feeMinor,
+      net_minor: input.amountMinor - input.feeMinor,
+      currency,
+      counterparty_id: counterparty.id,
+      bank_counterparty_id: stored.id,
+      description: request.description ?? null,
+      idempotency_key: key,
+    });
+  } catch (err) {
+    if (err instanceof DuplicateIdempotencyKeyError) {
+      // Two submissions of the same form raced. The first owns the debit.
+      const winner = await deps.store.findTransferByIdempotencyKey(key);
+      if (winner) return winner;
     }
     throw err;
   }
@@ -418,7 +592,12 @@ export function publicTransfer(row: BankTransferRow) {
     bankCounterpartyId: row.bank_counterparty_id,
     provider: row.provider,
     direction: row.direction,
+    kind: row.kind,
+    paymentId: row.payment_id,
+    invoiceId: row.invoice_id,
     amountMinor: row.amount_minor,
+    feeMinor: row.fee_minor,
+    netMinor: row.net_minor,
     currency: row.currency,
     status: row.status,
     providerStatus: row.provider_status,
@@ -430,6 +609,23 @@ export function publicTransfer(row: BankTransferRow) {
     holdUntil: row.hold_until,
     completedAt: row.completed_at,
     returnedAt: row.returned_at,
+    error: row.status === 'failed' ? row.last_error : null,
+  };
+}
+
+/** What a buyer may see of their own pay-in: status and timing, nothing of anyone else's. */
+export function payerTransferView(row: BankTransferRow) {
+  return {
+    id: row.id,
+    status: row.status,
+    amountMinor: row.amount_minor,
+    currency: row.currency,
+    createdAt: row.created_at,
+    settledAt: row.settled_at,
+    holdUntil: row.hold_until,
+    completedAt: row.completed_at,
+    returnedAt: row.returned_at,
+    returnCode: row.return_code,
     error: row.status === 'failed' ? row.last_error : null,
   };
 }

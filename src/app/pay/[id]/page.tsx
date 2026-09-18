@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import AchPayForm, { useAchAvailability } from '@/components/AchPayForm';
 
 const PAYMENT_EXPIRY_MINUTES = 15;
 const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
@@ -39,7 +40,7 @@ interface Business {
   name: string;
 }
 
-type PaymentTab = 'crypto' | 'card';
+type PaymentTab = 'crypto' | 'card' | 'bank';
 
 // Get blockchain explorer URL for a transaction
 const getExplorerUrl = (blockchain: string, txHash: string): string => {
@@ -106,6 +107,9 @@ export default function PublicPaymentPage() {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
   const [paymentStatus, setPaymentStatus] = useState<string>('pending');
+  // Whether this payment may be paid from a US bank account (server-decided).
+  // Asked only once a pending payment is on screen, after the page's own loads.
+  const ach = useAchAvailability(`/api/payments/${paymentId}/ach`, !loading && paymentStatus === 'pending');
   const [qrLoaded, setQrLoaded] = useState(false);
   const [qrError, setQrError] = useState(false);
   const [activeTab, setActiveTab] = useState<PaymentTab>('crypto');
@@ -116,6 +120,7 @@ export default function PublicPaymentPage() {
 
   const hasCardOption = !!(payment?.metadata?.stripe_checkout_url);
   const hasCryptoOption = !!(payment?.payment_address);
+  const hasBankOption = !!ach.status?.available;
 
   const copyToClipboard = async (text: string, field: string) => {
     try {
@@ -257,6 +262,8 @@ export default function PublicPaymentPage() {
         const hasCrypto = !!data.payment.payment_address;
         if (!hasCrypto && hasStripe) {
           setActiveTab('card');
+        } else if (!hasCrypto && !hasStripe) {
+          setActiveTab('bank');
         }
         
         // Calculate initial time remaining
@@ -435,7 +442,7 @@ export default function PublicPaymentPage() {
   const isTimerUrgent = timeRemaining > 0 && timeRemaining < 300; // < 5 minutes
 
   // Whether to show tabs
-  const showTabs = hasCryptoOption && hasCardOption && isPaymentPending;
+  const showTabs = isPaymentPending && [hasCryptoOption, hasCardOption, hasBankOption].filter(Boolean).length > 1;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 py-8 px-4">
@@ -528,6 +535,7 @@ export default function PublicPaymentPage() {
           {/* Payment Method Tabs */}
           {showTabs && (
             <div className="flex border-b border-gray-700" data-testid="payment-tabs">
+              {hasCryptoOption && (
               <button
                 onClick={() => setActiveTab('crypto')}
                 className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
@@ -544,6 +552,8 @@ export default function PublicPaymentPage() {
                   Pay with Crypto
                 </span>
               </button>
+              )}
+              {hasCardOption && (
               <button
                 onClick={() => setActiveTab('card')}
                 className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
@@ -560,6 +570,25 @@ export default function PublicPaymentPage() {
                   Pay with Card
                 </span>
               </button>
+              )}
+              {hasBankOption && (
+                <button
+                  onClick={() => setActiveTab('bank')}
+                  className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
+                    activeTab === 'bank'
+                      ? 'text-emerald-400 border-b-2 border-emerald-400 bg-emerald-500/10'
+                      : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700/50'
+                  }`}
+                  data-testid="tab-bank"
+                >
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10l9-6 9 6M5 10v8m4-8v8m6-8v8m4-8v8M3 21h18" />
+                    </svg>
+                    Pay by Bank
+                  </span>
+                </button>
+              )}
             </div>
           )}
 
@@ -611,6 +640,28 @@ export default function PublicPaymentPage() {
           )}
 
           <div className="p-6 space-y-6">
+            {/* === BANK TAB === */}
+            {activeTab === 'bank' && hasBankOption && isPaymentPending && (
+              <div className="space-y-6" data-testid="bank-payment-section">
+                <div className="text-center">
+                  <p className="text-3xl font-bold text-white">
+                    ${payment.amount ? parseFloat(payment.amount).toFixed(2) : 'N/A'}
+                  </p>
+                  <p className="text-sm text-gray-400 mt-1">USD via ACH bank transfer</p>
+                </div>
+                <AchPayForm
+                  endpoint={`/api/payments/${paymentId}/ach`}
+                  amountLabel={`$${payment.amount ? parseFloat(payment.amount).toFixed(2) : ''}`}
+                />
+                {payment.description && (
+                  <div className="bg-gray-900/50 rounded-xl p-4">
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Description</label>
+                    <p className="text-white">{payment.description}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* === CARD TAB === */}
             {activeTab === 'card' && hasCardOption && isPaymentPending && (
               <div className="space-y-6" data-testid="card-payment-section">
