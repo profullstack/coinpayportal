@@ -11,13 +11,22 @@ export const dynamic = 'force-dynamic';
  * it is for the crypto address and the Stripe checkout link on the same page.
  */
 async function loadPayment(id: string): Promise<PayinTarget | null> {
-  const { data } = await getSupabaseAdmin()
+  // Two plain reads rather than an embedded join: the payment's business is
+  // resolved by id, so this does not depend on PostgREST finding a
+  // relationship between the tables.
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase
     .from('payments')
-    .select('id, business_id, amount, currency, status, description, businesses (merchant_id)')
+    // payments has no description column; it lives in metadata.
+    .select('id, business_id, amount, currency, status, metadata')
     .eq('id', id)
     .maybeSingle();
   if (!data || !data.business_id) return null;
-  const business = data.businesses as unknown as { merchant_id: string } | null;
+  const { data: business } = await supabase
+    .from('businesses')
+    .select('merchant_id')
+    .eq('id', data.business_id)
+    .maybeSingle();
   if (!business?.merchant_id) return null;
   return {
     paymentId: data.id,
@@ -26,7 +35,10 @@ async function loadPayment(id: string): Promise<PayinTarget | null> {
     amount: data.amount,
     currency: data.currency || 'USD',
     payable: data.status === 'pending',
-    description: data.description,
+    description:
+      typeof (data.metadata as Record<string, unknown> | null)?.description === 'string'
+        ? ((data.metadata as Record<string, unknown>).description as string)
+        : null,
   };
 }
 

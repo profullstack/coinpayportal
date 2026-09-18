@@ -12,13 +12,21 @@ export const dynamic = 'force-dynamic';
  * accepts, and never once it is paid.
  */
 async function loadInvoice(id: string): Promise<PayinTarget | null> {
-  const { data } = await getSupabaseAdmin()
+  // Two plain reads rather than an embedded join: the payment's business is
+  // resolved by id, so this does not depend on PostgREST finding a
+  // relationship between the tables.
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase
     .from('invoices')
-    .select('id, business_id, amount, currency, status, invoice_number, businesses (merchant_id)')
+    .select('id, business_id, amount, currency, status, invoice_number')
     .eq('id', id)
     .maybeSingle();
   if (!data || !data.business_id) return null;
-  const business = data.businesses as unknown as { merchant_id: string } | null;
+  const { data: business } = await supabase
+    .from('businesses')
+    .select('merchant_id')
+    .eq('id', data.business_id)
+    .maybeSingle();
   if (!business?.merchant_id) return null;
   return {
     invoiceId: data.id,
