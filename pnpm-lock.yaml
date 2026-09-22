@@ -106,8 +106,8 @@ importers:
         specifier: ^0.2.2
         version: 0.2.2
       '@profullstack/x402-gateway':
-        specifier: ^0.6.0
-        version: 0.6.0
+        specifier: ^0.7.0
+        version: 0.7.0
       '@scure/bip32':
         specifier: ^1.3.3
         version: 1.7.0
@@ -337,7 +337,7 @@ importers:
         version: 8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.11
-        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/coverage-v8@1.6.1)(@vitest/ui@1.6.1)(jsdom@23.2.0(bufferutil@4.0.9)(supports-color@8.1.1)(utf-8-validate@5.0.10))(vite@8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/coverage-v8@1.6.1(supports-color@8.1.1)(vitest@4.1.11))(@vitest/ui@1.6.1(vitest@4.1.11))(jsdom@23.2.0(bufferutil@4.0.9)(supports-color@8.1.1)(utf-8-validate@5.0.10))(vite@8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
 
   packages/sdk:
     dependencies:
@@ -368,7 +368,7 @@ importers:
         version: 3.6.2
       vitest:
         specifier: ^4.1.11
-        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/coverage-v8@1.6.1)(@vitest/ui@1.6.1)(jsdom@23.2.0(bufferutil@4.0.9)(supports-color@8.1.1)(utf-8-validate@5.0.10))(vite@8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/coverage-v8@1.6.1(supports-color@8.1.1)(vitest@4.1.11))(@vitest/ui@1.6.1(vitest@4.1.11))(jsdom@23.2.0(bufferutil@4.0.9)(supports-color@8.1.1)(utf-8-validate@5.0.10))(vite@8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
 
 packages:
 
@@ -1628,6 +1628,10 @@ packages:
     engines: {bun: '>=1.1', node: '>=22.6'}
     hasBin: true
 
+  '@profullstack/keys@0.1.0':
+    resolution: {integrity: sha512-Vys47LvS5ivhdZu4SYOxh9Le3DEmWhjP0+CtrU45RhXAbY0ZFG/2Dk9V1bIIUGDp8UWMJqctvUD21JrNjfh04w==}
+    engines: {node: '>=20.11'}
+
   '@profullstack/referrals@0.1.0':
     resolution: {integrity: sha512-u66SdBVpsv3kc0N+NWISPoYD5vjCERyv5wfD07iSkZwQeC2IA+ihX5jNA4e7Xr+Y4AUvxLycG+3b4VaROqzgRg==}
     engines: {node: '>=18'}
@@ -1658,6 +1662,10 @@ packages:
 
   '@profullstack/x402-gateway@0.6.0':
     resolution: {integrity: sha512-n9/7NixIM9wVOMGWDc+3RtFsGABG+HAYfkZ11JxoEIlF/FDRGEXbvHFlNL/M97RNy01964FhAbQp34OMJoxqZg==}
+    engines: {node: '>=20.11'}
+
+  '@profullstack/x402-gateway@0.7.0':
+    resolution: {integrity: sha512-xsZRWHdOD9Y9EuRS4PsRmykVS2geOu/luY0jBlliOF3SEgxiLhgmx7ks+2jOUtGlq+cIfSonnk5eEObRGCOJ9w==}
     engines: {node: '>=20.11'}
 
   '@reduxjs/toolkit@2.12.0':
@@ -6808,6 +6816,8 @@ snapshots:
 
   '@profullstack/hqtui@0.6.3': {}
 
+  '@profullstack/keys@0.1.0': {}
+
   '@profullstack/referrals@0.1.0(react@19.2.0)':
     optionalDependencies:
       react: 19.2.0
@@ -6825,6 +6835,10 @@ snapshots:
       '@profullstack/x402-gateway': 0.6.0
 
   '@profullstack/x402-gateway@0.6.0': {}
+
+  '@profullstack/x402-gateway@0.7.0':
+    dependencies:
+      '@profullstack/keys': 0.1.0
 
   '@reduxjs/toolkit@2.12.0(react-redux@9.3.0(@types/react@18.3.27)(react@19.2.0)(redux@5.0.1))(react@19.2.0)':
     dependencies:
@@ -10983,7 +10997,7 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/coverage-v8@1.6.1)(@vitest/ui@1.6.1)(jsdom@23.2.0(bufferutil@4.0.9)(supports-color@8.1.1)(utf-8-validate@5.0.10))(vite@8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0)):
+  vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/coverage-v8@1.6.1(supports-color@8.1.1)(vitest@4.1.11))(@vitest/ui@1.6.1(vitest@4.1.11))(jsdom@23.2.0(bufferutil@4.0.9)(supports-color@8.1.1)(utf-8-validate@5.0.10))(vite@8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.11
       '@vitest/mocker': 4.1.11(vite@8.0.16(@types/node@20.19.43)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
