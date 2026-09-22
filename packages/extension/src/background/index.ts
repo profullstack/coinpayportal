@@ -56,6 +56,7 @@ import type {
   WalletEvent,
   X402ApprovalSummary,
 } from '../messages.js';
+import { KEEPALIVE_PORT } from '../messages.js';
 
 const AUTO_LOCK_ALARM = 'coinpay-auto-lock';
 const DEFAULT_IDLE_MINUTES = 15;
@@ -173,6 +174,20 @@ async function readApproval(requestId: string): Promise<PendingApproval | undefi
   return snapshot?.[requestId];
 }
 
+/**
+ * Forget one request without touching the others.
+ *
+ * `persistApprovals` rewrites the snapshot from memory, which after a restart
+ * is empty — fine for the whole stale set, wrong when a live request is also
+ * in flight. This removes exactly the one key.
+ */
+async function forgetApproval(requestId: string): Promise<void> {
+  const snapshot = await session.get<Record<string, PendingApproval>>(SESSION_APPROVALS);
+  if (!snapshot?.[requestId]) return;
+  delete snapshot[requestId];
+  await session.set(SESSION_APPROVALS, snapshot);
+}
+
 function newRequestId(): string {
   return crypto.randomUUID();
 }
@@ -182,6 +197,25 @@ function broadcast(event: WalletEvent): void {
   // be no listener yet — swallow the resulting rejection.
   chrome.runtime.sendMessage(event).catch(() => {});
 }
+
+/**
+ * Stay awake while a window is waiting on us.
+ *
+ * MV3 stops an idle service worker after about thirty seconds, and this worker
+ * is what holds the request an approval window is deciding: the details are
+ * mirrored to session storage but the resolver the page is waiting on is a
+ * function in memory, so a recycle turns an approval into a payment that never
+ * runs. Reading a hundred payees and typing a password takes far longer than
+ * thirty seconds, and the batch that follows runs for minutes more.
+ *
+ * The approval window opens this port and pings it. Every message is an event,
+ * and an event is what resets the idle timer — nothing is sent back.
+ */
+chrome.runtime.onConnect?.addListener((port) => {
+  if (port.name !== KEEPALIVE_PORT) return;
+  port.onMessage.addListener(() => {});
+  port.onDisconnect.addListener(() => {});
+});
 
 /**
  * Open the approval window and resolve once the user decides. Closing the
@@ -233,12 +267,19 @@ function settleApproval(requestId: string, approved: boolean): void {
  * view, and some payments may have failed. Yanking it away would hide the only
  * per-payment error detail the wallet shows, so the user closes it themselves.
  * A rejected or connect request has nothing left to display and is closed here.
+ *
+ * `error` travels with the event so a run that died before its first payment
+ * says why, instead of leaving the window on "Sending 0 of 113" forever.
  */
-async function clearApproval(requestId: string, closeWindow = true): Promise<void> {
+async function clearApproval(
+  requestId: string,
+  closeWindow = true,
+  error?: string,
+): Promise<void> {
   const entry = pending.get(requestId);
   pending.delete(requestId);
   await persistApprovals();
-  broadcast({ type: 'coinpay:approvalResolved', requestId });
+  broadcast({ type: 'coinpay:approvalResolved', requestId, ...(error ? { error } : {}) });
   if (closeWindow && entry?.windowId !== undefined) {
     try {
       await chrome.windows.remove(entry.windowId);
@@ -461,6 +502,10 @@ async function handleSitePayBatch(
   }
 
   const entry = pending.get(requestId);
+  // A run that dies here — no seed, no portal wallet, the network down — never
+  // reaches a payment, so the window sees no progress at all. Carrying the
+  // reason to `clearApproval` is what turns that silence into a message.
+  let failure: string | undefined;
   try {
     // Approving requires unlocking, so by here the seed is available.
     const seed = await wallet.requireSeed();
@@ -491,9 +536,12 @@ async function handleSitePayBatch(
     } finally {
       authKey.fill(0);
     }
+  } catch (err) {
+    failure = err instanceof Error ? err.message : String(err);
+    throw err;
   } finally {
     // Leave the window up as the results view; the user dismisses it.
-    await clearApproval(requestId, false);
+    await clearApproval(requestId, false, failure);
     scheduleAutoLock();
   }
 }
@@ -673,6 +721,20 @@ async function handleApprovalApprove(
 ): Promise<WalletResponse> {
   const approval = await readApproval(requestId);
   if (!approval) return { ok: false, error: 'This request is no longer pending' };
+
+  // The details outlive a recycled worker; the resolver that the site's call is
+  // waiting on does not. Approving anyway would unlock the wallet, report
+  // success, and send nothing — the window would sit on "Sending 0 of 113"
+  // forever. Say what happened instead, and let them start it again.
+  const entry = pending.get(requestId);
+  if (entry?.settled) return { ok: false, error: 'This request has already been decided' };
+  if (!entry) {
+    await forgetApproval(requestId);
+    return {
+      ok: false,
+      error: 'The wallet went to sleep and lost this request. Start the payment again from the site.',
+    };
+  }
 
   if (!(await wallet.isUnlocked())) {
     if (!password) return { ok: false, error: 'Password required' };
@@ -925,6 +987,9 @@ async function handle(
         return handleApprovalApprove(req.requestId, req.password);
       case 'approval:reject':
         settleApproval(req.requestId, false);
+        // A request whose resolver is gone has nothing to settle, so drop the
+        // mirrored copy here rather than leaving it to be re-read later.
+        if (!pending.has(req.requestId)) await forgetApproval(req.requestId);
         return { ok: true };
       case 'approval:cancel': {
         // Stop after the payment currently in flight; sent ones stay sent.

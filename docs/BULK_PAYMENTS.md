@@ -87,6 +87,23 @@ time or risking a duplicate.
 **Rough wall-clock:** ~4s per payment on one EVM/SOL account, ~10s on BTC. 62
 same-chain payments ≈ 4 minutes; spread across chains it is faster.
 
+### The worker has to outlive the approval
+
+The service worker holds the request the approval window is deciding: the
+details are mirrored into `chrome.storage.session`, but the resolver the page's
+`payBatch` is waiting on is a function in memory. MV3 stops an idle worker
+after about thirty seconds, and reading a hundred payees before typing a
+password takes far longer than that — so the window keeps a `coinpay-keepalive`
+port open and pings it every fifteen seconds, for the whole approval *and* the
+run that follows.
+
+If the worker is lost anyway (a browser restart, an extension update), the
+mirrored details still render, so approving would look normal while nothing
+was left to send. That case is now refused with "the wallet went to sleep and
+lost this request" rather than reporting a success that sends nothing. The
+page's call has already rejected by then; starting the payment again is the
+only way through.
+
 ### Payment-request expiry
 
 CoinPay quotes crypto amounts at the market rate and the quote holds ~15
