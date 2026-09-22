@@ -46,20 +46,36 @@ function fakeArea() {
 }
 
 interface Harness {
-  send: (req: WalletRequest) => Promise<WalletResponse>;
+  send: (req: WalletRequest, sender?: any) => Promise<WalletResponse>;
   local: ReturnType<typeof fakeArea>;
+  session: ReturnType<typeof fakeArea>;
   fetchMock: ReturnType<typeof vi.fn>;
+  windows: { create: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
   /** Bodies POSTed to /web-wallet/import, in order. */
   registrations: () => any[];
+  /** requestId of the most recently opened approval window. */
+  lastRequestId: () => string;
+  /** Hand the worker a keep-alive port, as the approval window does. */
+  connect: (port: any) => void;
+  /**
+   * Restart the service worker: a fresh module instance over the SAME storage.
+   * `chrome.storage.session` outlives the worker, in-memory state does not.
+   */
+  restart: () => Promise<Harness>;
 }
 
 async function boot(
-  options: { registerFails?: boolean; storage?: Map<string, unknown> } = {},
+  options: {
+    registerFails?: boolean;
+    storage?: Map<string, unknown>;
+    areas?: { local: ReturnType<typeof fakeArea>; session: ReturnType<typeof fakeArea> };
+  } = {},
 ): Promise<Harness> {
-  const local = fakeArea();
+  const local = options.areas?.local ?? fakeArea();
   if (options.storage) for (const [k, v] of options.storage) local.map.set(k, v);
-  const session = fakeArea();
+  const session = options.areas?.session ?? fakeArea();
   let listener: ((req: any, sender: any, respond: (r: any) => void) => boolean) | null = null;
+  let connectListener: ((port: any) => void) | null = null;
 
   const chrome = {
     storage: { local, session },
@@ -72,6 +88,7 @@ async function boot(
       },
       sendMessage: vi.fn(async () => {}),
       getURL: (path: string) => `chrome-extension://test/${path}`,
+      onConnect: { addListener: (fn: any) => { connectListener = fn; } },
     },
     windows: { create: vi.fn(async () => ({ id: 1 })), remove: vi.fn(async () => {}), onRemoved: { addListener: vi.fn() } },
     tabs: { sendMessage: vi.fn(async () => {}) },
@@ -128,18 +145,29 @@ async function boot(
 
   if (!listener) throw new Error('background worker registered no message listener');
 
-  return {
+  const harness: Harness = {
     local,
+    session,
     fetchMock,
+    windows: chrome.windows,
+    connect: (port: any) => connectListener?.(port),
     registrations: () =>
       fetchMock.mock.calls
         .filter(([url]) => String(url).endsWith('/web-wallet/import'))
         .map(([, init]) => JSON.parse((init as any).body)),
-    send: (req) =>
+    lastRequestId: () => {
+      const calls = chrome.windows.create.mock.calls as unknown as { url: string }[][];
+      const last = calls.at(-1);
+      if (!last) throw new Error('no approval window was opened');
+      return new URL(last[0]!.url).searchParams.get('requestId')!;
+    },
+    restart: () => boot({ ...options, areas: { local, session } }),
+    send: (req, sender = {}) =>
       new Promise((resolve) => {
-        listener!(req, {}, resolve);
+        listener!(req, sender, resolve);
       }),
-  };
+  } as Harness;
+  return harness;
 }
 
 /**
@@ -538,5 +566,95 @@ describe('upgrading an existing single-wallet install', () => {
     expect(address(after)).toBe(address(before));
     expect(rebooted.local.map.get('vault')).toBeUndefined();
     expect(rebooted.local.map.get('w:w1:vault')).toBeDefined();
+  });
+});
+
+/**
+ * A long approval outliving the service worker.
+ *
+ * MV3 recycles the worker after ~30s idle, and reading 113 payees takes longer
+ * than that. The request DETAILS survive in session storage, but the resolver
+ * that the site's `payBatch` is waiting on does not — so approving could report
+ * success to a window whose batch nothing was left to run, which is exactly
+ * what "I typed my password, clicked Approve all, and nothing happened" is.
+ */
+describe('approval across a worker restart', () => {
+  async function bootConnectedWallet() {
+    const h = await boot();
+    await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+    await settle();
+
+    const sender = { origin: 'https://ugig.net' };
+    const connected = h.send({ type: 'site:connect' } as WalletRequest, sender);
+    await settle();
+    await h.send({ type: 'approval:approve', requestId: h.lastRequestId() } as WalletRequest);
+    await connected;
+    return { h, sender };
+  }
+
+  const batchOf = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      id: `inv-${i}`,
+      chain: 'ETH',
+      to: '0x000000000000000000000000000000000000dEaD',
+      amount: '0.001',
+      label: `Invoice ${i}`,
+      amountUsd: 1,
+    }));
+
+  it('keeps the worker alive while the approval window is open', async () => {
+    const { h, sender } = await bootConnectedWallet();
+    void h.send({ type: 'site:payBatch', payments: batchOf(113) } as WalletRequest, sender);
+    await settle();
+
+    // The window holds a port open and pings it; every message resets the
+    // worker's idle timer, so the request is still live when the user clicks.
+    const port = {
+      name: 'coinpay-keepalive',
+      onMessage: { addListener: vi.fn() },
+      onDisconnect: { addListener: vi.fn() },
+    };
+    h.connect(port);
+    expect(port.onMessage.addListener).toHaveBeenCalled();
+  });
+
+  it('says the request was lost rather than reporting a phantom success', async () => {
+    const { h, sender } = await bootConnectedWallet();
+    void h.send({ type: 'site:payBatch', payments: batchOf(113) } as WalletRequest, sender);
+    await settle();
+    const requestId = h.lastRequestId();
+
+    // The worker is recycled while the user reads the list and types.
+    const restarted = await h.restart();
+    const res = await restarted.send({
+      type: 'approval:approve',
+      requestId,
+      password: PASSWORD,
+    } as WalletRequest);
+    await settle();
+
+    expect(res.ok).toBe(false);
+    expect('error' in res && res.error).toMatch(/again/i);
+    // Nothing was signed or broadcast: the run had no one left to start it.
+    expect(
+      restarted.fetchMock.mock.calls.filter(([url]) => String(url).includes('/prepare-tx')),
+    ).toHaveLength(0);
+  });
+
+  it('drops the stale request so a retry is not offered a dead one', async () => {
+    const { h, sender } = await bootConnectedWallet();
+    void h.send({ type: 'site:payBatch', payments: batchOf(3) } as WalletRequest, sender);
+    await settle();
+    const requestId = h.lastRequestId();
+
+    const restarted = await h.restart();
+    await restarted.send({
+      type: 'approval:approve',
+      requestId,
+      password: PASSWORD,
+    } as WalletRequest);
+    const res = await restarted.send({ type: 'approval:get', requestId } as WalletRequest);
+
+    expect(res.ok).toBe(false);
   });
 });

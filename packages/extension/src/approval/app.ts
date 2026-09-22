@@ -14,6 +14,7 @@
 import { el, mount, button, note, brand } from '../popup/dom.js';
 import { call } from '../popup/rpc.js';
 import type { PendingApproval } from '../messages.js';
+import { KEEPALIVE_PORT, KEEPALIVE_INTERVAL_MS } from '../messages.js';
 import type { BatchProgress, BatchFunding } from '../core/batch.js';
 
 const params = new URLSearchParams(window.location.search);
@@ -23,9 +24,62 @@ const requestId = params.get('requestId') ?? '';
 const rows = new Map<string, HTMLElement>();
 const stages = new Map<string, BatchProgress>();
 let approval: PendingApproval | null = null;
+/** Set by the progress view; called when the background tears the run down. */
+let endedHandler: ((error?: string) => void) | null = null;
+
+/**
+ * Keep the service worker running for as long as this window is open.
+ *
+ * The worker holds the request being decided, and MV3 stops it after about
+ * thirty seconds of quiet — less time than it takes to read a hundred payees
+ * and type a password, and far less than the run that follows. Losing it turns
+ * an approval into a payment that never happens. A ping every fifteen seconds
+ * is an event, which is all the worker needs to stay up.
+ */
+export function keepWorkerAwake(): () => void {
+  let port: chrome.runtime.Port | null = null;
+
+  const open = (): void => {
+    try {
+      port = chrome.runtime.connect({ name: KEEPALIVE_PORT });
+      // Should the worker stop anyway, reconnecting starts it again so the
+      // next ping still lands rather than throwing forever on a dead port.
+      port.onDisconnect.addListener(() => {
+        port = null;
+      });
+    } catch {
+      port = null;
+    }
+  };
+
+  open();
+  const timer = setInterval(() => {
+    if (!port) return open();
+    try {
+      port.postMessage({ type: 'ping' });
+    } catch {
+      port = null;
+      open();
+    }
+  }, KEEPALIVE_INTERVAL_MS);
+
+  const stop = (): void => {
+    clearInterval(timer);
+    try {
+      port?.disconnect();
+    } catch {
+      // Already gone.
+    }
+    port = null;
+  };
+  window.addEventListener('pagehide', stop);
+  return stop;
+}
 
 export async function start(): Promise<void> {
   if (!requestId) return renderMessage('Nothing to approve', 'This window was opened without a request.');
+
+  keepWorkerAwake();
 
   try {
     const res = await call({ type: 'approval:get', requestId });
@@ -318,7 +372,20 @@ function renderProgress(request: Extract<PendingApproval, { kind: 'payBatch' }>)
 
   for (const progress of stages.values()) update(progress);
   progressHandlers.add(update);
+
+  // The run ended without finishing. Said plainly, because a batch that stopped
+  // at "Sending 1 of 113" and one that is merely slow look identical.
+  endedHandler = (error?: string): void => {
+    finished = true;
+    cancel.textContent = 'Close';
+    cancel.disabled = false;
+    cancel.className = 'btn primary';
+    if (!error) return;
+    counter.className = 'err';
+    counter.textContent = `Stopped: ${error}`;
+  };
 }
+
 
 function summarize(): string {
   let sent = 0;
@@ -371,6 +438,7 @@ chrome.runtime.onMessage.addListener((message: any) => {
   // The background finished and tore the request down; nothing left to show.
   if (message?.type === 'coinpay:approvalResolved' && message.requestId === requestId) {
     progressHandlers.clear();
+    endedHandler?.(message.error);
   }
 });
 
