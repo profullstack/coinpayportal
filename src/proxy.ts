@@ -1,7 +1,8 @@
 import { explorerAccount } from "@/lib/explorer-identity";
 import { checkExplorerAbuse } from "@/lib/explorer-abuse";
 import { reserveExplorerRead, reserveExplorerAccountRead } from "@/lib/explorer-budget";
-import { gate } from "@/lib/crawl-gateway";
+import { gate, gateway } from "@/lib/crawl-gateway";
+import { judgeCloudClient } from "@/lib/cloud-gate";
 import { EXPLORER_PASS_PATH, explorerGate, explorerSell } from "@/lib/explorer-gateway";
 import { countExplorerRefusal, watchExplorer } from "@/lib/explorer-watch";
 import { meter } from "@/lib/throttle";
@@ -215,6 +216,28 @@ async function handleRequest(request: NextRequest) {
   // and retrieval crawlers fall through to everything below.
   const answer = await gate(request);
   if (answer) return answer;
+
+  /*
+   * Then the crawlers that do not announce themselves.
+   *
+   * The gateway above judges by user agent, and the traffic that actually
+   * costs us does not lie in one: a headless Chromium in a cloud region sends
+   * every header a real browser sends, because it IS a real browser. It was
+   * 95.8% of this site's reported human traffic. What it cannot dress up is
+   * the address it came from, and the clouds publish their own ranges.
+   *
+   * Charged, not refused — an agent that wants the pages can buy the same pass
+   * a declared crawler buys. Off unless CLOUD_CHARGE=pages; see lib/cloud-gate
+   * for everything this deliberately never charges, the healthcheck included.
+   */
+  const cloud = judgeCloudClient(request, path);
+  if (cloud.charge) {
+    const offer = await gateway.handle(request);
+    if (offer) {
+      console.log(`[cloud-gate] charging ${cloud.ip} for ${path}`);
+      return offer;
+    }
+  }
 
   /*
    * Then the site-wide allowance, which meters every route: 100 requests a

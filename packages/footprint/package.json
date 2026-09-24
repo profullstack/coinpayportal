@@ -16,6 +16,12 @@
     },
     "./score": {
       "import": "./src/score.js"
+    },
+    "./cidr": {
+      "import": "./src/cidr.js"
+    },
+    "./cloud": {
+      "import": "./src/cloud.js"
     }
   },
   "files": [

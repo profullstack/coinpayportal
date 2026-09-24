@@ -32,8 +32,17 @@
 import { inspectHeaders } from './headers.js';
 import { lookupIp, createIpCache } from './ip.js';
 import { score, isNonHuman, AUTOMATED_AT, HUMAN_BELOW } from './score.js';
+import { createCidrMatcher, parseCidr, ipv4ToInt } from './cidr.js';
+import {
+  fetchCloudRanges,
+  createCloudMatcher,
+  CLOUD_SOURCES,
+  SINGAPORE_REGIONS,
+} from './cloud.js';
 
 export { inspectHeaders, lookupIp, createIpCache, score, isNonHuman, AUTOMATED_AT, HUMAN_BELOW };
+export { createCidrMatcher, parseCidr, ipv4ToInt };
+export { fetchCloudRanges, createCloudMatcher, CLOUD_SOURCES, SINGAPORE_REGIONS };
 
 /**
  * Analyze a request.
