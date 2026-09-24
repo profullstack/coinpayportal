@@ -117,6 +117,7 @@ const CHAIN_IDS: Record<string, number> = {
   USDT_POL: 137,
   USDC_ETH: 1,
   USDC_POL: 137,
+  USDC_BASE: 8453,
 };
 
 /** ERC-20 contract addresses */
@@ -125,10 +126,12 @@ const TOKEN_CONTRACTS: Record<string, string> = {
   USDT_POL: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
   USDC_ETH: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
   USDC_POL: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+  USDC_BASE: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
 };
 const USDC_CONTRACTS = {
   USDC_ETH: TOKEN_CONTRACTS.USDC_ETH,
   USDC_POL: TOKEN_CONTRACTS.USDC_POL,
+  USDC_BASE: TOKEN_CONTRACTS.USDC_BASE,
 };
 
 /** SPL token mints on Solana */
@@ -171,7 +174,15 @@ async function prepareEVMTransaction(
   fee: FeeEstimate
 ): Promise<EVMUnsignedTx> {
   const isToken = chain.startsWith('USDC_') || chain.startsWith('USDT_');
-  const chainId = CHAIN_IDS[chain] || 1;
+
+  // Never fall back to a default chain id. `|| 1` used to quietly stamp
+  // Ethereum onto any chain missing from CHAIN_IDS, which is the same failure
+  // evm-rpc.ts guards against on the read side: it does not error, it signs a
+  // valid transaction for the WRONG network. Refusing is the only safe answer.
+  const chainId = CHAIN_IDS[chain];
+  if (!chainId) {
+    throw new Error(`No EVM chain id mapped for ${chain}`);
+  }
 
   // Get nonce. Goes through the failover client, so a single broken provider
   // no longer makes every send on this chain impossible.
@@ -544,6 +555,7 @@ export async function prepareTransaction(
       case 'POL':
       case 'USDT_POL':
       case 'USDC_POL':
+      case 'USDC_BASE':
         unsignedTx = await prepareEVMTransaction(
           input.from_address, input.to_address, input.amount, chain, fee
         );

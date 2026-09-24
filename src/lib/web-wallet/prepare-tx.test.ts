@@ -227,6 +227,45 @@ describe('prepareTransaction', () => {
       }
     });
 
+    it('should prepare a USDC transaction on Base', async () => {
+      const supabase = createMockSupabase({
+        addressResult: { id: 'addr-1', address: '0xSENDER', chain: 'USDC_BASE' },
+      });
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ jsonrpc: '2.0', result: '0x0', id: 1 }),
+      });
+
+      const result = await prepareTransaction(supabase, 'w1', {
+        from_address: '0xSENDER',
+        to_address: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+        chain: 'USDC_BASE',
+        amount: '21',
+      });
+
+      // Asserted outside the type guard: a failed prepare used to slip through
+      // these tests as a silent skip.
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.unsigned_tx.type).toBe('evm');
+      if (result.data.unsigned_tx.type !== 'evm') return;
+
+      // 8453, not 1. A wrong chain id here still produces a perfectly valid
+      // signature — for Ethereum — which is the failure that does not announce
+      // itself.
+      expect(result.data.unsigned_tx.chainId).toBe(8453);
+      // An ERC-20 transfer goes TO the token contract, with the recipient in
+      // the calldata.
+      expect(result.data.unsigned_tx.to?.toLowerCase()).toBe(
+        '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+      );
+      expect(result.data.unsigned_tx.value).toBe('0x0');
+      expect(result.data.unsigned_tx.data?.startsWith('0xa9059cbb')).toBe(true);
+      // 21 USDC at 6 decimals = 21_000_000.
+      expect(BigInt('0x' + result.data.unsigned_tx.data!.slice(74))).toBe(21_000_000n);
+    });
+
     it('should handle nonce fetch failure', async () => {
       const supabase = createMockSupabase();
 
@@ -593,11 +632,13 @@ describe('constants', () => {
     expect(CHAIN_IDS.POL).toBe(137);
     expect(CHAIN_IDS.USDC_ETH).toBe(1);
     expect(CHAIN_IDS.USDC_POL).toBe(137);
+    expect(CHAIN_IDS.USDC_BASE).toBe(8453);
   });
 
   it('should have correct USDC contract addresses', () => {
     expect(USDC_CONTRACTS.USDC_ETH).toBe('0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48');
     expect(USDC_CONTRACTS.USDC_POL).toBe('0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359');
+    expect(USDC_CONTRACTS.USDC_BASE).toBe('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913');
   });
 
   it('should have correct TX expiration', () => {

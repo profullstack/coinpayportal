@@ -169,6 +169,35 @@ describe('estimateFees', () => {
   });
 
   // ──────────────────────────────────────────────
+  // USDC_BASE
+  // ──────────────────────────────────────────────
+
+  describe('USDC_BASE', () => {
+    it('quotes Base gas in ETH, not POL', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ jsonrpc: '2.0', result: '0x4A817C800', id: 1 }),
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ jsonrpc: '2.0', result: '0x3B9ACA00', id: 2 }),
+      });
+
+      const fees = await estimateFees('USDC_BASE');
+      // 'USDC_BASE' contains neither 'ETH' nor 'POL', so the old substring test
+      // fell through to Polygon and quoted the wrong asset entirely. Base fees
+      // are paid in ETH.
+      expect(fees.low.feeCurrency).toBe('ETH');
+      expect(fees.low.chain).toBe('USDC_BASE');
+      // An ERC-20 transfer, so the token gas limit.
+      expect(fees.low.gasLimit).toBe(GAS_LIMITS.ERC20_TRANSFER);
+      // Base settles in seconds like Polygon, not in Ethereum's minutes.
+      expect(fees.low.estimatedSeconds).toBe(30);
+      expect(fees.high.estimatedSeconds).toBe(5);
+    });
+  });
+
+  // ──────────────────────────────────────────────
   // POL
   // ──────────────────────────────────────────────
 

@@ -242,6 +242,28 @@ describe('portal registration on account creation', () => {
     // The fingerprint lists every registered address, so a newly derived one
     // forces a re-register rather than going unknown to the portal.
     expect(stored.fingerprint).toContain('SOL:1');
+    // It also covers WHAT gets registered, not just the addresses it starts
+    // from. Adding a token chain to PAY_CHAINS changes the rows we send while
+    // leaving every derived address untouched, so a fingerprint built from the
+    // addresses alone kept the cached id, skipped re-registration, and left the
+    // new chain with no wallet_addresses row — prepare-tx then answered
+    // ADDRESS_NOT_FOUND for a balance sitting right there in the wallet.
+    expect(stored.fingerprint).toContain('USDC_BASE');
+  });
+
+  it('registers USDC on Base against the ETH address', async () => {
+    await h.send({ type: 'import', mnemonic: MNEMONIC, password: PASSWORD });
+    await settle();
+
+    const [body] = h.registrations();
+    const base = body.addresses.filter((a: any) => a.chain === 'USDC_BASE');
+    const eth = body.addresses.filter((a: any) => a.chain === 'ETH');
+    // prepare-tx matches from_address against the EXACT chain, so USDC_BASE
+    // needs rows of its own even though it reuses the Ethereum address.
+    expect(base.length).toBe(eth.length);
+    expect(base.length).toBeGreaterThan(0);
+    expect(base.map((a: any) => a.address)).toEqual(eth.map((a: any) => a.address));
+    expect(base.every((a: any) => a.derivation_path.startsWith("m/44'/60'"))).toBe(true);
   });
 
   it('does not re-register an account it already knows', async () => {
