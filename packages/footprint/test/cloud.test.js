@@ -202,6 +202,72 @@ describe('createCloudMatcher', () => {
     expect(CLOUD_SOURCES.oracle.url).toContain('oracle.com');
   });
 
+  it('finds Azure this-week file on the download page, then fetches it', async () => {
+    // Azure has no stable file URL: the page names the current dated file.
+    const page = '<a href="https://download.microsoft.com/download/7/1/d/71d86715/ServiceTags_Public_20260921.json">dl</a>';
+    const tags = {
+      values: [
+        { properties: { region: 'southeastasia', addressPrefixes: ['104.215.128.0/17', '2603::/32'] } },
+        { properties: { region: 'westus', addressPrefixes: ['13.64.0.0/16'] } },
+      ],
+    };
+    const fetchImpl = vi.fn(async (url) =>
+      url.includes('download.microsoft.com')
+        ? { ok: true, status: 200, json: async () => tags }
+        : { ok: true, status: 200, text: async () => page },
+    );
+
+    const { cidrs, failed } = await fetchCloudRanges({
+      providers: ['azure'],
+      regions: { azure: 'southeastasia' },
+      fetch: fetchImpl,
+    });
+
+    expect(failed).toEqual([]);
+    expect(cidrs).toEqual(['104.215.128.0/17']); // IPv6 dropped, other region dropped
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports Azure rather than going stale when the page changes shape', async () => {
+    // A silently stale Azure list is worse than a missing one.
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, text: async () => '<html>redesigned</html>' }));
+    const { cidrs, failed } = await fetchCloudRanges({ providers: ['azure'], fetch: fetchImpl });
+    expect(cidrs).toEqual([]);
+    expect(failed.join()).toMatch(/no file link/);
+  });
+
+  it('derives Alibaba from what its ASNs announce', async () => {
+    // Alibaba publishes nothing, so this is the routing table rather than the
+    // provider's own claim.
+    const fetchImpl = vi.fn(async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          prefixes: url.includes('AS45102')
+            ? [{ prefix: '47.240.0.0/17' }, { prefix: '2400:a480::/32' }]
+            : [{ prefix: '8.210.0.0/16' }],
+        },
+      }),
+    }));
+
+    const { cidrs, failed } = await fetchCloudRanges({ providers: ['alibaba'], fetch: fetchImpl });
+
+    expect(failed).toEqual([]);
+    expect(cidrs).toContain('47.240.0.0/17');
+    expect(cidrs.every((c) => !c.includes(':'))).toBe(true);
+  });
+
+  it('keeps the other Alibaba ASNs when one lookup fails', async () => {
+    const fetchImpl = vi.fn(async (url) => {
+      if (url.includes('AS45102')) throw new Error('upstream down');
+      return { ok: true, status: 200, json: async () => ({ data: { prefixes: [{ prefix: '8.210.0.0/16' }] } }) };
+    });
+    const { cidrs, failed } = await fetchCloudRanges({ providers: ['alibaba'], fetch: fetchImpl });
+    expect(cidrs).toContain('8.210.0.0/16');
+    expect(failed.join()).toMatch(/AS45102/);
+  });
+
   it('parses Oracle regions', async () => {
     const body = {
       regions: [
