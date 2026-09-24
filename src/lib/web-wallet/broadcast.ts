@@ -9,6 +9,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { WalletChain } from './identity';
 import { isValidChain } from './identity';
 import { checkTransactionAllowed } from './settings';
+import { evmRpcCall } from './evm-rpc';
+import { keccak_256 } from '@noble/hashes/sha3.js';
 
 /** Truncate an address for safe logging */
 function truncAddr(addr: string): string {
@@ -169,31 +171,52 @@ async function broadcastBCH(signedTxHex: string): Promise<string> {
 /**
  * Broadcast a signed EVM transaction via eth_sendRawTransaction.
  */
-async function broadcastEVM(signedTxHex: string, rpcUrl: string): Promise<string> {
+async function broadcastEVM(signedTxHex: string, chain: string): Promise<string> {
   // Ensure 0x prefix
   const txHex = signedTxHex.startsWith('0x') ? signedTxHex : '0x' + signedTxHex;
 
-  const resp = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'eth_sendRawTransaction',
-      params: [txHex],
-      id: 1,
-    }),
-  });
+  // Failover is safe here. It only happens when a provider fails at the
+  // TRANSPORT level (unreachable, or a non-2xx status), never on a chain-level
+  // rejection. The blob is already signed, so if a provider did accept it
+  // before the connection broke, the next one computes the SAME transaction
+  // hash and answers "already known" — which callers treat as success rather
+  // than as a double spend. A rejection from the chain itself (nonce too low,
+  // underpriced) is returned, not retried: every provider would repeat it.
+  const data = await evmRpcCall(chain, 'eth_sendRawTransaction', [txHex]);
 
-  if (!resp.ok) {
-    throw new Error(`EVM broadcast failed: ${resp.status}`);
-  }
-
-  const data = await resp.json();
   if (data.error) {
-    throw new Error(`EVM broadcast error: ${data.error.message}`);
+    const msg = data.error.message || '';
+
+    // "already known" / "known transaction" means the node ALREADY HAS these
+    // exact signed bytes: the broadcast succeeded, possibly on an earlier
+    // attempt whose response we never saw. Treating it as a failure marked a
+    // row `failed` while the money moved on-chain — the worst of both records.
+    //
+    // No second send happens here and none is needed; we only have to report
+    // the hash, and for a signed transaction that is just keccak256 of the
+    // bytes we already hold, so it can be computed without asking anyone.
+    if (/already known|known transaction/i.test(msg)) {
+      console.warn(`[Broadcast] ${chain}: node already had this transaction — treating as sent`);
+      return evmTxHashOf(txHex);
+    }
+
+    throw new Error(`EVM broadcast error: ${msg}`);
   }
 
-  return data.result; // Returns tx hash
+  return data.result as string; // Returns tx hash
+}
+
+/** The transaction hash of an already-signed EVM transaction: keccak256(raw bytes). */
+function evmTxHashOf(rawTxHex: string): string {
+  const hex = rawTxHex.startsWith('0x') ? rawTxHex.slice(2) : rawTxHex;
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return (
+    '0x' +
+    Array.from(keccak_256(bytes), (b) => b.toString(16).padStart(2, '0')).join('')
+  );
 }
 
 /**
@@ -648,14 +671,14 @@ export async function broadcastTransaction(
         break;
       case 'ETH':
       case 'USDC_ETH':
-        txHash = await withRetry(() => broadcastEVM(input.signed_tx, rpc.ETH));
+        txHash = await withRetry(() => broadcastEVM(input.signed_tx, chain));
         break;
       case 'POL':
       case 'USDC_POL':
-        txHash = await withRetry(() => broadcastEVM(input.signed_tx, rpc.POL));
+        txHash = await withRetry(() => broadcastEVM(input.signed_tx, chain));
         break;
       case 'USDC_BASE':
-        txHash = await withRetry(() => broadcastEVM(input.signed_tx, rpc.BASE));
+        txHash = await withRetry(() => broadcastEVM(input.signed_tx, chain));
         break;
       case 'SOL':
       case 'USDC_SOL':

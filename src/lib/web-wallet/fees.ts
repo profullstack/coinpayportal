@@ -7,6 +7,7 @@
  */
 
 import type { WalletChain } from './identity';
+import { evmRpcCall } from './evm-rpc';
 
 // ──────────────────────────────────────────────
 // Types
@@ -158,41 +159,32 @@ async function estimateBCHFees(): Promise<FeeEstimateResult> {
 // ──────────────────────────────────────────────
 
 async function estimateEVMFees(
-  chain: 'ETH' | 'POL' | 'USDT_ETH' | 'USDT_POL' | 'USDC_ETH' | 'USDC_POL',
-  rpcUrl: string
+  chain: 'ETH' | 'POL' | 'USDT_ETH' | 'USDT_POL' | 'USDC_ETH' | 'USDC_POL'
 ): Promise<FeeEstimateResult> {
   const isToken = chain.startsWith('USDC_') || chain.startsWith('USDT_');
   const gasLimit = isToken ? GAS_LIMITS.ERC20_TRANSFER : GAS_LIMITS.ETH_TRANSFER;
   const nativeCurrency = chain.includes('ETH') ? 'ETH' : 'POL';
   const baseChain = chain.includes('ETH') ? 'ETH' : 'POL';
 
-  // Fetch current gas prices via eth_gasPrice and eth_maxPriorityFeePerGas
-  const [gasPriceResp, baseFeeResp] = await Promise.all([
-    fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_gasPrice', params: [], id: 1 }),
-    }),
-    fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_maxPriorityFeePerGas', params: [], id: 2 }),
-    }).catch(() => null), // EIP-1559 may not be supported
+  // Fetch current gas prices via eth_gasPrice and eth_maxPriorityFeePerGas.
+  // Both go through the failover client, so one dead provider no longer stops
+  // every send on the chain — and when they are ALL dead the thrown error
+  // names each host and status instead of a bare status code.
+  const [gasPriceBody, priorityBody] = await Promise.all([
+    evmRpcCall(chain, 'eth_gasPrice'),
+    // EIP-1559 may not be supported; an absent priority fee is not fatal.
+    evmRpcCall(chain, 'eth_maxPriorityFeePerGas').catch(() => null),
   ]);
 
-  if (!gasPriceResp.ok) {
-    throw new Error(`${chain} gas price fetch failed: ${gasPriceResp.status}`);
+  if (gasPriceBody.error) {
+    throw new Error(`${chain} gas price fetch failed: ${gasPriceBody.error.message}`);
   }
 
-  const gasPriceData = await gasPriceResp.json();
-  const gasPrice = BigInt(gasPriceData.result || '0x0');
+  const gasPrice = BigInt(gasPriceBody.result || '0x0');
 
   let maxPriorityFee = gasPrice / 10n; // Default: 10% of gas price as priority fee
-  if (baseFeeResp?.ok) {
-    const priorityData = await baseFeeResp.json();
-    if (priorityData.result) {
-      maxPriorityFee = BigInt(priorityData.result);
-    }
+  if (priorityBody?.result) {
+    maxPriorityFee = BigInt(priorityBody.result);
   }
 
   // Calculate fees for each priority
@@ -332,12 +324,12 @@ export async function estimateFees(chain: WalletChain): Promise<FeeEstimateResul
     case 'ETH':
     case 'USDT_ETH':
     case 'USDC_ETH':
-      result = await estimateEVMFees(chain, rpc.ETH);
+      result = await estimateEVMFees(chain);
       break;
     case 'POL':
     case 'USDT_POL':
     case 'USDC_POL':
-      result = await estimateEVMFees(chain, rpc.POL);
+      result = await estimateEVMFees(chain);
       break;
     case 'SOL':
     case 'USDT_SOL':
