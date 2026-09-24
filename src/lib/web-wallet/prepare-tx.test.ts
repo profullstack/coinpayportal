@@ -230,7 +230,8 @@ describe('prepareTransaction', () => {
     it('should handle nonce fetch failure', async () => {
       const supabase = createMockSupabase();
 
-      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+      // Every provider is down — a single failure is now survivable.
+      mockFetch.mockResolvedValue({ ok: false, status: 500 });
 
       const result = await prepareTransaction(supabase, 'w1', {
         from_address: '0xSENDER',
@@ -241,6 +242,57 @@ describe('prepareTransaction', () => {
 
       expect(result.success).toBe(false);
       if (!result.success) expect(result.code).toBe('PREPARE_FAILED');
+    });
+
+    it('should fail over to another provider for the nonce', async () => {
+      const supabase = createMockSupabase();
+
+      mockFetch
+        .mockResolvedValueOnce({ ok: false, status: 403 })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ jsonrpc: '2.0', id: 1, result: '0x5' }),
+        });
+
+      const result = await prepareTransaction(supabase, 'w1', {
+        from_address: '0xSENDER',
+        to_address: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+        chain: 'ETH',
+        amount: '1',
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect((result.data.unsigned_tx as any).nonce).toBe(5);
+      }
+    });
+
+    it('should report WHY a fee estimate failed instead of swallowing it', async () => {
+      // estimateFees used to be called outside the try, so anything it threw
+      // escaped prepareTransaction entirely and the route answered with a bare
+      // "Internal server error" — no chain, no cause. That is precisely how a
+      // 403 from a misconfigured RPC provider went undiagnosed: the wallet
+      // extension showed "Internal server error" and the reason was nowhere.
+      const supabase = createMockSupabase();
+      const { estimateFees } = await import('./fees');
+      vi.mocked(estimateFees).mockRejectedValueOnce(
+        new Error('ETH RPC unavailable for eth_gasPrice: mainnet.infura.io → HTTP 403'),
+      );
+
+      const result = await prepareTransaction(supabase, 'w1', {
+        from_address: '0xSENDER',
+        to_address: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+        chain: 'ETH',
+        amount: '1',
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.code).toBe('PREPARE_FAILED');
+        expect(result.error).toContain('mainnet.infura.io');
+        expect(result.error).toContain('403');
+      }
     });
 
     it('should handle DB insert failure', async () => {

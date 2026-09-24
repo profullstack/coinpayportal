@@ -115,11 +115,33 @@ describe('estimateFees', () => {
       expect(parseFloat(fees.high.fee)).toBeGreaterThan(parseFloat(fees.medium.fee));
     });
 
-    it('should throw on gas price fetch failure', async () => {
-      // EVM makes 2 fetch calls in Promise.all; both need mocks
-      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
-      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
-      await expect(estimateFees('ETH')).rejects.toThrow('gas price fetch failed');
+    it('should throw only once EVERY provider has failed, naming them', async () => {
+      // A single bad endpoint is no longer fatal, so this has to knock out the
+      // whole list. The error that comes back names each host and status
+      // instead of a bare code — the old message could not distinguish a dead
+      // provider from a bug in our own code, which is how a 403 from a
+      // misconfigured Infura project stayed unexplained for so long.
+      mockFetch.mockResolvedValue({ ok: false, status: 500 });
+      await expect(estimateFees('ETH')).rejects.toThrow(/RPC unavailable/);
+    });
+
+    it('should survive a dead provider by failing over to the next', async () => {
+      // First provider is broken; the second answers. A send must still work.
+      mockFetch
+        .mockResolvedValueOnce({ ok: false, status: 403 })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ jsonrpc: '2.0', id: 1, result: '0x3B9ACA00' }),
+        })
+        .mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: async () => ({ jsonrpc: '2.0', id: 2, result: '0x3B9ACA00' }),
+        });
+
+      const fees = await estimateFees('ETH');
+      expect(parseFloat(fees.medium.fee)).toBeGreaterThan(0);
     });
   });
 

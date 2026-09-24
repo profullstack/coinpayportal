@@ -324,6 +324,57 @@ describe('broadcastTransaction', () => {
         expect(result.error).toContain('nonce too low');
       }
     });
+
+    it('should treat "already known" as sent, not failed', async () => {
+      // The node already holds these exact signed bytes, so the transaction IS
+      // on its way. Reporting failure here marked the row `failed` while the
+      // money moved — a send the payer is told did not happen.
+      const supabase = createMockSupabase();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'already known' },
+          id: 1,
+        }),
+      });
+
+      const result = await broadcastTransaction(supabase, 'w1', {
+        tx_id: 'tx-123',
+        signed_tx: '0xf86c',
+        chain: 'ETH',
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        // The hash is keccak256 of the signed bytes we already hold, so it can
+        // be reported without asking any provider for it.
+        expect(result.data.tx_hash).toMatch(/^0x[0-9a-f]{64}$/);
+      }
+    });
+
+    it('should fail over to another provider when one is unreachable', async () => {
+      const supabase = createMockSupabase();
+
+      mockFetch
+        .mockResolvedValueOnce({ ok: false, status: 403 })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ jsonrpc: '2.0', result: '0xVIAFALLBACK', id: 1 }),
+        });
+
+      const result = await broadcastTransaction(supabase, 'w1', {
+        tx_id: 'tx-123',
+        signed_tx: '0xf86c...',
+        chain: 'ETH',
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.tx_hash).toBe('0xVIAFALLBACK');
+      }
+    });
   });
 
   // ──────────────────────────────────────────────

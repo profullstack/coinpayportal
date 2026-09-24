@@ -12,6 +12,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { WalletChain } from './identity';
 import { isValidChain, validateAddress } from './identity';
 import { estimateFees, type FeeEstimate } from './fees';
+import { evmRpcCall } from './evm-rpc';
 
 /** Truncate an address for safe logging */
 function truncAddr(addr: string): string {
@@ -167,34 +168,19 @@ async function prepareEVMTransaction(
   to: string,
   amount: string,
   chain: WalletChain,
-  fee: FeeEstimate,
-  rpcUrl: string
+  fee: FeeEstimate
 ): Promise<EVMUnsignedTx> {
   const isToken = chain.startsWith('USDC_') || chain.startsWith('USDT_');
   const chainId = CHAIN_IDS[chain] || 1;
 
-  // Get nonce
-  const nonceResp = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'eth_getTransactionCount',
-      params: [from, 'pending'],
-      id: 1,
-    }),
-  });
-
-  if (!nonceResp.ok) {
-    throw new Error(`Failed to get nonce: ${nonceResp.status}`);
-  }
-
-  const nonceData = await nonceResp.json();
+  // Get nonce. Goes through the failover client, so a single broken provider
+  // no longer makes every send on this chain impossible.
+  const nonceData = await evmRpcCall(chain, 'eth_getTransactionCount', [from, 'pending']);
   if (nonceData.error) {
     throw new Error(`Nonce RPC error: ${nonceData.error.message}`);
   }
 
-  const nonce = parseInt(nonceData.result, 16);
+  const nonce = parseInt(nonceData.result as string, 16);
 
   if (isToken) {
     // ERC-20 transfer(address, uint256)
@@ -530,29 +516,36 @@ export async function prepareTransaction(
     return { success: false, error: 'From address not found in wallet', code: 'ADDRESS_NOT_FOUND' };
   }
 
-  // Get fee estimate
   const priority = input.priority || 'medium';
-  const feeEstimates = await estimateFees(chain);
-  const fee = feeEstimates[priority];
 
   // Build unsigned transaction
   const rpc = getRpcEndpoints();
   let unsignedTx: UnsignedTransactionData;
+  let fee: FeeEstimate;
 
+  // estimateFees() belongs INSIDE this try. It sat outside for a long time,
+  // and because the route's outer catch answers `serverError()` with no
+  // argument, every fee-estimation failure reached the caller as the bare
+  // string "Internal server error" — no chain, no status, no cause. A dead
+  // RPC provider looked identical to a bug in our own code, which is exactly
+  // how a 403 from a misconfigured Infura project went unexplained: the
+  // extension showed "Internal server error" and the reason was nowhere.
+  // Inside the try it comes back as PREPARE_FAILED plus the real message.
   try {
+    const feeEstimates = await estimateFees(chain);
+    fee = feeEstimates[priority];
+
     switch (chain) {
+      // Every EVM chain builds the same way now that the RPC endpoint is
+      // resolved from the chain rather than passed in.
       case 'ETH':
       case 'USDT_ETH':
       case 'USDC_ETH':
-        unsignedTx = await prepareEVMTransaction(
-          input.from_address, input.to_address, input.amount, chain, fee, rpc.ETH
-        );
-        break;
       case 'POL':
       case 'USDT_POL':
       case 'USDC_POL':
         unsignedTx = await prepareEVMTransaction(
-          input.from_address, input.to_address, input.amount, chain, fee, rpc.POL
+          input.from_address, input.to_address, input.amount, chain, fee
         );
         break;
       case 'BTC':
