@@ -14,6 +14,7 @@
  * - All key operations are logged (without exposing key material)
  */
 
+import { settleForwardingMetadata } from '@/lib/payments/reconciliation';
 import { settlementThreshold, toFiniteNumber } from '@/lib/payments/tolerance';
 import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -798,6 +799,12 @@ export async function forwardPaymentSecurely(
         throw new Error('Provider did not return transaction hashes');
       }
 
+      // A forward that succeeds after an earlier failure has to retract that
+      // failure's marks, or the payment ends up settled and flagged for manual
+      // reconciliation at the same time — permanently. See
+      // lib/payments/reconciliation.ts for the incident that found it.
+      const settled = settleForwardingMetadata(payment.metadata);
+
       // Update payment with forwarding details
       const { data: completed, error: updateError } = await supabase
         .from('payments')
@@ -808,6 +815,9 @@ export async function forwardPaymentSecurely(
           fee_amount: platformFee,
           forwarded_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
+          // Only when there is something to clear, so an ordinary first-try
+          // forward does not rewrite metadata it has no reason to touch.
+          ...(settled.changed ? { metadata: settled.metadata } : {}),
         })
         .eq('id', paymentId)
         .eq('status', 'forwarding')
