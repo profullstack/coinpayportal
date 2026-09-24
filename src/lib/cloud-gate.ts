@@ -83,7 +83,7 @@ const REFRESH_MS = 6 * 60 * 60 * 1000;
  * about one operator rather than about the behaviour. Anyone running the same
  * thing from Frankfurt is doing the same thing.
  */
-const matcher = createCloudMatcher({ providers: ['aws', 'gcp', 'digitalocean'] });
+const matcher = createCloudMatcher({ providers: ['aws', 'gcp', 'oracle', 'digitalocean'] });
 
 let refreshing: Promise<unknown> | null = null;
 let nextRefresh = 0;
@@ -118,6 +118,20 @@ function ensureFresh(): void {
 /** Crawlers that send readers back. Never charged. */
 const SEARCH_CRAWLER = /googlebot|bingbot|duckduckbot|applebot|yandex|baiduspider|slurp|oai-searchbot|chatgpt-user|perplexitybot|claude-searchbot|claude-user/i;
 
+/**
+ * Uptime checkers, which must never be charged.
+ *
+ * Not politeness — correctness. A monitor counts 200-399 as up (CrawlProof's
+ * own `checkHttp` does exactly that), so answering it 402 does not bill
+ * anybody, it reports THE SITE AS DOWN. We would have built ourselves a false
+ * alarm generator and then been paged by it.
+ *
+ * Ours runs on Railway, which is to say from a cloud address, so the range
+ * check alone would catch it. Third-party monitors are listed for the same
+ * reason: whoever is watching this site is not the traffic we are pricing.
+ */
+const UPTIME_MONITOR = /crawlproof[\s_-]?uptime|uptime[\s_-]?robot|pingdom|statuscake|better[\s_-]?uptime|hetrixtool|site24x7|newrelic|datadog|checkly|updown\.io|freshping|cron-job\.org|monitoring|healthcheck/i;
+
 function isSignedIn(request: Request): boolean {
   const cookie = request.headers.get('cookie') ?? '';
   return /sb-[^=]*auth-token=/.test(cookie) || /coinpay_session=/.test(cookie);
@@ -150,6 +164,7 @@ export function judgeCloudClient(request: Request, pathname: string): CloudVerdi
 
   const ua = request.headers.get('user-agent') ?? '';
   if (SEARCH_CRAWLER.test(ua)) return { charge: false, reason: 'search crawler' };
+  if (UPTIME_MONITOR.test(ua)) return { charge: false, reason: 'uptime monitor' };
   if (isSignedIn(request)) return { charge: false, reason: 'signed in' };
 
   if (!matcher.matches(ip)) return { charge: false, reason: 'not a published cloud range' };

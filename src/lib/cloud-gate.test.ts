@@ -90,6 +90,25 @@ describe('judgeCloudClient', () => {
     }
   });
 
+  it('never charges an uptime monitor', async () => {
+    // Not politeness. A monitor counts 200-399 as up, so a 402 does not bill
+    // it — it reports the site as DOWN. Ours runs on Railway, from a cloud
+    // address, so without this we page ourselves.
+    for (const ua of ['CrawlProof-Uptime/1.0', 'UptimeRobot/2.0', 'Pingdom.com_bot', 'Better Uptime Bot']) {
+      expect(
+        judgeCloudClient(req({ 'x-forwarded-for': CLOUD_IP, 'user-agent': ua }), '/'),
+      ).toMatchObject({ charge: false, reason: 'uptime monitor' });
+    }
+
+    const answer = await cloudGate(
+      new Request('https://coinpayportal.com/', {
+        headers: { 'x-forwarded-for': CLOUD_IP, 'user-agent': 'CrawlProof-Uptime/1.0' },
+      }),
+      '/',
+    );
+    expect(answer).toBeNull();
+  });
+
   it('never charges a signed-in customer', () => {
     const v = judgeCloudClient(
       req({ 'x-forwarded-for': CLOUD_IP, cookie: 'sb-abcdef-auth-token=xyz' }),
