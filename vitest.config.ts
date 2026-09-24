@@ -12,6 +12,7 @@ export default defineConfig({
     include: [
       'src/**/*.test.{ts,tsx}',
       'packages/sdk/test/**/*.test.js',
+      'packages/footprint/test/**/*.test.js',
     ],
     exclude: [
       '**/node_modules/**',
