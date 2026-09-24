@@ -1,0 +1,42 @@
+{
+  "name": "@profullstack/footprint",
+  "version": "0.1.0",
+  "description": "Is this request a person? Header and address signals for deciding whether to serve, charge or refuse.",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": {
+      "import": "./src/index.js"
+    },
+    "./headers": {
+      "import": "./src/headers.js"
+    },
+    "./ip": {
+      "import": "./src/ip.js"
+    },
+    "./score": {
+      "import": "./src/score.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "bot-detection",
+    "scraper",
+    "proxy-detection",
+    "x402"
+  ],
+  "license": "MIT",
+  "author": "Profullstack, Inc.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/profullstack/coinpayportal.git",
+    "directory": "packages/footprint"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
