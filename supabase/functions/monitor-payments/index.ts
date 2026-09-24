@@ -33,6 +33,48 @@ const EVM_TOKENS = {
 
 const ERC20_BALANCE_OF_SELECTOR = '0x70a08231';
 
+/**
+ * Decimal places each asset can represent on its own chain.
+ *
+ * Mirrors `src/lib/payments/asset-decimals.ts`. This function is a separate Deno
+ * deployable and cannot import from the app, but it is one of the schedulers
+ * that confirms payments, so it has to reach the same verdict on the same row —
+ * a settlement rule that holds in the app and not here just moves the bug behind
+ * whichever worker happens to look first.
+ */
+const ASSET_DECIMALS: Record<string, number> = {
+  // Native coins
+  BTC: 8,
+  BCH: 8,
+  DOGE: 8,
+  LTC: 8,
+  ETH: 18,
+  POL: 18,
+  BNB: 18,
+  BASE: 18,
+  SOL: 9,
+  XRP: 6,
+  ADA: 6,
+  // Stablecoins — six decimals on every chain we settle them on
+  USDT: 6,
+  USDT_ETH: 6,
+  USDT_POL: 6,
+  USDT_SOL: 6,
+  USDC: 6,
+  USDC_ETH: 6,
+  USDC_POL: 6,
+  USDC_SOL: 6,
+  USDC_BASE: 6,
+};
+
+const DEFAULT_QUOTE_DECIMALS = 8;
+
+/** The value of one atomic unit of `asset`, expressed in whole coins. */
+function atomicUnit(asset: string | null | undefined): number {
+  if (!asset) return 10 ** -DEFAULT_QUOTE_DECIMALS;
+  return 10 ** -(ASSET_DECIMALS[asset.toUpperCase()] ?? DEFAULT_QUOTE_DECIMALS);
+}
+
 // API keys
 const CRYPTO_APIS_KEY = Deno.env.get('CRYPTO_APIS_KEY') || '';
 
@@ -579,12 +621,19 @@ Deno.serve(async (req) => {
         // 100% out of an address holding 99% — the forward failed and the funds
         // stranded. A NULL/NaN crypto_amount also used to slip through here,
         // because `balance >= NaN` is false but so is `balance < NaN`.
+        // The relative epsilon is floored at one of the asset's own atomic units,
+        // matching `isSufficientPayment` in the app. Below one atomic unit there
+        // is no number for a payer to send: a six-decimal stablecoin quoted at
+        // eight decimals leaves a shortfall that only looks like underpayment,
+        // and demanding it stranded a fully funded payment on 2026-09-24 with the
+        // money already at the deposit address. Quotes are quantized at creation
+        // now, so this only has to forgive rows written before that.
         const expectedAmount = Number(payment.crypto_amount);
         const isSufficient =
           Number.isFinite(expectedAmount) &&
           expectedAmount > 0 &&
           balance > 0 &&
-          balance >= expectedAmount - expectedAmount * 1e-9;
+          balance >= expectedAmount - Math.max(expectedAmount * 1e-9, atomicUnit(payment.blockchain));
 
         if (isSufficient) {
           // Compare-and-swap: this function, the in-process monitor, the HTTP
