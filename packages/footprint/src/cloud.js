@@ -50,6 +50,68 @@ export const CLOUD_SOURCES = {
         .map((p) => p.ipv4Prefix);
     },
   },
+  /**
+   * Azure publishes weekly at a URL carrying that week's date, so there is no
+   * fixed address to fetch. The download PAGE is stable, though, and names the
+   * current file, so the page is read first and the link taken from it. If
+   * Microsoft changes that page the fetch fails and is reported — which is the
+   * right outcome, since a silently stale Azure list is worse than a missing
+   * one.
+   *
+   * The file is ~4MB and 44,000 IPv4 prefixes across 3,300 service tags, many
+   * overlapping; the matcher merges them down to a fraction of that.
+   */
+  azure: {
+    url: 'https://www.microsoft.com/en-us/download/details.aspx?id=56519',
+    indirect: true,
+    /** Only this host may be fetched, whatever the page turns out to say. */
+    allowHost: 'download.microsoft.com',
+    /**
+     * Pull the current file's link out of the page.
+     *
+     * Split on delimiters and test each token rather than running one regex
+     * across the whole document. A pattern like `…/download/[^"']*Service…`
+     * backtracks polynomially, and the document is remote input — so a page
+     * built to be hostile could hang the refresh. Splitting is linear, and
+     * the only regex left runs anchored against one short token.
+     */
+    findUrl(html) {
+      for (const token of String(html).split(/["'\s<>]+/)) {
+        if (
+          token.startsWith('https://download.microsoft.com/download/') &&
+          /\/ServiceTags_Public_\d{1,12}\.json$/.test(token)
+        ) {
+          return token;
+        }
+      }
+      return null;
+    },
+    parse(json, region) {
+      const out = [];
+      for (const value of json?.values ?? []) {
+        const props = value?.properties ?? {};
+        if (region && !String(props.region ?? '').toLowerCase().includes(region.toLowerCase())) continue;
+        for (const prefix of props.addressPrefixes ?? []) {
+          if (!String(prefix).includes(':')) out.push(prefix);
+        }
+      }
+      return out;
+    },
+  },
+  /**
+   * Alibaba publishes nothing, so its address space is taken from what its
+   * ASNs actually announce, via RIPEstat. That is a different KIND of claim
+   * from the files above: those are the provider saying "these are ours", this
+   * is the routing table saying "these are announced by them". Good enough to
+   * price traffic on, and the only thing available.
+   *
+   * `region` cannot filter BGP data — an announcement carries no region — so a
+   * region argument is ignored here rather than silently returning nothing.
+   */
+  alibaba: {
+    asns: [45102, 37963, 45103, 59028, 134963],
+    bgp: true,
+  },
   oracle: {
     url: 'https://docs.oracle.com/iaas/tools/public_ip_ranges.json',
     parse(json, region) {
@@ -79,25 +141,25 @@ export const SINGAPORE_REGIONS = {
   aws: 'ap-southeast-1',
   gcp: 'asia-southeast1',
   oracle: 'ap-singapore',
+  azure: 'southeastasia',
   digitalocean: 'SG',
+  // alibaba is BGP-derived and carries no region; see CLOUD_SOURCES.alibaba.
 };
 
+/** Every provider this module knows how to fetch. */
+export const ALL_PROVIDERS = ['aws', 'gcp', 'azure', 'alibaba', 'oracle', 'digitalocean'];
+
 /**
- * NOT COVERED, and worth knowing before trusting a miss.
+ * STILL NOT COVERED, and worth knowing before trusting a miss.
  *
- * Azure publishes its service tags as a weekly file whose URL carries the
- * date, so there is no stable address to fetch — it needs the download page
- * scraped or the ARM API called with credentials.
+ * Huawei and Tencent publish nothing and are not BGP-derived here yet. Neither
+ * is any of the long tail of regional hosts — and a residential proxy network,
+ * by construction, is not a datacenter at all and never will be matched.
  *
- * Alibaba Cloud publishes nothing at all. Reaching it means resolving its
- * ASNs (AS45102 and friends) to prefixes through a BGP data source, which is
- * a different kind of dependency from "the provider says these are ours".
- *
- * Both matter for Singapore specifically, where Alibaba is a common host for
- * exactly this traffic. A caller that finds nothing here has NOT established
- * that an address is residential.
+ * So a caller that finds nothing here has NOT established that an address
+ * belongs to a person.
  */
-export const UNCOVERED_PROVIDERS = ['azure', 'alibaba', 'huawei', 'tencent'];
+export const UNCOVERED_PROVIDERS = ['huawei', 'tencent'];
 
 /**
  * Fetch published ranges.
@@ -107,6 +169,39 @@ export const UNCOVERED_PROVIDERS = ['azure', 'alibaba', 'huawei', 'tencent'];
  * caller with nothing. Failures are returned rather than logged, so the
  * caller decides whether a missing provider is worth reporting.
  */
+/**
+ * What a set of ASNs currently announces, from RIPEstat.
+ *
+ * For providers that publish no list of their own. Each ASN is asked for
+ * separately and allowed to fail on its own: a partial answer still covers
+ * what it covers, which is the same rule the file sources follow.
+ */
+async function fetchAnnouncedPrefixes(asns, { fetchImpl, timeoutMs, name, failed }) {
+  const out = [];
+  await Promise.all(
+    (asns ?? []).map(async (asn) => {
+      try {
+        const resp = await fetchImpl(
+          `https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS${asn}`,
+          { signal: AbortSignal.timeout(timeoutMs) },
+        );
+        if (!resp.ok) {
+          failed.push(`${name}/AS${asn}: HTTP ${resp.status}`);
+          return;
+        }
+        const body = await resp.json();
+        for (const entry of body?.data?.prefixes ?? []) {
+          const prefix = entry?.prefix;
+          if (prefix && !String(prefix).includes(':')) out.push(prefix);
+        }
+      } catch (err) {
+        failed.push(`${name}/AS${asn}: ${err?.name === 'TimeoutError' ? 'timeout' : String(err?.message || err)}`);
+      }
+    }),
+  );
+  return out;
+}
+
 export async function fetchCloudRanges(options = {}) {
   const {
     providers = ['aws', 'gcp'],
@@ -127,7 +222,47 @@ export async function fetchCloudRanges(options = {}) {
       }
       const region = regions === null ? null : regions[name] ?? null;
       try {
-        const resp = await fetchImpl(source.url, { signal: AbortSignal.timeout(timeoutMs) });
+        if (source.bgp) {
+          cidrs.push(...(await fetchAnnouncedPrefixes(source.asns, { fetchImpl, timeoutMs, name, failed })));
+          return;
+        }
+
+        // Azure names this week's file on a stable page rather than serving it
+        // at a stable URL, so the page is read first.
+        let url = source.url;
+        if (source.indirect) {
+          const page = await fetchImpl(source.url, { signal: AbortSignal.timeout(timeoutMs) });
+          if (!page.ok) {
+            failed.push(`${name}: index HTTP ${page.status}`);
+            return;
+          }
+          url = source.findUrl(await page.text());
+          if (!url) {
+            failed.push(`${name}: no file link on the download page`);
+            return;
+          }
+          /*
+           * The URL came out of a document someone else serves, so it is
+           * input, not configuration. Check the host before fetching it —
+           * otherwise a changed, redirected or hostile page chooses what this
+           * server requests, which is server-side request forgery with extra
+           * steps. Parsed rather than substring-matched: "download.microsoft
+           * .com" appears in plenty of URLs that are not on that host.
+           */
+          let host = '';
+          try {
+            const parsed = new URL(url);
+            host = parsed.protocol === 'https:' ? parsed.hostname : '';
+          } catch {
+            host = '';
+          }
+          if (host !== source.allowHost) {
+            failed.push(`${name}: refused ${host || 'unparseable URL'}, expected ${source.allowHost}`);
+            return;
+          }
+        }
+
+        const resp = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
         if (!resp.ok) {
           failed.push(`${name}: HTTP ${resp.status}`);
           return;

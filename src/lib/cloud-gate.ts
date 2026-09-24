@@ -83,7 +83,18 @@ const REFRESH_MS = 6 * 60 * 60 * 1000;
  * about one operator rather than about the behaviour. Anyone running the same
  * thing from Frankfurt is doing the same thing.
  */
-const matcher = createCloudMatcher({ providers: ['aws', 'gcp', 'oracle', 'digitalocean'] });
+const matcher = createCloudMatcher({
+  providers: ['aws', 'gcp', 'azure', 'alibaba', 'oracle', 'digitalocean'],
+  /**
+   * Generous, because this never runs on a request path.
+   *
+   * Azure's file is 4MB and took ~9s from here; Alibaba is five ASN lookups
+   * against RIPEstat and took about the same. The default 15s would leave
+   * those two riding the edge, and a timeout costs the WHOLE provider — which
+   * is how a gate quietly stops covering the host it was built for.
+   */
+  timeoutMs: 60_000,
+});
 
 let refreshing: Promise<unknown> | null = null;
 let nextRefresh = 0;
