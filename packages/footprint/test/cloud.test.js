@@ -199,5 +199,22 @@ describe('createCloudMatcher', () => {
   it('publishes the real provider URLs', () => {
     expect(CLOUD_SOURCES.aws.url).toContain('ip-ranges.amazonaws.com');
     expect(CLOUD_SOURCES.gcp.url).toContain('gstatic.com/ipranges');
+    expect(CLOUD_SOURCES.oracle.url).toContain('oracle.com');
+  });
+
+  it('parses Oracle regions', async () => {
+    const body = {
+      regions: [
+        { region: 'ap-singapore-1', cidrs: [{ cidr: '140.238.0.0/16' }] },
+        { region: 'us-ashburn-1', cidrs: [{ cidr: '129.213.0.0/16' }] },
+      ],
+    };
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => body }));
+    const { cidrs } = await fetchCloudRanges({
+      providers: ['oracle'],
+      regions: { oracle: 'ap-singapore' },
+      fetch: fetchImpl,
+    });
+    expect(cidrs).toEqual(['140.238.0.0/16']);
   });
 });

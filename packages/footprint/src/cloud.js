@@ -50,6 +50,15 @@ export const CLOUD_SOURCES = {
         .map((p) => p.ipv4Prefix);
     },
   },
+  oracle: {
+    url: 'https://docs.oracle.com/iaas/tools/public_ip_ranges.json',
+    parse(json, region) {
+      return (json?.regions ?? [])
+        .filter((r) => !region || String(r.region ?? '').includes(region))
+        .flatMap((r) => (r.cidrs ?? []).map((c) => c.cidr))
+        .filter(Boolean);
+    },
+  },
   digitalocean: {
     url: 'https://www.digitalocean.com/geo/google.csv',
     csv: true,
@@ -69,8 +78,26 @@ export const CLOUD_SOURCES = {
 export const SINGAPORE_REGIONS = {
   aws: 'ap-southeast-1',
   gcp: 'asia-southeast1',
+  oracle: 'ap-singapore',
   digitalocean: 'SG',
 };
+
+/**
+ * NOT COVERED, and worth knowing before trusting a miss.
+ *
+ * Azure publishes its service tags as a weekly file whose URL carries the
+ * date, so there is no stable address to fetch — it needs the download page
+ * scraped or the ARM API called with credentials.
+ *
+ * Alibaba Cloud publishes nothing at all. Reaching it means resolving its
+ * ASNs (AS45102 and friends) to prefixes through a BGP data source, which is
+ * a different kind of dependency from "the provider says these are ours".
+ *
+ * Both matter for Singapore specifically, where Alibaba is a common host for
+ * exactly this traffic. A caller that finds nothing here has NOT established
+ * that an address is residential.
+ */
+export const UNCOVERED_PROVIDERS = ['azure', 'alibaba', 'huawei', 'tencent'];
 
 /**
  * Fetch published ranges.
