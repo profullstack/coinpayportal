@@ -26,6 +26,7 @@ export type PayChain =
   | 'USDC_ETH'
   | 'USDC_POL'
   | 'USDC_SOL'
+  | 'USDC_BASE'
   | 'USDT_ETH'
   | 'USDT_POL'
   | 'USDT_SOL';
@@ -39,6 +40,7 @@ export const PAY_CHAINS: readonly PayChain[] = [
   'USDC_ETH',
   'USDC_POL',
   'USDC_SOL',
+  'USDC_BASE',
   'USDT_ETH',
   'USDT_POL',
   'USDT_SOL',
@@ -62,6 +64,9 @@ const SIGNING_CHAIN: Record<PayChain, NativeChain> = {
   USDC_ETH: 'ETH',
   USDC_POL: 'POL',
   USDC_SOL: 'SOL',
+  // Base is an EVM L2 on coinType 60, so it rides the ETH-path key — the same
+  // address as ETH, a different network.
+  USDC_BASE: 'ETH',
   USDT_ETH: 'ETH',
   USDT_POL: 'POL',
   USDT_SOL: 'SOL',
@@ -81,6 +86,13 @@ export function nonceQueueKey(chain: PayChain): NativeChain {
   const signer = SIGNING_CHAIN[chain];
   // POL and ETH are distinct networks with independent nonces despite the
   // shared address, so the signing chain is already the right granularity.
+  //
+  // USDC_BASE is the exception: it signs with the ETH key, so it shares
+  // Ethereum's queue even though Base keeps its own nonce sequence. That is
+  // deliberate and safe — it only over-serializes (an Ethereum send waits
+  // behind a Base one). Giving Base its own key would mean widening
+  // NativeChain, which is the wallet's derivation vocabulary, not a network
+  // list; the cost of waiting is smaller than the cost of that confusion.
   return signer;
 }
 
@@ -141,6 +153,8 @@ export function payChainLabel(chain: PayChain): string {
       return 'USDC on Polygon';
     case 'USDC_SOL':
       return 'USDC on Solana';
+    case 'USDC_BASE':
+      return 'USDC on Base';
     case 'USDT_ETH':
       return 'USDT on Ethereum';
     case 'USDT_POL':

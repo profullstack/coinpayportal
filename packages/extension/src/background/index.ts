@@ -318,7 +318,19 @@ chrome.windows.onRemoved.addListener((windowId) => {
  */
 async function ensurePortalWallet(seed: Uint8Array): Promise<string> {
   const derived = await wallet.addressList();
-  const fingerprint = derived.map((a) => `${a.chain}:${a.index}`).sort().join(',');
+  // The fingerprint must cover everything the registration BUILDS, not just the
+  // addresses it starts from. It used to hash the derived addresses alone, so
+  // adding a chain to PAY_CHAINS (USDC_BASE) changed what we would register
+  // without changing the cache key: every existing install kept its cached id,
+  // never re-registered, and the new token chain had no `wallet_addresses` row
+  // — prepare-tx then refused the send with ADDRESS_NOT_FOUND. Including the
+  // payable set means shipping a new chain invalidates the cache exactly once.
+  const fingerprint = [
+    ...derived.map((a) => `${a.chain}:${a.index}`),
+    ...PAY_CHAINS,
+  ]
+    .sort()
+    .join(',');
   const stored = await walletLocal.get<PortalWallet>(LOCAL_PORTAL_WALLET);
   // Re-register whenever a new address appears, so the portal can see it.
   if (stored?.id && stored.fingerprint === fingerprint) return stored.id;

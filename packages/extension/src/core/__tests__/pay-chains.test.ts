@@ -55,6 +55,12 @@ describe('signingChain', () => {
     expect(signingChain('USDT_ETH')).toBe('ETH');
   });
 
+  it('signs USDC on Base with the ETH key', () => {
+    // Base is an EVM L2 on coinType 60: same address as Ethereum, different
+    // network. It has no derivation of its own, so it must name ETH.
+    expect(signingChain('USDC_BASE')).toBe('ETH');
+  });
+
   it('signs native chains with their own key', () => {
     expect(signingChain('BTC')).toBe('BTC');
     expect(signingChain('SOL')).toBe('SOL');
@@ -84,6 +90,14 @@ describe('isPayChain / payChainLabel', () => {
   it('recognizes exactly the supported set', () => {
     expect(isPayChain('USDC_POL')).toBe(true);
     expect(isPayChain('DOGE')).toBe(false);
+  });
+
+  it('accepts USDC on Base, in wire form too', () => {
+    // A funded USDC_BASE balance was unspendable for as long as this was false:
+    // the wallet row hid its Send button and the chain picker never listed it.
+    expect(isPayChain('USDC_BASE')).toBe(true);
+    expect(toPayChain('usdc_base')).toBe('USDC_BASE');
+    expect(payChainLabel('USDC_BASE')).toBe('USDC on Base');
   });
 
   it('labels every supported chain', () => {

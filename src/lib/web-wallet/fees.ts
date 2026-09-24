@@ -7,7 +7,7 @@
  */
 
 import type { WalletChain } from './identity';
-import { evmRpcCall } from './evm-rpc';
+import { evmRpcCall, evmBaseChain } from './evm-rpc';
 
 // ──────────────────────────────────────────────
 // Types
@@ -155,16 +155,25 @@ async function estimateBCHFees(): Promise<FeeEstimateResult> {
 }
 
 // ──────────────────────────────────────────────
-// EVM Fee Estimation (ETH / POL)
+// EVM Fee Estimation (ETH / POL / Base)
 // ──────────────────────────────────────────────
 
 async function estimateEVMFees(
-  chain: 'ETH' | 'POL' | 'USDT_ETH' | 'USDT_POL' | 'USDC_ETH' | 'USDC_POL'
+  chain: 'ETH' | 'POL' | 'USDT_ETH' | 'USDT_POL' | 'USDC_ETH' | 'USDC_POL' | 'USDC_BASE'
 ): Promise<FeeEstimateResult> {
   const isToken = chain.startsWith('USDC_') || chain.startsWith('USDT_');
   const gasLimit = isToken ? GAS_LIMITS.ERC20_TRANSFER : GAS_LIMITS.ETH_TRANSFER;
-  const nativeCurrency = chain.includes('ETH') ? 'ETH' : 'POL';
-  const baseChain = chain.includes('ETH') ? 'ETH' : 'POL';
+
+  // Resolved through the same helper the RPC layer uses rather than another
+  // `includes('ETH')` test: `USDC_BASE` contains neither ETH nor POL, and a
+  // substring check silently called it Polygon — quoting POL gas for a chain
+  // whose fees are paid in ETH.
+  const base = evmBaseChain(chain);
+  const nativeCurrency = base === 'POL' ? 'POL' : 'ETH';
+  // There is no bare `BASE` WalletChain; the fee belongs to the asset itself.
+  const baseChain: WalletChain = base === 'BASE' ? 'USDC_BASE' : base;
+  // Ethereum blocks are the slow ones; Polygon and Base both settle in seconds.
+  const slow = base === 'ETH';
 
   // Fetch current gas prices via eth_gasPrice and eth_maxPriorityFeePerGas.
   // Both go through the failover client, so one dead provider no longer stops
@@ -193,9 +202,9 @@ async function estimateEVMFees(
   const highGasPrice = gasPrice + maxPriorityFee * 2n;
 
   return {
-    low: makeEVMFee(baseChain as WalletChain, nativeCurrency, gasLimit, lowGasPrice, maxPriorityFee / 2n, 'low', chain.includes('ETH') ? 300 : 30),
-    medium: makeEVMFee(baseChain as WalletChain, nativeCurrency, gasLimit, medGasPrice, maxPriorityFee, 'medium', chain.includes('ETH') ? 60 : 10),
-    high: makeEVMFee(baseChain as WalletChain, nativeCurrency, gasLimit, highGasPrice, maxPriorityFee * 2n, 'high', chain.includes('ETH') ? 15 : 5),
+    low: makeEVMFee(baseChain, nativeCurrency, gasLimit, lowGasPrice, maxPriorityFee / 2n, 'low', slow ? 300 : 30),
+    medium: makeEVMFee(baseChain, nativeCurrency, gasLimit, medGasPrice, maxPriorityFee, 'medium', slow ? 60 : 10),
+    high: makeEVMFee(baseChain, nativeCurrency, gasLimit, highGasPrice, maxPriorityFee * 2n, 'high', slow ? 15 : 5),
   };
 }
 
@@ -329,6 +338,7 @@ export async function estimateFees(chain: WalletChain): Promise<FeeEstimateResul
     case 'POL':
     case 'USDT_POL':
     case 'USDC_POL':
+    case 'USDC_BASE':
       result = await estimateEVMFees(chain);
       break;
     case 'SOL':
