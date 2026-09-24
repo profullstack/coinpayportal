@@ -27,7 +27,11 @@ beforeAll(async () => {
       }
     }
   }
-  for (const file of ['explorer-abuse.ts', 'explorer-identity.ts', 'explorer-budget.ts', 'crawl-gateway.ts', 'explorer-gateway.ts', 'explorer-watch.ts', 'throttle.ts']) {
+  // Every src/lib module the interception files import. A missing entry does
+  // not fail to compile here — the fixture app cannot resolve it, the proxy
+  // module fails to load, and EVERY request answers 500, which is how this
+  // test earns its keep.
+  for (const file of ['explorer-abuse.ts', 'explorer-identity.ts', 'explorer-budget.ts', 'crawl-gateway.ts', 'cloud-gate.ts', 'explorer-gateway.ts', 'explorer-watch.ts', 'throttle.ts']) {
     await cp(join(root, 'src/lib', file), join(fixture, 'src/lib', file));
   }
   await mkdir(join(fixture, 'src/lib/auth'), { recursive: true });
