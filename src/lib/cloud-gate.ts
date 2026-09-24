@@ -41,7 +41,37 @@
  * the act of merging it.
  */
 
+import { createGateway } from '@profullstack/x402-gateway';
 import { createCloudMatcher } from '@profullstack/footprint/cloud';
+
+const env = (name: string) => process.env[name];
+
+/**
+ * A gateway of our own, because the crawl gateway will not charge this caller.
+ *
+ * The first version of this delegated to `crawl-gateway`'s `handle()` and
+ * charged NOBODY. That gateway's `isPaidAgent` defaults to the training-crawler
+ * list, so it re-decided the question we had just answered, saw an ordinary
+ * Chrome user agent, and returned null. The gate judged correctly and then
+ * handed the verdict to something that overruled it.
+ *
+ * `isPaidAgent: () => true` is the fix and the point: by the time `handle` is
+ * called here, `judgeCloudClient` has already decided this caller pays. Asking
+ * a second, weaker rule to confirm it can only ever disagree. `explorer-gateway`
+ * is built the same way for the same reason.
+ */
+export const cloudGateway = createGateway({
+  siteUrl: env('SITE_URL') || env('NEXT_PUBLIC_SITE_URL') || 'https://coinpayportal.com',
+  siteName: 'CoinPay',
+  coinpay: { apiKey: env('COINPAY_X402_KEY') },
+  payTo: env('CRAWL_PAY_TO'),
+  contact: 'mailto:support@coinpayportal.com',
+  // Its own pass and sales page, so a pass bought here is not confused with
+  // the crawl pass or the explorer pass, which meter different things.
+  header: 'x-cloud-pass',
+  path: '/cloud-pass',
+  isPaidAgent: () => true,
+});
 
 /** How often the published range files are re-read. They change rarely. */
 const REFRESH_MS = 6 * 60 * 60 * 1000;
@@ -131,3 +161,21 @@ export function judgeCloudClient(request: Request, pathname: string): CloudVerdi
 export function cloudGateStatus() {
   return { ranges: matcher.size, lastRefresh: matcher.lastRefresh, lastError: matcher.lastError };
 }
+
+/**
+ * Answer a caller that should pay, or null to let the request continue.
+ *
+ * Null also means the caller presented a valid pass or just settled, so a
+ * paying agent is not charged twice for the same day.
+ */
+export async function cloudGate(request: Request, pathname: string): Promise<Response | null> {
+  const verdict = judgeCloudClient(request, pathname);
+  if (!verdict.charge) return null;
+  const answer = await cloudGateway.handle(request);
+  if (answer) console.log(`[cloud-gate] charging ${verdict.ip} for ${pathname}`);
+  return answer ?? null;
+}
+
+/** The sales page, served from the proxy the way the other gateways serve theirs. */
+export const cloudSell = cloudGateway.sell;
+export const CLOUD_PASS_PATH = '/cloud-pass';

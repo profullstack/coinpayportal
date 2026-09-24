@@ -19,7 +19,7 @@ vi.mock('@profullstack/footprint/cloud', () => ({
   }),
 }));
 
-const { judgeCloudClient, clientAddress } = await import('./cloud-gate');
+const { judgeCloudClient, clientAddress, cloudGate, cloudGateway } = await import('./cloud-gate');
 
 const CLOUD_IP = '3.0.0.1';
 
@@ -96,6 +96,46 @@ describe('judgeCloudClient', () => {
       '/dashboard',
     );
     expect(v).toMatchObject({ charge: false, reason: 'signed in' });
+  });
+
+  it('actually answers 402, rather than deciding and then being overruled', async () => {
+    // The bug this pins: the first version delegated to the CRAWL gateway,
+    // whose isPaidAgent defaults to the training-crawler list. It re-decided
+    // the question this module had just answered, saw an ordinary Chrome user
+    // agent, returned null, and charged nobody — while every unit test of
+    // judgeCloudClient passed, because the verdict was never the broken half.
+    const answer = await cloudGate(
+      new Request('https://coinpayportal.com/reputation', {
+        headers: {
+          'x-forwarded-for': CLOUD_IP,
+          'user-agent':
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+          'sec-fetch-mode': 'navigate',
+        },
+      }),
+      '/reputation',
+    );
+    expect(answer).not.toBeNull();
+    expect(answer!.status).toBe(402);
+  });
+
+  it('lets an address outside every range through the gate untouched', async () => {
+    const answer = await cloudGate(
+      new Request('https://coinpayportal.com/reputation', {
+        headers: { 'x-forwarded-for': '86.1.2.3' },
+      }),
+      '/reputation',
+    );
+    expect(answer).toBeNull();
+  });
+
+  it('charges regardless of user agent, since the address already decided', () => {
+    // The gateway must not re-apply a user-agent rule on top of the verdict.
+    expect(cloudGateway).toBeDefined();
+    for (const ua of ['curl/8.4.0', 'GPTBot/1.0', 'Mozilla/5.0 Chrome/148.0.0.0']) {
+      const v = judgeCloudClient(req({ 'x-forwarded-for': CLOUD_IP, 'user-agent': ua }), '/reputation');
+      expect(v.charge).toBe(true);
+    }
   });
 
   it('reads the first hop of a forwarded chain', () => {

@@ -1,8 +1,8 @@
 import { explorerAccount } from "@/lib/explorer-identity";
 import { checkExplorerAbuse } from "@/lib/explorer-abuse";
 import { reserveExplorerRead, reserveExplorerAccountRead } from "@/lib/explorer-budget";
-import { gate, gateway } from "@/lib/crawl-gateway";
-import { judgeCloudClient } from "@/lib/cloud-gate";
+import { gate } from "@/lib/crawl-gateway";
+import { cloudGate, cloudSell, CLOUD_PASS_PATH } from "@/lib/cloud-gate";
 import { EXPLORER_PASS_PATH, explorerGate, explorerSell } from "@/lib/explorer-gateway";
 import { countExplorerRefusal, watchExplorer } from "@/lib/explorer-watch";
 import { meter } from "@/lib/throttle";
@@ -230,14 +230,13 @@ async function handleRequest(request: NextRequest) {
    * a declared crawler buys. Off unless CLOUD_CHARGE=pages; see lib/cloud-gate
    * for everything this deliberately never charges, the healthcheck included.
    */
-  const cloud = judgeCloudClient(request, path);
-  if (cloud.charge) {
-    const offer = await gateway.handle(request);
-    if (offer) {
-      console.log(`[cloud-gate] charging ${cloud.ip} for ${path}`);
-      return offer;
-    }
-  }
+  // The page that explains this charge and takes the payment, excluded for the
+  // same reason the explorer's is: a sales page you can be refused for reading
+  // is a loop rather than an offer.
+  if (path === CLOUD_PASS_PATH) return await cloudSell(request);
+
+  const cloudAnswer = await cloudGate(request, path);
+  if (cloudAnswer) return cloudAnswer;
 
   /*
    * Then the site-wide allowance, which meters every route: 100 requests a
