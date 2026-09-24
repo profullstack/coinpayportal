@@ -152,7 +152,7 @@ export async function runInvoiceMonitorCycle(supabase: any, now: Date): Promise<
           // unlocks the goods on 99%, and the forwarder is then asked to send
           // 100% out of an address holding 99%, so the forward fails and the
           // funds strand at the intermediary address.
-          if (isSufficientPayment(balanceResult.balance, expectedAmount)) {
+          if (isSufficientPayment(balanceResult.balance, expectedAmount, invoice.crypto_currency)) {
             // Put the money on its way before declaring the invoice settled.
             //
             // This branch handles invoices with no linked CoinPay payment. It

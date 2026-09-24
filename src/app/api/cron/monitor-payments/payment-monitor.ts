@@ -296,7 +296,7 @@ export async function rescanLateDeposits(
 
       const balance = await checkBalance(payment.payment_address, payment.blockchain);
       // Sufficient balance is a funding check, not proof of no previous send.
-      if (!isSufficientPayment(balance, payment.crypto_amount)) continue;
+      if (!isSufficientPayment(balance, payment.crypto_amount, payment.blockchain)) continue;
 
       console.log(
         `Payment ${payment.id} is stuck in '${payment.status}' with ${balance} ${payment.blockchain} still at ${payment.payment_address}; re-driving it`,
@@ -374,7 +374,7 @@ export async function monitorPayments(
       console.log(`Payment ${payment.id}: balance=${balance}, expected=${payment.crypto_amount}`);
 
       // Settlement requires the full amount — see lib/payments/tolerance.ts.
-      if (isSufficientPayment(balance, payment.crypto_amount)) {
+      if (isSufficientPayment(balance, payment.crypto_amount, payment.blockchain)) {
         if (isExpired) {
           console.log(`Payment ${payment.id} was funded near the end of its window; processing instead of expiring`);
         }
@@ -430,7 +430,7 @@ export async function monitorPayments(
         // subscription was confirmed — and activated — at a zero balance.
         // isSufficientPayment fails closed on NULL/NaN/zero.
         const balance = await checkBalance(payment.payment_address, payment.blockchain);
-        if (!isSufficientPayment(balance, payment.crypto_amount)) {
+        if (!isSufficientPayment(balance, payment.crypto_amount, payment.blockchain)) {
           if (payment.crypto_amount === null || payment.crypto_amount === undefined) {
             console.error(
               `Business collection payment ${payment.id} has no crypto_amount; refusing to confirm. ` +

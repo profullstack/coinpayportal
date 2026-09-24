@@ -84,7 +84,7 @@ async function checkPendingEscrows(
       // Check balance on-chain
       const balance = await checkBalance(escrow.escrow_address, escrow.chain);
 
-      if (isSufficientPayment(balance, escrow.amount)) {
+      if (isSufficientPayment(balance, escrow.amount, escrow.chain)) {
         // Mark as funded
         await supabase
           .from('escrows')

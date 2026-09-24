@@ -17,6 +17,7 @@ import { deliverWebhook, logWebhookAttempt, retryFailedWebhook } from '../webhoo
 import { decrypt } from '../crypto/encryption';
 import { resolveWebhookSecret } from '../webhooks/secret';
 import { getCryptoPrice } from '../rates/tatum';
+import { quantizeQuote } from './asset-decimals';
 
 /**
  * Supported blockchains for business collection
@@ -226,7 +227,11 @@ export async function createBusinessCollectionPayment(
 
     let cryptoAmount: number;
     try {
-      cryptoAmount = await getCryptoPrice(input.amount, input.currency, cryptoCurrency);
+      // Rounded to the asset's own precision — see lib/payments/asset-decimals.ts.
+      cryptoAmount = quantizeQuote(
+        await getCryptoPrice(input.amount, input.currency, cryptoCurrency),
+        input.blockchain
+      );
     } catch (e) {
       return {
         success: false,

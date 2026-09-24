@@ -5,6 +5,7 @@
  */
 
 import { isSufficientPayment } from './tolerance';
+import { sendPaymentWebhook } from '@/lib/webhooks/service';
 import { fetchWithTimeout } from '@/lib/http/fetch-timeout';
 
 // RPC endpoints for different blockchains
@@ -790,7 +791,7 @@ export async function processPayment(supabase: any, payment: Payment): Promise<{
   console.log(`[Monitor] Payment ${payment.id}: balance=${balanceResult.balance}, expected=${payment.crypto_amount}, txHash=${balanceResult.txHash || 'none'}`);
   
   // Settlement requires the full amount — see lib/payments/tolerance.ts.
-  if (isSufficientPayment(balanceResult.balance, payment.crypto_amount)) {
+  if (isSufficientPayment(balanceResult.balance, payment.crypto_amount, payment.blockchain)) {
     // Mark as confirmed and store tx_hash if available
     const updateData: Record<string, any> = {
       status: 'confirmed',
@@ -813,7 +814,30 @@ export async function processPayment(supabase: any, payment: Payment): Promise<{
     if (error) throw error;
     if (!data) return { confirmed: false, expired: false };
     console.log(`[Monitor] Payment ${payment.id} CONFIRMED with balance ${balanceResult.balance}`);
-    
+
+    // Tell the merchant the money arrived, BEFORE the sweep is attempted.
+    //
+    // Until 2026-09-24 a crypto payment's only outbound webhook was
+    // `payment.forwarded`, sent from the forwarding leg. So everything a
+    // merchant does on payment — granting credit, releasing goods — was
+    // conditional on our sweep succeeding, and when the sweep could not run the
+    // merchant heard nothing at all: on 2026-09-24 an empty gas relayer left a
+    // confirmed, fully funded USDC payment with no notification of any kind,
+    // and the buyer's account was never credited for money we were holding.
+    // Confirmation and forwarding are our problem, not the merchant's; they are
+    // owed the first event when the funds are theirs.
+    //
+    // Fire-and-forget on purpose: a merchant endpoint that is slow or down must
+    // not delay or fail the sweep, and `payment.forwarded` still follows.
+    void sendPaymentWebhook(supabase, payment.business_id, payment.id, 'payment.confirmed', {
+      status: 'confirmed',
+      amount_crypto: balanceResult.balance,
+      payment_address: payment.payment_address,
+      tx_hash: balanceResult.txHash ?? null,
+      blockchain: payment.blockchain,
+      confirmed_at: now.toISOString(),
+    }).catch((e) => console.error(`[Monitor] payment.confirmed webhook failed for ${payment.id}:`, e));
+
     // Trigger forwarding
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
     const internalApiKey = process.env.INTERNAL_API_KEY;

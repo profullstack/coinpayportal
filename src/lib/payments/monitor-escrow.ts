@@ -126,7 +126,7 @@ export async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowSt
               continue;
             }
 
-            if (isSufficientPayment(balance, escrow.amount)) {
+            if (isSufficientPayment(balance, escrow.amount, escrow.chain)) {
               await supabase
                 .from('escrows')
                 .update({
@@ -166,7 +166,7 @@ export async function runEscrowCycle(supabase: any, now: Date): Promise<EscrowSt
             continue;
           }
 
-          if (isSufficientPayment(balance, escrow.amount)) {
+          if (isSufficientPayment(balance, escrow.amount, escrow.chain)) {
             await supabase
               .from('escrows')
               .update({

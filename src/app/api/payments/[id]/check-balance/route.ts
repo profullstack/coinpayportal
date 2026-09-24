@@ -132,7 +132,7 @@ export async function POST(
     // at a zero balance).
     const expectedAmount = parseFloat(payment.crypto_amount);
 
-    if (isSufficientPayment(balance, payment.crypto_amount)) {
+    if (isSufficientPayment(balance, payment.crypto_amount, payment.blockchain)) {
       const now = new Date().toISOString();
 
       // Compare-and-swap: only the caller that observes the row still 'pending'
