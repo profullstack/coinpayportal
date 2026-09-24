@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getCryptoPrice } from '../rates/tatum';
+import { quantizeQuote } from './asset-decimals';
 import { getUsdFxRate } from '../rates/fx';
 import { z } from 'zod';
 import { generatePaymentAddress, type SystemBlockchain } from '../wallets/system-wallet';
@@ -289,10 +290,13 @@ export async function createPayment(
     // (gas-affordability checks, the payer-facing breakdown).
     const totalAmountUsd = totalInCurrency / usdToCurrency;
 
-    const cryptoAmount = await getCryptoPrice(
-      totalInCurrency,
-      input.currency,
-      cryptoCurrency
+    // Quoted at the precision the ASSET can carry, not a blanket eight places:
+    // a six-decimal token quoted to eight is an amount no wallet can send, and
+    // the payment expires unpaid with the money at the deposit address. See
+    // lib/payments/asset-decimals.ts.
+    const cryptoAmount = quantizeQuote(
+      await getCryptoPrice(totalInCurrency, input.currency, cryptoCurrency),
+      input.blockchain
     );
 
     console.log(`[Payment] Amount: ${input.amount} ${input.currency}, Network fee: $${networkFeeUsd} (${networkFeeInCurrency} ${input.currency}), Total: ${totalInCurrency} ${input.currency}, Crypto: ${cryptoAmount} ${cryptoCurrency}`);
