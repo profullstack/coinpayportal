@@ -300,6 +300,37 @@ describe('broadcastTransaction', () => {
       }
     });
 
+    it('broadcasts USDT on Ethereum and Polygon', async () => {
+      for (const [chain, explorer] of [
+        ['USDT_ETH', 'etherscan.io'],
+        ['USDT_POL', 'polygonscan.com'],
+      ] as const) {
+        const supabase = createMockSupabase({
+          txRecord: {
+            id: 'tx-123',
+            wallet_id: 'w1',
+            chain,
+            status: 'pending',
+            metadata: { expires_at: new Date(Date.now() + 300_000).toISOString() },
+          },
+        });
+
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ jsonrpc: '2.0', result: `0x${chain}hash`, id: 1 }),
+        });
+
+        const result = await broadcastTransaction(supabase, 'w1', {
+          tx_id: 'tx-123',
+          signed_tx: '0xf86c...',
+          chain,
+        });
+
+        expect(result.success).toBe(true);
+        if (result.success) expect(result.data.explorer_url).toContain(explorer);
+      }
+    });
+
     it('should handle EVM RPC error', async () => {
       const supabase = createMockSupabase();
 
@@ -889,5 +920,64 @@ describe('broadcastTransaction - non-EVM binding (WW-03)', () => {
     // The binding must not be what stops this one: the broadcast was attempted.
     expect(mockFetch).toHaveBeenCalled();
     void result;
+  });
+});
+
+/**
+ * The gap this guards against is a coverage gap, not a logic bug: USDT was
+ * offered by the extension's chain picker, estimated by fees.ts and built by
+ * prepare-tx, and only broadcast had never heard of it. Every stage looked
+ * healthy on its own. A per-chain test would not have caught it either —
+ * nobody writes the test for the chain they forgot — so this asserts the set.
+ */
+describe('every payable chain reaches a broadcaster', () => {
+  const PAYABLE = [
+    'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+    'USDC_ETH', 'USDC_POL', 'USDC_SOL', 'USDC_BASE',
+    'USDT_ETH', 'USDT_POL', 'USDT_SOL',
+  ] as const;
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it.each(PAYABLE)('%s is not refused as an unsupported chain', async (chain) => {
+    const supabase = createMockSupabase({
+      txRecord: {
+        id: 'tx-123',
+        wallet_id: 'w1',
+        chain,
+        status: 'pending',
+        metadata: { expires_at: new Date(Date.now() + 300_000).toISOString() },
+      },
+    });
+
+    // Answer whatever transport the chain happens to use; this test is about
+    // reaching a broadcaster at all, not about what it does once there.
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: async () => 'tx-hash',
+      json: async () => ({ jsonrpc: '2.0', result: 'tx-hash', id: 1 }),
+    });
+
+    const result = await broadcastTransaction(supabase, 'w1', {
+      tx_id: 'tx-123',
+      signed_tx: chain === 'SOL' || chain.endsWith('_SOL') ? 'base64tx' : '0xf86c...',
+      chain,
+    });
+
+    // It may still fail for a chain-level reason; it must never come back
+    // saying this platform does not handle the chain.
+    if (!result.success) {
+      expect(result.code).not.toBe('UNSUPPORTED_CHAIN');
+    }
+  });
+
+  it.each(PAYABLE)('%s has an explorer link, not a bare hash', (chain) => {
+    // EXPLORER_URLS[chain] falls back to '', so a missing row does not throw —
+    // it concatenates onto nothing and the user is handed a transaction hash
+    // where a link should be. USDC_BASE and all three USDT variants were
+    // missing exactly this way.
+    expect(EXPLORER_URLS[chain]).toMatch(/^https:\/\/.+\/$/);
   });
 });

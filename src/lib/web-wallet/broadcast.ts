@@ -50,6 +50,13 @@ const EXPLORER_URLS: Record<string, string> = {
   USDC_ETH: 'https://etherscan.io/tx/',
   USDC_POL: 'https://polygonscan.com/tx/',
   USDC_SOL: 'https://explorer.solana.com/tx/',
+  // A token variant needs its own row: the lookup falls back to '' and the
+  // caller then hands the user a bare transaction hash where a link belongs.
+  // Silent, and invisible until someone clicks it.
+  USDC_BASE: 'https://basescan.org/tx/',
+  USDT_ETH: 'https://etherscan.io/tx/',
+  USDT_POL: 'https://polygonscan.com/tx/',
+  USDT_SOL: 'https://explorer.solana.com/tx/',
 };
 
 // ──────────────────────────────────────────────
@@ -330,6 +337,12 @@ const EVM_DECIMALS: Record<string, number> = {
   USDC_ETH: 6,
   USDC_POL: 6,
   USDC_BASE: 6,
+  // USDT is 6dp on both EVM chains. These are not decoration: an absent entry
+  // returns `no decoder for <chain>`, which is unverified-but-allowed, so
+  // broadcasting USDT without them would skip the recipient and amount binding
+  // entirely — the WW-03 hole, reopened for a different token.
+  USDT_ETH: 6,
+  USDT_POL: 6,
 };
 
 /**
@@ -445,7 +458,7 @@ async function verifySignedTxBinding(
     }
   }
 
-  if (chain === 'SOL' || chain === 'USDC_SOL') {
+  if (chain === 'SOL' || chain === 'USDC_SOL' || chain === 'USDT_SOL') {
     try {
       return await verifySolBinding(signedTx, expected);
     } catch (err) {
@@ -669,19 +682,24 @@ export async function broadcastTransaction(
       case 'BCH':
         txHash = await withRetry(() => broadcastBCH(input.signed_tx));
         break;
+      // Every EVM chain broadcasts identically — the endpoint is resolved from
+      // the chain inside broadcastEVM. USDT was missing from this list while
+      // fees, prepare-tx and the extension's own chain picker all offered it,
+      // so a USDT send was estimated, prepared, SIGNED, and only then refused
+      // as an unsupported chain. Failing after the user signs is the worst
+      // place in the flow to discover a gap.
       case 'ETH':
       case 'USDC_ETH':
-        txHash = await withRetry(() => broadcastEVM(input.signed_tx, chain));
-        break;
+      case 'USDT_ETH':
       case 'POL':
       case 'USDC_POL':
-        txHash = await withRetry(() => broadcastEVM(input.signed_tx, chain));
-        break;
+      case 'USDT_POL':
       case 'USDC_BASE':
         txHash = await withRetry(() => broadcastEVM(input.signed_tx, chain));
         break;
       case 'SOL':
       case 'USDC_SOL':
+      case 'USDT_SOL':
         txHash = await withRetry(() => broadcastSOL(input.signed_tx, rpc.SOL));
         break;
       default:
