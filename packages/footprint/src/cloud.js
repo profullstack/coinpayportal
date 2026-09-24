@@ -64,11 +64,27 @@ export const CLOUD_SOURCES = {
   azure: {
     url: 'https://www.microsoft.com/en-us/download/details.aspx?id=56519',
     indirect: true,
+    /** Only this host may be fetched, whatever the page turns out to say. */
+    allowHost: 'download.microsoft.com',
+    /**
+     * Pull the current file's link out of the page.
+     *
+     * Split on delimiters and test each token rather than running one regex
+     * across the whole document. A pattern like `…/download/[^"']*Service…`
+     * backtracks polynomially, and the document is remote input — so a page
+     * built to be hostile could hang the refresh. Splitting is linear, and
+     * the only regex left runs anchored against one short token.
+     */
     findUrl(html) {
-      const matches = String(html).match(
-        /https:\/\/download\.microsoft\.com\/download\/[^"']*ServiceTags_Public_\d+\.json/,
-      );
-      return matches ? matches[0] : null;
+      for (const token of String(html).split(/["'\s<>]+/)) {
+        if (
+          token.startsWith('https://download.microsoft.com/download/') &&
+          /\/ServiceTags_Public_\d{1,12}\.json$/.test(token)
+        ) {
+          return token;
+        }
+      }
+      return null;
     },
     parse(json, region) {
       const out = [];
@@ -223,6 +239,25 @@ export async function fetchCloudRanges(options = {}) {
           url = source.findUrl(await page.text());
           if (!url) {
             failed.push(`${name}: no file link on the download page`);
+            return;
+          }
+          /*
+           * The URL came out of a document someone else serves, so it is
+           * input, not configuration. Check the host before fetching it —
+           * otherwise a changed, redirected or hostile page chooses what this
+           * server requests, which is server-side request forgery with extra
+           * steps. Parsed rather than substring-matched: "download.microsoft
+           * .com" appears in plenty of URLs that are not on that host.
+           */
+          let host = '';
+          try {
+            const parsed = new URL(url);
+            host = parsed.protocol === 'https:' ? parsed.hostname : '';
+          } catch {
+            host = '';
+          }
+          if (host !== source.allowHost) {
+            failed.push(`${name}: refused ${host || 'unparseable URL'}, expected ${source.allowHost}`);
             return;
           }
         }

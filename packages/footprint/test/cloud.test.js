@@ -211,8 +211,10 @@ describe('createCloudMatcher', () => {
         { properties: { region: 'westus', addressPrefixes: ['13.64.0.0/16'] } },
       ],
     };
+    // startsWith on the full origin, not `includes` on the host: any URL can
+    // carry "download.microsoft.com" somewhere in it.
     const fetchImpl = vi.fn(async (url) =>
-      url.includes('download.microsoft.com')
+      url.startsWith('https://download.microsoft.com/')
         ? { ok: true, status: 200, json: async () => tags }
         : { ok: true, status: 200, text: async () => page },
     );
@@ -233,6 +235,31 @@ describe('createCloudMatcher', () => {
     const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, text: async () => '<html>redesigned</html>' }));
     const { cidrs, failed } = await fetchCloudRanges({ providers: ['azure'], fetch: fetchImpl });
     expect(cidrs).toEqual([]);
+    expect(failed.join()).toMatch(/no file link/);
+  });
+
+  it('refuses a file link that points somewhere other than Microsoft', async () => {
+    // The link comes out of a document someone else serves, so it is input.
+    // A changed, redirected or hostile page must not choose what this server
+    // fetches — that is SSRF with extra steps.
+    const page = '<a href="https://evil.example.com/download/ServiceTags_Public_20260921.json">dl</a>';
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, text: async () => page }));
+    const { cidrs, failed } = await fetchCloudRanges({ providers: ['azure'], fetch: fetchImpl });
+    expect(cidrs).toEqual([]);
+    expect(failed.join()).toMatch(/no file link/);
+    // Only the index page was fetched; the attacker's URL never was.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not hurt by a page built to make the parser backtrack', async () => {
+    // A greedy `[^"']*` across the document backtracks polynomially. This is
+    // the shape that would have hung it; splitting on delimiters is linear.
+    const hostile =
+      'https://download.microsoft.com/download/'.repeat(20000) + ' no-match-here';
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, text: async () => hostile }));
+    const started = Date.now();
+    const { failed } = await fetchCloudRanges({ providers: ['azure'], fetch: fetchImpl });
+    expect(Date.now() - started).toBeLessThan(2000);
     expect(failed.join()).toMatch(/no file link/);
   });
 
