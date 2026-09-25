@@ -13,6 +13,8 @@ import type { WalletChain } from './identity';
 import { isValidChain, validateAddress } from './identity';
 import { estimateFees, type FeeEstimate } from './fees';
 import { evmRpcCall } from './evm-rpc';
+import { fetchBalance } from './balance';
+import { checkSpendable } from './spendable';
 
 /** Truncate an address for safe logging */
 function truncAddr(addr: string): string {
@@ -516,7 +518,7 @@ export async function prepareTransaction(
   // Filter by chain too — EVM addresses can be shared across ETH/POL/USDC_* chains
   const { data: addrRecord, error: addrError } = await supabase
     .from('wallet_addresses')
-    .select('id, address, chain')
+    .select('id, address, chain, cached_balance')
     .eq('wallet_id', walletId)
     .eq('address', input.from_address)
     .eq('chain', chain)
@@ -528,6 +530,58 @@ export async function prepareTransaction(
   }
 
   const priority = input.priority || 'medium';
+
+  // ── Affordability guard ──
+  // A transfer spends one keypair, but the asset screen shows the sum of every
+  // derived address on the chain, so an amount that looks funded can be backed
+  // by a sibling address instead. Without this the only verdict came from the
+  // node *after* the payer had signed, as an "insufficient funds" simulation
+  // failure. Solana also rejects a transfer leaving the sender below the
+  // rent-exempt floor, which surprises a payer the same way.
+  //
+  // The cached balance decides whether to look: a wallet that already believes
+  // the address can pay is taken at its word, so the common path spends no RPC
+  // call at all and a 25-payment batch still costs one request. Only a cache
+  // that says the send is short earns a live lookup, and only live data can
+  // refuse — a stale cache must never block a send the chain would accept.
+  //
+  // Scoped to native SOL: the BTC path already fails on its own UTXO total, and
+  // a token transfer's fee comes from a native balance this does not read. The
+  // send form's own check covers every chain before the payer ever signs.
+  if (chain === 'SOL' && addrRecord.cached_balance !== null && addrRecord.cached_balance !== undefined) {
+    const cachedVerdict = checkSpendable({
+      chain,
+      balance: String(addrRecord.cached_balance),
+      amount: input.amount,
+      fee: fee.fee,
+    });
+
+    if (!cachedVerdict.ok) {
+      let liveBalance: string | null = null;
+      try {
+        liveBalance = await fetchBalance(input.from_address, chain);
+      } catch (err: any) {
+        // Confirmation unavailable: let it through rather than refuse on a
+        // balance we could not verify. The node stays the final authority.
+        console.warn(`[PrepareTx] SOL balance confirmation failed: ${err?.message || err}`);
+      }
+
+      if (liveBalance !== null) {
+        const verdict = checkSpendable({
+          chain,
+          balance: liveBalance,
+          amount: input.amount,
+          fee: fee.fee,
+        });
+        if (!verdict.ok) {
+          console.log(
+            `[PrepareTx] Rejected ${chain} tx from ${truncAddr(input.from_address)}: ${verdict.code}`
+          );
+          return { success: false, error: verdict.message, code: verdict.code };
+        }
+      }
+    }
+  }
 
   // Build unsigned transaction
   const rpc = getRpcEndpoints();

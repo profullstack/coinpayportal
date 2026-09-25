@@ -277,7 +277,13 @@ function describeSolError(error: {
   // read program logs to discover their wallet is empty.
   const haystack = `${JSON.stringify(err ?? '')} ${logs.join(' ')}`;
   if (/InsufficientFundsForRent|insufficient lamports|InsufficientFunds/i.test(haystack)) {
-    return `${base}: the sending wallet does not have enough SOL to cover this transfer plus fees`;
+    // "wallet" was misleading: the constraint is the single sending address, and
+    // the balance shown for a chain is the sum of every address derived on it.
+    return (
+      `${base}: the sending address does not have enough SOL to cover this transfer ` +
+      `plus fees — a chain's displayed balance is the total across every derived address, ` +
+      `not what one address holds`
+    );
   }
   if (/BlockhashNotFound/i.test(haystack)) {
     return `${base}: the transaction's blockhash expired before it was broadcast — try again`;

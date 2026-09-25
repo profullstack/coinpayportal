@@ -559,6 +559,161 @@ describe('prepareTransaction', () => {
       expect(result.success).toBe(false);
       if (!result.success) expect(result.code).toBe('PREPARE_FAILED');
     });
+
+    // ── Affordability guard ──
+    // The reported bug: the asset screen showed 0.18134693 SOL, the sum of two
+    // derived addresses, and the form sent from the one holding 0.00560124. The
+    // node's refusal arrived only after the payer had signed.
+    describe('affordability', () => {
+      const SOL_ADDR = '7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV';
+      const TO_ADDR = 'FxkPpN3Nt1NHFxJ2ECE3dwXeGujhzVJAqwnMBKwfpump';
+
+      const blockhashResponse = {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          jsonrpc: '2.0',
+          result: { value: { blockhash: 'EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N', lastValidBlockHeight: 1 } },
+          id: 1,
+        }),
+      };
+
+      const balanceResponse = (lamports: number) => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ jsonrpc: '2.0', result: { value: lamports }, id: 1 }),
+      });
+
+      it('refuses a send the address cannot fund, naming the shortfall', async () => {
+        const supabase = createMockSupabase({
+          addressResult: {
+            id: 'addr-1',
+            address: SOL_ADDR,
+            chain: 'SOL',
+            cached_balance: '0.00560124',
+          },
+        });
+        // Cache says short → one live lookup confirms it before refusing.
+        mockFetch.mockResolvedValueOnce(balanceResponse(5_601_240));
+
+        const result = await prepareTransaction(supabase, 'w1', {
+          from_address: SOL_ADDR,
+          to_address: TO_ADDR,
+          chain: 'SOL',
+          amount: '0.08583',
+        });
+
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.code).toBe('INSUFFICIENT_BALANCE');
+          expect(result.error).toContain('0.00560124 SOL');
+          expect(result.error).toContain('more than it has');
+        }
+      });
+
+      it('refuses a send that would leave a sub-rent-exempt remainder', async () => {
+        // 0.1 SOL on the address, fee 0.0002 from the mocked estimator: this
+        // leaves 0.0003 SOL, under the 0.00089088 floor the runtime enforces.
+        const supabase = createMockSupabase({
+          addressResult: { id: 'addr-1', address: SOL_ADDR, chain: 'SOL', cached_balance: '0.1' },
+        });
+        mockFetch.mockResolvedValueOnce(balanceResponse(100_000_000));
+
+        const result = await prepareTransaction(supabase, 'w1', {
+          from_address: SOL_ADDR,
+          to_address: TO_ADDR,
+          chain: 'SOL',
+          amount: '0.0995',
+        });
+
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.code).toBe('RENT_FLOOR');
+          expect(result.error).toContain('0.00089088 SOL');
+        }
+      });
+
+      it('does not refuse on a stale cache the chain disagrees with', async () => {
+        // Funds landed after the cache was written. Refusing here would block a
+        // send the node would have accepted, so only live data may refuse.
+        const supabase = createMockSupabase({
+          addressResult: { id: 'addr-1', address: SOL_ADDR, chain: 'SOL', cached_balance: '0' },
+        });
+        mockFetch
+          .mockResolvedValueOnce(balanceResponse(2_000_000_000)) // live: 2 SOL
+          .mockResolvedValueOnce(blockhashResponse);
+
+        const result = await prepareTransaction(supabase, 'w1', {
+          from_address: SOL_ADDR,
+          to_address: TO_ADDR,
+          chain: 'SOL',
+          amount: '1',
+        });
+
+        expect(result.success).toBe(true);
+      });
+
+      it('lets the send through when the balance cannot be confirmed', async () => {
+        // A failed lookup must not become a refusal; the node decides.
+        const supabase = createMockSupabase({
+          addressResult: { id: 'addr-1', address: SOL_ADDR, chain: 'SOL', cached_balance: '0' },
+        });
+        mockFetch
+          .mockRejectedValueOnce(new Error('RPC unreachable'))
+          .mockResolvedValueOnce(blockhashResponse);
+
+        const result = await prepareTransaction(supabase, 'w1', {
+          from_address: SOL_ADDR,
+          to_address: TO_ADDR,
+          chain: 'SOL',
+          amount: '1',
+        });
+
+        expect(result.success).toBe(true);
+      });
+
+      it('spends no balance lookup when the cache already covers the send', async () => {
+        // Keeps the guard off the batch path: a funded wallet preparing 25
+        // payments must still cost one RPC call, not 26.
+        const supabase = createMockSupabase({
+          addressResult: { id: 'addr-1', address: SOL_ADDR, chain: 'SOL', cached_balance: '5' },
+        });
+        mockFetch.mockResolvedValue(blockhashResponse);
+
+        const batch = await Promise.all(
+          Array.from({ length: 25 }, () =>
+            prepareTransaction(supabase, 'w1', {
+              from_address: SOL_ADDR,
+              to_address: TO_ADDR,
+              chain: 'SOL',
+              amount: '0.01',
+            })
+          )
+        );
+
+        expect(batch.every((r) => r.success)).toBe(true);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+      });
+
+      it('skips the guard when the wallet has no cached balance', async () => {
+        // No evidence to doubt the send, so no lookup: an SDK caller that never
+        // reads balances behaves exactly as it did before.
+        const supabase = createMockSupabase({
+          addressResult: { id: 'addr-1', address: SOL_ADDR, chain: 'SOL' },
+        });
+        mockFetch.mockResolvedValue(blockhashResponse);
+
+        const result = await prepareTransaction(supabase, 'w1', {
+          from_address: SOL_ADDR,
+          to_address: TO_ADDR,
+          chain: 'SOL',
+          amount: '1000',
+        });
+
+        expect(result.success).toBe(true);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   // ──────────────────────────────────────────────

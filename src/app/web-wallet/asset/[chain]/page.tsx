@@ -17,6 +17,7 @@ import { decryptWithPassword } from '@/lib/web-wallet/client-crypto';
 import { getActiveWallet } from '@/lib/web-wallet/wallet-registry';
 import type { WalletChain } from '@/lib/web-wallet/identity';
 import { isValidChain } from '@/lib/web-wallet/identity';
+import { checkSpendable, maxSpendable } from '@/lib/web-wallet/spendable';
 import type { TransactionListOptions } from '@/lib/wallet-sdk/types';
 import { SUPPORTED_FIAT_CURRENCIES, type FiatCurrency } from '@/lib/web-wallet/settings';
 import { LightningSetup } from '@/components/lightning/LightningSetup';
@@ -672,6 +673,10 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
   const [fromAddress, setFromAddress] = useState('');
   const [addresses, setAddresses] = useState<WalletAddress[]>([]);
   const [loadingAddrs, setLoadingAddrs] = useState(false);
+  // Balance per sending address. The header on this page shows the sum across
+  // every derived address, but a transfer spends exactly one of them, so the
+  // selector has to show which one actually holds the money.
+  const [addrBalances, setAddrBalances] = useState<Record<string, string>>({});
   const [toAddress, setToAddress] = useState('');
   const [amount, setAmount] = useState('');
   const [priority, setPriority] = useState<Priority>('medium');
@@ -820,7 +825,7 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
     setAmount(cryptoAmount);
   }, [cryptoAmount]);
 
-  // Fetch addresses for this chain
+  // Fetch addresses for this chain, with the balance backing each one
   const fetchAddresses = useCallback(async () => {
     if (!wallet) return;
     setLoadingAddrs(true);
@@ -833,14 +838,37 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
         index: a.derivationIndex ?? 0,
       }));
       setAddresses(mapped);
-      if (mapped.length > 0) {
-        setFromAddress(mapped[0].address);
-      } else {
+
+      if (mapped.length === 0) {
+        setAddrBalances({});
         setFromAddress('');
+        return;
       }
+
+      // Default to the address that can actually fund a transfer. Picking the
+      // oldest one instead is what made a wallet holding $21 across two
+      // addresses refuse a $10 send: the default held $0.65.
+      let balances: Record<string, string> = {};
+      try {
+        const fetched = await wallet.getBalances({ chain, refresh: true });
+        for (const b of fetched) {
+          if (b.address) balances[b.address] = b.balance;
+        }
+      } catch (err: unknown) {
+        console.warn('Failed to fetch per-address balances:', err);
+        balances = {};
+      }
+      setAddrBalances(balances);
+
+      const bestFunded = [...mapped].sort(
+        (a, b) =>
+          parseFloat(balances[b.address] ?? '0') - parseFloat(balances[a.address] ?? '0')
+      )[0];
+      setFromAddress(bestFunded.address);
     } catch (err: unknown) {
       console.error('Failed to fetch addresses:', err);
       setAddresses([]);
+      setAddrBalances({});
       setFromAddress('');
     } finally {
       setLoadingAddrs(false);
@@ -874,6 +902,28 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
     fetchFees();
   }, [fetchFees]);
 
+  /** Balance of the one address this transfer will spend from. */
+  const selectedBalance = fromAddress ? addrBalances[fromAddress] : undefined;
+
+  /** Network fee for the chosen speed, in the chain's native currency. */
+  const selectedFee = fees ? fees[priority].fee : undefined;
+
+  /** Largest amount the selected address can send, fee and rent floor included. */
+  const maxAmount =
+    selectedBalance !== undefined
+      ? maxSpendable({ chain, balance: selectedBalance, fee: selectedFee })
+      : undefined;
+
+  const shortAddr = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+
+  const handleUseMax = () => {
+    if (!maxAmount) return;
+    setPrimaryInput('crypto');
+    setCryptoAmount(maxAmount);
+    calculateFiatFromCrypto(maxAmount);
+    setAmountError('');
+  };
+
   const validateForm = (): boolean => {
     let valid = true;
     if (!fromAddress) {
@@ -888,8 +938,42 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
     if (!cryptoAmount || parseFloat(cryptoAmount) <= 0) {
       setAmountError('Amount must be greater than 0');
       valid = false;
-    } else {
+    } else if (selectedBalance === undefined) {
+      // No balance for this address yet — let the API and the node decide.
       setAmountError('');
+    } else {
+      const verdict = checkSpendable({
+        chain,
+        balance: selectedBalance,
+        amount: cryptoAmount,
+        fee: selectedFee,
+      });
+      if (verdict.ok) {
+        setAmountError('');
+      } else {
+        // When a sibling address could fund this, name it: the whole failure
+        // mode was the payer having the money on a different derived address.
+        let message = verdict.message;
+        if (verdict.code === 'INSUFFICIENT_BALANCE') {
+          const alternative = addresses.find(
+            (a) =>
+              a.address !== fromAddress &&
+              checkSpendable({
+                chain,
+                balance: addrBalances[a.address] ?? '0',
+                amount: cryptoAmount,
+                fee: selectedFee,
+              }).ok
+          );
+          if (alternative) {
+            message +=
+              ` Index ${alternative.index} (${shortAddr(alternative.address)}) holds ` +
+              `${addrBalances[alternative.address]} ${chainSymbol} and can cover it.`;
+          }
+        }
+        setAmountError(message);
+        valid = false;
+      }
     }
     return valid;
   };
@@ -1019,13 +1103,19 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
           ) : addresses.length > 0 ? (
             <select
               value={fromAddress}
-              onChange={(e) => setFromAddress(e.target.value)}
+              onChange={(e) => {
+                setFromAddress(e.target.value);
+                setAmountError('');
+              }}
               aria-label="From address"
               className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white font-mono text-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 appearance-none"
             >
               {addresses.map((a) => (
                 <option key={a.id} value={a.address} className="bg-slate-900">
                   {a.address.slice(0, 12)}...{a.address.slice(-8)}
+                  {addrBalances[a.address] !== undefined
+                    ? ` — ${addrBalances[a.address]} ${chainSymbol}`
+                    : ''}
                 </option>
               ))}
             </select>
@@ -1041,6 +1131,18 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
                 </button>
               </p>
             </div>
+          )}
+          {selectedBalance !== undefined && (
+            <p className="text-xs text-gray-400" data-testid="from-address-balance">
+              Spendable from this address: {selectedBalance} {chainSymbol}
+              {addresses.length > 1 && (
+                <span className="text-gray-500">
+                  {' '}
+                  — the balance above this tab is the total across all{' '}
+                  {addresses.length} {chain} addresses.
+                </span>
+              )}
+            </p>
           )}
         </div>
 
@@ -1155,9 +1257,26 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
                   className="flex-1 px-4 py-2 border border-white/10 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white/5 text-white placeholder-gray-500 disabled:bg-white/10 disabled:text-gray-500"
                   placeholder={`0.000000 ${chainSymbol}`}
                 />
+                {maxAmount !== undefined && parseFloat(maxAmount) > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleUseMax}
+                    data-testid="use-max-amount"
+                    title={`Send the most this address can: ${maxAmount} ${chainSymbol}`}
+                    className="ml-2 shrink-0 rounded-md border border-purple-500/30 bg-purple-500/10 px-2 py-1 text-xs text-purple-300 hover:bg-purple-500/20 transition-colors"
+                  >
+                    Max
+                  </button>
+                )}
               </div>
               {primaryInput === 'crypto' && (
-                <span className="absolute right-3 top-2.5 text-sm text-purple-400">Primary</span>
+                <span
+                  className={`absolute top-2.5 text-sm text-purple-400 ${
+                    maxAmount !== undefined && parseFloat(maxAmount) > 0 ? 'right-16' : 'right-3'
+                  }`}
+                >
+                  Primary
+                </span>
               )}
             </div>
           </div>
