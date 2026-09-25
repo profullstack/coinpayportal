@@ -14,15 +14,18 @@ RUN mkdir -p /var/lib/tor /var/log/tor \
  && chown -R debian-tor:debian-tor /var/lib/tor /var/log/tor
 
 # Build-time public env vars (inlined into the Next.js bundle at `pnpm build`)
+# Railway passed its service variables in as build args. dev2 builds with
+# `docker compose build`, which passes none, so the values Railway had are the
+# defaults here. They are NEXT_PUBLIC_*: shipped to every browser already.
 ARG NEXT_PUBLIC_API_URL
-ARG NEXT_PUBLIC_APP_URL
+ARG NEXT_PUBLIC_APP_URL=https://coinpayportal.com
 ARG NEXT_PUBLIC_APP_VERSION
 ARG NEXT_PUBLIC_DOMAIN
 ARG NEXT_PUBLIC_LNBITS_URL
 ARG NEXT_PUBLIC_SOLANA_RPC_URL
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
-ARG NEXT_PUBLIC_SUPABASE_URL
-ARG NEXT_PUBLIC_ONION_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1seXdkZW9vZ3dzZWJhYm9oc2trIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxNjUxOTQsImV4cCI6MjA3OTc0MTE5NH0.vBZNYMHpS7OhLXlNGCtw5Qhum9wrprG80HKRdcXKvh0
+ARG NEXT_PUBLIC_SUPABASE_URL=https://mlywdeoogwsebabohskk.supabase.co
+ARG NEXT_PUBLIC_ONION_URL=http://tdhpzumiiqg2qbrhmymokhg2sbmcvi42gzha6o34yhlrkbbsuiuz6eyd.onion
 ARG NODE_ENV
 
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
