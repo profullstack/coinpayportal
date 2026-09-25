@@ -14,6 +14,9 @@ on:
         required: false
         type: string
 
+# ssh and curl only; the job never needs the GITHUB_TOKEN.
+permissions: {}
+
 concurrency:
   group: deploy-dev2
   cancel-in-progress: false
