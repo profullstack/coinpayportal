@@ -19,11 +19,12 @@ vi.mock('@/lib/blockchain/providers', () => {
 import { EthereumProvider } from '@/lib/blockchain/providers';
 import { forwardPaymentSecurely, retryForwardingSecurely } from './secure-forwarding';
 
-function database(options: { recoveryError?: boolean; competingStatus?: string; finalWriteError?: boolean; terminalRace?: string; reconciliationError?: boolean; reconciliationThrows?: boolean } = {}) {
+function database(options: { recoveryError?: boolean; competingStatus?: string; finalWriteError?: boolean; terminalRace?: string; reconciliationError?: boolean; reconciliationThrows?: boolean; asset?: string; cryptoAmount?: number } = {}) {
+  const asset = options.asset ?? 'ETH';
   const payment: Record<string, unknown> = { id: 'synthetic-payment', business_id: 'synthetic-business',
-    status: 'confirmed', blockchain: 'ETH', crypto_amount: 20, amount: 20,
+    status: 'confirmed', blockchain: asset, crypto_amount: options.cryptoAmount ?? 20, amount: 20,
     payment_address: 'synthetic-source', merchant_wallet_address: 'synthetic-merchant', metadata: {} };
-  const address = { payment_id: payment.id, address: payment.payment_address, cryptocurrency: 'ETH',
+  const address = { payment_id: payment.id, address: payment.payment_address, cryptocurrency: asset,
     merchant_wallet: payment.merchant_wallet_address, commission_wallet: 'synthetic-fee',
     encrypted_private_key: 'synthetic-encrypted' };
   const writes: Array<Record<string, unknown>> = [];
@@ -245,6 +246,23 @@ describe('secure forwarding requires a known spendable balance', () => {
     expect((await forwardPaymentSecurely(db.client, 'synthetic-payment')).success).toBe(false);
     expect(mocks.send).not.toHaveBeenCalled();
     expect(db.payment.status).toBe('confirmed');
+  });
+  it('forwards a quote written past the token precision once the whole payable amount arrived', async () => {
+    // 5.0910182 USDC was quoted before quotes were quantized; the chain can
+    // only hold 5.091018. Confirmation accepts that, so this guard must too,
+    // or the payment is confirmed and never forwarded.
+    const db = database({ asset: 'USDC_ETH', cryptoAmount: 5.0910182 });
+    mocks.balance.mockResolvedValue(5.091018);
+    const result = await forwardPaymentSecurely(db.client, 'synthetic-payment');
+    expect(result.error ?? '').not.toMatch(/below the confirmed amount/);
+    expect(db.payment.status).not.toBe('confirmed');
+  });
+  it('still refuses a USDC balance a full atomic unit short', async () => {
+    const db = database({ asset: 'USDC_ETH', cryptoAmount: 5.0910182 });
+    mocks.balance.mockResolvedValue(5.091016);
+    const result = await forwardPaymentSecurely(db.client, 'synthetic-payment');
+    expect(result.error).toMatch(/below the confirmed amount/);
+    expect(mocks.send).not.toHaveBeenCalled();
   });
   it('splits the verified overpayment and preserves payout destinations', async () => {
     const db = database(); mocks.balance.mockResolvedValue(21);

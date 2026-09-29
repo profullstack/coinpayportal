@@ -636,10 +636,19 @@ export async function forwardPaymentSecurely(
         // stale read mid-sweep — forwarded anyway, splitting a pot that no
         // longer matched what the payment recorded.
         //
-        // `settlementThreshold` is the same relative epsilon confirmation uses,
-        // so a float round-trip does not trip this while a real shortfall does.
+        // `settlementThreshold` is the same tolerance confirmation uses, so a
+        // float round-trip does not trip this while a real shortfall does. It
+        // is given the asset for the same reason confirmation is: a quote
+        // written at more decimals than the token has (5.0910182 USDC, from
+        // before quotes were quantized) can only ever be paid as 5.091018.
+        // Without the asset, confirmation accepted that payment and this guard
+        // refused to forward it, every minute, as "funds already moved".
         const expected = toFiniteNumber(payment.crypto_amount);
-        if (expected !== null && expected > 0 && actualBalance < settlementThreshold(expected)) {
+        if (
+          expected !== null &&
+          expected > 0 &&
+          actualBalance < settlementThreshold(expected, addressData.cryptocurrency)
+        ) {
           console.error(
             `[SECURE] Payment ${paymentId}: address holds ${actualBalance} but ${expected} was confirmed — ` +
             'funds appear to have already moved. Refusing to forward on a stale view.'
