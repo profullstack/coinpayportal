@@ -181,3 +181,54 @@ describe('evmRpcResult', () => {
     await expect(evmRpcResult('ETH', 'eth_call')).rejects.toThrow('execution reverted');
   });
 });
+
+describe('provider refusals inside a 200', () => {
+  /** A 200 in which the provider, not the chain, turns the call down. */
+  function refusal(code: number, message: string) {
+    return { ok: true, status: 200, json: async () => ({ jsonrpc: '2.0', id: 1, error: { code, message } }) };
+  }
+
+  it('fails over past a rate limit reported as a JSON-RPC error', async () => {
+    // publicnode answers a throttled IP this way; treating it as the chain's
+    // answer is what left every EVM payment undetected after the dev2 move.
+    mockFetch
+      .mockResolvedValueOnce(refusal(-32005, 'Rate limit exceeded'))
+      .mockResolvedValueOnce(ok('0x1'));
+    const body = await evmRpcCall('ETH', 'eth_getBalance', ['0xabc', 'latest']);
+    expect(body.result).toBe('0x1');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails over past an exhausted plan', async () => {
+    mockFetch
+      .mockResolvedValueOnce(refusal(429, 'Monthly capacity limit exceeded.'))
+      .mockResolvedValueOnce(ok('0x2'));
+    const body = await evmRpcCall('POL', 'eth_call', [{}, 'latest']);
+    expect(body.result).toBe('0x2');
+  });
+
+  it('still returns a genuine chain rejection without failing over', async () => {
+    mockFetch.mockResolvedValueOnce(rpcError('execution reverted'));
+    const body = await evmRpcCall('ETH', 'eth_call', [{}, 'latest']);
+    expect(body.error?.message).toBe('execution reverted');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('fallback order', () => {
+  it('asks publicnode last: it throttles a single fixed IP', () => {
+    for (const chain of ['ETH', 'POL', 'BASE'] as const) {
+      const list = EVM_FALLBACK_RPCS[chain];
+      const idx = list.findIndex((u) => u.includes('publicnode'));
+      expect(idx).toBe(list.length - 1);
+    }
+  });
+
+  it('routes BNB to BNB endpoints and reads BNB_RPC_URL or BSC_RPC_URL', () => {
+    expect(evmBaseChain('BNB')).toBe('BNB');
+    process.env.BSC_RPC_URL = 'https://bsc.example';
+    expect(getEvmRpcUrls('BNB')[0]).toBe('https://bsc.example');
+    process.env.BNB_RPC_URL = 'https://bnb.example';
+    expect(getEvmRpcUrls('BNB')[0]).toBe('https://bnb.example');
+  });
+});

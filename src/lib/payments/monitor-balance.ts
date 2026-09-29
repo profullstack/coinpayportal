@@ -7,6 +7,7 @@
 import { isSufficientPayment } from './tolerance';
 import { sendPaymentWebhook } from '@/lib/webhooks/service';
 import { fetchWithTimeout } from '@/lib/http/fetch-timeout';
+import { evmRpcCall, type EvmBaseChain } from '@/lib/web-wallet/evm-rpc';
 
 // RPC endpoints for different blockchains
 const RPC_ENDPOINTS: Record<string, string> = {
@@ -232,48 +233,23 @@ async function checkBCHBalance(address: string): Promise<BalanceResult> {
 }
 
 /**
- * Check balance for an EVM address (ETH/POL)
+ * Check balance for an EVM address (ETH/POL), through the failover helper.
  */
-async function checkEVMBalance(address: string, rpcUrl: string, chain: string): Promise<BalanceResult> {
+async function checkEVMBalance(address: string, chain: EvmBaseChain): Promise<BalanceResult> {
   try {
     console.log(`[Monitor] Checking ${chain} balance for ${address}`);
-    const response = await fetchWithTimeout(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'eth_getBalance',
-        params: [address, 'latest'],
-        id: 1,
-      }),
-    });
-    
-    if (!response.ok) {
-      await drainResponse(response);
-      return { balance: 0, error: 'checkEVMBalance: lookup failed' };
-    }
-    
-    const data = await response.json();
+    const data = await evmRpcCall(chain, 'eth_getBalance', [address, 'latest']);
     if (data.error) {
       console.error(`[Monitor] RPC error for ${address}:`, data.error);
       return { balance: 0, error: 'checkEVMBalance: lookup failed' };
     }
-    
+
     const balanceWei = BigInt(data.result || '0x0');
     const balance = Number(balanceWei) / 1e18;
     console.log(`[Monitor] ${chain} balance for ${address}: ${balance}`);
-    
-    // For EVM chains, we need to use an explorer API to get tx hash
-    // This is a simplified version - in production you'd use Etherscan/Polygonscan API
-    let txHash: string | undefined;
-    if (balance > 0) {
-      // Try to get the latest transaction using eth_getBlockByNumber and filtering
-      // For now, we'll leave this as undefined and let the forwarding process set it
-      // A proper implementation would use Etherscan/Polygonscan API
-      console.log(`[Monitor] ${chain} tx hash lookup not implemented - will be set during forwarding`);
-    }
-    
-    return { balance, txHash };
+
+    // The tx hash is not looked up here; forwarding sets it.
+    return { balance, txHash: undefined };
   } catch (error) {
     console.error(`[Monitor] Error checking ${chain} balance for ${address}:`, error);
     return { balance: 0, error: error instanceof Error ? error.message : String(error) };
@@ -282,29 +258,16 @@ async function checkEVMBalance(address: string, rpcUrl: string, chain: string): 
 
 async function checkEVMTokenBalance(
   address: string,
-  rpcUrl: string,
+  chain: EvmBaseChain,
   contractAddress: string,
   decimals: number
 ): Promise<BalanceResult> {
   try {
     const paddedAddress = address.toLowerCase().replace(/^0x/, '').padStart(64, '0');
-    const response = await fetchWithTimeout(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'eth_call',
-        params: [{ to: contractAddress, data: `${ERC20_BALANCE_OF_SELECTOR}${paddedAddress}` }, 'latest'],
-        id: 1,
-      }),
-    });
-
-    if (!response.ok) {
-      await drainResponse(response);
-      return { balance: 0, error: 'checkEVMTokenBalance: lookup failed' };
-    }
-
-    const data = await response.json();
+    const data = await evmRpcCall(chain, 'eth_call', [
+      { to: contractAddress, data: `${ERC20_BALANCE_OF_SELECTOR}${paddedAddress}` },
+      'latest',
+    ]);
     if (data.error) {
       console.error(`[Monitor] EVM token balance RPC error for ${address}:`, data.error);
       return { balance: 0, error: 'checkEVMTokenBalance: lookup failed' };
@@ -720,21 +683,21 @@ export async function checkBalance(address: string, blockchain: string): Promise
     case 'BCH':
       return checkBCHBalance(address);
     case 'ETH':
-      return checkEVMBalance(address, RPC_ENDPOINTS.ETH, 'ETH');
+      return checkEVMBalance(address, 'ETH');
     case 'USDT':
     case 'USDT_ETH':
-      return checkEVMTokenBalance(address, RPC_ENDPOINTS.ETH, EVM_TOKENS.USDT_ETH.contractAddress, EVM_TOKENS.USDT_ETH.decimals);
+      return checkEVMTokenBalance(address, 'ETH', EVM_TOKENS.USDT_ETH.contractAddress, EVM_TOKENS.USDT_ETH.decimals);
     case 'USDC':
     case 'USDC_ETH':
-      return checkEVMTokenBalance(address, RPC_ENDPOINTS.ETH, EVM_TOKENS.USDC_ETH.contractAddress, EVM_TOKENS.USDC_ETH.decimals);
+      return checkEVMTokenBalance(address, 'ETH', EVM_TOKENS.USDC_ETH.contractAddress, EVM_TOKENS.USDC_ETH.decimals);
     case 'USDT_POL':
-      return checkEVMTokenBalance(address, RPC_ENDPOINTS.POL, EVM_TOKENS.USDT_POL.contractAddress, EVM_TOKENS.USDT_POL.decimals);
+      return checkEVMTokenBalance(address, 'POL', EVM_TOKENS.USDT_POL.contractAddress, EVM_TOKENS.USDT_POL.decimals);
     case 'USDC_POL':
-      return checkEVMTokenBalance(address, RPC_ENDPOINTS.POL, EVM_TOKENS.USDC_POL.contractAddress, EVM_TOKENS.USDC_POL.decimals);
+      return checkEVMTokenBalance(address, 'POL', EVM_TOKENS.USDC_POL.contractAddress, EVM_TOKENS.USDC_POL.decimals);
     case 'USDC_BASE':
-      return checkEVMTokenBalance(address, RPC_ENDPOINTS.BASE, EVM_TOKENS.USDC_BASE.contractAddress, EVM_TOKENS.USDC_BASE.decimals);
+      return checkEVMTokenBalance(address, 'BASE', EVM_TOKENS.USDC_BASE.contractAddress, EVM_TOKENS.USDC_BASE.decimals);
     case 'POL':
-      return checkEVMBalance(address, RPC_ENDPOINTS.POL, 'POL');
+      return checkEVMBalance(address, 'POL');
     case 'SOL':
       return checkSolanaBalance(address, RPC_ENDPOINTS.SOL);
     case 'USDT_SOL':

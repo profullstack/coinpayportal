@@ -31,27 +31,50 @@
  * property worth stating rather than stumbling into.
  */
 
-/** The EVM chains this portal prepares and broadcasts natively. */
-export type EvmBaseChain = 'ETH' | 'POL' | 'BASE';
+import { fetchWithTimeout } from '@/lib/http/fetch-timeout';
+
+/** The EVM chains this portal reads and, except BNB, broadcasts natively. */
+export type EvmBaseChain = 'ETH' | 'POL' | 'BASE' | 'BNB';
 
 /**
  * Keyless public endpoints, tried in order after whatever is configured.
  *
  * These are deliberately not the same operator twice: a fallback that shares
  * an outage with the thing it is backing up is not a fallback.
+ *
+ * publicnode is LAST on purpose. Moving to dev2 (2026-09-25) put all of our
+ * polling behind one fixed IP, and publicnode throttled it within a day —
+ * every call answered `403 Your access is limited` — so payment detection on
+ * every EVM chain stopped while the monitor quietly logged "lookup failed".
+ * Each list here was probed from dev2 with the monitor's own calls
+ * (eth_getBalance and an ERC-20 balanceOf) before being written down.
  */
 export const EVM_FALLBACK_RPCS: Record<EvmBaseChain, readonly string[]> = {
-  ETH: ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org'],
-  POL: ['https://polygon-bor-rpc.publicnode.com', 'https://polygon.drpc.org'],
-  BASE: ['https://mainnet.base.org', 'https://base-rpc.publicnode.com'],
+  ETH: [
+    'https://eth.drpc.org',
+    'https://1rpc.io/eth',
+    'https://rpc.mevblocker.io',
+    'https://ethereum-rpc.publicnode.com',
+  ],
+  POL: [
+    'https://polygon.drpc.org',
+    'https://1rpc.io/matic',
+    'https://polygon-bor-rpc.publicnode.com',
+  ],
+  BASE: ['https://mainnet.base.org', 'https://base.drpc.org', 'https://base-rpc.publicnode.com'],
+  BNB: ['https://bsc-dataseed.binance.org', 'https://bsc.drpc.org'],
 };
 
-/** Which env var names the preferred endpoint for each base chain. */
-const CONFIGURED_RPC_ENV: Record<EvmBaseChain, string> = {
-  ETH: 'ETHEREUM_RPC_URL',
-  POL: 'POLYGON_RPC_URL',
-  BASE: 'BASE_RPC_URL',
+/** Which env vars name the preferred endpoint for each base chain, first set wins. */
+const CONFIGURED_RPC_ENV: Record<EvmBaseChain, readonly string[]> = {
+  ETH: ['ETHEREUM_RPC_URL'],
+  POL: ['POLYGON_RPC_URL'],
+  BASE: ['BASE_RPC_URL'],
+  BNB: ['BNB_RPC_URL', 'BSC_RPC_URL'],
 };
+
+/** A slow provider costs this much before the next one is asked, not the whole cycle. */
+const EVM_RPC_TIMEOUT_MS = 10_000;
 
 /**
  * Map any EVM wallet chain (including the ERC-20 variants) to its base chain.
@@ -62,6 +85,7 @@ const CONFIGURED_RPC_ENV: Record<EvmBaseChain, string> = {
  * would read a nonce from the wrong chain.
  */
 export function evmBaseChain(chain: string): EvmBaseChain {
+  if (chain.includes('BNB') || chain.includes('BSC')) return 'BNB';
   if (chain.includes('BASE')) return 'BASE';
   if (chain.includes('POL')) return 'POL';
   return 'ETH';
@@ -75,7 +99,9 @@ export function evmBaseChain(chain: string): EvmBaseChain {
  */
 export function getEvmRpcUrls(chain: string): string[] {
   const base = evmBaseChain(chain);
-  const configured = process.env[CONFIGURED_RPC_ENV[base]];
+  const configured = CONFIGURED_RPC_ENV[base]
+    .map((name) => process.env[name])
+    .find((v) => typeof v === 'string' && v.length > 0);
 
   const urls = [configured, ...EVM_FALLBACK_RPCS[base]].filter(
     (u): u is string => typeof u === 'string' && u.length > 0,
@@ -120,6 +146,22 @@ interface JsonRpcResponse<T> {
 }
 
 /**
+ * A JSON-RPC error that is the PROVIDER refusing us, not the chain answering.
+ *
+ * Some providers report throttling inside a 200 (publicnode sends
+ * `-32005 Rate limit exceeded`; Alchemy says "Monthly capacity limit
+ * exceeded"). Every other provider would answer that call normally, so it is a
+ * reason to fail over, exactly like a 429.
+ */
+export function isProviderRefusal(error: { code?: number; message?: string } | undefined): boolean {
+  if (!error) return false;
+  if (error.code === -32005 || error.code === 429) return true;
+  return /rate.?limit|capacity|access is limited|api key|not enabled for this app|unauthori[sz]ed|forbidden|daily request count/i.test(
+    error.message ?? '',
+  );
+}
+
+/**
  * Call `method` on the first EVM provider that answers.
  *
  * Returns the parsed JSON-RPC body, INCLUDING a chain-level `error` — callers
@@ -137,11 +179,15 @@ export async function evmRpcCall<T = string>(
   for (const url of urls) {
     let resp: Response;
     try {
-      resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', method, params, id: 1 }),
-      });
+      resp = await fetchWithTimeout(
+        url,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method, params, id: 1 }),
+        },
+        EVM_RPC_TIMEOUT_MS,
+      );
     } catch (err: any) {
       attempts.push(`${rpcHost(url)} → ${err?.message || 'network error'}`);
       continue;
@@ -153,7 +199,12 @@ export async function evmRpcCall<T = string>(
     }
 
     try {
-      return (await resp.json()) as JsonRpcResponse<T>;
+      const body = (await resp.json()) as JsonRpcResponse<T>;
+      if (isProviderRefusal(body.error)) {
+        attempts.push(`${rpcHost(url)} → ${body.error?.message ?? 'refused'}`);
+        continue;
+      }
+      return body;
     } catch {
       // A 200 that is not JSON is a broken provider (or a captive portal), not
       // an answer from the chain — same handling as a bad status.
