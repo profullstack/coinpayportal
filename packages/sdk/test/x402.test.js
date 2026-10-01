@@ -44,10 +44,15 @@ describe('x402 Module', () => {
   describe('PAYMENT_METHODS constants', () => {
     it('should have all native crypto methods', () => {
       expect(PAYMENT_METHODS.btc.asset).toBe('BTC');
-      expect(PAYMENT_METHODS.bch.asset).toBe('BCH');
       expect(PAYMENT_METHODS.eth.asset).toBe('ETH');
       expect(PAYMENT_METHODS.pol.asset).toBe('POL');
       expect(PAYMENT_METHODS.sol.asset).toBe('SOL');
+    });
+
+    it('should not advertise BCH (no verified settle lookup exists)', () => {
+      // The x402 settle route refuses bitcoin-cash, so it must not be in
+      // `accepts`. If a lookup is wired up and tested, re-add it here.
+      expect(PAYMENT_METHODS.bch).toBeUndefined();
     });
 
     it('should have all USDC methods', () => {
@@ -91,6 +96,23 @@ describe('x402 Module', () => {
 
     it('should throw when no rate available for crypto', () => {
       expect(() => convertUsdToAssetAmount(1, 'btc', {})).toThrow('No exchange rate for BTC');
+    });
+
+    it('should quote Lightning in millisats (nonzero for small USD amounts)', () => {
+      // Regression: quoting in sats rounded sub-sat USD values to "0" while
+      // the verifier checks millisats, making the amount check vacuous.
+      // BTC at $100k: $1 = 1,000,000 msat, $5 = 5,000,000 msat.
+      expect(convertUsdToAssetAmount(1, 'lightning', { BTC: 100000 })).toBe('1000000');
+      expect(convertUsdToAssetAmount(5, 'lightning', { BTC: 100000 })).toBe('5000000');
+
+      const body = buildPaymentRequired({
+        payTo: 'lno1test',
+        amountUsd: 1,
+        rates: { BTC: 100000 },
+        methods: ['lightning'],
+      });
+      expect(body.accepts).toHaveLength(1);
+      expect(body.accepts[0].maxAmountRequired).toBe('1000000');
     });
   });
 

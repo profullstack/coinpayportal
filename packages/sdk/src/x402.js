@@ -2,8 +2,12 @@
  * x402 Payment Protocol Support
  * 
  * CoinPayPortal as the first multi-chain, multi-asset x402 facilitator.
- * Supports native crypto (BTC, ETH, SOL, POL, BCH), USDC stablecoins,
+ * Supports native crypto (BTC, ETH, SOL, POL), USDC stablecoins,
  * Lightning (BOLT12), and Stripe fiat — all via HTTP 402.
+ *
+ * Note: Bitcoin Cash is intentionally not listed. The x402 settle path has no
+ * verified BCH lookup wired up (see /api/x402/settle), so advertising BCH in
+ * `accepts` would offer a rail no payment can complete on.
  * 
  * @module x402
  */
@@ -25,13 +29,8 @@ export const PAYMENT_METHODS = {
     decimals: 8,
     label: 'Bitcoin',
   },
-  bch: {
-    network: 'bitcoin-cash',
-    asset: 'BCH',
-    scheme: 'exact',
-    decimals: 8,
-    label: 'Bitcoin Cash',
-  },
+  // BCH intentionally omitted: the x402 settle route refuses bitcoin-cash
+  // ("no verified lookup wired up"), so it must not appear in `accepts`.
   eth: {
     network: 'ethereum',
     asset: 'ETH',
@@ -98,7 +97,11 @@ export const PAYMENT_METHODS = {
     network: 'lightning',
     asset: 'BTC',
     scheme: 'bolt12',
-    decimals: 0, // sats
+    // Millisats: 10^11 per BTC. The verifier checks `expected.amount` in
+    // millisats (see /api/x402/verify), so the quoted amount must be in the
+    // same unit — quoting in sats rounded sub-sat USD values to "0" and made
+    // the amount check vacuous.
+    decimals: 11,
     label: 'Lightning (BOLT12)',
   },
 
@@ -326,7 +329,6 @@ function _networkToMethodKey(network) {
     polygon: 'pol',
     solana: 'sol',
     bitcoin: 'btc',
-    'bitcoin-cash': 'bch',
     lightning: 'lightning',
     stripe: 'stripe',
   };
