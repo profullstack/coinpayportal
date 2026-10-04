@@ -5,7 +5,9 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer } from 'node:http';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import * as os from 'node:os';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -23,6 +25,8 @@ import {
   periodOf,
   pickInstitution,
   profileDir,
+  profileLock,
+  releaseProfile,
   runStatementFetch,
   startUrls,
 } from '../src/statements-fetch.js';
@@ -35,6 +39,59 @@ const coinpayAccounts = [
   { id: 'a3', name: 'Coastal Cash Visa', org_name: 'Bay Federal Credit Union', org_domain: null, is_hidden: false },
   { id: 'a4', name: 'Old', org_name: 'Gone', org_domain: 'gone.com', is_hidden: true },
 ];
+
+describe('releaseProfile: a profile left locked by an earlier run', () => {
+  const { hostname } = os;
+  const lockTo = (profile, target) => {
+    mkdirSync(profile, { recursive: true });
+    rmSync(join(profile, 'SingletonLock'), { force: true });
+    symlinkSync(target, join(profile, 'SingletonLock'));
+  };
+  // A stand-in for Chrome: a process whose command line names the profile.
+  const fakeChrome = (profile, headless) =>
+    spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', '--', `--user-data-dir=${profile}`, ...(headless ? ['--headless=new'] : [])], { stdio: 'ignore' });
+  const waitExit = (child) => new Promise((resolve) => (child.exitCode !== null || child.signalCode ? resolve() : child.once('exit', resolve)));
+
+  it('is free when nothing holds it', async () => {
+    expect(await releaseProfile(mkdtempSync(join(tmpdir(), 'cp-lock-')))).toBe('free');
+  });
+
+  it('removes a lock whose process is gone, or is some other program now', async () => {
+    const profile = mkdtempSync(join(tmpdir(), 'cp-lock-'));
+    lockTo(profile, `${hostname()}-999999`);
+    expect(await releaseProfile(profile)).toBe('stale');
+    expect(profileLock(profile)).toBeNull();
+    lockTo(profile, `${hostname()}-${process.pid}`);
+    expect(await releaseProfile(profile)).toBe('stale');
+  });
+
+  it('stops our own orphaned headless Chrome', async () => {
+    const profile = mkdtempSync(join(tmpdir(), 'cp-lock-'));
+    const orphan = fakeChrome(profile, true);
+    await new Promise((r) => setTimeout(r, 200));
+    lockTo(profile, `${hostname()}-${orphan.pid}`);
+    expect(await releaseProfile(profile)).toBe('stopped');
+    await waitExit(orphan);
+    expect(profileLock(profile)).toBeNull();
+  });
+
+  it('refuses to close a visible window unless forced', async () => {
+    const profile = mkdtempSync(join(tmpdir(), 'cp-lock-'));
+    const window = fakeChrome(profile, false);
+    await new Promise((r) => setTimeout(r, 200));
+    lockTo(profile, `${hostname()}-${window.pid}`);
+    await expect(releaseProfile(profile)).rejects.toThrow(/still has the .* profile open.*--force/);
+    expect(await releaseProfile(profile, { force: true })).toBe('stopped');
+    await waitExit(window);
+  });
+
+  it('will not touch a lock from another machine without --force', async () => {
+    const profile = mkdtempSync(join(tmpdir(), 'cp-lock-'));
+    lockTo(profile, 'some-other-laptop-1234');
+    await expect(releaseProfile(profile)).rejects.toThrow(/some-other-laptop/);
+    expect(await releaseProfile(profile, { force: true })).toBe('stale');
+  });
+});
 
 describe('accounts and banks', () => {
   it('groups CoinPay accounts by bank, skipping hidden ones', () => {

@@ -165,6 +165,7 @@ const BOOLEAN_FLAGS = new Set([
   'wait',
   'strict',
   'headed',
+  'force',
   'setup-token-stdin',
   'overwrite',
   'no-pending',
