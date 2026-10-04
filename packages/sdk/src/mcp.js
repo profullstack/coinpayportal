@@ -64,6 +64,23 @@ export const TOOLS = [
     },
   },
   {
+    name: 'statements_cloud_status',
+    description:
+      'CoinPay cloud statement fetching: whether this account has it (Professional plan, free for admins) and, per bank, whether a cloud session is connected, needs sign-in again, and when it last fetched. A bank must be connected by a person in the PWA or with `coinpay finances statements cloud connect <bank>`.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: async (_args, { client }) => text(await reports.getCloudStatements(client)),
+  },
+  {
+    name: 'statements_cloud_fetch',
+    description: 'Queue a CoinPay cloud fetch of new PDF statements for one connected bank, or all of them. Runs on CoinPay servers; returns the jobs. Nothing runs on this machine.',
+    inputSchema: {
+      type: 'object',
+      properties: { bank: { type: 'string', description: 'Bank key such as "chase"; every connected bank when omitted' } },
+      additionalProperties: false,
+    },
+    handler: async (args, { client }) => text(await reports.fetchCloudStatements(client, { institutionKey: args.bank })),
+  },
+  {
     name: 'statements_fetch',
     description:
       'Download every new PDF statement from the signed-in banks (or the ones named) in a headless browser on this machine and import each into the CoinPay statement library. Takes minutes. Banks needing a sign-in are reported, never signed in to.',

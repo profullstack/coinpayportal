@@ -2,7 +2,7 @@
  * OAuth2/OIDC Scope definitions and utilities
  */
 
-export const VALID_SCOPES = ['openid', 'profile', 'email', 'did', 'wallet:read'] as const;
+export const VALID_SCOPES = ['openid', 'profile', 'email', 'did', 'wallet:read', 'merchant'] as const;
 
 export type OAuthScope = (typeof VALID_SCOPES)[number];
 
@@ -15,6 +15,7 @@ export const SCOPE_DESCRIPTIONS: Record<string, string> = {
   email: 'Access your email address',
   did: 'Access your decentralized identifier',
   'wallet:read': 'View your wallet addresses',
+  merchant: 'Act as you in CoinPay: payments, invoices, finances and bank statements (the CoinPay CLI)',
 };
 
 /**

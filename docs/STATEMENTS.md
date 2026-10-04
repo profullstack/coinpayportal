@@ -99,6 +99,93 @@ and when the finder sees no statements it says so rather than guessing.
 `statements assist` is the fallback. Requires Node 22+ and a Chrome or
 Chromium (`CHROME_PATH`).
 
+## CoinPay cloud fetching
+
+The same fetching, run by CoinPay instead of your computer: sign in to a bank
+once and its statements arrive every week. **Professional plan; free for
+CoinPay admins.** The local fetcher above stays free.
+
+```bash
+coinpay login                                    # OAuth 2.1 in your browser (see below)
+coinpay finances statements cloud                # which banks are connected, last fetch
+coinpay finances statements cloud connect chase  # opens CoinPay's cloud browser in yours
+coinpay finances statements cloud fetch --wait   # fetch now; weekly happens on its own
+coinpay finances statements cloud schedule chase off
+coinpay finances statements cloud forget chase
+```
+
+**How the bank connection is kept, and how that compares.** SimpleFIN Bridge
+stores no bank credentials itself: it hands every connection to MX, an
+aggregator, and gives apps only an access URL. Plaid keeps an access token per
+connection (an OAuth token at banks like Chase). CoinPay does what those
+aggregators do, without one in between:
+
+1. *Connect* opens the bank in a headless Chromium on CoinPay's server and
+   streams it to `/finances/statements/connect/:id` (JPEG frames over SSE;
+   your clicks and keystrokes go back as input events). You sign in there,
+   MFA included, so the bank sees CoinPay's server as the device it trusts.
+   Finish on the page that lists statements and press **Save**.
+2. CoinPay keeps what the bank issued: every cookie (httpOnly included) and
+   that site's localStorage. **Never the password**, which only ever passes
+   through the page. The state is sealed with AES-256-GCM under a key used
+   for nothing else (`FINANCES_BANK_SESSION_KEY`, or HKDF over
+   `ENCRYPTION_KEY` labelled `coinpay-bank-sessions-v1`), bound to the
+   merchant and bank as associated data, then stored on the files volume
+   (sealed again with the document key). `finance_bank_sessions` holds only
+   the index: bank, start page, object key, state, schedule.
+3. Each fetch restores that state into a fresh browser, runs the same finder
+   as the CLI, imports every new PDF with its account and period, records a
+   fetch run (`client: coinpay-cloud`), and saves the cookies again, since
+   banks rotate them. When the bank asks for a password again the bank is
+   marked **needs sign-in** and the PWA offers Reconnect.
+4. **Forget** deletes the sealed session at once. Imported statements stay.
+
+**The fence.** A browser people can drive on CoinPay's server would otherwise
+be a way into its private network. Every request from every tab, popup, frame
+and worker is paused through the DevTools Fetch domain and allowed only for
+https to a host with a dot that resolves to public addresses: no loopback,
+RFC 1918, link-local or metadata (169.254.169.254), CGNAT, IPv6 ULA, and no
+dotless Compose service names. A DNS-rebinding host could still flip between
+that check and Chrome's own lookup; that window is the remaining risk.
+
+**Limits.** At most `FINANCES_CLOUD_BROWSER_MAX` (default 2) Chromes at once;
+a fetch that finds the server busy waits two minutes. A sign-in session closes
+after 10 minutes without input, or 30 in all. Up to 12 new statements per bank
+per run; the rest come next time. `FINANCES_CLOUD_STATEMENTS_ENABLED=false`
+turns the feature off.
+
+Routes (all scoped to the books' owner, writes need `finance.write`):
+
+| Route | |
+| --- | --- |
+| `GET /api/finances/statements/cloud` | `{access, banks}`: entitlement and each bank's cloud state |
+| `POST /api/finances/statements/cloud/connect` | `{institutionKey, url?}` → `{live, viewerUrl}` |
+| `GET /api/finances/statements/cloud/live/:id` | sign-in status (the CLI polls it) |
+| `GET /api/finances/statements/cloud/live/:id/stream` | SSE `frame` and `status` events |
+| `POST /api/finances/statements/cloud/live/:id/input` | one click, scroll, key, text or navigation |
+| `POST /api/finances/statements/cloud/live/:id/save` | keep the session, queue the first fetch |
+| `DELETE /api/finances/statements/cloud/live/:id` | close without saving |
+| `POST /api/finances/statements/cloud/fetch` | `{institutionKey?}` → queued `statement_fetch` jobs |
+| `PATCH /api/finances/statements/cloud/banks/:key` | `{schedule: weekly \| off}` |
+| `DELETE /api/finances/statements/cloud/banks/:key` | forget the saved session |
+
+MCP: `statements_cloud_status` and `statements_cloud_fetch` beside the local
+tools in `coinpay mcp`.
+
+### Signing in from the CLI: OAuth 2.1
+
+`coinpay login` is authorization code + PKCE with a loopback redirect, as a
+public client (`coinpay-cli`, no secret). It listens on `127.0.0.1` at a free
+port (the server accepts any port on a registered loopback redirect, RFC 8252
+section 7.3), opens your browser at `/api/oauth/authorize` with an S256
+challenge and a random state, and exchanges the code with its verifier. The
+access token lasts an hour and carries the `merchant` scope, which is what lets
+it act as you on the merchant API; a token issued to a third-party app without
+that scope opens nothing. The refresh token is single-use: every command
+rotates it when the access token is within a minute of expiring. Over SSH,
+where your browser cannot reach that machine's loopback, `coinpay login
+--device` is the device flow it always was.
+
 ## Storage
 
 Bytes go to the private volume (`FINANCES_FILES_DIR`, `/mnt/files/finances`

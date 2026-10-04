@@ -2,10 +2,14 @@
 # Mirrors the qrypt.chat pattern: Next.js app on $PORT, Tor exposes it as a .onion.
 FROM node:24-bookworm-slim
 
-# System deps: tor + tini for clean PID 1 + gettext for envsubst
+# System deps: tor + tini for clean PID 1 + gettext for envsubst, and a
+# headless Chromium for CoinPay cloud statement fetching (the cloud browser a
+# merchant signs in to their bank through; src/lib/finances/cloud-browser.ts).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tor ca-certificates tini gettext-base \
+    chromium fonts-liberation fonts-noto-color-emoji \
  && rm -rf /var/lib/apt/lists/*
+ENV CHROME_PATH=/usr/bin/chromium
 
 # Prepare Tor dirs. DataDirectory is ephemeral (/var/lib/tor); the hidden
 # service keys live on the existing Railway volume at /mnt/files/tor (created

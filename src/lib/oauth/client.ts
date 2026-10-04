@@ -50,11 +50,38 @@ export async function validateClient(
     return { valid: false, error: 'Client is inactive' };
   }
 
-  if (!client.redirect_uris.includes(redirectUri)) {
+  if (!client.redirect_uris.some((registered: string) => redirectUriMatches(registered, redirectUri))) {
     return { valid: false, error: 'Invalid redirect_uri' };
   }
 
   return { valid: true, client: client as OAuthClient };
+}
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '[::1]']);
+
+/**
+ * Does a requested redirect_uri match a registered one?
+ *
+ * Exact match, except for loopback redirects: a native app (the CoinPay CLI)
+ * listens on whatever port is free, so for a registered `http://127.0.0.1/...`
+ * or `http://[::1]/...` any port is accepted, as OAuth 2.1 and RFC 8252
+ * section 7.3 require. Scheme, host and path must still match exactly, and
+ * `localhost` is deliberately not a loopback host here (it can be re-pointed).
+ */
+export function redirectUriMatches(registered: string, requested: string): boolean {
+  if (registered === requested) return true;
+  let a: URL;
+  let b: URL;
+  try {
+    a = new URL(registered);
+    b = new URL(requested);
+  } catch {
+    return false;
+  }
+  if (a.protocol !== 'http:' || b.protocol !== 'http:') return false;
+  if (!LOOPBACK_HOSTS.has(a.hostname) || a.hostname !== b.hostname) return false;
+  if (a.username || a.password || b.username || b.password) return false;
+  return a.pathname === b.pathname && a.search === b.search && !b.hash;
 }
 
 /**

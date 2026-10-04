@@ -165,6 +165,7 @@ const BOOLEAN_FLAGS = new Set([
   'wait',
   'strict',
   'headed',
+  'device',
   'force',
   'setup-token-stdin',
   'overwrite',
@@ -380,7 +381,7 @@ ${colors.cyan}Commands:${colors.reset}
 
   ${colors.bright}auth${colors.reset}
     register              Register new merchant account
-    login                 Login to merchant account
+    login                 Sign in (OAuth 2.1 in your browser; --device on a machine without one)
     me                    Show current merchant info
 
   ${colors.bright}payment${colors.reset}
@@ -492,6 +493,10 @@ ${colors.cyan}Commands:${colors.reset}
     statements assist <bank>  A window: every PDF you download is imported
     statements coverage   Which account-months have a statement (--months 12)
     statements runs|local|retry  Fetch history, the local archive, re-import what failed
+    statements cloud [status]  CoinPay cloud fetching (Professional; free for admins)
+    statements cloud connect <bank>  Sign in once in CoinPay's cloud browser (opens your browser)
+    statements cloud fetch [bank] [--wait]  Fetch now in the cloud; weekly by default
+    statements cloud schedule <bank> weekly|off | cloud forget <bank>
     books [queue]         Transactions awaiting category review (--status, --scope, --search)
     books confirm <id>    Confirm a row (--category, --tax, --scope, --note, --always makes a rule)
     books confirm-all     Accept every pending suggestion (--yes)
@@ -3781,7 +3786,26 @@ async function runInteractiveMenu() {
 // Headless login: ask the server for a device code, show a URL to approve on any
 // device, and poll until a merchant session token is minted and stored. No
 // password on this machine — works over SSH / on a server.
-async function handleLogin() {
+async function handleLogin(flags = {}) {
+  // OAuth 2.1 (authorization code + PKCE, loopback redirect, rotating refresh)
+  // unless asked for the device flow, which is what works over SSH.
+  if (!flags.device) {
+    const cfg = loadConfig();
+    const { loopbackLogin, toStoredSession } = await import('../src/oauth-login.js');
+    try {
+      const tokens = await loopbackLogin({ apiBase: cfg.baseUrl, log: (line) => console.log(line) });
+      cfg.oauth = toStoredSession(tokens);
+      cfg.jwtToken = cfg.oauth.accessToken;
+      saveConfig(cfg);
+      const me = await fetchMe();
+      print.success(me ? `Logged in as ${meLabel(me)} (OAuth 2.1)` : 'Logged in! Session saved to ' + CONFIG_FILE);
+      return;
+    } catch (err) {
+      print.error(`Browser sign-in failed: ${err.message}`);
+      print.info('On a machine without a local browser, use: coinpay login --device');
+      process.exit(1);
+    }
+  }
   const cfg = loadConfig();
   const base = (cfg.baseUrl || 'https://coinpayportal.com/api').replace(/\/$/, '');
 
@@ -3848,6 +3872,7 @@ async function handleLogin() {
 function handleLogout() {
   const cfg = loadConfig();
   delete cfg.jwtToken;
+  delete cfg.oauth;
   saveConfig(cfg);
   print.success('Logged out — session removed from ' + CONFIG_FILE);
 }
@@ -4489,9 +4514,21 @@ async function handleLightning(subcommand, args, flags) {
   }
 }
 
+    // An OAuth 2.1 session's access token lasts an hour: rotate it before any
+    // command that might use it, keeping the new single-use refresh token.
+    if (!['login', 'logout', 'help', 'version', '--version', '-v'].includes(command)) {
+      const sessionCfg = loadConfig();
+      if (sessionCfg.oauth) {
+        const { ensureFreshSession } = await import('../src/oauth-login.js');
+        if (!(await ensureFreshSession(sessionCfg, saveConfig))) {
+          print.warn('Your CoinPay sign-in expired. Run: coinpay login');
+        }
+      }
+    }
+
     switch (command) {
       case 'login':
-        await handleLogin();
+        await handleLogin(flags);
         break;
 
       case 'logout':
@@ -4583,7 +4620,12 @@ async function handleLightning(subcommand, args, flags) {
         await serveStdio({
           version: VERSION,
           getClient: async () => {
-            const token = process.env.COINPAY_SESSION_TOKEN || loadConfig().jwtToken;
+            const cfg = loadConfig();
+            if (cfg.oauth) {
+              const { ensureFreshSession } = await import('../src/oauth-login.js');
+              await ensureFreshSession(cfg, saveConfig);
+            }
+            const token = process.env.COINPAY_SESSION_TOKEN || cfg.jwtToken;
             if (!token) throw new Error('Not logged in: run `coinpay login` (finance tools need the merchant session)');
             return new CoinPayClient({ apiKey: token, baseUrl: getBaseUrl(), timeout: 120000 });
           },

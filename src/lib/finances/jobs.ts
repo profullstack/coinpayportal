@@ -30,7 +30,7 @@ import { redactAccessUrl } from './simplefin';
  * `run_after` set to when the oldest counted request ages out.
  */
 
-export type JobKind = 'backfill' | 'refresh' | 'scheduled_sync' | 'report' | 'categorize' | 'email_report';
+export type JobKind = 'backfill' | 'refresh' | 'scheduled_sync' | 'report' | 'categorize' | 'email_report' | 'statement_fetch';
 export type JobStatus = 'queued' | 'running' | 'waiting_for_budget' | 'partial' | 'failed' | 'completed' | 'cancelled';
 
 export interface FinanceJobRow {
@@ -323,7 +323,7 @@ async function fencedUpdate(
 }
 
 /** Extend the lease and pick up a cancellation request. */
-async function heartbeat(job: FinanceJobRow): Promise<FinanceJobRow> {
+export async function heartbeat(job: FinanceJobRow): Promise<FinanceJobRow> {
   return fencedUpdate(job.id, job.lease_version, {
     lease_expires_at: new Date(Date.now() + LEASE_SECONDS * 1000).toISOString(),
   });
@@ -336,7 +336,7 @@ export function backoffMs(attempt: number, { baseMs = 60_000, maxMs = 6 * 3600_0
   return Math.min(maxMs, Math.round(jitter));
 }
 
-async function releaseWithStatus(
+export async function releaseWithStatus(
   job: FinanceJobRow,
   status: JobStatus,
   extra: Record<string, unknown> = {},
@@ -740,6 +740,12 @@ export async function runWorkerTick({
   } catch (err) {
     result.errors.push(`email schedule: ${err instanceof Error ? err.message : String(err)}`);
   }
+  try {
+    const { enqueueScheduledStatementFetches } = await import('./cloud-statements');
+    result.scheduled += await enqueueScheduledStatementFetches();
+  } catch (err) {
+    result.errors.push(`statement schedule: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   while (result.claimed < maxJobs && Date.now() - startedAt < deadlineMs) {
     const { data, error } = await supabase.rpc('finance_claim_job', {
@@ -760,6 +766,7 @@ export async function runWorkerTick({
       if (job.kind === 'report') await runReportJob(job);
       else if (job.kind === 'categorize') await runCategorizeJob(job);
       else if (job.kind === 'email_report') await runEmailJob(job);
+      else if (job.kind === 'statement_fetch') await (await import('./cloud-statements')).runStatementFetchJob(job);
       else await runSyncJob(job);
     } catch (err) {
       if (err instanceof LeaseLostError) {

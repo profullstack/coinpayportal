@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from './jwt';
 import { extractBearerToken } from './middleware';
 import { getSupabaseAdmin } from '../supabase/server';
+import { merchantFromAccessToken } from './oauth-bearer';
 
 export type AuthenticatedMerchant = {
   id: string;
@@ -47,7 +48,13 @@ export async function requireMerchant(
     merchantId = decoded.userId;
     email = decoded.email;
   } catch {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    // An OAuth 2.1 access token (the CoinPay CLI's login) is accepted only when
+    // its grant carries the `merchant` scope; a token issued to a third-party
+    // app for `openid profile` must not open the merchant API.
+    const oauth = merchantFromAccessToken(headerToken);
+    if (!oauth) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    merchantId = oauth.id;
+    email = '';
   }
 
   if (!merchantId) {
