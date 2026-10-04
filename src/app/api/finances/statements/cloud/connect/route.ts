@@ -39,12 +39,14 @@ export async function POST(req: NextRequest) {
     const url = typeof body.url === 'string' && body.url ? body.url : sf.startUrls(institution, null).login ?? existing?.start_url ?? institution.url;
     if (!url) return financeError('invalid_request', `CoinPay has no sign-in page for ${institution.name}; pass url`, 400);
     const tax = sf.taxSource(key);
-    let onPageText: ((text: string) => void) | undefined;
-    if (tax) {
-      const verdict = await takeSiteAttempt(guard.id, key, 'connect');
-      if (!verdict.ok) throw throttledError(verdict);
-      onPageText = await lockoutWatcher(guard.id, key, tax.lockoutMinutes);
-    }
+    // Throttle and watch for a lockout page on every institution, not only tax
+    // sources: banks (especially credit unions) lock an account after repeated
+    // sign-ins from CoinPay's datacenter address, so the visit cap and the
+    // lockout watcher must guard them too. Tax sources keep their own lockout
+    // window; banks fall back to the engine default.
+    const verdict = await takeSiteAttempt(guard.id, key, 'connect');
+    if (!verdict.ok) throw throttledError(verdict);
+    const onPageText = await lockoutWatcher(guard.id, key, tax?.lockoutMinutes);
     const live = await startLiveSession({ merchantId: guard.id, actorId: guard.actorId, institutionKey: key, institutionLabel: institution.name, url, onPageText });
     return financeJson({ live, viewerUrl: `/finances/statements/connect/${live.id}`, ...(tax?.cloudWarning ? { warning: tax.cloudWarning } : {}) }, 201);
   } catch (err) {

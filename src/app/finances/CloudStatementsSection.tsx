@@ -64,16 +64,33 @@ export default function CloudStatementsSection({ authHeaders, onChanged }: { aut
     }
   };
 
-  const connect = (bank: Bank) =>
-    bank.kind === 'tax' && bank.key.startsWith('irs') &&
-    !window.confirm('IRS sign-in goes through ID.me behind Cloudflare, which often refuses datacenter addresses like CoinPay cloud. If it will not load, use the CLI on your own computer instead: coinpay finances statements assist irs. Try the cloud browser anyway?')
-      ? Promise.resolve()
-      : call(bank.key, '/api/finances/statements/cloud/connect', { method: 'POST', body: JSON.stringify({ institutionKey: bank.key }) }, (data) => {
+  const connect = (bank: Bank) => {
+    if (
+      bank.kind === 'tax' &&
+      bank.key.startsWith('irs') &&
+      !window.confirm('IRS sign-in goes through ID.me behind Cloudflare, which often refuses datacenter addresses like CoinPay cloud. If it will not load, use the CLI on your own computer instead: coinpay finances statements assist irs. Try the cloud browser anyway?')
+    ) {
+      return Promise.resolve();
+    }
+    // Open the sign-in in its own window, not inline: some banks refuse to run
+    // in a framed/embedded context, and a dedicated window keeps the bank page
+    // off the finances dashboard. Opened synchronously on the click so the
+    // browser does not treat it as a blocked popup; pointed at the session once
+    // it exists.
+    const win = window.open('about:blank', 'coinpay-bank-login', 'width=1320,height=980');
+    return call(bank.key, '/api/finances/statements/cloud/connect', { method: 'POST', body: JSON.stringify({ institutionKey: bank.key }) }, (data) => {
       // Built from the session id, never navigated to as a server-supplied URL.
       const id = String((data.live as { id?: unknown } | undefined)?.id ?? '');
-      if (/^[A-Za-z0-9_-]{16,64}$/.test(id)) window.location.assign(`/finances/statements/connect/${id}`);
-      else setMessage('The sign-in session did not start');
+      if (/^[A-Za-z0-9_-]{16,64}$/.test(id)) {
+        const url = `/finances/statements/connect/${id}`;
+        if (win && !win.closed) win.location.assign(url);
+        else window.open(url, 'coinpay-bank-login');
+      } else {
+        if (win && !win.closed) win.close();
+        setMessage('The sign-in session did not start');
+      }
     });
+  };
   const fetchNow = (bank: Bank) =>
     call(bank.key, '/api/finances/statements/cloud/fetch', { method: 'POST', body: JSON.stringify({ institutionKey: bank.key }) }, () => {
       setMessage(`Fetching ${bank.name} statements in CoinPay cloud. New ones appear in the library as they land.`);

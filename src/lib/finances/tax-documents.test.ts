@@ -126,6 +126,22 @@ describe('the server attempt ledger', () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(db.attempts).toEqual([expect.objectContaining({ kind: 'lockout', institution_key: 'ftb' })]);
   });
+
+  it('throttles banks too, not only tax sources', async () => {
+    // The connect route now takes an attempt for every institution, so a bank
+    // key hits the same visit cap a credit union needs to avoid being locked.
+    const now = new Date('2026-10-04T12:00:00Z');
+    expect((await takeSiteAttempt('m-1', 'alliant', 'connect', now)).ok).toBe(true);
+    expect((await takeSiteAttempt('m-1', 'alliant', 'connect', new Date(now.getTime() + 60_000))).ok).toBe(true);
+    const third = await takeSiteAttempt('m-1', 'alliant', 'connect', new Date(now.getTime() + 120_000));
+    expect(third).toMatchObject({ ok: false, reason: 'window_limit' });
+    expect(db.attempts).toHaveLength(2);
+  });
+
+  it('reports a recorded bank lockout as locked', async () => {
+    await recordSiteLockout('m-1', 'alliant', new Date(Date.now() + 30 * 60_000).toISOString(), 'bank lockout page');
+    expect(await checkSiteThrottle('m-1', 'alliant')).toMatchObject({ ok: false, reason: 'locked' });
+  });
 });
 
 describe('server institution keys for agencies', () => {
