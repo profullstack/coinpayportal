@@ -76,6 +76,19 @@ describe('judgeCloudClient', () => {
     }
   });
 
+  it('never charges the CLI installer or discovery files, which servers fetch', () => {
+    // `curl coinpayportal.com/install.sh | sh` and `coinpay update` run on cloud servers.
+    for (const path of ['/install.sh', '/.well-known/openid-configuration', '/.well-known/x402.json']) {
+      expect(judgeCloudClient(req({ 'x-forwarded-for': CLOUD_IP }), path)).toMatchObject({
+        charge: false,
+        reason: 'installer or discovery file',
+      });
+    }
+    // Only the exact installer, not a page that merely starts with the name.
+    expect(judgeCloudClient(req({ 'x-forwarded-for': CLOUD_IP }), '/install.sh.html').charge).toBe(true);
+    expect(judgeCloudClient(req({ 'x-forwarded-for': CLOUD_IP }), '/installer').charge).toBe(true);
+  });
+
   it('never charges a search crawler, even from a cloud address', () => {
     // These send readers back; charging them de-indexes the site.
     for (const ua of [

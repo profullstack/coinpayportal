@@ -23,6 +23,11 @@
  *                    x402 endpoints themselves all arrive here from cloud
  *                    addresses by nature. Charging them breaks paying
  *                    customers and our own money rails.
+ *   /install.sh,     The CLI installer and machine-readable discovery files.
+ *   /.well-known/*   `curl coinpayportal.com/install.sh | sh` and `coinpay
+ *                    update` run on servers as often as laptops; charging them
+ *                    means a customer's own server cannot install or update
+ *                    the CLI that pays us.
  *   No client IP     An internal caller: Railway's healthcheck, container to
  *                    container. Railway runs ON a cloud, so without this the
  *                    healthcheck on `/` would be answered 402, the deploy
@@ -148,6 +153,9 @@ function isSignedIn(request: Request): boolean {
   return /sb-[^=]*auth-token=/.test(cookie) || /coinpay_session=/.test(cookie);
 }
 
+/** Fetched by tools from servers by nature: the CLI installer and /.well-known discovery. */
+const MACHINE_PATHS = /^\/(?:install\.sh$|\.well-known\/)/;
+
 /** The forwarded client address, or null when there is none to judge. */
 export function clientAddress(request: Request): string | null {
   const forwarded = request.headers.get('x-forwarded-for');
@@ -169,6 +177,7 @@ export function judgeCloudClient(request: Request, pathname: string): CloudVerdi
   ensureFresh();
 
   if (pathname.startsWith('/api/')) return { charge: false, reason: 'api route' };
+  if (MACHINE_PATHS.test(pathname)) return { charge: false, reason: 'installer or discovery file' };
 
   const ip = clientAddress(request);
   if (!ip) return { charge: false, reason: 'no client address (internal)' };
