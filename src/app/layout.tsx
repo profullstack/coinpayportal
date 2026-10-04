@@ -4,6 +4,7 @@ import { FeedbackWidget } from '@profullstack/stack/feedback';
 import Script from 'next/script';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
+import { HomeGuidePromotion } from '@/components/field-guide/HomeGuidePromotion';
 import { Providers } from '@/components/Providers';
 import './globals.css';
 import { serializeJsonLd } from '@/lib/seo/json-ld';
@@ -115,6 +116,7 @@ export default function RootLayout({
           </a>
           <Header />
           <main id="main-content" className="flex-grow">
+            <HomeGuidePromotion />
             <ReferralProvider>{children}</ReferralProvider>
           </main>
           <Footer />
