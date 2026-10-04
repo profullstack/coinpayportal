@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from 'next';
 import { ReferralProvider } from '@profullstack/referrals/react';
-import { FeedbackWidget } from '@profullstack/stack/feedback';
 import Script from 'next/script';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
@@ -140,7 +139,6 @@ export default async function RootLayout({
           src="https://crawlproof.com/stats.js"
           strategy="afterInteractive"
         />
-        <FeedbackWidget property="coinpayportal.com" />
       </body>
     </html>
   );
