@@ -10,6 +10,8 @@ type CloudSession = {
   lastLoginAt: string | null;
   lastFetchAt: string | null;
   lastStatus: string | null;
+  keepalive?: boolean;
+  lastTouchAt?: string | null;
   fetchedRows: number;
 };
 type Bank = { key: string; name: string; accounts: string[]; cloud: CloudSession | null };
@@ -112,6 +114,7 @@ export default function CloudStatementsSection({ authHeaders, onChanged }: { aut
                       · last fetch {ago(cloud.lastFetchAt)}
                       {cloud.lastStatus ? ` (${cloud.lastStatus})` : ''}
                       {cloud.schedule === 'weekly' ? ' · weekly' : ' · schedule off'}
+                      {cloud.state === 'active' && cloud.keepalive !== false ? ` · kept alive ${ago(cloud.lastTouchAt ?? null)}` : ''}
                     </span>
                   )}
                 </div>

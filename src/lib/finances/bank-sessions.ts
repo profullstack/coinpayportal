@@ -57,12 +57,16 @@ export interface BankSessionRow {
   last_login_at: string | null;
   last_fetch_at: string | null;
   last_status: string | null;
+  keepalive: boolean;
+  last_touch_at: string | null;
+  next_touch_at: string | null;
+  notified_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
 const COLUMNS =
-  'id, merchant_id, institution_key, institution_label, start_url, object_key, state, cookie_count, seen_keys, schedule, next_fetch_at, last_login_at, last_fetch_at, last_status, created_at, updated_at';
+  'id, merchant_id, institution_key, institution_label, start_url, object_key, state, cookie_count, seen_keys, schedule, next_fetch_at, last_login_at, last_fetch_at, last_status, keepalive, last_touch_at, next_touch_at, notified_at, created_at, updated_at';
 
 export function toPublicSession(row: BankSessionRow) {
   return {
@@ -76,6 +80,8 @@ export function toPublicSession(row: BankSessionRow) {
     lastFetchAt: row.last_fetch_at,
     lastStatus: row.last_status,
     fetchedRows: Array.isArray(row.seen_keys) ? row.seen_keys.length : 0,
+    keepalive: row.keepalive,
+    lastTouchAt: row.last_touch_at,
   };
 }
 
@@ -225,6 +231,22 @@ export async function restoreState(cdp: Cdp, pageSession: string, state: Session
 }
 
 // ---------------------------------------------------------------------------
+// Keep-alive cadence
+// ---------------------------------------------------------------------------
+
+/** How often a connected bank is touched (FINANCES_BANK_KEEPALIVE_MINUTES, default 10, at least 3). */
+export function keepAliveIntervalMs(env: Record<string, string | undefined> = process.env): number {
+  const minutes = Number(env.FINANCES_BANK_KEEPALIVE_MINUTES ?? 10);
+  return Math.max(3, Number.isFinite(minutes) ? minutes : 10) * 60_000;
+}
+
+/** The next touch: the interval, give or take 20%, so visits do not land like a metronome. */
+export function nextTouchAt(now: number = Date.now(), random: () => number = Math.random, env?: Record<string, string | undefined>): string {
+  const base = keepAliveIntervalMs(env);
+  return new Date(now + Math.round(base * (0.8 + random() * 0.4))).toISOString();
+}
+
+// ---------------------------------------------------------------------------
 // Rows
 // ---------------------------------------------------------------------------
 
@@ -287,6 +309,8 @@ export async function saveSession(params: {
   if (params.startUrl !== undefined) patch.start_url = params.startUrl;
   if (params.login) {
     patch.last_login_at = now;
+    patch.notified_at = null;
+    patch.next_touch_at = new Date(Date.now() + keepAliveIntervalMs()).toISOString();
     patch.created_by = params.access.actorId;
   }
   if (params.lastStatus !== undefined) patch.last_status = params.lastStatus;
@@ -312,7 +336,7 @@ export async function saveSession(params: {
   return data as BankSessionRow;
 }
 
-export async function updateBankSession(merchantId: string, institutionKey: string, patch: Partial<Pick<BankSessionRow, 'state' | 'last_status' | 'last_fetch_at' | 'next_fetch_at' | 'schedule' | 'seen_keys'>>): Promise<void> {
+export async function updateBankSession(merchantId: string, institutionKey: string, patch: Partial<Pick<BankSessionRow, 'state' | 'last_status' | 'last_fetch_at' | 'next_fetch_at' | 'schedule' | 'seen_keys' | 'keepalive' | 'last_touch_at' | 'next_touch_at' | 'notified_at'>>): Promise<void> {
   const { error } = await getSupabaseAdmin()
     .from('finance_bank_sessions')
     .update({ ...patch, updated_at: new Date().toISOString() })

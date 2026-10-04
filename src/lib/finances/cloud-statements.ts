@@ -248,9 +248,13 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
   await updateBankSession(merchantId, institutionKey, {
     last_fetch_at: finishedAt,
     last_status: status === 'ok' ? `${counts.imported} new` : status,
-    ...(status === 'login_needed' ? { state: 'login_needed' as const } : {}),
+    ...(status === 'login_needed' ? { state: 'login_needed' as const, next_touch_at: null } : {}),
     seen_keys: [...seen].slice(-1000),
   });
+  if (status === 'login_needed') {
+    const { notifyNeedsSignIn } = await import('./bank-keepalive');
+    await notifyNeedsSignIn(row).catch(() => undefined);
+  }
   await recordFetchRun(access, {
     institutionKey,
     institutionLabel: row.institution_label,
