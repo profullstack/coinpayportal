@@ -38,26 +38,32 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * The businesses in scope, capped at MAX_BUSINESSES for the snapshot, plus the
+ * true total: without it the model reads the cap as the count ("you have 50").
+ */
 async function businessesFor(
   supabase: SupabaseClient,
   actorId: string,
   scope: AskScope,
-): Promise<Array<BusinessRow & { role: Role }>> {
+): Promise<{ rows: Array<BusinessRow & { role: Role }>; total: number }> {
   if (scope.kind === 'org') {
     const role = await resolveOrgRole(supabase, actorId, scope.orgId);
-    if (!role) return [];
-    const { data } = await supabase
+    if (!role) return { rows: [], total: 0 };
+    const { data, count } = await supabase
       .from('businesses')
-      .select('id, name, organization_id')
+      .select('id, name, organization_id', { count: 'exact' })
       .eq('organization_id', scope.orgId)
       .limit(MAX_BUSINESSES);
-    return ((data ?? []) as BusinessRow[]).map((b) => ({ ...b, role }));
+    const rows = ((data ?? []) as BusinessRow[]).map((b) => ({ ...b, role }));
+    return { rows, total: count ?? rows.length };
   }
   const roles = await getAccessibleBusinessRoles(supabase, actorId);
   const ids = [...roles.keys()].slice(0, MAX_BUSINESSES);
-  if (ids.length === 0) return [];
+  if (ids.length === 0) return { rows: [], total: 0 };
   const { data } = await supabase.from('businesses').select('id, name, organization_id').in('id', ids);
-  return ((data ?? []) as BusinessRow[]).map((b) => ({ ...b, role: roles.get(b.id) as Role }));
+  const rows = ((data ?? []) as BusinessRow[]).map((b) => ({ ...b, role: roles.get(b.id) as Role }));
+  return { rows, total: roles.size };
 }
 
 async function paymentStats(supabase: SupabaseClient, businessIds: string[], since: string) {
@@ -190,7 +196,7 @@ export async function buildAskContext(
   scope: AskScope,
 ): Promise<Record<string, unknown>> {
   const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString();
-  const businesses = await businessesFor(supabase, actor.id, scope);
+  const { rows: businesses, total: businessesTotal } = await businessesFor(supabase, actor.id, scope);
   const visible = businesses.filter((b) => can(b.role, 'business.read'));
   const ids = visible.map((b) => b.id);
 
@@ -225,12 +231,15 @@ export async function buildAskContext(
     generatedAt: new Date().toISOString(),
     windowDays: WINDOW_DAYS,
     scope: scope.kind,
+    businessesTotal,
+    businessesListed: visible.length,
     businesses: visible.map((b) => ({ id: b.id, name: b.name, yourRole: b.role, organizationId: b.organization_id })),
     payments,
     invoices,
     finances,
     ...(scope.kind === 'platform' ? { platform: await platformTotals(supabase, since) } : {}),
     notes: [
+      `businessesTotal is how many businesses the user can access; only the first ${MAX_BUSINESSES} are listed, and payments/invoices cover only the listed ones. When businessesTotal > businessesListed, say so.`,
       'payments.amount is USD; "settled" means status confirmed or forwarded.',
       'Invoice USD totals include only invoices priced in USD.',
       'Finance amounts are strings in the account currency; negative is money out.',
