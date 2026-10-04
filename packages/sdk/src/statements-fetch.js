@@ -23,10 +23,10 @@
  * download or PDF control) and says what it saw. Needs Node 22+ (WebSocket).
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, hostname, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
 export class StatementFetchError extends Error {
@@ -420,10 +420,83 @@ export function preferPdfDownloads(profile) {
  * cookies only reach disk then: a killed Chrome forgets a session the bank
  * refreshed during the run.
  */
-export async function openBrowser({ chrome, profile, headless = true, timeoutMs = 30_000, env = process.env }) {
+/**
+ * Who holds a profile. Chrome marks a profile in use with a SingletonLock
+ * symlink whose target is "<hostname>-<pid>" (Linux and macOS).
+ */
+export function profileLock(profile) {
+  try {
+    const target = readlinkSync(join(profile, 'SingletonLock'));
+    const dash = target.lastIndexOf('-');
+    const pid = Number(target.slice(dash + 1));
+    return dash > 0 && Number.isInteger(pid) ? { host: target.slice(0, dash), pid } : null;
+  } catch {
+    return null;
+  }
+}
+
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === 'EPERM';
+  }
+}
+
+/** The command line of a process, or '' when it cannot be read. */
+function commandLine(pid) {
+  try {
+    return readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ');
+  } catch {
+    const ps = spawnSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf8' });
+    return ps.status === 0 ? ps.stdout : '';
+  }
+}
+
+function removeLock(profile) {
+  for (const name of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) rmSync(join(profile, name), { force: true });
+}
+
+/**
+ * Make sure no other Chrome holds `profile` before we start one on it.
+ *
+ * A login or fetch that was interrupted (Ctrl+C, a closed terminal, a crash)
+ * can leave Chrome running on the profile, or a lock pointing at a process
+ * that is gone. Chrome then hands every new launch to the old instance and
+ * exits, which looked like "open in another Chrome" forever. A dead or
+ * reused pid is a stale lock and is removed; our own leftover headless Chrome
+ * is stopped; a visible window is only closed with `force`.
+ */
+export async function releaseProfile(profile, { force = false } = {}) {
+  const lock = profileLock(profile);
+  if (!lock) return 'free';
+  if (lock.host !== hostname()) {
+    if (!force) throw new StatementFetchError(`the ${profile} profile is marked in use by ${lock.host}; if that machine is not using it, pass --force`);
+    removeLock(profile);
+    return 'stale';
+  }
+  const cmd = alive(lock.pid) ? commandLine(lock.pid) : '';
+  if (!cmd.includes(`--user-data-dir=${profile}`)) {
+    removeLock(profile);
+    return 'stale';
+  }
+  if (!cmd.includes('--headless') && !force) {
+    throw new StatementFetchError(`a Chrome window (pid ${lock.pid}) still has the ${basename(profile)} profile open; close it, or pass --force to close it for you`);
+  }
+  process.kill(lock.pid, 'SIGTERM');
+  for (let i = 0; i < 50 && alive(lock.pid); i += 1) await sleep(100);
+  if (alive(lock.pid)) process.kill(lock.pid, 'SIGKILL');
+  for (let i = 0; i < 20 && alive(lock.pid); i += 1) await sleep(100);
+  removeLock(profile);
+  return 'stopped';
+}
+
+export async function openBrowser({ chrome, profile, headless = true, timeoutMs = 30_000, env = process.env, force = false }) {
   if (typeof WebSocket === 'undefined') throw new StatementFetchError('statement fetching needs Node 22 or newer (it drives Chrome over a WebSocket)');
   if (!chrome || !isExecutable(chrome)) throw new StatementFetchError(chrome ? `${chrome} is not an executable` : NO_CHROME);
   mkdirSync(profile, { recursive: true, mode: 0o700 });
+  await releaseProfile(profile, { force });
   preferPdfDownloads(profile);
   const sandbox = !(env.CHROME_NO_SANDBOX || process.getuid?.() === 0);
   const args = [
@@ -439,6 +512,22 @@ export async function openBrowser({ chrome, profile, headless = true, timeoutMs 
   ];
   const child = spawn(chrome, args, { env, stdio: ['ignore', 'ignore', 'pipe'] });
   const exited = new Promise((resolve) => child.once('exit', () => resolve()));
+  // Never leave Chrome holding the profile when we go: an orphan is what
+  // makes the next run see the profile "open in another Chrome".
+  const onExit = () => { try { child.kill('SIGKILL'); } catch { /* gone */ } };
+  const onSignal = (signal) => {
+    onExit();
+    detach();
+    process.kill(process.pid, signal);
+  };
+  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+  const detach = () => {
+    process.removeListener('exit', onExit);
+    for (const signal of signals) process.removeListener(signal, onSignal);
+  };
+  process.once('exit', onExit);
+  for (const signal of signals) process.once(signal, onSignal);
+  exited.then(detach);
   const url = await new Promise((resolve, reject) => {
     let stderr = '';
     const timer = setTimeout(() => reject(new StatementFetchError(`${chrome} did not start within ${timeoutMs / 1000}s\n${stderr}`)), timeoutMs);
@@ -452,8 +541,8 @@ export async function openBrowser({ chrome, profile, headless = true, timeoutMs 
     });
     child.on('exit', (code) => {
       clearTimeout(timer);
-      const locked = /SingletonLock|ProcessSingleton/.test(stderr);
-      reject(new StatementFetchError(locked ? `the ${profile} profile is open in another Chrome; close that window first` : `${chrome} exited with ${code} before it was ready\n${stderr.trim()}`));
+      const locked = /SingletonLock|ProcessSingleton|existing browser session/i.test(stderr);
+      reject(new StatementFetchError(locked ? `another Chrome took over the ${basename(profile)} profile as this one started; run the command again, or pass --force` : `${chrome} exited with ${code} before it was ready\n${stderr.trim()}`));
     });
   }).catch((err) => {
     child.kill();
@@ -847,7 +936,7 @@ export async function keepStatement({ institution, download, state, home, import
  * `api` carries `listAccounts()`, `importStatement(opts)` and `reportRun(run)`.
  * Returns one summary per bank; never throws for one bank's failure.
  */
-export async function runStatementFetch({ api, banks = [], since = null, max = 24, renderMs = 25_000, headless = true, chrome = findChrome(), home = statementsHome(), log = () => {}, client = 'coinpay-cli' }) {
+export async function runStatementFetch({ api, banks = [], since = null, max = 24, renderMs = 25_000, headless = true, chrome = findChrome(), home = statementsHome(), log = () => {}, client = 'coinpay-cli', force = false }) {
   const institutions = groupInstitutions(await api.listAccounts());
   if (!institutions.length) throw new StatementFetchError('no linked accounts; connect a bank in CoinPay first');
   const chosen = banks.length ? banks.map((name) => pickInstitution(institutions, name)) : institutions.filter((entry) => signedIn(entry.key, home));
@@ -868,7 +957,7 @@ export async function runStatementFetch({ api, banks = [], since = null, max = 2
         summary.status = 'login_needed';
         summary.message = `not signed in: coinpay finances statements login ${institution.key}`;
       } else {
-        browser = await openBrowser({ chrome, profile: profileDir(institution.key, home), headless });
+        browser = await openBrowser({ chrome, profile: profileDir(institution.key, home), headless, force });
         const seen = new Set(state.entries.filter((entry) => entry.institution === institution.key && entry.key).map((entry) => entry.key));
         const page = await fetchInstitution(browser, {
           start, seen, since, max, renderMs, log,

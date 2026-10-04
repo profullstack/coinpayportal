@@ -201,7 +201,7 @@ async function runStatementFetchAction(action, rest, flags, { client, out, emit,
       const state = sf.loadLocal(home);
       const local = (state.institutions[institution.key] ||= {});
       const urls = sf.startUrls(institution, local.start);
-      const browser = await sf.openBrowser({ chrome, profile: sf.profileDir(institution.key, home), headless: false });
+      const browser = await sf.openBrowser({ chrome, profile: sf.profileDir(institution.key, home), headless: false, force: flags.force === true });
       if (action === 'login') {
         const url = typeof flags.url === 'string' ? flags.url : urls.login;
         if (!url) throw new CliExit(EXIT.INVALID, `CoinPay has no site for ${institution.name}; pass --url with its sign-in page`);
@@ -239,7 +239,7 @@ async function runStatementFetchAction(action, rest, flags, { client, out, emit,
     if (!Number.isInteger(max) || max < 1 || max > 500) throw new CliExit(EXIT.INVALID, '--max is a whole number from 1 to 500');
     const render = flags.render !== undefined ? Number(flags.render) : 25;
     if (!Number.isFinite(render) || render < 3 || render > 300) throw new CliExit(EXIT.INVALID, '--render is seconds, 3 to 300');
-    const results = await sf.runStatementFetch({ api: bound, banks: rest, since, max, renderMs: render * 1000, headless: flags.headed !== true, chrome, home, log: progress });
+    const results = await sf.runStatementFetch({ api: bound, banks: rest, since, max, renderMs: render * 1000, headless: flags.headed !== true, chrome, home, log: progress, force: flags.force === true });
     emit({ banks: results }, results.map((r) => `${r.bank}: ${r.status}, ${r.imported} imported, ${r.duplicates} already had, ${r.unmatched} unmatched${r.message ? ` (${r.message})` : ''}`).join('\n'));
     return results.every((r) => r.status === 'ok' && r.failed === 0) ? EXIT.OK : EXIT.STRICT;
   } catch (err) {
