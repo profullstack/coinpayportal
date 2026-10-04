@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('server-only', () => ({}));
@@ -108,7 +109,7 @@ describe('requireMerchant with an OAuth access token', () => {
   });
 
   it('accepts it when signed with a separate OIDC secret too', async () => {
-    process.env.OIDC_SIGNING_SECRET = 'another-secret-for-oidc-signing-0123456789';
+    process.env.OIDC_SIGNING_SECRET = randomBytes(32).toString('hex');
     const { generateAccessToken } = await import('../oauth/tokens');
     const token = generateAccessToken({ id: MERCHANT.id }, { client_id: 'coinpay-cli' }, ['openid', 'merchant']);
     expect(await requireMerchant(request({ auth: `Bearer ${token}` }))).toEqual({ id: MERCHANT.id, email: MERCHANT.email });
