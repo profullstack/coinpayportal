@@ -71,7 +71,11 @@ function maxBankBrowsers(): number {
 
 export function bankProfileDir(merchantId: string, institutionKey: string): string {
   if (!UUID.test(merchantId) || !KEY.test(institutionKey)) throw new Error('Invalid bank profile key');
-  return path.join(filesDir(), 'bank-profiles', merchantId, institutionKey);
+  // Resolved and confined to the bank-profiles directory, whatever the parts say.
+  const root = path.resolve(filesDir(), 'bank-profiles');
+  const dir = path.resolve(root, merchantId, institutionKey);
+  if (!dir.startsWith(root + path.sep)) throw new Error('Invalid bank profile key');
+  return dir;
 }
 
 /** Chrome preferences for a kept profile: reopen the last session (keeps session cookies), save PDFs, no crash bubble. */
