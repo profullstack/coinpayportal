@@ -272,6 +272,40 @@ export async function getStatementCoverage(client, { months } = {}) {
   return call(client, `/finances/statements/coverage${query({ months })}`);
 }
 
+// ── Cloud statement fetching (Professional plan; free for admins) ──
+
+/** `{access, banks}`: whether cloud fetching is available, and each bank's cloud connection. */
+export async function getCloudStatements(client) {
+  return call(client, '/finances/statements/cloud');
+}
+
+/** Open a bank in CoinPay's cloud browser to sign in. Answers `{live, viewerUrl}`. */
+export async function connectCloudBank(client, { institutionKey, url } = {}) {
+  return call(client, '/finances/statements/cloud/connect', { method: 'POST', body: JSON.stringify({ institutionKey, url }) });
+}
+
+export async function getCloudLiveSession(client, liveId) {
+  const data = await call(client, `/finances/statements/cloud/live/${encodeURIComponent(liveId)}`);
+  return data.live;
+}
+
+export async function cancelCloudLiveSession(client, liveId) {
+  return call(client, `/finances/statements/cloud/live/${encodeURIComponent(liveId)}`, { method: 'DELETE' });
+}
+
+/** Queue cloud fetches for one bank or all connected ones. Answers `{jobs}`. */
+export async function fetchCloudStatements(client, { institutionKey } = {}) {
+  return call(client, '/finances/statements/cloud/fetch', { method: 'POST', body: JSON.stringify(institutionKey ? { institutionKey } : {}) });
+}
+
+export async function setCloudSchedule(client, institutionKey, schedule) {
+  return call(client, `/finances/statements/cloud/banks/${encodeURIComponent(institutionKey)}`, { method: 'PATCH', body: JSON.stringify({ schedule }) });
+}
+
+export async function disconnectCloudBank(client, institutionKey) {
+  return call(client, `/finances/statements/cloud/banks/${encodeURIComponent(institutionKey)}`, { method: 'DELETE' });
+}
+
 // ── Books ──
 
 /** Rows awaiting review (default) plus the category vocabularies. */

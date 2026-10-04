@@ -123,13 +123,97 @@ function describeReport(report) {
   return parts.filter(Boolean).join(' · ');
 }
 
-const STATEMENT_FETCH_ACTIONS = new Set(['banks', 'login', 'fetch', 'assist', 'coverage', 'runs', 'local', 'retry']);
+const STATEMENT_FETCH_ACTIONS = new Set(['banks', 'login', 'fetch', 'assist', 'coverage', 'runs', 'local', 'retry', 'cloud']);
 
 function ago(iso) {
   if (!iso) return 'never';
   const hours = (Date.now() - Date.parse(iso)) / 3_600_000;
   if (hours < 1) return 'just now';
   return hours < 48 ? `${Math.round(hours)}h ago` : `${Math.round(hours / 24)}d ago`;
+}
+
+/**
+ * `coinpay finances statements cloud …`: the same statement fetching, run by
+ * CoinPay cloud with a bank session the merchant saved through CoinPay's
+ * cloud browser. Professional plan; free for admins.
+ */
+async function runCloudAction(rest, flags, { client, emit, progress }) {
+  const [sub = 'status', name] = rest;
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  if (sub === 'status' || sub === 'banks') {
+    const data = await api.getCloudStatements(client);
+    const lines = [data.access.allowed ? `CoinPay cloud: ${data.access.message}` : `CoinPay cloud is not available: ${data.access.message}`, ''];
+    for (const bank of data.banks) {
+      const c = bank.cloud;
+      lines.push(`${bank.key}  ${bank.name}  ·  ${!c ? 'not connected' : c.state === 'login_needed' ? 'needs sign-in' : c.state}${c ? `  ·  last fetch ${ago(c.lastFetchAt)}${c.lastStatus ? ` (${c.lastStatus})` : ''}  ·  ${c.schedule}` : ''}`);
+    }
+    const next = data.banks.find((b) => !b.cloud || b.cloud.state !== 'active');
+    if (data.access.allowed && next) lines.push('', `Next: coinpay finances statements cloud connect ${next.key}`);
+    emit(data, lines.join('\n'));
+    return EXIT.OK;
+  }
+
+  if (sub === 'connect') {
+    if (!name) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements cloud connect <bank> [--url <sign-in page>]');
+    const data = await api.connectCloudBank(client, { institutionKey: name, url: typeof flags.url === 'string' ? flags.url : undefined });
+    const { siteOrigin, openInBrowser } = await import('./oauth-login.js');
+    const viewer = new URL(data.viewerUrl, siteOrigin(client.baseUrl)).toString();
+    const opened = flags['no-open'] ? false : openInBrowser(viewer);
+    progress(`${opened ? 'Opened' : 'Open'} ${viewer}`);
+    progress('Sign in to your bank there, go to the page that lists your statements, and press Save. Waiting…');
+    for (;;) {
+      await pause(3000);
+      let live;
+      try {
+        live = await api.getCloudLiveSession(client, data.live.id);
+      } catch (err) {
+        if (err.status === 404) throw new CliExit(EXIT.FAILURE, 'The sign-in session is gone (the server restarted?). Run the command again.');
+        throw err;
+      }
+      if (live.status === 'saved') {
+        emit({ live }, `Saved. ${name} is connected to CoinPay cloud and its first fetch is queued: coinpay finances statements cloud status`);
+        return EXIT.OK;
+      }
+      if (['cancelled', 'expired', 'failed'].includes(live.status)) {
+        throw new CliExit(EXIT.FAILURE, `The sign-in session ended: ${live.status}${live.error ? ` (${live.error})` : ''}`);
+      }
+    }
+  }
+
+  if (sub === 'fetch') {
+    const data = await api.fetchCloudStatements(client, { institutionKey: name });
+    if (!flags.wait) {
+      emit(data, data.jobs.map((j) => `queued ${j.id} (${j.params?.institutionKey ?? ''})`).join('\n') + '\nFollow with: coinpay finances statements runs');
+      return EXIT.OK;
+    }
+    const jobs = new Map(data.jobs.map((j) => [j.id, j]));
+    const deadline = Date.now() + 20 * 60_000;
+    while (Date.now() < deadline && [...jobs.values()].some((j) => ['queued', 'running', 'waiting_for_budget'].includes(j.status))) {
+      await pause(5000);
+      for (const id of jobs.keys()) jobs.set(id, await api.getFinanceJob(client, id));
+    }
+    const done = [...jobs.values()];
+    emit({ jobs: done }, done.map((j) => `${j.params?.institutionKey ?? j.id}: ${j.status}${j.result ? `, ${j.result.imported ?? 0} imported, ${j.result.duplicates ?? 0} already had` : ''}${j.errorMessage ? ` (${j.errorMessage})` : ''}`).join('\n'));
+    return done.every((j) => j.status === 'completed') ? EXIT.OK : EXIT.STRICT;
+  }
+
+  if (sub === 'schedule') {
+    const value = rest[2];
+    if (!name || (value !== 'weekly' && value !== 'off')) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements cloud schedule <bank> weekly|off');
+    const data = await api.setCloudSchedule(client, name, value);
+    emit(data, `${name}: ${value === 'weekly' ? 'fetched every week' : 'schedule off'}`);
+    return EXIT.OK;
+  }
+
+  if (sub === 'forget' || sub === 'disconnect') {
+    if (!name) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements cloud forget <bank>');
+    const data = await api.disconnectCloudBank(client, name);
+    emit(data, data.note);
+    return EXIT.OK;
+  }
+
+  throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements cloud [status|connect <bank>|fetch [bank] [--wait]|schedule <bank> weekly|off|forget <bank>]');
 }
 
 /**
@@ -150,6 +234,7 @@ async function runStatementFetchAction(action, rest, flags, { client, out, emit,
   };
 
   try {
+    if (action === 'cloud') return await runCloudAction(rest, flags, { client, out, emit, progress });
     if (action === 'coverage') {
       const data = await api.getStatementCoverage(client, { months: months(flags.months, 12) });
       const mark = { have: '■', missing: '·', open: '○' };

@@ -5,6 +5,24 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-10-04
+
+### Added
+- `coinpay login` signs in with OAuth 2.1: authorization code + PKCE over a
+  loopback redirect, as the public `coinpay-cli` client, with single-use
+  refresh tokens rotated before any command whose access token is about to
+  expire. `coinpay login --device` keeps the device flow for SSH.
+- `coinpay finances statements cloud [status|connect|fetch|schedule|forget]`:
+  CoinPay cloud statement fetching (Professional plan, free for admins).
+  `connect` opens CoinPay's cloud browser to sign in to the bank once; CoinPay
+  keeps the bank's session sealed and fetches every week.
+- MCP: `statements_cloud_status`, `statements_cloud_fetch`.
+- `@profullstack/coinpay/statements` export with types; `openBrowser` takes
+  `extraArgs` and `handleSignals`; `CoinPayClient#baseUrl` getter.
+
+### Fixed
+- The statement fetcher no longer attaches to Chrome's own omnibox page.
+
 ## [0.12.1] - 2026-10-04
 
 ### Fixed

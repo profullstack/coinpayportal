@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes, createHash } from 'crypto';
 import { hashPassword, verifyPassword } from '../crypto/encryption';
 import { generateToken, verifyToken } from './jwt';
+import { merchantFromAccessToken } from './oauth-bearer';
 import { getSecret } from '../secrets';
 import { z } from 'zod';
 
@@ -267,10 +268,18 @@ export async function verifySession(
   token: string
 ): Promise<AuthResult> {
   try {
-    // Verify JWT token
-    const decoded = verifyToken(token, getJwtSecret());
-
-    if (!decoded || !decoded.userId) {
+    // Verify JWT token; failing that, an OAuth 2.1 access token carrying the
+    // `merchant` scope (the CoinPay CLI's login).
+    let userId: string | null = null;
+    let jwtError: unknown = null;
+    try {
+      userId = verifyToken(token, getJwtSecret())?.userId ?? null;
+    } catch (err) {
+      jwtError = err;
+    }
+    if (!userId) userId = merchantFromAccessToken(token)?.id ?? null;
+    if (!userId) {
+      if (jwtError) throw jwtError;
       return {
         success: false,
         error: 'Invalid token',
@@ -281,7 +290,7 @@ export async function verifySession(
     const { data: merchant, error } = await supabase
       .from('merchants')
       .select('id, email, name, is_admin')
-      .eq('id', decoded.userId)
+      .eq('id', userId)
       .single();
 
     if (error || !merchant) {

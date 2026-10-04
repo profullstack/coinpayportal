@@ -492,7 +492,7 @@ export async function releaseProfile(profile, { force = false } = {}) {
   return 'stopped';
 }
 
-export async function openBrowser({ chrome, profile, headless = true, timeoutMs = 30_000, env = process.env, force = false }) {
+export async function openBrowser({ chrome, profile, headless = true, timeoutMs = 30_000, env = process.env, force = false, extraArgs = [], handleSignals = true }) {
   if (typeof WebSocket === 'undefined') throw new StatementFetchError('statement fetching needs Node 22 or newer (it drives Chrome over a WebSocket)');
   if (!chrome || !isExecutable(chrome)) throw new StatementFetchError(chrome ? `${chrome} is not an executable` : NO_CHROME);
   mkdirSync(profile, { recursive: true, mode: 0o700 });
@@ -508,6 +508,7 @@ export async function openBrowser({ chrome, profile, headless = true, timeoutMs 
     '--disable-background-networking',
     '--window-size=1280,900',
     ...(sandbox ? [] : ['--no-sandbox']),
+    ...extraArgs,
     'about:blank',
   ];
   const child = spawn(chrome, args, { env, stdio: ['ignore', 'ignore', 'pipe'] });
@@ -526,7 +527,7 @@ export async function openBrowser({ chrome, profile, headless = true, timeoutMs 
     for (const signal of signals) process.removeListener(signal, onSignal);
   };
   process.once('exit', onExit);
-  for (const signal of signals) process.once(signal, onSignal);
+  if (handleSignals) for (const signal of signals) process.once(signal, onSignal);
   exited.then(detach);
   const url = await new Promise((resolve, reject) => {
     let stderr = '';
@@ -677,7 +678,7 @@ export const CLICK_RECORDER = `document.addEventListener('click', (event) => {
 
 async function attachPage(cdp) {
   const { targetInfos } = await cdp.send('Target.getTargets');
-  let targetId = (targetInfos.find((t) => t.type === 'page') || {}).targetId;
+  let targetId = (targetInfos.find((t) => t.type === 'page' && !String(t.url || '').startsWith('chrome')) || {}).targetId;
   if (!targetId) ({ targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' }));
   const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
   await cdp.send('Page.enable', {}, sessionId);

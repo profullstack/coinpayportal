@@ -31,6 +31,11 @@ export class CoinPayClient {
     this.lightning = new LightningClient(this);
   }
 
+  /** The API base this client talks to (read-only). */
+  get baseUrl() {
+    return this.#baseUrl;
+  }
+
   /**
    * Make an authenticated API request
    * @param {string} endpoint - API endpoint
