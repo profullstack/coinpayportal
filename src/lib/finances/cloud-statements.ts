@@ -194,15 +194,7 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
       if (!start) throw new CloudStatementsError('no_start', 'No page to start from; sign in again');
       const tz = (await resolveFinanceTimezone(merchantId, null, { remember: false }))?.timezone ?? 'UTC';
 
-      const page = await sf.fetchInstitution(browser, {
-        start,
-        seen,
-        max: MAX_PER_RUN,
-        renderMs: 25_000,
-        mode: tax ? 'tax' : 'statements',
-        watchLockout: tax,
-        pauseMs: tax ? 3000 : 1200,
-        onFile: async (download: { bytes: Buffer; suggestedName: string; label: string; context: string; key: string | null }) => {
+      const onFile = async (download: { bytes: Buffer; suggestedName: string; label: string; context: string; key: string | null }) => {
           current = await heartbeat(current);
           // A row counts as fetched only once its PDF is in the library. A
           // refused, unmatched or non-PDF download stays retryable, so a fix
@@ -268,8 +260,29 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
             counts.refused += 1;
             refusedReasons.add(err.message.replace(/^Rejected:\s*/, '').slice(0, 160));
           }
-        },
-      });
+      };
+      // Tax sources collect notices and transcripts, watch for a lockout page and go slower.
+      const fetchOptions = {
+        seen,
+        max: MAX_PER_RUN,
+        renderMs: 25_000,
+        mode: (tax ? 'tax' : 'statements') as 'tax' | 'statements',
+        watchLockout: tax,
+        pauseMs: tax ? 3000 : 1200,
+        onFile,
+      };
+      let page = await sf.fetchInstitution(browser, { start, ...fetchOptions });
+      // Saved on a page without statements (a home page, a dashboard) but the
+      // bank has a known statements page: try that, and remember it if it works.
+      let learnedStart: string | null = null;
+      const known = sf.DRIVERS.find((d) => d.key === institutionKey)?.statements;
+      if (page.status === 'no_statements' && known && known !== start) {
+        const retry = await sf.fetchInstitution(browser, { start: known, ...fetchOptions });
+        if (retry.status !== 'no_statements') {
+          page = retry;
+          if (retry.status === 'ok') learnedStart = known;
+        }
+      }
       status = page.status;
       candidates = page.candidates;
       silent = page.silent.length;
@@ -292,6 +305,7 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
           status: 'active',
           lastStatus: `${counts.imported} new`,
           seenKeys: [...seen],
+          ...(learnedStart ? { startUrl: learnedStart } : {}),
         });
       }
     } finally {
@@ -308,9 +322,13 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
   await updateBankSession(merchantId, institutionKey, {
     last_fetch_at: finishedAt,
     last_status: status === 'ok' ? `${counts.imported} new` : status,
-    ...(status === 'login_needed' ? { state: 'login_needed' as const } : {}),
+    ...(status === 'login_needed' ? { state: 'login_needed' as const, next_touch_at: null } : {}),
     seen_keys: [...seen].slice(-1000),
   });
+  if (status === 'login_needed') {
+    const { notifyNeedsSignIn } = await import('./bank-keepalive');
+    await notifyNeedsSignIn(row).catch(() => undefined);
+  }
   await recordFetchRun(access, {
     institutionKey,
     institutionLabel: row.institution_label,

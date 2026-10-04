@@ -60,6 +60,9 @@ export async function register() {
       try {
         const { startFinanceWorkerLoop } = await import('./lib/finances/jobs');
         startFinanceWorkerLoop();
+        // Cloud bank sessions expire without activity; touch them on a schedule.
+        const { startBankKeepAliveLoop } = await import('./lib/finances/bank-keepalive');
+        startBankKeepAliveLoop();
       } catch (err) {
         console.error('[Instrumentation] finance worker failed to start', err instanceof Error ? err.message : err);
       }

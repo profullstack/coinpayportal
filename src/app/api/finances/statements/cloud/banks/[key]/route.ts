@@ -6,25 +6,30 @@ import { financeError, financeJson } from '@/lib/finances/api';
 
 export const dynamic = 'force-dynamic';
 
-/** PATCH /api/finances/statements/cloud/banks/:key — `{schedule: "weekly" | "off"}`. */
+/** PATCH /api/finances/statements/cloud/banks/:key — `{schedule?: "weekly" | "off", keepalive?: boolean}`. */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ key: string }> }) {
   const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { key } = await params;
   if (!INSTITUTION_KEY.test(key)) return financeError('not_found', 'Bank not found', 404);
-  let body: { schedule?: unknown };
+  let body: { schedule?: unknown; keepalive?: unknown };
   try {
     body = await req.json();
   } catch {
     return financeError('invalid_request', 'Expected a JSON body', 400);
   }
-  if (body.schedule !== 'weekly' && body.schedule !== 'off') return financeError('invalid_request', 'schedule must be weekly or off', 400);
+  const schedule = body.schedule;
+  const keepalive = body.keepalive;
+  if (schedule === undefined && keepalive === undefined) return financeError('invalid_request', 'Pass schedule (weekly | off) and/or keepalive (true | false)', 400);
+  if (schedule !== undefined && schedule !== 'weekly' && schedule !== 'off') return financeError('invalid_request', 'schedule must be weekly or off', 400);
+  if (keepalive !== undefined && typeof keepalive !== 'boolean') return financeError('invalid_request', 'keepalive must be true or false', 400);
   try {
     const row = await getBankSession(guard.id, key);
     if (!row) return financeError('not_found', `${key} is not connected to CoinPay cloud`, 404);
     await updateBankSession(guard.id, key, {
-      schedule: body.schedule,
-      ...(body.schedule === 'weekly' && !row.next_fetch_at ? { next_fetch_at: new Date().toISOString() } : {}),
+      ...(schedule !== undefined ? { schedule: schedule as 'weekly' | 'off' } : {}),
+      ...(schedule === 'weekly' && !row.next_fetch_at ? { next_fetch_at: new Date().toISOString() } : {}),
+      ...(typeof keepalive === 'boolean' ? { keepalive, ...(keepalive ? { next_touch_at: new Date().toISOString() } : {}) } : {}),
     });
     const updated = await getBankSession(guard.id, key);
     return financeJson({ bank: updated ? toPublicSession(updated) : null });
