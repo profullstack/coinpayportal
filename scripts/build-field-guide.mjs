@@ -19,7 +19,15 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_PDF = path.join(root, 'public', 'guides', 'coinpayportal-los-gatos-field-guide-edition-1-3.pdf');
 const MANIFEST = path.join(root, 'docs', 'field-guide-asset.json');
 
-const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Escape for both text and attribute contexts (quotes included), so values
+// interpolated into href="…" are safe.
+const esc = (s) =>
+  String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 
 function callout() {
   return `<aside class="callout"><h4>${esc(REGIONAL_CALLOUT.heading)}</h4><p>${esc(REGIONAL_CALLOUT.body)}</p>
