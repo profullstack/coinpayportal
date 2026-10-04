@@ -134,6 +134,15 @@ async function launch(merchantId: string, institutionKey: string, options: { res
     });
     for (let i = 0; i < 50 && !page; i += 1) await new Promise((r) => setTimeout(r, 100));
     if (!page) throw new Error('The bank browser opened no tab');
+    // Session restore reopens the tabs of the last run (six of them on the
+    // first Amex profile); Chrome paints only the front one, so a screencast
+    // of any other shows nothing. Keep one tab and bring it to the front.
+    const { targetInfos } = (await browser.cdp.send('Target.getTargets')) as { targetInfos: { targetId: string; type: string; url: string }[] };
+    const { targetInfo: keep } = (await browser.cdp.send('Target.getTargetInfo', {}, page)) as { targetInfo: { targetId: string } };
+    for (const target of targetInfos) {
+      if (target.type === 'page' && target.targetId !== keep.targetId) await browser.cdp.send('Target.closeTarget', { targetId: target.targetId }).catch(() => undefined);
+    }
+    await browser.cdp.send('Page.bringToFront', {}, page).catch(() => undefined);
     const { userAgent } = (await browser.cdp.send('Browser.getVersion')) as { userAgent: string };
     await browser.cdp.send('Network.setUserAgentOverride', { userAgent: userAgent.replace('HeadlessChrome', 'Chrome'), acceptLanguage: 'en-US,en' }, page).catch(() => undefined);
     await browser.cdp.send('Page.enable', {}, page).catch(() => undefined);

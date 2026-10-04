@@ -148,6 +148,9 @@ async function showPage(s: LiveSession, pageSession: string): Promise<void> {
   const { userAgent } = (await cdp.send('Browser.getVersion')) as { userAgent: string };
   await cdp.send('Network.setUserAgentOverride', { userAgent: userAgent.replace('HeadlessChrome', 'Chrome'), acceptLanguage: 'en-US,en' }, pageSession).catch(() => undefined);
   await cdp.send('Emulation.setDeviceMetricsOverride', { ...VIEWPORT, deviceScaleFactor: 1, mobile: false }, pageSession).catch(() => undefined);
+  // Only the front tab is painted: a background tab streams nothing at all.
+  await cdp.send('Page.bringToFront', {}, pageSession).catch(() => undefined);
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, pageSession).catch(() => undefined);
   await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: VIEWPORT.width, maxHeight: VIEWPORT.height, everyNthFrame: 1 }, pageSession).catch(() => undefined);
 }
 
