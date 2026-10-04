@@ -39,9 +39,30 @@ export async function POST(
     if (!orderId) {
       return NextResponse.json({ success: false, error: 'orderId is required' }, { status: 400 });
     }
-    // The order id must match the one we created for this invoice — this stops
-    // an arbitrary order from being captured against someone else's invoice.
-    if (invoice.paypal_order_id && invoice.paypal_order_id !== orderId) {
+    // The order must be one we created for this invoice — this stops an
+    // arbitrary order from being captured against someone else's invoice.
+    //
+    // F-1.1-16: this used to compare against `invoices.paypal_order_id`, a
+    // single column that the public create-order route overwrote on every
+    // call. An attacker could therefore replace the pending order id after the
+    // real payer had been handed theirs, and the honest capture would be
+    // rejected here. Orders are now recorded as their own rows bound to the
+    // invoice, so an invoice can legitimately have several (an abandoned
+    // attempt, a retry, two people on the same pay link) and none of them can
+    // displace another.
+    const { data: boundOrder } = await supabase
+      .from('paypal_transactions')
+      .select('id')
+      .eq('paypal_order_id', orderId)
+      .eq('invoice_id', id)
+      .maybeSingle();
+
+    // Orders created before this binding existed have no row, so fall back to
+    // the legacy column for them rather than refusing to settle an invoice
+    // that was already in flight at deploy time.
+    const legacyMatch = !boundOrder && invoice.paypal_order_id === orderId;
+
+    if (!boundOrder && !legacyMatch) {
       return NextResponse.json({ success: false, error: 'Order does not match this invoice' }, { status: 400 });
     }
 

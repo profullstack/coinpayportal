@@ -101,11 +101,45 @@ describe('GET /api/oauth/authorize', () => {
     });
     (verifyToken as any).mockImplementation(() => { throw new Error('invalid'); });
 
-    const req = makeRequest('https://coinpay.dev/api/oauth/authorize?response_type=code&client_id=cp_test&redirect_uri=https://example.com/cb&scope=openid');
+    // R4-ID-OAUTH: an authorization request must now carry `state` or PKCE.
+    const req = makeRequest('https://coinpay.dev/api/oauth/authorize?response_type=code&client_id=cp_test&redirect_uri=https://example.com/cb&scope=openid&state=xyz');
     const res = await GET(req);
     expect(res.status).toBe(302);
     const location = res.headers.get('location');
     expect(location).toContain('/login');
+  });
+
+  it('refuses an authorization request bound by neither state nor PKCE', async () => {
+    // R4-ID-OAUTH: the session cookie is sameSite=lax, so it rides along on a
+    // top-level GET navigation. With nothing binding the request to the browser
+    // that started it, a crafted link turns a victim's single click into a
+    // completed authorization they never began — login-CSRF.
+    (validateClient as any).mockResolvedValue({
+      valid: true,
+      client: { client_id: 'cp_test', name: 'Test', redirect_uris: ['https://example.com/cb'] },
+    });
+
+    const req = makeRequest('https://coinpay.dev/api/oauth/authorize?response_type=code&client_id=cp_test&redirect_uri=https://example.com/cb&scope=openid');
+    const res = await GET(req);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('invalid_request');
+  });
+
+  it('accepts a request bound by PKCE alone', async () => {
+    // Most live clients send PKCE and no state; they must keep working.
+    (validateClient as any).mockResolvedValue({
+      valid: true,
+      client: { client_id: 'cp_test', name: 'Test', redirect_uris: ['https://example.com/cb'] },
+    });
+    (verifyToken as any).mockImplementation(() => { throw new Error('invalid'); });
+
+    const req = makeRequest('https://coinpay.dev/api/oauth/authorize?response_type=code&client_id=cp_test&redirect_uri=https://example.com/cb&scope=openid&code_challenge=abc123');
+    const res = await GET(req);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toContain('/login');
   });
 
   it('should redirect to consent for new client', async () => {

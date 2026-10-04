@@ -12,6 +12,7 @@ import {
   runBatchPayments,
   summarizeBatch,
   isTransientChainError,
+  isAlreadyBroadcast,
   type BatchPaymentRequest,
 } from '../batch.js';
 import type { CoinPayApi } from '../api.js';
@@ -216,14 +217,45 @@ describe('runBatchPayments', () => {
   });
 
   it('retries transient chain-state errors and succeeds', async () => {
+    // Was 'nonce too low'. That is now deliberately NOT retryable: it means an
+    // earlier transaction with that nonce is already mined, so re-preparing
+    // sends a SECOND real payment (F3-L3-01). A rate limit is the honest
+    // example of "the request never reached the chain".
+    const trace: string[] = [];
+    const results = await run(
+      [request({ id: 'a' })],
+      fakeApi({ failures: { a: ['rate limit exceeded'] }, trace }),
+    );
+
+    expect(results[0]!.status).toBe('sent');
+    expect(trace.filter((t) => t.startsWith('prepare:a'))).toEqual(['prepare:a:1', 'prepare:a:2']);
+  });
+
+  it('does not re-broadcast when the node says it already has the transaction', async () => {
+    // F3-L3-01, the duplicate-spend case. "already known" means the broadcast
+    // SUCCEEDED; retrying it pays the recipient twice. The item must be
+    // reported sent, and prepare must run exactly once.
+    const trace: string[] = [];
+    const results = await run(
+      [request({ id: 'a' })],
+      fakeApi({ failures: { a: ['already known'] }, trace }),
+    );
+
+    expect(results[0]!.status).toBe('sent');
+    expect(trace.filter((t) => t.startsWith('prepare:a'))).toEqual(['prepare:a:1']);
+  });
+
+  it('does not re-broadcast on nonce-too-low, which means an earlier tx landed', async () => {
     const trace: string[] = [];
     const results = await run(
       [request({ id: 'a' })],
       fakeApi({ failures: { a: ['nonce too low'] }, trace }),
     );
 
-    expect(results[0]!.status).toBe('sent');
-    expect(trace.filter((t) => t.startsWith('prepare:a'))).toEqual(['prepare:a:1', 'prepare:a:2']);
+    // Not silently "sent" — we cannot prove it landed — but crucially only one
+    // prepare, so no duplicate payment is produced.
+    expect(results[0]!.status).toBe('failed');
+    expect(trace.filter((t) => t.startsWith('prepare:a'))).toEqual(['prepare:a:1']);
   });
 
   it('gives up after maxAttempts on a persistently transient error', async () => {
@@ -338,17 +370,46 @@ describe('runBatchPayments', () => {
 });
 
 describe('isTransientChainError', () => {
-  it('flags chain-state races as retryable', () => {
-    expect(isTransientChainError('nonce too low')).toBe(true);
-    expect(isTransientChainError('bad-txns-inputs-missingorspent')).toBe(true);
+  it('retries only when the transaction definitely did not reach the chain', () => {
     expect(isTransientChainError('Blockhash not found')).toBe(true);
-    expect(isTransientChainError('replacement transaction underpriced')).toBe(true);
+    expect(isTransientChainError('block height exceeded')).toBe(true);
+    expect(isTransientChainError('rate limit exceeded')).toBe(true);
+    expect(isTransientChainError('Gateway timeout')).toBe(true);
+    expect(isTransientChainError('503 Service Unavailable')).toBe(true);
+  });
+
+  it('does NOT retry errors that mean a transaction like ours already exists', () => {
+    // This block previously asserted the opposite, and that is the finding
+    // (F3-L3-01). Each of these describes chain state that moved *because* a
+    // transaction like ours already exists, so re-preparing produces a second
+    // valid payment — a real duplicate spend.
+    expect(isTransientChainError('already known')).toBe(false);
+    expect(isTransientChainError('nonce too low')).toBe(false);
+    expect(isTransientChainError('replacement transaction underpriced')).toBe(false);
+    expect(isTransientChainError('bad-txns-inputs-missingorspent')).toBe(false);
+    expect(isTransientChainError('txn-mempool-conflict')).toBe(false);
   });
 
   it('does not flag errors that retrying cannot fix', () => {
     expect(isTransientChainError('Insufficient funds: need 5000 sats')).toBe(false);
     expect(isTransientChainError('Invalid recipient address')).toBe(false);
     expect(isTransientChainError('Wallet is locked')).toBe(false);
+  });
+});
+
+describe('isAlreadyBroadcast', () => {
+  it('recognises the node saying it already has the transaction', () => {
+    // "already known" is not a failure: the broadcast SUCCEEDED. Treating it as
+    // retryable is what turned one payment into two.
+    expect(isAlreadyBroadcast('already known')).toBe(true);
+    expect(isAlreadyBroadcast('Transaction already in mempool')).toBe(true);
+    expect(isAlreadyBroadcast('duplicate transaction')).toBe(true);
+  });
+
+  it('does not fire on ordinary failures', () => {
+    expect(isAlreadyBroadcast('Insufficient funds')).toBe(false);
+    expect(isAlreadyBroadcast('nonce too low')).toBe(false);
+    expect(isAlreadyBroadcast('Blockhash not found')).toBe(false);
   });
 });
 

@@ -21,7 +21,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if ('error' in authResult) {
       return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status });
     }
-    const access = await verifyBusinessAccess(supabase, id, authResult.merchantId, 'settings.manage');
+    // Same field, same invariant as the sibling route: this copies payout
+    // handles into the business, and a payout handle is where customer money is
+    // sent. Raised from `settings.manage` to the owner-only `funds.move` so the
+    // two paths that write this value agree.
+    const access = await verifyBusinessAccess(supabase, id, authResult.merchantId, 'funds.move');
     if (!access.ok) {
       return NextResponse.json({ success: false, error: access.error }, { status: access.status ?? 404 });
     }

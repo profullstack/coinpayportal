@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { AskYourData } from '@/components/ask/AskYourData';
 
 type Kind = 'outrank' | 'crawlproof';
 
@@ -161,9 +162,25 @@ export default function AdminContent() {
       <h1 className="text-3xl font-bold text-white mb-2">Admin</h1>
       <p className="text-gray-400 mb-8">Blog publishing webhooks (Crawlproof, Outrank)</p>
 
+      <div className="mb-8">
+        <AskYourData scope="platform" title="Ask Your Data (your companies + platform)" />
+      </div>
+
       <section className="mb-8 rounded-lg border border-slate-700 bg-slate-900/50 p-6">
         <h2 className="text-lg font-semibold text-white mb-3">Tools</h2>
         <div className="flex flex-wrap gap-3">
+          <Link
+            href="/admin/stats"
+            className="rounded bg-purple-600/20 px-4 py-2 text-sm text-purple-300 hover:bg-purple-600/30 border border-purple-500/20"
+          >
+            Platform stats →
+          </Link>
+          <Link
+            href="/admin/logs"
+            className="rounded bg-purple-600/20 px-4 py-2 text-sm text-purple-300 hover:bg-purple-600/30 border border-purple-500/20"
+          >
+            Event log →
+          </Link>
           <Link
             href="/admin/users"
             className="rounded bg-purple-600/20 px-4 py-2 text-sm text-purple-300 hover:bg-purple-600/30 border border-purple-500/20"

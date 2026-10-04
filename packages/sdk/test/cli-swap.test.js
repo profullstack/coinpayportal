@@ -30,6 +30,8 @@ function runCLI(args, options = {}) {
     env: { 
       ...process.env, 
       COINPAY_API_KEY: 'cp_test_fake_key',
+      // Exercise the offline error path without calling production swap APIs.
+      COINPAY_BASE_URL: 'http://127.0.0.1:1/api',
       HOME: home || process.env.HOME,
       ...extraEnv,
     },

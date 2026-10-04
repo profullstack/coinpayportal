@@ -16,8 +16,11 @@ const schema = z.object({
  */
 export async function POST(request: NextRequest) {
   try {
+    // Per-IP first: this is the ATTACKER's bucket, and the one that should cost
+    // them something. It reused `merchant_login`, which is a different budget
+    // for a different action.
     const clientIp = getClientIp(request);
-    const ipRateCheck = await checkRateLimitAsync(clientIp, 'merchant_login');
+    const ipRateCheck = await checkRateLimitAsync(clientIp, 'password_reset_ip');
     if (!ipRateCheck.allowed) {
       return NextResponse.json(
         { success: false, error: 'Too many requests. Please try again later.' },
@@ -32,9 +35,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
-    // Rate limit: max 3 reset requests per email per 15 min
+    // Then per-email (R4-ID-RESET). This is the VICTIM's bucket: an attacker
+    // spending it on someone else's address locks that person out of their own
+    // reset flow, and each request also replaces any reset token already in
+    // flight. The per-IP limit above is what bounds that, which is why it is
+    // checked first and is the tighter constraint in practice.
+    //
+    // Both categories are now dedicated. This one used `merchant_login` — 5 per
+    // 5 minutes — while the comment described 3 per 15, so neither the budget
+    // nor the window was what it claimed.
     const emailKey = `password_reset:${validation.data.email.toLowerCase()}`;
-    const emailRateCheck = await checkRateLimitAsync(emailKey, 'merchant_login');
+    const emailRateCheck = await checkRateLimitAsync(emailKey, 'password_reset_email');
     if (!emailRateCheck.allowed) {
       // Still return success to not leak info, but log it
       console.log(`[Forgot Password] Rate limited for ${validation.data.email}`);

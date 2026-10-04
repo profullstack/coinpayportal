@@ -18,6 +18,8 @@
  * - Merchants never receive direct payments (all go through system)
  */
 
+import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
+import { getCardanoSerializationLib } from '@/lib/server/optional-deps';
 import { HDKey } from '@scure/bip32';
 import { generateMnemonic as bip39GenerateMnemonic, mnemonicToSeedSync, validateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
@@ -653,12 +655,34 @@ async function deriveCardanoWallet(
   const path = `m/44'/1815'/${index}'/0'`;
   const { key } = deriveEd25519Key(seed, path);
 
-  const publicKey = await getEd25519PublicKey(key);
-  
-  // Simplified: return hex-encoded public key as placeholder
-  // Full Cardano addresses require bech32 encoding with specific prefixes
-  // For production, use a proper Cardano library
-  const address = `addr1_${publicKey.toString('hex').substring(0, 40)}...`;
+  // L5-02: this used to return `addr1_${pubkeyHex.slice(0,40)}...` — a
+  // placeholder, ellipsis and all, that is not a Cardano address in any sense.
+  // Production has been handing these out since February 2026; five were issued
+  // and none was ever paid, because no wallet will accept a malformed address.
+  //
+  // It was never a "simplified" address, it was an unusable one, and this is
+  // the *custodial* wallet — the address a customer is told to pay.
+  //
+  // The forwarding side was fine all along: `CardanoProvider.sendTransaction`
+  // builds and submits real transactions with cardano-serialization-lib, which
+  // is already a dependency. Only generation was a stub, so the rail was broken
+  // at exactly one end.
+  //
+  // An enterprise address (payment credential, no staking part) is the right
+  // shape for a receive-and-forward address: it needs no stake registration and
+  // the spend path derives the key hash from `to_bytes().slice(1, 29)`, which is
+  // precisely the payment key hash an enterprise address carries.
+  const CardanoWasm = await getCardanoSerializationLib();
+
+  const privateKeyObj = CardanoWasm.PrivateKey.from_normal_bytes(key);
+  const publicKeyObj = privateKeyObj.to_public();
+
+  const address = CardanoWasm.EnterpriseAddress.new(
+    CardanoWasm.NetworkInfo.mainnet().network_id(),
+    CardanoWasm.Credential.from_keyhash(publicKeyObj.hash())
+  )
+    .to_address()
+    .to_bech32();
 
   return {
     address,
@@ -821,13 +845,12 @@ export async function generatePaymentAddress(
     const derivedAddress = await deriveSystemPaymentAddress(cryptocurrency, nextIndex);
 
     // Encrypt the private key for storage
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (!encryptionKey) {
-      return {
-        success: false,
-        error: 'Encryption key not configured',
-      };
+    // Guarded, not just present — this is the system custody path.
+    const keyResult = tryRequireEncryptionKey('system wallet');
+    if (!keyResult.ok) {
+      return { success: false, error: keyResult.error };
     }
+    const encryptionKey = keyResult.key;
     const encryptedPrivateKey = await encrypt(derivedAddress.privateKey, encryptionKey);
 
     // Get commission wallet
@@ -959,13 +982,12 @@ export async function getPaymentPrivateKey(
       };
     }
 
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (!encryptionKey) {
-      return {
-        success: false,
-        error: 'Encryption key not configured',
-      };
+    // Guarded, not just present — this is the system custody path.
+    const keyResult = tryRequireEncryptionKey('system wallet');
+    if (!keyResult.ok) {
+      return { success: false, error: keyResult.error };
     }
+    const encryptionKey = keyResult.key;
 
     const privateKey = await decrypt(data.encrypted_private_key, encryptionKey);
 

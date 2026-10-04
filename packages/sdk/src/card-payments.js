@@ -309,13 +309,21 @@ export async function createCardEscrow(client, businessId, amountUSD, descriptio
   // Convert USD to cents
   const amountCents = Math.round(amountUSD * 100);
 
-  return client.request('POST', '/api/stripe/payments/create', {
-    businessId,
-    amount: amountCents,
-    currency: 'usd',
-    description,
-    metadata,
-    escrowMode: true,
+  // `CoinPayClient.request(endpoint, options)` takes TWO arguments. Every call
+  // in this file passed three, in the shape `request(method, path, body)` — so
+  // `endpoint` received 'POST', the URL became `baseUrl + 'POST'`, and `options`
+  // received the path as a string. These calls failed 100% of the time, which
+  // made releasing or refunding a card escrow unreachable through the SDK.
+  return client.request('/api/stripe/payments/create', {
+    method: 'POST',
+    body: JSON.stringify({
+      businessId,
+      amount: amountCents,
+      currency: 'usd',
+      description,
+      metadata,
+      escrowMode: true,
+    }),
   });
 }
 
@@ -346,7 +354,7 @@ export async function listCardEscrows(client, options = {}) {
   const queryString = queryParams.toString();
   const url = `/api/stripe/escrows${queryString ? `?${queryString}` : ''}`;
   
-  return client.request('GET', url);
+  return client.request(url, { method: 'GET' });
 }
 
 /**
@@ -360,8 +368,9 @@ export async function listCardEscrows(client, options = {}) {
  * const result = await releaseCardEscrow(client, 'escrow-123');
  */
 export async function releaseCardEscrow(client, escrowId) {
-  return client.request('POST', '/api/stripe/escrow/release', {
-    escrowId,
+  return client.request('/api/stripe/escrow/release', {
+    method: 'POST',
+    body: JSON.stringify({ escrowId }),
   });
 }
 
@@ -386,9 +395,9 @@ export async function releaseCardEscrow(client, escrowId) {
  * });
  */
 export async function refundCardEscrow(client, escrowId, options = {}) {
-  return client.request('POST', '/api/stripe/escrow/refund', {
-    escrowId,
-    ...options,
+  return client.request('/api/stripe/escrow/refund', {
+    method: 'POST',
+    body: JSON.stringify({ escrowId, ...options }),
   });
 }
 
@@ -404,7 +413,7 @@ export async function refundCardEscrow(client, escrowId, options = {}) {
  * console.log(status.escrow_status); // 'pending', 'released', 'refunded'
  */
 export async function getCardEscrowStatus(client, escrowId) {
-  return client.request('GET', `/api/stripe/transactions/${escrowId}`);
+  return client.request(`/api/stripe/transactions/${escrowId}`, { method: 'GET' });
 }
 
 /**

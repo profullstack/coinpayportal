@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStripe } from '@/lib/server/optional-deps';
 import { sendPaymentWebhook } from '@/lib/webhooks/service';
+import { railFromCharge, settlementStatusFor, holdUntilFor } from '@/lib/payments/ach-hold';
 import { recordFraudEvent } from '@/lib/fraud/store';
 import { emailDomain, normalizeEmail } from '@/lib/fraud/signals';
 
@@ -87,6 +88,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Webhook signature verification failed' }, { status: 400 });
     }
 
+    // INV-01: claim the event before doing anything with it.
+    //
+    // The handler dispatched on `event.type` and never looked at `event.id`.
+    // Stripe redelivers whenever the endpoint times out or answers non-2xx, and
+    // may send duplicates regardless — so every handler below was re-runnable
+    // by a retry this platform does not control. `charge.refunded` and
+    // `payment_intent.succeeded` both write money-shaped records.
+    //
+    // The primary key does the work: a conflicting insert means someone already
+    // took this event, so we acknowledge and stop. Note this is also the reason
+    // the webhook must answer 200 rather than 409 — a non-2xx would ask Stripe
+    // to retry the very delivery we just declined as a duplicate.
+    const { error: claimError } = await supabase
+      .from('stripe_webhook_events')
+      .insert({ event_id: event.id, event_type: event.type });
+
+    if (claimError) {
+      // 23505 is the unique violation: already processed, nothing to do.
+      if ((claimError as { code?: string }).code === '23505') {
+        console.log(`[Stripe Webhook] Duplicate delivery of ${event.id} (${event.type}) — ignoring`);
+        return NextResponse.json({ received: true, duplicate: true });
+      }
+      // Any other failure means we cannot tell whether this is a duplicate.
+      // Processing anyway risks double-recording money; a non-2xx asks Stripe
+      // to retry, which is the recoverable direction.
+      console.error('[Stripe Webhook] Could not record event id; refusing to process:', claimError);
+      return NextResponse.json({ error: 'Could not verify event uniqueness' }, { status: 503 });
+    }
+
+    try {
     // Handle the event
     switch (event.type) {
       case 'payment_intent.succeeded':
@@ -95,6 +126,18 @@ export async function POST(request: NextRequest) {
 
       case 'checkout.session.completed':
         await handleCheckoutSessionCompleted(event.data.object);
+        break;
+
+      // Delayed-notification methods (ACH) complete the Checkout Session while
+      // the debit is still unpaid, and settle — or fail — days later. Without
+      // these two the session above would be the only signal we ever got, and
+      // a returned debit would leave a row reading 'completed' forever.
+      case 'checkout.session.async_payment_succeeded':
+        await handleCheckoutSessionCompleted(event.data.object);
+        break;
+
+      case 'checkout.session.async_payment_failed':
+        await handleAsyncPaymentFailed(event.data.object);
         break;
 
       case 'payment_intent.payment_failed':
@@ -129,6 +172,28 @@ export async function POST(request: NextRequest) {
       default:
         console.log(`Unhandled event type: ${event.type}`);
     }
+    } catch (handlerError) {
+      // Release the claim so Stripe's retry can actually retry.
+      //
+      // Without this, a handler that threw would leave the event recorded as
+      // taken, and the redelivery would be dismissed as a duplicate — turning a
+      // transient failure into a permanently dropped event, which is a worse
+      // failure than the double-processing the claim exists to prevent.
+      const { error: releaseError } = await supabase
+        .from('stripe_webhook_events')
+        .delete()
+        .eq('event_id', event.id);
+
+      if (releaseError) {
+        console.error(
+          `[Stripe Webhook] Handler for ${event.id} failed AND the claim could not be released — ` +
+            'this event will not be reprocessed on retry:',
+          releaseError
+        );
+      }
+
+      throw handlerError;
+    }
 
     return NextResponse.json({ received: true });
 
@@ -160,6 +225,17 @@ async function handleCheckoutSessionCompleted(session: any) {
       // checkout sessions via /api/stripe/payments/create without a CoinPay payment record
       if (businessId) {
         console.log(`[Stripe Webhook] checkout.session.completed for external payment (business=${businessId})`);
+
+        // An ACH session completes before the money does: Stripe reports
+        // payment_status 'unpaid' here and sends async_payment_succeeded once
+        // the debit clears. Completing now would tell the merchant a bank
+        // transfer had settled at the moment the buyer clicked pay.
+        if (session.payment_status && session.payment_status !== 'paid') {
+          console.log(
+            `[Stripe Webhook] session ${session.id} is ${session.payment_status}; leaving it pending`
+          );
+          return;
+        }
 
         // Flip the placeholder row (created by /api/stripe/payments/create) to
         // completed, matched deterministically by the Checkout Session id. The old
@@ -232,6 +308,23 @@ async function handleCheckoutSessionCompleted(session: any) {
 
     if (!fullPayment) {
       console.error(`[Stripe Webhook] Payment not found: ${coinpayPaymentId}`);
+      return;
+    }
+
+    // The payment named in the session must belong to the session's business.
+    //
+    // Both values come from the same metadata object, but they are set at
+    // different times by different code: `business_id` is written by the
+    // platform when the session is created, `coinpay_payment_id` was writable by
+    // the caller (CP-001, now stripped by sanitizeStripeMetadata). Comparing
+    // them means an injected id from an older session — or any future path that
+    // reintroduces caller-controlled metadata — cannot confirm a payment that
+    // belongs to someone else.
+    if (businessId && fullPayment.business_id && fullPayment.business_id !== businessId) {
+      console.error(
+        `[Stripe Webhook] Refusing to confirm payment ${coinpayPaymentId}: it belongs to ` +
+        `business ${fullPayment.business_id}, not ${businessId} (session ${session.id})`
+      );
       return;
     }
 
@@ -510,6 +603,8 @@ async function handlePaymentSucceeded(paymentIntent: any) {
       ? (await stripe.balanceTransactions.retrieve(charge.balance_transaction as string)).fee
       : 0;
 
+    const rail = railFromCharge(charge);
+
     const completedFields = {
       merchant_id: merchantId,
       business_id: businessId,
@@ -521,8 +616,11 @@ async function handlePaymentSucceeded(paymentIntent: any) {
       stripe_balance_txn_id: charge.balance_transaction as string,
       stripe_fee_amount: stripeFee,
       net_to_merchant: paymentIntent.amount - stripeFee - platformFee,
-      status: 'completed',
-      rail: 'card',
+      // Read the rail off the charge rather than assuming card, and hold the
+      // ones that can still be returned after Stripe reports success.
+      status: settlementStatusFor(rail),
+      rail,
+      hold_until: holdUntilFor(rail, new Date()),
       ...customerFromCharge(charge, paymentIntent),
       updated_at: new Date().toISOString(),
     };
@@ -582,6 +680,34 @@ async function handlePaymentSucceeded(paymentIntent: any) {
 
   } catch (error) {
     console.error('Error handling payment succeeded:', error);
+  }
+}
+
+/**
+ * An ACH debit that was submitted and then came back.
+ *
+ * Marks the transaction failed. There is no merchant webhook to retract here
+ * precisely because the hold withheld it: a merchant told "paid" and then
+ * "actually, no" is the sequence this whole rail exists to avoid.
+ */
+async function handleAsyncPaymentFailed(session: any) {
+  const supabase = getSupabase();
+  try {
+    await supabase
+      .from('stripe_transactions')
+      .update({
+        status: 'failed',
+        hold_until: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('stripe_checkout_session_id', session.id);
+
+    console.warn('[Stripe Webhook] ACH debit returned', {
+      session: session.id,
+      business: session.metadata?.business_id,
+    });
+  } catch (error) {
+    console.error('Error handling async payment failure:', error);
   }
 }
 

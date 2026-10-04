@@ -172,6 +172,26 @@ function verifyToken(token: string): TokenPayload {
 
 ## API Security
 
+### Request Interception
+
+This application uses Next.js 16. Its runtime entry point is `src/proxy.ts`,
+beside `src/app`. Keep crawler payment checks, site-wide throttling, explorer
+allowances, security headers, CORS and referral tracking in that entry point;
+do not add a separate root `middleware.ts`. Referral cookies are set only after
+all guards allow the request. Gateway responses, including HTTP 200 payment
+receipts and sales pages, must retain their body and status.
+
+Verify the entry point with real HTTP requests as well as direct function tests:
+
+```bash
+pnpm exec vitest run src/proxy.test.ts src/proxy-entry.test.ts src/proxy.runtime.test.ts src/lib/explorer-watch.test.ts
+```
+
+The HTTP suite copies the repository's interception files into an isolated
+Next.js app with local test routes. It verifies framework discovery, crawler
+refusals, explorer and site-wide limits, headers and referral cookies without
+calling blockchain providers or requiring payment credentials.
+
 ### Authentication & Authorization
 
 #### Rate Limiting
@@ -624,10 +644,29 @@ async function logSecurityEvent(event: SecurityEvent): Promise<void> {
 - SOC 2 Type II certification (future)
 
 ### Audit Trail
-- All payment state changes logged
-- API access logged with timestamps
-- Failed authentication attempts tracked
-- Key access logged and monitored
+
+`audit_log` is an append-only table: `service_role` holds INSERT and SELECT and
+is granted neither UPDATE nor DELETE, so an event cannot be rewritten by the
+credential that wrote it. Records carry an actor (who), a subject (what) and an
+action, because "payment 123 changed" without an actor is an event log rather
+than an audit trail. `detail` is redacted on write — any field whose name looks
+key-bearing is replaced before it is stored.
+
+Writing an audit record never fails the operation it describes; a failure is
+logged loudly instead. This is a forensic record, not a control.
+
+Currently recorded:
+
+- Subscription activation (which plan, for which merchant, against which payment)
+- Payout wallet changes (where a merchant's money is sent)
+- Key release (Boltz refund/claim recovery — the fact, never the key)
+- DID rebinding by a platform
+
+Not yet covered, and worth extending to: general payment state transitions, API
+access with timestamps, and failed authentication attempts. This section
+previously described all of that as already existing, which is what `AUD-01`
+found: there was no audit infrastructure at all. Remaining coverage is tracked
+in `/TODO-vulns.md`.
 
 ## Security Contacts
 

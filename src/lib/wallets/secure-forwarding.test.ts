@@ -296,16 +296,16 @@ describe('Secure Forwarding Security Tests', () => {
       });
     });
 
-    it('should allow retry for forwarding_failed status', () => {
-      const retryableStatuses = ['forwarding_failed', 'confirmed'];
-      const nonRetryableStatuses = ['pending', 'forwarded', 'expired'];
+    it('should only retry confirmed payments without reconciliation', () => {
+      const retryableStatuses = ['confirmed'];
+      const nonRetryableStatuses = ['pending', 'forwarded', 'expired', 'forwarding_failed', 'forwarding'];
 
       retryableStatuses.forEach((status) => {
-        expect(['forwarding_failed', 'confirmed'].includes(status)).toBe(true);
+        expect(status === 'confirmed').toBe(true);
       });
 
       nonRetryableStatuses.forEach((status) => {
-        expect(['forwarding_failed', 'confirmed'].includes(status)).toBe(false);
+        expect(status === 'confirmed').toBe(false);
       });
     });
   });
@@ -527,13 +527,13 @@ describe('Forwarding Status Transitions', () => {
   it('should transition from confirmed to forwarding', () => {
     const validTransitions: Record<string, string[]> = {
       'confirmed': ['forwarding'],
-      'forwarding': ['forwarded', 'forwarding_failed'],
-      'forwarding_failed': ['confirmed'], // For retry
+      'forwarding': ['forwarded', 'confirmed'], // confirmed only before any broadcast
+      'forwarding_failed': [], // Requires operator reconciliation
     };
 
     expect(validTransitions['confirmed']).toContain('forwarding');
     expect(validTransitions['forwarding']).toContain('forwarded');
-    expect(validTransitions['forwarding']).toContain('forwarding_failed');
+    expect(validTransitions['forwarding']).not.toContain('forwarding_failed');
   });
 
   it('should not allow forwarding from pending status', () => {
@@ -547,12 +547,12 @@ describe('Forwarding Status Transitions', () => {
     expect(canForward('expired')).toBe(false);
   });
 
-  it('should allow retry from forwarding_failed status', () => {
+  it('should not automatically retry a legacy forwarding failure', () => {
     const canRetry = (status: string): boolean => {
-      return ['forwarding_failed', 'confirmed'].includes(status);
+      return status === 'confirmed';
     };
 
-    expect(canRetry('forwarding_failed')).toBe(true);
+    expect(canRetry('forwarding_failed')).toBe(false);
     expect(canRetry('confirmed')).toBe(true);
     expect(canRetry('forwarded')).toBe(false);
     expect(canRetry('pending')).toBe(false);

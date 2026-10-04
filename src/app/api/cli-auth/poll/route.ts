@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
 
 // Headless CLI login — step 3. The CLI polls here with its device_code. While
 // pending it gets 202 authorization_pending. Once the merchant has approved it in
@@ -15,6 +17,27 @@ export async function POST(request: NextRequest) {
     const deviceCode = body?.device_code;
     if (!deviceCode || typeof deviceCode !== 'string') {
       return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
+    }
+
+    // NEW-11: unauthenticated, and unlimited. `start` was rate limited but this
+    // was not, so a caller could hammer it freely — and the answers are
+    // distinguishable (`invalid_grant` / `authorization_pending` / `denied` /
+    // `expired_token`), which makes it a status oracle for any device code.
+    //
+    // A device code is 32 random bytes, so guessing one is not the concern;
+    // the cost of answering millions of polls is. `start` already declares the
+    // interval clients should use, and this enforces it rather than trusting
+    // it. The budget is generous relative to that interval so a legitimate CLI
+    // polling every 5s for the full 10-minute window never trips it.
+    const rate = await checkRateLimitAsync(getClientIp(request), 'cli_auth_poll');
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: 'slow_down', error_description: 'Polling too frequently' },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(Math.max(1, rate.resetAt - Math.floor(Date.now() / 1000))) },
+        }
+      );
     }
 
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

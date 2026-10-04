@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import AchPayForm, { useAchAvailability } from '@/components/AchPayForm';
 
 // 'crypto' | 'card' | 'paypal' | a manual method_id (e.g. 'zelle').
 type PaymentTab = string;
@@ -38,6 +39,12 @@ export default function InvoicePayPage() {
 
   const [invoice, setInvoice] = useState<InvoicePayData | null>(null);
   const [loading, setLoading] = useState(true);
+  // Whether this invoice may be paid from a US bank account (server-decided).
+  // Asked only once a payable invoice is on screen, after the page's own loads.
+  const ach = useAchAvailability(
+    `/api/invoices/${invoiceId}/ach`,
+    !loading && !!invoice && ['sent', 'overdue'].includes(invoice.status),
+  );
   const [error, setError] = useState('');
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<PaymentTab>('crypto');
@@ -89,6 +96,7 @@ export default function InvoicePayPage() {
           if (data.invoice.stripe_checkout_url) setActiveTab('card');
           else if (data.invoice.paypal_enabled) setActiveTab('paypal');
           else if (data.invoice.manual_methods?.length) setActiveTab(data.invoice.manual_methods[0].method_id);
+          else setActiveTab('bank');
         }
         if (['paid', 'cancelled'].includes(data.invoice.status)) {
           if (pollRef.current) clearInterval(pollRef.current);
@@ -204,7 +212,8 @@ export default function InvoicePayPage() {
   const isPaid = invoice.status === 'paid';
   const isOverdue = invoice.status === 'overdue';
   const isPending = ['sent', 'overdue'].includes(invoice.status);
-  const methodCount = [hasCryptoOption, hasCardOption, hasPaypalOption].filter(Boolean).length + manualMethods.length;
+  const hasBankOption = !!ach.status?.available;
+  const methodCount = [hasCryptoOption, hasCardOption, hasPaypalOption].filter(Boolean).length + manualMethods.length + (hasBankOption ? 1 : 0);
   const showTabs = methodCount > 1 && isPending;
 
   return (
@@ -323,6 +332,19 @@ export default function InvoicePayPage() {
                   {m.display_name}
                 </button>
               ))}
+              {hasBankOption && (
+                <button
+                  onClick={() => setActiveTab('bank')}
+                  className={`flex-1 py-3 px-3 text-sm font-medium transition-colors ${
+                    activeTab === 'bank'
+                      ? 'text-emerald-300 border-b-2 border-emerald-400 bg-emerald-500/10'
+                      : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700/50'
+                  }`}
+                  data-testid="tab-bank"
+                >
+                  Bank (ACH)
+                </button>
+              )}
             </div>
           )}
 
@@ -383,6 +405,16 @@ export default function InvoicePayPage() {
                     Secure payment powered by Stripe
                   </p>
                 </div>
+              </div>
+            )}
+
+            {/* === BANK TAB === */}
+            {activeTab === 'bank' && hasBankOption && isPending && (
+              <div className="space-y-4" data-testid="bank-payment-section">
+                <AchPayForm
+                  endpoint={`/api/invoices/${invoiceId}/ach`}
+                  amountLabel={new Intl.NumberFormat('en-US', { style: 'currency', currency: invoice.currency }).format(parseFloat(invoice.amount))}
+                />
               </div>
             )}
 

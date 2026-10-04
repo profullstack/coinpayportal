@@ -13,9 +13,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ethers } from 'ethers';
-import { resolveScopedKey } from '@/lib/auth/scoped-keys';
+import { resolveScopedKey, scopesSatisfy } from '@/lib/auth/scoped-keys';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { normalizeAddressForNetwork } from '@/lib/x402/address';
 import { isV2Payment, verifyExactEvmV2, type V2Payment } from '@/lib/x402/v2';
+import { EVM_NETWORKS, UTXO_NETWORKS, checkSchemeForNetwork } from '@/lib/x402/networks';
 import { createHash } from 'crypto';
 
 function getSupabase() {
@@ -35,11 +37,7 @@ const CHAIN_IDS: Record<string, number> = {
   base: 8453,
 };
 
-/** EVM networks (use EIP-712 signature verification) */
-const EVM_NETWORKS = new Set(['ethereum', 'polygon', 'base']);
 
-/** UTXO networks (use transaction proof verification) */
-const UTXO_NETWORKS = new Set(['bitcoin', 'bitcoin-cash']);
 
 /**
  * EIP-712 type for EVM payment signatures.
@@ -111,7 +109,19 @@ async function verifyEvmPayment(payment: any) {
     return { valid: false, error: 'Invalid payment signature' };
   }
 
-  return { valid: true };
+  // A valid signature is a PROMISE to pay, not a payment.
+  //
+  // REC-C-02: the documented gasless `transferFrom` collection does not exist
+  // on this v1 path — nothing moves tokens on-chain here. The signature proves
+  // the payer authorised these terms and cannot alter the amount, which is why
+  // `amountAuthenticated` is true for EVM; it does not prove any funds changed
+  // hands. This returned `pendingConfirmation` unset, i.e. false, which tells a
+  // merchant's middleware the payment is final and it may serve the resource.
+  //
+  // Settlement (`verifyEvmTx` in the settle route) is what checks the chain, so
+  // the honest answer here is "not confirmed yet". The v2/EIP-3009 path is
+  // different and genuinely does broadcast — it sets this false deliberately.
+  return { valid: true, pendingConfirmation: true };
 }
 
 /**
@@ -146,9 +156,27 @@ async function verifySolanaPayment(payment: any) {
 }
 
 /**
- * Verify a Lightning BOLT12 payment.
+ * Verify a Lightning BOLT12 payment against a real, settled invoice.
+ *
+ * This used to check only that `sha256(preimage) === paymentHash` — where both
+ * values arrive in the same request, from the payer. Anyone could generate a
+ * random 32 bytes, hash it, and mint a proof for any amount: unlimited free
+ * access to every paid resource on this rail. A self-consistent pair proves the
+ * sender can run sha256, and nothing else.
+ *
+ * The hash check is kept — it still establishes the caller knows the preimage,
+ * which is the payer's half of a real Lightning payment — but it is now the
+ * cheap precondition, not the proof. What settles the question is `ln_payments`:
+ * a row written by our own node when money actually arrived. It must be
+ * incoming, settled, addressed to the business whose API key is making this
+ * call, and at least the asking price.
  */
-async function verifyLightningPayment(payment: any) {
+async function verifyLightningPayment(
+  payment: any,
+  supabase: ReturnType<typeof getSupabase>,
+  businessId: string,
+  expectedAmount: unknown,
+) {
   const { payload } = payment;
   const { preimage, paymentHash } = payload;
 
@@ -156,12 +184,63 @@ async function verifyLightningPayment(payment: any) {
     return { valid: false, error: 'Missing preimage or paymentHash in Lightning proof' };
   }
 
-  // Verify that SHA256(preimage) === paymentHash
-  const crypto = await import('crypto');
-  const computedHash = crypto.createHash('sha256').update(Buffer.from(preimage, 'hex')).digest('hex');
+  const computedHash = createHash('sha256').update(Buffer.from(preimage, 'hex')).digest('hex');
 
   if (computedHash !== paymentHash) {
     return { valid: false, error: 'Lightning preimage does not match payment hash' };
+  }
+
+  const { data: received, error } = await supabase
+    .from('ln_payments')
+    .select('payment_hash, business_id, direction, status, amount_msat, preimage')
+    .eq('payment_hash', paymentHash)
+    .maybeSingle();
+
+  if (error) {
+    // Fail closed. An unreachable ledger is not evidence of payment.
+    console.error('x402 verify: could not read ln_payments', error);
+    return { valid: false, error: 'Could not verify the Lightning payment — verification refused' };
+  }
+
+  if (!received) {
+    return {
+      valid: false,
+      error: 'No settled Lightning payment matches this payment hash',
+    };
+  }
+
+  if (received.direction !== 'incoming' || received.status !== 'settled') {
+    return {
+      valid: false,
+      error: `Lightning payment is ${received.direction}/${received.status}, not a settled incoming payment`,
+    };
+  }
+
+  // The proof has to be for THIS merchant. Without this, one merchant's
+  // received invoice unlocks another merchant's paid resource.
+  if (received.business_id && received.business_id !== businessId) {
+    return { valid: false, error: 'Lightning payment belongs to a different business' };
+  }
+
+  // If our node recorded the preimage, the one presented must match it.
+  if (received.preimage && received.preimage !== preimage) {
+    return { valid: false, error: 'Lightning preimage does not match the recorded payment' };
+  }
+
+  // `expected.amount` is in the asset's smallest unit, which for Lightning is
+  // the millisatoshi — the same unit `ln_payments.amount_msat` is stored in.
+  let owedMsat: bigint;
+  try {
+    owedMsat = BigInt(String(expectedAmount ?? ''));
+  } catch {
+    return { valid: false, error: 'Invalid expected.amount for a Lightning proof: expected msat as an integer' };
+  }
+
+  if (BigInt(received.amount_msat) < owedMsat) {
+    return {
+      valid: false,
+      error: `Underpayment: Lightning payment is ${received.amount_msat} msat, resource costs ${owedMsat} msat`,
+    };
   }
 
   return { valid: true };
@@ -170,7 +249,7 @@ async function verifyLightningPayment(payment: any) {
 /**
  * Verify a Stripe payment intent.
  */
-async function verifyStripePayment(payment: any) {
+async function verifyStripePayment(payment: any, expectedAmount: unknown) {
   const { payload } = payment;
   const { paymentIntentId } = payload;
 
@@ -188,10 +267,34 @@ async function verifyStripePayment(payment: any) {
     });
     const pi = await res.json();
 
-    if (pi.status === 'succeeded' || pi.status === 'requires_capture') {
-      return { valid: true };
+    if (pi.status !== 'succeeded' && pi.status !== 'requires_capture') {
+      return { valid: false, error: `Stripe payment status: ${pi.status}` };
     }
-    return { valid: false, error: `Stripe payment status: ${pi.status}` };
+
+    // Compare against the amount STRIPE reports, not the one in the payload.
+    //
+    // The price binding upstream can only check `payload.amount`, which the
+    // payer writes. So a real one-cent PaymentIntent, presented with a payload
+    // claiming any figure at all, satisfied the price for a resource costing
+    // arbitrarily more. Stripe's own record is the authority on what was
+    // charged; `amount_received` is the settled figure, falling back to
+    // `amount` for an authorized-not-yet-captured intent.
+    let owed: bigint;
+    try {
+      owed = BigInt(String(expectedAmount ?? ''));
+    } catch {
+      return { valid: false, error: 'Invalid expected.amount for a Stripe proof' };
+    }
+
+    const charged = BigInt(pi.amount_received ?? pi.amount ?? 0);
+    if (charged < owed) {
+      return {
+        valid: false,
+        error: `Underpayment: Stripe PaymentIntent is for ${charged}, resource costs ${owed}`,
+      };
+    }
+
+    return { valid: true };
   } catch (err: any) {
     return { valid: false, error: `Stripe verification failed: ${err.message}` };
   }
@@ -225,13 +328,31 @@ function enforcePriceBinding(payment: any, expected: any) {
     };
   }
 
-  const { amount: expectedAmount, resource: expectedResource } = expected;
+  const {
+    amount: expectedAmount,
+    resource: expectedResource,
+    payTo: expectedPayTo,
+    asset: expectedAsset,
+  } = expected;
 
   if (expectedAmount === undefined || expectedAmount === null || expectedAmount === '') {
     return { ok: false, error: 'Missing `expected.amount` — cannot verify the proof covers the price' };
   }
   if (!expectedResource) {
     return { ok: false, error: 'Missing `expected.resource` — cannot verify the proof buys this resource' };
+  }
+  // Required, like the two above, and for the same reason: the v2 path already
+  // demands it. Without it nothing compared the proof's recipient against the
+  // merchant, so a buyer could mint a proof paying *themselves* and it verified
+  // — the amount was right, the resource was right, and the money went nowhere
+  // near the merchant.
+  if (!expectedPayTo) {
+    return {
+      ok: false,
+      error:
+        'Missing `expected.payTo` — cannot verify the proof pays this merchant. ' +
+        'Upgrade to an SDK that sends it; see docs/X402_INTEGRATION.md.',
+    };
   }
 
   // Compare in the asset's smallest unit. BigInt, not Number: wei overflows
@@ -257,9 +378,88 @@ function enforcePriceBinding(payment: any, expected: any) {
     };
   }
 
+  // Who got paid. Compared per-network so Bitcoin and Solana addresses are not
+  // mangled by a blanket lowercase, the same way the ledger writes them.
+  const network = payment.payload.network;
+  const paidTo = normalizeAddressForNetwork(network, payment.payload.to);
+  if (paidTo !== normalizeAddressForNetwork(network, expectedPayTo)) {
+    return {
+      ok: false,
+      error: `Recipient mismatch: proof pays ${payment.payload.to || '(none)'}, not ${expectedPayTo}`,
+    };
+  }
+
+  // What it was paid in. Optional, because a native-currency price has no asset
+  // contract to name — but when the merchant does state one, a proof denominated
+  // in some other (possibly worthless) token must not satisfy the price.
+  const paidAsset = payment.payload.asset || payment.payload.extra?.assetSymbol;
+
+  if (expectedAsset) {
+    if (String(paidAsset ?? '').toLowerCase() !== String(expectedAsset).toLowerCase()) {
+      return {
+        ok: false,
+        error: `Asset mismatch: proof is denominated in ${paidAsset || '(none)'}, not ${expectedAsset}`,
+      };
+    }
+  } else {
+    // F-1.3-03: an unnamed asset must not mean "any asset will do".
+    //
+    // The check above only ran when the merchant named an asset, so a price
+    // with none stated was satisfied by a proof denominated in an arbitrary
+    // token. The payer chooses that token, and 1000 units of something they
+    // minted this morning costs nothing.
+    //
+    // Rejecting everything unnamed would break the integrations that quote a
+    // price and let the well-known stablecoin for the network be inferred, so
+    // the fallback is an allow-list rather than a refusal: native currency, or
+    // one of the stablecoins the platform itself settles. An invented token is
+    // in neither set.
+    const isNative = !paidAsset || String(paidAsset).toLowerCase() === ZERO_ADDRESS.toLowerCase();
+
+    if (!isNative && !isKnownSettlementAsset(paidAsset)) {
+      return {
+        ok: false,
+        error:
+          `Asset mismatch: the proof is denominated in ${paidAsset}, which is not a recognised ` +
+          'settlement asset. Name the asset in the payment requirements to accept it.',
+      };
+    }
+  }
+
   return { ok: true as const };
 }
 
+
+/**
+ * Assets this platform actually settles.
+ *
+ * F-1.3-03: used as the fallback when payment requirements name no asset, so an
+ * unnamed price still cannot be satisfied by a token the payer invented. These
+ * are the same contracts `secure-forwarding` knows how to move, by address and
+ * by symbol, matched case-insensitively.
+ */
+const KNOWN_SETTLEMENT_ASSETS = new Set(
+  [
+    // EVM stablecoins
+    '0xdAC17F958D2ee523a2206206994597C13D831ec7', // USDT / USDT_ETH
+    '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', // USDT_POL
+    '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC / USDC_ETH
+    '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', // USDC_POL
+    '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC_BASE
+    // Solana mints
+    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT_SOL
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC_SOL
+    // Symbols, for rails that name an asset rather than an address.
+    'USDC',
+    'USDT',
+    'BTC',
+    'SATS',
+  ].map((a) => a.toLowerCase()),
+);
+
+function isKnownSettlementAsset(asset: unknown): boolean {
+  return KNOWN_SETTLEMENT_ASSETS.has(String(asset ?? '').toLowerCase());
+}
 
 /**
  * Store an audit copy of a payment proof WITHOUT the signature.
@@ -410,7 +610,35 @@ export async function POST(request: NextRequest) {
     if (!resolved) {
       return NextResponse.json({ error: 'Invalid or inactive API key' }, { status: 401 });
     }
+    // Scopes were resolved and then ignored, so ANY valid key — including a
+    // read-only `wallet:read` one issued to an integrator for a single narrow
+    // job — could verify x402 payments, which on the Stripe rail means capturing
+    // real PaymentIntents. A key must not do more than it was issued for.
+    //
+    // `payments:create` is the closest existing scope: x402 verification writes
+    // a payment record and settlement completes that same flow. There is no
+    // x402-specific scope in `API_SCOPES`; adding one would invalidate every
+    // key already issued, so this reuses the scope that describes the action.
+    if (!scopesSatisfy(resolved.scopes, 'payments:create')) {
+      return NextResponse.json(
+        { error: 'This API key lacks the payments:create scope' },
+        { status: 403 },
+      );
+    }
+
     const keyData = { id: resolved.keyId, business_id: resolved.business.id, active: true };
+
+    // No rate limit or size cap on this route. An authenticated caller could
+    // bloat the x402 ledger indefinitely, and on the Stripe rail each call
+    // costs a request against our own Stripe API quota. Keyed by business so
+    // one integrator cannot spend everyone else's headroom.
+    const rate = await checkRateLimitAsync(keyData.business_id, 'x402_verify');
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded' },
+        { status: 429 },
+      );
+    }
 
     const body = await request.json();
     const { payment, expected } = body;
@@ -440,13 +668,18 @@ export async function POST(request: NextRequest) {
     const { network, scheme } = payment.payload;
     const methodKey = payment.payload.methodKey || payment.payload.extra?.methodKey;
 
-    // Route to the appropriate verifier based on network/scheme
+    // Network decides the verifier; scheme only has to be consistent with it.
+    const schemeError = checkSchemeForNetwork(network, scheme);
+    if (schemeError) {
+      return NextResponse.json({ error: schemeError }, { status: 400 });
+    }
+
     let result: { valid: boolean; error?: string; pendingConfirmation?: boolean };
 
-    if (scheme === 'bolt12' || network === 'lightning') {
-      result = await verifyLightningPayment(payment);
-    } else if (scheme === 'stripe-checkout' || network === 'stripe') {
-      result = await verifyStripePayment(payment);
+    if (network === 'lightning') {
+      result = await verifyLightningPayment(payment, supabase, keyData.business_id, expected.amount);
+    } else if (network === 'stripe') {
+      result = await verifyStripePayment(payment, expected.amount);
     } else if (EVM_NETWORKS.has(network)) {
       result = await verifyEvmPayment(payment);
     } else if (UTXO_NETWORKS.has(network)) {
@@ -455,7 +688,7 @@ export async function POST(request: NextRequest) {
       result = await verifySolanaPayment(payment);
     } else {
       return NextResponse.json(
-        { error: `Unsupported network/scheme: ${network}/${scheme}` },
+        { error: `Unsupported network: ${network}` },
         { status: 400 }
       );
     }

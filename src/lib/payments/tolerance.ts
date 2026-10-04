@@ -12,7 +12,19 @@
  * has been round-tripped through decimal strings and JSON — it is roughly nine
  * orders of magnitude smaller than the old discount, far below one satoshi on
  * any realistic invoice, and cannot be used to underpay.
+ *
+ * One more slack was added on 2026-09-24: a shortfall smaller than a single
+ * atomic unit of the asset, when the caller says which asset it is. A quote
+ * written to more decimals than the token has cannot be paid exactly — the
+ * closest a USDC wallet can get to 6.44064406 is 6.440644 — so without this the
+ * payment sits pending, expires, and strands the customer's money at the
+ * deposit address. New quotes are rounded to the asset's precision at creation
+ * (lib/payments/asset-decimals.ts); this is what lets the ones already written
+ * settle. It is bounded by the smallest amount the chain can move (a millionth
+ * of a dollar in USDC), so it is not an economic concession either.
  */
+
+import { atomicUnit } from './asset-decimals';
 
 /**
  * Relative slack for floating-point round-tripping. At 1e-9, a 1 BTC invoice
@@ -24,9 +36,12 @@ export const SETTLEMENT_EPSILON_RATIO = 1e-9;
  * Minimum settlement threshold for `expected`: the smallest balance that counts
  * as paid in full.
  */
-export function settlementThreshold(expected: number): number {
+export function settlementThreshold(expected: number, asset?: string | null): number {
   if (!Number.isFinite(expected) || expected <= 0) return Number.POSITIVE_INFINITY;
-  return expected - expected * SETTLEMENT_EPSILON_RATIO;
+  const floatingPointSlack = expected * SETTLEMENT_EPSILON_RATIO;
+  // An amount below one atomic unit is unpayable, not unpaid.
+  const unpayableRemainder = asset ? atomicUnit(asset) * (1 - Number.EPSILON) : 0;
+  return expected - Math.max(floatingPointSlack, unpayableRemainder);
 }
 
 /**
@@ -39,7 +54,8 @@ export function settlementThreshold(expected: number): number {
  */
 export function isSufficientPayment(
   balance: number | string | null | undefined,
-  expected: number | string | null | undefined
+  expected: number | string | null | undefined,
+  asset?: string | null
 ): boolean {
   const bal = toFiniteNumber(balance);
   const exp = toFiniteNumber(expected);
@@ -48,7 +64,7 @@ export function isSufficientPayment(
   if (exp <= 0) return false;
   if (bal <= 0) return false;
 
-  return bal >= settlementThreshold(exp);
+  return bal >= settlementThreshold(exp, asset);
 }
 
 /**

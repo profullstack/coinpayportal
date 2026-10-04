@@ -65,11 +65,26 @@ export async function POST(request: NextRequest) {
 
     const base = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_BASE_URL || 'https://coinpayportal.com';
     const verificationUri = `${base}/cli-auth`;
+
+    // G-1.2-10: `verification_uri_complete` is deliberately not returned.
+    //
+    // Anyone could start a device authorization — it has to be unauthenticated,
+    // the CLI has no credential yet — and get back a link that pre-fills the
+    // approval form. Send that link to a signed-in merchant and one click hands
+    // the *attacker's* CLI a 7-day session JWT for the victim's account. It is
+    // full account takeover with a single click, and the attacker also chooses
+    // the `client_name` shown on the page, so it can read as something the
+    // victim trusts.
+    //
+    // The defence is that the merchant must type the code their own terminal
+    // printed. An attacker can still send someone to /cli-auth, but they cannot
+    // make the victim's screen show the attacker's code. RFC 8628 makes this
+    // field optional precisely because it trades this risk for convenience on
+    // input-constrained devices; a CLI on a real keyboard is not that case.
     return NextResponse.json({
       device_code: deviceCode,
       user_code: userCode,
       verification_uri: verificationUri,
-      verification_uri_complete: `${verificationUri}?code=${encodeURIComponent(userCode)}`,
       expires_in: EXPIRES_IN,
       interval: INTERVAL,
     });

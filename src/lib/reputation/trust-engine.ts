@@ -102,6 +102,12 @@ interface ReceiptRow {
   dispute: boolean | null;
   outcome: string | null;
   created_at: string;
+  /**
+   * On-chain settlement reference. Present only when the transaction actually
+   * settled through escrow, which is what makes the receipt's `amount`
+   * something other than a claim by the party being scored.
+   */
+  escrow_tx: string | null;
 }
 
 export async function computeTrustVector(
@@ -110,7 +116,7 @@ export async function computeTrustVector(
 ): Promise<TrustProfile> {
   const { data: receipts } = await supabase
     .from('reputation_receipts')
-    .select('action_category, action_type, amount, buyer_did, dispute, outcome, created_at')
+    .select('action_category, action_type, amount, buyer_did, dispute, outcome, created_at, escrow_tx')
     .eq('agent_did', agentDid);
 
   const rows: ReceiptRow[] = (receipts || []) as ReceiptRow[];
@@ -150,9 +156,24 @@ export async function computeTrustVector(
     const uniqueCount = categoryUniqueCounts[cat].size;
     const adjustedWeight = diminishingReturns(baseWeight, uniqueCount);
 
-    // Apply economic scaling for economic actions
+    // Economic scaling applies only to a VERIFIABLE amount.
+    //
+    // REP-F14-01: `amount` is written by the party being scored, and
+    // `economicScale` multiplies weight by log(1 + amount) — so declaring large
+    // values was the whole of the work needed to reach the top tier. The
+    // anti-gaming penalty below is capped at -3 out of 100 and cannot offset
+    // it. That score is consumed by `web-bot-auth/verify` for real trust
+    // decisions.
+    //
+    // `escrow_tx` is the discriminator already available: it is set when the
+    // transaction settled through escrow, so the amount corresponds to funds
+    // that actually moved. A self-declared amount with no settlement behind it
+    // still counts — the job may well have happened — but at unit weight, so it
+    // cannot be inflated by choosing a bigger number.
+    const amountIsVerifiable = !!r.escrow_tx;
+
     let signalWeight: number;
-    if (cat.startsWith('economic.') && r.amount != null && r.amount > 0) {
+    if (cat.startsWith('economic.') && amountIsVerifiable && r.amount != null && r.amount > 0) {
       signalWeight = economicScale(adjustedWeight, r.amount);
     } else {
       signalWeight = adjustedWeight;

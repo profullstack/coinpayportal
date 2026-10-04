@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getUsageHistory } from '@/lib/usage/service';
 import { getJwtSecret } from '@/lib/secrets';
+import { resolveBusinessScope } from '@/lib/auth/tenant-scope';
 
 async function verifyAuth(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -50,6 +51,13 @@ export async function GET(
     const supabase = createSupabaseClient();
     if (!supabase) {
       return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
+    }
+
+    // Same gap as the sibling `rates` route: authenticated, but the business id
+    // from the URL was never checked against the caller.
+    const tenant = await resolveBusinessScope(supabase, auth.merchantId!, id, 'business.read');
+    if (!tenant.ok) {
+      return NextResponse.json({ success: false, error: tenant.error }, { status: tenant.status });
     }
 
     const searchParams = request.nextUrl.searchParams;

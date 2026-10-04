@@ -44,13 +44,13 @@ export interface SyncResult {
 function getRpcEndpoints(): Record<string, string> {
   return {
     BTC: process.env.BITCOIN_RPC_URL || 'https://blockstream.info/api',
-    ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-    POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    ETH: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+    POL: process.env.POLYGON_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
     SOL:
       process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
       process.env.SOLANA_RPC_URL ||
       'https://api.mainnet-beta.solana.com',
-    BNB: process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org',
+    BNB: process.env.BNB_RPC_URL || process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org',
     BASE: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
   };
 }
@@ -188,42 +188,76 @@ async function fetchBCHHistory(
     ? address.substring(12)
     : address;
 
-  // Try fullstack.cash electrumx endpoint first (free, no key)
-  try {
-    const resp = await fetch(
-      `https://api.fullstack.cash/v5/electrumx/transactions/${address}`
-    );
-    if (resp.ok) {
-      const data: {
-        success?: boolean;
-        transactions?: Array<{
-          tx_hash: string;
-          height: number;
-        }>;
-      } = await resp.json();
+  // CryptoAPIs first. This slot was fullstack.cash, whose v5 API is gone —
+  // it answers these paths with its marketing HTML under a 200, so the
+  // request looked successful and only the absent `success` field stopped a
+  // web page being parsed as a transaction list.
+  //
+  // The replacement is also strictly better data: fullstack.cash returned
+  // only a hash and a height, so every transaction was recorded as incoming
+  // with an amount of 0 regardless of what it actually was. CryptoAPIs
+  // reports senders and recipients, so direction and amount are real.
+  const cryptoKey = process.env.CRYPTO_APIS_KEY;
+  if (cryptoKey) {
+    try {
+      const resp = await fetch(
+        `https://rest.cryptoapis.io/addresses-latest/utxo/bitcoin-cash/mainnet/${cleanAddr}/transactions?limit=${MAX_TXS}`,
+        { headers: { 'Content-Type': 'application/json', 'X-API-Key': cryptoKey } }
+      );
+      if (resp.ok) {
+        const data: {
+          data?: {
+            items?: Array<{
+              id?: string;
+              hash?: string;
+              timestamp?: number;
+              recipients?: Array<{ address?: string; value?: { amount?: string } }>;
+              senders?: Array<{ address?: string; value?: { amount?: string } }>;
+              minedInBlock?: { height?: number };
+            }>;
+          };
+        } = await resp.json();
 
-      if (data.success && data.transactions) {
-        const results: IndexedTransaction[] = [];
-        for (const tx of data.transactions.slice(0, MAX_TXS)) {
-          results.push({
-            txHash: tx.tx_hash,
-            chain: 'BCH',
-            direction: 'incoming', // Can't determine without full tx details
-            amount: '0', // Would need additional API call for amounts
-            fromAddress: 'unknown',
-            toAddress: address,
-            status: tx.height > 0 ? 'confirmed' : 'pending',
-            confirmations: tx.height > 0 ? 1 : 0,
-            timestamp: new Date().toISOString(),
-            blockNumber: tx.height > 0 ? tx.height : undefined,
+        const items = data.data?.items;
+        if (items?.length) {
+          // Compare on the bare CashAddr: the API always answers with the
+          // "bitcoincash:" prefix whether or not the query carried one.
+          const matches = (a?: string) =>
+            !!a && a.replace(/^bitcoincash:/, '') === cleanAddr;
+
+          return items.slice(0, MAX_TXS).map((tx): IndexedTransaction => {
+            const credited = (tx.recipients || [])
+              .filter((r) => matches(r.address))
+              .reduce((sum, r) => sum + parseFloat(r.value?.amount || '0'), 0);
+            const isOutgoing = (tx.senders || []).some((s) => matches(s.address));
+            const height = tx.minedInBlock?.height;
+
+            return {
+              txHash: tx.id || tx.hash || '',
+              chain: 'BCH',
+              direction: isOutgoing ? 'outgoing' : 'incoming',
+              amount: (isOutgoing
+                ? (tx.senders || [])
+                    .filter((s) => matches(s.address))
+                    .reduce((sum, s) => sum + parseFloat(s.value?.amount || '0'), 0) - credited
+                : credited
+              ).toString(),
+              fromAddress: isOutgoing ? address : (tx.senders?.[0]?.address ?? 'unknown'),
+              toAddress: isOutgoing ? (tx.recipients?.[0]?.address ?? 'unknown') : address,
+              status: height ? 'confirmed' : 'pending',
+              confirmations: height ? 1 : 0,
+              timestamp: tx.timestamp
+                ? new Date(tx.timestamp * 1000).toISOString()
+                : new Date().toISOString(),
+              blockNumber: height,
+            };
           });
         }
-        return results;
       }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[TxIndexer] BCH CryptoAPIs failed: ${msg}`);
     }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[TxIndexer] BCH fullstack.cash failed: ${msg}`);
   }
 
   // Fallback: Blockchair (limited free requests)
@@ -1090,31 +1124,67 @@ async function fetchDOGEHistory(address: string): Promise<IndexedTransaction[]> 
   }
 }
 
+/**
+ * Second source for DOGE history, used when Blockcypher fails or rate-limits.
+ *
+ * This was dogechain.info until it began answering every request — API and
+ * site alike — with a 403, which left Blockcypher's keyless tier (~200
+ * requests/day) as the only source and turned a rate-limit into an empty
+ * history. Tatum replaces it using the key already provisioned for BTC/BCH.
+ *
+ * Tatum reports outputs but not input addresses, so direction is inferred from
+ * whether the address is paid by the transaction. That misreads a send as a
+ * receive when the send returns change to the same address — acceptable in a
+ * fallback that only runs when the primary source is unavailable, and the
+ * amount credited is still the amount this address actually received.
+ */
 async function fetchDOGEHistoryFallback(address: string): Promise<IndexedTransaction[]> {
   try {
-    const resp = await fetch(`https://dogechain.info/api/v1/address/transactions/${address}`);
+    const apiKey = process.env.TATUM_API_KEY;
+    if (!apiKey) return [];
+    const headers = { 'x-api-key': apiKey };
+
+    const resp = await fetch(
+      `https://api.tatum.io/v3/dogecoin/transaction/address/${address}?pageSize=${MAX_TXS}`,
+      { headers }
+    );
     if (!resp.ok) return [];
 
-    const data: {
-      transactions?: Array<{
-        hash: string;
-        time: number;
-        value: string;
-        confirmations?: number;
-      }>;
-    } = await resp.json();
+    const txs: Array<{
+      hash: string;
+      time: number;
+      blockNumber?: number;
+      outputs?: Array<{ address?: string; value?: string }>;
+    }> = await resp.json();
 
-    return (data.transactions || []).slice(0, MAX_TXS).map((tx): IndexedTransaction => ({
-      txHash: tx.hash,
-      chain: 'DOGE',
-      direction: parseFloat(tx.value) >= 0 ? 'incoming' : 'outgoing',
-      amount: Math.abs(parseFloat(tx.value)).toString(),
-      fromAddress: 'unknown',
-      toAddress: address,
-      status: (tx.confirmations || 0) >= 6 ? 'confirmed' : 'pending',
-      confirmations: tx.confirmations || 0,
-      timestamp: new Date(tx.time * 1000).toISOString(),
-    }));
+    // Confirmations are not on the transaction, so derive them from the tip.
+    let tipHeight = 0;
+    try {
+      const infoResp = await fetch('https://api.tatum.io/v3/dogecoin/info', { headers });
+      if (infoResp.ok) tipHeight = (await infoResp.json()).blocks || 0;
+    } catch {
+      // Leave confirmations at 0 rather than dropping the history entirely.
+    }
+
+    return (txs || []).slice(0, MAX_TXS).map((tx): IndexedTransaction => {
+      const credited = (tx.outputs || [])
+        .filter((o) => o.address === address)
+        .reduce((sum, o) => sum + parseFloat(o.value || '0'), 0);
+      const confirmations =
+        tipHeight && tx.blockNumber ? Math.max(0, tipHeight - tx.blockNumber + 1) : 0;
+
+      return {
+        txHash: tx.hash,
+        chain: 'DOGE',
+        direction: credited > 0 ? 'incoming' : 'outgoing',
+        amount: Math.abs(credited).toString(),
+        fromAddress: 'unknown',
+        toAddress: address,
+        status: confirmations >= 6 ? 'confirmed' : 'pending',
+        confirmations,
+        timestamp: new Date(tx.time * 1000).toISOString(),
+      };
+    });
   } catch {
     return [];
   }

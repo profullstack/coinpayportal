@@ -18,6 +18,8 @@
  * Returns: { invoice_id, invoice_number, pay_url, payment_address?, crypto_amount?, stripe_checkout_url? }
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { screenCheckout } from '@/lib/fraud/screen';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { resolveOrProvisionPayee, resolveOrProvisionPayerClient } from '@/lib/p2p/resolve';
@@ -27,6 +29,7 @@ import { createPayment, type Blockchain } from '@/lib/payments/service';
 import { getStripe } from '@/lib/server/optional-deps';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { hashApiKey } from '@/lib/auth/scoped-keys';
+import { insertWithInvoiceNumber } from '@/lib/invoices/numbering';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -173,21 +176,9 @@ export async function POST(request: NextRequest) {
       ?? (payout.kind === 'crypto' ? payout.cryptocurrency : undefined);
     const merchantWalletAddress = payout.kind === 'crypto' ? payout.address : null;
 
-    // Next invoice number for this business
-    const { data: maxInvoice } = await supabase
-      .from('invoices')
-      .select('invoice_number')
-      .eq('business_id', businessId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-    let nextNum = 1;
-    if (maxInvoice?.invoice_number) {
-      const match = maxInvoice.invoice_number.match(/INV-(\d+)/);
-      if (match) nextNum = parseInt(match[1], 10) + 1;
-    }
-    const invoiceNumber = `INV-${String(nextNum).padStart(3, '0')}`;
-
+    // Invoice numbering is handled by the shared helper (see the third
+    // instance of this bug, NEW-F1A-P-01): ordering by `created_at` does not
+    // give the highest number, and a concurrent create needs a 23505 retry.
     const isPaidTier = await isBusinessPaidTier(supabase, businessId);
     const feeRate = getFeePercentage(isPaidTier);
     const feeAmount = amount_usd * feeRate;
@@ -195,7 +186,10 @@ export async function POST(request: NextRequest) {
     let paymentAddress: string | null = null;
     let cryptoAmount: number | null = null;
 
-    const { data: invoice, error: insertErr } = await supabase
+    const { data: invoice, error: insertErr } = await insertWithInvoiceNumber<any>(
+      supabase,
+      businessId,
+      (invoiceNumber) => supabase
       .from('invoices')
       .insert({
         user_id: merchantId,
@@ -219,7 +213,8 @@ export async function POST(request: NextRequest) {
         },
       })
       .select('id, invoice_number')
-      .single();
+      .single()
+    );
 
     if (insertErr || !invoice) {
       return NextResponse.json({ success: false, error: insertErr?.message ?? 'Insert failed' }, { status: 500 });
@@ -273,8 +268,37 @@ export async function POST(request: NextRequest) {
         const amountCents = Math.round(amount_usd * 100);
         const platformFeeAmount = Math.round(amountCents * feeRate);
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com';
+
+        // REC-D-05: this branch created a Stripe Checkout session without
+        // calling screenCheckout at all, and the caller is a platform issuer
+        // key rather than an authenticated merchant — so it was the least
+        // supervised of the card paths.
+        const screening = await screenCheckout(supabase, {
+          businessId,
+          email: payer.email,
+          ip: getClientIp(request),
+          amount: amount_usd,
+          currency: 'USD',
+          description: notes,
+        });
+
+        if (screening.decision === 'block') {
+          console.warn('[Fraud] Blocked p2p checkout', {
+            businessId,
+            score: screening.score,
+            findings: screening.findings.map((f) => f.code).join(', '),
+          });
+          return NextResponse.json(
+            { success: false, error: screening.buyerMessage },
+            { status: 403 },
+          );
+        }
+
         const stripe = await getStripe();
         const session = await stripe.checkout.sessions.create({
+          ...(screening.decision === 'verify'
+            ? { payment_method_options: { card: { request_three_d_secure: 'any' as const } } }
+            : {}),
           line_items: [
             {
               price_data: {

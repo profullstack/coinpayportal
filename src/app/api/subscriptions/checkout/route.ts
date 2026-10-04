@@ -8,6 +8,16 @@ import {
   type BillingPeriod,
   type SupportedBlockchain,
 } from '@/lib/subscriptions/service';
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+
+/**
+ * Unpaid subscription checkouts one merchant may hold at once.
+ *
+ * A merchant legitimately abandons a checkout and starts another — switching
+ * chain, or changing their mind on billing period — so this is generous. It
+ * exists to stop unbounded accumulation, not to police normal indecision.
+ */
+const MAX_PENDING_SUBSCRIPTION_CHECKOUTS = 10;
 
 /**
  * POST /api/subscriptions/checkout
@@ -94,6 +104,49 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: 'Unable to determine price for selected plan' },
         { status: 400 }
+      );
+    }
+
+    // SUB-02: bound how many of these one merchant can have open.
+    //
+    // The route was authenticated but otherwise unbounded, and every call
+    // derives an HD address, encrypts its private key and writes a
+    // `business_collection_payments` row. A merchant looping it accumulates
+    // rows and encrypted key material without limit and burns derivation
+    // indexes that are never reclaimed — none of which needs an attacker, just
+    // a retry loop in a client.
+    //
+    // Two bounds, because they catch different things: the rate limit stops a
+    // burst, and the pending cap stops a slow accumulation that would never
+    // trip a rate limit at all.
+    const rate = await checkRateLimitAsync(merchantId, 'subscription_checkout');
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Too many subscription checkouts. Please try again shortly.' },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(Math.max(1, rate.resetAt - Math.floor(Date.now() / 1000))) },
+        }
+      );
+    }
+
+    const { count: pendingCount, error: pendingError } = await supabase
+      .from('business_collection_payments')
+      .select('id', { count: 'exact', head: true })
+      .eq('merchant_id', merchantId)
+      .eq('status', 'pending');
+
+    if (pendingError) {
+      console.error('[Subscriptions] Could not count pending checkouts:', pendingError);
+    } else if ((pendingCount ?? 0) >= MAX_PENDING_SUBSCRIPTION_CHECKOUTS) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            `You already have ${pendingCount} unpaid subscription checkouts. ` +
+            'Complete or let one expire before starting another.',
+        },
+        { status: 409 }
       );
     }
 

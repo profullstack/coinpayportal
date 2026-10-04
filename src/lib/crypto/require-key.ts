@@ -92,3 +92,29 @@ export function requireMasterMnemonic(): string {
 
   return mnemonic.trim();
 }
+
+/**
+ * Non-throwing form of `requireEncryptionKey`, for call sites that return a
+ * `{ success: false, error }` result rather than propagating exceptions.
+ *
+ * This exists because the throwing form was adopted by only 4 of 13 real
+ * encryption call sites. The other 9 — including the custody hot path:
+ * `hd-wallet`, `system-wallet`, `secure-forwarding`, `escrow/service` — each
+ * hand-rolled `const k = process.env.ENCRYPTION_KEY; if (!k) return error;`,
+ * which checks that a key is *present* and nothing about whether it is usable.
+ * An all-zero or `deadbeef`-repeated key passed every one of them, and the
+ * repository's own test fixture value is one of the constants
+ * `KNOWN_WEAK_KEYS` exists to reject.
+ *
+ * Those sites did not adopt the guard because it throws and they do not. Giving
+ * them a form that fits removes the reason to keep reading the raw value.
+ */
+export function tryRequireEncryptionKey(
+  purpose = 'custody'
+): { ok: true; key: string } | { ok: false; error: string } {
+  try {
+    return { ok: true, key: requireEncryptionKey(purpose) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}

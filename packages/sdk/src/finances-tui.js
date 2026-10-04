@@ -1,0 +1,1153 @@
+/**
+ * `coinpay finances` — a live terminal dashboard for the merchant's money.
+ *
+ * Built on @profullstack/hqtui. Seven screens: Overview, Bank & Cards, Ledger,
+ * Crypto, Cards, Invoices & Escrow, Debt & Income. Data comes from `collectFinanceSnapshot`
+ * on a timer, plus the payments server-sent-event stream for instant crypto
+ * payment notices in the Live panel. Bank syncs are a keypress (`s`), never
+ * automatic — the bank bridge allows about 24 pulls a day.
+ *
+ * hqtui is imported lazily so the rest of the CLI keeps working on a Node
+ * that cannot load it (it needs Node 22.6+); `coinpay finances summary` is
+ * the plain-text fallback.
+ */
+
+import { collectFinanceSnapshot, subscribeToPayments, syncFinances } from './finances.js';
+
+const TABS = ['Overview', 'Bank & Cards', 'Ledger', 'Crypto', 'Cards', 'Invoices & Escrow', 'Debt & Income'];
+const WINDOWS = [7, 30, 90, 365];
+const LIVE_MAX = 200;
+
+// ── Formatting ──
+
+const fmtCache = new Map();
+export function money(value, currency = 'USD', { compact = false } = {}) {
+  const n = Number(value) || 0;
+  const key = `${currency}:${compact}`;
+  let fmt = fmtCache.get(key);
+  if (!fmt) {
+    try {
+      fmt = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency,
+        maximumFractionDigits: compact ? 0 : 2,
+        minimumFractionDigits: compact ? 0 : 2,
+        notation: compact ? 'compact' : 'standard',
+      });
+    } catch {
+      fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+    }
+    fmtCache.set(key, fmt);
+  }
+  return fmt.format(n);
+}
+
+/** A ratio as a percentage. Null stays visibly absent rather than becoming 0%. */
+export function pct(value, digits = 0) {
+  const n = Number(value);
+  if (value === null || value === undefined || !Number.isFinite(n)) return '—';
+  return `${(n * 100).toFixed(digits)}%`;
+}
+
+export function shortDate(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
+  return d.toISOString().slice(0, 10);
+}
+
+export function shortDateTime(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value).slice(0, 16);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function detailDateTime(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+}
+
+export function ago(value) {
+  if (!value) return 'never';
+  const ms = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return 'just now';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function clock() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function shortId(value, n = 8) {
+  const s = String(value || '');
+  return s.length > n ? `${s.slice(0, n)}…` : s;
+}
+
+function num(v) {
+  const n = typeof v === 'number' ? v : parseFloat(v ?? '');
+  return Number.isFinite(n) ? n : 0;
+}
+
+// ── State ──
+
+export function createState(days) {
+  return {
+    tab: 0,
+    days,
+    snapshot: null,
+    loading: false,
+    lastRefresh: null,
+    error: null,
+    live: [],
+    liveStatus: 'connecting',
+    syncing: false,
+    notice: null,
+    paused: false,
+    showHelp: false,
+    panes: {},
+    seen: { payments: new Set(), cards: new Set() },
+    primed: false,
+  };
+}
+
+function pane(state, name, total) {
+  let p = state.panes[name];
+  if (!p) {
+    p = { selected: 0, offset: 0, total: 0 };
+    state.panes[name] = p;
+  }
+  p.total = total;
+  const max = Math.max(0, total - 1);
+  p.selected = Math.min(p.selected, max);
+  p.offset = Math.min(p.offset, max);
+  return p;
+}
+
+function scrollPane(p, delta, rows = 3) {
+  const max = Math.max(0, p.total - 1);
+  p.offset = Math.max(0, Math.min(p.offset + delta * rows, max));
+  p.selected = Math.max(p.offset, Math.min(p.selected, max));
+}
+
+function moveSelection(p, delta) {
+  const max = Math.max(0, p.total - 1);
+  p.selected = Math.max(0, Math.min(p.selected + delta, max));
+  if (p.selected < p.offset) p.offset = p.selected;
+}
+
+// The table each screen scrolls with the keyboard.
+const TAB_PANE = ['live', 'accounts', 'ledger', 'payments', 'cards', 'invoices', 'debts'];
+
+function activePane(state) {
+  return state.tab === 5 && state.invoicePane === 'escrows' ? 'escrows' : TAB_PANE[state.tab];
+}
+
+/** hqtui reports visible row numbers on clicks, but may move its viewport to
+ * follow keyboard selection or clamp the last page. Record the rows actually
+ * drawn instead of assuming that the requested offset is still on screen. */
+function selectableTable(panel, state, name, rows, columns) {
+  const selection = pane(state, name, rows.length);
+  const visibleRows = new Map();
+  panel.table({
+    rows,
+    columns,
+    selected: selection.selected,
+    offset: selection.offset,
+    followSelection: true,
+    scrollbar: true,
+    onRow: (_row, index, y) => {
+      visibleRows.set(y - 1, index);
+      if (y === 1) selection.offset = index;
+    },
+    onFocus: () => {
+      if (name === 'invoices' || name === 'escrows') state.invoicePane = name;
+    },
+    onScroll: (delta) => scrollPane(selection, delta),
+    onSelectRow: (visibleRow) => {
+      const index = visibleRows.get(visibleRow);
+      if (index !== undefined) selection.selected = index;
+    },
+  });
+}
+
+function pushLive(state, entry) {
+  state.live.push({ time: clock(), ...entry });
+  if (state.live.length > LIVE_MAX) state.live.splice(0, state.live.length - LIVE_MAX);
+}
+
+/** Record which rows we have already shown so the next refresh can announce only new ones. */
+function noteNewRows(state, snapshot) {
+  const payments = snapshot.recent.payments || [];
+  const cards = snapshot.recent.cards || [];
+  if (state.primed) {
+    for (const p of payments) {
+      if (state.seen.payments.has(p.id)) continue;
+      pushLive(state, {
+        level: 'PAY',
+        message: `crypto ${p.status} ${money(p.amount_usd)} ${p.currency || ''} ${p.business_name ? `· ${p.business_name}` : ''}`.trim(),
+        meta: shortId(p.id),
+      });
+    }
+    for (const c of cards) {
+      if (state.seen.cards.has(c.id)) continue;
+      pushLive(state, {
+        level: 'CARD',
+        message: `card ${c.status} ${money(num(c.amount_cents) / 100, (c.currency || 'usd').toUpperCase())} ${c.business_name ? `· ${c.business_name}` : ''} ${c.customer_email ? `· ${c.customer_email}` : ''}`.trim(),
+        meta: shortId(c.id),
+      });
+    }
+  }
+  for (const p of payments) state.seen.payments.add(p.id);
+  for (const c of cards) state.seen.cards.add(c.id);
+  state.primed = true;
+}
+
+// ── Screens ──
+
+function statusColor(theme, status) {
+  const s = String(status || '').toLowerCase();
+  if (['completed', 'succeeded', 'forwarded', 'confirmed', 'paid', 'released', 'settled', 'ok', 'active'].includes(s)) return theme.success;
+  if (['pending', 'detected', 'confirming', 'forwarding', 'sent', 'funded', 'draft', 'in_transit', 'partial'].includes(s)) return theme.warning;
+  if (['failed', 'expired', 'refunded', 'partially_refunded', 'disputed', 'cancelled', 'canceled', 'overdue', 'error', 'forwarding_failed'].includes(s)) return theme.danger;
+  return theme.muted;
+}
+
+function signed(theme, value) {
+  return num(value) >= 0 ? theme.success : theme.danger;
+}
+
+function emptyPanel(ui, theme, title, message) {
+  ui.panel({ title }, (p) => p.text(message, { fg: theme.muted }));
+}
+
+/** Render the record under the pointer beside a table. Tables keep their
+ * selection in state, so a mouse click and j/k navigation show the same
+ * detail record without opening a second screen. */
+function selectedDetails(panel, title, row, fields, theme, options = {}) {
+  const { after, ...panelOptions } = options;
+  panel.panel({ title: row ? title : `${title} · none`, ...panelOptions }, (p) => {
+    if (!row) {
+      p.text('Click a row to inspect its details.', { fg: theme.muted });
+      after?.(p);
+      return;
+    }
+    for (const [label, value, color] of fields) {
+      p.text([
+        { text: `${label}: `, fg: theme.muted },
+        { text: value === null || value === undefined || value === '' ? '—' : String(value), fg: color || theme.foreground },
+      ], { wrap: true });
+    }
+    after?.(p);
+  });
+}
+
+function overviewScreen(ui, state, theme) {
+  const s = state.snapshot;
+  const e = s.earnings;
+  const b = s.bank;
+  const cur = b.currency || 'USD';
+  const win = `${state.days}d`;
+
+  ui.grid({ columns: ['1fr', '1fr', '1fr'], rows: [11, '1fr', 12], gap: 1 }, (grid) => {
+    grid.panel({ title: `Earnings · ${win}`, subtitle: s.plan ? `${s.plan.commission_percent} plan` : undefined }, (p) => {
+      p.keyValues([
+        { label: 'Gross volume', value: money(e.grossVolumeUsd), color: theme.primary },
+        { label: '  crypto', value: money(e.cryptoVolumeUsd) },
+        { label: '  cards', value: money(e.cardVolumeUsd) },
+        { label: 'Commission paid', value: `-${money(e.commissionUsd)}`, color: theme.warning },
+        { label: 'Card processor fees', value: `-${money(e.stripeFeesUsd)}`, color: theme.warning },
+        { label: 'Refunds', value: `-${money(e.refundsUsd)}`, color: e.refundsUsd > 0 ? theme.danger : theme.muted },
+        { label: 'Net earnings', value: money(e.netUsd), color: signed(theme, e.netUsd) },
+        { label: 'Paid transactions', value: `${e.transactions}  (${e.failed} failed, ${e.failureRate}%)` },
+      ], { labelWidth: 20 });
+    });
+
+    grid.panel({ title: 'Bank & cards', subtitle: b.connections.length ? `${b.accountCount} accounts` : 'nothing linked' }, (p) => {
+      if (!b.connections.length) {
+        p.text('Link a bank at coinpayportal.com/finances', { fg: theme.muted });
+        return;
+      }
+      p.keyValues([
+        { label: 'Cash & assets', value: money(b.assets, cur), color: theme.success },
+        { label: 'Cards & loans owed', value: money(b.liabilities, cur), color: theme.danger },
+        { label: 'Net position', value: money(b.net, cur), color: signed(theme, b.net) },
+        { label: `Cash in · ${win}`, value: money(b.cashflow.moneyIn, cur), color: theme.success },
+        { label: `Cash out · ${win}`, value: money(b.cashflow.moneyOut, cur), color: theme.danger },
+        { label: 'Cashflow net', value: money(b.cashflow.net, cur), color: signed(theme, b.cashflow.net) },
+        { label: 'Credit cards', value: `${b.creditCards.length}  owing ${money(b.creditCards.reduce((t, a) => t + Math.abs(num(a.display_balance ?? a.balance)), 0), cur)}` },
+        { label: 'Last bank sync', value: ago(b.connections[0]?.last_synced_at), color: statusColor(theme, b.connections[0]?.last_sync_status) },
+      ], { labelWidth: 20 });
+    });
+
+    grid.panel({ title: 'Pipeline' }, (p) => {
+      const inv = s.invoices;
+      const esc = s.escrow;
+      p.keyValues([
+        { label: 'Invoices outstanding', value: `${money(inv.totals.outstanding)}  (${inv.counts.outstanding})`, color: theme.warning },
+        { label: 'Invoices overdue', value: `${money(inv.totals.overdue)}  (${inv.counts.overdue})`, color: inv.counts.overdue ? theme.danger : theme.muted },
+        { label: `Invoices paid · ${win}`, value: `${money(inv.totals.paid)}  (${inv.counts.paid})`, color: theme.success },
+        { label: 'Escrow held', value: `${money(esc.heldUsd)}  (${esc.held})`, color: theme.info },
+        { label: `Escrow released · ${win}`, value: `${money(esc.releasedUsd)}  (${esc.released})` },
+        { label: `Escrow refunded · ${win}`, value: `${money(esc.refundedUsd)}  (${esc.refunded})`, color: esc.refunded ? theme.danger : theme.muted },
+        { label: 'Payouts pending', value: money(s.payout.pendingUsd) },
+        { label: `Payouts paid · ${win}`, value: money(s.payout.paidUsd), color: theme.success },
+      ], { labelWidth: 22 });
+    });
+
+    grid.panel({ title: `Volume by day · ${win}`, colSpan: 3, subtitle: 'volume vs commission' }, (p) => {
+      const pts = s.series;
+      if (!pts.length) {
+        p.text('No volume in this window.', { fg: theme.muted });
+        return;
+      }
+      const step = Math.max(1, Math.ceil(pts.length / 8));
+      p.multiGraph(
+        [
+          { values: pts.map((x) => x.volumeUsd), color: theme.primary, label: 'volume', fill: true },
+          { values: pts.map((x) => x.commissionUsd), color: theme.warning, label: 'commission' },
+        ],
+        {
+          min: 0,
+          axis: true,
+          axisFormat: (v) => money(v, 'USD', { compact: true }),
+          timeAxis: pts.map((x, i) => (i % step === 0 ? x.label.slice(5) : '')),
+          legend: true,
+        },
+      );
+    });
+
+    grid.panel({ title: 'Live', colSpan: 2, subtitle: state.liveStatus, subtitleColor: state.liveStatus === 'connected' ? theme.success : theme.warning }, (p) => {
+      const live = pane(state, 'live', state.live.length);
+      p.log({
+        entries: state.live.map((l) => ({ time: l.time, level: l.level, message: l.message, meta: l.meta })),
+        fromEnd: live.offset,
+        scrollbar: true,
+        levelColors: { PAY: theme.success, CARD: theme.info, SYNC: theme.warning, ERR: theme.danger, INFO: theme.muted, SSE: theme.muted },
+        onScroll: (delta) => scrollPane(live, -delta),
+      });
+    });
+
+    grid.panel({ title: 'By rail' }, (p) => {
+      const items = [{ label: 'cards', value: e.cardVolumeUsd, text: money(e.cardVolumeUsd, 'USD', { compact: true }) }];
+      for (const [chain, usd] of Object.entries(s.crypto.byChain).sort((a, b) => b[1] - a[1]).slice(0, 8)) {
+        items.push({ label: chain, value: usd, text: money(usd, 'USD', { compact: true }) });
+      }
+      const max = Math.max(1, ...items.map((i) => i.value));
+      p.meters(items.map((i) => ({ ...i, max })), { labelWidth: 9, valueWidth: 7 });
+    });
+  });
+}
+
+function bankScreen(ui, state, theme) {
+  const b = state.snapshot.bank;
+  const cur = b.currency || 'USD';
+  if (!b.connections.length) {
+    emptyPanel(ui, theme, 'Bank & cards', 'No bank linked yet. Connect one at coinpayportal.com/finances (SimpleFIN or Plaid), then press s to sync.');
+    return;
+  }
+  const accounts = pane(state, 'accounts', b.accounts.length);
+  const selectedAccount = b.accounts[accounts.selected];
+  ui.grid({ columns: ['3fr', '2fr'], gap: 1 }, (grid) => {
+    grid.panel({ title: `Accounts (${b.accounts.length})`, footer: 'j/k scroll · s sync' }, (p) => {
+      selectableTable(p, state, 'accounts', b.accounts, [
+          { key: 'org_name', title: 'Institution', width: 22, render: (r) => r.org_name || '—', color: theme.muted },
+          { key: 'name', title: 'Account', min: 14, max: 36 },
+          { key: 'effective_kind', title: 'Kind', width: 10, color: (r) => (r.is_liability ? theme.danger : theme.success) },
+          // A trailing * marks a stored correction, so a wrong split is
+          // traceable to a guess rather than to someone's decision.
+          { key: 'effective_scope', title: 'Side', width: 10, render: (r) => `${r.effective_scope || '—'}${r.scope_override ? '*' : ''}`, color: (r) => (r.effective_scope === 'business' ? theme.info : theme.muted) },
+          { key: 'display_balance', title: 'Balance', width: 13, align: 'right', render: (r) => money(r.display_balance ?? r.balance ?? 0, r.currency || cur), color: (r) => (r.is_liability ? theme.danger : theme.success) },
+          { key: 'available_balance', title: 'Available', width: 12, align: 'right', render: (r) => (r.available_balance == null ? '—' : money(r.available_balance, r.currency || cur)), color: theme.muted },
+          { key: 'balance_date', title: 'As of', width: 10, render: (r) => shortDate(r.balance_date), color: theme.muted },
+      ]);
+    });
+
+    grid.cell({ gap: 1 }, (col) => {
+      selectedDetails(col, 'Selected account', selectedAccount, [
+        ['Institution', selectedAccount?.org_name],
+        ['Account', selectedAccount?.name],
+        ['Kind', selectedAccount?.effective_kind],
+        ['Side', selectedAccount?.effective_scope],
+        ['Balance', selectedAccount ? money(selectedAccount.display_balance ?? selectedAccount.balance ?? 0, selectedAccount.currency || cur) : null, selectedAccount?.is_liability ? theme.danger : theme.success],
+        ['As of', selectedAccount ? shortDateTime(selectedAccount.balance_date) : null],
+        ['Last seen', selectedAccount ? shortDateTime(selectedAccount.last_seen_at) : null],
+      ], theme, { size: '55%' });
+      col.panel({ title: 'Owed by institution', size: Math.min(14, b.byInstitution.length + 3) }, (p) => {
+        const rows = b.byInstitution.filter((i) => i.liabilities > 0 || i.assets > 0);
+        const max = Math.max(1, ...rows.map((i) => Math.max(i.liabilities, i.assets)));
+        p.meters(
+          rows.slice(0, 10).map((i) => ({
+            label: i.org.slice(0, 14),
+            value: i.liabilities > 0 ? i.liabilities : i.assets,
+            max,
+            color: i.liabilities > 0 ? theme.danger : theme.success,
+            text: money(i.liabilities > 0 ? i.liabilities : i.assets, cur, { compact: true }),
+          })),
+          { labelWidth: 15, valueWidth: 7 },
+        );
+      });
+      col.panel({ title: 'Position' }, (p) => {
+        p.keyValues([
+          { label: 'Assets', value: money(b.assets, cur), color: theme.success },
+          { label: 'Liabilities', value: money(b.liabilities, cur), color: theme.danger },
+          { label: 'Net', value: money(b.net, cur), color: signed(theme, b.net) },
+          ...b.byKind.map((k) => ({ label: `  ${k.kind} (${k.accounts})`, value: money(k.total, k.currency || cur), color: theme.muted })),
+        ], { labelWidth: 16 });
+      });
+      col.panel({ title: 'Connections' }, (p) => {
+        p.keyValues(
+          b.connections.flatMap((c) => [
+            { label: c.provider, value: `${c.label || c.id.slice(0, 8)} · ${c.is_active ? 'active' : 'inactive'}`, color: c.is_active ? theme.foreground : theme.muted },
+            { label: '  last sync', value: `${ago(c.last_synced_at)} · ${c.last_sync_status || '—'} · ${c.last_sync_accounts ?? 0} acct / ${c.last_sync_transactions ?? 0} tx`, color: statusColor(theme, c.last_sync_status) },
+            ...(c.last_sync_error ? [{ label: '  note', value: String(c.last_sync_error).slice(0, 60), color: theme.warning }] : []),
+          ]),
+          { labelWidth: 12 },
+        );
+        if (state.syncing) p.text('Syncing with the bank bridge…', { fg: theme.warning });
+        else if (state.notice) p.text(state.notice, { fg: theme.muted });
+      });
+    });
+  });
+}
+
+function ledgerScreen(ui, state, theme) {
+  const b = state.snapshot.bank;
+  const cur = b.currency || 'USD';
+  if (!b.ledger.length) {
+    emptyPanel(ui, theme, 'Ledger', b.connections.length ? 'No transactions in this window. Press s to sync.' : 'No bank linked yet.');
+    return;
+  }
+  const ledger = pane(state, 'ledger', b.ledger.length);
+  const selectedLedger = b.ledger[ledger.selected];
+  ui.grid({ columns: ['3fr', '2fr'], gap: 1 }, (grid) => {
+    grid.panel({ title: `Ledger · ${state.days}d`, subtitle: `${b.ledger.length} of ${b.ledgerTotal}`, footer: 'newest first' }, (p) => {
+      selectableTable(p, state, 'ledger', b.ledger, [
+          { key: 'posted', title: 'Date', width: 10, render: (r) => shortDate(r.transacted_at || r.posted), color: theme.muted },
+          { key: 'account_name', title: 'Account', width: 26, render: (r) => `${r.org_name ? r.org_name.split(' ')[0] + ' ' : ''}${r.account_name}` },
+          { key: 'payee', title: 'Payee / description', min: 14, max: 40, render: (r) => r.payee || r.description || r.memo || '—' },
+          { key: 'category', title: 'Category', width: 14, render: (r) => r.category || '—', color: theme.muted },
+          { key: 'pending', title: '', width: 1, render: (r) => (r.pending ? '•' : ''), color: theme.warning },
+          { key: 'amount', title: 'Amount', width: 12, align: 'right', render: (r) => money(r.amount, r.currency || cur), color: (r) => signed(theme, r.amount) },
+      ]);
+    });
+    grid.cell({ gap: 1 }, (col) => {
+      selectedDetails(col, 'Selected transaction', selectedLedger, [
+        ['Date', selectedLedger ? shortDateTime(selectedLedger.transacted_at || selectedLedger.posted) : null],
+        ['Account', selectedLedger?.account_name],
+        ['Institution', selectedLedger?.org_name],
+        ['Payee', selectedLedger?.payee || selectedLedger?.description],
+        ['Category', selectedLedger?.category],
+        ['Amount', selectedLedger ? money(selectedLedger.amount, selectedLedger.currency || cur) : null, selectedLedger ? signed(theme, selectedLedger.amount) : undefined],
+        ['Description', selectedLedger?.description],
+        ['Memo', selectedLedger?.memo],
+        ['Transaction ID', selectedLedger?.id],
+      ], theme, { size: '60%' });
+      col.panel({ title: `Cashflow · ${state.days}d`, size: 7 }, (p) => {
+        p.keyValues([
+          { label: 'In', value: money(b.cashflow.moneyIn, cur), color: theme.success },
+          { label: 'Out', value: money(b.cashflow.moneyOut, cur), color: theme.danger },
+          { label: 'Net', value: money(b.cashflow.net, cur), color: signed(theme, b.cashflow.net) },
+          { label: 'Transactions', value: String(b.cashflow.transactions) },
+        ], { labelWidth: 13 });
+      });
+      col.panel({ title: 'Spend by category' }, (p) => {
+        const cats = b.topCategories.filter((c) => c.spent > 0).slice(0, 14);
+        const max = Math.max(1, ...cats.map((c) => c.spent));
+        p.meters(
+          cats.map((c) => ({ label: (c.category || 'uncategorised').slice(0, 14), value: c.spent, max, text: money(c.spent, cur, { compact: true }) })),
+          { labelWidth: 15, valueWidth: 7, heat: true },
+        );
+      });
+    });
+  });
+}
+
+function cryptoScreen(ui, state, theme) {
+  const s = state.snapshot;
+  const rows = s.recent.payments;
+  const payments = pane(state, 'payments', rows.length);
+  const selectedPayment = rows[payments.selected];
+  ui.grid({ columns: ['3fr', '2fr'], gap: 1 }, (grid) => {
+    grid.panel({ title: `Crypto payments · ${state.days}d`, subtitle: s.crypto.partial ? 'latest page' : undefined }, (p) => {
+      if (!rows.length) {
+        p.text('No crypto payments in this window.', { fg: theme.muted });
+        return;
+      }
+      selectableTable(p, state, 'payments', rows, [
+          { key: 'created_at', title: 'When', width: 11, render: (r) => shortDateTime(r.created_at), color: theme.muted },
+          { key: 'business_name', title: 'Business', min: 10, max: 28, render: (r) => r.business_name || shortId(r.business_id) },
+          { key: 'currency', title: 'Chain', width: 9 },
+          { key: 'amount_usd', title: 'USD', width: 10, align: 'right', render: (r) => money(r.amount_usd) },
+          { key: 'amount_crypto', title: 'Crypto', width: 13, align: 'right', render: (r) => String(num(r.amount_crypto).toFixed(6)), color: theme.muted },
+          { key: 'fee_amount', title: 'Fee', width: 8, align: 'right', render: (r) => (r.fee_amount ? money((num(r.fee_amount) / Math.max(num(r.amount_crypto), 1e-12)) * num(r.amount_usd)) : '—'), color: theme.warning },
+          { key: 'status', title: 'Status', width: 11, color: (r) => statusColor(theme, r.status) },
+          { key: 'tx_hash', title: 'Tx', width: 10, render: (r) => shortId(r.forward_tx_hash || r.tx_hash || '', 9), color: theme.muted },
+      ]);
+    });
+    grid.cell({ gap: 1 }, (col) => {
+      selectedDetails(col, 'Selected crypto payment', selectedPayment, [
+        ['When', selectedPayment ? shortDateTime(selectedPayment.created_at) : null],
+        ['Business', selectedPayment?.business_name || selectedPayment?.business_id],
+        ['Status', selectedPayment?.status, selectedPayment ? statusColor(theme, selectedPayment.status) : undefined],
+        ['Chain', selectedPayment?.currency],
+        ['Crypto amount', selectedPayment ? num(selectedPayment.amount_crypto).toFixed(6) : null],
+        ['USD amount', selectedPayment ? money(selectedPayment.amount_usd) : null, theme.success],
+        ['Transaction', selectedPayment ? (selectedPayment.forward_tx_hash || selectedPayment.tx_hash) : null],
+      ], theme, { size: '60%' });
+      col.panel({ title: 'Totals', size: 9 }, (p) => {
+        p.keyValues([
+          { label: 'Volume', value: money(s.earnings.cryptoVolumeUsd), color: theme.primary },
+          { label: 'Commission', value: money(s.crypto.feesUsd), color: theme.warning },
+          { label: 'Paid', value: String(s.crypto.successful), color: theme.success },
+          { label: 'Pending', value: String(s.crypto.pending), color: theme.warning },
+          { label: 'Failed/expired', value: String(s.crypto.failed), color: theme.danger },
+          { label: 'Rate', value: s.plan ? s.plan.commission_percent : '—' },
+        ], { labelWidth: 15 });
+      });
+      col.panel({ title: 'By chain' }, (p) => {
+        const entries = Object.entries(s.crypto.byChain).sort((a, b) => b[1] - a[1]);
+        if (!entries.length) { p.text('—', { fg: theme.muted }); return; }
+        const max = Math.max(1, ...entries.map((e) => e[1]));
+        p.meters(entries.map(([chain, usd]) => ({ label: chain, value: usd, max, text: money(usd, 'USD', { compact: true }) })), { labelWidth: 10, valueWidth: 7 });
+      });
+    });
+  });
+}
+
+function cardsScreen(ui, state, theme) {
+  const s = state.snapshot;
+  const rows = s.recent.cards;
+  const cards = pane(state, 'cards', rows.length);
+  const selectedCard = rows[cards.selected];
+  ui.grid({ columns: ['3fr', '2fr'], gap: 1 }, (grid) => {
+    grid.panel({ title: `Card payments · ${state.days}d`, subtitle: s.card.partial ? 'latest page' : undefined }, (p) => {
+      if (!rows.length) {
+        p.text('No card payments in this window.', { fg: theme.muted });
+        return;
+      }
+      selectableTable(p, state, 'cards', rows, [
+          { key: 'created_at', title: 'When', width: 11, render: (r) => shortDateTime(r.created_at), color: theme.muted },
+          { key: 'business_name', title: 'Business', min: 10, max: 26, render: (r) => r.business_name || shortId(r.business_id) },
+          { key: 'customer_email', title: 'Customer', min: 10, max: 26, render: (r) => r.customer_name || r.customer_email || '—', color: theme.muted },
+          { key: 'amount_cents', title: 'Amount', width: 10, align: 'right', render: (r) => money(num(r.amount_cents) / 100, (r.currency || 'usd').toUpperCase()) },
+          { key: 'platform_fee_amount', title: 'Commission', width: 10, align: 'right', render: (r) => money(num(r.platform_fee_amount) / 100), color: theme.warning },
+          { key: 'stripe_fee_amount', title: 'Proc fee', width: 9, align: 'right', render: (r) => money(num(r.stripe_fee_amount) / 100), color: theme.muted },
+          { key: 'net_to_merchant', title: 'Net', width: 10, align: 'right', render: (r) => money(num(r.net_to_merchant) / 100), color: theme.success },
+          { key: 'status', title: 'Status', width: 11, color: (r) => statusColor(theme, r.status) },
+      ]);
+    });
+    grid.cell({ gap: 1 }, (col) => {
+      selectedDetails(col, 'Selected card payment', selectedCard, [
+        ['When', selectedCard ? shortDateTime(selectedCard.created_at) : null],
+        ['Business', selectedCard?.business_name || selectedCard?.business_id],
+        ['Customer', selectedCard?.customer_name || selectedCard?.customer_email],
+        ['Status', selectedCard?.status, selectedCard ? statusColor(theme, selectedCard.status) : undefined],
+        ['Amount', selectedCard ? money(num(selectedCard.amount_cents) / 100, (selectedCard.currency || 'usd').toUpperCase()) : null],
+        ['Net to merchant', selectedCard ? money(num(selectedCard.net_to_merchant) / 100) : null, theme.success],
+        ['Payment ID', selectedCard?.id],
+      ], theme, { size: '55%' });
+      col.panel({ title: 'Totals' }, (p) => {
+        p.keyValues([
+          { label: 'Volume', value: money(s.earnings.cardVolumeUsd), color: theme.primary },
+          { label: 'Commission', value: money(s.card.platformFeesUsd), color: theme.warning },
+          { label: 'Processor fees', value: money(s.card.stripeFeesUsd), color: theme.muted },
+          { label: 'Net to merchant', value: money(s.card.netUsd), color: theme.success },
+          { label: 'Refunded', value: `${money(s.card.refundedUsd)}  (${s.card.refunded})`, color: s.card.refunded ? theme.danger : theme.muted },
+          { label: 'Succeeded', value: String(s.card.successful), color: theme.success },
+          { label: 'Failed', value: String(s.card.failed), color: theme.danger },
+          { label: 'Payouts paid', value: money(s.payout.paidUsd) },
+          { label: 'Payouts pending', value: money(s.payout.pendingUsd) },
+        ], { labelWidth: 16 });
+        if (s.errors.payouts) p.text(`payouts: ${s.errors.payouts}`, { fg: theme.warning });
+      });
+    });
+  });
+}
+
+function invoicesScreen(ui, state, theme) {
+  const s = state.snapshot;
+  const invoices = s.invoices.rows;
+  const escrows = s.recent.escrows;
+  const inv = pane(state, 'invoices', invoices.length);
+  const esc = pane(state, 'escrows', escrows.length);
+  if (!state.invoicePane) state.invoicePane = invoices.length ? 'invoices' : 'escrows';
+  ui.grid({ columns: ['3fr', '2fr'], gap: 1 }, (grid) => {
+    grid.cell({ gap: 1 }, (col) => {
+      col.panel({
+        title: `Invoices (${invoices.length})`,
+        subtitle: `outstanding ${money(s.invoices.totals.outstanding)} · overdue ${money(s.invoices.totals.overdue)} · paid ${money(s.invoices.totals.paid)}`,
+        size: '55%',
+        footer: 'click row for details · j/k navigate',
+      }, (p) => {
+        if (!invoices.length) { p.text('No invoices.', { fg: theme.muted }); return; }
+        selectableTable(p, state, 'invoices', invoices, [
+          { key: 'invoice_number', title: 'No.', width: 9 },
+          { key: 'created_at', title: 'Created', width: 10, min: 10, render: (r) => shortDate(r.created_at), color: theme.muted },
+          { key: 'due_date', title: 'Due', width: 10, min: 10, render: (r) => shortDate(r.due_date), color: (r) => (r.due_date && !['paid', 'cancelled'].includes(r.status) && new Date(r.due_date) < new Date() ? theme.danger : theme.muted) },
+          { key: 'amount', title: 'Amount', width: 11, align: 'right', render: (r) => money(r.amount, r.currency || 'USD') },
+          { key: 'status', title: 'Status', width: 9, color: (r) => statusColor(theme, r.status) },
+          ...(p.width >= 65 ? [{ key: 'clients', title: 'Client', min: 8, max: 28, render: (r) => r.clients?.name || r.clients?.email || '—' }] : []),
+          ...(p.width >= 100 ? [
+            { key: 'sent_at', title: 'Sent', width: 10, render: (r) => shortDate(r.sent_at), color: theme.muted },
+            { key: 'paid_at', title: 'Paid', width: 10, render: (r) => shortDate(r.paid_at), color: theme.success },
+          ] : []),
+          ...(p.width >= 135 ? [{ key: 'businesses', title: 'Business', min: 10, max: 26, render: (r) => r.businesses?.name || '—', color: theme.muted }] : []),
+        ]);
+      });
+      col.panel({
+        title: `Escrow (${escrows.length})`,
+        subtitle: `held ${money(s.escrow.heldUsd)} · released ${money(s.escrow.releasedUsd)} · refunded ${money(s.escrow.refundedUsd)}`,
+        footer: 'click row for details · j/k navigate',
+      }, (p) => {
+        if (!escrows.length) { p.text('No escrows.', { fg: theme.muted }); return; }
+        selectableTable(p, state, 'escrows', escrows, [
+          { key: 'created_at', title: 'Created', width: 10, render: (r) => shortDate(r.created_at), color: theme.muted },
+          { key: 'chain', title: 'Chain', width: 8 },
+          { key: 'amount_usd', title: 'USD', width: 10, align: 'right', render: (r) => money(r.amount_usd) },
+          { key: 'status', title: 'Status', width: 10, color: (r) => statusColor(theme, r.status) },
+          { key: 'metadata', title: 'Description', min: 8, max: 50, render: (r) => String(r.metadata?.description || r.beneficiary_email || ''), color: theme.muted },
+          ...(p.width >= 100 ? [{ key: 'settled_at', title: 'Settled', width: 10, render: (r) => shortDate(r.settled_at || r.released_at || r.refunded_at), color: theme.muted }] : []),
+        ]);
+      });
+    });
+    grid.cell({ gap: 1 }, (col) => {
+      if (state.invoicePane === 'escrows') {
+        const row = escrows[esc.selected];
+        selectedDetails(col, 'Selected escrow', row, [
+          ['Created', detailDateTime(row?.created_at)],
+          ['Status', row?.status, row ? statusColor(theme, row.status) : undefined],
+          ['Chain', row?.chain],
+          ['USD amount', row ? money(row.amount_usd) : null],
+          ['Crypto amount', row?.amount],
+          ['Fee amount', row?.fee_amount],
+          ['Description', row?.metadata?.description || row?.beneficiary_email],
+          ['Settled', detailDateTime(row?.settled_at || row?.released_at || row?.refunded_at)],
+          ['Escrow ID', row?.id],
+        ], theme);
+      } else {
+        const row = invoices[inv.selected];
+        selectedDetails(col, 'Selected invoice', row, [
+          ['Invoice', row?.invoice_number || row?.id],
+          ['Created', detailDateTime(row?.created_at)],
+          ['Due', shortDate(row?.due_date)],
+          ['Sent', detailDateTime(row?.sent_at)],
+          ['Paid', detailDateTime(row?.paid_at)],
+          ['Client', row?.clients?.name],
+          ['Email', row?.clients?.email],
+          ['Business', row?.businesses?.name],
+          ['Amount', row ? money(row.amount, row.currency || 'USD') : null],
+          ['Status', row?.status, row ? statusColor(theme, row.status) : undefined],
+          ['Settles in', row?.settlement_method || row?.crypto_currency],
+          ['Notes', row?.notes],
+          ['Invoice ID', row?.id],
+        ], theme);
+      }
+    });
+  });
+}
+
+/**
+ * Debt against income — the basic-accounting screen.
+ *
+ * Everything here comes from `snapshot.position`, computed server-side over
+ * six months rather than the dashboard window, because a monthly charge is
+ * invisible in thirty days of rows. The window selector therefore does not
+ * move these figures, which is why the panel states its own lookback.
+ */
+function positionScreen(ui, state, theme) {
+  const s = state.snapshot;
+  const p0 = s.position;
+  const cur = p0?.currency || s.bank.currency || 'USD';
+
+  if (!p0) {
+    // Three different reasons, and saying the wrong one sends the reader to
+    // the wrong fix. No connection is a setup step; a failed summary is worth
+    // retrying; a summary that simply carries no `position` means the server
+    // predates this screen, which no amount of retrying will change.
+    let why;
+    if (!s.bank.connections.length) {
+      why = 'No bank linked yet. Connect one at coinpayportal.com/finances, then press s to sync.';
+    } else if (s.errors.summary) {
+      why = `The summary source failed (${s.errors.summary}), so debt and income cannot be computed. Press r to retry.`;
+    } else {
+      why =
+        'This CoinPay server does not report a debt-and-income position yet. ' +
+        'It arrives with the next deploy; every other screen works meanwhile.';
+    }
+    emptyPanel(ui, theme, 'Debt & income', why);
+    return;
+  }
+
+  // The span the figures actually cover, which is what the feed holds — not
+  // the span that was requested.
+  const lookback = `${Math.round(p0.observedDays ?? p0.lookbackDays)}d`;
+  const inc = p0.income;
+  const spend = p0.spending;
+  const debt = p0.debt;
+  const r = p0.ratios;
+
+  ui.grid({ columns: ['1fr', '1fr', '1fr'], rows: [13, 8, '1fr'], gap: 1 }, (grid) => {
+    grid.panel({ title: `Income vs spending · ${lookback}`, subtitle: `${p0.monthsObserved} months observed` }, (p) => {
+      p.keyValues([
+        { label: 'Income', value: money(inc.total, cur), color: theme.success },
+        { label: '  per month', value: money(inc.perMonth, cur), color: theme.success },
+        { label: 'Spending', value: money(spend.total, cur), color: theme.danger },
+        { label: '  per month', value: money(spend.perMonth, cur), color: theme.danger },
+        { label: 'Net', value: money(p0.net.total, cur), color: signed(theme, p0.net.total) },
+        { label: '  per month', value: money(p0.net.perMonth, cur), color: signed(theme, p0.net.perMonth) },
+        { label: 'Kept of income', value: pct(p0.net.savingsRate, 1), color: signed(theme, p0.net.savingsRate ?? 0) },
+        // The raw sides, so the netting above is auditable rather than magic.
+        { label: 'Gross credits', value: money(inc.grossCredits, cur), color: theme.muted },
+        { label: 'Gross debits', value: money(spend.grossDebits, cur), color: theme.muted },
+        { label: 'Refunds', value: money(spend.refunds, cur), color: theme.muted },
+      ], { labelWidth: 16 });
+    });
+
+    grid.panel({ title: 'Debt', subtitle: debt.total > 0 ? `${debt.accounts.length} accounts` : 'nothing owed' }, (p) => {
+      p.keyValues([
+        { label: 'Total owed', value: money(debt.total, cur), color: theme.danger },
+        { label: '  revolving', value: money(debt.revolving, cur) },
+        { label: '  instalment', value: money(debt.instalment, cur) },
+        { label: 'Paid per month', value: money(debt.servicePerMonth, cur), color: theme.success },
+        { label: 'Fixed bills/mo', value: money(p0.recurring.monthlyTotal, cur), color: theme.warning },
+        { label: 'Clear in', value: debt.payoffMonths === null ? 'never at this rate' : `${debt.payoffMonths} months`, color: debt.payoffMonths === null ? theme.danger : theme.foreground },
+        { label: 'Clear by', value: debt.payoffDate ? shortDate(debt.payoffDate) : '—', color: theme.muted },
+        { label: 'Card utilisation', value: pct(r.creditUtilisation, 0), color: (r.creditUtilisation ?? 0) > 0.3 ? theme.warning : theme.foreground },
+      ], { labelWidth: 16 });
+      if (p0.confidence.noLiabilityAccounts) {
+        p.text('No card or loan account is linked, so debt is unknown.', { fg: theme.warning });
+      }
+    });
+
+    grid.panel({ title: 'Ratios & split', subtitle: 'business vs personal' }, (p) => {
+      p.keyValues([
+        { label: 'Debt to income', value: r.debtToIncome === null ? '—' : `${r.debtToIncome.toFixed(2)}×`, color: (r.debtToIncome ?? 0) > 1 ? theme.danger : theme.success },
+        { label: 'Debt service', value: pct(r.debtServiceRatio, 1), color: (r.debtServiceRatio ?? 0) > 0.36 ? theme.danger : theme.success },
+        { label: 'Months of cover', value: r.monthsOfCover === null ? '—' : r.monthsOfCover.toFixed(1), color: (r.monthsOfCover ?? 0) < 3 ? theme.warning : theme.success },
+        ...p0.scopes.flatMap((sc) => [
+          { label: `${sc.scope} (${sc.accounts})`, value: `${money(sc.income, cur, { compact: true })} in · ${money(sc.spending, cur, { compact: true })} out`, color: theme.foreground },
+          { label: '  owes', value: money(sc.debt, cur), color: sc.debt > 0 ? theme.danger : theme.muted },
+        ]),
+      ], { labelWidth: 16 });
+      const share = p0.confidence.uncategorisedShare;
+      if (share > 0.25) {
+        p.text(`${pct(share, 0)} of rows are uncategorised — treat the split as rough.`, { fg: theme.warning });
+      }
+    });
+
+    grid.panel({ title: `Month by month · ${lookback}`, colSpan: 3, subtitle: 'income vs spending; first and last months are partial' }, (p) => {
+      const pts = p0.months;
+      if (!pts.length) {
+        p.text('No transactions in this window.', { fg: theme.muted });
+        return;
+      }
+      p.multiGraph(
+        [
+          { values: pts.map((m) => m.income), color: theme.success, label: 'income', fill: true },
+          { values: pts.map((m) => m.spending), color: theme.danger, label: 'spending' },
+          { values: pts.map((m) => m.debtService), color: theme.warning, label: 'debt paid' },
+        ],
+        {
+          min: 0,
+          axis: true,
+          axisFormat: (v) => money(v, cur, { compact: true }),
+          timeAxis: pts.map((m) => m.month.slice(2)),
+          legend: true,
+        },
+      );
+    });
+
+    grid.panel({ title: `Owed by account (${debt.accounts.length})`, colSpan: 2, footer: 'j/k scroll' }, (p) => {
+      if (!debt.accounts.length) {
+        p.text('No debt on any linked account.', { fg: theme.muted });
+        return;
+      }
+      selectableTable(p, state, 'debts', debt.accounts, [
+          { key: 'org', title: 'Institution', width: 20, render: (x) => x.org || '—', color: theme.muted },
+          { key: 'name', title: 'Account', min: 14, max: 32 },
+          { key: 'kind', title: 'Kind', width: 8, color: theme.muted },
+          { key: 'scope', title: 'Side', width: 9, color: (x) => (x.scope === 'business' ? theme.info : theme.muted) },
+          { key: 'owed', title: 'Owed', width: 12, align: 'right', render: (x) => money(x.owed, cur), color: theme.danger },
+          { key: 'share', title: 'Share', width: 6, align: 'right', render: (x) => pct(x.share, 0), color: theme.muted },
+          { key: 'paid', title: `Paid ${lookback}`, width: 12, align: 'right', render: (x) => money(x.paid, cur), color: theme.success },
+          { key: 'payoffMonths', title: 'Clear in', width: 9, align: 'right', render: (x) => (x.payoffMonths === null ? 'never' : `${x.payoffMonths} mo`), color: (x) => (x.payoffMonths === null ? theme.danger : theme.foreground) },
+      ]);
+    });
+
+    grid.cell({ gap: 1 }, (col) => {
+      const selectedDebt = debt.accounts[pane(state, 'debts', debt.accounts.length).selected];
+      selectedDetails(col, 'Selected debt', selectedDebt, [
+        ['Institution', selectedDebt?.org],
+        ['Account', selectedDebt?.name],
+        ['Kind', selectedDebt?.kind],
+        ['Side', selectedDebt?.scope],
+        ['Owed', selectedDebt ? money(selectedDebt.owed, cur) : null, theme.danger],
+        [`Paid ${lookback}`, selectedDebt ? money(selectedDebt.paid, cur) : null, theme.success],
+        ['Payoff', selectedDebt?.payoffMonths == null ? '—' : `${selectedDebt.payoffMonths} months`],
+      ], theme, {
+        after: (p) => {
+          p.divider({ label: `Recurring · ${money(p0.recurring.monthlyTotal, cur)}/mo` });
+          const charges = p0.recurring.charges;
+          if (!charges.length) {
+            p.text('Nothing recurring found in this window.', { fg: theme.muted });
+            return;
+          }
+          const max = Math.max(1, ...charges.map((c) => c.monthlyEquivalent));
+          p.meters(
+            charges.slice(0, 10).map((c) => ({
+              label: c.payee.slice(0, 16),
+              value: c.monthlyEquivalent,
+              max,
+              color: c.isDebtService ? theme.warning : theme.info,
+              text: `${money(c.monthlyEquivalent, cur, { compact: true })}/mo`,
+            })),
+            { labelWidth: 17, valueWidth: 9 },
+          );
+        },
+      });
+    });
+  });
+}
+
+const SCREENS = [overviewScreen, bankScreen, ledgerScreen, cryptoScreen, cardsScreen, invoicesScreen, positionScreen];
+
+/** Context exported with each pane; the displayed snapshot can lag the requested window. */
+export function financeMarkdownContext(state) {
+  const s = state.snapshot;
+  return [
+    `CoinPay Finances · ${TABS[state.tab]}`,
+    `Payment business filter: ${state.businessId || 'all businesses'}; bank data is merchant-wide`,
+    `Displayed window: ${s?.windowDays ?? state.days} days`,
+    ...(s && s.windowDays !== state.days ? [`Requested window: ${state.days} days (refresh pending)`] : []),
+    `Snapshot: ${s?.generatedAt || 'not loaded'}`,
+    `Updates: ${state.loading ? 'refreshing' : state.paused ? 'paused' : 'live'}`,
+    `Payment stream: ${state.liveStatus}`,
+    ...(state.error ? [`Refresh failed: ${state.error}`] : []),
+    ...Object.entries(s?.errors || {}).map(([source, error]) => `Source unavailable — ${source}: ${error}`),
+    ...(s?.crypto.partial ? ['Crypto details cover a partial page.'] : []),
+    ...(s?.card.partial ? ['Card details, processor fees and refunds cover a partial page.'] : []),
+    ...(s?.position ? [`Debt & Income: ${s.position.observedDays ?? s.position.lookbackDays} days observed; independent of the dashboard window.`] : []),
+  ].join('\n');
+}
+
+/** Status can be copied without including any live payment or transaction rows. */
+export function financeStatusMarkdown(state, markdownText) {
+  return [
+    '## CoinPay status',
+    markdownText(financeMarkdownContext(state)),
+    `Bank sync: ${state.syncing ? 'running' : 'idle'}`,
+    ...(state.notice ? [markdownText(state.notice)] : []),
+    ...(state.snapshot?.bank.connections || []).map((c) => markdownText(
+      `${c.label || c.provider || 'Bank connection'}: ${c.is_active ? 'active' : 'inactive'}; last sync ${c.last_synced_at || 'never'} (${c.last_sync_status || 'unknown'})${c.last_sync_error ? `; ${c.last_sync_error}` : ''}`,
+    )),
+  ].join('\n\n') + '\n';
+}
+
+/** Draw the same summary controls in production and headless interaction tests. */
+export function renderFinancesTui(ui, state, t, { height, interval = 30, markdownText }) {
+  ui.row({ size: 1 }, (header) => {
+    header.text(' CoinPay ', { fg: t.title, bold: true, size: 10 });
+    header.tabs({
+      tabs: TABS.map((name, i) => `${i + 1} ${name}`),
+      active: state.tab,
+      onSelect: (index) => { state.tab = index; },
+    });
+    const right = [
+      state.paused ? 'paused' : state.loading ? 'loading…' : `${state.days}d`,
+      state.lastRefresh ? `updated ${ago(state.lastRefresh)}` : 'starting',
+      clock(),
+    ].join('  ');
+    header.text(`${right} `, { fg: state.paused ? t.warning : state.error ? t.danger : t.success, align: 'right' });
+    header.copyButton({ markdown: () => financeStatusMarkdown(state, markdownText), width: 6 });
+  });
+  ui.spacer(1);
+
+  ui.column({ size: height - 4 }, (body) => {
+    if (!state.snapshot) {
+      body.panel({ title: 'Finances' }, (p) => {
+        p.text(state.error ? `Could not load: ${state.error}` : 'Loading your numbers…', { fg: state.error ? t.danger : t.muted });
+        if (state.error) p.text('Press r to retry, q to quit.', { fg: t.muted });
+      });
+      return;
+    }
+    SCREENS[state.tab](body, state, t);
+  });
+
+  ui.spacer(1);
+  const errorCount = state.snapshot ? Object.keys(state.snapshot.errors).length : 0;
+  ui.statusBar({
+    items: [
+      { key: '1-7', label: 'Screen' },
+      { key: 'r', label: 'Refresh' },
+      { key: 's', label: state.syncing ? 'Syncing…' : 'Sync bank', active: state.syncing },
+      { key: 'w', label: `Window ${state.days}d` },
+      { key: 'p', label: state.paused ? 'Resume' : 'Pause', active: state.paused },
+      { key: '?', label: 'Help' },
+      { key: 'q', label: 'Quit' },
+    ],
+    right: [
+      ...(errorCount ? [{ label: `${errorCount} source${errorCount > 1 ? 's' : ''} unavailable`, color: t.warning }] : []),
+      { label: state.liveStatus, color: state.liveStatus === 'stream connected' ? t.success : t.muted },
+    ],
+  });
+
+  if (state.showHelp) {
+    ui.modal({
+      title: 'CoinPay Finances — Help',
+      width: 66,
+      height: 22,
+      message:
+        '1-7, ←/→ switch screens.\n' +
+        'r refreshes now; refresh also runs every ' + Math.max(5, interval) + 's.\n' +
+        's pulls fresh bank balances and transactions (rate-limited\n' +
+        '  by the bank bridge, so it is never automatic).\n' +
+        'w cycles the window: 7 → 30 → 90 → 365 days.\n' +
+        'p pauses the timer. ↑/↓ j/k, PgUp/PgDn, Home/End scroll.\n' +
+        'Mouse: click rows for details on the right; scroll tables.\n' +
+        'j/k follows the last invoice/escrow table clicked.\n\n' +
+        '⧉ MD copies a summary. Tab focuses, Enter copies.\n\n' +
+        'Commission paid = platform fees on crypto + card payments.\n' +
+        'Net earnings = gross − commission − processor fees − refunds.\n' +
+        'Debt & Income covers 180 days regardless of w, and excludes\n' +
+        '  transfers and card payments from both sides.\n\n' +
+        'Esc or Close dismisses help.',
+      buttons: [{ label: 'Close', onPress: () => { state.showHelp = false; } }],
+      onDismiss: () => { state.showHelp = false; },
+    });
+  }
+}
+
+// ── App ──
+
+async function loadHqtui() {
+  try {
+    return await import('@profullstack/hqtui');
+  } catch (err) {
+    const [major, minor] = process.versions.node.split('.').map(Number);
+    const tooOld = major < 22 || (major === 22 && minor < 6);
+    const hint = tooOld
+      ? `The dashboard needs Node 22.6 or newer (you have ${process.versions.node}). Run \`coinpay update\` to install a current Node, or use \`coinpay finances summary\`.`
+      : `Could not load @profullstack/hqtui: ${err?.message || err}. Run \`coinpay update\`, or use \`coinpay finances summary\`.`;
+    const error = new Error(hint);
+    error.cause = err;
+    throw error;
+  }
+}
+
+/**
+ * Run the dashboard until the user quits. Resolves when the terminal has been
+ * restored.
+ */
+export async function runFinancesTui({ client, baseUrl, token, days = 30, interval = 30, businessId, limit = 100, theme } = {}) {
+  const hqtui = await loadHqtui();
+  const state = createState(days);
+  state.businessId = businessId;
+  const app = await hqtui.createApp({
+    fps: 30, theme: theme || 'dark', quitKeys: ['ctrl+c', 'q'],
+    copyMarkdown: true,
+    markdownContext: () => financeMarkdownContext(state),
+  });
+
+  let refreshing = false;
+  let refreshTimer = null;
+
+  async function refresh(reason = 'timer') {
+    if (refreshing) return;
+    refreshing = true;
+    state.loading = true;
+    app.invalidate();
+    try {
+      const snapshot = await collectFinanceSnapshot(client, { days: state.days, limit, businessId });
+      noteNewRows(state, snapshot);
+      state.snapshot = snapshot;
+      state.error = null;
+      state.lastRefresh = new Date();
+      const failed = Object.keys(snapshot.errors);
+      if (failed.length && reason === 'startup') {
+        pushLive(state, { level: 'INFO', message: `some sources unavailable: ${failed.join(', ')}`, meta: '' });
+      }
+    } catch (err) {
+      state.error = err?.message || String(err);
+      pushLive(state, { level: 'ERR', message: state.error, meta: reason });
+    } finally {
+      state.loading = false;
+      refreshing = false;
+      app.invalidate();
+    }
+  }
+
+  function scheduleRefresh(ms = 1500) {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => { refreshTimer = null; void refresh('event'); }, ms);
+  }
+
+  async function sync() {
+    if (state.syncing) return;
+    if (!state.snapshot?.bank?.connections?.length) {
+      state.notice = 'No bank connection to sync. Link one at coinpayportal.com/finances.';
+      app.invalidate();
+      return;
+    }
+    state.syncing = true;
+    state.notice = null;
+    pushLive(state, { level: 'SYNC', message: 'bank sync started', meta: '' });
+    app.invalidate();
+    try {
+      const result = await syncFinances(client, {});
+      const t = result.totals || {};
+      state.notice = `Synced ${t.accounts ?? 0} accounts, ${t.transactionsNew ?? 0} new of ${t.transactionsSeen ?? 0} transactions (${result.status}).`;
+      pushLive(state, { level: 'SYNC', message: state.notice, meta: '' });
+      await refresh('sync');
+    } catch (err) {
+      state.notice = `Sync failed: ${err?.message || err}`;
+      pushLive(state, { level: 'ERR', message: state.notice, meta: 'sync' });
+    } finally {
+      state.syncing = false;
+      app.invalidate();
+    }
+  }
+
+  const poll = setInterval(() => {
+    if (!state.paused) void refresh('timer');
+  }, Math.max(5, interval) * 1000);
+  poll.unref?.();
+
+  const tick = setInterval(() => app.invalidate(), 1000);
+  tick.unref?.();
+
+  let closeStream = () => {};
+  if (baseUrl && token) {
+    closeStream = subscribeToPayments({
+      baseUrl,
+      token,
+      businessId,
+      onStatus: (status, detail) => {
+        state.liveStatus = status === 'error' ? `stream error: ${detail}` : `stream ${status}`;
+        app.invalidate();
+      },
+      onEvent: (event) => {
+        if (!event || event.type === 'heartbeat') return;
+        if (event.type === 'connected') {
+          pushLive(state, { level: 'SSE', message: 'live payment stream connected', meta: '' });
+        } else if (event.payment) {
+          const p = event.payment;
+          pushLive(state, {
+            level: 'PAY',
+            message: `${event.type.replace('payment_', '')} ${money(p.amount_usd)} ${p.currency || ''} · ${p.status}${p.confirmations != null ? ` · ${p.confirmations}/${p.required_confirmations ?? '?'} conf` : ''}`,
+            meta: shortId(p.id),
+          });
+          scheduleRefresh();
+        }
+        app.invalidate();
+      },
+    });
+  } else {
+    state.liveStatus = 'polling only';
+  }
+
+  app.on('key', (event) => {
+    if (state.showHelp) {
+      state.showHelp = false;
+      return;
+    }
+    const name = event.name;
+    const paneName = activePane(state);
+    const digit = Number(name);
+    if (Number.isInteger(digit) && name.length === 1 && digit >= 1 && digit <= TABS.length) {
+      state.tab = digit - 1;
+      return;
+    }
+    switch (name) {
+      case 'right':
+      case 'l':
+        state.tab = event.shift ? (state.tab + TABS.length - 1) % TABS.length : (state.tab + 1) % TABS.length;
+        break;
+      case 'left':
+      case 'h':
+        state.tab = (state.tab + TABS.length - 1) % TABS.length;
+        break;
+      case 'r':
+      case 'f5':
+        void refresh('manual');
+        break;
+      case 's':
+        void sync();
+        break;
+      case 'w':
+        state.days = WINDOWS[(WINDOWS.indexOf(state.days) + 1) % WINDOWS.length] ?? 30;
+        void refresh('window');
+        break;
+      case 'p':
+      case 'space':
+        state.paused = !state.paused;
+        break;
+      case '?':
+      case 'f1':
+        state.showHelp = true;
+        break;
+      case 'up':
+      case 'k':
+        moveSelection(pane(state, paneName, state.panes[paneName]?.total ?? 0), state.tab === 0 ? 1 : -1);
+        break;
+      case 'down':
+      case 'j':
+        moveSelection(pane(state, paneName, state.panes[paneName]?.total ?? 0), state.tab === 0 ? -1 : 1);
+        break;
+      case 'pageup':
+        scrollPane(pane(state, paneName, state.panes[paneName]?.total ?? 0), state.tab === 0 ? 1 : -1, 10);
+        break;
+      case 'pagedown':
+        scrollPane(pane(state, paneName, state.panes[paneName]?.total ?? 0), state.tab === 0 ? -1 : 1, 10);
+        break;
+      case 'home': {
+        const p = pane(state, paneName, state.panes[paneName]?.total ?? 0);
+        p.selected = 0; p.offset = state.tab === 0 ? Math.max(0, p.total - 1) : 0;
+        break;
+      }
+      case 'end': {
+        const p = pane(state, paneName, state.panes[paneName]?.total ?? 0);
+        p.selected = Math.max(0, p.total - 1); p.offset = state.tab === 0 ? 0 : p.selected;
+        break;
+      }
+      default:
+        return;
+    }
+    app.invalidate();
+  });
+
+  app.render(({ ui, theme: t, height }) => renderFinancesTui(ui, state, t, { height, interval, markdownText: hqtui.markdownText }));
+
+  app.on('exit', () => {
+    clearInterval(poll);
+    clearInterval(tick);
+    if (refreshTimer) clearTimeout(refreshTimer);
+    closeStream();
+  });
+
+  void refresh('startup');
+  await app.start();
+}
+
+export { TABS as FINANCE_TABS, WINDOWS as FINANCE_WINDOWS };
+
+/**
+ * The screen renderers, in tab order.
+ *
+ * Exported so a frame can be drawn without a client, a token or a terminal:
+ * each takes `(ui, state, theme)` and is a pure function of the snapshot, so
+ * hqtui's renderToText can produce the real screen from a fixture. That is what
+ * the hqtui.com showcase captures, and it is the only way to assert on this
+ * layout at all.
+ */
+export { SCREENS as FINANCE_SCREENS };

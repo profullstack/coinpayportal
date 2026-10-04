@@ -4,23 +4,50 @@
  */
 
 import { createHmac, createHash, randomUUID } from 'crypto';
+import { secretsMatch } from '@/lib/auth/secret-compare';
 
 const ISSUER_DID = 'did:web:coinpayportal.com';
-const SIGNING_SECRET = process.env.REPUTATION_SIGNING_SECRET || 'cpr-dev-secret';
+
+/**
+ * The HMAC key every reputation credential is signed with.
+ *
+ * This used to be `process.env.REPUTATION_SIGNING_SECRET || 'cpr-dev-secret'`,
+ * evaluated once at module load. `cpr-dev-secret` is a constant in a public
+ * repository, so if the environment variable were ever unset in production —
+ * a fresh deploy, a renamed variable, a missing Doppler mapping — every
+ * reputation credential would be signed with a key the whole internet knows,
+ * and anyone could forge them. Nothing would look wrong: signatures would
+ * verify perfectly.
+ *
+ * Resolved lazily and with no fallback, so a missing secret is a loud failure
+ * at the moment of signing rather than a silent downgrade at import time.
+ */
+function signingSecret(): string {
+  const secret = process.env.REPUTATION_SIGNING_SECRET;
+  if (!secret || !secret.trim()) {
+    throw new Error(
+      'REPUTATION_SIGNING_SECRET is not configured — refusing to sign or verify ' +
+      'reputation credentials. Set it before starting the service.'
+    );
+  }
+  return secret;
+}
 
 /**
  * Create an HMAC signature for data
  */
 export function sign(data: string): string {
-  return createHmac('sha256', SIGNING_SECRET).update(data).digest('hex');
+  return createHmac('sha256', signingSecret()).update(data).digest('hex');
 }
 
 /**
  * Verify an HMAC signature
  */
 export function verifySignature(data: string, signature: string): boolean {
-  const expected = sign(data);
-  return expected === signature;
+  // Constant-time. `===` on hex strings short-circuits at the first differing
+  // byte, which leaks how much of a forged signature was correct — exactly the
+  // feedback an attacker needs to construct one byte at a time.
+  return secretsMatch(sign(data), signature);
 }
 
 /**

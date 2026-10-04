@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { configureManualMethod } from './policy';
+import { getEnabledManualMethods } from './manual';
 
 // A table-aware supabase stub: catalog lookups return `catalogRow`, the policy
 // status check returns `policyStatus`, and all upserts succeed.
@@ -70,5 +71,67 @@ describe('configureManualMethod', () => {
   it('allows turning off without a handle', async () => {
     const res = await configureManualMethod(makeSupabase(published), 'biz', 'zelle', { handle: '', enabled: false });
     expect(res.ok).toBe(true);
+  });
+});
+
+describe('getEnabledManualMethods', () => {
+  function makeLookupSupabase(results: Record<string, { data: any; error: any }>) {
+    return {
+      from(table: string) {
+        const query: any = {
+          select: () => query,
+          eq: () => query,
+          order: () => Promise.resolve(results[table]),
+          then(resolve: (value: unknown) => unknown) {
+            return Promise.resolve(results[table]).then(resolve);
+          },
+        };
+        return query;
+      },
+    } as any;
+  }
+
+  it('returns the enabled unlocked methods after successful lookups', async () => {
+    const supabase = makeLookupSupabase({
+      payment_method_catalog: {
+        data: [{ method_id: 'zelle', display_name: 'Zelle', sort_order: 1 }],
+        error: null,
+      },
+      business_payment_policy: {
+        data: [{ method_id: 'zelle', status: 'unlocked' }],
+        error: null,
+      },
+      merchant_payment_settings: {
+        data: [
+          {
+            method_id: 'zelle',
+            enabled: true,
+            config: { handle: 'pay@example.com', instructions: 'Include invoice number' },
+          },
+        ],
+        error: null,
+      },
+    });
+
+    await expect(getEnabledManualMethods(supabase, 'biz-1')).resolves.toEqual([
+      {
+        method_id: 'zelle',
+        display_name: 'Zelle',
+        handle: 'pay@example.com',
+        instructions: 'Include invoice number',
+      },
+    ]);
+  });
+
+  it('surfaces lookup failures so callers can preserve an existing snapshot', async () => {
+    const supabase = makeLookupSupabase({
+      payment_method_catalog: { data: null, error: { message: 'catalog unavailable' } },
+      business_payment_policy: { data: [], error: null },
+      merchant_payment_settings: { data: [], error: null },
+    });
+
+    await expect(getEnabledManualMethods(supabase, 'biz-1')).rejects.toThrow(
+      'Failed to resolve manual payment methods: catalog unavailable'
+    );
   });
 });

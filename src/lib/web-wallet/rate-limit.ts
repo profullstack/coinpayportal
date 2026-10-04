@@ -96,6 +96,52 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'invoice_email_resend': { limit: 10, windowSeconds: 300 },  // 10/5min per business
   'p2p_request': { limit: 30, windowSeconds: 60 },           // 30/min per issuing platform
   'cli_auth_start': { limit: 10, windowSeconds: 300 },       // 10/5min per IP
+  // NEW-11: `poll` was unauthenticated and unlimited, and its answers are
+  // distinguishable (invalid / pending / denied / expired), so it was a free
+  // status oracle. A legitimate CLI polls every 5s for at most 10 minutes —
+  // 120 calls — so this leaves generous headroom for several terminals behind
+  // one NAT while still bounding the endpoint.
+  'cli_auth_poll': { limit: 600, windowSeconds: 600 },       // 600/10min per IP
+  // SUB-02: each checkout derives an HD address and stores an encrypted key,
+  // so an unbounded loop accumulates key material as well as rows.
+  'subscription_checkout': { limit: 10, windowSeconds: 300 }, // 10/5min per merchant
+  // WebAuthn. `login-options` answers differently for a registered and an
+  // unregistered account, so without a limit it is a free user-enumeration
+  // oracle; the verify endpoints back an authentication decision.
+  'webauthn_options': { limit: 20, windowSeconds: 300 },     // 20/5min per IP
+  'webauthn_verify': { limit: 20, windowSeconds: 300 },      // 20/5min per IP
+  // Address derivation. Its five sibling mutating routes are limited; this one
+  // was not, and each call does HD derivation work and writes a row.
+  'wallet_derive': { limit: 30, windowSeconds: 60 },         // 30/min per wallet
+  // x402 facilitator. Anonymous callers can otherwise bloat the ledger and
+  // burn third-party API quota (Stripe) for free.
+  'x402_verify': { limit: 60, windowSeconds: 60 },           // 60/min per business
+  'x402_settle': { limit: 60, windowSeconds: 60 },           // 60/min per business
+  // Each swap quote costs two calls to the ChangeNOW third-party API, so an
+  // unlimited anonymous endpoint is a quota-exhaustion lever against us.
+  'swap_quote': { limit: 20, windowSeconds: 60 },            // 20/min per IP
+  // An on-ramp quote fans out to every configured source at once, so one
+  // request here is several third-party calls. Tighter than swap_quote for
+  // that reason: the multiplier is the whole point of the endpoint.
+  'onramp_quote': { limit: 15, windowSeconds: 60 },          // 15/min per IP
+  // Same fan-out shape as onramp_quote, and each quote also costs a crypto
+  // spot lookup and an FX lookup on top of the partner calls.
+  'remittance_quote': { limit: 15, windowSeconds: 60 },      // 15/min per IP
+  // The trust graph is only meaningful if attestations are expensive to mint.
+  'reputation_attest': { limit: 10, windowSeconds: 60 },     // 10/min per caller
+  // A boolean "is this address a CoinPay merchant?" oracle. Unauthenticated by
+  // design (a sender checks before paying), so the limit is what stops it being
+  // used to sweep the merchant base address by address.
+  'wallet_lookup': { limit: 30, windowSeconds: 60 },         // 30/min per IP
+  // Releases Boltz refund/claim key material to the owning wallet. Authorized,
+  // but key material leaving the system deserves its own tight budget.
+  'swap_recovery': { limit: 10, windowSeconds: 300 },        // 10/5min per wallet
+  // Password reset. Two keys, deliberately: the per-EMAIL bucket is a victim's
+  // bucket, so an attacker who can exhaust it cheaply denies that account its
+  // reset flow. The per-IP bucket is the attacker's own and is the one that
+  // actually costs them something.
+  'password_reset_email': { limit: 3, windowSeconds: 900 },  // 3/15min per email
+  'password_reset_ip': { limit: 10, windowSeconds: 900 },    // 10/15min per IP
 };
 
 /** In-memory fallback store */
@@ -260,6 +306,10 @@ export function checkRateLimit(
 ): RateLimitResult {
   const config = RATE_LIMITS[category];
   if (!config) {
+    // An unknown category used to return `allowed: true` in silence, so a typo
+    // in a category name disabled the limit entirely with nothing to notice.
+    // Still allow — a config mistake must not take payments down — but say so.
+    console.error(`[RateLimit] Unknown category '${category}' — no limit applied`);
     return { allowed: true, limit: 0, remaining: 0, resetAt: 0 };
   }
 
@@ -287,6 +337,8 @@ export async function checkRateLimitAsync(
 ): Promise<RateLimitResult> {
   const config = RATE_LIMITS[category];
   if (!config) {
+    // See checkRateLimit: silent on an unknown category until now.
+    console.error(`[RateLimit] Unknown category '${category}' — no limit applied`);
     return { allowed: true, limit: 0, remaining: 0, resetAt: 0 };
   }
 

@@ -1,0 +1,29 @@
+{
+  "openaccess": "0.1",
+  "name": "CoinPay",
+  "url": "https://coinpayportal.com",
+  "operator": "https://logicsrc.com/.well-known/openprofile.md",
+  "redirect_uris": [
+    "https://coinpayportal.com/api/v1/openaccess/callback"
+  ],
+  "jwks": {
+    "keys": [
+      {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "kid": "F-NYP22NI-GH",
+        "x": "aXTPAkcFm9UCUc43kSwuktq7T_rmQyb_RUuev22P85w",
+        "alg": "EdDSA",
+        "use": "sig"
+      }
+    ]
+  },
+  "scopes": {},
+  "honours": [
+    "profullstack.com/all-access"
+  ],
+  "webhooks": "https://coinpayportal.com/api/v1/openaccess/events",
+  "hubs": [
+    "https://openaccess.logicsrc.com"
+  ]
+}

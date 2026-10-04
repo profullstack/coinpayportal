@@ -30,7 +30,6 @@ describe('LightningClient (via CoinPayClient)', () => {
     it('should POST to /lightning/nodes', async () => {
       await client.lightning.enableWallet({
         wallet_id: 'w-1',
-        mnemonic: 'test words',
         business_id: 'b-1',
       });
 
@@ -38,10 +37,25 @@ describe('LightningClient (via CoinPayClient)', () => {
         method: 'POST',
         body: JSON.stringify({
           wallet_id: 'w-1',
-          mnemonic: 'test words',
           business_id: 'b-1',
         }),
       });
+    });
+
+    it('never transmits the seed, even when a caller still passes one', async () => {
+      // NEW-20: the server required a BIP-39 mnemonic here, validated it and
+      // discarded it — the provisioned wallet is custodial, so nothing is
+      // derived or signed. The seed reconstructs every key on every chain, so
+      // a caller on an old integration passing it must not have it forwarded.
+      await client.lightning.enableWallet({
+        wallet_id: 'w-1',
+        mnemonic: 'abandon abandon abandon',
+        business_id: 'b-1',
+      });
+
+      const [, options] = client.request.mock.calls.at(-1);
+      expect(options.body).not.toContain('mnemonic');
+      expect(options.body).not.toContain('abandon');
     });
   });
 

@@ -288,7 +288,7 @@ async headers() {
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data: https:",
             "font-src 'self'",
-            "connect-src 'self' https://blockstream.info https://eth.llamarpc.com https://polygon-rpc.com https://api.mainnet-beta.solana.com https://api.tatum.io",
+            "connect-src 'self' https://blockstream.info https://ethereum-rpc.publicnode.com https://polygon-bor-rpc.publicnode.com https://api.mainnet-beta.solana.com https://api.tatum.io",
             "frame-ancestors 'none'",
             "base-uri 'self'",
             "form-action 'self'",

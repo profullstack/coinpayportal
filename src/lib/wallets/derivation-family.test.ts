@@ -16,6 +16,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  PLATFORM_ARBITER_DERIVATION_INDEX,
   acquireFamilyIndex,
   bumpFamilyIndex,
   getDerivationFamily,
@@ -200,13 +201,27 @@ describe('getMaxFamilyIndex', () => {
 });
 
 describe('acquireFamilyIndex', () => {
-  it('initializes the family counter from -1 when no row exists', async () => {
+  it('starts a fresh family at 1, because 0 belongs to the platform arbiter', async () => {
+    // ESC-NEW-14: `getMaxFamilyIndex` returns -1 for a family with no
+    // addresses, so this used to start at `seed + 1` = 0 — the same index
+    // GET /api/escrow/platform-arbiter derives the arbiter key at, from the
+    // same system mnemonic. The first payment or escrow address ever created on
+    // a chain therefore derived the very key the platform signs disputes with.
     const supabase = makeMockSupabase();
     const idx = await acquireFamilyIndex(supabase, 'USDC_POL');
-    expect(idx).toBe(0);
-    // Counter should now sit at 1 so the next caller gets 1.
+    expect(idx).toBe(1);
     const next = await acquireFamilyIndex(supabase, 'USDC_POL');
-    expect(next).toBe(1);
+    expect(next).toBe(2);
+  });
+
+  it('never issues the platform arbiter index, even from a legacy counter', async () => {
+    // A counter created before the reservation can still be sitting on 0.
+    const supabase = makeMockSupabase();
+    supabase.indexes.set('EVM', PLATFORM_ARBITER_DERIVATION_INDEX);
+
+    const idx = await acquireFamilyIndex(supabase, 'USDC_POL');
+    expect(idx).not.toBe(PLATFORM_ARBITER_DERIVATION_INDEX);
+    expect(idx).toBe(1);
   });
 
   it('seeds a fresh USDC_POL counter past existing ETH addresses (regression for d0rz)', async () => {
@@ -229,7 +244,8 @@ describe('acquireFamilyIndex', () => {
     for (let i = 0; i < 5; i++) {
       got.push(await acquireFamilyIndex(supabase, 'USDC_POL'));
     }
-    expect(got).toEqual([0, 1, 2, 3, 4]);
+    // Offset by one: index 0 is reserved for the platform arbiter (ESC-NEW-14).
+    expect(got).toEqual([1, 2, 3, 4, 5]);
   });
 
   it('returns 10 distinct indexes under concurrent acquisition (Promise.all)', async () => {
@@ -238,8 +254,9 @@ describe('acquireFamilyIndex', () => {
       Array.from({ length: 10 }, () => acquireFamilyIndex(supabase, 'USDC_POL'))
     );
     expect(new Set(results).size).toBe(10);
-    // Final counter should be 10
-    expect(supabase.indexes.get('EVM')).toBe(10);
+    // 1..10 rather than 0..9 — index 0 is reserved (ESC-NEW-14).
+    expect(results).not.toContain(PLATFORM_ARBITER_DERIVATION_INDEX);
+    expect(supabase.indexes.get('EVM')).toBe(11);
   });
 
   it('shares the EVM counter across mixed-coin requests so no two callers get the same index', async () => {
@@ -249,19 +266,21 @@ describe('acquireFamilyIndex', () => {
     // 9 EVM + 1 SOL → EVM should produce 9 distinct indexes 0..8, SOL should produce 0
     const evmResults = results.slice(0, 9);
     expect(new Set(evmResults).size).toBe(9);
-    expect(results[9]).toBe(0); // USDC_SOL has its own counter
+    expect(evmResults).not.toContain(PLATFORM_ARBITER_DERIVATION_INDEX);
+    // USDC_SOL has its own counter — which reserves index 0 just the same.
+    expect(results[9]).toBe(1);
   });
 });
 
 describe('bumpFamilyIndex', () => {
   it('moves the family counter forward but never backward', async () => {
     const supabase = makeMockSupabase();
-    await acquireFamilyIndex(supabase, 'USDC_POL'); // counter → 1
-    await acquireFamilyIndex(supabase, 'USDC_POL'); // counter → 2
+    await acquireFamilyIndex(supabase, 'USDC_POL'); // issues 1, counter → 2
+    await acquireFamilyIndex(supabase, 'USDC_POL'); // issues 2, counter → 3
 
-    // Try to regress (newIndex=0 → would set counter to 1, but current=2)
+    // Try to regress (newIndex=0 → would set counter to 1, but current=3)
     await bumpFamilyIndex(supabase, 'USDC_POL', 0);
-    expect(supabase.indexes.get('EVM')).toBe(2);
+    expect(supabase.indexes.get('EVM')).toBe(3);
 
     // Move forward
     await bumpFamilyIndex(supabase, 'USDC_POL', 9);

@@ -45,6 +45,7 @@ export async function POST(
       parsed.data.proposal_type,
       parsed.data.to_address,
       parsed.data.signer_pubkey,
+      parsed.data.signature,
     );
 
     if (!result.success) {

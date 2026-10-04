@@ -1,0 +1,875 @@
+/**
+ * `coinpay finances` subcommands for reports, backfills and statements.
+ *
+ * Kept out of bin/coinpay.js so the contract is testable without spawning
+ * the whole CLI. `runFinancesCommand` throws `CliExit` with one of the
+ * documented codes; the binary maps that to `process.exit`.
+ *
+ * Exit codes for these subcommands:
+ *   0  completed, or a job was accepted and reported
+ *   2  invalid input (bad flags, bad dates, missing values)
+ *   3  strict completeness rejection
+ *   4  authentication / authorization
+ *   5  provider, storage or execution failure
+ *
+ * In `--json` mode stdout carries only the result; progress and warnings
+ * go to stderr. A queued job is reported as a job, never as a pretend file.
+ */
+
+import { mkdtempSync, writeFileSync, renameSync, existsSync, rmSync, readFileSync } from 'node:fs';
+import { dirname, resolve as resolvePath, basename } from 'node:path';
+import * as api from './finances-reports.js';
+
+export const EXIT = { OK: 0, INVALID: 2, STRICT: 3, AUTH: 4, FAILURE: 5 };
+
+export class CliExit extends Error {
+  constructor(code, message = '') {
+    super(message);
+    this.exitCode = code;
+  }
+}
+
+const COVERAGE_CODES = new Set(['provider_coverage_partial', 'provider_coverage_unknown', 'export_incomplete', 'export_count_mismatch']);
+
+function exitCodeFor(err) {
+  if (err instanceof CliExit) return err.exitCode;
+  if (err && (err.status === 401 || err.status === 403)) return EXIT.AUTH;
+  if (err && COVERAGE_CODES.has(err.code)) return EXIT.STRICT;
+  if (err && (err.code === 'invalid_period' || err.code === 'invalid_request' || err.code === 'invalid_timezone' || err.code === 'timezone_required' || err.status === 400)) return EXIT.INVALID;
+  if (err && err.status === 404) return EXIT.INVALID;
+  return EXIT.FAILURE;
+}
+
+function listFlag(value) {
+  if (value === undefined || value === null || value === true) return [];
+  const values = Array.isArray(value) ? value : [value];
+  return values.flatMap((v) => String(v).split(',')).map((s) => s.trim()).filter(Boolean);
+}
+
+function periodSelection(flags) {
+  const period = typeof flags.period === 'string' ? flags.period : null;
+  const from = typeof flags.from === 'string' ? flags.from : null;
+  const to = typeof flags.to === 'string' ? flags.to : null;
+  if (period && (from || to)) throw new CliExit(EXIT.INVALID, 'Use --period or --from/--to, not both');
+  if (!period && !(from && to)) throw new CliExit(EXIT.INVALID, 'Pass --period 2026-08 (or 2026-Q2), or --from YYYY-MM-DD --to YYYY-MM-DD (--to is exclusive)');
+  if (period && !/^\d{4}-(\d{2}|Q[1-4])$/i.test(period)) throw new CliExit(EXIT.INVALID, `--period must look like 2026-08 or 2026-Q2 (got ${period})`);
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  if (from && !iso.test(from)) throw new CliExit(EXIT.INVALID, `--from must be YYYY-MM-DD (got ${from})`);
+  if (to && !iso.test(to)) throw new CliExit(EXIT.INVALID, `--to must be YYYY-MM-DD (got ${to})`);
+  if (from && to && to <= from) throw new CliExit(EXIT.INVALID, '--to is exclusive and must be after --from');
+  const timezone = typeof flags.timezone === 'string' ? flags.timezone : typeof flags.tz === 'string' ? flags.tz : undefined;
+  // Bounded repeat (an IANA name has at most three segments) so the check on
+  // a user-supplied flag carries no nested unbounded quantifier.
+  if (timezone !== undefined && (timezone.length > 64 || !/^(UTC|[A-Za-z]{1,32}(?:\/[A-Za-z0-9_+-]{1,32}){1,3})$/.test(timezone))) {
+    throw new CliExit(EXIT.INVALID, `--timezone must be an IANA name such as America/Los_Angeles (got ${timezone})`);
+  }
+  return { period: period || undefined, from: from || undefined, to: to || undefined, timezone };
+}
+
+/**
+ * Write bytes to `target` atomically with owner-only permissions. Refuses
+ * to overwrite unless `overwrite` is set.
+ */
+export function writeDownload(target, bytes, { overwrite = false } = {}) {
+  const full = resolvePath(target);
+  if (existsSync(full) && !overwrite) {
+    throw new CliExit(EXIT.INVALID, `${full} already exists; pass --overwrite to replace it`);
+  }
+  const dir = dirname(full);
+  const tmpDir = mkdtempSync(resolvePath(dir, `.coinpay-${basename(full)}-`));
+  const tmp = resolvePath(tmpDir, 'download');
+  try {
+    writeFileSync(tmp, bytes, { mode: 0o600 });
+    renameSync(tmp, full);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+  return full;
+}
+
+async function readSecretFromStdin() {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  return Buffer.concat(chunks).toString('utf8').trim();
+}
+
+async function promptSecret(message) {
+  if (!process.stdin.isTTY) throw new CliExit(EXIT.INVALID, 'No terminal to prompt on; pass --setup-token-stdin and pipe the token in');
+  try {
+    const { password } = await import('@inquirer/prompts');
+    return (await password({ message, mask: '*' })).trim();
+  } catch (err) {
+    if (err instanceof CliExit) throw err;
+    throw new CliExit(EXIT.INVALID, 'Interactive prompt unavailable; pass --setup-token-stdin and pipe the token in');
+  }
+}
+
+function describeJob(job) {
+  const p = job.progress || {};
+  const done = Array.isArray(p.windowsDone) ? p.windowsDone.length : 0;
+  const planned = job.params && job.params.requestsPlanned ? job.params.requestsPlanned : null;
+  const parts = [`${job.kind} ${job.id}`, job.status];
+  if (planned !== null) parts.push(`${done}/${planned} windows`);
+  if (job.nextAttemptAt) parts.push(`next attempt ${job.nextAttemptAt}`);
+  if (job.errorMessage) parts.push(job.errorMessage);
+  return parts.join(' · ');
+}
+
+function describeReport(report) {
+  const parts = [`report ${report.id} r${report.revision}`, report.status, report.period && report.period.label];
+  if (report.provider_coverage) parts.push(`coverage ${report.provider_coverage}`);
+  if (report.rowCount !== null && report.rowCount !== undefined) parts.push(`${report.rowCount} posted rows`);
+  if (report.errorMessage) parts.push(report.errorMessage);
+  return parts.filter(Boolean).join(' · ');
+}
+
+const STATEMENT_FETCH_ACTIONS = new Set(['banks', 'login', 'fetch', 'assist', 'coverage', 'runs', 'local', 'retry', 'cloud']);
+
+function ago(iso) {
+  if (!iso) return 'never';
+  const hours = (Date.now() - Date.parse(iso)) / 3_600_000;
+  if (hours < 1) return 'just now';
+  return hours < 48 ? `${Math.round(hours)}h ago` : `${Math.round(hours / 24)}d ago`;
+}
+
+/**
+ * `coinpay finances statements cloud …`: the same statement fetching, run by
+ * CoinPay cloud with a bank session the merchant saved through CoinPay's
+ * cloud browser. Professional plan; free for admins.
+ */
+async function runCloudAction(rest, flags, { client, emit, progress }) {
+  const [sub = 'status', name] = rest;
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  if (sub === 'status' || sub === 'banks') {
+    const data = await api.getCloudStatements(client);
+    const lines = [data.access.allowed ? `CoinPay cloud: ${data.access.message}` : `CoinPay cloud is not available: ${data.access.message}`, ''];
+    for (const bank of data.banks) {
+      const c = bank.cloud;
+      lines.push(`${bank.key}  ${bank.name}${bank.kind === 'tax' ? ' (tax documents)' : ''}  ·  ${!c ? 'not connected' : c.state === 'login_needed' ? 'needs sign-in' : c.state}${c ? `  ·  last fetch ${ago(c.lastFetchAt)}${c.lastStatus ? ` (${c.lastStatus})` : ''}  ·  ${c.schedule}` : ''}`);
+    }
+    const next = data.banks.find((b) => !b.cloud || b.cloud.state !== 'active');
+    if (data.access.allowed && next) lines.push('', `Next: coinpay finances statements cloud connect ${next.key}`);
+    emit(data, lines.join('\n'));
+    return EXIT.OK;
+  }
+
+  if (sub === 'connect') {
+    if (!name) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements cloud connect <bank|ftb|irs|irs-business> [--url <sign-in page>]');
+    const data = await api.connectCloudBank(client, { institutionKey: name, url: typeof flags.url === 'string' ? flags.url : undefined });
+    if (data.warning) progress(`warning: ${data.warning}`);
+    const { siteOrigin, openInBrowser } = await import('./oauth-login.js');
+    const viewer = new URL(data.viewerUrl, siteOrigin(client.baseUrl)).toString();
+    const opened = flags['no-open'] ? false : openInBrowser(viewer);
+    progress(`${opened ? 'Opened' : 'Open'} ${viewer}`);
+    progress('Sign in to your bank there, go to the page that lists your statements, and press Save. Waiting…');
+    for (;;) {
+      await pause(3000);
+      let live;
+      try {
+        live = await api.getCloudLiveSession(client, data.live.id);
+      } catch (err) {
+        if (err.status === 404) throw new CliExit(EXIT.FAILURE, 'The sign-in session is gone (the server restarted?). Run the command again.');
+        throw err;
+      }
+      if (live.status === 'saved') {
+        emit({ live }, `Saved. ${name} is connected to CoinPay cloud and its first fetch is queued: coinpay finances statements cloud status`);
+        return EXIT.OK;
+      }
+      if (['cancelled', 'expired', 'failed'].includes(live.status)) {
+        throw new CliExit(EXIT.FAILURE, `The sign-in session ended: ${live.status}${live.error ? ` (${live.error})` : ''}`);
+      }
+    }
+  }
+
+  if (sub === 'fetch') {
+    const data = await api.fetchCloudStatements(client, { institutionKey: name });
+    if (!flags.wait) {
+      emit(data, data.jobs.map((j) => `queued ${j.id} (${j.params?.institutionKey ?? ''})`).join('\n') + '\nFollow with: coinpay finances statements runs');
+      return EXIT.OK;
+    }
+    const jobs = new Map(data.jobs.map((j) => [j.id, j]));
+    const deadline = Date.now() + 20 * 60_000;
+    while (Date.now() < deadline && [...jobs.values()].some((j) => ['queued', 'running', 'waiting_for_budget'].includes(j.status))) {
+      await pause(5000);
+      for (const id of jobs.keys()) jobs.set(id, await api.getFinanceJob(client, id));
+    }
+    const done = [...jobs.values()];
+    emit({ jobs: done }, done.map((j) => `${j.params?.institutionKey ?? j.id}: ${j.status}${j.result ? `, ${j.result.imported ?? 0} imported, ${j.result.duplicates ?? 0} already had` : ''}${j.errorMessage ? ` (${j.errorMessage})` : ''}`).join('\n'));
+    return done.every((j) => j.status === 'completed') ? EXIT.OK : EXIT.STRICT;
+  }
+
+  if (sub === 'schedule') {
+    const value = rest[2];
+    if (!name || (value !== 'weekly' && value !== 'off')) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements cloud schedule <bank> weekly|off');
+    const data = await api.setCloudSchedule(client, name, value);
+    emit(data, `${name}: ${value === 'weekly' ? 'fetched every week' : 'schedule off'}`);
+    return EXIT.OK;
+  }
+
+  if (sub === 'forget' || sub === 'disconnect') {
+    if (!name) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements cloud forget <bank>');
+    const data = await api.disconnectCloudBank(client, name);
+    emit(data, data.note);
+    return EXIT.OK;
+  }
+
+  throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements cloud [status|connect <bank>|fetch [bank] [--wait]|schedule <bank> weekly|off|forget <bank>]');
+}
+
+/**
+ * Downloading statements from the banks themselves (SimpleFIN has no
+ * documents). Runs on this machine: each bank's session lives in a local
+ * Chrome profile under ~/.coinpay/statements and never reaches CoinPay.
+ * `fetch` exits 3 when any bank needs signing in again or showed nothing.
+ */
+async function runStatementFetchAction(action, rest, flags, { client, out, emit, progress }) {
+  const sf = await import('./statements-fetch.js');
+  const home = sf.statementsHome();
+  const chrome = typeof flags.chrome === 'string' ? flags.chrome : sf.findChrome();
+  const months = (value, fallback) => {
+    if (value === undefined) return fallback;
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 1 || n > 36) throw new CliExit(EXIT.INVALID, '--months is a whole number from 1 to 36');
+    return n;
+  };
+
+  try {
+    if (action === 'cloud') return await runCloudAction(rest, flags, { client, out, emit, progress });
+    if (action === 'coverage') {
+      const data = await api.getStatementCoverage(client, { months: months(flags.months, 12) });
+      const mark = { have: '■', missing: '·', open: '○' };
+      const lines = data.accounts.map((a) => `${a.months.map((m) => mark[m.state]).join('')}  ${a.institutionKey}  ${a.accountName}${a.missing ? `  (${a.missing} missing)` : ''}`);
+      const fetchers = (data.fetchers || []).map((r) => `${r.institutionKey}: ${r.status} ${ago(r.finishedAt)}${r.message ? ` (${r.message})` : ''}`);
+      emit(data, [`${data.months[0]} … ${data.months[data.months.length - 1]}   ■ have  · missing  ○ this month`, ...lines, '', `${data.missing} account-months missing`, ...(fetchers.length ? ['', 'Last fetch per bank:', ...fetchers] : ['', 'No statement fetch has run yet: coinpay finances statements banks'])].join('\n'));
+      return EXIT.OK;
+    }
+    if (action === 'runs') {
+      const data = await api.listStatementFetchRuns(client, { limit: flags.limit ? Number(flags.limit) : undefined });
+      emit(data, data.runs.length ? data.runs.map((r) => `${r.finishedAt}  ${r.institutionKey}  ${r.status}  ${r.filed} imported, ${r.duplicates} had, ${r.unmatched} unmatched${r.message ? `  ${r.message}` : ''}`).join('\n') : 'No statement fetch has run yet.');
+      return EXIT.OK;
+    }
+    if (action === 'local') {
+      const state = sf.loadLocal(home);
+      emit({ home, entries: state.entries }, state.entries.length
+        ? state.entries.map((e) => `${e.statementId ? 'imported ' : 'local    '} ${e.path}${e.importError ? `  (${e.importError})` : ''}`).join('\n')
+        : `Nothing downloaded yet (${home})`);
+      return EXIT.OK;
+    }
+    if (action === 'retry') {
+      const result = await sf.retryImports({ api: await sf.clientApi(client), home, log: progress });
+      emit(result, `${result.imported} imported, ${result.skipped} skipped (no account or period), ${result.failed} failed`);
+      return result.failed ? EXIT.FAILURE : EXIT.OK;
+    }
+
+    const bound = await sf.clientApi(client);
+    const linked = sf.groupInstitutions(await bound.listAccounts());
+    const institutions = sf.withStandaloneSources(linked);
+    if (action === 'banks') {
+      const state = sf.loadLocal(home);
+      let latest = [];
+      try {
+        latest = (await api.listStatementFetchRuns(client, { limit: 200 })).latest || [];
+      } catch {
+        // An older deployment without the route still lists the banks.
+      }
+      const rows = institutions.map((i) => ({
+        ...i,
+        signedIn: sf.signedIn(i.key, home),
+        local: state.institutions[i.key] || {},
+        lastRun: latest.find((r) => r.institutionKey === i.key) || null,
+        throttle: sf.isTaxSource(i) ? sf.checkLocalThrottle(home, i.key) : null,
+      }));
+      const banks = rows.filter((b) => !sf.isTaxSource(b));
+      const taxRows = rows.filter((b) => sf.isTaxSource(b));
+      const line = (b) => `${b.key}  ${b.name}  ·  ${b.signedIn ? `signed in ${ago(b.local.loggedInAt)}` : 'not signed in'}  ·  last fetch ${b.lastRun ? `${b.lastRun.status} ${ago(b.lastRun.finishedAt)}` : 'never'}${b.throttle && !b.throttle.ok ? `  ·  waiting: ${b.throttle.message}` : ''}`;
+      emit({ home, chrome, banks: rows }, [
+        ...banks.map((b) => `${line(b)}\n${b.accounts.map((a) => `    ${a.name}${a.last4 ? '' : '  (no last four digits: its statements may need filing by hand)'}`).join('\n')}`),
+        ...(banks.length ? [] : ['No linked banks.']),
+        '',
+        'Tax sources (notices, letters, transcripts -> Documents; at most 2 visits per 30 min, 4 per day):',
+        ...taxRows.map((b) => line(b)),
+        ...(banks.some((b) => !b.signedIn) ? ['', `Next: coinpay finances statements login ${banks.find((b) => !b.signedIn).key}`] : []),
+        ...(chrome ? [] : ['', sf.NO_CHROME]),
+      ].join('\n'));
+      return EXIT.OK;
+    }
+    if (action === 'login' || action === 'assist') {
+      if (rest.length !== 1) throw new CliExit(EXIT.INVALID, `Usage: coinpay finances statements ${action} <bank|ftb|irs|irs-business>`);
+      if (!chrome) throw new CliExit(EXIT.FAILURE, sf.NO_CHROME);
+      const institution = sf.pickInstitution(linked, rest[0]);
+      const tax = sf.isTaxSource(institution);
+      const state = sf.loadLocal(home);
+      const local = (state.institutions[institution.key] ||= {});
+      const urls = sf.startUrls(institution, local.start);
+      let onPageText;
+      if (tax) {
+        // Counted before the window opens. --force never lifts a lockout.
+        const verdict = sf.takeLocalAttempt(home, institution.key, action);
+        if (!verdict.ok) throw new CliExit(EXIT.STRICT, `${institution.name}: not opening, ${verdict.message}`);
+        const source = sf.taxSource(institution.key) || {};
+        let warned = false;
+        onPageText = (text) => {
+          const lock = sf.detectLockout(text);
+          if (!lock) return;
+          const until = sf.lockoutUntil(lock, new Date(), undefined, source.lockoutMinutes);
+          sf.recordLocalLockout(home, institution.key, until, `lockout page during ${action}`);
+          if (!warned) {
+            warned = true;
+            progress(`${institution.name} shows a locked account. Stop trying and close the window; CoinPay will not open it again before ${until}.`);
+          }
+        };
+        progress(`${institution.name}: sign in once, by hand. If a code arrives late, do not resubmit the form; close the window and wait. (${sf.TAX_THROTTLE.perWindow} visits per 30 minutes, ${sf.TAX_THROTTLE.perDay} per day.)`);
+      }
+      const browser = await sf.openBrowser({ chrome, profile: sf.profileDir(institution.key, home), headless: false, force: flags.force === true });
+      if (action === 'login') {
+        const url = typeof flags.url === 'string' ? flags.url : urls.login;
+        if (!url) throw new CliExit(EXIT.INVALID, `CoinPay has no site for ${institution.name}; pass --url with its sign-in page`);
+        out(`Opening ${institution.name}. Sign in, go to the page that lists your statements, then close the window.`);
+        const last = await sf.loginWindow(browser, url, { onPageText });
+        await browser.close();
+        local.loggedInAt = new Date().toISOString();
+        if (last) local.start = last;
+        sf.saveLocal(state, home);
+        emit({ bank: institution.key, start: local.start || urls.fetch }, last ? `Saved. fetch will start at ${last}` : 'Saved. The window closed on a sign-in page, so fetch starts from the bank\'s known page.');
+        return EXIT.OK;
+      }
+      out(tax
+        ? `Opening ${institution.name}. Sign in, open your notices, letters or transcripts, and download each PDF; each is filed under Documents (tax) as it lands. Close the window when done.`
+        : `Opening ${institution.name}. Download each statement you want; each is imported as it lands. Close the window when done.`);
+      let kept = 0;
+      try {
+        await sf.assistWindow(browser, {
+          start: urls.fetch,
+          onPageText,
+          onFile: async (download) => {
+            const result = tax
+              ? await sf.keepTaxDocument({ institution, download, state, home, fileDocument: bound.fileDocument, how: 'assist' })
+              : await sf.keepStatement({ institution, download, state, home, importStatement: bound.importStatement, how: 'assist' });
+            if (result.status === 'imported') kept += 1;
+            progress(`  ${result.status}: ${result.entry ? result.entry.path : result.name}${result.entry && result.entry.importError ? ` (${result.entry.importError})` : ''}`);
+            sf.saveLocal(state, home);
+          },
+        });
+      } finally {
+        await browser.close();
+      }
+      emit({ bank: institution.key, imported: kept }, tax ? `${kept} filed under Documents (tax)` : `${kept} imported`);
+      return EXIT.OK;
+    }
+    // fetch
+    const since = typeof flags.since === 'string' ? flags.since : null;
+    if (since && !/^\d{4}-(0[1-9]|1[0-2])$/.test(since)) throw new CliExit(EXIT.INVALID, '--since is YYYY-MM');
+    const max = flags.max !== undefined ? Number(flags.max) : 24;
+    if (!Number.isInteger(max) || max < 1 || max > 500) throw new CliExit(EXIT.INVALID, '--max is a whole number from 1 to 500');
+    const render = flags.render !== undefined ? Number(flags.render) : 25;
+    if (!Number.isFinite(render) || render < 3 || render > 300) throw new CliExit(EXIT.INVALID, '--render is seconds, 3 to 300');
+    const results = await sf.runStatementFetch({ api: bound, banks: rest, since, max, renderMs: render * 1000, headless: flags.headed !== true, chrome, home, log: progress, force: flags.force === true });
+    emit({ banks: results }, results.map((r) => `${r.bank}: ${r.status}, ${r.imported} ${r.kind === 'tax' ? 'filed' : 'imported'}, ${r.duplicates} already had${r.kind === 'tax' ? '' : `, ${r.unmatched} unmatched`}${r.message ? ` (${r.message})` : ''}`).join('\n'));
+    return results.every((r) => r.status === 'ok' && r.failed === 0) ? EXIT.OK : EXIT.STRICT;
+  } catch (err) {
+    if (err instanceof sf.StatementFetchError) throw new CliExit(EXIT.INVALID, err.message);
+    throw err;
+  }
+}
+
+/**
+ * Run one subcommand. `ctx` supplies the client and the output channels.
+ * @returns {Promise<number>} an exit code
+ */
+export async function runFinancesCommand(subcommand, args, flags, ctx) {
+  const { client, out, err: errOut } = ctx;
+  const json = flags.json === true;
+  const progress = (msg) => { if (json) errOut(msg); else out(msg); };
+  const warn = (msg) => errOut(`warning: ${msg}`);
+  const emit = (data, text) => { if (json) out(JSON.stringify(data, null, 2)); else if (text) out(text); };
+
+  try {
+    switch (subcommand) {
+      case 'connect': {
+        const provider = typeof flags.provider === 'string' ? flags.provider : 'simplefin';
+        if (provider !== 'simplefin') throw new CliExit(EXIT.INVALID, 'Only --provider simplefin can be connected from the CLI; Plaid links in the browser');
+        if (flags['setup-token'] !== undefined) {
+          throw new CliExit(EXIT.INVALID, 'Refusing --setup-token on the command line (it lands in shell history). Use --setup-token-stdin or the prompt.');
+        }
+        const token = flags['setup-token-stdin'] ? await readSecretFromStdin() : await promptSecret('SimpleFIN setup token (input hidden)');
+        if (!token) throw new CliExit(EXIT.INVALID, 'No setup token provided');
+        const protocolVersion = flags['protocol-version'] !== undefined ? Number(flags['protocol-version']) : undefined;
+        if (protocolVersion !== undefined && protocolVersion !== 1 && protocolVersion !== 2) throw new CliExit(EXIT.INVALID, '--protocol-version must be 1 or 2');
+        progress('Claiming the setup token…');
+        const data = await api.connectSimpleFin(client, {
+          setupToken: token,
+          label: typeof flags.label === 'string' ? flags.label : undefined,
+          protocolVersion,
+          idempotencyKey: typeof flags['idempotency-key'] === 'string' ? flags['idempotency-key'] : undefined,
+        });
+        emit(data, `Linked connection ${data.connection.id}${data.connection.label ? ` (${data.connection.label})` : ''}. Run: coinpay finances sync`);
+        return EXIT.OK;
+      }
+
+      case 'disconnect': {
+        const id = args[0];
+        if (!id) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances disconnect <connection-id> --yes');
+        if (!flags.yes) throw new CliExit(EXIT.INVALID, 'This stops future syncs and removes the stored credential (history is kept). Re-run with --yes to confirm.');
+        const data = await api.disconnectFinanceConnection(client, id);
+        emit(data, `Disconnected ${id}. ${data.note}`);
+        return EXIT.OK;
+      }
+
+      case 'consent': {
+        const id = args[0];
+        const mode = args[1];
+        if (!id || (mode !== 'on' && mode !== 'off')) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances consent <connection-id> on|off');
+        const data = await api.setFinanceSyncConsent(client, id, mode === 'on');
+        emit(data, mode === 'on' ? `Daily background sync enabled for ${id} (next: ${data.connection.next_sync_at})` : `Daily background sync disabled for ${id}`);
+        return EXIT.OK;
+      }
+
+      case 'backfill': {
+        const sel = periodSelection(flags);
+        const connectionId = typeof flags.connection === 'string' ? flags.connection : typeof flags['connection-id'] === 'string' ? flags['connection-id'] : undefined;
+        const data = await api.createBackfillJob(client, { ...sel, connectionId, idempotencyKey: typeof flags['idempotency-key'] === 'string' ? flags['idempotency-key'] : undefined });
+        let jobs = data.jobs || [data.job];
+        for (const job of jobs) progress(`Queued ${describeJob(job)} (${job.params.requestsPlanned} provider request(s) planned)`);
+        if (flags.wait) {
+          const finished = [];
+          for (const job of jobs) {
+            const result = await api.waitForFinanceJob(client, job.id, { onProgress: (j) => progress(describeJob(j)) });
+            finished.push(result);
+          }
+          jobs = finished;
+        }
+        emit({ jobs }, jobs.map(describeJob).join('\n'));
+        return jobs.some((j) => j.status === 'failed') ? EXIT.FAILURE : EXIT.OK;
+      }
+
+      case 'jobs': {
+        const action = args[0] || 'list';
+        if (action === 'get') {
+          const id = args[1];
+          if (!id) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances jobs get <job-id>');
+          const job = flags.wait ? await api.waitForFinanceJob(client, id, { onProgress: (j) => progress(describeJob(j)) }) : await api.getFinanceJob(client, id);
+          emit({ job }, describeJob(job));
+          return job.status === 'failed' ? EXIT.FAILURE : EXIT.OK;
+        }
+        if (action === 'cancel') {
+          const id = args[1];
+          if (!id) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances jobs cancel <job-id>');
+          const job = await api.cancelFinanceJob(client, id);
+          emit({ job }, describeJob(job));
+          return EXIT.OK;
+        }
+        if (action === 'list') {
+          const jobs = await api.listFinanceJobs(client, { limit: flags.limit ? Number(flags.limit) : undefined, connectionId: typeof flags.connection === 'string' ? flags.connection : undefined });
+          emit({ jobs }, jobs.length ? jobs.map(describeJob).join('\n') : 'No jobs yet.');
+          return EXIT.OK;
+        }
+        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances jobs [list|get <id>|cancel <id>]');
+      }
+
+      case 'coverage': {
+        const sel = periodSelection(flags);
+        const data = await api.getFinanceCoverage(client, { ...sel, accountIds: listFlag(flags.account), includeHidden: flags.hidden === true });
+        emit(
+          data,
+          [`${data.period.label} (${data.period.timezone}) · provider coverage: ${data.provider_coverage}`]
+            .concat(data.accounts.map((a) => `  ${a.name || a.accountId}  ${a.coverage}  ${Math.round(a.fraction * 100)}%${a.capped ? '  capped' : ''}${a.gaps.length ? `  ${a.gaps.length} gap(s)` : ''}`))
+            .join('\n'),
+        );
+        return EXIT.OK;
+      }
+
+      case 'report': {
+        const sel = periodSelection(flags);
+        const format = typeof flags.format === 'string' ? flags.format.toLowerCase() : 'pdf';
+        if (!['pdf', 'html', 'csv', 'json'].includes(format)) throw new CliExit(EXIT.INVALID, '--format must be pdf, html, csv or json');
+        const scope = typeof flags.scope === 'string' ? flags.scope : 'all';
+        if (!['all', 'business', 'personal'].includes(scope)) throw new CliExit(EXIT.INVALID, '--scope must be all, business or personal');
+        const output = typeof flags.output === 'string' ? flags.output : null;
+        const wait = flags.wait === true || output !== null;
+        const strict = flags.strict === true;
+
+        const created = await api.createFinanceReport(client, {
+          ...sel,
+          accountIds: listFlag(flags.account),
+          scope,
+          includeHidden: flags.hidden === true,
+          includePendingAppendix: flags['no-pending'] ? false : true,
+          formats: [format, 'json'],
+          strict,
+          estimateGaps: flags['estimate-gaps'] === true,
+          idempotencyKey: typeof flags['idempotency-key'] === 'string' ? flags['idempotency-key'] : undefined,
+        });
+        let report = created.report;
+        progress(`Queued ${describeReport(report)}`);
+        if (!wait) {
+          emit({ report, job: created.job }, `${describeReport(report)}\nCheck with: coinpay finances jobs get ${created.job.id}`);
+          return EXIT.OK;
+        }
+        const finished = await api.waitForFinanceReport(client, report.id, { onProgress: (d) => progress(describeReport(d.report)) });
+        report = finished.report;
+        if (report.status !== 'ready') {
+          if (finished.job && finished.job.status === 'waiting_for_budget') {
+            emit({ report, job: finished.job }, `Report generation is waiting for the provider request budget; next attempt ${finished.job.nextAttemptAt}`);
+            return EXIT.FAILURE;
+          }
+          const code = COVERAGE_CODES.has(report.errorCode) ? EXIT.STRICT : EXIT.FAILURE;
+          emit({ report, job: finished.job }, `Report ${report.status}: ${report.errorMessage || report.errorCode || 'unknown'}`);
+          return code;
+        }
+        for (const w of report.warnings || []) warn(w);
+        if (report.local_export_complete !== true) {
+          emit({ report }, 'Report is missing part of its local export; refusing to present it as complete');
+          return EXIT.STRICT;
+        }
+        if (strict && report.provider_coverage !== 'available_window_fetched') {
+          emit({ report }, `--strict: provider coverage is ${report.provider_coverage}`);
+          return EXIT.STRICT;
+        }
+        if (report.provider_coverage !== 'available_window_fetched') {
+          warn(`History may be incomplete: provider coverage is ${report.provider_coverage}. ${report.notice}`);
+        }
+        if (output) {
+          const file = await api.downloadFinanceReport(client, report.id, { format });
+          const path = writeDownload(output, Buffer.from(file.bytes), { overwrite: flags.overwrite === true });
+          emit({ report, output: path, bytes: file.bytes.length, sha256: file.sha256 }, `Wrote ${path} (${file.bytes.length} bytes, ${format}). ${report.notice}`);
+        } else {
+          emit({ report }, describeReport(report));
+        }
+        return EXIT.OK;
+      }
+
+      case 'reports': {
+        const action = args[0] || 'list';
+        if (action === 'list') {
+          const data = await api.listFinanceReports(client, { limit: flags.limit ? Number(flags.limit) : undefined });
+          emit(data, data.reports.length ? data.reports.map(describeReport).join('\n') : 'No reports yet.');
+          return EXIT.OK;
+        }
+        if (action === 'send') {
+          const id = args[1];
+          if (!id || typeof flags.to !== 'string') throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances reports send <report-id> --to cpa@x.com,me@x.com [--format pdf,csv] [--message "…"] [--no-attach]');
+          const data = await api.sendFinanceReportEmail(client, id, {
+            to: listFlag(flags.to),
+            formats: flags.format ? listFlag(flags.format) : undefined,
+            message: typeof flags.message === 'string' ? flags.message : null,
+            attach: flags['no-attach'] ? false : true,
+          });
+          emit(data, `Sent to ${data.sent.join(', ') || 'nobody'}${data.failed.length ? `; failed: ${data.failed.map((f) => `${f.to} (${f.error})`).join(', ')}` : ''}. Attached: ${data.attached.join(', ') || 'none'}. Link (expires ${data.linkExpiresAt.slice(0, 10)}): ${data.linkUrl}`);
+          return data.sent.length > 0 ? EXIT.OK : EXIT.FAILURE;
+        }
+        if (action === 'get' || action === 'download' || action === 'delete') {
+          const id = args[1];
+          if (!id) throw new CliExit(EXIT.INVALID, `Usage: coinpay finances reports ${action} <report-id>`);
+          if (action === 'delete') {
+            if (!flags.yes) throw new CliExit(EXIT.INVALID, 'Deleting removes the report and its files (not bank data). Re-run with --yes.');
+            const data = await api.deleteFinanceReport(client, id);
+            emit(data, data.note);
+            return EXIT.OK;
+          }
+          const data = await api.getFinanceReport(client, id);
+          if (action === 'get') {
+            emit(data, describeReport(data.report));
+            return EXIT.OK;
+          }
+          const format = typeof flags.format === 'string' ? flags.format.toLowerCase() : 'pdf';
+          const output = typeof flags.output === 'string' ? flags.output : `${data.report.period.selector}.${format}`;
+          const file = await api.downloadFinanceReport(client, id, { format });
+          const path = writeDownload(output, Buffer.from(file.bytes), { overwrite: flags.overwrite === true });
+          emit({ report: data.report, output: path, bytes: file.bytes.length, sha256: file.sha256 }, `Wrote ${path} (${file.bytes.length} bytes)`);
+          return EXIT.OK;
+        }
+        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances reports [list|get <id>|download <id>|send <id>|delete <id>]');
+      }
+
+      case 'statements': {
+        const action = args[0];
+        if (action === 'import') {
+          const path = args[1];
+          if (!path) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements import <file.pdf> --account <id> --period 2026-08 (or --from/--to) [--timezone …]');
+          const accountId = typeof flags.account === 'string' ? flags.account : null;
+          if (!accountId) throw new CliExit(EXIT.INVALID, '--account <account-id> is required');
+          const sel = periodSelection(flags);
+          let bytes;
+          try {
+            bytes = readFileSync(path);
+          } catch (e) {
+            throw new CliExit(EXIT.INVALID, `Could not read ${path}: ${e.message}`);
+          }
+          const data = await api.importFinanceStatement(client, {
+            file: bytes,
+            filename: basename(path),
+            accountId,
+            ...sel,
+            institutionLabel: typeof flags.institution === 'string' ? flags.institution : undefined,
+            cycle: typeof flags.cycle === 'string' ? flags.cycle : undefined,
+            notes: typeof flags.notes === 'string' ? flags.notes : undefined,
+          });
+          emit(data, `${data.duplicateOf === data.statement.id ? 'Already imported' : 'Imported'} statement ${data.statement.id} for ${data.statement.periodStart}..${data.statement.periodEnd}. ${data.note}`);
+          return EXIT.OK;
+        }
+        if (action === 'list') {
+          const sel = flags.period || (flags.from && flags.to) ? periodSelection(flags) : {};
+          const statements = await api.listFinanceStatements(client, { ...sel, accountId: typeof flags.account === 'string' ? flags.account : undefined, limit: flags.limit ? Number(flags.limit) : undefined });
+          emit(
+            { statements },
+            statements.length
+              ? statements.map((s) => `${s.id}  ${s.periodStart}..${s.periodEnd}  ${s.institutionLabel || ''}  ${s.bytes} bytes  ${s.reconciliation ? s.reconciliation.state : 'not reconciled'}  (user supplied)`).join('\n')
+              : 'No statements imported.',
+          );
+          return EXIT.OK;
+        }
+        if (action === 'get') {
+          const id = args[1];
+          if (!id) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements get <statement-id>');
+          const data = await api.getFinanceStatement(client, id);
+          emit(data, `${data.statement.id}  ${data.statement.periodStart}..${data.statement.periodEnd}  ${data.statement.label}  ${data.statement.reconciliation ? data.statement.reconciliation.state : 'not reconciled'}`);
+          return EXIT.OK;
+        }
+        if (action === 'download') {
+          const id = args[1];
+          if (!id) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements download <statement-id> --output <file.pdf>');
+          const file = await api.downloadFinanceStatement(client, id);
+          const output = typeof flags.output === 'string' ? flags.output : file.filename || `${id}.pdf`;
+          const path = writeDownload(output, Buffer.from(file.bytes), { overwrite: flags.overwrite === true });
+          emit({ output: path, bytes: file.bytes.length, sha256: file.sha256 }, `Wrote ${path} (${file.bytes.length} bytes; original bytes, user supplied)`);
+          return EXIT.OK;
+        }
+        if (action === 'reconcile') {
+          const id = args[1];
+          if (!id) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements reconcile <statement-id> --report <report-id> --opening <n> --closing <n> --currency USD');
+          const reportId = typeof flags.report === 'string' ? flags.report : null;
+          if (!reportId) throw new CliExit(EXIT.INVALID, '--report <report-id> is required');
+          for (const name of ['opening', 'closing', 'currency']) {
+            if (typeof flags[name] !== 'string' && typeof flags[name] !== 'number') throw new CliExit(EXIT.INVALID, `--${name} is required`);
+          }
+          const rec = await api.reconcileFinanceStatement(client, id, {
+            reportId,
+            opening: String(flags.opening),
+            closing: String(flags.closing),
+            credits: flags.credits !== undefined ? String(flags.credits) : undefined,
+            debits: flags.debits !== undefined ? String(flags.debits) : undefined,
+            currency: String(flags.currency),
+            signConvention: flags['liability-positive'] ? 'liability_positive' : 'as_stated',
+            acknowledge: flags.acknowledge === true,
+          });
+          emit({ reconciliation: rec }, `${rec.state}: expected closing ${rec.expectedClosing}, entered ${rec.normalized.closing}, difference ${rec.difference} ${rec.currency}`);
+          return rec.state === 'mismatch' ? EXIT.STRICT : EXIT.OK;
+        }
+        if (action === 'delete') {
+          const id = args[1];
+          if (!id) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements delete <statement-id> --yes');
+          if (!flags.yes) throw new CliExit(EXIT.INVALID, 'Deleting removes the document, not bank activity. Re-run with --yes.');
+          const data = await api.deleteFinanceStatement(client, id);
+          emit(data, data.note);
+          return EXIT.OK;
+        }
+        if (STATEMENT_FETCH_ACTIONS.has(action)) return await runStatementFetchAction(action, args.slice(1), flags, { client, out, emit, progress });
+        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements [import <file>|list|get <id>|download <id>|reconcile <id>|delete <id>|banks|login <bank>|fetch [bank…]|assist <bank>|coverage|runs|local|retry|cloud …]  (tax sources: ftb, irs, irs-business)');
+      }
+
+      case 'books': {
+        const action = args[0] || 'queue';
+        if (action === 'queue' || action === 'list') {
+          const scope = typeof flags.scope === 'string' ? flags.scope : undefined;
+          const data = await api.listBooksQueue(client, {
+            status: typeof flags.status === 'string' ? flags.status : 'unreviewed',
+            scope,
+            accountId: typeof flags.account === 'string' ? flags.account : undefined,
+            search: typeof flags.search === 'string' ? flags.search : undefined,
+            limit: flags.limit ? Number(flags.limit) : undefined,
+            offset: flags.offset ? Number(flags.offset) : undefined,
+          });
+          emit(
+            data,
+            [`${data.unreviewed} row(s) awaiting review${data.modelEnabled ? '' : ' (model pass off: no ANTHROPIC_API_KEY on the server)'}`]
+              .concat(data.rows.map((r) => `${r.id}  ${(r.posted || '').slice(0, 10)}  ${r.amount} ${r.currency}  ${(r.payee || r.description || '').slice(0, 40).padEnd(40)}  ${r.category || '-'} / ${r.taxCategoryLabel} / ${r.scope}  [${r.suggestion ? r.suggestion.by : r.categorySource} ${Math.round(((r.categoryConfidence ?? (r.suggestion && r.suggestion.confidence) ?? 0)) * 100)}%]`))
+              .join('\n'),
+          );
+          return EXIT.OK;
+        }
+        if (action === 'confirm') {
+          const id = args[1];
+          if (!id) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books confirm <transaction-id> [--category c] [--tax t] [--scope business|personal] [--note …] [--always]');
+          const row = await api.reviewBooksTransaction(client, id, {
+            category: typeof flags.category === 'string' ? flags.category : undefined,
+            taxCategory: typeof flags.tax === 'string' ? flags.tax : undefined,
+            scope: typeof flags.scope === 'string' ? flags.scope : undefined,
+            note: typeof flags.note === 'string' ? flags.note : undefined,
+            createRule: flags.always === true,
+          });
+          emit({ transaction: row }, `Confirmed ${row.id}: ${row.category || '-'} / ${row.taxCategoryLabel} / ${row.scope}${flags.always ? ' (rule created)' : ''}`);
+          return EXIT.OK;
+        }
+        if (action === 'confirm-all') {
+          const data = await api.listBooksQueue(client, { status: 'unreviewed', limit: 500 });
+          if (!data.rows.length) { emit({ reviewed: 0 }, 'Nothing to confirm.'); return EXIT.OK; }
+          if (!flags.yes) throw new CliExit(EXIT.INVALID, `This accepts the suggestion on ${data.rows.length} row(s). Re-run with --yes.`);
+          const result = await api.bulkReviewBooks(client, data.rows.map((r) => r.id));
+          emit(result, `Confirmed ${result.reviewed} row(s) as suggested.`);
+          return EXIT.OK;
+        }
+        if (action === 'categorize') {
+          const data = await api.categorizeBooks(client, { useModel: flags['no-model'] ? false : true, onlyUncategorized: flags['only-uncategorized'] === true });
+          progress(`Queued ${describeJob(data.job)}${data.modelEnabled ? '' : ' (model pass off: no ANTHROPIC_API_KEY on the server)'}`);
+          let job = data.job;
+          if (flags.wait) job = await api.waitForFinanceJob(client, job.id, { onProgress: (j) => progress(describeJob(j)) });
+          const r = job.result || {};
+          emit({ job }, job.status === 'completed' ? `Examined ${r.examined ?? 0}: ${r.fromRules ?? 0} by rule, ${r.fromModel ?? 0} by model, ${r.autoAccepted ?? 0} accepted, ${r.queued ?? 0} for review` : describeJob(job));
+          return job.status === 'failed' ? EXIT.FAILURE : EXIT.OK;
+        }
+        if (action === 'rules') {
+          const sub = args[1];
+          if (sub === 'add') {
+            const pattern = args[2];
+            if (!pattern || typeof flags.category !== 'string') throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books rules add "<pattern>" --category c [--tax t] [--scope s] [--field payee|description] [--match exact|contains]');
+            const rule = await api.createBooksRule(client, { pattern, category: flags.category, taxCategory: typeof flags.tax === 'string' ? flags.tax : undefined, scope: typeof flags.scope === 'string' ? flags.scope : undefined, matchField: typeof flags.field === 'string' ? flags.field : 'payee', matchType: typeof flags.match === 'string' ? flags.match : 'exact' });
+            emit({ rule }, `Rule ${rule.id}: ${rule.match_field} ${rule.match_type} "${rule.pattern}" → ${rule.category}`);
+            return EXIT.OK;
+          }
+          if (sub === 'delete') {
+            if (!args[2]) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books rules delete <rule-id>');
+            const data = await api.deleteBooksRule(client, args[2]);
+            emit(data, 'Rule deleted.');
+            return EXIT.OK;
+          }
+          const rules = await api.listBooksRules(client);
+          emit({ rules }, rules.length ? rules.map((r) => `${r.id}  ${r.match_field} ${r.match_type} "${r.pattern}" → ${r.category}${r.tax_category ? ' / ' + r.tax_category : ''}${r.scope ? ' / ' + r.scope : ''}`).join('\n') : 'No rules.');
+          return EXIT.OK;
+        }
+        if (action === 'send') {
+          if (typeof flags.to !== 'string') throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books send --to cpa@x.com,me@x.com --period 2026 [--scope business] [--format pdf,csv] [--message "…"] [--with-documents (your own address only)]');
+          const period = typeof flags.period === 'string' ? flags.period : null;
+          const from = typeof flags.from === 'string' ? flags.from : undefined;
+          const toDate = typeof flags['to-date'] === 'string' ? flags['to-date'] : undefined;
+          if (!period && !(from && toDate)) throw new CliExit(EXIT.INVALID, 'Pass --period 2026 (or 2026-Q3, 2026-08) or --from/--to-date');
+          const data = await api.sendBooksEmail(client, {
+            to: listFlag(flags.to), period: period || undefined, from, toDate,
+            timezone: typeof flags.timezone === 'string' ? flags.timezone : undefined,
+            scope: typeof flags.scope === 'string' ? flags.scope : 'business',
+            formats: flags.format ? listFlag(flags.format) : undefined,
+            message: typeof flags.message === 'string' ? flags.message : null,
+            attach: flags['no-attach'] ? false : true,
+            withDocuments: flags['with-documents'] === true,
+          });
+          const docs = data.documents
+            ? ` Tax documents attached: ${data.documents.attached.length ? data.documents.attached.join(', ') : 'none'}.${data.documents.skipped.length ? ` Not attached (in CoinPay under Documents): ${data.documents.skipped.map((d) => `${d.title} (${d.reason})`).join(', ')}.` : ''}`
+            : '';
+          emit(data, `Sent to ${data.sent.join(', ') || 'nobody'}${data.failed.length ? `; failed: ${data.failed.map((f) => `${f.to} (${f.error})`).join(', ')}` : ''}. ${data.rows} rows, ${data.unreviewed} unreviewed.${docs} Link (expires ${data.linkExpiresAt.slice(0, 10)}): ${data.linkUrl}`);
+          return data.sent.length > 0 ? EXIT.OK : EXIT.FAILURE;
+        }
+        if (action === 'summary' || action === 'export') {
+          const period = typeof flags.period === 'string' ? flags.period : typeof flags.year === 'string' || typeof flags.year === 'number' ? String(flags.year) : null;
+          const from = typeof flags.from === 'string' ? flags.from : undefined;
+          const to = typeof flags.to === 'string' ? flags.to : undefined;
+          if (!period && !(from && to)) throw new CliExit(EXIT.INVALID, 'Pass --period 2026 (or 2026-Q3, 2026-08) or --from/--to');
+          const scope = typeof flags.scope === 'string' ? flags.scope : 'business';
+          const timezone = typeof flags.timezone === 'string' ? flags.timezone : undefined;
+          if (action === 'summary') {
+            const data = await api.getBooksSummary(client, { period: period || undefined, from, to, timezone, scope });
+            emit(
+              data,
+              [`${data.period.label} · ${scope} · ${data.rows} rows (${data.unreviewed} unreviewed, ${data.uncategorized} uncategorised)`]
+                .concat(data.totals.map((t) => `${t.currency}: income ${t.income} · expenses ${t.expenses} · net ${t.net} · excluded ${t.excluded}`))
+                .concat(data.lines.map((l) => `  ${l.label.padEnd(32)} ${l.currency} ${l.total.padStart(14)}  (${l.rows})${l.excluded ? '  excluded' : ''}`))
+                .concat([data.notice])
+                .join('\n'),
+            );
+            return EXIT.OK;
+          }
+          const format = typeof flags.format === 'string' ? flags.format.toLowerCase() : 'csv';
+          const withDocuments = flags['with-documents'] === true;
+          const file = await api.exportBooks(client, { period: period || undefined, from, to, timezone, scope, format, withDocuments });
+          const output = typeof flags.output === 'string' ? flags.output : file.filename || `books-${period || 'range'}.${withDocuments ? 'zip' : format}`;
+          const path = writeDownload(output, Buffer.from(file.bytes), { overwrite: flags.overwrite === true });
+          const attachedDocs = Number(file.headers['x-documents-attached'] || 0);
+          const skippedDocs = Number(file.headers['x-documents-skipped'] || 0);
+          emit(
+            { output: path, bytes: file.bytes.length, unreviewed: Number(file.headers['x-unreviewed-rows'] || 0), ...(withDocuments ? { documentsAttached: attachedDocs, documentsSkipped: skippedDocs } : {}) },
+            `Wrote ${path} (${file.bytes.length} bytes; ${file.headers['x-unreviewed-rows'] || 0} unreviewed rows)${withDocuments ? `. ${attachedDocs} tax document(s) inside${skippedDocs ? `, ${skippedDocs} left out to stay under 8 MiB (listed in MANIFEST.txt)` : ''}` : ''}`,
+          );
+          return EXIT.OK;
+        }
+        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books [queue|confirm <id>|confirm-all --yes|categorize|rules [add|delete]|summary|export|send]');
+      }
+
+      case 'digest': {
+        const action = args[0] || 'show';
+        const DAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+        const describe = (s) => s
+          ? `${s.active ? 'on' : 'off'} · ${s.weekdays.map((d) => DAY_NAMES[d]).join(',')} at ${String(s.hour).padStart(2, '0')}:00 ${s.timezone} · ${s.scope} · to ${s.recipients.join(', ')}${s.nextRunAt ? ` · next ${s.nextRunAt}` : ''}${s.lastSentAt ? ` · last ${s.lastSentAt}` : ''}`
+          : 'No weekly digest configured. Set one with: coinpay finances digest set --days mon,fri --hour 8 --to you@example.com';
+        if (action === 'show') {
+          const s = await api.getWeeklyDigest(client);
+          emit({ schedule: s }, describe(s));
+          return EXIT.OK;
+        }
+        if (action === 'set' || action === 'on') {
+          const days = flags.days ? listFlag(flags.days).map((d) => { const i = DAY_NAMES.indexOf(d.toLowerCase().slice(0, 3)); return i === -1 ? Number(d) : i; }) : undefined;
+          if (days && days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) throw new CliExit(EXIT.INVALID, '--days takes names like mon,fri or numbers 0 (Sunday) to 6');
+          const s = await api.setWeeklyDigest(client, {
+            weekdays: days,
+            hour: flags.hour !== undefined ? Number(flags.hour) : undefined,
+            timezone: typeof flags.timezone === 'string' ? flags.timezone : undefined,
+            recipients: flags.to ? listFlag(flags.to) : undefined,
+            scope: typeof flags.scope === 'string' ? flags.scope : undefined,
+            formats: flags.format ? listFlag(flags.format) : undefined,
+            active: true,
+          });
+          emit({ schedule: s }, describe(s));
+          return EXIT.OK;
+        }
+        if (action === 'off' || action === 'pause') {
+          const s = await api.setWeeklyDigest(client, { active: false });
+          emit({ schedule: s }, describe(s));
+          return EXIT.OK;
+        }
+        if (action === 'delete') {
+          const data = await api.deleteWeeklyDigest(client);
+          emit(data, 'Weekly digest removed.');
+          return EXIT.OK;
+        }
+        if (action === 'send-now') {
+          const data = await api.sendWeeklyDigestNow(client);
+          emit(data, `Sent to ${data.sent.join(', ') || 'nobody'}${data.failed.length ? `; failed: ${data.failed.map((f) => `${f.to} (${f.error})`).join(', ')}` : ''}`);
+          return data.sent.length > 0 ? EXIT.OK : EXIT.FAILURE;
+        }
+        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances digest [show|set --days mon,fri --hour 8 --to a@x,b@y [--scope business]|off|delete|send-now]');
+      }
+
+      case 'payloads': {
+        const action = args[0] || 'list';
+        if (action === 'list') {
+          const data = await api.listFinancePayloads(client, { connectionId: typeof flags.connection === 'string' ? flags.connection : undefined, limit: flags.limit ? Number(flags.limit) : undefined });
+          emit(data, data.payloads.length ? data.payloads.map((p) => `${p.id}  ${p.fetchedAt}  ${p.provider}  ${p.requestClass}  ${p.accounts} accounts / ${p.transactions} tx / ${p.errors} errors  ${p.bytes} bytes`).join('\n') : 'No archived payloads yet.');
+          return EXIT.OK;
+        }
+        if (action === 'download') {
+          const id = args[1];
+          if (!id) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances payloads download <payload-id> --output <file.json>');
+          const file = await api.downloadFinancePayload(client, id);
+          const output = typeof flags.output === 'string' ? flags.output : file.filename || `${id}.json`;
+          const path = writeDownload(output, Buffer.from(file.bytes), { overwrite: flags.overwrite === true });
+          emit({ output: path, bytes: file.bytes.length, sha256: file.sha256 }, `Wrote ${path} (${file.bytes.length} bytes, as received from the provider)`);
+          return EXIT.OK;
+        }
+        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances payloads [list|download <id>]');
+      }
+
+      default:
+        return null;
+    }
+  } catch (err) {
+    if (err instanceof CliExit) {
+      if (err.message) errOut(err.message);
+      return err.exitCode;
+    }
+    const code = exitCodeFor(err);
+    const detail = err && err.code ? ` (${err.code})` : '';
+    errOut(`${err && err.message ? err.message : String(err)}${detail}`);
+    if (json) out(JSON.stringify({ error: { code: err && err.code ? err.code : 'error', message: err && err.message ? err.message : String(err) } }));
+    return code;
+  }
+}
+
+export const EXTENDED_SUBCOMMANDS = ['connect', 'disconnect', 'consent', 'backfill', 'jobs', 'coverage', 'report', 'reports', 'statements', 'books', 'payloads', 'digest'];

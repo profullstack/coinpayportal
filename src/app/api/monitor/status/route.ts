@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isMonitorActive, runOnce, startMonitor, stopMonitor } from '@/lib/payments/monitor';
-
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
+import { isInternalApiKey } from '@/lib/auth/secret-compare';
 
 /**
  * GET /api/monitor/status
@@ -12,7 +11,13 @@ export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   const token = authHeader?.replace('Bearer ', '');
   
-  if (token !== INTERNAL_API_KEY) {
+  // `token !== INTERNAL_API_KEY` compared two values that are BOTH `undefined`
+  // when the env var is unset — and `undefined !== undefined` is false, so a
+  // request with no Authorization header at all passed the check and could
+  // start, stop or trigger the payment monitor. `isInternalApiKey` treats an
+  // unset or blank secret as authenticating nobody, and compares in constant
+  // time. It already existed; this route simply did not use it.
+  if (!isInternalApiKey(token)) {
     return NextResponse.json(
       { error: 'Unauthorized' },
       { status: 401 }
@@ -38,7 +43,13 @@ export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   const token = authHeader?.replace('Bearer ', '');
   
-  if (token !== INTERNAL_API_KEY) {
+  // `token !== INTERNAL_API_KEY` compared two values that are BOTH `undefined`
+  // when the env var is unset — and `undefined !== undefined` is false, so a
+  // request with no Authorization header at all passed the check and could
+  // start, stop or trigger the payment monitor. `isInternalApiKey` treats an
+  // unset or blank secret as authenticating nobody, and compares in constant
+  // time. It already existed; this route simply did not use it.
+  if (!isInternalApiKey(token)) {
     return NextResponse.json(
       { error: 'Unauthorized' },
       { status: 401 }

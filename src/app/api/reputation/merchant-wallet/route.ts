@@ -18,6 +18,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { platformMayManageMerchant } from '@/lib/p2p/platform-ownership';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
@@ -75,13 +76,12 @@ export async function POST(request: NextRequest) {
 
     const { merchant_id, cryptocurrency, wallet_address, label } = parsed.data;
 
-    const { data: merchant } = await supabase
-      .from('merchants')
-      .select('id')
-      .eq('id', merchant_id)
-      .maybeSingle();
-    if (!merchant) {
-      return NextResponse.json({ error: 'merchant not found' }, { status: 404 });
+    // Wallet-slot squatting: this wrote a payout wallet for any `merchant_id`
+    // on nothing but a valid issuer key, so a charge in a currency the merchant
+    // had not configured settled to the caller's address instead.
+    const owns = await platformMayManageMerchant(supabase, platform.name, merchant_id);
+    if (!owns.ok) {
+      return NextResponse.json({ error: owns.error }, { status: owns.status });
     }
 
     const { data: existing } = await supabase

@@ -117,6 +117,9 @@ export async function notifyDecided(
       amount: Number(input.revision?.amount ?? 0),
       currency: input.revision?.currency || 'USD',
       decision: input.decision,
+      // `toClient` already encodes who this mail is going to; the template
+      // needs it so the call to action matches what the reader can do.
+      recipient: toClient ? 'client' : 'merchant',
       message: input.message,
       link: toClient
         ? `${baseUrl()}/proposals/respond/${input.proposal.access_token}`

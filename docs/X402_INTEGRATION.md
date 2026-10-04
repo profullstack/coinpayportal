@@ -12,7 +12,7 @@ The 402 response's `accepts` array includes every payment method CoinPayPortal s
 
 | Category | Methods |
 |----------|---------|
-| **Native Crypto** | BTC, ETH, SOL, POL, BCH |
+| **Native Crypto** | BTC, ETH, SOL, POL |
 | **Stablecoins** | USDC on Ethereum, Polygon, Solana, Base |
 | **Lightning** | BOLT12 (instant, near-zero fees) |
 | **Fiat** | Stripe (card payments) |
@@ -41,7 +41,7 @@ Plus all existing CoinPayPortal features work alongside x402: **escrow**, **swap
                                            │               │
                                            │ Multi-chain:  │
                                            │ BTC·ETH·SOL   │
-                                           │ POL·BCH·USDC  │
+                                           │ POL·USDC      │
                                            │ Lightning·Fiat│
                                            └───────────────┘
 ```
@@ -115,7 +115,7 @@ Each payment method requires a different type of proof:
 | Method | Proof Type | Details |
 |--------|-----------|---------|
 | **USDC (EVM)** | EIP-712 signature | Gasless `transferFrom` authorization — no on-chain tx until settlement |
-| **Bitcoin / BCH** | Transaction ID | Broadcast tx to `payTo` address, include txid |
+| **Bitcoin** | Transaction ID | Broadcast tx to `payTo` address, include txid |
 | **Lightning** | Preimage | Pay the BOLT12 offer, include the preimage |
 | **Solana** | Transaction signature | Sign and broadcast transfer, include the sig |
 | **Stripe** | Payment Intent ID | Complete card checkout, include the intent ID |
@@ -169,14 +169,22 @@ const data = await response.json();
 
 ## Fees
 
-CoinPayPortal takes a commission on each x402 payment, deducted before forwarding to the merchant:
+On the x402 rail the buyer pays the merchant's wallet directly — `payTo` in the
+402 response is the merchant's own address, and the facilitator only confirms
+receipt on-chain. No CoinPayPortal wallet is in the path, so no platform
+commission is currently deducted on x402 payments: the merchant keeps 100% of
+the quoted amount.
 
-| Plan | Commission | Merchant Receives | Price |
-|------|-----------|-------------------|-------|
-| **Starter** (Free) | 1.0% | 99.0% | $0/mo |
-| **Professional** | 0.5% | 99.5% | $49/mo |
+| Plan | Standard commission | x402 commission | Price |
+|------|--------------------|-----------------|-------|
+| **Starter** (Free) | 1.0% | 0% (not deducted) | $0/mo |
+| **Professional** | 0.5% | 0% (not deducted) | $49/mo |
 
-Network fees (gas, miner fees) are separate and vary by chain. Lightning payments have near-zero network fees. No hidden fees — what you see is what you pay.
+The 1.0% / 0.5% commission is CoinPayPortal's standard rate and is collected on
+its custodial payment rails (invoices, Stripe, PayPal, payment widgets) — just
+not on x402, where there is nothing to deduct from. Network fees (gas, miner
+fees) are separate and vary by chain. Lightning payments have near-zero network
+fees. No hidden fees — what you see is what you pay.
 
 ## Integration Guide
 
@@ -201,9 +209,8 @@ const x402 = createX402Middleware({
     solana: 'YourSolanaAddress',     // also used for USDC on SOL
     lightning: 'lno1YourBolt12Offer',
     stripe: 'acct_YourStripeId',
-    'bitcoin-cash': 'bitcoincash:qYourBchAddress',
   },
-  rates: { BTC: 65000, ETH: 3500, SOL: 150, POL: 0.50, BCH: 350 },
+  rates: { BTC: 65000, ETH: 3500, SOL: 150, POL: 0.50 },
   // Or fetch live rates automatically:
   // ratesEndpoint: 'https://coinpayportal.com/api/rates',
 });
@@ -316,7 +323,6 @@ Log into CoinPayPortal and navigate to the **x402** section to:
 | **EVM native** (ETH, POL) | EIP-712 signature | Confirm tx on-chain |
 | **EVM token** (USDC) | EIP-712 signature | `transferFrom` on-chain |
 | **Bitcoin** | Transaction proof (txId) | Confirm block inclusion |
-| **Bitcoin Cash** | Transaction proof (txId) | Confirm block inclusion |
 | **Solana** (SOL, USDC) | Transaction signature | Confirm finality via RPC |
 | **Lightning** | SHA256(preimage) === paymentHash | Instant (preimage = proof) |
 | **Stripe** | Payment intent status check | Capture payment intent |
@@ -327,7 +333,7 @@ Log into CoinPayPortal and navigate to the **x402** section to:
 |---------|---------------------|---------------|
 | User experience | Redirect to payment page | Inline with HTTP request |
 | Machine payments | Not supported | Native (AI agents, scripts) |
-| Payment options | Depends on provider | BTC, ETH, SOL, POL, BCH, USDC, Lightning, Stripe |
+| Payment options | Depends on provider | BTC, ETH, SOL, POL, USDC, Lightning, Stripe |
 | Integration | Webhook handlers, status polling | Single middleware + header |
 | Settlement | Via dashboard | Automatic per-chain |
 | Buyer choice | Limited | Full — buyer picks chain/asset |
@@ -337,7 +343,6 @@ Log into CoinPayPortal and navigate to the **x402** section to:
 | Key | Network | Asset | Decimals | Notes |
 |-----|---------|-------|----------|-------|
 | `btc` | bitcoin | BTC | 8 | On-chain Bitcoin |
-| `bch` | bitcoin-cash | BCH | 8 | On-chain Bitcoin Cash |
 | `eth` | ethereum | ETH | 18 | Native Ether |
 | `pol` | polygon | POL | 18 | Native Polygon |
 | `sol` | solana | SOL | 9 | Native Solana |
@@ -345,13 +350,13 @@ Log into CoinPayPortal and navigate to the **x402** section to:
 | `usdc_polygon` | polygon | USDC | 6 | `0x3c49...3359` |
 | `usdc_solana` | solana | USDC | 6 | `EPjF...Dt1v` |
 | `usdc_base` | base | USDC | 6 | `0x8335...2913` |
-| `lightning` | lightning | BTC | 0 (sats) | BOLT12 offers |
+| `lightning` | lightning | BTC | 11 (millisats) | BOLT12 offers |
 | `stripe` | stripe | USD | 2 (cents) | Card via Stripe |
 
 ## Security Considerations
 
 - EVM payments use EIP-712 typed data signatures — cannot be forged
-- Bitcoin/BCH payments verified via block explorer / full node
+- Bitcoin payments verified via block explorer
 - Solana payments verified via RPC transaction lookup
 - Lightning payments use cryptographic preimage verification
 - Stripe payments verified via Stripe API

@@ -19,10 +19,17 @@
  *    OR dispute → arbiter resolves → settled or refunded
  */
 
+import { acquireFamilyIndex } from '../wallets/derivation-family';
+import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
-import { generatePaymentAddress, type SystemBlockchain } from '../wallets/system-wallet';
+import {
+  generatePaymentAddress,
+  isPlatformFeeWallet,
+  type SystemBlockchain,
+} from '../wallets/system-wallet';
+import { isValidPayoutAddress } from '../blockchain/address-format';
 import { getFeePercentage } from '../payments/fees';
 import { getExchangeRate } from '../rates/tatum';
 import { sendEscrowWebhook } from '../webhooks/service';
@@ -128,8 +135,51 @@ export async function createEscrow(
     return { success: false, error: 'Depositor and beneficiary must be different addresses' };
   }
 
-  // Auto-detect emails from wallet addresses if not provided
-  // Checks both merchant_wallets and business_wallets → merchants
+  // IA-016: escrow addresses were checked by `.min(10)` and nothing else — no
+  // chain-format validation and no reserved-address check — while
+  // /api/payments/create validates both for exactly the same kind of payout
+  // leg. Sibling asymmetry again (§2.3).
+  //
+  // Two separate problems. A malformed address means a release broadcasts to
+  // somewhere unspendable and the funds are gone with no recourse, which
+  // `.min(10)` does nothing about. And naming a platform fee wallet as the
+  // depositor or beneficiary makes the escrow leg indistinguishable from a fee
+  // payment, corrupting reconciliation on both — the reason payments/create
+  // rejects it there.
+  const addressLegs: [string, string | undefined][] = [
+    ['depositor_address', data.depositor_address],
+    ['beneficiary_address', data.beneficiary_address],
+    ['arbiter_address', data.arbiter_address],
+  ];
+
+  for (const [field, address] of addressLegs) {
+    if (!address) continue;
+
+    // `false` = malformed for this chain → reject. `null` = a chain we have no
+    // validator for → do not block a legitimate escrow on a check we cannot
+    // make. Same three-state contract as payments/create.
+    if (isValidPayoutAddress(address, data.chain as SystemBlockchain) === false) {
+      return { success: false, error: `Invalid ${data.chain} ${field}` };
+    }
+
+    if (isPlatformFeeWallet(address)) {
+      return { success: false, error: `${field} may not be a platform wallet` };
+    }
+  }
+
+  // Auto-detect emails from wallet addresses if not provided.
+  //
+  // Convenient — it lets an escrow notify a counterparty who was identified
+  // only by address — but the resolved value must NOT be echoed back to the
+  // caller. Doing so turned escrow creation into an oracle mapping any
+  // on-chain address to the email of the merchant who owns it, enumerable
+  // across the whole merchant base by anyone who could create escrows. That is
+  // also the input `NEW-04` needed: a victim's email address.
+  //
+  // Which emails were resolved rather than supplied is tracked here and
+  // redacted from the response below. The row keeps them, so notification still
+  // works.
+  const autoResolved = { depositor: false, beneficiary: false };
   if (!data.depositor_email || !data.beneficiary_email) {
     const lookupEmail = async (address: string): Promise<string | null> => {
       // 1. merchant_wallets → merchants
@@ -164,11 +214,17 @@ export async function createEscrow(
 
     if (!data.depositor_email) {
       const email = await lookupEmail(data.depositor_address);
-      if (email) data = { ...data, depositor_email: email };
+      if (email) {
+        data = { ...data, depositor_email: email };
+        autoResolved.depositor = true;
+      }
     }
     if (!data.beneficiary_email) {
       const email = await lookupEmail(data.beneficiary_address);
-      if (email) data = { ...data, beneficiary_email: email };
+      if (email) {
+        data = { ...data, beneficiary_email: email };
+        autoResolved.beneficiary = true;
+      }
     }
   }
 
@@ -277,10 +333,19 @@ export async function createEscrow(
     // Fire webhook if tied to a business
     await sendEscrowWebhook(supabase, businessId || null, escrow.id, 'escrow.created', escrow);
 
+    // Redact anything the caller did not already know. See the note on
+    // `autoResolved` above: echoing a looked-up email back makes this an
+    // address-to-email oracle over the merchant base.
+    const publicEscrow = {
+      ...stripTokens(escrow as Escrow),
+      ...(autoResolved.depositor ? { depositor_email: null } : {}),
+      ...(autoResolved.beneficiary ? { beneficiary_email: null } : {}),
+    };
+
     return {
       success: true,
       escrow: {
-        ...stripTokens(escrow as Escrow),
+        ...publicEscrow,
         release_token: releaseToken,
         beneficiary_token: beneficiaryToken,
       },
@@ -316,35 +381,30 @@ async function generateEscrowAddress(
   const { encrypt } = await import('../crypto/encryption');
 
   try {
-    // Get next index
-    const { data: indexData, error: indexError } = await supabase
-      .from('system_wallet_indexes')
-      .select('next_index')
-      .eq('cryptocurrency', cryptocurrency)
-      .single();
-
-    let nextIndex = 0;
-    if (indexError || !indexData) {
-      await supabase.from('system_wallet_indexes').insert({
-        cryptocurrency,
-        next_index: 1,
-      });
-    } else {
-      nextIndex = indexData.next_index;
-      await supabase
-        .from('system_wallet_indexes')
-        .update({ next_index: nextIndex + 1 })
-        .eq('cryptocurrency', cryptocurrency);
-    }
+    // Acquire the index through the shared compare-and-swap helper.
+    //
+    // This used to read `next_index`, then write `next_index + 1` with no
+    // condition on what it had read — so two concurrent escrow creations both
+    // saw the same value and derived the SAME address. Worse, it keyed on
+    // `cryptocurrency` while the normal payment flow keys on the derivation
+    // FAMILY (ETH/POL/BNB/USDT/USDC all share one), so escrow and payment
+    // counters advanced independently over the same key space and collided
+    // deterministically, not just under contention.
+    //
+    // `acquireFamilyIndex` is the same helper the payment flow uses: CAS with
+    // retries, seeded past any pre-existing addresses in the family.
+    const nextIndex = await acquireFamilyIndex(supabase, cryptocurrency);
 
     // Derive address
     const derived = await deriveSystemPaymentAddress(cryptocurrency, nextIndex);
 
     // Encrypt private key
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (!encryptionKey) {
-      return { success: false, error: 'Encryption key not configured' };
+    // Guarded, not just present — this key protects escrowed funds.
+    const keyResult = tryRequireEncryptionKey('escrow');
+    if (!keyResult.ok) {
+      return { success: false, error: keyResult.error };
     }
+    const encryptionKey = keyResult.key;
     const encryptedPrivateKey = await encrypt(derived.privateKey, encryptionKey);
 
     // Calculate fee split
@@ -610,6 +670,114 @@ export async function setEscrowAutoRelease(
 }
 
 /**
+ * Resolve a disputed escrow as arbiter.
+ *
+ * ESC-NEW-01: `dispute_resolution` and `dispute_status` exist in the production
+ * schema and, until this function, **had no writer anywhere in the codebase**.
+ * `disputeEscrow` set `status = 'disputed'` and `dispute_reason` and stopped
+ * there, so a dispute recorded a grievance and changed nothing else.
+ *
+ * The consequence was worse than a missing audit field. A disputed escrow could
+ * only be *released* — and only by the depositor, the party who had just been
+ * disputed against or had just disputed. Refund required `funded`, so raising a
+ * dispute removed the refund path entirely. Whoever raised it had made their
+ * own position strictly worse, and the beneficiary had no path at all. In
+ * practice a disputed escrow sat until someone gave up.
+ *
+ * This is the missing third exit. It is deliberately not self-service: the two
+ * parties disagree by definition, so neither can be the one who decides. The
+ * route that calls this is admin-gated, which makes the platform the arbiter of
+ * record — the same role `arbiter_address` describes for the multisig model,
+ * played by the only party with standing here.
+ *
+ * The money movement reuses the existing paths rather than inventing a third:
+ * `release` settles to the beneficiary, `refund` returns to the depositor, and
+ * both are picked up by the settlement monitor exactly as a cooperative
+ * outcome would be.
+ */
+export async function resolveDispute(
+  supabase: SupabaseClient,
+  escrowId: string,
+  input: {
+    /** Which way the dispute was decided. */
+    resolution: 'release' | 'refund';
+    /** Why — recorded on the escrow and in the event log. */
+    note: string;
+    /** Identifies the human who decided, for the audit trail. */
+    resolvedBy: string;
+  }
+): Promise<EscrowActionResult> {
+  const note = (input.note || '').trim();
+  if (note.length < 10) {
+    return {
+      success: false,
+      error: 'A resolution note of at least 10 characters is required — it is the record of why this was decided.',
+    };
+  }
+
+  if (input.resolution !== 'release' && input.resolution !== 'refund') {
+    return { success: false, error: "resolution must be 'release' or 'refund'" };
+  }
+
+  const { data, error } = await supabase
+    .from('escrows')
+    .select('*')
+    .eq('id', escrowId)
+    .single();
+
+  if (error || !data) {
+    return { success: false, error: 'Escrow not found' };
+  }
+
+  const escrow = data as Escrow;
+
+  if (escrow.status !== 'disputed') {
+    return {
+      success: false,
+      error: `Only a disputed escrow can be arbitrated; this one is ${escrow.status}.`,
+    };
+  }
+
+  const nextStatus = input.resolution === 'release' ? 'released' : 'refunded';
+  const timestampField = input.resolution === 'release' ? 'released_at' : 'refunded_at';
+
+  // Conditioned on the escrow still being disputed, so two arbiters acting at
+  // once cannot both apply an outcome to the same escrow.
+  const { data: updated } = await supabase
+    .from('escrows')
+    .update({
+      status: nextStatus,
+      [timestampField]: new Date().toISOString(),
+      dispute_status: 'resolved',
+      dispute_resolution: note,
+    })
+    .eq('id', escrowId)
+    .eq('status', 'disputed')
+    .select()
+    .single();
+
+  if (!updated) {
+    return { success: false, error: 'Escrow was resolved by someone else while this request was in flight.' };
+  }
+
+  await logEvent(supabase, escrowId, nextStatus === 'released' ? 'released' : 'refunded', input.resolvedBy, {
+    arbitrated: true,
+    resolution: input.resolution,
+    note,
+  });
+
+  await sendEscrowWebhook(
+    supabase,
+    escrow.business_id,
+    escrowId,
+    nextStatus === 'released' ? 'escrow.released' : 'escrow.refunded',
+    updated as Escrow
+  );
+
+  return { success: true, escrow: stripTokens(updated as Escrow) };
+}
+
+/**
  * Request refund (depositor only, before release).
  * Only allowed in 'funded' status.
  */
@@ -630,13 +798,55 @@ export async function refundEscrow(
 
   const escrow = data as Escrow;
 
+  // CP-025: a refund is no longer something the depositor can simply take.
+  //
+  // This accepted the depositor's token and refunded on the spot, at any moment
+  // while the escrow was funded. That is the buyer pulling their money back
+  // whenever they like — so the escrow protected the buyer from the seller and
+  // the seller from nobody. A seller who delivered had no more assurance than
+  // if they had been paid directly, which is the entire thing an escrow is for.
+  //
+  // Two refunds are legitimate, and both are still allowed:
+  //
+  //   - The beneficiary gives the money back. They are relinquishing their own
+  //     claim, so their token is sufficient, at any time.
+  //   - The deadline passes without release. The depositor should not be locked
+  //     in forever, so once `expires_at` is behind us their token works. (The
+  //     monitor usually gets there first and auto-refunds; this is the manual
+  //     equivalent, and the path that still works if the cron is behind.)
+  //
+  // What is gone is the depositor refunding *during* the window the seller is
+  // performing in.
   const role = authenticateEscrowAction(escrow, releaseToken);
-  if (role !== 'depositor') {
-    return { success: false, error: 'Unauthorized: invalid release token' };
+  if (role !== 'depositor' && role !== 'beneficiary') {
+    return { success: false, error: 'Unauthorized: invalid token' };
   }
 
-  // Only funded escrows can be refunded (not yet released)
-  if (escrow.status !== 'funded') {
+  if (role === 'depositor') {
+    // An unreadable expiry is treated as "not yet expired". `new Date(undefined)`
+    // is an Invalid Date and every comparison against one is false, so a naive
+    // `expires_at > now` check would silently grant the very refund this gate
+    // exists to withhold.
+    const expiresAt = new Date(escrow.expires_at).getTime();
+    const hasExpired = Number.isFinite(expiresAt) && expiresAt <= Date.now();
+
+    if (!hasExpired) {
+      return {
+        success: false,
+        error:
+          'Cannot refund before the escrow expires. Ask the beneficiary to refund, or wait for expiry.',
+      };
+    }
+  }
+
+  // ESC-NEW-01: `disputed` is refundable, not a dead end.
+  //
+  // This required `funded`, while `releaseEscrow` accepts `funded` or
+  // `disputed`. So raising a dispute removed the refund path entirely: the only
+  // remaining exit was the depositor releasing the money to the beneficiary,
+  // which is the opposite of what someone raising a dispute wants. A
+  // beneficiary who concedes could not hand the funds back.
+  if (escrow.status !== 'funded' && escrow.status !== 'disputed') {
     return { success: false, error: `Cannot refund escrow in status: ${escrow.status}` };
   }
 
@@ -647,7 +857,7 @@ export async function refundEscrow(
       refunded_at: new Date().toISOString(),
     })
     .eq('id', escrowId)
-    .eq('status', 'funded')
+    .eq('status', escrow.status) // optimistic lock on what was read
     .select()
     .single();
 

@@ -1,0 +1,24 @@
+name: Field guide release checks
+on:
+  pull_request:
+    paths:
+      - 'src/**/field-guide/**'
+      - 'src/app/get-guide/**'
+      - 'src/app/layout.tsx'
+      - 'public/guides/**'
+      - 'scripts/*field-guide*'
+      - 'docs/field-guide*'
+      - 'supabase/migrations/20261004160000_field_guide_leads.sql'
+      - '.github/workflows/field-guide.yml'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test scripts/field-guide.smoke.mjs
+      - run: node scripts/verify-field-guide.mjs

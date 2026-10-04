@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getRates, upsertRate, deleteRate } from '@/lib/usage/service';
 import { getJwtSecret } from '@/lib/secrets';
+import { resolveBusinessScope } from '@/lib/auth/tenant-scope';
 
 async function verifyAuth(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -52,6 +53,16 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
     }
 
+    // Authenticated, but never checked that this business belongs to the
+    // caller — the id comes straight off the URL. Sibling routes under the same
+    // `usage/` tree (`credits`, `deduct`) do check; these did not. Writing here
+    // sets what a business charges per action, so an unchecked id lets anyone
+    // zero out another business's `cost_usd`.
+    const tenant = await resolveBusinessScope(supabase, auth.merchantId!, id, 'business.read');
+    if (!tenant.ok) {
+      return NextResponse.json({ success: false, error: tenant.error }, { status: tenant.status });
+    }
+
     const rates = await getRates(supabase, id);
 
     return NextResponse.json({ success: true, rates });
@@ -80,6 +91,16 @@ export async function POST(
     const supabase = createSupabaseClient();
     if (!supabase) {
       return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
+    }
+
+    // Authenticated, but never checked that this business belongs to the
+    // caller — the id comes straight off the URL. Sibling routes under the same
+    // `usage/` tree (`credits`, `deduct`) do check; these did not. Writing here
+    // sets what a business charges per action, so an unchecked id lets anyone
+    // zero out another business's `cost_usd`.
+    const tenant = await resolveBusinessScope(supabase, auth.merchantId!, id, 'settings.manage');
+    if (!tenant.ok) {
+      return NextResponse.json({ success: false, error: tenant.error }, { status: tenant.status });
     }
 
     const body = await request.json();
@@ -131,6 +152,16 @@ export async function DELETE(
     const supabase = createSupabaseClient();
     if (!supabase) {
       return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
+    }
+
+    // Authenticated, but never checked that this business belongs to the
+    // caller — the id comes straight off the URL. Sibling routes under the same
+    // `usage/` tree (`credits`, `deduct`) do check; these did not. Writing here
+    // sets what a business charges per action, so an unchecked id lets anyone
+    // zero out another business's `cost_usd`.
+    const tenant = await resolveBusinessScope(supabase, auth.merchantId!, id, 'settings.manage');
+    if (!tenant.ok) {
+      return NextResponse.json({ success: false, error: tenant.error }, { status: tenant.status });
     }
 
     const body = await request.json();

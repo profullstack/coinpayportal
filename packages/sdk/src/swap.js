@@ -238,11 +238,42 @@ export class SwapClient {
     
     const startTime = Date.now();
     let lastStatus = null;
-    
+
+    // F3-L5-02: a failed poll must not end the watch.
+    //
+    // `getSwapStatus` was awaited bare inside this loop, so one 502, 504 or
+    // socket timeout from the provider threw straight out of `waitForSwap`.
+    // The swap itself is unaffected — it is still in flight at the provider —
+    // but the caller has lost all visibility of it, and the natural reaction to
+    // "the call threw" is to assume the swap failed. A transient blip on a
+    // poll that runs for up to an hour is expected, not exceptional.
+    //
+    // Consecutive failures are what matter: an isolated blip is retried on the
+    // next tick, while a provider that is genuinely gone stops the loop rather
+    // than spinning silently until the timeout.
+    const maxConsecutiveErrors = options.maxConsecutiveErrors ?? 5;
+    let consecutiveErrors = 0;
+
     while (Date.now() - startTime < timeout) {
-      const result = await this.getSwapStatus(swapId);
+      let result;
+      try {
+        result = await this.getSwapStatus(swapId);
+        consecutiveErrors = 0;
+      } catch (err) {
+        consecutiveErrors++;
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          throw new Error(
+            `Lost contact with the swap provider after ${consecutiveErrors} consecutive failures ` +
+            `while tracking ${swapId}. The swap may still be in progress — check its status directly. ` +
+            `Last error: ${err.message}`
+          );
+        }
+        await new Promise(resolve => setTimeout(resolve, interval));
+        continue;
+      }
+
       const currentStatus = result.swap?.status;
-      
+
       // Notify on status change
       if (currentStatus !== lastStatus) {
         if (onStatusChange && lastStatus !== null) {
@@ -250,12 +281,12 @@ export class SwapClient {
         }
         lastStatus = currentStatus;
       }
-      
+
       // Check if we've reached a target status
       if (targetStatuses.includes(currentStatus)) {
         return result;
       }
-      
+
       // Wait before next poll
       await new Promise(resolve => setTimeout(resolve, interval));
     }

@@ -78,7 +78,6 @@ describe('GET /api/oauth/userinfo', () => {
         name: 'Test User',
         
         updated_at: '2024-01-01T00:00:00Z',
-        email_verified: true,
       },
       error: null,
     });
@@ -92,7 +91,10 @@ describe('GET /api/oauth/userinfo', () => {
     expect(body.name).toBe('Test User');
     
     expect(body.email).toBe('test@example.com');
-    expect(body.email_verified).toBe(true);
+    // `merchants` has no `email_verified` column and there is no verification
+    // flow, so the honest answer is always false. Relying parties link accounts
+    // on this claim; a false positive is an account-takeover primitive.
+    expect(body.email_verified).toBe(false);
   });
 
   it('should return email_verified as false when not verified', async () => {
@@ -113,7 +115,7 @@ describe('GET /api/oauth/userinfo', () => {
     const req = makeRequest({ authorization: 'Bearer valid-token' });
     const res = await GET(req);
     const body = await res.json();
-    expect(body.email_verified).toBe(true);
+    expect(body.email_verified).toBe(false);
   });
 
   it('should default email_verified to false when missing', async () => {
@@ -134,7 +136,7 @@ describe('GET /api/oauth/userinfo', () => {
     const req = makeRequest({ authorization: 'Bearer valid-token' });
     const res = await GET(req);
     const body = await res.json();
-    expect(body.email_verified).toBe(true);
+    expect(body.email_verified).toBe(false);
   });
 
   it('should respect scopes — only openid returns sub', async () => {

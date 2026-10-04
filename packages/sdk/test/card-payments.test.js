@@ -282,6 +282,12 @@ describe('Card Payments Module', () => {
   });
 
   // Escrow function tests
+  // These assertions previously encoded a broken call shape:
+  // client.request('POST', path, body). CoinPayClient.request takes
+  // (endpoint, options) — two arguments — so endpoint received 'POST', the URL
+  // became baseUrl + 'POST', and every one of these calls failed against a real
+  // client. The mock accepted three arguments happily, which is exactly how a
+  // 100%-failing code path shipped with green tests.
   describe('createCardEscrow', () => {
     it('should create escrow payment with correct parameters', async () => {
       const mockResponse = { id: 'escrow_123', checkout_url: 'https://test.com' };
@@ -289,13 +295,15 @@ describe('Card Payments Module', () => {
 
       const result = await createCardEscrow(mockClient, 'business-id', 75.50, 'Escrow payment', { orderId: '456' });
 
-      expect(mockClient.request).toHaveBeenCalledWith('POST', '/api/stripe/payments/create', {
+      expect(mockClient.request).toHaveBeenCalledWith('/api/stripe/payments/create', {
+        method: 'POST',
+        body: JSON.stringify({
         businessId: 'business-id',
         amount: 7550, // $75.50 in cents
         currency: 'usd',
         description: 'Escrow payment',
         metadata: { orderId: '456' },
-        escrowMode: true,
+        escrowMode: true,}),
       });
       expect(result).toEqual(mockResponse);
     });
@@ -305,13 +313,15 @@ describe('Card Payments Module', () => {
 
       await createCardEscrow(mockClient, 'business-id', 100, 'Test escrow');
 
-      expect(mockClient.request).toHaveBeenCalledWith('POST', '/api/stripe/payments/create', {
+      expect(mockClient.request).toHaveBeenCalledWith('/api/stripe/payments/create', {
+        method: 'POST',
+        body: JSON.stringify({
         businessId: 'business-id',
         amount: 10000,
         currency: 'usd',
         description: 'Test escrow',
         metadata: {},
-        escrowMode: true,
+        escrowMode: true,}),
       });
     });
   });
@@ -323,7 +333,7 @@ describe('Card Payments Module', () => {
 
       const result = await listCardEscrows(mockClient);
 
-      expect(mockClient.request).toHaveBeenCalledWith('GET', '/api/stripe/escrows');
+      expect(mockClient.request).toHaveBeenCalledWith('/api/stripe/escrows', { method: 'GET' });
       expect(result).toEqual(mockResponse);
     });
 
@@ -341,8 +351,8 @@ describe('Card Payments Module', () => {
       const result = await listCardEscrows(mockClient, options);
 
       expect(mockClient.request).toHaveBeenCalledWith(
-        'GET',
-        '/api/stripe/escrows?businessId=business-123&status=pending&limit=10&offset=5'
+        '/api/stripe/escrows?businessId=business-123&status=pending&limit=10&offset=5',
+        { method: 'GET' }
       );
       expect(result).toEqual(mockResponse);
     });
@@ -352,7 +362,7 @@ describe('Card Payments Module', () => {
 
       await listCardEscrows(mockClient, { businessId: 'biz-123' });
 
-      expect(mockClient.request).toHaveBeenCalledWith('GET', '/api/stripe/escrows?businessId=biz-123');
+      expect(mockClient.request).toHaveBeenCalledWith('/api/stripe/escrows?businessId=biz-123', { method: 'GET' });
     });
   });
 
@@ -363,8 +373,10 @@ describe('Card Payments Module', () => {
 
       const result = await releaseCardEscrow(mockClient, 'escrow_123');
 
-      expect(mockClient.request).toHaveBeenCalledWith('POST', '/api/stripe/escrow/release', {
-        escrowId: 'escrow_123',
+      expect(mockClient.request).toHaveBeenCalledWith('/api/stripe/escrow/release', {
+        method: 'POST',
+        body: JSON.stringify({
+        escrowId: 'escrow_123',}),
       });
       expect(result).toEqual(mockResponse);
     });
@@ -377,8 +389,10 @@ describe('Card Payments Module', () => {
 
       const result = await refundCardEscrow(mockClient, 'escrow_123');
 
-      expect(mockClient.request).toHaveBeenCalledWith('POST', '/api/stripe/escrow/refund', {
-        escrowId: 'escrow_123',
+      expect(mockClient.request).toHaveBeenCalledWith('/api/stripe/escrow/refund', {
+        method: 'POST',
+        body: JSON.stringify({
+        escrowId: 'escrow_123',}),
       });
       expect(result).toEqual(mockResponse);
     });
@@ -394,10 +408,12 @@ describe('Card Payments Module', () => {
 
       const result = await refundCardEscrow(mockClient, 'escrow_123', options);
 
-      expect(mockClient.request).toHaveBeenCalledWith('POST', '/api/stripe/escrow/refund', {
+      expect(mockClient.request).toHaveBeenCalledWith('/api/stripe/escrow/refund', {
+        method: 'POST',
+        body: JSON.stringify({
         escrowId: 'escrow_123',
         amount: 2500,
-        reason: 'partial_delivery',
+        reason: 'partial_delivery',}),
       });
       expect(result).toEqual(mockResponse);
     });
@@ -414,7 +430,7 @@ describe('Card Payments Module', () => {
 
       const result = await getCardEscrowStatus(mockClient, 'escrow_123');
 
-      expect(mockClient.request).toHaveBeenCalledWith('GET', '/api/stripe/transactions/escrow_123');
+      expect(mockClient.request).toHaveBeenCalledWith('/api/stripe/transactions/escrow_123', { method: 'GET' });
       expect(result).toEqual(mockResponse);
     });
   });

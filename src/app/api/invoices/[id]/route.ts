@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { authorizeInvoice } from '@/lib/auth/invoice-access';
 import { resolvePayee } from '@/lib/payments/payee';
 import { can } from '@/lib/auth/permissions';
+import { authorizeBusiness } from '@/lib/auth/authz';
+import { randomUUID } from 'node:crypto';
 
 /**
  * GET /api/invoices/[id]
@@ -54,7 +56,7 @@ export async function PUT(
       request,
       id,
       'invoice.write',
-      'id, status, business_id, user_id, crypto_currency, merchant_wallet_address',
+      'id, status, business_id, user_id, crypto_currency, merchant_wallet_address, updated_at, metadata',
     );
     if (!access.ok) {
       return NextResponse.json({ success: false, error: access.error }, { status: access.status });
@@ -65,6 +67,8 @@ export async function PUT(
       user_id: string;
       crypto_currency: string | null;
       merchant_wallet_address: string | null;
+      updated_at: string | null;
+      metadata: Record<string, unknown> | null;
     };
 
     const allowedFields: Record<string, unknown> = {};
@@ -73,6 +77,17 @@ export async function PUT(
     // Draft invoices: can edit everything
     // Sent invoices: can only cancel or mark paid
     if (existing.status === 'draft') {
+      if (body.merchant_wallet_address && !access.apiKeyBusinessId) {
+        const fundsAuthz = await authorizeBusiness(
+          supabase, access.merchantId, existing.business_id, 'funds.move',
+        );
+        if (!fundsAuthz.ok) {
+          return NextResponse.json(
+            { success: false, error: 'Naming a payout address for an invoice requires owner permissions' },
+            { status: 403 },
+          );
+        }
+      }
       for (const field of editableFields) {
         if (body[field] !== undefined) allowedFields[field] = body[field];
       }
@@ -114,6 +129,13 @@ export async function PUT(
           allowedFields.merchant_wallet_address = payee.address;
         }
       }
+
+      // A changed draft must not replay a payment allocated for an earlier
+      // revision, including a provider success whose invoice update failed.
+      allowedFields.metadata = {
+        ...(existing.metadata || {}),
+        invoice_edit_revision: randomUUID(),
+      };
     }
 
     if (body.status) {
@@ -175,15 +197,27 @@ export async function PUT(
 
     allowedFields.updated_at = new Date().toISOString();
 
-    const { data: invoice, error } = await supabase
+    let update = supabase
       .from('invoices')
       .update(allowedFields)
       .eq('id', id)
+      .eq('status', existing.status);
+    update = existing.updated_at == null
+      ? update.is('updated_at', null) : update.eq('updated_at', existing.updated_at);
+    update = existing.metadata == null
+      ? update.is('metadata', null) : update.eq('metadata', JSON.stringify(existing.metadata));
+    const { data: invoice, error } = await update
       .select(`*, clients (id, name, email, company_name), businesses (id, name)`)
-      .single();
+      .maybeSingle();
 
-    if (error || !invoice) {
+    if (error) {
       return NextResponse.json({ success: false, error: 'Update failed' }, { status: 400 });
+    }
+    if (!invoice) {
+      return NextResponse.json(
+        { success: false, error: 'Invoice changed while being edited; refresh and retry', code: 'INVOICE_STATE_CHANGED' },
+        { status: 409 },
+      );
     }
 
     // Cancelling an invoice revokes the series it seeds. The scheduler used to

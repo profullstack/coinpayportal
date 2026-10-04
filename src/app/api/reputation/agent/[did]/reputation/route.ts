@@ -34,8 +34,12 @@ export async function GET(
         .maybeSingle(),
       supabase
         .from('reputation_credentials')
+        // B-04: the subject column is `agent_did`; `subject_did` belongs to
+        // `mutual_attestations`. The credential count silently came back null
+        // here rather than 500ing, so an agent's reputation page reported zero
+        // credentials however many they held.
         .select('id', { count: 'exact', head: true })
-        .eq('subject_did', agentDid),
+        .eq('agent_did', agentDid),
     ]);
 
     const tier = computeTrustTier(trustProfile.trust_vector);

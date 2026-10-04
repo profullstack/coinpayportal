@@ -11,12 +11,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from './route';
 import { NextRequest } from 'next/server';
+import { createHash } from 'crypto';
 
 // Mock Supabase
 const mockFrom = vi.fn();
 const mockSelect = vi.fn().mockReturnThis();
 const mockEq = vi.fn().mockReturnThis();
 const mockSingle = vi.fn();
+// The Lightning verifier reads `ln_payments` to confirm a real settled invoice
+// exists, so the double needs a `maybeSingle`. Default: no such payment.
+const mockMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
 const mockInsert = vi.fn().mockReturnValue({ error: null });
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -27,6 +31,7 @@ vi.mock('@supabase/supabase-js', () => ({
         select: mockSelect,
         eq: mockEq,
         single: mockSingle,
+        maybeSingle: mockMaybeSingle,
         insert: mockInsert,
       };
     },
@@ -40,6 +45,11 @@ vi.mock('@supabase/supabase-js', () => ({
 const mockResolveScopedKey = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth/scoped-keys', () => ({
   resolveScopedKey: mockResolveScopedKey,
+  // The routes now check the key's scopes, which were resolved and then ignored
+  // — so any valid key, including a read-only one, could verify and settle
+  // payments. Real implementation, so a test that grants the wrong scope fails.
+  scopesSatisfy: (granted: string[], required: string) =>
+    granted.includes('*') || granted.includes(required),
 }));
 
 // Mock ethers
@@ -76,12 +86,13 @@ function makeRequest(body: any, apiKey = 'test-api-key') {
 describe('POST /api/x402/verify', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     mockResolveScopedKey.mockResolvedValue({
       keyId: 'key1',
       business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
-      scopes: [],
+      scopes: ['payments:create'],
     });
   });
 
@@ -161,7 +172,7 @@ describe('POST /api/x402/verify', () => {
     // Stripe API reports the PaymentIntent succeeded
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ status: 'succeeded' }),
+      json: () => Promise.resolve({ status: 'succeeded', amount_received: 100 }),
     }) as any;
 
     const payment = {
@@ -177,7 +188,7 @@ describe('POST /api/x402/verify', () => {
       },
     };
 
-    const req = makeRequest({ payment, expected: { amount: '100', resource: RESOURCE } });
+    const req = makeRequest({ payment, expected: { amount: '100', resource: RESOURCE, payTo: '0xMerchant' } });
     const res = await POST(req);
     const data = await res.json();
 
@@ -220,7 +231,7 @@ describe('POST /api/x402/verify', () => {
       // Paid $0.01, resource costs $5.00.
       const req = makeRequest({
         payment: evmPayment(),
-        expected: { amount: '5000000', resource: RESOURCE },
+        expected: { amount: '5000000', resource: RESOURCE, payTo: '0xMerchant' },
       });
       const res = await POST(req);
       const data = await res.json();
@@ -235,7 +246,7 @@ describe('POST /api/x402/verify', () => {
 
       const req = makeRequest({
         payment: evmPayment({ resource: 'https://api.example.com/cheap' }),
-        expected: { amount: '10000', resource: RESOURCE },
+        expected: { amount: '10000', resource: RESOURCE, payTo: '0xMerchant' },
       });
       const res = await POST(req);
       const data = await res.json();
@@ -262,7 +273,7 @@ describe('POST /api/x402/verify', () => {
 
       const req = makeRequest({
         payment: evmPayment(),
-        expected: { amount: '10000', resource: RESOURCE },
+        expected: { amount: '10000', resource: RESOURCE, payTo: '0xMerchant' },
       });
       const res = await POST(req);
       const data = await res.json();
@@ -278,7 +289,7 @@ describe('POST /api/x402/verify', () => {
 
       const req = makeRequest({
         payment: evmPayment({ amount: '20000' }),
-        expected: { amount: '10000', resource: RESOURCE },
+        expected: { amount: '10000', resource: RESOURCE, payTo: '0xMerchant' },
       });
       const res = await POST(req);
 
@@ -294,7 +305,7 @@ describe('POST /api/x402/verify', () => {
 
       const req = makeRequest({
         payment: evmPayment({ network: 'ethereum', methodKey: 'eth', amount: paid }),
-        expected: { amount: owed, resource: RESOURCE },
+        expected: { amount: owed, resource: RESOURCE, payTo: '0xMerchant' },
       });
       const res = await POST(req);
       const data = await res.json();
@@ -314,7 +325,7 @@ describe('POST /api/x402/verify', () => {
 
       const req = makeRequest({
         payment: evmPayment(),
-        expected: { amount: '10000', resource: RESOURCE },
+        expected: { amount: '10000', resource: RESOURCE, payTo: '0xMerchant' },
       });
       const res = await POST(req);
       const data = await res.json();
@@ -331,7 +342,7 @@ describe('POST /api/x402/verify', () => {
 
       const req = makeRequest({
         payment,
-        expected: { amount: '10000', resource: RESOURCE },
+        expected: { amount: '10000', resource: RESOURCE, payTo: '0xMerchant' },
       });
       const res = await POST(req);
       const data = await res.json();
@@ -376,7 +387,7 @@ describe('POST /api/x402/verify', () => {
             resource: RESOURCE,
           },
         },
-        expected: { amount: '100000', resource: RESOURCE },
+        expected: { amount: '100000', resource: RESOURCE, payTo: BTC_PAYEE },
       });
       const res = await POST(req);
 
@@ -399,7 +410,7 @@ describe('POST /api/x402/verify', () => {
             resource: RESOURCE,
           },
         },
-        expected: { amount: '1000000', resource: RESOURCE },
+        expected: { amount: '1000000', resource: RESOURCE, payTo: SOL_PAYEE },
       });
       const res = await POST(req);
 
@@ -424,7 +435,7 @@ describe('POST /api/x402/verify', () => {
             resource: RESOURCE,
           },
         },
-        expected: { amount: '10000', resource: RESOURCE },
+        expected: { amount: '10000', resource: RESOURCE, payTo: EVM_PAYEE },
       });
       const res = await POST(req);
 
@@ -477,12 +488,13 @@ describe('POST /api/x402/verify — v2 (EIP-3009) proofs', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
     mockResolveScopedKey.mockResolvedValue({
       keyId: 'key1',
       business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
-      scopes: [],
+      scopes: ['payments:create'],
     });
     mockVerifyExactEvmV2.mockResolvedValue({
       valid: true,
@@ -584,5 +596,307 @@ describe('POST /api/x402/verify — v2 (EIP-3009) proofs', () => {
   it('does not store the raw signature', async () => {
     await POST(makeRequest({ payment: v2Payment(), expected: fullExpectation() }));
     expect(storedRow().raw_proof).toContain('_redacted');
+  });
+});
+
+/**
+ * Regression tests for the 2026-08-19 audit's x402 findings.
+ *
+ * F-1.3-01 (Critical) — the Lightning proof was checked against itself:
+ *   `sha256(preimage) === paymentHash`, both fields supplied by the payer. Any
+ *   32 random bytes minted a valid proof for any amount, so every paid resource
+ *   on this rail was free.
+ * REC-C-01 (High)     — `scheme` and `network` are independent attacker-set
+ *   fields, and dispatch fired on either. A proof labelled `bolt12`/`ethereum`
+ *   took the Lightning branch while the response claimed `amountAuthenticated`,
+ *   because that flag derives from the network.
+ * F-1.3-02 (High)     — nothing compared the proof's recipient against the
+ *   merchant, so a buyer could pay themselves.
+ * F-1.3-03 (High)     — the asset was never pinned, so a worthless token
+ *   satisfied the price.
+ * R3-X1 (Medium)      — the Stripe branch checked the PaymentIntent's status
+ *   but never its amount.
+ */
+describe('POST /api/x402/verify — audit regressions', () => {
+  const MERCHANT = '0xMerchant';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+    mockResolveScopedKey.mockResolvedValue({
+      keyId: 'key1',
+      business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
+      scopes: ['payments:create'],
+    });
+  });
+
+  function lightningPayment(overrides: any = {}) {
+    return {
+      scheme: 'bolt12',
+      payload: {
+        network: 'lightning',
+        scheme: 'bolt12',
+        from: 'payer',
+        to: MERCHANT,
+        amount: '1000',
+        resource: RESOURCE,
+        // A self-consistent pair: sha256('') over an empty buffer. The point is
+        // that the payer can always produce one.
+        preimage: 'aa',
+        paymentHash: createHash('sha256').update(Buffer.from('aa', 'hex')).digest('hex'),
+        ...overrides,
+      },
+    };
+  }
+
+  const lightningExpectation = { amount: '1000', resource: RESOURCE, payTo: MERCHANT };
+
+  it('rejects a self-certifying Lightning proof with no matching received payment', async () => {
+    // The hash genuinely matches the preimage. That is the whole of what the
+    // old check established, and it is worth nothing on its own.
+    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+
+    const res = await POST(makeRequest({ payment: lightningPayment(), expected: lightningExpectation }));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/no settled lightning payment/i);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it('accepts a Lightning proof backed by a settled incoming payment', async () => {
+    mockMaybeSingle.mockResolvedValue({
+      data: {
+        payment_hash: lightningPayment().payload.paymentHash,
+        business_id: 'biz1',
+        direction: 'incoming',
+        status: 'settled',
+        amount_msat: 1000,
+        preimage: 'aa',
+      },
+      error: null,
+    });
+    mockInsert.mockReturnValueOnce({ error: null });
+
+    const res = await POST(makeRequest({ payment: lightningPayment(), expected: lightningExpectation }));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).valid).toBe(true);
+  });
+
+  it('rejects a Lightning payment that belongs to another business', async () => {
+    mockMaybeSingle.mockResolvedValue({
+      data: {
+        payment_hash: lightningPayment().payload.paymentHash,
+        business_id: 'someone-else',
+        direction: 'incoming',
+        status: 'settled',
+        amount_msat: 1000,
+      },
+      error: null,
+    });
+
+    const res = await POST(makeRequest({ payment: lightningPayment(), expected: lightningExpectation }));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/different business/i);
+  });
+
+  it('rejects a Lightning payment smaller than the asking price', async () => {
+    mockMaybeSingle.mockResolvedValue({
+      data: {
+        payment_hash: lightningPayment().payload.paymentHash,
+        business_id: 'biz1',
+        direction: 'incoming',
+        status: 'settled',
+        amount_msat: 1,
+      },
+      error: null,
+    });
+
+    const res = await POST(makeRequest({ payment: lightningPayment(), expected: lightningExpectation }));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/underpayment/i);
+  });
+
+  it('fails closed when the Lightning ledger cannot be read', async () => {
+    mockMaybeSingle.mockResolvedValue({ data: null, error: { message: 'connection refused' } });
+
+    const res = await POST(makeRequest({ payment: lightningPayment(), expected: lightningExpectation }));
+
+    expect(res.status).toBe(400);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it('refuses a bolt12 scheme on an EVM network instead of routing it to Lightning', async () => {
+    // The combination that made REC-C-01 worse than a routing bug: the weakest
+    // verifier ran, and the answer reported `amountAuthenticated: true`.
+    const res = await POST(
+      makeRequest({
+        payment: lightningPayment({ network: 'ethereum' }),
+        expected: { amount: '1000', resource: RESOURCE, payTo: MERCHANT },
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/not valid on ethereum/i);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown network outright', async () => {
+    const res = await POST(
+      makeRequest({
+        payment: lightningPayment({ network: 'dogecoin', scheme: 'exact' }),
+        expected: { amount: '1000', resource: RESOURCE, payTo: MERCHANT },
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/unsupported network/i);
+  });
+
+  it('refuses to verify when the merchant does not say who should be paid', async () => {
+    const res = await POST(
+      makeRequest({ payment: lightningPayment(), expected: { amount: '1000', resource: RESOURCE } })
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/expected\.payTo/i);
+  });
+
+  it('rejects a proof that pays someone other than the merchant', async () => {
+    // The buyer pays themselves; amount and resource are both correct.
+    const res = await POST(
+      makeRequest({
+        payment: lightningPayment({ to: '0xTheBuyersOwnAddress' }),
+        expected: lightningExpectation,
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/recipient mismatch/i);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a proof denominated in an asset the merchant did not price', async () => {
+    const res = await POST(
+      makeRequest({
+        payment: lightningPayment({ asset: 'WORTHLESSCOIN' }),
+        expected: { ...lightningExpectation, asset: 'USDC' },
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/asset mismatch/i);
+  });
+
+  it('rejects an invented asset even when the merchant named none (F-1.3-03)', async () => {
+    // The gap the asset check left open: it only ran when `expected.asset` was
+    // set, so a price with no asset stated was satisfied by a proof denominated
+    // in any token at all. The payer picks that token — 1000 units of something
+    // they minted this morning costs nothing.
+    const { asset: _dropped, ...expectationWithoutAsset } = lightningExpectation as Record<string, unknown>;
+
+    const res = await POST(
+      makeRequest({
+        payment: lightningPayment({ asset: 'WORTHLESSCOIN' }),
+        expected: expectationWithoutAsset,
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/asset mismatch/i);
+  });
+
+  // The accepting side of the allow-list is already covered: six tests in this
+  // file pay in real USDC with `expected.asset` unset and still pass, which is
+  // exactly the "merchant named none, asset is recognised" case. A Lightning
+  // fixture for it would need a matching ln_payments row and would be testing
+  // the settlement proof rather than the asset rule.
+
+  it('rejects a Stripe proof whose PaymentIntent charged less than the price', async () => {
+    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    // A real, succeeded, one-cent PaymentIntent — presented for a $50 resource.
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ status: 'succeeded', amount_received: 1 }),
+    }) as any;
+
+    const res = await POST(
+      makeRequest({
+        payment: {
+          scheme: 'stripe-checkout',
+          payload: {
+            network: 'stripe',
+            scheme: 'stripe-checkout',
+            from: 'buyer',
+            to: MERCHANT,
+            amount: '5000',
+            resource: RESOURCE,
+            paymentIntentId: 'pi_cheap',
+          },
+        },
+        expected: { amount: '5000', resource: RESOURCE, payTo: MERCHANT },
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/underpayment/i);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Regression test for REC-C-03 (2026-08-19 audit).
+ *
+ * `resolveScopedKey` returns the key's scopes and both x402 routes ignored
+ * them, so any valid key — including a read-only `wallet:read` one issued to an
+ * integrator for a single narrow job — could verify and settle payments. On the
+ * Stripe rail that means capturing real PaymentIntents.
+ */
+describe('POST /api/x402/verify — key scopes (REC-C-03)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+  });
+
+  it('refuses a read-only key', async () => {
+    mockResolveScopedKey.mockResolvedValue({
+      keyId: 'key1',
+      business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
+      scopes: ['wallet:read'],
+    });
+
+    const res = await POST(
+      makeRequest({
+        payment: { scheme: 'exact', payload: { network: 'base', to: '0xM', amount: '1', resource: 'r' } },
+        expected: { amount: '1', resource: 'r', payTo: '0xM' },
+      })
+    );
+
+    expect(res.status).toBe(403);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it('accepts a wildcard (legacy) key', async () => {
+    mockResolveScopedKey.mockResolvedValue({
+      keyId: 'key1',
+      business: { id: 'biz1', merchant_id: 'm1', name: 'Biz', active: true },
+      scopes: ['*'],
+    });
+
+    const res = await POST(
+      makeRequest({
+        payment: { scheme: 'exact', payload: { network: 'base', to: '0xM', amount: '1', resource: 'r' } },
+        expected: { amount: '1', resource: 'r', payTo: '0xM' },
+      })
+    );
+
+    // Past the scope gate — whatever it answers, it is not a 403 for scopes.
+    expect(res.status).not.toBe(403);
   });
 });

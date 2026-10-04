@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveWebhookSecret } from './secret';
 import { safeFetch, isBlockedAddress } from '@/lib/security/ssrf';
 import { isIP } from 'net';
+import { enqueueFailedDelivery } from './retry-queue';
 
 /**
  * Synchronous SSRF pre-check on a webhook URL.
@@ -97,7 +98,9 @@ export type WebhookEvent =
   | 'escrow.resolved'
   | 'escrow.refunded'
   | 'escrow.expired'
-  | 'invoice.paid';
+  | 'invoice.paid'
+  // An ACH pay-in returned after the invoice was marked paid; the invoice is owed again.
+  | 'invoice.payment_returned';
 
 /**
  * Webhook payload structure
@@ -131,9 +134,21 @@ export interface WebhookDeliveryResult {
  */
 export interface WebhookLogEntry {
   business_id: string;
-  payment_id: string;
+  /** The payment this delivery is about. Null for escrow events. */
+  payment_id?: string | null;
+  /**
+   * The escrow this delivery is about. Its own column now.
+   *
+   * The escrow path used to pass the escrow id as `payment_id` — "reuse
+   * payment_id column for escrow_id" — which violated that column's foreign key
+   * to `payments(id)`, so every escrow webhook log insert failed silently.
+   * Delivery is unaffected by logging failing, so nothing surfaced it.
+   */
+  escrow_id?: string | null;
   event: WebhookEvent;
   webhook_url: string;
+  /** The body that was delivered, stored for forensics. */
+  payload?: unknown;
   success: boolean;
   status_code?: number;
   error_message?: string;
@@ -398,18 +413,32 @@ export async function logWebhookAttempt(
   try {
     const { error } = await supabase.from('webhook_logs').insert({
       business_id: logEntry.business_id,
-      payment_id: logEntry.payment_id,
+      payment_id: logEntry.payment_id ?? null,
+      escrow_id: logEntry.escrow_id ?? null,
       event: logEntry.event,
+      // `url` and `payload` are the older names for the same facts, and were
+      // NOT NULL with no default while the code wrote only the newer ones — so
+      // every insert here failed on a not-null violation and the table stayed
+      // permanently empty. The migration relaxes them; both sets are written so
+      // either name reads correctly.
+      url: logEntry.webhook_url,
       webhook_url: logEntry.webhook_url,
+      payload: logEntry.payload ?? {},
       success: logEntry.success,
       status_code: logEntry.status_code,
+      response_status: logEntry.status_code,
       error_message: logEntry.error_message,
       attempt_number: logEntry.attempt_number,
+      attempt: logEntry.attempt_number,
       response_time_ms: logEntry.response_time_ms,
       created_at: new Date().toISOString(),
     });
 
     if (error) {
+      // Was returned and dropped by every caller. A lost audit record is not
+      // worth failing a delivery over, but it must not be silent — that is why
+      // this table sat empty without anyone noticing.
+      console.error('[Webhook] Could not record delivery attempt:', error.message);
       return { success: false, error: error.message };
     }
 
@@ -581,6 +610,7 @@ export async function sendPaymentWebhook(
       payment_id: paymentId,
       event,
       webhook_url: business.webhook_url,
+      payload,
       success: result.success,
       status_code: result.statusCode,
       error_message: result.error,
@@ -591,6 +621,25 @@ export async function sendPaymentWebhook(
       console.log(`[Webhook] Successfully delivered ${event} webhook for payment ${paymentId}`);
     } else {
       console.error(`[Webhook] Failed to deliver ${event} webhook for payment ${paymentId}: ${result.error}`);
+
+      // REC-D-07: the three in-process attempts spent their whole budget inside
+      // this request, over roughly three seconds. An endpoint down for four —
+      // a deploy, a restart, a brief network fault — lost the event for good,
+      // and so did anything in flight when our own process was recycled.
+      // Merchants reconcile against these, so a lost `payment.confirmed` is a
+      // payment the merchant never hears about.
+      //
+      // Hand it to the durable queue, which retries on a backoff measured in
+      // minutes and dead-letters after a day rather than after three seconds.
+      await enqueueFailedDelivery(supabase, {
+        businessId,
+        event,
+        webhookUrl: business.webhook_url,
+        payload,
+        paymentId,
+        lastError: result.error,
+        lastStatusCode: result.statusCode,
+      });
     }
 
     return {
@@ -604,6 +653,62 @@ export async function sendPaymentWebhook(
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
+}
+
+/**
+ * Re-deliver a webhook that the durable queue is retrying.
+ *
+ * REC-D-07: the queue stores the payload but deliberately not the signature.
+ * A signature is bound to a timestamp, so replaying a stored one would either
+ * be rejected by a merchant enforcing a freshness window or, if they are not,
+ * would hand them a credential to accept indefinitely. The payload is re-signed
+ * with a current timestamp on every attempt instead.
+ *
+ * The secret is re-read rather than cached with the row: a merchant who rotates
+ * their webhook secret while a delivery is queued should have the retry signed
+ * with the new one, and a merchant who has removed their webhook entirely
+ * should stop receiving attempts.
+ */
+export async function redeliverQueuedWebhook(
+  supabase: SupabaseClient,
+  row: { business_id: string; event: string; webhook_url: string; payload: unknown }
+): Promise<{ success: boolean; statusCode?: number; error?: string }> {
+  const { data: business, error } = await supabase
+    .from('businesses')
+    .select('webhook_url, webhook_secret, merchant_id')
+    .eq('id', row.business_id)
+    .single();
+
+  if (error || !business) {
+    return { success: false, error: 'Business not found' };
+  }
+
+  // Configuration removed since the delivery was queued. Report success so the
+  // row is closed rather than retried to death against an endpoint the merchant
+  // has deliberately taken away.
+  if (!business.webhook_url || !business.webhook_secret) {
+    return { success: true };
+  }
+
+  const plaintextSecret = resolveWebhookSecret(business.webhook_secret, business.merchant_id);
+  const timestamp = Math.floor(Date.now() / 1000);
+  const payloadString = JSON.stringify(row.payload);
+  const signature = signWebhookPayload(row.payload as Record<string, unknown>, plaintextSecret, timestamp);
+
+  const result = await deliverWebhookDirect(business.webhook_url, payloadString, signature, 1);
+
+  await logWebhookAttempt(supabase, {
+    business_id: row.business_id,
+    event: row.event as WebhookEvent,
+    webhook_url: business.webhook_url,
+    payload: row.payload as Record<string, unknown>,
+    success: result.success,
+    status_code: result.statusCode,
+    error_message: result.error,
+    attempt_number: result.attempts || 1,
+  });
+
+  return { success: result.success, statusCode: result.statusCode, error: result.error };
 }
 
 /**
@@ -670,9 +775,10 @@ export async function sendEscrowWebhook(
     // Log delivery
     await logWebhookAttempt(supabase, {
       business_id: businessId,
-      payment_id: escrowId, // reuse payment_id column for escrow_id
+      escrow_id: escrowId,
       event,
       webhook_url: business.webhook_url,
+      payload,
       success: result.success,
       status_code: result.statusCode || 0,
       error_message: result.error || undefined,

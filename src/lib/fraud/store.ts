@@ -148,6 +148,17 @@ export interface BlocklistHit {
   reason: string | null;
   kind: string;
   value: string;
+  /**
+   * Set when the blocklist could not be READ, rather than read and found clean.
+   *
+   * The two were previously indistinguishable — a database error returned the
+   * same `null` as "no entry matches" — so an unreachable blocklist silently
+   * allowed every entry on it straight through. The blocklist is the
+   * deterministic half of screening: an explicit "never let this through" list,
+   * usually populated after a real chargeback. Losing it must not read as a
+   * clean bill of health.
+   */
+  unavailable?: true;
 }
 
 /**
@@ -176,7 +187,11 @@ export async function checkBlocklist(
         candidates.map((c) => c.value)
       );
 
-    if (error || !data || data.length === 0) return null;
+    if (error) {
+      console.error('[Fraud] Blocklist unavailable:', error);
+      return { action: 'verify', reason: 'blocklist unavailable', kind: 'system', value: '', unavailable: true };
+    }
+    if (!data || data.length === 0) return null;
 
     const now = Date.now();
     const hits = data.filter((row: any) => {

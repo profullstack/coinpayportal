@@ -16,6 +16,8 @@ function createMockSupabase(overrides: {
   txRecord?: any;
   txError?: any;
   updateError?: any;
+  settings?: any;
+  spendRows?: { amount: string }[];
 } = {}) {
   const defaultTx = {
     id: 'tx-123',
@@ -39,14 +41,48 @@ function createMockSupabase(overrides: {
     data: overrides.txRecord ?? defaultTx,
     error: overrides.txError ?? null,
   });
-  const eqWallet = vi.fn().mockReturnValue({ single: singleFn });
+  // The daily-spend query is `.eq().eq().eq()[.neq()].in().gte()` awaited
+  // directly, rather than `.single()`. Thenable so `await` resolves it.
+  const spendRows = overrides.spendRows ?? [];
+  const spendChain: any = {
+    eq: vi.fn(() => spendChain),
+    neq: vi.fn(() => spendChain),
+    in: vi.fn(() => spendChain),
+    gte: vi.fn(() => spendChain),
+    then: (resolve: any) => resolve({ data: spendRows, error: null }),
+  };
+
+  const eqWallet = vi.fn().mockReturnValue({ single: singleFn, eq: spendChain.eq });
   const eqId = vi.fn().mockReturnValue({ eq: eqWallet });
   const selectFn = vi.fn().mockReturnValue({ eq: eqId });
 
+  // WW-01: broadcast now re-checks the wallet's whitelist and daily spend
+  // limit, because prepare moves no money and broadcast does. That reads
+  // `wallet_settings`, whose query shape is select→eq→single rather than the
+  // transaction's select→eq→eq→single, so the mock has to answer per table.
+  // Settings are returned wide open, so these tests still exercise the binding
+  // logic they were written for rather than the limit.
+  const settingsSingle = vi.fn().mockResolvedValue({
+    data: overrides.settings ?? {
+      wallet_id: 'w1',
+      daily_spend_limit: null,
+      whitelist_addresses: [],
+      whitelist_enabled: false,
+    },
+    error: null,
+  });
+  const settingsChain: any = {
+    select: vi.fn(() => settingsChain),
+    eq: vi.fn(() => settingsChain),
+    single: settingsSingle,
+    insert: vi.fn(() => settingsChain),
+    upsert: vi.fn(() => settingsChain),
+  };
+
   return {
-    from: vi.fn().mockReturnValue({
-      select: selectFn,
-      update: updateFn,
+    from: vi.fn((table: string) => {
+      if (table === 'wallet_settings') return settingsChain;
+      return { select: selectFn, update: updateFn };
     }),
   } as any;
 }
@@ -264,6 +300,37 @@ describe('broadcastTransaction', () => {
       }
     });
 
+    it('broadcasts USDT on Ethereum and Polygon', async () => {
+      for (const [chain, explorer] of [
+        ['USDT_ETH', 'etherscan.io'],
+        ['USDT_POL', 'polygonscan.com'],
+      ] as const) {
+        const supabase = createMockSupabase({
+          txRecord: {
+            id: 'tx-123',
+            wallet_id: 'w1',
+            chain,
+            status: 'pending',
+            metadata: { expires_at: new Date(Date.now() + 300_000).toISOString() },
+          },
+        });
+
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ jsonrpc: '2.0', result: `0x${chain}hash`, id: 1 }),
+        });
+
+        const result = await broadcastTransaction(supabase, 'w1', {
+          tx_id: 'tx-123',
+          signed_tx: '0xf86c...',
+          chain,
+        });
+
+        expect(result.success).toBe(true);
+        if (result.success) expect(result.data.explorer_url).toContain(explorer);
+      }
+    });
+
     it('should handle EVM RPC error', async () => {
       const supabase = createMockSupabase();
 
@@ -286,6 +353,57 @@ describe('broadcastTransaction', () => {
       if (!result.success) {
         expect(result.code).toBe('BROADCAST_FAILED');
         expect(result.error).toContain('nonce too low');
+      }
+    });
+
+    it('should treat "already known" as sent, not failed', async () => {
+      // The node already holds these exact signed bytes, so the transaction IS
+      // on its way. Reporting failure here marked the row `failed` while the
+      // money moved — a send the payer is told did not happen.
+      const supabase = createMockSupabase();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'already known' },
+          id: 1,
+        }),
+      });
+
+      const result = await broadcastTransaction(supabase, 'w1', {
+        tx_id: 'tx-123',
+        signed_tx: '0xf86c',
+        chain: 'ETH',
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        // The hash is keccak256 of the signed bytes we already hold, so it can
+        // be reported without asking any provider for it.
+        expect(result.data.tx_hash).toMatch(/^0x[0-9a-f]{64}$/);
+      }
+    });
+
+    it('should fail over to another provider when one is unreachable', async () => {
+      const supabase = createMockSupabase();
+
+      mockFetch
+        .mockResolvedValueOnce({ ok: false, status: 403 })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ jsonrpc: '2.0', result: '0xVIAFALLBACK', id: 1 }),
+        });
+
+      const result = await broadcastTransaction(supabase, 'w1', {
+        tx_id: 'tx-123',
+        signed_tx: '0xf86c...',
+        chain: 'ETH',
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.tx_hash).toBe('0xVIAFALLBACK');
       }
     });
   });
@@ -518,5 +636,348 @@ describe('withRetry', () => {
     const fn = vi.fn().mockRejectedValue(new Error('server error'));
     await expect(withRetry(fn, 2)).rejects.toThrow('server error');
     expect(fn).toHaveBeenCalledTimes(3); // initial + 2 retries
+  });
+});
+
+/**
+ * Regression tests for WW-01 (2026-08-19 audit).
+ *
+ * `verifySignedTxBinding` compared the RECIPIENT of the signed transaction
+ * against the prepared row and never the AMOUNT. A signed transaction paying
+ * the right address a different amount was accepted and recorded as the
+ * prepared one — and everything downstream hangs off that row: the wallet's own
+ * history, the daily spend limit, fee accounting and notifications all
+ * described a transaction that did not happen.
+ *
+ * These use a really-signed transaction, because the existing EVM tests pass a
+ * placeholder (`'0xf86c...'`) that cannot be decoded at all.
+ */
+describe('broadcastTransaction — signed/prepared binding (WW-01)', () => {
+  // Well-known Hardhat account #0. Test key, never used for funds.
+  const KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+  const TO = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
+
+  async function signNative(toAddress: string, etherValue: string) {
+    const { Wallet, parseEther } = await import('ethers');
+    const wallet = new Wallet(KEY);
+    return wallet.signTransaction({
+      to: toAddress,
+      value: parseEther(etherValue),
+      chainId: 1,
+      nonce: 0,
+      gasLimit: 21000n,
+      maxFeePerGas: 1_000_000_000n,
+      maxPriorityFeePerGas: 1_000_000_000n,
+      type: 2,
+    });
+  }
+
+  function supabaseFor(prepared: { to_address: string; amount: string }) {
+    return createMockSupabase({
+      txRecord: {
+        id: 'tx-123',
+        wallet_id: 'w1',
+        chain: 'ETH',
+        status: 'pending',
+        from_address: '0xSENDER',
+        to_address: prepared.to_address,
+        amount: prepared.amount,
+        metadata: {
+          unsigned_tx: { type: 'evm' },
+          expires_at: new Date(Date.now() + 300_000).toISOString(),
+        },
+      },
+    });
+  }
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it('refuses at broadcast when the daily spend limit is already exhausted', async () => {
+    // WW-01's second half: the whitelist and daily spend limit were enforced at
+    // prepare and never again. Prepare moves no money — broadcast does — and
+    // the check ran BEFORE the transaction row was inserted, so two prepares
+    // racing each other both read the same pre-insert total and both passed.
+    // By broadcast time every pending row exists, so the sum is the real one.
+    const signed = await signNative(TO, '1');
+    const supabase = createMockSupabase({
+      txRecord: {
+        id: 'tx-123',
+        wallet_id: 'w1',
+        chain: 'ETH',
+        status: 'pending',
+        from_address: '0xSENDER',
+        to_address: TO,
+        amount: '1',
+        metadata: {
+          unsigned_tx: { type: 'evm' },
+          expires_at: new Date(Date.now() + 300_000).toISOString(),
+        },
+      },
+      settings: {
+        wallet_id: 'w1',
+        daily_spend_limit: 0.5,
+        whitelist_addresses: [],
+        whitelist_enabled: false,
+      },
+    });
+
+    const result = await broadcastTransaction(supabase, 'w1', {
+      tx_id: 'tx-123',
+      signed_tx: signed,
+      chain: 'ETH',
+    });
+
+    expect(result.success).toBe(false);
+    // Nothing may reach the network once the limit says no.
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses at broadcast when the recipient is not whitelisted', async () => {
+    const signed = await signNative(TO, '1');
+    const supabase = createMockSupabase({
+      txRecord: {
+        id: 'tx-123',
+        wallet_id: 'w1',
+        chain: 'ETH',
+        status: 'pending',
+        from_address: '0xSENDER',
+        to_address: TO,
+        amount: '1',
+        metadata: {
+          unsigned_tx: { type: 'evm' },
+          expires_at: new Date(Date.now() + 300_000).toISOString(),
+        },
+      },
+      settings: {
+        wallet_id: 'w1',
+        daily_spend_limit: null,
+        whitelist_addresses: ['0x0000000000000000000000000000000000000009'],
+        whitelist_enabled: true,
+      },
+    });
+
+    const result = await broadcastTransaction(supabase, 'w1', {
+      tx_id: 'tx-123',
+      signed_tx: signed,
+      chain: 'ETH',
+    });
+
+    expect(result.success).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a signed transaction whose amount differs from the prepared one', async () => {
+    // Right recipient, 10x the amount. This used to broadcast.
+    const signed = await signNative(TO, '10');
+    const supabase = supabaseFor({ to_address: TO, amount: '1' });
+
+    const result = await broadcastTransaction(supabase, 'w1', {
+      tx_id: 'tx-123',
+      signed_tx: signed,
+      chain: 'ETH',
+    });
+
+    expect(result.success).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('still refuses a recipient mismatch', async () => {
+    const signed = await signNative(TO, '1');
+    const supabase = supabaseFor({
+      to_address: '0x0000000000000000000000000000000000000009',
+      amount: '1',
+    });
+
+    const result = await broadcastTransaction(supabase, 'w1', {
+      tx_id: 'tx-123',
+      signed_tx: signed,
+      chain: 'ETH',
+    });
+
+    expect(result.success).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('broadcasts when both recipient and amount match', async () => {
+    const signed = await signNative(TO, '1');
+    const supabase = supabaseFor({ to_address: TO, amount: '1' });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jsonrpc: '2.0', result: '0xgoodhash', id: 1 }),
+    });
+
+    const result = await broadcastTransaction(supabase, 'w1', {
+      tx_id: 'tx-123',
+      signed_tx: signed,
+      chain: 'ETH',
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+
+/**
+ * Regression tests for WW-03 (2026-08-19 audit).
+ *
+ * BTC, BCH, SOL and USDC_SOL had NO binding check at all - the decoder reported
+ * "no decoder for <chain>" and the broadcast went ahead, so a signed
+ * transaction on those chains was never compared against what the platform had
+ * prepared and recorded.
+ *
+ * The binding check reads the transaction OUTPUTS, so these fixtures are built
+ * directly with bitcoin.Transaction rather than signed through a PSBT.
+ * Signatures live in the inputs and are irrelevant to what is under test.
+ */
+describe('broadcastTransaction - non-EVM binding (WW-03)', () => {
+  const PAYEE = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2';
+  const OTHER = '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa';
+
+  async function btcTxHex(outputs: Array<{ address: string; value: number }>) {
+    const bitcoin = await import('bitcoinjs-lib');
+    const tx = new bitcoin.Transaction();
+    tx.addInput(Buffer.alloc(32), 0);
+    for (const out of outputs) {
+      tx.addOutput(
+        bitcoin.address.toOutputScript(out.address, bitcoin.networks.bitcoin),
+        out.value
+      );
+    }
+    return tx.toHex();
+  }
+
+  function supabaseForBtc(prepared: { to_address: string; amount: string }) {
+    return createMockSupabase({
+      txRecord: {
+        id: 'tx-btc',
+        wallet_id: 'w1',
+        chain: 'BTC',
+        status: 'pending',
+        from_address: 'bc1qsender',
+        to_address: prepared.to_address,
+        amount: prepared.amount,
+        metadata: { expires_at: new Date(Date.now() + 300_000).toISOString() },
+      },
+    });
+  }
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it('refuses a Bitcoin transaction that pays nothing to the prepared address', async () => {
+    const hex = await btcTxHex([{ address: OTHER, value: 100_000 }]);
+    const supabase = supabaseForBtc({ to_address: PAYEE, amount: '0.001' });
+
+    const result = await broadcastTransaction(supabase, 'w1', {
+      tx_id: 'tx-btc',
+      signed_tx: hex,
+      chain: 'BTC',
+    });
+
+    expect(result.success).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a Bitcoin transaction that underpays the prepared amount', async () => {
+    const hex = await btcTxHex([{ address: PAYEE, value: 50_000 }]);
+    const supabase = supabaseForBtc({ to_address: PAYEE, amount: '0.001' });
+
+    const result = await broadcastTransaction(supabase, 'w1', {
+      tx_id: 'tx-btc',
+      signed_tx: hex,
+      chain: 'BTC',
+    });
+
+    expect(result.success).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('accepts the prepared amount alongside a change output', async () => {
+    // A real spend nearly always has change back to the sender, so the check
+    // must be "the payee received at least the amount", not "there is exactly
+    // one output".
+    const hex = await btcTxHex([
+      { address: PAYEE, value: 100_000 },
+      { address: OTHER, value: 90_000 },
+    ]);
+    const supabase = supabaseForBtc({ to_address: PAYEE, amount: '0.001' });
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: async () => 'btc-tx-hash',
+      json: async () => ({ result: 'btc-tx-hash' }),
+    });
+
+    const result = await broadcastTransaction(supabase, 'w1', {
+      tx_id: 'tx-btc',
+      signed_tx: hex,
+      chain: 'BTC',
+    });
+
+    // The binding must not be what stops this one: the broadcast was attempted.
+    expect(mockFetch).toHaveBeenCalled();
+    void result;
+  });
+});
+
+/**
+ * The gap this guards against is a coverage gap, not a logic bug: USDT was
+ * offered by the extension's chain picker, estimated by fees.ts and built by
+ * prepare-tx, and only broadcast had never heard of it. Every stage looked
+ * healthy on its own. A per-chain test would not have caught it either —
+ * nobody writes the test for the chain they forgot — so this asserts the set.
+ */
+describe('every payable chain reaches a broadcaster', () => {
+  const PAYABLE = [
+    'BTC', 'BCH', 'ETH', 'POL', 'SOL',
+    'USDC_ETH', 'USDC_POL', 'USDC_SOL', 'USDC_BASE',
+    'USDT_ETH', 'USDT_POL', 'USDT_SOL',
+  ] as const;
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it.each(PAYABLE)('%s is not refused as an unsupported chain', async (chain) => {
+    const supabase = createMockSupabase({
+      txRecord: {
+        id: 'tx-123',
+        wallet_id: 'w1',
+        chain,
+        status: 'pending',
+        metadata: { expires_at: new Date(Date.now() + 300_000).toISOString() },
+      },
+    });
+
+    // Answer whatever transport the chain happens to use; this test is about
+    // reaching a broadcaster at all, not about what it does once there.
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: async () => 'tx-hash',
+      json: async () => ({ jsonrpc: '2.0', result: 'tx-hash', id: 1 }),
+    });
+
+    const result = await broadcastTransaction(supabase, 'w1', {
+      tx_id: 'tx-123',
+      signed_tx: chain === 'SOL' || chain.endsWith('_SOL') ? 'base64tx' : '0xf86c...',
+      chain,
+    });
+
+    // It may still fail for a chain-level reason; it must never come back
+    // saying this platform does not handle the chain.
+    if (!result.success) {
+      expect(result.code).not.toBe('UNSUPPORTED_CHAIN');
+    }
+  });
+
+  it.each(PAYABLE)('%s has an explorer link, not a bare hash', (chain) => {
+    // EXPLORER_URLS[chain] falls back to '', so a missing row does not throw —
+    // it concatenates onto nothing and the user is handed a transaction hash
+    // where a link should be. USDC_BASE and all three USDT variants were
+    // missing exactly this way.
+    expect(EXPLORER_URLS[chain]).toMatch(/^https:\/\/.+\/$/);
   });
 });

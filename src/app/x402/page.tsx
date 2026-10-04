@@ -21,10 +21,9 @@ const x402 = createX402Middleware({
     solana: 'YourSolanaAddress',
     lightning: 'lno1YourBolt12Offer',
     stripe: 'acct_YourStripeId',
-    'bitcoin-cash': 'bitcoincash:qYourBchAddress',
     base: '0xYourEvmAddress',
   },
-  rates: { BTC: 65000, ETH: 3500, SOL: 150, POL: 0.50, BCH: 350 },
+  rates: { BTC: 65000, ETH: 3500, SOL: 150, POL: 0.50 },
 });
 
 // Charge $5 — buyer picks their chain/asset
@@ -103,7 +102,6 @@ const TAB_LABELS: Record<TabKey, string> = {
 
 const PAYMENT_METHODS = [
   { key: 'btc', name: 'Bitcoin', asset: 'BTC', network: 'bitcoin', type: 'Native' },
-  { key: 'bch', name: 'Bitcoin Cash', asset: 'BCH', network: 'bitcoin-cash', type: 'Native' },
   { key: 'eth', name: 'Ethereum', asset: 'ETH', network: 'ethereum', type: 'Native' },
   { key: 'pol', name: 'Polygon', asset: 'POL', network: 'polygon', type: 'Native' },
   { key: 'sol', name: 'Solana', asset: 'SOL', network: 'solana', type: 'Native' },
@@ -130,10 +128,10 @@ export default function X402Page() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">x402 Payment Protocol</h1>
         <p className="text-gray-600 dark:text-gray-400">
-          The first multi-chain, multi-asset x402 facilitator. Accept BTC, ETH, SOL, POL, BCH, USDC, Lightning, and card payments — all inline with HTTP requests.
+          The first multi-chain, multi-asset x402 facilitator. Accept BTC, ETH, SOL, POL, USDC, Lightning, and card payments — all inline with HTTP requests.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          {['BTC', 'ETH', 'SOL', 'POL', 'BCH', 'USDC', '⚡ Lightning', '💳 Stripe'].map((badge) => (
+          {['BTC', 'ETH', 'SOL', 'POL', 'USDC', '⚡ Lightning', '💳 Stripe'].map((badge) => (
             <span key={badge} className="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded text-xs font-medium">
               {badge}
             </span>
@@ -166,15 +164,15 @@ export default function X402Page() {
       <section className="mb-10 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
         <h2 className="text-xl font-semibold mb-4">Fees</h2>
         <p className="text-gray-600 dark:text-gray-400 mb-4">
-          CoinPayPortal charges a small commission on each x402 payment, deducted before forwarding to the merchant. The same fee structure applies to all CoinPayPortal payment methods.
+          On x402 the buyer pays your wallet directly — no CoinPayPortal wallet is in the path, so no commission is currently deducted on x402 payments. The standard commission below applies to CoinPayPortal&apos;s custodial payment rails (invoices, Stripe, PayPal, widgets).
         </p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-700">
               <tr>
                 <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-300">Plan</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-300">Commission</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-300">Merchant Receives</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-300">Standard Commission</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-300">x402 Commission</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-300">Price</th>
               </tr>
             </thead>
@@ -182,13 +180,13 @@ export default function X402Page() {
               <tr className="border-t border-gray-200 dark:border-gray-700">
                 <td className="px-4 py-3 font-medium">Starter (Free)</td>
                 <td className="px-4 py-3">1.0%</td>
-                <td className="px-4 py-3">99.0%</td>
+                <td className="px-4 py-3">0% (not deducted)</td>
                 <td className="px-4 py-3">$0/mo</td>
               </tr>
               <tr className="border-t border-gray-200 dark:border-gray-700">
                 <td className="px-4 py-3 font-medium">Professional</td>
                 <td className="px-4 py-3">0.5%</td>
-                <td className="px-4 py-3">99.5%</td>
+                <td className="px-4 py-3">0% (not deducted)</td>
                 <td className="px-4 py-3">$49/mo</td>
               </tr>
             </tbody>
@@ -257,7 +255,7 @@ Content-Type: application/json
             </p>
             <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2 ml-4 list-disc">
               <li><strong>USDC (EVM chains):</strong> Sign an EIP-712 typed message authorizing a <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs">transferFrom</code> — no on-chain tx yet, just a signature</li>
-              <li><strong>Bitcoin/BCH:</strong> Broadcast a transaction to the merchant&apos;s address, include the txid as proof</li>
+              <li><strong>Bitcoin:</strong> Broadcast a transaction to the merchant&apos;s address, include the txid as proof</li>
               <li><strong>Lightning:</strong> Pay the BOLT12 offer, include the preimage as proof</li>
               <li><strong>Solana:</strong> Sign and broadcast a transfer, include the signature</li>
               <li><strong>Stripe:</strong> Complete card checkout, include the payment intent ID</li>

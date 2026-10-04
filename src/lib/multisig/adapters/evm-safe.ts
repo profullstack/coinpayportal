@@ -42,14 +42,16 @@ interface EvmChainConfig {
 const EVM_CHAIN_CONFIGS: Record<EvmChain, EvmChainConfig> = {
   ETH: {
     chainId: 1,
-    rpcUrl: process.env.ETH_RPC_URL || 'https://eth.llamarpc.com',
+    rpcUrl:
+      process.env.ETHEREUM_RPC_URL || process.env.ETH_RPC_URL || 'https://ethereum-rpc.publicnode.com',
     safeFactoryAddress: '0xa6B71E26C5e0845f74c812102Ca7114b6a896AB2',
     safeSingletonAddress: '0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552',
     name: 'Ethereum',
   },
   POL: {
     chainId: 137,
-    rpcUrl: process.env.POL_RPC_URL || 'https://polygon-rpc.com',
+    rpcUrl:
+      process.env.POLYGON_RPC_URL || process.env.POL_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
     safeFactoryAddress: '0xa6B71E26C5e0845f74c812102Ca7114b6a896AB2',
     safeSingletonAddress: '0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552',
     name: 'Polygon',

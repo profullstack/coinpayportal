@@ -16,7 +16,9 @@ function read(path: string): string {
   return readFileSync(resolve(pkgRoot, path), 'utf8');
 }
 
-function manifest(target: 'chrome' | 'firefox'): any {
+type Target = 'chrome' | 'firefox' | 'safari';
+
+function manifest(target: Target): any {
   return JSON.parse(read(`manifest/manifest.${target}.json`));
 }
 
@@ -29,7 +31,7 @@ describe('content script', () => {
   });
 });
 
-describe.each(['chrome', 'firefox'] as const)('%s manifest', (target) => {
+describe.each(['chrome', 'firefox', 'safari'] as const)('%s manifest', (target) => {
   const m = manifest(target);
 
   it('declares the content script and its injected provider together', () => {
@@ -70,7 +72,59 @@ describe.each(['chrome', 'firefox'] as const)('%s manifest', (target) => {
 });
 
 describe('manifest parity', () => {
-  it('keeps chrome and firefox on the same version', () => {
-    expect(manifest('chrome').version).toBe(manifest('firefox').version);
+  it('keeps every target on the same version', () => {
+    const versions = (['chrome', 'firefox', 'safari'] as const).map((t) => manifest(t).version);
+    expect(new Set(versions).size).toBe(1);
+  });
+
+  it('matches the version the package is released under', () => {
+    const pkg = JSON.parse(read('package.json'));
+    // A manifest left behind at the previous version ships an extension the
+    // stores accept and then never update — the version is the update trigger.
+    expect(manifest('chrome').version).toBe(pkg.version);
+  });
+});
+
+describe('store packaging', () => {
+  // `key` pins the extension id of the self-hosted build so an install from
+  // tronbrowser.dev replaces the existing copy rather than sitting beside it.
+  // The stores mint their own id, and shipping a foreign key to them is at
+  // best ignored — `scripts/package.mjs` strips it for chrome/firefox/safari.
+  it('keeps the pinned id on the build the self-hosted channel is cut from', () => {
+    expect(typeof manifest('chrome').key).toBe('string');
+  });
+
+  it('does not pin an id on targets that never self-host', () => {
+    expect(manifest('firefox').key).toBeUndefined();
+    expect(manifest('safari').key).toBeUndefined();
+  });
+
+  it('gives firefox the identity and data disclosure AMO requires', () => {
+    const gecko = manifest('firefox').browser_specific_settings?.gecko;
+    expect(gecko?.id).toBe('coinpay@profullstack.com');
+    // AMO refuses a listed submission with no data-collection declaration, and
+    // the key itself is only understood from Firefox 140.
+    expect(gecko?.data_collection_permissions?.required?.length).toBeGreaterThan(0);
+    expect(Number.parseFloat(gecko.strict_min_version)).toBeGreaterThanOrEqual(140);
+  });
+
+  it('gives safari a background worker, not a Gecko event page', () => {
+    // Safari follows the Chromium MV3 shape; `background.scripts` silently
+    // never runs there.
+    expect(manifest('safari').background.service_worker).toBe('background/index.js');
+    expect(manifest('safari').browser_specific_settings?.safari?.strict_min_version).toBeTruthy();
+  });
+
+  it('describes itself to the stores with everything a listing needs', () => {
+    const listing = JSON.parse(read('store-listing.json'));
+    // Chrome rejects a publish with a detailed description under 25 chars, and
+    // both stores require a reachable privacy policy for a wallet.
+    expect(listing.description.length).toBeGreaterThan(25);
+    expect(listing.privacyPolicyUrl).toMatch(/^https:\/\//);
+    expect(listing.chrome.singlePurpose).toBeTruthy();
+    expect(listing.firefox.privacyPolicyText).toBeTruthy();
+    for (const permission of manifest('chrome').permissions) {
+      expect(listing.chrome.permissionJustifications[permission]).toBeTruthy();
+    }
   });
 });

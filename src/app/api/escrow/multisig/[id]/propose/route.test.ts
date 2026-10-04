@@ -18,6 +18,10 @@ vi.mock('@/lib/multisig', () => ({
         proposal_type: 'release',
         to_address: '0x2222222222222222222222222222222222222222',
         signer_pubkey: '0x1111111111111111111111111111111111111111',
+        // F-1.1-02: a signature over the proposal's own terms is now required,
+        // because a pubkey is public and matching one proved nothing. The
+        // signature is verified in the engine; this route only forwards it.
+        signature: '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
       },
     }),
   },
@@ -42,6 +46,10 @@ function makeRequest(headers: Record<string, string> = {}) {
         proposal_type: 'release',
         to_address: '0x2222222222222222222222222222222222222222',
         signer_pubkey: '0x1111111111111111111111111111111111111111',
+        // F-1.1-02: a signature over the proposal's own terms is now required,
+        // because a pubkey is public and matching one proved nothing. The
+        // signature is verified in the engine; this route only forwards it.
+        signature: '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
       }),
     },
   );
@@ -72,7 +80,12 @@ describe('POST /api/escrow/multisig/:id/propose', () => {
   });
 
   it('creates a prepared proposal for authenticated callers', async () => {
-    mockRequireMultisigAuth.mockResolvedValue({ ok: true });
+    mockRequireMultisigAuth.mockResolvedValue({
+      ok: true,
+      // F-1.1-04: the helper used to discard the identity it resolved, so
+      // routes had nothing to scope by.
+      context: { type: 'merchant', merchantId: 'm-1', email: 'm@example.com' },
+    });
     mockProposeTransaction.mockResolvedValue({
       success: true,
       proposal: { id: 'prop_1' },
@@ -90,6 +103,7 @@ describe('POST /api/escrow/multisig/:id/propose', () => {
       'release',
       '0x2222222222222222222222222222222222222222',
       '0x1111111111111111111111111111111111111111',
+      '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
     );
     expect(await response.json()).toEqual({
       proposal: { id: 'prop_1' },

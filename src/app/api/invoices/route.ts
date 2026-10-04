@@ -5,6 +5,10 @@ import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { resolveMerchant } from '@/lib/auth/merchant';
 import { authorizeBusiness, listAccessibleBusinessIds } from '@/lib/auth/authz';
 import { resolvePayee } from '@/lib/payments/payee';
+import { insertWithInvoiceNumber } from '@/lib/invoices/numbering';
+import {
+  creationIdentity, findCreatedInvoice, createInvoiceOnce, InvoiceCreationError,
+} from '@/lib/invoices/creation';
 
 /**
  * GET /api/invoices
@@ -97,6 +101,10 @@ export async function POST(request: NextRequest) {
     const { merchantId, apiKeyBusinessId } = authResult;
 
     const body = await request.json();
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json({ success: false, error: 'Expected an invoice object' }, { status: 400 });
+    }
+    const identity = creationIdentity(request.headers.get('Idempotency-Key'), body);
     const {
       business_id, client_id, currency, amount, crypto_currency,
       due_date, notes, wallet_id, merchant_wallet_address,
@@ -128,6 +136,64 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: authz.error }, { status: authz.status });
       }
     }
+
+    // Naming a payee address is moving funds, and that is owner-only.
+    //
+    // `merchant_wallet_address` overrides where this invoice pays out. It was
+    // gated at `invoice.write`, which a `writer` holds — so a non-owner team
+    // member could redirect an invoice's proceeds to an address of their
+    // choosing, against the project's own stated invariant that funds movement
+    // is owner-only. Using the business's CONFIGURED payee stays at
+    // `invoice.write`; overriding it does not.
+    //
+    // API-key callers are not covered here: a key is scoped to its business
+    // rather than to a role, and is already restricted to that one business.
+    if (merchant_wallet_address && !apiKeyBusinessId) {
+      const fundsAuthz = await authorizeBusiness(
+        supabase,
+        merchantId,
+        resolvedBusinessId,
+        'funds.move',
+      );
+      if (!fundsAuthz.ok) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Naming a payout address for an invoice requires owner permissions',
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    if (identity.key && identity.hash) {
+      const previous = await findCreatedInvoice(supabase, resolvedBusinessId, identity.key, identity.hash);
+      if (previous) {
+        return NextResponse.json({ success: true, invoice: previous, idempotentReplay: true });
+      }
+    }
+
+    // A client must belong to the business the invoice is being created on.
+    //
+    // `client_id` was written straight through. `clients` rows carry a
+    // `business_id`, so an unvalidated id attaches another business's customer
+    // record to this invoice — cross-tenant by construction, and the invoice
+    // then renders that client's details.
+    if (client_id) {
+      const { data: clientRow } = await supabase
+        .from('clients')
+        .select('id, business_id')
+        .eq('id', client_id)
+        .maybeSingle();
+
+      if (!clientRow || clientRow.business_id !== resolvedBusinessId) {
+        return NextResponse.json(
+          { success: false, error: 'client_id does not belong to this business' },
+          { status: 400 }
+        );
+      }
+    }
+
 
     // Resolve the business + its owner. The owner's id is used as the invoice user_id so
     // owner-scoped views still surface invoices a team member created.
@@ -182,72 +248,57 @@ export async function POST(request: NextRequest) {
     // Ordering by created_at was also wrong for the lookup — it returns the
     // most RECENTLY CREATED number, which is not the highest once any invoice
     // is deleted or backdated. Ordering by the parsed number is what was meant.
-    const nextInvoiceNumber = async (): Promise<string> => {
-      const { data: rows } = await supabase
-        .from('invoices')
-        .select('invoice_number')
-        .eq('business_id', resolvedBusinessId)
-        .not('invoice_number', 'is', null);
-
-      let highest = 0;
-      for (const row of rows || []) {
-        const match = String(row.invoice_number).match(/INV-(\d+)/);
-        if (match) {
-          const n = parseInt(match[1], 10);
-          if (Number.isFinite(n) && n > highest) highest = n;
-        }
-      }
-      return `INV-${String(highest + 1).padStart(3, '0')}`;
-    };
-
-    let invoiceNumber = await nextInvoiceNumber();
-
     // Determine fee rate
     const isPaidTier = await isBusinessPaidTier(supabase, resolvedBusinessId);
     const feeRate = getFeePercentage(isPaidTier);
 
-    // Insert, retrying on the unique (business_id, invoice_number) violation
-    // that a concurrent create produces. Each retry re-reads the maximum, so
-    // two racing requests end up with consecutive numbers rather than one
-    // silently overwriting the other's.
-    const MAX_NUMBER_ATTEMPTS = 5;
-    let invoice: any = null;
-    let error: { message: string; code?: string } | null = null;
+    const invoiceFields = {
+      user_id: invoiceOwnerId,
+      business_id: resolvedBusinessId,
+      client_id: client_id || null,
+      status: 'draft',
+      currency: currency || 'USD',
+      amount,
+      crypto_currency: crypto_currency || null,
+      merchant_wallet_address: payeeAddress,
+      wallet_id: wallet_id || null,
+      fee_rate: feeRate,
+      due_date: due_date || null,
+      notes: notes || null,
+      metadata: {
+        ...(payeeSource ? { payee_source: payeeSource } : {}),
+        ...(identity.source ? { source_reference: identity.source } : {}),
+      },
+    };
+    if (identity.key && identity.hash) {
+      const created = await createInvoiceOnce(
+        supabase, resolvedBusinessId, identity.key, identity.hash, invoiceFields, schedule, identity.sourceRateLimit,
+      );
+      return NextResponse.json(
+        { success: true, invoice: created.invoice, idempotentReplay: created.replayed },
+        { status: created.replayed ? 200 : 201 },
+      );
+    }
 
-    for (let attempt = 0; attempt < MAX_NUMBER_ATTEMPTS; attempt++) {
-      const result = await supabase
+    // Numbering and the 23505 retry both live in the shared helper now. This
+    // route already had them right; the other three sites did not, and keeping
+    // four copies is how they diverged in the first place.
+    const { data: invoice, error } = await insertWithInvoiceNumber<any>(
+      supabase,
+      resolvedBusinessId,
+      (invoiceNumber) => supabase
         .from('invoices')
         .insert({
-          user_id: invoiceOwnerId,
-          business_id: resolvedBusinessId,
-          client_id: client_id || null,
+          ...invoiceFields,
           invoice_number: invoiceNumber,
-          status: 'draft',
-          currency: currency || 'USD',
-          amount,
-          crypto_currency: crypto_currency || null,
-          merchant_wallet_address: payeeAddress,
-          wallet_id: wallet_id || null,
-          fee_rate: feeRate,
-          due_date: due_date || null,
-          notes: notes || null,
-          metadata: payeeSource ? { payee_source: payeeSource } : {},
         })
         .select(`
           *,
           clients (id, name, email, company_name),
           businesses (id, name)
         `)
-        .single();
-
-      invoice = result.data;
-      error = result.error;
-
-      // 23505 = unique_violation. Anything else is a real failure.
-      if (!error || error.code !== '23505') break;
-
-      invoiceNumber = await nextInvoiceNumber();
-    }
+        .single()
+    );
 
     if (error) {
       console.error('Create invoice error:', error);
@@ -281,6 +332,14 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, invoice }, { status: 201 });
   } catch (error) {
+    if (error instanceof InvoiceCreationError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code }, { status: error.status },
+      );
+    }
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 });
+    }
     console.error('Create invoice error:', error);
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }

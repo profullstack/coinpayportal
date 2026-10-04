@@ -12,6 +12,7 @@
  * through src/lib/email (Resend/Mailgun).
  */
 
+import { escapeHtml, escapeUrl } from '../email/escape';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes } from 'crypto';
 import { sendEmail } from '@/lib/email';
@@ -54,6 +55,8 @@ export type MemberView = {
   email: string | null;
   name: string | null;
   role: Role;
+  /** Org members only: may open the org owner's Finances. Always false for businesses. */
+  financeAccess: boolean;
   createdAt: string;
 };
 
@@ -61,6 +64,7 @@ export type InvitationView = {
   id: string;
   email: string;
   role: Role;
+  financeAccess: boolean;
   invitedBy: string;
   expiresAt: string;
   acceptedAt: string | null;
@@ -75,7 +79,11 @@ export async function listMembers(
 ): Promise<MemberView[]> {
   const { data, error } = await supabase
     .from(membersTable(scope))
-    .select('id, merchant_id, role, created_at, merchants(email, name)')
+    .select(
+      scope === 'org'
+        ? 'id, merchant_id, role, finance_access, created_at, merchants(email, name)'
+        : 'id, merchant_id, role, created_at, merchants(email, name)',
+    )
     .eq(scopeCol(scope), scopeId)
     .order('created_at', { ascending: true });
 
@@ -87,6 +95,7 @@ export async function listMembers(
     email: row.merchants?.email ?? null,
     name: row.merchants?.name ?? null,
     role: row.role as Role,
+    financeAccess: row.finance_access === true,
     createdAt: row.created_at,
   }));
 }
@@ -99,7 +108,11 @@ export async function listInvitations(
 ): Promise<InvitationView[]> {
   const { data, error } = await supabase
     .from(invitesTable(scope))
-    .select('id, email, role, invited_by, expires_at, accepted_at, created_at')
+    .select(
+      scope === 'org'
+        ? 'id, email, role, finance_access, invited_by, expires_at, accepted_at, created_at'
+        : 'id, email, role, invited_by, expires_at, accepted_at, created_at',
+    )
     .eq(scopeCol(scope), scopeId)
     .is('accepted_at', null)
     .order('created_at', { ascending: false });
@@ -110,6 +123,7 @@ export async function listInvitations(
     id: row.id,
     email: row.email,
     role: row.role as Role,
+    financeAccess: row.finance_access === true,
     invitedBy: row.invited_by,
     expiresAt: row.expires_at,
     acceptedAt: row.accepted_at,
@@ -117,23 +131,36 @@ export async function listInvitations(
   }));
 }
 
+const ROLE_LABEL: Record<Role, string> = {
+  owner: 'Owner',
+  admin: 'Admin',
+  writer: 'Read & write',
+  readonly: 'Read only',
+};
+
 function invitationEmailHtml(opts: {
   scopeLabel: string;
   role: Role;
   acceptUrl: string;
+  financeAccess?: boolean;
 }): string {
+  // `scopeLabel` is the business or organization NAME, chosen by whoever
+  // created it — and creating a merchant account is free and unverified. It was
+  // interpolated raw into an email delivered to an arbitrary address the same
+  // caller supplies, which makes this a way to send attacker-authored HTML from
+  // the platform's own sending domain, to anyone, with no rate limit.
   return `
     <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 480px; margin: 0 auto;">
-      <h2>You've been invited to ${opts.scopeLabel} on CoinPay</h2>
-      <p>You've been added as a <strong>${opts.role}</strong>. Click below to accept the invitation and access the workspace.</p>
+      <h2>You've been invited to ${escapeHtml(opts.scopeLabel)} on CoinPay</h2>
+      <p>You've been added with <strong>${escapeHtml(ROLE_LABEL[opts.role] ?? opts.role)}</strong> access${opts.financeAccess ? ', including the owner&#39;s Finances (bank and card transactions, books and reports)' : ''}. Click below to accept the invitation and access the workspace.</p>
       <p style="margin: 24px 0;">
-        <a href="${opts.acceptUrl}"
+        <a href="${escapeUrl(opts.acceptUrl)}"
            style="background:#111827;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;display:inline-block;">
           Accept invitation
         </a>
       </p>
       <p style="color:#6b7280;font-size:13px;">This invitation expires in 7 days. If you didn't expect this, you can ignore this email.</p>
-      <p style="color:#9ca3af;font-size:12px;word-break:break-all;">${opts.acceptUrl}</p>
+      <p style="color:#9ca3af;font-size:12px;word-break:break-all;">${escapeHtml(opts.acceptUrl)}</p>
     </div>
   `;
 }
@@ -153,9 +180,20 @@ export async function inviteMember(opts: {
   invitedByMerchantId: string;
   actorRole: Role;
   baseUrl: string;
+  /** Org invites only: also open the org owner's Finances. Owner-only to grant. */
+  financeAccess?: boolean;
 }): Promise<ServiceResult<{ invitation: { id: string; token: string; email: string; role: Role } }>> {
   const { supabase, scope, scopeId, scopeName, role, invitedByMerchantId, actorRole, baseUrl } = opts;
   const email = normalizeEmail(opts.email);
+  const financeAccess = opts.financeAccess === true;
+
+  if (financeAccess && scope !== 'org') {
+    return { success: false, error: 'Finance access is granted on an organization, not a business', status: 400 };
+  }
+  if (financeAccess && actorRole !== 'owner') {
+    // The books are the owner's bank and card accounts; an admin cannot hand them out.
+    return { success: false, error: 'Only the organization owner can grant finance access', status: 403 };
+  }
 
   if (!isRole(role) || !INVITABLE_ROLES.includes(role)) {
     return { success: false, error: 'Invalid role', status: 400 };
@@ -200,6 +238,7 @@ export async function inviteMember(opts: {
         invited_by: invitedByMerchantId,
         expires_at: expiresAt,
         accepted_at: null,
+        ...(scope === 'org' ? { finance_access: financeAccess } : {}),
       },
       { onConflict: `${scopeCol(scope)},email` },
     )
@@ -218,6 +257,7 @@ export async function inviteMember(opts: {
       scopeLabel: scope === 'org' ? `${scopeName}` : `the "${scopeName}" business`,
       role,
       acceptUrl,
+      financeAccess,
     }),
   });
 
@@ -238,6 +278,7 @@ type FoundInvitation = {
   scopeId: string;
   email: string;
   role: Role;
+  financeAccess: boolean;
   expiresAt: string;
   acceptedAt: string | null;
 };
@@ -248,7 +289,7 @@ async function findInvitationByToken(
 ): Promise<FoundInvitation | null> {
   const { data: org } = await supabase
     .from('organization_invitations')
-    .select('id, organization_id, email, role, expires_at, accepted_at')
+    .select('id, organization_id, email, role, finance_access, expires_at, accepted_at')
     .eq('token', token)
     .maybeSingle();
   if (org) {
@@ -258,6 +299,7 @@ async function findInvitationByToken(
       scopeId: org.organization_id,
       email: org.email,
       role: org.role as Role,
+      financeAccess: org.finance_access === true,
       expiresAt: org.expires_at,
       acceptedAt: org.accepted_at,
     };
@@ -275,6 +317,7 @@ async function findInvitationByToken(
       scopeId: biz.business_id,
       email: biz.email,
       role: biz.role as Role,
+      financeAccess: false,
       expiresAt: biz.expires_at,
       acceptedAt: biz.accepted_at,
     };
@@ -320,6 +363,7 @@ export async function acceptInvitation(opts: {
       [scopeCol(invitation.scope)]: invitation.scopeId,
       merchant_id: acceptingMerchantId,
       role: invitation.role,
+      ...(invitation.scope === 'org' ? { finance_access: invitation.financeAccess } : {}),
     },
     { onConflict: `${scopeCol(invitation.scope)},merchant_id` },
   );
@@ -374,6 +418,43 @@ export async function updateMemberRole(opts: {
   const { error } = await supabase
     .from(membersTable(scope))
     .update({ role: newRole })
+    .eq('id', memberId);
+  if (error) {
+    return { success: false, error: error.message, status: 500 };
+  }
+  return { success: true };
+}
+
+/**
+ * Grant or revoke a member's access to the org owner's Finances. Owner-only: the
+ * books are the owner's own bank and card accounts.
+ */
+export async function setMemberFinanceAccess(opts: {
+  supabase: SupabaseClient;
+  orgId: string;
+  memberId: string;
+  financeAccess: boolean;
+  actorRole: Role;
+}): Promise<ServiceResult> {
+  const { supabase, orgId, memberId, financeAccess, actorRole } = opts;
+  if (actorRole !== 'owner') {
+    return { success: false, error: 'Only the organization owner can change finance access', status: 403 };
+  }
+  const { data: member } = await supabase
+    .from('organization_members')
+    .select('id, role')
+    .eq('organization_id', orgId)
+    .eq('id', memberId)
+    .maybeSingle();
+  if (!member) {
+    return { success: false, error: 'Member not found', status: 404 };
+  }
+  if (member.role === 'owner') {
+    return { success: false, error: 'The owner always has their own finances', status: 400 };
+  }
+  const { error } = await supabase
+    .from('organization_members')
+    .update({ finance_access: financeAccess })
     .eq('id', memberId);
   if (error) {
     return { success: false, error: error.message, status: 500 };

@@ -304,7 +304,10 @@ describe('checkTransactionAllowed', () => {
       error: null,
     });
     const inFn = vi.fn().mockReturnValue({ gte: gteResult });
-    const eqDir = vi.fn().mockReturnValue({ in: inFn });
+    // .eq('chain', …) — the daily total is now scoped to the chain being spent
+    // on, instead of summing raw amounts across every chain the wallet touched.
+    const eqChain = vi.fn().mockReturnValue({ in: inFn });
+    const eqDir = vi.fn().mockReturnValue({ eq: eqChain });
     const eqWalletTx = vi.fn().mockReturnValue({ eq: eqDir });
     const selectTx = vi.fn().mockReturnValue({ eq: eqWalletTx });
 
@@ -344,7 +347,10 @@ describe('checkTransactionAllowed', () => {
       error: null,
     });
     const inFn = vi.fn().mockReturnValue({ gte: gteResult });
-    const eqDir = vi.fn().mockReturnValue({ in: inFn });
+    // .eq('chain', …) — the daily total is now scoped to the chain being spent
+    // on, instead of summing raw amounts across every chain the wallet touched.
+    const eqChain = vi.fn().mockReturnValue({ in: inFn });
+    const eqDir = vi.fn().mockReturnValue({ eq: eqChain });
     const eqWalletTx = vi.fn().mockReturnValue({ eq: eqDir });
     const selectTx = vi.fn().mockReturnValue({ eq: eqWalletTx });
 
@@ -361,7 +367,14 @@ describe('checkTransactionAllowed', () => {
     expect(result.allowed).toBe(true);
   });
 
-  it('should allow if settings fail to load (fail open)', async () => {
+  it('denies when settings cannot be loaded, rather than failing open', async () => {
+    // This test previously asserted `allowed: true` and was named "(fail open)".
+    // The whitelist and the daily spend limit are the only two controls between
+    // a compromised session and the wallet balance, and both evaporated
+    // whenever this read failed. `getSettings` creates a default row when none
+    // exists, so reaching here means a real database failure — not "no settings
+    // configured". Refusing a send during an outage is recoverable; an
+    // unlimited send is not.
     const singleFn = vi.fn().mockResolvedValue({
       data: null,
       error: { message: 'DB error' },
@@ -371,6 +384,85 @@ describe('checkTransactionAllowed', () => {
     const supabase = { from: vi.fn().mockReturnValue({ select: selectFn }) } as any;
 
     const result = await checkTransactionAllowed(supabase, 'w1', '0xrecipient', 1, 'ETH');
-    expect(result.allowed).toBe(true);
+    expect(result.allowed).toBe(false);
+  });
+
+  it('denies when today\'s spend cannot be read, rather than skipping the limit', async () => {
+    // The second fail-open path: an error on this query skipped the limit check
+    // entirely and let the send through.
+    const singleFn = vi.fn().mockResolvedValue({
+      data: {
+        wallet_id: 'w1',
+        daily_spend_limit: 1,
+        whitelist_addresses: [],
+        whitelist_enabled: false,
+        require_confirmation: false,
+        confirmation_delay_seconds: 0,
+      },
+      error: null,
+    });
+    const eqFn = vi.fn().mockReturnValue({ single: singleFn });
+    const selectFn = vi.fn().mockReturnValue({ eq: eqFn });
+
+    const gteResult = vi.fn().mockResolvedValue({
+      data: null,
+      error: { message: 'connection refused' },
+    });
+    const inFn = vi.fn().mockReturnValue({ gte: gteResult });
+    const eqChain = vi.fn().mockReturnValue({ in: inFn });
+    const eqDir = vi.fn().mockReturnValue({ eq: eqChain });
+    const eqWalletTx = vi.fn().mockReturnValue({ eq: eqDir });
+    const selectTx = vi.fn().mockReturnValue({ eq: eqWalletTx });
+
+    const supabase = {
+      from: vi.fn().mockImplementation((table: string) => {
+        if (table === 'wallet_settings') return { select: selectFn };
+        if (table === 'wallet_transactions') return { select: selectTx };
+        return {};
+      }),
+    } as any;
+
+    const result = await checkTransactionAllowed(supabase, 'w1', '0xrecipient', 0.1, 'ETH');
+    expect(result.allowed).toBe(false);
+  });
+
+  it('scopes the daily total to the chain being spent on', async () => {
+    // `chain` was accepted and never used, so 1 BTC and 1 DOGE counted as 2
+    // against a single limit. Here the wallet has spent 0.9 ETH today against a
+    // limit of 1; a 0.5 spend must be blocked, and the query must have been
+    // filtered by chain.
+    const singleFn = vi.fn().mockResolvedValue({
+      data: {
+        wallet_id: 'w1',
+        daily_spend_limit: 1,
+        whitelist_addresses: [],
+        whitelist_enabled: false,
+        require_confirmation: false,
+        confirmation_delay_seconds: 0,
+      },
+      error: null,
+    });
+    const eqFn = vi.fn().mockReturnValue({ single: singleFn });
+    const selectFn = vi.fn().mockReturnValue({ eq: eqFn });
+
+    const gteResult = vi.fn().mockResolvedValue({ data: [{ amount: '0.9' }], error: null });
+    const inFn = vi.fn().mockReturnValue({ gte: gteResult });
+    const eqChain = vi.fn().mockReturnValue({ in: inFn });
+    const eqDir = vi.fn().mockReturnValue({ eq: eqChain });
+    const eqWalletTx = vi.fn().mockReturnValue({ eq: eqDir });
+    const selectTx = vi.fn().mockReturnValue({ eq: eqWalletTx });
+
+    const supabase = {
+      from: vi.fn().mockImplementation((table: string) => {
+        if (table === 'wallet_settings') return { select: selectFn };
+        if (table === 'wallet_transactions') return { select: selectTx };
+        return {};
+      }),
+    } as any;
+
+    const result = await checkTransactionAllowed(supabase, 'w1', '0xrecipient', 0.5, 'ETH');
+
+    expect(result.allowed).toBe(false);
+    expect(eqChain).toHaveBeenCalledWith('chain', 'ETH');
   });
 });

@@ -1,3 +1,4 @@
+import { bolt11AmountMsat } from '@/lib/lightning/bolt11-amount';
 import { decryptLnKey } from '@/lib/lightning/key-encryption';
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
@@ -114,6 +115,35 @@ export async function POST(request: NextRequest) {
         return WalletErrors.badRequest('VALIDATION_ERROR', 'No invoice returned from lightning address');
       }
       bolt11 = callbackData.pr;
+
+      // Confirm the invoice is for the amount we asked for.
+      //
+      // The flow asked the recipient's LNURL server for an invoice and then
+      // paid whatever came back, undecoded. The amount actually paid was
+      // therefore whatever that server chose to put in the invoice — not the
+      // amount the sender entered and was shown. A hostile or compromised LNURL
+      // endpoint could return an invoice for any amount up to the wallet's
+      // balance and it would be paid silently.
+      const invoiceMsat = bolt11AmountMsat(bolt11);
+
+      if (invoiceMsat === null) {
+        // Amountless or unparseable. Either way we cannot confirm what paying
+        // it would cost, and "cannot tell" is not agreement.
+        return WalletErrors.badRequest(
+          'VALIDATION_ERROR',
+          'The lightning address returned an invoice whose amount could not be verified'
+        );
+      }
+
+      if (invoiceMsat !== sendAmountMsat) {
+        console.warn(
+          `[Lightning] LNURL invoice amount mismatch: asked ${sendAmountMsat} msat, invoice is ${invoiceMsat} msat`
+        );
+        return WalletErrors.badRequest(
+          'VALIDATION_ERROR',
+          `The lightning address returned an invoice for ${Math.round(invoiceMsat / 1000)} sats, not the ${Math.round(sendAmountMsat / 1000)} sats requested`
+        );
+      }
     }
 
     // Pay the bolt11 invoice via LNbits

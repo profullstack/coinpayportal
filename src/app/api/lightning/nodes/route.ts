@@ -3,7 +3,6 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 import { createUserWallet, waitForExtensions } from '@/lib/lightning/lnbits';
-import { isValidMnemonic } from '@/lib/web-wallet/keys';
 import { authorizeWalletRequest } from '../wallet-auth';
 
 function getSupabase() {
@@ -61,13 +60,32 @@ export async function POST(request: NextRequest) {
   try {
     const rawBody = await request.text();
     const body = JSON.parse(rawBody);
-    const { wallet_id, business_id, mnemonic } = body;
+    const { wallet_id, business_id } = body;
 
     if (!wallet_id) {
       return WalletErrors.badRequest('VALIDATION_ERROR', 'wallet_id is required');
     }
-    if (!mnemonic || !isValidMnemonic(mnemonic)) {
-      return WalletErrors.badRequest('VALIDATION_ERROR', 'Valid mnemonic is required');
+
+    // NEW-20: this route used to require a valid BIP-39 mnemonic, validate it,
+    // and then never use it. Provisioning is a custodial LNbits wallet — there
+    // is no signer here and nothing to derive — so the only effect was to make
+    // every client transmit the master seed for the whole wallet, over the
+    // wire, into request logs, to buy nothing. The seed reconstructs every key
+    // on every chain; it is the one secret that must never leave the device.
+    //
+    // Callers are already authenticated by `authorizeWalletRequest`, which
+    // verifies a signature over the request body — proof of possession without
+    // disclosure, which is what was wanted in the first place.
+    //
+    // Older SDK builds still send the field. Rejecting them would break
+    // provisioning for anyone who has not upgraded, so it is accepted and
+    // discarded, with a warning naming the wallet so the stragglers are
+    // visible.
+    if (body.mnemonic !== undefined) {
+      console.warn(
+        `[Lightning] POST /nodes received a deprecated 'mnemonic' field for wallet ${wallet_id}; ` +
+          'it is ignored. Upgrade the client — the seed must not be transmitted.'
+      );
     }
 
     const supabase = getSupabase();

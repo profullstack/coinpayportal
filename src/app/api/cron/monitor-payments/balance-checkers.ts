@@ -6,6 +6,8 @@
  */
 
 import * as bitcoin from 'bitcoinjs-lib';
+import { fetchWithTimeout } from '@/lib/http/fetch-timeout';
+import { evmRpcCall, type EvmBaseChain } from '@/lib/web-wallet/evm-rpc';
 
 /**
  * CashAddr charset for decoding
@@ -117,10 +119,10 @@ export function toBCHLegacyAddress(address: string): string {
 export const RPC_ENDPOINTS: Record<string, string> = {
   BTC: process.env.BITCOIN_RPC_URL || 'https://blockstream.info/api',
   BCH: process.env.BCH_RPC_URL || 'https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet',
-  ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-  POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+  ETH: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+  POL: process.env.POLYGON_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
   SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
-  BNB: process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org',
+  BNB: process.env.BNB_RPC_URL || process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org',
   DOGE: process.env.DOGE_RPC_URL || 'https://rest.cryptoapis.io/blockchain-data/dogecoin/mainnet',
   XRP: process.env.XRP_RPC_URL || 'https://xrplcluster.com',
   ADA: process.env.ADA_RPC_URL || 'https://cardano-mainnet.blockfrost.io/api/v0',
@@ -144,23 +146,51 @@ const SOLANA_TOKENS = {
 // API keys
 const CRYPTO_APIS_KEY = process.env.CRYPTO_APIS_KEY || '';
 
+// A failed lookup is not an empty wallet. Callers must defer expiry/forwarding
+// when these checks throw, rather than making a financial decision using zero.
+function nonnegativeNumber(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error('Invalid balance response');
+  }
+  return value;
+}
+
+function integerNumber(value: unknown): number {
+  const number = nonnegativeNumber(value);
+  if (!Number.isSafeInteger(number)) throw new Error('Invalid integer balance response');
+  return number;
+}
+
+function decimalString(value: unknown, integer = false): number {
+  const pattern = integer ? /^\d+$/ : /^\d+(?:\.\d+)?$/;
+  if (typeof value !== 'string' || !pattern.test(value)) throw new Error('Invalid balance response');
+  return nonnegativeNumber(Number(value));
+}
+
+function hexBalance(value: unknown, decimals: number): number {
+  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{1,64}$/.test(value)) {
+    throw new Error('Invalid RPC balance response');
+  }
+  return nonnegativeNumber(Number(BigInt(value)) / 10 ** decimals);
+}
+
 /**
  * Check balance for a Bitcoin address using Blockstream API
  */
 export async function checkBitcoinBalance(address: string): Promise<number> {
   try {
-    const response = await fetch(`https://blockstream.info/api/address/${address}`);
+    const response = await fetchWithTimeout(`https://blockstream.info/api/address/${address}`);
     if (!response.ok) {
       console.error(`Failed to fetch BTC balance for ${address}: ${response.status}`);
-      return 0;
+      throw new Error('BTC balance lookup failed');
     }
     
     const data = await response.json();
-    const balanceSatoshis = (data.chain_stats?.funded_txo_sum || 0) - (data.chain_stats?.spent_txo_sum || 0);
-    return balanceSatoshis / 100_000_000;
+    const balanceSatoshis = integerNumber(data?.chain_stats?.funded_txo_sum) - integerNumber(data?.chain_stats?.spent_txo_sum);
+    return nonnegativeNumber(balanceSatoshis) / 100_000_000;
   } catch (error) {
     console.error(`Error checking BTC balance for ${address}:`, error);
-    return 0;
+    throw new Error('Unable to determine BTC balance', { cause: error });
   }
 }
 
@@ -174,34 +204,13 @@ export async function checkBCHBalance(address: string): Promise<number> {
     console.log(`[Monitor BCH] Original address: ${address}`);
     console.log(`[Monitor BCH] Legacy address: ${legacyAddress}`);
     
-    // Try Tatum API first (most reliable for BCH)
-    const tatumApiKey = process.env.TATUM_API_KEY;
-    if (tatumApiKey) {
-      try {
-        const tatumUrl = `https://api.tatum.io/v3/bcash/address/balance/${legacyAddress}`;
-        console.log(`[Monitor BCH] Tatum URL: ${tatumUrl}`);
-        
-        const response = await fetch(tatumUrl, {
-          method: 'GET',
-          headers: { 'x-api-key': tatumApiKey },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          const incoming = parseFloat(data.incoming || '0');
-          const outgoing = parseFloat(data.outgoing || '0');
-          const balance = incoming - outgoing;
-          console.log(`[Monitor BCH] Tatum response: incoming=${incoming}, outgoing=${outgoing}, balance=${balance}`);
-          return balance;
-        } else {
-          const errorText = await response.text();
-          console.error(`[Monitor BCH] Tatum failed for ${legacyAddress}: ${response.status} - ${errorText}`);
-        }
-      } catch (tatumError) {
-        console.error(`[Monitor BCH] Tatum error for ${legacyAddress}:`, tatumError);
-      }
-    }
-    
+    // Tatum used to lead this chain as "most reliable for BCH". Its
+    // `/v3/bcash/address/balance/{address}` route now rejects an address
+    // outright — "xpub must be a valid mainnet BCH xpub" — for legacy and
+    // CashAddr alike, while the same key still works on `/v3/bitcoin/` and
+    // `/v3/dogecoin/`. It was answering nothing but an error on every cycle,
+    // so CryptoAPIs (which was already second, and works) now leads.
+    //
     // Try CryptoAPIs
     const cryptoApisKey = CRYPTO_APIS_KEY || process.env.CRYPTOAPIS_API_KEY || '';
     console.log(`[Monitor BCH] CRYPTO_APIS_KEY configured: ${cryptoApisKey ? 'yes (length=' + cryptoApisKey.length + ')' : 'no'}`);
@@ -215,7 +224,7 @@ export async function checkBCHBalance(address: string): Promise<number> {
         const url = `https://rest.cryptoapis.io/addresses-latest/utxo/bitcoin-cash/mainnet/${cashAddrShort}/balance`;
         console.log(`[Monitor BCH] CryptoAPIs URL: ${url}`);
         
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -225,7 +234,7 @@ export async function checkBCHBalance(address: string): Promise<number> {
         
         if (response.ok) {
           const data = await response.json();
-          const confirmedBalance = parseFloat(data.data?.item?.confirmedBalance?.amount || '0');
+          const confirmedBalance = decimalString(data?.data?.item?.confirmedBalance?.amount);
           console.log(`[Monitor BCH] CryptoAPIs balance: ${confirmedBalance} BCH`);
           return confirmedBalance;
         } else {
@@ -237,30 +246,33 @@ export async function checkBCHBalance(address: string): Promise<number> {
       }
     }
     
-    // Fallback to fullstack.cash
+    // Fallback to Haskoin. This slot was fullstack.cash, whose v5 API is gone:
+    // it now serves the marketing page for these routes, and it does so with
+    // HTTP 200, so the request looks like a success and only the missing
+    // `success` field kept a stray HTML body from being read as a balance.
     try {
-      const fullstackUrl = `https://api.fullstack.cash/v5/electrumx/balance/${address}`;
-      const fullstackResponse = await fetch(fullstackUrl);
-      
-      if (fullstackResponse.ok) {
-        const fullstackData = await fullstackResponse.json();
-        if (fullstackData.success) {
-          const balanceSatoshis = (fullstackData.balance?.confirmed || 0) + (fullstackData.balance?.unconfirmed || 0);
-          return balanceSatoshis / 100_000_000;
+      const haskoinResponse = await fetchWithTimeout(
+        `https://api.haskoin.com/bch/address/${address}/balance`
+      );
+      if (haskoinResponse.ok) {
+        const haskoinData = await haskoinResponse.json();
+        if (typeof haskoinData?.confirmed === 'number') {
+          console.log(`[Monitor BCH] Haskoin balance: ${haskoinData.confirmed} sat`);
+          return integerNumber(haskoinData.confirmed) / 100_000_000;
         }
       }
-    } catch (fullstackError) {
-      console.error(`[Monitor BCH] Fullstack.cash error for ${address}:`, fullstackError);
+    } catch (haskoinError) {
+      console.error(`[Monitor BCH] Haskoin error for ${address}:`, haskoinError);
     }
-    
+
     // Fallback to Blockchair
     try {
       const blockchairUrl = `https://api.blockchair.com/bitcoin-cash/dashboards/address/${legacyAddress}`;
-      const blockchairResponse = await fetch(blockchairUrl);
+      const blockchairResponse = await fetchWithTimeout(blockchairUrl);
       
       if (blockchairResponse.ok) {
         const blockchairData = await blockchairResponse.json();
-        const balanceSatoshis = blockchairData?.data?.[legacyAddress]?.address?.balance || 0;
+        const balanceSatoshis = integerNumber(blockchairData?.data?.[legacyAddress]?.address?.balance);
         return balanceSatoshis / 100_000_000;
       }
     } catch (blockchairError) {
@@ -268,45 +280,30 @@ export async function checkBCHBalance(address: string): Promise<number> {
     }
     
     console.error(`[Monitor BCH] All APIs failed for ${address}`);
-    return 0;
+    throw new Error('All BCH balance sources failed');
   } catch (error) {
     console.error(`[Monitor BCH] Error checking balance for ${address}:`, error);
-    return 0;
+    throw new Error('Unable to determine BCH balance', { cause: error });
   }
 }
 
 /**
- * Check balance for an Ethereum/Polygon address using JSON-RPC
+ * Native balance on an EVM chain (ETH, POL, BNB).
+ *
+ * Goes through the failover helper rather than one URL: a single throttled
+ * provider stopped payment detection on every EVM chain in September 2026.
  */
-export async function checkEVMBalance(address: string, rpcUrl: string): Promise<number> {
+export async function checkEVMBalance(address: string, chain: EvmBaseChain): Promise<number> {
   try {
-    const response = await fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'eth_getBalance',
-        params: [address, 'latest'],
-        id: 1,
-      }),
-    });
-    
-    if (!response.ok) {
-      console.error(`Failed to fetch EVM balance for ${address}: ${response.status}`);
-      return 0;
-    }
-    
-    const data = await response.json();
+    const data = await evmRpcCall(chain, 'eth_getBalance', [address, 'latest']);
     if (data.error) {
       console.error(`RPC error for ${address}:`, data.error);
-      return 0;
+      throw new Error('EVM RPC balance lookup failed');
     }
-    
-    const balanceWei = BigInt(data.result || '0x0');
-    return Number(balanceWei) / 1e18;
+    return hexBalance(data?.result, 18);
   } catch (error) {
     console.error(`Error checking EVM balance for ${address}:`, error);
-    return 0;
+    throw new Error('Unable to determine EVM balance', { cause: error });
   }
 }
 
@@ -315,41 +312,22 @@ export async function checkEVMBalance(address: string, rpcUrl: string): Promise<
  */
 export async function checkEVMTokenBalance(
   address: string,
-  rpcUrl: string,
+  chain: EvmBaseChain,
   contractAddress: string,
   decimals: number = 6
 ): Promise<number> {
   try {
     const paddedAddress = address.toLowerCase().replace(/^0x/, '').padStart(64, '0');
     const callData = `${ERC20_BALANCE_OF_SELECTOR}${paddedAddress}`;
-
-    const response = await fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'eth_call',
-        params: [{ to: contractAddress, data: callData }, 'latest'],
-        id: 1,
-      }),
-    });
-
-    if (!response.ok) {
-      console.error(`Failed to fetch EVM token balance for ${address}: ${response.status}`);
-      return 0;
-    }
-
-    const data = await response.json();
+    const data = await evmRpcCall(chain, 'eth_call', [{ to: contractAddress, data: callData }, 'latest']);
     if (data.error) {
       console.error(`RPC error for token balance ${address}:`, data.error);
-      return 0;
+      throw new Error('EVM token RPC balance lookup failed');
     }
-
-    const balanceRaw = BigInt(data.result || '0x0');
-    return Number(balanceRaw) / 10 ** decimals;
+    return hexBalance(data?.result, decimals);
   } catch (error) {
     console.error(`Error checking EVM token balance for ${address}:`, error);
-    return 0;
+    throw new Error('Unable to determine EVM token balance', { cause: error });
   }
 }
 
@@ -360,7 +338,7 @@ export async function checkSolanaBalance(address: string, rpcUrl: string): Promi
   try {
     console.log(`Checking Solana balance for ${address} using ${rpcUrl}`);
     
-    const response = await fetch(rpcUrl, {
+    const response = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -374,7 +352,7 @@ export async function checkSolanaBalance(address: string, rpcUrl: string): Promi
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`Failed to fetch Solana balance for ${address}: ${response.status} - ${errorText}`);
-      return 0;
+      throw new Error('SOL balance lookup failed');
     }
     
     const data = await response.json();
@@ -382,16 +360,16 @@ export async function checkSolanaBalance(address: string, rpcUrl: string): Promi
     
     if (data.error) {
       console.error(`RPC error for ${address}:`, data.error);
-      return 0;
+      throw new Error('SOL RPC balance lookup failed');
     }
     
-    const balanceLamports = data.result?.value || 0;
+    const balanceLamports = integerNumber(data?.result?.value);
     const balanceSOL = balanceLamports / 1e9;
     console.log(`Solana balance for ${address}: ${balanceLamports} lamports = ${balanceSOL} SOL`);
     return balanceSOL;
   } catch (error) {
     console.error(`Error checking Solana balance for ${address}:`, error);
-    return 0;
+    throw new Error('Unable to determine SOL balance', { cause: error });
   }
 }
 
@@ -405,7 +383,7 @@ export async function checkSolanaTokenBalance(
   decimals: number = 6
 ): Promise<number> {
   try {
-    const response = await fetch(rpcUrl, {
+    const response = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -423,35 +401,29 @@ export async function checkSolanaTokenBalance(
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`Failed to fetch Solana token balance for ${address}: ${response.status} - ${errorText}`);
-      return 0;
+      throw new Error('SPL token balance lookup failed');
     }
 
     const data = await response.json();
     if (data.error) {
       console.error(`RPC error for Solana token balance ${address}:`, data.error);
-      return 0;
+      throw new Error('SPL token RPC balance lookup failed');
     }
 
-    const accounts = data.result?.value || [];
+    const accounts = data?.result?.value;
+    if (!Array.isArray(accounts)) throw new Error('Invalid token account response');
     let totalBalance = 0;
 
     for (const account of accounts) {
       const tokenAmount = account?.account?.data?.parsed?.info?.tokenAmount;
-      if (typeof tokenAmount?.uiAmount === 'number') {
-        totalBalance += tokenAmount.uiAmount;
-        continue;
-      }
-
-      const rawAmount = tokenAmount?.amount;
-      if (typeof rawAmount === 'string') {
-        totalBalance += Number(rawAmount) / 10 ** decimals;
-      }
+      if (tokenAmount?.decimals !== decimals) throw new Error('Unexpected token decimals');
+      totalBalance += decimalString(tokenAmount?.amount, true) / 10 ** decimals;
     }
 
-    return totalBalance;
+    return nonnegativeNumber(totalBalance);
   } catch (error) {
     console.error(`Error checking Solana token balance for ${address}:`, error);
-    return 0;
+    throw new Error('Unable to determine SPL token balance', { cause: error });
   }
 }
 
@@ -460,7 +432,7 @@ export async function checkSolanaTokenBalance(
  */
 export async function checkXRPBalance(address: string, rpcUrl: string): Promise<number> {
   try {
-    const response = await fetch(rpcUrl, {
+    const response = await fetchWithTimeout(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -471,25 +443,25 @@ export async function checkXRPBalance(address: string, rpcUrl: string): Promise<
 
     if (!response.ok) {
       console.error(`Failed to fetch XRP balance for ${address}: ${response.status}`);
-      return 0;
+      throw new Error('XRP balance lookup failed');
     }
 
     const data = await response.json();
 
-    if (data.result?.error === 'actNotFound') {
+    if (!data.error && data.result?.error === 'actNotFound') {
       return 0;
     }
 
-    if (data.result?.error) {
-      console.error(`XRP RPC error for ${address}:`, data.result.error);
-      return 0;
+    if (data.error || data.result?.error) {
+      console.error(`XRP RPC error for ${address}:`, data.error ?? data.result?.error);
+      throw new Error('XRP RPC balance lookup failed');
     }
 
-    const balanceDrops = parseInt(data.result?.account_data?.Balance || '0', 10);
+    const balanceDrops = decimalString(data?.result?.account_data?.Balance, true);
     return balanceDrops / 1_000_000;
   } catch (error) {
     console.error(`Error checking XRP balance for ${address}:`, error);
-    return 0;
+    throw new Error('Unable to determine XRP balance', { cause: error });
   }
 }
 
@@ -501,30 +473,81 @@ export async function checkADABalance(address: string, rpcUrl: string): Promise<
     const apiKey = process.env.BLOCKFROST_API_KEY;
     if (!apiKey) {
       console.error('[ADA] BLOCKFROST_API_KEY not configured');
-      return 0;
+      throw new Error('ADA balance provider is not configured');
     }
 
-    const response = await fetch(`${rpcUrl}/addresses/${address}`, {
+    const response = await fetchWithTimeout(`${rpcUrl}/addresses/${address}`, {
       method: 'GET',
       headers: { 'project_id': apiKey },
     });
 
-    if (response.status === 404) {
-      return 0;
-    }
-
     if (!response.ok) {
       console.error(`Failed to fetch ADA balance for ${address}: ${response.status}`);
-      return 0;
+      throw new Error('ADA balance lookup failed');
     }
 
     const data = await response.json();
-    const lovelaceEntry = (data.amount || []).find((a: { unit: string; quantity: string }) => a.unit === 'lovelace');
-    const lovelace = parseInt(lovelaceEntry?.quantity || '0', 10);
+    if (!Array.isArray(data?.amount)) throw new Error('Invalid ADA balance response');
+    const lovelaceEntry = data.amount.find((a: { unit: string; quantity: string }) => a?.unit === 'lovelace');
+    const lovelace = decimalString(lovelaceEntry?.quantity, true);
     return lovelace / 1_000_000;
   } catch (error) {
     console.error(`Error checking ADA balance for ${address}:`, error);
-    return 0;
+    throw new Error('Unable to determine ADA balance', { cause: error });
+  }
+}
+
+/**
+ * Check a Dogecoin address balance.
+ *
+ * F-1.3-04: this case was `console.log('not yet implemented'); return 0`, and
+ * this is the oracle `secure-forwarding.ts` reads. A DOGE payment is *confirmed*
+ * by a different oracle (`payments/monitor-balance.ts`) which has always had a
+ * real implementation — so the two disagreed by construction. A confirmed DOGE
+ * payment reached forwarding, was told the address held nothing, and was pushed
+ * back to `confirmed`; on every subsequent run, the same. The funds would sit at
+ * the intermediary address permanently while the payment looked healthy.
+ *
+ * Deliberately the same two sources, in the same order, as the confirmation-side
+ * checker. Two oracles that disagree about the same address is the actual
+ * defect; a second, differently-sourced implementation would only hide it.
+ *
+ * Production has never confirmed a DOGE payment (all four are `expired`), so
+ * nothing is stranded today — this closes the trap before it is walked into.
+ */
+async function checkDOGEBalance(address: string): Promise<number> {
+  try {
+    try {
+      const response = await fetchWithTimeout(`https://api.blockcypher.com/v1/doge/main/addrs/${address}/balance`);
+      if (response.ok) {
+        const data = await response.json();
+        return integerNumber(data?.balance) / 1e8;
+      }
+    } catch (primaryError) {
+      console.error('[Monitor DOGE] Primary balance source failed:', primaryError);
+    }
+
+    // dogechain.info served this fallback until it began returning 403 to
+    // every request. Tatum replaces it because the key is already provisioned
+    // for BTC/BCH, so this needs no new credential.
+    const apiKey = process.env.TATUM_API_KEY;
+    if (apiKey) {
+      const fallbackResponse = await fetchWithTimeout(
+        `https://api.tatum.io/v3/dogecoin/address/balance/${address}`,
+        { headers: { 'x-api-key': apiKey } }
+      );
+      if (fallbackResponse.ok) {
+        const data = await fallbackResponse.json();
+        // Tatum reports DOGE, not satoshis.
+        return decimalString(data?.balance);
+      }
+    }
+
+    console.error(`[Monitor DOGE] Both balance sources failed for ${address}`);
+    throw new Error('All DOGE balance sources failed');
+  } catch (error) {
+    console.error(`[Monitor DOGE] Error checking balance for ${address}:`, error);
+    throw new Error('Unable to determine DOGE balance', { cause: error });
   }
 }
 
@@ -538,21 +561,21 @@ export async function checkBalance(address: string, blockchain: string): Promise
     case 'BCH':
       return checkBCHBalance(address);
     case 'ETH':
-      return checkEVMBalance(address, RPC_ENDPOINTS.ETH);
+      return checkEVMBalance(address, 'ETH');
     case 'USDT':
     case 'USDT_ETH':
-      return checkEVMTokenBalance(address, RPC_ENDPOINTS.ETH, EVM_TOKENS.USDT_ETH.contractAddress, EVM_TOKENS.USDT_ETH.decimals);
+      return checkEVMTokenBalance(address, 'ETH', EVM_TOKENS.USDT_ETH.contractAddress, EVM_TOKENS.USDT_ETH.decimals);
     case 'USDC':
     case 'USDC_ETH':
-      return checkEVMTokenBalance(address, RPC_ENDPOINTS.ETH, EVM_TOKENS.USDC_ETH.contractAddress, EVM_TOKENS.USDC_ETH.decimals);
+      return checkEVMTokenBalance(address, 'ETH', EVM_TOKENS.USDC_ETH.contractAddress, EVM_TOKENS.USDC_ETH.decimals);
     case 'POL':
-      return checkEVMBalance(address, RPC_ENDPOINTS.POL);
+      return checkEVMBalance(address, 'POL');
     case 'USDT_POL':
-      return checkEVMTokenBalance(address, RPC_ENDPOINTS.POL, EVM_TOKENS.USDT_POL.contractAddress, EVM_TOKENS.USDT_POL.decimals);
+      return checkEVMTokenBalance(address, 'POL', EVM_TOKENS.USDT_POL.contractAddress, EVM_TOKENS.USDT_POL.decimals);
     case 'USDC_POL':
-      return checkEVMTokenBalance(address, RPC_ENDPOINTS.POL, EVM_TOKENS.USDC_POL.contractAddress, EVM_TOKENS.USDC_POL.decimals);
+      return checkEVMTokenBalance(address, 'POL', EVM_TOKENS.USDC_POL.contractAddress, EVM_TOKENS.USDC_POL.decimals);
     case 'USDC_BASE':
-      return checkEVMTokenBalance(address, RPC_ENDPOINTS.BASE, EVM_TOKENS.USDC_BASE.contractAddress, EVM_TOKENS.USDC_BASE.decimals);
+      return checkEVMTokenBalance(address, 'BASE', EVM_TOKENS.USDC_BASE.contractAddress, EVM_TOKENS.USDC_BASE.decimals);
     case 'SOL':
       return checkSolanaBalance(address, RPC_ENDPOINTS.SOL);
     case 'USDT_SOL':
@@ -560,16 +583,15 @@ export async function checkBalance(address: string, blockchain: string): Promise
     case 'USDC_SOL':
       return checkSolanaTokenBalance(address, RPC_ENDPOINTS.SOL, SOLANA_TOKENS.USDC_SOL.mintAddress, SOLANA_TOKENS.USDC_SOL.decimals);
     case 'BNB':
-      return checkEVMBalance(address, RPC_ENDPOINTS.BNB);
+      return checkEVMBalance(address, 'BNB');
     case 'DOGE':
-      console.log(`DOGE balance check not yet implemented for ${address}`);
-      return 0;
+      return checkDOGEBalance(address);
     case 'XRP':
       return checkXRPBalance(address, RPC_ENDPOINTS.XRP);
     case 'ADA':
       return checkADABalance(address, RPC_ENDPOINTS.ADA);
     default:
       console.error(`Unsupported blockchain: ${blockchain}`);
-      return 0;
+      throw new Error(`Unsupported blockchain: ${blockchain}`);
   }
 }

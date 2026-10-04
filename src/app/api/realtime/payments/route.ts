@@ -19,11 +19,37 @@ const connections = new Map<string, Set<ReadableStreamDefaultController>>();
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const businessId = searchParams.get('businessId');
-  const token = searchParams.get('token');
 
-  // Verify authentication
+  // G-1.2-04: the 7-day session JWT used to arrive only as `?token=`.
+  //
+  // A URL is the least private place to put a bearer credential: it lands in
+  // proxy and CDN access logs, in browser history, and in the `Referer` of any
+  // subsequent navigation. Anyone with log access holds week-long sessions for
+  // every merchant who opened a dashboard.
+  //
+  // The usual reason to do it is that `EventSource` cannot set request headers.
+  // It does, however, send cookies on a same-origin request — and this app's
+  // session cookie is already httpOnly — so the credential never has to appear
+  // in the URL at all.
+  //
+  // Order: Authorization header (non-browser clients), then the session cookie
+  // (the browser path), then the query parameter, which is kept only so a page
+  // served from a stale bundle keeps working and is logged when used.
+  const queryToken = searchParams.get('token');
+  const token =
+    extractBearerToken(request.headers.get('authorization')) ||
+    request.cookies.get('token')?.value ||
+    request.cookies.get('session')?.value ||
+    queryToken;
+
   if (!token) {
     return new Response('Unauthorized', { status: 401 });
+  }
+
+  if (queryToken && token === queryToken) {
+    console.warn(
+      '[Realtime] Session token supplied in the query string — deprecated, and it leaks into logs and history. Upgrade the client.'
+    );
   }
 
   let merchantId: string;

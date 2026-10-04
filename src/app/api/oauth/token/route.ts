@@ -184,18 +184,24 @@ async function handleAuthorizationCode(body: Record<string, string>) {
   }
 
   // Get user info for token claims
+  // `merchants` has no `email_verified` column — confirmed against the live
+  // schema. Selecting it made PostgREST reject the whole query, so `merchant`
+  // came back null every time and the ID token silently carried neither email
+  // nor name for any user, whatever scopes were granted.
+  //
+  // The claim itself stays `false` because there is no verification flow to
+  // report on. Asserting `true` is what an RP uses to link an incoming identity
+  // to an existing local account, so a false positive here is an
+  // account-takeover primitive on their side. When a real verification flow
+  // lands, add the column and read it here.
   const { data: merchant } = await supabase
     .from('merchants')
-    .select('id, email, name, email_verified')
+    .select('id, email, name')
     .eq('id', authCode.user_id)
     .single();
 
   const user = merchant
-    // email_verified reflects the merchant record, not a constant. Hardcoding
-    // true asserted to every relying party that we had verified an address we
-    // had not — which is exactly the claim an RP uses to link accounts, so a
-    // false positive here is an account-takeover primitive on their side.
-    ? { ...merchant, email_verified: Boolean(merchant.email_verified) }
+    ? { ...merchant, email_verified: false }
     : { id: authCode.user_id, email: undefined, name: undefined, email_verified: false };
 
   const client = { client_id };
@@ -305,13 +311,17 @@ async function handleRefreshToken(body: Record<string, string>) {
   }
 
   // Get user info
+  // Same as above: no `email_verified` column exists, and selecting it broke
+  // the query outright.
   const { data: merchant } = await supabase
     .from('merchants')
-    .select('id, email, name, email_verified')
+    .select('id, email, name')
     .eq('id', storedToken.user_id)
     .single();
 
-  const user = merchant || { id: storedToken.user_id };
+  const user = merchant
+    ? { ...merchant, email_verified: false }
+    : { id: storedToken.user_id, email_verified: false };
   const client = { client_id };
   const scopes = storedToken.scopes || ['openid'];
 

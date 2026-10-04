@@ -18,6 +18,7 @@ import {
   // createPublicKey only accepts Node's.
   type JsonWebKey as NodeJsonWebKey,
 } from 'crypto';
+import { safeFetch } from '@/lib/security/ssrf';
 
 /** RFC 8037 Ed25519 public JWK. */
 export interface Ed25519Jwk {
@@ -146,34 +147,41 @@ export async function fetchDirectory(signatureAgent: string): Promise<Ed25519Jwk
   const cached = directoryCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.keys;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  // NEW-23: the fetch used to be a bare `fetch()` guarded only by
+  // `assertSafeDirectoryUrl`, which matches private *literals* — 127.x, 10.x,
+  // fc00::/7 and so on. That does nothing about a hostname: `keys.attacker.test`
+  // with an A record pointing at 169.254.169.254 passes every one of those
+  // patterns, and the comment on that function admits as much. The URL comes
+  // from an attacker-controlled request header, so this is a request-forgery
+  // primitive into the deployment's own network.
+  //
+  // `safeFetch` is the codebase's real answer: it resolves the hostname and
+  // rejects on the *resolved address*, then re-validates every redirect hop
+  // against the same rules. The literal checks stay because they reject the
+  // obvious cases before any DNS lookup happens, and because they enforce the
+  // https-only rule the spec requires.
+  const fetched = await safeFetch(key, {
+    timeoutMs: FETCH_TIMEOUT_MS,
+    headers: { accept: `${DIRECTORY_CONTENT_TYPE}, application/json` },
+  });
 
-  let body: string;
-  try {
-    const response = await fetch(key, {
-      // A redirect could bounce the fetch to an internal address that the
-      // checks above already rejected for the original URL.
-      redirect: 'error',
-      signal: controller.signal,
-      headers: { accept: `${DIRECTORY_CONTENT_TYPE}, application/json` },
-    });
+  if (!fetched.ok) {
+    throw new Error(`Key directory could not be fetched: ${fetched.reason}`);
+  }
 
-    if (!response.ok) {
-      throw new Error(`Key directory returned HTTP ${response.status}`);
-    }
+  const response = fetched.response;
+  if (!response.ok) {
+    throw new Error(`Key directory returned HTTP ${response.status}`);
+  }
 
-    const length = Number(response.headers.get('content-length') ?? 0);
-    if (length > MAX_DIRECTORY_BYTES) {
-      throw new Error('Key directory is too large');
-    }
+  const length = Number(response.headers.get('content-length') ?? 0);
+  if (length > MAX_DIRECTORY_BYTES) {
+    throw new Error('Key directory is too large');
+  }
 
-    body = await response.text();
-    if (body.length > MAX_DIRECTORY_BYTES) {
-      throw new Error('Key directory is too large');
-    }
-  } finally {
-    clearTimeout(timer);
+  const body = await response.text();
+  if (body.length > MAX_DIRECTORY_BYTES) {
+    throw new Error('Key directory is too large');
   }
 
   let parsed: unknown;

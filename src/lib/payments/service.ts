@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getCryptoPrice } from '../rates/tatum';
+import { quantizeQuote } from './asset-decimals';
 import { getUsdFxRate } from '../rates/fx';
 import { z } from 'zod';
 import { generatePaymentAddress, type SystemBlockchain } from '../wallets/system-wallet';
@@ -67,7 +68,23 @@ export interface CreatePaymentInput {
   amount: number;
   currency: string;
   blockchain: Blockchain;
-  merchant_wallet_address?: string; // Optional - will use platform wallet if not provided
+  /**
+   * Server-controlled retry key. Keep this separate from caller metadata so a
+   * public integration cannot reserve another flow's idempotency namespace.
+   */
+  idempotency_key?: string;
+  /**
+   * Override for where the merchant's net leg forwards to.
+   *
+   * Optional, and omitting it does NOT mean the platform keeps the money: the
+   * create-payment route resolves the business's own wallet for the chain, falls
+   * back to the account-global one, and refuses the payment with "No <coin>
+   * wallet configured for this business" when neither exists. The comment here
+   * used to say "will use platform wallet if not provided", which is not what any
+   * caller does and led at least one integration to hardcode a payee it did not
+   * need. See getPaymentReceivingWallet.
+   */
+  merchant_wallet_address?: string;
   metadata?: Record<string, any>;
   /**
    * Payment window in minutes. Defaults to the 15-minute checkout window.
@@ -86,7 +103,8 @@ export interface Payment {
   status: string;
   crypto_amount?: number;
   crypto_currency?: string;
-  merchant_wallet_address?: string; // Optional - may use platform wallet
+  /** Resolved payee: the override, else the business or account-global wallet. */
+  merchant_wallet_address?: string;
   payment_address?: string;
   tx_hash?: string;
   confirmations?: number;
@@ -97,7 +115,8 @@ export interface Payment {
 
 /**
  * Public payment data - safe to expose without authentication.
- * Excludes: business_id, merchant_wallet_address, metadata
+ * Excludes: business_id, merchant_wallet_address, and all of metadata
+ * except the checkout URL the customer is meant to be sent to.
  */
 export interface PublicPayment {
   id: string;
@@ -115,11 +134,20 @@ export interface PublicPayment {
   tx_hash?: string | null;
   /** Forward of the funds to the merchant. Null until the payment is forwarded. */
   forward_tx_hash?: string | null;
+  /**
+   * Pruned metadata. Only the card checkout URL is published; the rest of the
+   * row's metadata (wallet source, fee breakdown, user ids, redirect targets)
+   * stays private. The checkout page reads stripe_checkout_url to decide
+   * whether to offer a "Pay with Card" tab.
+   */
+  metadata?: { stripe_checkout_url?: string } | null;
 }
 
 export interface PaymentResult {
   success: boolean;
   payment?: Payment;
+  /** True when an existing payment satisfied an idempotent retry. */
+  replayed?: boolean;
   error?: string;
 }
 
@@ -133,6 +161,56 @@ export interface PaymentListResult {
   success: boolean;
   payments?: Payment[];
   error?: string;
+}
+
+function getIdempotencyKey(input: CreatePaymentInput): string | null {
+  const value = input.idempotency_key;
+  if (typeof value !== 'string') return null;
+
+  const key = value.trim();
+  return key || null;
+}
+
+async function findIdempotentPayment(
+  supabase: SupabaseClient,
+  businessId: string,
+  idempotencyKey: string
+): Promise<{ payment: Payment | null; error: string | null }> {
+  const { data, error } = await supabase
+    .from('payments')
+    .select('*')
+    .eq('business_id', businessId)
+    .eq('metadata->>idempotency_key', idempotencyKey)
+    .maybeSingle();
+
+  return {
+    payment: data ? (data as Payment) : null,
+    error: error?.message || null,
+  };
+}
+
+function matchesIdempotentRequest(payment: Payment, input: CreatePaymentInput): boolean {
+  const samePayee =
+    input.merchant_wallet_address === undefined ||
+    (payment.merchant_wallet_address || '') === input.merchant_wallet_address;
+
+  return (
+    Number(payment.amount) === input.amount &&
+    payment.currency.toUpperCase() === input.currency.toUpperCase() &&
+    payment.blockchain === input.blockchain &&
+    samePayee
+  );
+}
+
+function replayPayment(payment: Payment, input: CreatePaymentInput): PaymentResult {
+  if (!matchesIdempotentRequest(payment, input)) {
+    return {
+      success: false,
+      error: 'Idempotency key was already used with different payment parameters',
+    };
+  }
+
+  return { success: true, payment, replayed: true };
 }
 
 /**
@@ -170,6 +248,24 @@ export async function createPayment(
       };
     }
 
+    const idempotencyKey = getIdempotencyKey(input);
+    if (idempotencyKey && idempotencyKey.length > 255) {
+      return {
+        success: false,
+        error: 'Idempotency key must be at most 255 characters',
+      };
+    }
+
+    // This guard is also enforced by a unique database index. The read avoids
+    // rate lookups and address allocation for ordinary retries; the conflict
+    // recovery below handles two requests that pass this read concurrently.
+    if (idempotencyKey) {
+      const existing = await findIdempotentPayment(supabase, input.business_id, idempotencyKey);
+      if (existing.payment) {
+        return replayPayment(existing.payment, input);
+      }
+    }
+
     // Calculate crypto amount
     const cryptoCurrency = input.blockchain.startsWith('USDC_')
       ? 'USDC'
@@ -194,10 +290,13 @@ export async function createPayment(
     // (gas-affordability checks, the payer-facing breakdown).
     const totalAmountUsd = totalInCurrency / usdToCurrency;
 
-    const cryptoAmount = await getCryptoPrice(
-      totalInCurrency,
-      input.currency,
-      cryptoCurrency
+    // Quoted at the precision the ASSET can carry, not a blanket eight places:
+    // a six-decimal token quoted to eight is an amount no wallet can send, and
+    // the payment expires unpaid with the money at the deposit address. See
+    // lib/payments/asset-decimals.ts.
+    const cryptoAmount = quantizeQuote(
+      await getCryptoPrice(totalInCurrency, input.currency, cryptoCurrency),
+      input.blockchain
     );
 
     console.log(`[Payment] Amount: ${input.amount} ${input.currency}, Network fee: $${networkFeeUsd} (${networkFeeInCurrency} ${input.currency}), Total: ${totalInCurrency} ${input.currency}, Crypto: ${cryptoAmount} ${cryptoCurrency}`);
@@ -215,6 +314,12 @@ export async function createPayment(
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + windowMinutes);
 
+    // Never trust the metadata bag to control payment idempotency. Public
+    // integrations pass metadata through this service, while the first-class
+    // field above is populated only by the route or an internal workflow.
+    const paymentMetadata = { ...input.metadata };
+    delete paymentMetadata.idempotency_key;
+
     // Build payment data - merchant_wallet_address is optional
     const paymentData: Record<string, any> = {
       business_id: input.business_id,
@@ -225,7 +330,8 @@ export async function createPayment(
       crypto_amount: cryptoAmount, // Includes network fee
       crypto_currency: cryptoCurrency,
       metadata: {
-        ...input.metadata,
+        ...paymentMetadata,
+        ...(idempotencyKey && { idempotency_key: idempotencyKey }),
         network_fee_usd: networkFeeUsd,
         // network_fee_amount and total_amount are denominated in
         // input.currency; total_amount_usd is the same total in USD.
@@ -250,6 +356,20 @@ export async function createPayment(
       .single();
 
     if (error || !payment) {
+      // A concurrent request may have inserted the same idempotency key after
+      // our pre-read. Return its row and never allocate another HD address.
+      if (idempotencyKey && error?.code === '23505') {
+        const existing = await findIdempotentPayment(supabase, input.business_id, idempotencyKey);
+        if (existing.payment) {
+          return replayPayment(existing.payment, input);
+        }
+
+        return {
+          success: false,
+          error: existing.error || 'Idempotent payment is still being created; retry shortly',
+        };
+      }
+
       return {
         success: false,
         error: error?.message || 'Failed to create payment',
@@ -282,18 +402,45 @@ export async function createPayment(
       );
 
       if (!addressResult.success) {
-        // Payment was created but address generation failed
-        // Update payment status to indicate the issue
-        await supabase
+        // Payment was created but address generation failed.
+        //
+        // This wrote `status: 'failed'`, which `payments_status_check` does not
+        // allow — the permitted values are pending, confirmed, forwarding,
+        // forwarded, forwarding_failed and expired, confirmed against the live
+        // schema. Postgres rejected the UPDATE, the result was never checked,
+        // and the row was left `pending` forever: a payment with no address, on
+        // no dashboard's problem list, that nothing would ever reconcile.
+        //
+        // `expired` is the terminal state the schema actually has for a payment
+        // that can never be completed, and the monitor already ignores it. The
+        // reason is recorded in metadata either way.
+        const failedMetadata = {
+          ...(payment.metadata && typeof payment.metadata === 'object'
+            ? payment.metadata
+            : paymentMetadata),
+          error: addressResult.error,
+          failure_reason: 'address_generation_failed',
+        };
+        // Releasing the key is essential: otherwise the unique index makes a
+        // transient address-allocation failure poison every future retry.
+        delete failedMetadata.idempotency_key;
+
+        const { error: markError } = await supabase
           .from('payments')
           .update({
-            status: 'failed',
-            metadata: {
-              ...input.metadata,
-              error: addressResult.error
-            }
+            status: 'expired',
+            metadata: failedMetadata,
           })
           .eq('id', payment.id);
+
+        if (markError) {
+          // Unchecked before. If this fails the row really is stranded, so say
+          // so rather than reporting only the original error.
+          console.error(
+            `[Payments] Could not mark payment ${payment.id} as expired after address generation failed:`,
+            markError
+          );
+        }
 
         return {
           success: false,
@@ -382,6 +529,9 @@ const PUBLIC_PAYMENT_FIELDS = [
   'expires_at',
   'tx_hash',
   'forward_tx_hash',
+  // Fetched only so the card checkout URL can be projected out of it below.
+  // Never return this column as-is: it holds internal fee math and user ids.
+  'metadata',
 ].join(',');
 
 /**
@@ -407,9 +557,20 @@ export async function getPaymentPublic(
     }
 
     // Cast through unknown since Supabase returns generic type
+    const { metadata, ...publicFields } = payment as unknown as PublicPayment & {
+      metadata?: Record<string, unknown> | null;
+    };
+    const checkoutUrl = metadata?.stripe_checkout_url;
+
     return {
       success: true,
-      payment: payment as unknown as PublicPayment,
+      payment: {
+        ...publicFields,
+        metadata:
+          typeof checkoutUrl === 'string' && checkoutUrl.length > 0
+            ? { stripe_checkout_url: checkoutUrl }
+            : null,
+      },
     };
   } catch (error) {
     return {

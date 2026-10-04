@@ -5,7 +5,24 @@ import { authenticateRequest } from '@/lib/auth/middleware';
 import { createSubscriptionPayment } from '@/lib/subscriptions/service';
 
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(() => ({ from: vi.fn() })),
+  // SUB-02: the route now counts a merchant's unpaid checkouts before creating
+  // another, so `from()` has to answer a head-count query.
+  createClient: vi.fn(() => ({
+    from: vi.fn(() => {
+      const chain: any = {
+        select: vi.fn(() => chain),
+        eq: vi.fn(() => chain),
+        then: (resolve: any) => resolve({ count: 0, error: null }),
+      };
+      return chain;
+    }),
+  })),
+}));
+
+// The per-merchant budget on subscription checkouts (SUB-02). Allowed here so
+// these tests keep exercising the checkout path rather than the limiter.
+vi.mock('@/lib/web-wallet/rate-limit', () => ({
+  checkRateLimitAsync: vi.fn().mockResolvedValue({ allowed: true, resetAt: 0, limit: 10 }),
 }));
 
 vi.mock('@/lib/auth/middleware', () => ({

@@ -2,10 +2,14 @@
 # Mirrors the qrypt.chat pattern: Next.js app on $PORT, Tor exposes it as a .onion.
 FROM node:24-bookworm-slim
 
-# System deps: tor + tini for clean PID 1 + gettext for envsubst
+# System deps: tor + tini for clean PID 1 + gettext for envsubst, and a
+# headless Chromium for CoinPay cloud statement fetching (the cloud browser a
+# merchant signs in to their bank through; src/lib/finances/cloud-browser.ts).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tor ca-certificates tini gettext-base \
+    chromium fonts-liberation fonts-noto-color-emoji \
  && rm -rf /var/lib/apt/lists/*
+ENV CHROME_PATH=/usr/bin/chromium
 
 # Prepare Tor dirs. DataDirectory is ephemeral (/var/lib/tor); the hidden
 # service keys live on the existing Railway volume at /mnt/files/tor (created
@@ -14,15 +18,18 @@ RUN mkdir -p /var/lib/tor /var/log/tor \
  && chown -R debian-tor:debian-tor /var/lib/tor /var/log/tor
 
 # Build-time public env vars (inlined into the Next.js bundle at `pnpm build`)
+# Railway passed its service variables in as build args. dev2 builds with
+# `docker compose build`, which passes none, so the values Railway had are the
+# defaults here. They are NEXT_PUBLIC_*: shipped to every browser already.
 ARG NEXT_PUBLIC_API_URL
-ARG NEXT_PUBLIC_APP_URL
+ARG NEXT_PUBLIC_APP_URL=https://coinpayportal.com
 ARG NEXT_PUBLIC_APP_VERSION
 ARG NEXT_PUBLIC_DOMAIN
 ARG NEXT_PUBLIC_LNBITS_URL
 ARG NEXT_PUBLIC_SOLANA_RPC_URL
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
-ARG NEXT_PUBLIC_SUPABASE_URL
-ARG NEXT_PUBLIC_ONION_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1seXdkZW9vZ3dzZWJhYm9oc2trIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxNjUxOTQsImV4cCI6MjA3OTc0MTE5NH0.vBZNYMHpS7OhLXlNGCtw5Qhum9wrprG80HKRdcXKvh0
+ARG NEXT_PUBLIC_SUPABASE_URL=https://mlywdeoogwsebabohskk.supabase.co
+ARG NEXT_PUBLIC_ONION_URL=http://tdhpzumiiqg2qbrhmymokhg2sbmcvi42gzha6o34yhlrkbbsuiuz6eyd.onion
 ARG NODE_ENV
 
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
@@ -41,10 +48,23 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 # Copy the whole repo before install: the root package.json depends on the
 # workspace package @profullstack/coinpay (packages/*), so pnpm needs those
-# manifests present at install time. Coinpay's Railway build uses
-# --no-frozen-lockfile (the lockfile drifts); match it.
+# manifests present at install time.
 COPY . .
-RUN pnpm install --no-frozen-lockfile
+
+# L-03: installs from the lockfile, not around it.
+#
+# This was `--no-frozen-lockfile`, justified by a comment saying the lockfile
+# drifts. That flag lets pnpm resolve versions the lockfile does not record, so
+# two builds of the same commit can ship different dependency trees and a
+# changed — or compromised — transitive dependency reaches production without
+# appearing in any diff. For a payments platform that is the whole supply-chain
+# argument for having a lockfile at all.
+#
+# The premise was also out of date: `pnpm install --frozen-lockfile` passes
+# against the current tree, checked before making this change. If it drifts
+# again the build now fails loudly, which is the point — a drifted lockfile is
+# something to fix in a commit, not to route around on every deploy.
+RUN pnpm install --frozen-lockfile
 RUN pnpm build
 
 # Runtime env

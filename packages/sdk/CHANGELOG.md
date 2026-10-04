@@ -5,6 +5,187 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-10-05
+
+### Added
+- Tax document sources: `ftb` (California FTB, MyFTB), `irs` (IRS Online
+  Account) and `irs-business` (IRS Business Tax Account). They need no linked
+  bank: `coinpay finances statements login|assist|fetch <source>` and
+  `statements cloud connect|fetch|schedule <source>` take them. Notices,
+  letters and transcripts are collected in a tax mode (the bank collector
+  still skips them) and filed into the document library as category `tax`,
+  with tax year, document type and the source key; one copy per file.
+- Attempt throttle for tax sources: at most 2 visits per 30 minutes and 4 per
+  day, counted before the visit, lockout pages detected and respected (no
+  override), credentials never re-entered. Ledger at
+  `~/.coinpay/statements/throttle.json`.
+- `coinpay finances books export --with-documents` (a ZIP with the period's
+  tax documents and a manifest) and `books send --with-documents` (to the
+  account owner's own address only), within 8 MiB; what does not fit is listed.
+- MCP: `tax_documents_list`, `tax_documents_get`; `statements_banks` lists the
+  tax sources with their throttle state. API: `GET /finances/documents?category=`
+  and `GET /finances/documents/:id`; SDK `getFinanceDocument`.
+- SDK: `uploadFinanceDocument`, `listFinanceDocuments`; statements engine
+  exports `TAX_SOURCES`, `standaloneSources`, `withStandaloneSources`,
+  `keepCandidate`, `collectScript`, `classifyTaxDocument`, `keepTaxDocument`
+  and the throttle helpers (`evaluateThrottle`, `detectLockout`, …).
+
+### Fixed
+- `coinpay auth login` is the OAuth 2.1 sign-in the help always advertised
+  (`--device` works); `--email/--password` keeps the old password path with a
+  deprecation note.
+- `coinpay self update|upgrade|remove|uninstall` now work as listed in the help
+  (the top-level forms still do). `coinpay mcp` is listed on its own.
+- `institutionKey` maps `*.ftb.ca.gov` to `ftb` (was `ca`) and `*.irs.gov`
+  to `irs`.
+
+## [0.13.0] - 2026-10-04
+
+### Added
+- `coinpay login` signs in with OAuth 2.1: authorization code + PKCE over a
+  loopback redirect, as the public `coinpay-cli` client, with single-use
+  refresh tokens rotated before any command whose access token is about to
+  expire. `coinpay login --device` keeps the device flow for SSH.
+- `coinpay finances statements cloud [status|connect|fetch|schedule|forget]`:
+  CoinPay cloud statement fetching (Professional plan, free for admins).
+  `connect` opens CoinPay's cloud browser to sign in to the bank once; CoinPay
+  keeps the bank's session sealed and fetches every week.
+- MCP: `statements_cloud_status`, `statements_cloud_fetch`.
+- `@profullstack/coinpay/statements` export with types; `openBrowser` takes
+  `extraArgs` and `handleSignals`; `CoinPayClient#baseUrl` getter.
+
+### Fixed
+- The statement fetcher no longer attaches to Chrome's own omnibox page.
+
+## [0.12.1] - 2026-10-04
+
+### Fixed
+- `coinpay finances statements login|fetch|assist` no longer reports "profile is
+  open in another Chrome" after an interrupted run. A lock left by a process
+  that is gone, or now belongs to another program, is removed. Our own leftover
+  headless Chrome is stopped. A visible window is closed only with `--force`.
+  Ctrl+C or a crash now takes the Chrome it started down with it.
+
+## [0.12.0] - 2026-10-04
+
+### Added
+- `coinpay finances statements banks|login|fetch|assist|coverage|runs|local|retry`:
+  download the original PDF statements behind every linked account from the
+  banks themselves (SimpleFIN has none) and import them into the statement
+  library with their account and period. Bank sessions stay in local Chrome
+  profiles; `fetch` exits 3 when a bank needs signing in again.
+- `coinpay mcp`: a stdio MCP server with finance and statement tools,
+  including `statements_fetch`.
+- SDK: `reportStatementFetchRun`, `listStatementFetchRuns`, `getStatementCoverage`.
+
+## [0.11.2] - 2026-09-16
+
+### Added
+- Invoice creation and due dates remain visible in the finance TUI table;
+  selected invoices show created, due, sent and paid dates in the detail panel.
+- Right-side details for selected accounts, ledger rows, crypto and card
+  payments, invoices, escrows and debt accounts.
+
+### Fixed
+- Row clicks select the correct record after scrolling or resizing. Keyboard
+  navigation follows the last selected invoice or escrow table.
+
+## [0.11.0] - 2026-09-12
+
+### Added
+- `coinpay finances books queue|confirm|confirm-all|categorize|rules|summary|export|send`:
+  every transaction auto-categorised (rules, heuristics, and Claude when the
+  server has a key) with a review queue, an "always" flag that turns a
+  correction into a rule, a tax summary by year/quarter/month in exact
+  arithmetic, and the CPA pack as CSV/PDF/HTML/JSON.
+- `coinpay finances payloads list|download`: every raw provider response,
+  exactly as received.
+- `coinpay finances reports send <id> --to …` and `books send --to …`: email
+  a report or the pack with attachments plus an expiring no-login link.
+- `coinpay finances digest set|show|off|send-now`: a weekly digest on chosen
+  weekdays at a chosen local hour.
+- `coinpay finances consent <id> on|off`: opt a connection into the
+  30-minute background sync.
+- SDK: `finances-reports` gained the books, payloads, email and digest
+  functions with declarations.
+
+## [0.10.0] - 2026-09-12
+
+### Added
+- `coinpay finances report`: monthly, quarterly and custom-period activity
+  reports generated server-side from an immutable snapshot, downloadable as
+  PDF, HTML, CSV or JSON (`--period 2026-08`, `--period 2026-Q2`, or
+  `--from/--to` with an exclusive end; `--account`, `--scope`, `--timezone`,
+  `--format`, `--output`, `--strict`, `--wait`, `--json`). Every report
+  states that it was generated by CoinPay from imported account data and is
+  not an institution-issued statement, and carries `local_export_complete`,
+  `provider_coverage` and `reconciliation_status`.
+- `coinpay finances backfill`, `jobs`, `coverage`: durable, resumable
+  calendar-period fetches in provider-safe chunks, with per-account coverage
+  derived from what was actually requested.
+- `coinpay finances statements import|list|get|download|reconcile|delete`:
+  keep original bank statements (PDF, user supplied, never parsed) beside an
+  account and period, and check their balances against a report revision
+  with exact decimal arithmetic.
+- `coinpay finances connect` (setup token prompted without echo or via
+  `--setup-token-stdin`), `disconnect`, `consent <id> on|off`.
+- SDK: `finances-reports` module (`createFinanceReport`, `waitForFinanceReport`,
+  `downloadFinanceReport`, `createBackfillJob`, `getFinanceCoverage`,
+  `importFinanceStatement`, `reconcileFinanceStatement`, ...), and
+  `CoinPayClient.requestBinary()` / `requestForm()` for downloads and uploads.
+- Exit codes for the new subcommands: 0 done or job accepted, 2 invalid
+  input, 3 strict/completeness rejection, 4 authentication, 5 provider or
+  storage failure. In `--json` mode stdout carries only the result.
+
+### Fixed
+- `listAllFinanceTransactions` now forwards `endDate`.
+
+## [0.9.0] - 2026-09-05
+
+### Added
+- `coinpay finances` (aliases `coinpay money`, `coinpay tui`): a live terminal
+  dashboard built on `@profullstack/hqtui`. Seven screens — Overview, Bank &
+  Cards, Ledger, Crypto, Cards, Invoices & Escrow, Debt & Income — showing
+  gross volume, commission
+  paid, processor fees, refunds, net earnings, bank assets and liabilities,
+  cashflow, credit-card balances from the SimpleFIN/Plaid feeds, the ledger,
+  crypto and card payment tables, invoices outstanding/overdue and escrow held.
+  Refreshes on a timer and subscribes to the payments SSE stream so crypto
+  payment events appear live. `s` syncs the bank feed on demand.
+- **Debt & Income** screen (`7`), and `coinpay finances position` (aliases
+  `debt`, `income`) as text. Income against spending per month, credits against
+  debits, total owed split into revolving and instalment, months to clear each
+  balance at its current payment rate, debt-to-income, debt-service ratio,
+  months of cover, card utilisation, detected recurring bills with their next
+  due date, and a business-versus-personal split of all of it — so the same
+  feed reads for a company or a person.
+  Transfers and card payments are excluded from both income and spending: a
+  feed holding both a checking account and the card it pays counts every card
+  payment twice otherwise. The raw sides remain visible as gross credits and
+  gross debits.
+  Built from about six months of history rather than the dashboard window,
+  because a monthly charge is invisible in thirty days of rows, and averaged
+  over the history that exists rather than the history requested.
+- `coinpay finances scope <account-id> <business|personal|clear>`, and a `Side`
+  column on the accounts table. Which set of books an account belongs to was a
+  guess from its name, which reads "Business Checking" correctly and is blind to
+  a personal card carrying company spend. The correction is now stored in
+  `finance_accounts.scope_override`, wins over the guess, and survives a re-sync
+  — the same contract as `kind_override`. An overridden account is marked with a
+  trailing `*`, so a wrong split is traceable to a guess rather than a decision.
+- Plain-text `coinpay finances summary|accounts|ledger|connections|sync`
+  (`--json` on all of them) for scripts and for Node older than 22.6.
+- SDK `finances` module, also importable as `@profullstack/coinpay/finances`:
+  `getFinanceSummary`, `listFinanceAccounts`, `listFinanceTransactions`,
+  `listFinanceConnections`, `syncFinances`, `getDashboardStats`,
+  `getFinanceAnalytics`, `listCryptoPayments`, `listCardTransactions`,
+  `listCardPayouts`, the pure `buildFinanceSnapshot()`, `collectFinanceSnapshot()`
+  and `subscribeToPayments()` (SSE with reconnect).
+
+### Changed
+- New dependency `@profullstack/hqtui` (zero runtime deps of its own). The
+  dashboard needs Node 22.6+; every other command still runs on Node 20.
+
 ## [0.6.11] - 2026-03-19
 
 ### Added

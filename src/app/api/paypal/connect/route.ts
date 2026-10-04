@@ -11,9 +11,23 @@ function getSupabase() {
 
 /**
  * POST /api/paypal/connect
- * Connect a business's own PayPal REST app credentials so it can accept PayPal
- * payments on invoices. Credentials are validated against PayPal (by fetching an
- * access token) before the secret is encrypted and stored.
+ *
+ * Connect a business's own PayPal REST app credentials. This is the DEFAULT way
+ * a merchant connects PayPal, and the one the dashboard leads with.
+ *
+ * It exists alongside partner onboarding (`connect/onboard`) because the two
+ * have opposite cost profiles:
+ *
+ *  - this needs nothing from PayPal beyond the merchant's own developer
+ *    account, so it works today;
+ *  - partner onboarding is nicer for the merchant and is the only mode that can
+ *    carry CoinPay's commission, but it requires CoinPay to be an APPROVED
+ *    PayPal Commerce Platform partner — an application and review, not config.
+ *
+ * PayPal treats calls made with these credentials as first-party and rejects
+ * `platform_fees` on them, so this mode earns CoinPay 0%. That is a known,
+ * accepted trade for being available without underwriting, not an oversight.
+ * See docs/PAYPAL-PAYMENTS.md.
  */
 export async function POST(request: NextRequest) {
   const supabase = getSupabase();

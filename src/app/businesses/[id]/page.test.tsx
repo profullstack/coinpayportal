@@ -11,6 +11,10 @@ import BusinessDetailPage from './page';
 vi.mock('next/navigation', () => ({
   useRouter: vi.fn(),
   useParams: vi.fn(),
+  // The page reads ?paypal= to land on the PayPal Connect tab after PayPal
+  // redirects a merchant back from onboarding. Default to no query string;
+  // individual tests override this.
+  useSearchParams: vi.fn(() => new URLSearchParams()),
 }));
 
 // Mock CalendarTab — @dayflow/react ships ESM that vitest's CJS loader can't load

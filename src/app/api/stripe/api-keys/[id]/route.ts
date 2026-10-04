@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
+import { resolveBusinessScope } from '@/lib/auth/tenant-scope';
+import { createServiceClient } from '@/lib/supabase/service-client';
 
 async function getStripeAccountId(businessId: string): Promise<string | null> {
   const supabase = createClient(
@@ -38,9 +40,21 @@ export async function DELETE(
 
     const { id } = await params;
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get('business_id');
 
-    const stripeAccountId = await getStripeAccountId(businessId || decoded.userId);
+    // Same inversion as the sibling list/create route: the query-string
+    // business_id took precedence over the authenticated user, so anyone could
+    // revoke another merchant's Stripe restricted keys.
+    const scope = await resolveBusinessScope(
+      createServiceClient(),
+      decoded.userId,
+      searchParams.get('business_id'),
+      'apikey.manage',
+    );
+    if (!scope.ok) {
+      return NextResponse.json({ success: false, error: scope.error }, { status: scope.status });
+    }
+
+    const stripeAccountId = await getStripeAccountId(scope.businessId);
     if (!stripeAccountId) {
       return NextResponse.json({ success: false, error: 'Stripe account not found' }, { status: 404 });
     }

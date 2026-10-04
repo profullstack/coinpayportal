@@ -11,6 +11,7 @@ import {
   acceptInvitation,
   updateMemberRole,
   removeMember,
+  setMemberFinanceAccess,
 } from './service';
 
 /**
@@ -341,5 +342,75 @@ describe('updateMemberRole / removeMember guardrails', () => {
     });
     expect(res.success).toBe(true);
     expect(store.organization_members.find((m) => m.id === 'om-writer')).toBeUndefined();
+  });
+});
+
+describe('finance access (owner-granted, org only)', () => {
+  const invite = (client: SupabaseClient, over: Partial<Parameters<typeof inviteMember>[0]>) =>
+    inviteMember({
+      supabase: client,
+      scope: 'org',
+      scopeId: 'org-1',
+      scopeName: 'Acme',
+      email: 'mom@example.com',
+      role: 'readonly',
+      invitedByMerchantId: 'owner-1',
+      actorRole: 'owner',
+      baseUrl: BASE,
+      ...over,
+    });
+
+  it('lets the org owner invite with finance access and carries it through acceptance', async () => {
+    const { client, store } = makeDb({});
+    const res = await invite(client, { financeAccess: true });
+    expect(res.success).toBe(true);
+    expect(store.organization_invitations[0]).toMatchObject({ finance_access: true, role: 'readonly' });
+
+    const accepted = await acceptInvitation({
+      supabase: client,
+      token: store.organization_invitations[0].token,
+      acceptingMerchantId: 'mom-1',
+      acceptingEmail: 'mom@example.com',
+    });
+    expect(accepted.success).toBe(true);
+    expect(store.organization_members[0]).toMatchObject({ merchant_id: 'mom-1', finance_access: true });
+  });
+
+  it('defaults finance access off', async () => {
+    const { client, store } = makeDb({});
+    await invite(client, { role: 'writer' });
+    expect(store.organization_invitations[0].finance_access).toBe(false);
+  });
+
+  it('refuses finance access from an admin: only the owner shares their books', async () => {
+    const { client } = makeDb({});
+    const res = await invite(client, { actorRole: 'admin', financeAccess: true });
+    expect(res).toMatchObject({ success: false, status: 403 });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it('refuses finance access on a business-scoped invite', async () => {
+    const { client } = makeDb({});
+    const res = await invite(client, { scope: 'business', scopeId: 'biz-1', financeAccess: true });
+    expect(res).toMatchObject({ success: false, status: 400 });
+  });
+
+  it('only the owner can toggle finance access on a member', async () => {
+    const { client, store } = makeDb({
+      organization_members: [
+        { id: 'om-1', organization_id: 'org-1', merchant_id: 'acct-1', role: 'readonly', finance_access: false },
+      ],
+    });
+    const denied = await setMemberFinanceAccess({
+      supabase: client, orgId: 'org-1', memberId: 'om-1', financeAccess: true, actorRole: 'admin',
+    });
+    expect(denied).toMatchObject({ success: false, status: 403 });
+    expect(store.organization_members[0].finance_access).toBe(false);
+
+    const ok = await setMemberFinanceAccess({
+      supabase: client, orgId: 'org-1', memberId: 'om-1', financeAccess: true, actorRole: 'owner',
+    });
+    expect(ok.success).toBe(true);
+    expect(store.organization_members[0].finance_access).toBe(true);
   });
 });

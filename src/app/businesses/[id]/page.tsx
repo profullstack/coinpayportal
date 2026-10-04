@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { authFetch } from '@/lib/auth/client';
 import { Business, Wallet, TabType, PaymentMode } from '@/components/business/types';
 import { GeneralTab } from '@/components/business/GeneralTab';
@@ -14,6 +14,8 @@ import { StripeDisputesTab } from '@/components/business/StripeDisputesTab';
 import { StripePayoutsTab } from '@/components/business/StripePayoutsTab';
 
 import { StripeApiKeysTab } from '@/components/business/StripeApiKeysTab';
+import { PayPalConnectTab } from '@/components/business/PayPalConnectTab';
+import { PayPalTransactionsTab } from '@/components/business/PayPalTransactionsTab';
 import { ThirdPartyTab } from '@/components/business/ThirdPartyTab';
 import { CryptoTransactionsTab } from '@/components/business/CryptoTransactionsTab';
 import { CryptoEscrowsTab } from '@/components/business/CryptoEscrowsTab';
@@ -47,9 +49,19 @@ const CARD_TABS: { id: TabType; label: string }[] = [
   { id: 'members', label: 'Members' },
 ];
 
+// PayPal is its own rail, not a "3rd party" setting: it has partner onboarding,
+// its own transactions and refunds, and a platform fee — the same surface as the
+// card rail above.
+const PAYPAL_TABS: { id: TabType; label: string }[] = [
+  { id: 'general', label: 'General' },
+  { id: 'paypal-connect', label: 'PayPal Connect' },
+  { id: 'paypal-transactions', label: 'Transactions' },
+  { id: 'members', label: 'Members' },
+];
+
 const THIRD_PARTY_TABS: { id: TabType; label: string }[] = [
   { id: 'general', label: 'General' },
-  { id: 'third-party', label: 'PayPal · Venmo · Cash App · Zelle' },
+  { id: 'third-party', label: 'Venmo · Cash App · Zelle' },
   { id: 'members', label: 'Members' },
 ];
 
@@ -61,6 +73,7 @@ const WEBHOOK_TABS: { id: TabType; label: string }[] = [
 export default function BusinessDetailPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const businessId = params?.id as string;
 
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('crypto');
@@ -77,6 +90,16 @@ export default function BusinessDetailPage() {
       fetchWallets();
     }
   }, [businessId]);
+
+  // PayPal sends the merchant back here after onboarding. Land them on the
+  // PayPal Connect tab rather than the default Crypto view — otherwise the tab
+  // that finishes the handshake never mounts and onboarding silently stalls.
+  useEffect(() => {
+    if (searchParams?.get('paypal')) {
+      setPaymentMode('paypal');
+      setActiveTab('paypal-connect');
+    }
+  }, [searchParams]);
 
   // Reset to the first tab of the new mode when switching modes.
   // The Webhooks mode has only one tab so we land on it directly.
@@ -168,6 +191,7 @@ export default function BusinessDetailPage() {
   const currentTabs =
     paymentMode === 'crypto' ? CRYPTO_TABS
     : paymentMode === 'card' ? CARD_TABS
+    : paymentMode === 'paypal' ? PAYPAL_TABS
     : paymentMode === 'third_party' ? THIRD_PARTY_TABS
     : WEBHOOK_TABS;
 
@@ -235,6 +259,18 @@ export default function BusinessDetailPage() {
               }`}
             >
               💳 Credit Card
+            </button>
+            <button
+              role="tab"
+              aria-selected={paymentMode === 'paypal'}
+              onClick={() => handleModeChange('paypal')}
+              className={`px-6 py-2.5 text-sm font-semibold rounded-md transition-all ${
+                paymentMode === 'paypal'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              🅿️ PayPal
             </button>
             <button
               role="tab"
@@ -337,6 +373,14 @@ export default function BusinessDetailPage() {
 
             {activeTab === 'stripe-api-keys' && (
               <StripeApiKeysTab businessId={businessId} />
+            )}
+
+            {activeTab === 'paypal-connect' && (
+              <PayPalConnectTab businessId={businessId} />
+            )}
+
+            {activeTab === 'paypal-transactions' && (
+              <PayPalTransactionsTab businessId={businessId} />
             )}
 
             {activeTab === 'third-party' && (

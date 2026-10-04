@@ -43,6 +43,8 @@ function runCLI(args, options = {}) {
     env: { 
       ...process.env, 
       COINPAY_API_KEY: 'cp_test_fake_key',
+      // These CLI parsing/error tests must not create wallets on a live service.
+      COINPAY_BASE_URL: 'http://127.0.0.1:1/api',
       HOME: options.home || process.env.HOME,
       ...extraEnv,
     },

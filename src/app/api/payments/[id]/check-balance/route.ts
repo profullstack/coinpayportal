@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { sendPaymentWebhook } from '@/lib/webhooks/service';
 import { forwardPaymentSecurely } from '@/lib/wallets/secure-forwarding';
 import { checkBalance } from '@/app/api/cron/monitor-payments/balance-checkers';
@@ -9,6 +9,28 @@ import { isSufficientPayment } from '@/lib/payments/tolerance';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+async function currentPaymentResponse(
+  supabase: SupabaseClient,
+  paymentId: string,
+  observation: { balance?: number; expected?: number } = {},
+) {
+  const { data, error } = await supabase
+    .from('payments')
+    .select('status')
+    .eq('id', paymentId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    return NextResponse.json({ success: false, error: 'Payment not found' }, { status: 404 });
+  }
+  return NextResponse.json({
+    success: true,
+    ...observation,
+    status: data.status,
+    message: 'Payment state changed while checking balance',
+  });
+}
 
 /**
  * POST /api/payments/[id]/check-balance
@@ -76,13 +98,17 @@ export async function POST(
     // Check if we have a payment address
     if (!payment.payment_address) {
       if (isExpired) {
-        await supabase
+        const { data: expired, error: expireError } = await supabase
           .from('payments')
           .update({
             status: 'expired',
             updated_at: new Date().toISOString(),
           })
-          .eq('id', paymentId);
+          .eq('id', paymentId)
+          .eq('status', 'pending')
+          .select('id');
+        if (expireError) throw expireError;
+        if (!expired?.length) return await currentPaymentResponse(supabase, paymentId);
 
         return NextResponse.json({
           success: true,
@@ -106,13 +132,13 @@ export async function POST(
     // at a zero balance).
     const expectedAmount = parseFloat(payment.crypto_amount);
 
-    if (isSufficientPayment(balance, payment.crypto_amount)) {
+    if (isSufficientPayment(balance, payment.crypto_amount, payment.blockchain)) {
       const now = new Date().toISOString();
 
       // Compare-and-swap: only the caller that observes the row still 'pending'
       // gets to confirm it. Three schedulers plus this endpoint can race here,
       // and without the guard each of them would go on to forward on-chain.
-      const { data: claimed } = await supabase
+      const { data: claimed, error: claimError } = await supabase
         .from('payments')
         .update({
           status: 'confirmed',
@@ -122,15 +148,11 @@ export async function POST(
         .eq('id', paymentId)
         .eq('status', 'pending')
         .select('id');
+      if (claimError) throw claimError;
 
       if (!claimed || claimed.length === 0) {
-        // Another worker confirmed it first; it owns the forward.
-        return NextResponse.json({
-          success: true,
-          status: 'confirmed',
-          balance,
-          message: 'Payment already confirmed',
-        });
+        // The winner may have expired or finished forwarding it already.
+        return await currentPaymentResponse(supabase, paymentId, { balance });
       }
 
       console.log(`Payment ${paymentId} confirmed with balance ${balance}`);
@@ -177,13 +199,17 @@ export async function POST(
     }
 
     if (isExpired) {
-      await supabase
+      const { data: expired, error: expireError } = await supabase
         .from('payments')
         .update({
           status: 'expired',
           updated_at: new Date().toISOString(),
         })
-        .eq('id', paymentId);
+        .eq('id', paymentId)
+        .eq('status', 'pending')
+        .select('id');
+      if (expireError) throw expireError;
+      if (!expired?.length) return await currentPaymentResponse(supabase, paymentId, { balance, expected: expectedAmount });
 
       return NextResponse.json({
         success: true,

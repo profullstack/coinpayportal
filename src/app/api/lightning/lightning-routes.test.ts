@@ -64,6 +64,23 @@ vi.mock('@/lib/web-wallet/auth', () => ({
   authenticateWalletRequest: (...args: any[]) => mockAuthenticateWalletRequest(...args),
 }));
 
+// GET /offers is merchant-authenticated and scoped to one business. It used to
+// be open: no auth, optional business_id, unbounded limit — one anonymous
+// request returned every merchant's offers and the revenue against them.
+const mockAuthenticateRequest = vi.fn();
+vi.mock('@/lib/auth/middleware', () => ({
+  authenticateRequest: (...args: any[]) => mockAuthenticateRequest(...args),
+}));
+
+const mockVerifyBusinessAccess = vi.fn();
+vi.mock('@/lib/wallets/supported-coins', () => ({
+  verifyBusinessAccess: (...args: any[]) => mockVerifyBusinessAccess(...args),
+}));
+
+vi.mock('@/lib/supabase/server', () => ({
+  createServerClient: vi.fn(async () => ({ from: vi.fn(() => mockChain) })),
+}));
+
 // ──────────────────────────────────────────────
 // Mock wallet keys
 // ──────────────────────────────────────────────
@@ -91,6 +108,11 @@ describe('Lightning Route Handlers', () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://localhost:54321');
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-service-key');
     mockAuthenticateWalletRequest.mockResolvedValue({ success: true, walletId: 'w-1' });
+    mockAuthenticateRequest.mockResolvedValue({
+      success: true,
+      context: { type: 'merchant', merchantId: 'm-1', email: 'm@example.com' },
+    });
+    mockVerifyBusinessAccess.mockResolvedValue({ ok: true });
   });
 
   // ────────────────────────────────────
@@ -113,8 +135,30 @@ describe('Lightning Route Handlers', () => {
       expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
-    it('should return 400 if mnemonic invalid', async () => {
+    it('no longer asks for the seed, and ignores one that is sent', async () => {
+      // NEW-20: this route used to require a valid BIP-39 mnemonic and reject
+      // the request without one — then never use it. Provisioning creates a
+      // custodial LNbits wallet, so there is no signer and nothing to derive;
+      // the only effect was to make every client transmit the master seed for
+      // the whole wallet. It is accepted and discarded for older clients, so
+      // an invalid one must no longer be a rejection.
       const { POST } = await import('./nodes/route');
+
+      mockChain.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+      mockSingle.mockResolvedValueOnce({ data: { id: 'w-1', name: 'Test Wallet' }, error: null });
+      mockCreateUserWallet.mockResolvedValue({
+        id: 'lnbits-wallet-1',
+        name: 'Test Wallet',
+        adminkey: 'admin-key-123',
+        inkey: 'invoice-key-456',
+        balance: 0,
+      });
+      mockChain.update = vi.fn().mockReturnValue(mockChain);
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'node-1', status: 'active', wallet_id: 'w-1' },
+        error: null,
+      });
+
       const req = makeRequest('http://localhost:3000/api/lightning/nodes', {
         method: 'POST',
         body: JSON.stringify({ wallet_id: 'w-1', mnemonic: 'bad' }),
@@ -123,8 +167,8 @@ describe('Lightning Route Handlers', () => {
       const res = await POST(req);
       const body = await res.json();
 
-      expect(res.status).toBe(400);
-      expect(body.success).toBe(false);
+      expect(res.status).toBe(201);
+      expect(body.success).toBe(true);
     });
 
     it('should provision node via LNbits on valid input', async () => {
@@ -264,7 +308,10 @@ describe('Lightning Route Handlers', () => {
   describe('GET /api/lightning/offers', () => {
     it('should return 400 when node_id is provided without wallet_id', async () => {
       const { GET } = await import('./offers/route');
-      const req = makeRequest('http://localhost:3000/api/lightning/offers?node_id=n1');
+      const req = makeRequest(
+        'http://localhost:3000/api/lightning/offers?business_id=b1&node_id=n1',
+        { headers: { authorization: 'Bearer test-jwt' } }
+      );
       const res = await GET(req);
       const body = await res.json();
 
@@ -280,13 +327,82 @@ describe('Lightning Route Handlers', () => {
         total: 2,
       });
 
-      const req = makeRequest('http://localhost:3000/api/lightning/offers?business_id=b1&limit=10&offset=0');
+      const req = makeRequest(
+        'http://localhost:3000/api/lightning/offers?business_id=b1&limit=10&offset=0',
+        { headers: { authorization: 'Bearer test-jwt' } }
+      );
       const res = await GET(req);
       const body = await res.json();
 
       expect(res.status).toBe(200);
       expect(body.data.offers).toHaveLength(2);
       expect(body.data.total).toBe(2);
+    });
+
+    it('refuses an anonymous caller', async () => {
+      const { GET } = await import('./offers/route');
+      mockAuthenticateRequest.mockResolvedValue({ success: false, error: 'Missing authorization header' });
+
+      const req = makeRequest('http://localhost:3000/api/lightning/offers?business_id=b1');
+      const res = await GET(req);
+
+      expect(res.status).toBe(401);
+      expect(mockListOffers).not.toHaveBeenCalled();
+    });
+
+    it('refuses to list every business at once', async () => {
+      const { GET } = await import('./offers/route');
+
+      const req = makeRequest('http://localhost:3000/api/lightning/offers', {
+        headers: { authorization: 'Bearer test-jwt' },
+      });
+      const res = await GET(req);
+      const body = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(body.error.message).toMatch(/business_id is required/i);
+      expect(mockListOffers).not.toHaveBeenCalled();
+    });
+
+    it('refuses a business the caller cannot read', async () => {
+      const { GET } = await import('./offers/route');
+      mockVerifyBusinessAccess.mockResolvedValue({ ok: false, error: 'Not your business', status: 403 });
+
+      const req = makeRequest('http://localhost:3000/api/lightning/offers?business_id=someone-else', {
+        headers: { authorization: 'Bearer test-jwt' },
+      });
+      const res = await GET(req);
+
+      expect(res.status).toBe(403);
+      expect(mockListOffers).not.toHaveBeenCalled();
+    });
+
+    it('refuses a business API key pointed at another business', async () => {
+      const { GET } = await import('./offers/route');
+      mockAuthenticateRequest.mockResolvedValue({
+        success: true,
+        context: { type: 'business', businessId: 'b1', merchantId: 'm-1', businessName: 'Biz', scopes: ['*'] },
+      });
+
+      const req = makeRequest('http://localhost:3000/api/lightning/offers?business_id=b2', {
+        headers: { authorization: 'Bearer cp_live_key' },
+      });
+      const res = await GET(req);
+
+      expect(res.status).toBe(403);
+      expect(mockListOffers).not.toHaveBeenCalled();
+    });
+
+    it('caps the page size', async () => {
+      const { GET } = await import('./offers/route');
+      mockListOffers.mockResolvedValue({ offers: [], total: 0 });
+
+      const req = makeRequest('http://localhost:3000/api/lightning/offers?business_id=b1&limit=100000', {
+        headers: { authorization: 'Bearer test-jwt' },
+      });
+      await GET(req);
+
+      expect(mockListOffers).toHaveBeenCalledWith(expect.objectContaining({ limit: 100 }));
     });
   });
 

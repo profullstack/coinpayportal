@@ -16,7 +16,7 @@ import {
   VALID_CHAINS,
   type WalletChain,
 } from './identity';
-import { generateChallenge, verifyChallengeSignature, generateWalletToken } from './auth';
+import { generateChallenge, verifyChallengeSignature, verifyEd25519ChallengeSignature, generateWalletToken } from './auth';
 
 /** Truncate an address for safe logging: first 8 + last 4 chars */
 function truncAddr(addr: string): string {
@@ -34,10 +34,33 @@ const addressInputSchema = z.object({
   derivation_path: z.string().min(1, 'Derivation path is required'),
 });
 
+/**
+ * Ceiling on addresses accepted in one registration call.
+ *
+ * V-04: `initial_addresses` was unbounded. `wallet_addresses` is globally
+ * unique on `(address, chain)`, so every accepted row permanently denies that
+ * address to the wallet that actually owns it — one request could claim
+ * thousands. A real wallet registers one address per supported chain.
+ */
+const MAX_INITIAL_ADDRESSES = VALID_CHAINS.length * 4;
+
 const createWalletSchema = z.object({
   public_key_secp256k1: z.string().optional(),
   public_key_ed25519: z.string().optional(),
-  initial_addresses: z.array(addressInputSchema).optional().default([]),
+  initial_addresses: z
+    .array(addressInputSchema)
+    .max(MAX_INITIAL_ADDRESSES, `At most ${MAX_INITIAL_ADDRESSES} addresses may be registered at once`)
+    .optional()
+    .default([]),
+  // V-04: creation took a self-declared public key and a list of on-chain
+  // addresses from an unauthenticated caller and wrote both, asking for no
+  // proof that any of it was theirs. Its sibling /import has always required a
+  // signature. Required here now too.
+  proof_of_ownership: z.object({
+    message: z.string().min(1),
+    signature: z.string().min(1).optional(),
+    signature_ed25519: z.string().min(1).optional(),
+  }),
 }).refine(
   (data) => data.public_key_secp256k1 || data.public_key_ed25519,
   { message: 'At least one public key must be provided' }
@@ -46,10 +69,18 @@ const createWalletSchema = z.object({
 const importWalletSchema = z.object({
   public_key_secp256k1: z.string().optional(),
   public_key_ed25519: z.string().optional(),
-  addresses: z.array(addressInputSchema).optional().default([]),
+  addresses: z
+    .array(addressInputSchema)
+    .max(MAX_INITIAL_ADDRESSES, `At most ${MAX_INITIAL_ADDRESSES} addresses may be registered at once`)
+    .optional()
+    .default([]),
   proof_of_ownership: z.object({
     message: z.string().min(1),
-    signature: z.string().min(1),
+    // The secp256k1 signature. Optional at the schema level because an
+    // ed25519-only wallet has none to give; `verifyKeyOwnership` requires
+    // whichever signature matches the key actually presented (NEW-09).
+    signature: z.string().min(1).optional(),
+    signature_ed25519: z.string().min(1).optional(),
   }),
 }).refine(
   (data) => data.public_key_secp256k1 || data.public_key_ed25519,
@@ -74,6 +105,73 @@ interface ServiceResult<T = Record<string, unknown>> {
   code?: string;
 }
 
+/**
+ * Verify that the caller holds the private key behind every public key they
+ * present, and return an error result if not.
+ *
+ * Shared by create (V-04) and import (NEW-09) so the two cannot drift apart
+ * again — the whole class of bug here was one sibling checking what the other
+ * did not. Every key presented must be proved:
+ *
+ *   - secp256k1 key present → `signature` must verify against it.
+ *   - no secp256k1 key → the ed25519 key is the only identity claimed, and
+ *     `signature_ed25519` must verify against it.
+ *
+ * Real clients send both keys and a secp256k1 signature, which is why the
+ * ed25519 branch is a fallback rather than an additional requirement:
+ * demanding both signatures would break every client in the field to close a
+ * gap that only exists when secp256k1 is absent.
+ */
+function verifyKeyOwnership(input: {
+  public_key_secp256k1?: string;
+  public_key_ed25519?: string;
+  proof_of_ownership: {
+    message: string;
+    signature?: string;
+    signature_ed25519?: string;
+  };
+}): ServiceResult | null {
+  const { public_key_secp256k1, public_key_ed25519, proof_of_ownership } = input;
+
+  if (public_key_secp256k1) {
+    // `signature` is schema-optional only so an ed25519-only wallet can omit
+    // it. Absent here it is a missing proof, which is a rejection, not a skip.
+    const valid =
+      !!proof_of_ownership.signature &&
+      verifyChallengeSignature(
+        proof_of_ownership.message,
+        proof_of_ownership.signature,
+        public_key_secp256k1
+      );
+    if (!valid) {
+      console.error('[WebWallet] Rejected: invalid secp256k1 proof of ownership');
+      return {
+        success: false,
+        error: 'Invalid proof of ownership signature',
+        code: 'INVALID_SIGNATURE',
+      };
+    }
+    return null;
+  }
+
+  const valid =
+    !!public_key_ed25519 &&
+    verifyEd25519ChallengeSignature(
+      proof_of_ownership.message,
+      proof_of_ownership.signature_ed25519 ?? '',
+      public_key_ed25519
+    );
+  if (!valid) {
+    console.error('[WebWallet] Rejected: invalid ed25519 proof of ownership');
+    return {
+      success: false,
+      error: 'Invalid proof of ownership signature',
+      code: 'INVALID_SIGNATURE',
+    };
+  }
+  return null;
+}
+
 // ──────────────────────────────────────────────
 // Wallet CRUD
 // ──────────────────────────────────────────────
@@ -92,7 +190,8 @@ export async function createWallet(
     return { success: false, error: parsed.error.issues[0].message, code: 'VALIDATION_ERROR' };
   }
 
-  const { public_key_secp256k1, public_key_ed25519, initial_addresses } = parsed.data;
+  const { public_key_secp256k1, public_key_ed25519, initial_addresses, proof_of_ownership } =
+    parsed.data;
 
   console.log(`[WebWallet] Creating wallet with ${initial_addresses.length} initial addresses`);
 
@@ -123,6 +222,23 @@ export async function createWallet(
       };
     }
   }
+
+  // V-04: creation asked for no proof of anything. An unauthenticated caller
+  // could declare a public key that was not theirs and, more damagingly, a list
+  // of on-chain addresses that were not theirs — and `wallet_addresses` is
+  // globally unique on `(address, chain)`, so whoever registers an address
+  // first holds it and the rightful owner can never register it at all.
+  //
+  // The identical check has guarded /import since it was written; only this
+  // sibling was missing it (§2.3). Placed after the format checks so a
+  // malformed key still gets a useful error, and before the first write so
+  // nothing is persisted on an unproved claim.
+  const proofError = verifyKeyOwnership({
+    public_key_secp256k1,
+    public_key_ed25519,
+    proof_of_ownership,
+  });
+  if (proofError) return proofError;
 
   // Check for existing wallet with same public key
   if (public_key_secp256k1) {
@@ -219,18 +335,20 @@ export async function importWallet(
     return { success: false, error: 'Invalid ed25519 public key', code: 'INVALID_KEY' };
   }
 
-  // Verify proof of ownership (secp256k1 signature on the message)
-  if (public_key_secp256k1) {
-    const valid = verifyChallengeSignature(
-      proof_of_ownership.message,
-      proof_of_ownership.signature,
-      public_key_secp256k1
-    );
-    if (!valid) {
-      console.error('[WebWallet] Import failed: invalid proof of ownership signature');
-      return { success: false, error: 'Invalid proof of ownership signature', code: 'INVALID_SIGNATURE' };
-    }
-  }
+  // Verify proof of ownership.
+  //
+  // NEW-09: this was `if (public_key_secp256k1) { ...verify... }` and nothing
+  // else. The schema requires *at least one* of the two keys, so an import
+  // carrying only `public_key_ed25519` never reached a verification call — the
+  // `proof_of_ownership` object was still required, but no part of it was ever
+  // read, and any string at all was accepted. Registering a wallet under a key
+  // you do not hold was a matter of omitting one field.
+  const proofError = verifyKeyOwnership({
+    public_key_secp256k1,
+    public_key_ed25519,
+    proof_of_ownership,
+  });
+  if (proofError) return proofError;
 
   // Check if wallet already exists with this key
   if (public_key_secp256k1) {

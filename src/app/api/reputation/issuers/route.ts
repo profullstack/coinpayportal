@@ -9,6 +9,7 @@ import { randomBytes } from 'crypto';
 import { authenticateRequest, isMerchantAuth } from '@/lib/auth/middleware';
 import { z } from 'zod';
 import { createServiceClient } from '@/lib/supabase/service-client';
+import { hashApiKey } from '@/lib/auth/scoped-keys';
 
 function getSupabase() {
   return createServiceClient();
@@ -50,14 +51,28 @@ export async function POST(request: NextRequest) {
     const resolvedDid = did || `did:web:${domain}`;
     const apiKey = generateApiKey(name);
 
+    // Register INACTIVE, and store only a hash of the key.
+    //
+    // An issuer key is a powerful credential: it authenticates
+    // /api/p2p/request, which provisions merchant accounts and issues invoices
+    // on other people's behalf. Registration is open to any merchant — signup
+    // is free and unverified — and this route set `active: true` with no check
+    // that the caller controls the domain or DID it claims. That made "anyone
+    // with an email address" the real trust boundary on every issuer-gated
+    // endpoint, and it is the root of the payout-hijack chain (NEW-04) and
+    // several cross-tenant findings.
+    //
+    // The key was also stored in cleartext alongside the hash column. Lookups
+    // already prefer `api_key_hash`, so nothing needs the raw value at rest —
+    // it is returned once, to the caller, and never persisted.
     const { data, error } = await supabase
       .from('reputation_issuers')
       .insert({
         did: resolvedDid,
         name,
         domain,
-        active: true,
-        api_key: apiKey,
+        active: false,
+        api_key_hash: hashApiKey(apiKey),
         merchant_id: authResult.context.merchantId,
       })
       .select('id, did, name, domain, active, created_at')
@@ -74,7 +89,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       issuer: data,
-      api_key: apiKey, // Only shown once
+      api_key: apiKey, // Only shown once — never stored in the clear
+      pending_activation: true,
+      message:
+        'Issuer registered. It must be activated by CoinPay before its API key will authenticate; ' +
+        'contact support with proof you control this domain.',
     }, { status: 201 });
   } catch (error) {
     console.error('[issuers] Error:', error);

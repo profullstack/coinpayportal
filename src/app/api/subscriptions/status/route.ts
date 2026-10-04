@@ -93,18 +93,23 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Get merchant ID from auth context
-    let merchantId: string;
-    if (isMerchantAuth(authResult.context)) {
-      merchantId = authResult.context.merchantId;
-    } else if (isBusinessAuth(authResult.context)) {
-      merchantId = authResult.context.merchantId;
-    } else {
+    // Cancelling the plan requires account (session) auth, not an API key.
+    //
+    // No scope was checked here, and a business API key resolves to the owning
+    // merchant, so any key — including a read-only one issued to an integrator
+    // for a single narrow job — could cancel the merchant's Professional
+    // subscription. Billing is an account-level action; a scoped key must not
+    // be able to take it.
+    if (!isMerchantAuth(authResult.context)) {
       return NextResponse.json(
-        { success: false, error: 'Invalid authentication context' },
-        { status: 401 }
+        {
+          success: false,
+          error: 'Cancelling a subscription requires account authentication, not an API key',
+        },
+        { status: 403 }
       );
     }
+    const merchantId = authResult.context.merchantId;
 
     // Cancel subscription
     const result = await cancelSubscription(supabase, merchantId);

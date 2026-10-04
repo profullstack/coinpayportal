@@ -407,8 +407,17 @@ function getSecp256k1PublicKey(seed) {
  * @private
  */
 function signMessage(message, privateKey) {
-  const messageHash = sha256(new TextEncoder().encode(message));
-  const signature = secp256k1.sign(messageHash, privateKey);
+  // Signed over the RAW message bytes, not sha256(message).
+  //
+  // This used to hash first. The server verifies proofs by passing the raw
+  // encoded message straight to `secp256k1.verify` (see
+  // web-wallet/auth.ts::verifySecp256k1Signature), and noble treats that
+  // argument as the thing that was signed — so a signature over the digest
+  // verifies false against the message. Every proof of ownership this SDK
+  // produced was rejected, which meant `WalletClient.fromSeed()` could not
+  // import a wallet at all. Found while wiring the same proof into
+  // `create()` for V-04.
+  const signature = secp256k1.sign(new TextEncoder().encode(message), privateKey);
   // Handle different noble-curves versions:
   // v1.x returns Signature object with toCompactHex()
   // v2.x returns raw Uint8Array directly
@@ -672,11 +681,24 @@ export class WalletClient {
       };
     });
     
+    // V-04: /create accepted a public key and a list of on-chain addresses
+    // from anyone, with no proof that either was theirs, while /import required
+    // a signature for the same write. `wallet_addresses` is globally unique on
+    // (address, chain), so an unproved registration permanently denies an
+    // address to whoever actually owns it.
+    const proofMessage = `CoinPay Wallet Create: ${Date.now()}`;
+    const { privateKey: proofKey } = deriveKeyPair(seed, 'ETH', 0);
+    const proofSignature = signMessage(proofMessage, proofKey);
+
     const result = await client.#request('/web-wallet/create', {
       method: 'POST',
       body: JSON.stringify({
         public_key_secp256k1: publicKeySecp256k1,
         initial_addresses: initialAddresses,
+        proof_of_ownership: {
+          message: proofMessage,
+          signature: proofSignature,
+        },
       }),
     });
     
@@ -997,28 +1019,36 @@ export class WalletClient {
       }),
     });
     
-    // Step 2: Sign the transaction locally
-    // Note: This is a simplified version - real implementation would need
-    // chain-specific signing logic
-    const { privateKey } = deriveKeyPair(this.#seed, chain, 0);
-    const unsignedTx = prepareResult.unsigned_tx;
-    
-    // For EVM chains, sign the transaction hash
-    // For BTC, sign each input
-    // This is simplified - real implementation needs chain-specific logic
-    const signedTx = signMessage(unsignedTx, privateKey);
-    
-    // Step 3: Broadcast the signed transaction
-    const broadcastResult = await this.#request(`/web-wallet/${this.#walletId}/broadcast`, {
-      method: 'POST',
-      body: JSON.stringify({
-        tx_id: prepareResult.tx_id,
-        signed_tx: signedTx,
-        chain,
-      }),
-    });
-    
-    return broadcastResult;
+    // Step 2: Sign the transaction locally.
+    //
+    // NOT IMPLEMENTED, and it now says so instead of pretending.
+    //
+    // This used to call `signMessage(unsignedTx, privateKey)` — a generic
+    // message signature over the JSON of the unsigned transaction — and post
+    // the result as `signed_tx`. That is not a signed transaction on any chain:
+    // a real one is the RLP-encoded (EVM), PSBT-finalised (BTC) or
+    // wire-serialised (Solana) transaction carrying the signature in the right
+    // field. What was produced could never be broadcast, so this method failed
+    // for every integrator who called it — silently, by producing plausible
+    // output that only failed later at the node.
+    //
+    // Failing here rather than guessing is deliberate. Serialising each chain
+    // correctly needs the exact shape of `prepareResult.unsigned_tx` (defined by
+    // the server, not this package) and verification against a live node.
+    // Shipping an unverified serialiser would reintroduce the same class of bug
+    // with more code behind it.
+    //
+    // The primitives to do this yourself are exported and do work:
+    // `signDigest()` for EVM digests and `signMessage()` for EIP-191. Build the
+    // transaction with viem / ethers / @solana/web3.js, sign the digest here,
+    // and post the serialised result to the broadcast endpoint.
+    void prepareResult;
+    throw new Error(
+      'WalletClient.send() is not implemented: chain-specific transaction ' +
+      'serialisation is not available in this package. Build and serialise the ' +
+      'transaction with a chain library, sign the digest with signDigest(), and ' +
+      'POST it to /web-wallet/:id/broadcast. See docs/sdk for an example.'
+    );
   }
   
   // ==========================================================

@@ -9,6 +9,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendEmail } from '@/lib/email';
+import { fetchAllKeyset } from '@/lib/db/keyset';
 
 export interface EmailStats {
   reminders_sent: number;
@@ -153,13 +154,36 @@ async function sendStatusChangeNotifications(
   supabase: SupabaseClient,
   stats: EmailStats
 ): Promise<void> {
-  const { data: escrows, error } = await supabase
-    .from('escrows')
-    .select('id, status, depositor_email, beneficiary_email, amount, chain, escrow_address, dispute_reason, settlement_tx_hash, status_emails_sent')
-    .in('status', NOTIFIABLE_STATUSES)
-    .limit(200);
+  // H-R-05: this was `.limit(200)` with no `.order()` and no filter on what had
+  // already been sent. All five notifiable statuses are terminal, so an escrow
+  // that reaches one stays in this set permanently — and every row in the batch
+  // is then skipped by the `alreadySent` check below. Once 200 terminal escrows
+  // have accumulated, the batch is entirely made of them and no escrow ever
+  // receives a status email again. The job reports success having sent nothing.
+  //
+  // Walking the whole set means a newly-notifiable escrow is always reached,
+  // whatever is ahead of it. The per-row skip stays as the idempotency guard.
+  const { rows: escrows, truncated, error } = await fetchAllKeyset<any>(
+    (cursor, pageSize) => {
+      let q = supabase
+        .from('escrows')
+        .select('id, status, depositor_email, beneficiary_email, amount, chain, escrow_address, dispute_reason, settlement_tx_hash, status_emails_sent')
+        .in('status', NOTIFIABLE_STATUSES)
+        .order('id', { ascending: true })
+        .limit(pageSize);
+      if (cursor) q = q.gt('id', cursor);
+      return q as unknown as Promise<{ data: any[] | null; error: { message: string } | null }>;
+    }
+  );
 
-  if (error || !escrows) return;
+  if (error) {
+    console.error('[Email] Status-change sweep page failed:', error);
+    stats.errors++;
+  }
+  if (truncated) {
+    console.warn('[Email] Status-change sweep hit its row ceiling; the tail was not notified this run');
+  }
+  if (!escrows.length) return;
 
   for (const escrow of escrows) {
     const alreadySent: string[] = escrow.status_emails_sent || [];

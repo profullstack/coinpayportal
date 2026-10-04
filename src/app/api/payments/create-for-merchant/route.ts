@@ -27,6 +27,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { sanitizeStripeMetadata } from '@/lib/stripe/metadata';
+import { platformMayManageMerchant } from '@/lib/p2p/platform-ownership';
+import { hashApiKey } from '@/lib/auth/scoped-keys';
+import { screenCheckout } from '@/lib/fraud/screen';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
@@ -81,12 +86,23 @@ async function authenticatePlatform(
   if (!authHeader?.startsWith('Bearer ')) return null;
   const apiKey = authHeader.slice(7);
 
+  // Match on the HASH first, falling back to the legacy cleartext column while
+  // it drains. Same contract as /api/p2p/request.
+  const { data: byHash } = await supabase
+    .from('reputation_issuers')
+    .select('did, name')
+    .eq('api_key_hash', hashApiKey(apiKey))
+    .eq('active', true)
+    .maybeSingle();
+
+  if (byHash) return byHash;
+
   const { data } = await supabase
     .from('reputation_issuers')
     .select('did, name')
     .eq('api_key', apiKey)
     .eq('active', true)
-    .single();
+    .maybeSingle();
 
   return data;
 }
@@ -161,21 +177,21 @@ export async function POST(request: NextRequest) {
     const method =
       payment_method ?? (currency.toLowerCase() === 'card' ? 'card' : 'crypto');
 
-    // Verify the merchant exists
-    const { data: merchant } = await supabase
-      .from('merchants')
-      .select('id')
-      .eq('id', merchant_id)
-      .maybeSingle();
-    if (!merchant) {
-      return NextResponse.json(
-        { success: false, error: 'merchant not found' },
-        { status: 404 },
-      );
+    // Verify the platform may act for this merchant — not merely that the
+    // merchant exists.
+    //
+    // The route authenticated an issuer key and then took `merchant_id` from
+    // the body, so any valid issuer could create payments on behalf of ANY
+    // merchant on the platform. Combined with CP-002 (issuer registration was
+    // open and auto-activated), that made "anyone with an email address" the
+    // real trust boundary on creating charges in someone else's name.
+    const owns = await platformMayManageMerchant(supabase, platform.name, merchant_id);
+    if (!owns.ok) {
+      return NextResponse.json({ success: false, error: owns.error }, { status: owns.status });
     }
 
     const baseMetadata: Record<string, unknown> = {
-      ...(metadata || {}),
+      ...sanitizeStripeMetadata(metadata, 'payments/create-for-merchant'),
       platform: platform.name,
       platform_did: platform.did,
       cross_network: true,
@@ -274,7 +290,11 @@ export async function POST(request: NextRequest) {
       blockchain: 'ETH', // schema requires non-null; card-only payments
       status: 'pending',
       payment_address: '',
-      payment_address_id: null,
+      // `payment_address_id` is not a column on `payments` — it was dropped in a
+      // November 2025 migration and its absence is confirmed against the live
+      // schema. PostgREST rejects an insert naming an unknown column outright,
+      // so every card payment through this route failed with a 500 before it
+      // ever reached Stripe.
       merchant_wallet_address: '',
       metadata: { ...baseMetadata, payment_method: 'card' },
       created_at: now,
@@ -294,8 +314,33 @@ export async function POST(request: NextRequest) {
     const appUrl =
       process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com';
 
+    // Screen before the Stripe session exists. One of the seven paths that
+    // create a real card charge; only one of the seven was screened.
+    const screening = await screenCheckout(supabase, {
+      businessId: stripe.business_id,
+      ip: getClientIp(request),
+      amount: amount_usd,
+      currency: 'USD',
+      description,
+    });
+
+    if (screening.decision === 'block') {
+      console.warn('[Fraud] Blocked create-for-merchant checkout', {
+        businessId: stripe.business_id,
+        score: screening.score,
+        findings: screening.findings.map((f) => f.code).join(', '),
+      });
+      return NextResponse.json(
+        { success: false, error: screening.buyerMessage },
+        { status: 403 },
+      );
+    }
+
     const stripeSdk = await getStripe();
     const session = await stripeSdk.checkout.sessions.create({
+      ...(screening.decision === 'verify'
+        ? { payment_method_options: { card: { request_three_d_secure: 'any' as const } } }
+        : {}),
       line_items: [
         {
           price_data: {

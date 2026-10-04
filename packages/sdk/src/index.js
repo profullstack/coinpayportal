@@ -78,6 +78,7 @@ import {
   listInvoices,
   updateInvoice,
   deleteInvoice,
+  publishInvoice,
   sendInvoice,
   getInvoicePaymentData,
   InvoiceStatus,
@@ -180,6 +181,23 @@ import {
   CHAIN_IDS,
 } from './x402.js';
 
+import {
+  getFinanceSummary,
+  listFinanceAccounts,
+  listFinanceTransactions,
+  listFinanceConnections,
+  syncFinances,
+  getDashboardStats,
+  getFinanceAnalytics,
+  listCryptoPayments,
+  listCardTransactions,
+  listCardPayouts,
+  buildFinanceSnapshot,
+  collectFinanceSnapshot,
+  subscribeToPayments,
+  periodForDays,
+} from './finances.js';
+
 export {
   // Client
   CoinPayClient,
@@ -209,6 +227,7 @@ export {
   listInvoices,
   updateInvoice,
   deleteInvoice,
+  publishInvoice,
   sendInvoice,
   getInvoicePaymentData,
   InvoiceStatus,
@@ -284,6 +303,22 @@ export {
   // Lightning
   LightningClient,
   
+  // Finances (bank feeds, earnings, commission, refunds)
+  getFinanceSummary,
+  listFinanceAccounts,
+  listFinanceTransactions,
+  listFinanceConnections,
+  syncFinances,
+  getDashboardStats,
+  getFinanceAnalytics,
+  listCryptoPayments,
+  listCardTransactions,
+  listCardPayouts,
+  buildFinanceSnapshot,
+  collectFinanceSnapshot,
+  subscribeToPayments,
+  periodForDays,
+
   // Auth
   registerMerchant,
   loginMerchant,
@@ -309,3 +344,6 @@ export {
 };
 
 export default CoinPayClient;
+
+// Finance reports, sync jobs, coverage and the statement library.
+export * from './finances-reports.js';

@@ -8,6 +8,8 @@
  * unauthenticated email enumeration via wallet address scanning.
  */
 
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -56,6 +58,19 @@ async function lookupEmailByAddress(supabase: ReturnType<typeof getSupabase>, ad
 }
 
 export async function GET(request: NextRequest) {
+  // Unauthenticated and unlimited, this answers "does this address belong to a
+  // CoinPay merchant?" for any address a caller cares to try — enough to sweep
+  // the merchant base by scanning addresses. The endpoint stays public, because
+  // a sender legitimately checks before paying; the limit is what makes bulk
+  // enumeration impractical.
+  const rate = await checkRateLimitAsync(getClientIp(request) || 'unknown', 'wallet_lookup');
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: 'Too many lookups. Please try again shortly.' },
+      { status: 429 }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const address = searchParams.get('address')?.trim();
 

@@ -4,6 +4,8 @@ import { FeedbackWidget } from '@profullstack/stack/feedback';
 import Script from 'next/script';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
+import { HomeGuidePromotion } from '@/components/field-guide/HomeGuidePromotion';
+import { guideAvailable } from '@/lib/field-guide/asset';
 import { Providers } from '@/components/Providers';
 import './globals.css';
 import { serializeJsonLd } from '@/lib/seo/json-ld';
@@ -32,7 +34,7 @@ export const metadata: Metadata = {
     type: 'website',
     locale: 'en_US',
     url: 'https://coinpayportal.com',
-    title: 'CoinPay - Non-Custodial Crypto Payment Gateway',
+    title: 'CoinPay - Crypto Payment Gateway',
     description: 'Accept cryptocurrency payments with automatic fee handling and real-time processing',
     siteName: 'CoinPay',
     images: [
@@ -40,13 +42,13 @@ export const metadata: Metadata = {
         url: '/logo.svg',
         width: 1200,
         height: 630,
-        alt: 'CoinPay - Non-Custodial Crypto Payment Gateway',
+        alt: 'CoinPay - Crypto Payment Gateway',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'CoinPay - Non-Custodial Crypto Payment Gateway',
+    title: 'CoinPay - Crypto Payment Gateway',
     description: 'Accept cryptocurrency payments with automatic fee handling and real-time processing',
     images: ['/logo.svg'],
   },
@@ -92,11 +94,12 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const guideReady = await guideAvailable();
   return (
     <html lang="en" className="dark">
       <head>
@@ -115,6 +118,7 @@ export default function RootLayout({
           </a>
           <Header />
           <main id="main-content" className="flex-grow">
+            {guideReady && <HomeGuidePromotion />}
             <ReferralProvider>{children}</ReferralProvider>
           </main>
           <Footer />

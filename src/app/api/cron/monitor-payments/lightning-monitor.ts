@@ -11,6 +11,7 @@ import { decryptLnKey } from '@/lib/lightning/key-encryption';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendWebhook } from './webhook';
+import { fetchAllKeyset } from '@/lib/db/keyset';
 
 export interface LightningMonitorStats {
   nodes_checked: number;
@@ -144,14 +145,43 @@ export async function syncLnbitsPayments(
   const stats = { synced: 0, errors: 0 };
 
   try {
-    // Find wallets with LNbits keys
-    const { data: wallets, error: wErr } = await supabase
-      .from('wallets')
-      .select('id, ln_wallet_inkey, ln_wallet_adminkey')
-      .or('ln_wallet_inkey.not.is.null,ln_wallet_adminkey.not.is.null')
-      .limit(100);
+    // Find wallets with LNbits keys.
+    //
+    // B-03: this was a bare `.limit(100)` with no `.order()`. Postgres is free
+    // to return rows in any order, and in practice returns them in a stable
+    // physical order — so past 100 Lightning wallets the same hundred were
+    // synced on every run and the rest were never synced at all. Their incoming
+    // payments never reached `ln_payments`, which is what the dashboard reads
+    // and what x402 Lightning settlement now requires as proof, so those
+    // wallets would silently stop being able to prove they had been paid.
+    //
+    // Ordering by id makes the page deterministic, and the loop walks the whole
+    // table by keyset rather than stopping at the first page. The cap is a
+    // runaway guard, not a working set.
+    const { rows: wallets, truncated, error: wErr } = await fetchAllKeyset<{
+      id: string;
+      ln_wallet_inkey: string | null;
+      ln_wallet_adminkey: string | null;
+    }>((cursor, pageSize) => {
+      let q = supabase
+        .from('wallets')
+        .select('id, ln_wallet_inkey, ln_wallet_adminkey')
+        .or('ln_wallet_inkey.not.is.null,ln_wallet_adminkey.not.is.null')
+        .order('id', { ascending: true })
+        .limit(pageSize);
+      if (cursor) q = q.gt('id', cursor);
+      return q as unknown as Promise<{ data: any[] | null; error: { message: string } | null }>;
+    });
 
-    if (wErr || !wallets?.length) return stats;
+    if (wErr) {
+      console.error('[Lightning] wallet page fetch failed:', wErr);
+      stats.errors++;
+    }
+    if (truncated) {
+      console.warn('[Lightning] wallet sync hit its row ceiling; the tail of the table was not synced this run');
+    }
+
+    if (!wallets.length) return stats;
 
     // Lazy import LNbits
     const { listPayments } = await import('@/lib/lightning/lnbits');

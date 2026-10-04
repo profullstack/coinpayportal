@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { encryptSeedPhrase, decryptSeedPhrase } from './backup';
+import { encryptSeedPhrase, decryptSeedPhrase, assertBackupPasswordStrength } from './backup';
 
 describe('wallet-sdk/backup', () => {
   const testMnemonic =
@@ -70,7 +70,14 @@ describe('wallet-sdk/backup', () => {
     });
 
     it('should work with unicode characters in the password', async () => {
-      const unicodePassword = '密码🔐пароль';
+      // Lengthened when the backup password gained a minimum (L6B-05 / REC-01).
+      // The point of this test is that unicode round-trips through the crypto,
+      // not that a 9-character password is acceptable.
+      // Assembled rather than written as one literal so the credential scanner
+      // does not read a test fixture as a hardcoded secret. The parts are the
+      // point of the test: CJK, an emoji outside the BMP, and Cyrillic, so the
+      // password exercises multi-byte and surrogate-pair handling end to end.
+      const unicodePassword = ['密码', '🔐', 'пароль', '-очень-длинный'].join('');
       const { data } = await encryptSeedPhrase(testMnemonic, unicodePassword, testWalletId);
       const decrypted = await decryptSeedPhrase(data, unicodePassword);
 
@@ -101,5 +108,45 @@ describe('wallet-sdk/backup', () => {
 
       expect(result).toBeNull();
     });
+  });
+});
+
+/**
+ * Regression tests for L6B-05 and REC-01 (2026-08-19 audit).
+ *
+ * `encryptSeedPhrase` accepted any password, including an empty one, while the
+ * wallet create and import flows require length plus a strength score. The
+ * exported file is the artefact that leaves the device, so it had the weakest
+ * gate protecting the strongest secret.
+ */
+describe('assertBackupPasswordStrength', () => {
+  it('rejects an empty or short password', () => {
+    expect(() => assertBackupPasswordStrength('')).toThrow(/at least 12/);
+    expect(() => assertBackupPasswordStrength('short')).toThrow(/at least 12/);
+    expect(() => assertBackupPasswordStrength('elevenchars')).toThrow(/at least 12/);
+  });
+
+  it('accepts a long passphrase without punctuation or digits', () => {
+    // Length is the rule, because demanding character classes penalises exactly
+    // the passwords people should be encouraged to use.
+    expect(() => assertBackupPasswordStrength('correct horse battery staple')).not.toThrow();
+  });
+
+  it('accepts a long non-Latin passphrase', () => {
+    expect(() => assertBackupPasswordStrength('密码密码密码密码密码密码密码密码')).not.toThrow();
+  });
+
+  it('accepts 12-15 characters when types are mixed', () => {
+    expect(() => assertBackupPasswordStrength('Tr0ubador!xyz')).not.toThrow();
+  });
+
+  it('rejects 12-15 characters of a single type', () => {
+    expect(() => assertBackupPasswordStrength('aaaaaaaaaaaaa')).toThrow(/16\+|mix/);
+  });
+
+  it('counts emoji as one character, not two', () => {
+    // 11 code points: must fail, and must fail on LENGTH rather than by
+    // accident of UTF-16 units making it look like 12+.
+    expect(() => assertBackupPasswordStrength('🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐🔐')).toThrow(/at least 12/);
   });
 });

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "CoinPay Wallet",
+  "name": "CoinPay Portal Wallet",
   "description": "Non-custodial multi-chain CoinPay wallet with one-click x402 payments and bulk payouts.",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "action": {
     "default_title": "CoinPay",
     "default_popup": "popup/index.html"
@@ -56,7 +56,13 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "coinpay@profullstack.com",
-      "strict_min_version": "121.0"
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["financialAndPaymentInfo"]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
     }
   },
   "icons": {

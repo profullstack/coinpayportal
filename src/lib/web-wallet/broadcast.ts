@@ -8,6 +8,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { WalletChain } from './identity';
 import { isValidChain } from './identity';
+import { checkTransactionAllowed } from './settings';
+import { evmRpcCall } from './evm-rpc';
+import { keccak_256 } from '@noble/hashes/sha3.js';
 
 /** Truncate an address for safe logging */
 function truncAddr(addr: string): string {
@@ -47,6 +50,13 @@ const EXPLORER_URLS: Record<string, string> = {
   USDC_ETH: 'https://etherscan.io/tx/',
   USDC_POL: 'https://polygonscan.com/tx/',
   USDC_SOL: 'https://explorer.solana.com/tx/',
+  // A token variant needs its own row: the lookup falls back to '' and the
+  // caller then hands the user a bare transaction hash where a link belongs.
+  // Silent, and invisible until someone clicks it.
+  USDC_BASE: 'https://basescan.org/tx/',
+  USDT_ETH: 'https://etherscan.io/tx/',
+  USDT_POL: 'https://polygonscan.com/tx/',
+  USDT_SOL: 'https://explorer.solana.com/tx/',
 };
 
 // ──────────────────────────────────────────────
@@ -56,8 +66,8 @@ const EXPLORER_URLS: Record<string, string> = {
 function getRpcEndpoints(): Record<string, string> {
   return {
     BTC: process.env.BITCOIN_RPC_URL || 'https://blockstream.info/api',
-    ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-    POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    ETH: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+    POL: process.env.POLYGON_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
     SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
     BASE: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
   };
@@ -168,31 +178,52 @@ async function broadcastBCH(signedTxHex: string): Promise<string> {
 /**
  * Broadcast a signed EVM transaction via eth_sendRawTransaction.
  */
-async function broadcastEVM(signedTxHex: string, rpcUrl: string): Promise<string> {
+async function broadcastEVM(signedTxHex: string, chain: string): Promise<string> {
   // Ensure 0x prefix
   const txHex = signedTxHex.startsWith('0x') ? signedTxHex : '0x' + signedTxHex;
 
-  const resp = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'eth_sendRawTransaction',
-      params: [txHex],
-      id: 1,
-    }),
-  });
+  // Failover is safe here. It only happens when a provider fails at the
+  // TRANSPORT level (unreachable, or a non-2xx status), never on a chain-level
+  // rejection. The blob is already signed, so if a provider did accept it
+  // before the connection broke, the next one computes the SAME transaction
+  // hash and answers "already known" — which callers treat as success rather
+  // than as a double spend. A rejection from the chain itself (nonce too low,
+  // underpriced) is returned, not retried: every provider would repeat it.
+  const data = await evmRpcCall(chain, 'eth_sendRawTransaction', [txHex]);
 
-  if (!resp.ok) {
-    throw new Error(`EVM broadcast failed: ${resp.status}`);
-  }
-
-  const data = await resp.json();
   if (data.error) {
-    throw new Error(`EVM broadcast error: ${data.error.message}`);
+    const msg = data.error.message || '';
+
+    // "already known" / "known transaction" means the node ALREADY HAS these
+    // exact signed bytes: the broadcast succeeded, possibly on an earlier
+    // attempt whose response we never saw. Treating it as a failure marked a
+    // row `failed` while the money moved on-chain — the worst of both records.
+    //
+    // No second send happens here and none is needed; we only have to report
+    // the hash, and for a signed transaction that is just keccak256 of the
+    // bytes we already hold, so it can be computed without asking anyone.
+    if (/already known|known transaction/i.test(msg)) {
+      console.warn(`[Broadcast] ${chain}: node already had this transaction — treating as sent`);
+      return evmTxHashOf(txHex);
+    }
+
+    throw new Error(`EVM broadcast error: ${msg}`);
   }
 
-  return data.result; // Returns tx hash
+  return data.result as string; // Returns tx hash
+}
+
+/** The transaction hash of an already-signed EVM transaction: keccak256(raw bytes). */
+function evmTxHashOf(rawTxHex: string): string {
+  const hex = rawTxHex.startsWith('0x') ? rawTxHex.slice(2) : rawTxHex;
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return (
+    '0x' +
+    Array.from(keccak_256(bytes), (b) => b.toString(16).padStart(2, '0')).join('')
+  );
 }
 
 /**
@@ -246,7 +277,13 @@ function describeSolError(error: {
   // read program logs to discover their wallet is empty.
   const haystack = `${JSON.stringify(err ?? '')} ${logs.join(' ')}`;
   if (/InsufficientFundsForRent|insufficient lamports|InsufficientFunds/i.test(haystack)) {
-    return `${base}: the sending wallet does not have enough SOL to cover this transfer plus fees`;
+    // "wallet" was misleading: the constraint is the single sending address, and
+    // the balance shown for a chain is the sum of every address derived on it.
+    return (
+      `${base}: the sending address does not have enough SOL to cover this transfer ` +
+      `plus fees — a chain's displayed balance is the total across every derived address, ` +
+      `not what one address holds`
+    );
   }
   if (/BlockhashNotFound/i.test(haystack)) {
     return `${base}: the transaction's blockhash expired before it was broadcast — try again`;
@@ -296,41 +333,211 @@ function describeSolError(error: {
  * not available here; those are recorded as unverified rather than silently
  * treated as checked — see `binding_verified` in the row metadata.
  */
+/**
+ * Token decimals per EVM chain, needed to compare a human-readable prepared
+ * amount against the integer value carried in the signed transaction.
+ */
+const EVM_DECIMALS: Record<string, number> = {
+  ETH: 18,
+  POL: 18,
+  USDC_ETH: 6,
+  USDC_POL: 6,
+  USDC_BASE: 6,
+  // USDT is 6dp on both EVM chains. These are not decoration: an absent entry
+  // returns `no decoder for <chain>`, which is unverified-but-allowed, so
+  // broadcasting USDT without them would skip the recipient and amount binding
+  // entirely — the WW-03 hole, reopened for a different token.
+  USDT_ETH: 6,
+  USDT_POL: 6,
+};
+
+/**
+ * Decode a signed Bitcoin transaction and confirm its outputs pay the prepared
+ * recipient at least the prepared amount.
+ *
+ * WW-03: BTC, BCH, SOL and USDC_SOL had NO binding check at all — the decoder
+ * simply reported "no decoder for <chain>" and the broadcast proceeded, so a
+ * signed transaction on those chains was never compared against what the
+ * platform had prepared and recorded.
+ */
+async function verifyBtcBinding(
+  signedTx: string,
+  expected: { to_address: string | null; amount: string | number | null },
+  network: 'bitcoin',
+): Promise<{ verified: boolean; reason?: string; mismatch?: boolean }> {
+  const bitcoin = await import('bitcoinjs-lib');
+  const tx = bitcoin.Transaction.fromHex(signedTx);
+  const net = bitcoin.networks[network];
+
+  if (!expected.to_address) return { verified: true };
+
+  // Sum every output paying the prepared address. A transaction legitimately
+  // has a change output back to the sender, so this is "did the payee get at
+  // least what we recorded", not "the transaction has exactly one output".
+  let paid = 0n;
+  for (const out of tx.outs) {
+    let outAddress: string | null = null;
+    try {
+      outAddress = bitcoin.address.fromOutputScript(out.script, net);
+    } catch {
+      continue; // OP_RETURN and other non-address outputs
+    }
+    if (outAddress === expected.to_address) {
+      paid += BigInt(out.value);
+    }
+  }
+
+  if (paid === 0n) {
+    return {
+      verified: false,
+      mismatch: true,
+      reason: `no output pays prepared ${expected.to_address}`,
+    };
+  }
+
+  if (expected.amount !== null && expected.amount !== undefined && expected.amount !== '') {
+    // Prepared amounts are human-readable BTC; outputs are satoshis.
+    const expectedSats = BigInt(Math.round(Number(expected.amount) * 1e8));
+    if (paid < expectedSats) {
+      return {
+        verified: false,
+        mismatch: true,
+        reason: `outputs pay ${paid} sats to prepared address, expected ${expectedSats}`,
+      };
+    }
+  }
+
+  return { verified: true };
+}
+
+/**
+ * Decode a signed Solana transaction and confirm the prepared recipient appears
+ * among its account keys. See `verifyBtcBinding` for why this exists.
+ *
+ * Deliberately weaker than the BTC and EVM checks: a Solana transaction's
+ * transfer amount lives inside instruction data whose layout depends on the
+ * program (System vs SPL Token), and decoding every variant correctly is not
+ * something to guess at in a broadcast guard. Confirming the payee is present
+ * catches a wholesale substitution of the recipient, which is the case that
+ * matters most; anything finer is reported as unverified rather than claimed.
+ */
+async function verifySolBinding(
+  signedTx: string,
+  expected: { to_address: string | null },
+): Promise<{ verified: boolean; reason?: string; mismatch?: boolean }> {
+  if (!expected.to_address) return { verified: true };
+
+  const { VersionedTransaction, Transaction: LegacyTransaction } = await import('@solana/web3.js');
+  const raw = Buffer.from(signedTx, 'base64');
+
+  let keys: string[];
+  try {
+    const vtx = VersionedTransaction.deserialize(raw);
+    keys = vtx.message.staticAccountKeys.map((k) => k.toBase58());
+  } catch {
+    const ltx = LegacyTransaction.from(raw);
+    keys = ltx.compileMessage().accountKeys.map((k) => k.toBase58());
+  }
+
+  if (!keys.includes(expected.to_address)) {
+    return {
+      verified: false,
+      mismatch: true,
+      reason: `prepared recipient ${expected.to_address} is not referenced by the signed transaction`,
+    };
+  }
+
+  // Present, but the amount is not checked — see the note above.
+  return { verified: false, reason: 'solana: recipient present, amount not decodable here' };
+}
+
 async function verifySignedTxBinding(
   chain: string,
   signedTx: string,
   expected: { to_address: string | null; amount: string | number | null },
-): Promise<{ verified: boolean; reason?: string }> {
-  const EVM_CHAINS = ['ETH', 'USDC_ETH', 'POL', 'USDC_POL', 'USDC_BASE'];
-  if (!EVM_CHAINS.includes(chain)) {
+): Promise<{ verified: boolean; reason?: string; mismatch?: boolean }> {
+  if (chain === 'BTC') {
+    try {
+      return await verifyBtcBinding(signedTx, expected, 'bitcoin');
+    } catch (err) {
+      return { verified: false, reason: err instanceof Error ? err.message : 'btc decode failed' };
+    }
+  }
+
+  if (chain === 'SOL' || chain === 'USDC_SOL' || chain === 'USDT_SOL') {
+    try {
+      return await verifySolBinding(signedTx, expected);
+    } catch (err) {
+      return { verified: false, reason: err instanceof Error ? err.message : 'sol decode failed' };
+    }
+  }
+
+  const decimals = EVM_DECIMALS[chain];
+  if (decimals === undefined) {
+    // BCH remains undecoded: bitcoinjs-lib does not support its SIGHASH_FORKID
+    // variant (see the note in blockchain/providers.ts), so a decoder here would
+    // be guessing. Recorded as unverified rather than claimed as checked.
     return { verified: false, reason: `no decoder for ${chain}` };
   }
 
   try {
-    const { Transaction } = await import('ethers');
+    const { Transaction, parseUnits } = await import('ethers');
     const parsed = Transaction.from(signedTx);
 
     const actualTo = (parsed.to || '').toLowerCase();
     const expectedTo = (expected.to_address || '').toLowerCase();
 
+    // The amount was never compared — only the recipient was. So a signed
+    // transaction paying the right address a different amount was accepted and
+    // recorded as the prepared one. Everything downstream hangs off that row:
+    // the wallet's history, the daily spend limit, fee accounting and
+    // notifications all described a transaction that did not happen.
+    let expectedValue: bigint | null = null;
+    if (expected.amount !== null && expected.amount !== undefined && expected.amount !== '') {
+      try {
+        expectedValue = parseUnits(String(expected.amount), decimals);
+      } catch {
+        return { verified: false, reason: `unparseable prepared amount ${expected.amount}` };
+      }
+    }
+
     // For a native transfer the recipient is the tx `to`. For an ERC-20 the tx
     // `to` is the token contract and the recipient sits in the calldata, so a
-    // direct comparison would produce false mismatches — the value check below
-    // is skipped for those and the recipient is compared against the calldata.
+    // direct comparison would produce false mismatches.
     const isTokenTransfer = parsed.data && parsed.data !== '0x' && parsed.data.length >= 138;
 
     if (isTokenTransfer) {
-      // ERC-20 transfer(address,uint256): recipient is the first argument,
-      // left-padded to 32 bytes after the 4-byte selector.
+      // ERC-20 transfer(address,uint256): recipient is the first argument and
+      // the amount the second, each left-padded to 32 bytes after the 4-byte
+      // selector.
       const recipient = `0x${parsed.data.slice(34, 74)}`.toLowerCase();
       if (expectedTo && recipient !== expectedTo) {
-        return { verified: false, reason: `recipient ${recipient} != prepared ${expectedTo}` };
+        return { verified: false, mismatch: true, reason: `recipient ${recipient} != prepared ${expectedTo}` };
+      }
+
+      if (expectedValue !== null) {
+        const actualValue = BigInt(`0x${parsed.data.slice(74, 138)}`);
+        if (actualValue !== expectedValue) {
+          return {
+            verified: false,
+            mismatch: true,
+            reason: `amount ${actualValue} != prepared ${expectedValue}`,
+          };
+        }
       }
       return { verified: true };
     }
 
     if (expectedTo && actualTo !== expectedTo) {
-      return { verified: false, reason: `recipient ${actualTo} != prepared ${expectedTo}` };
+      return { verified: false, mismatch: true, reason: `recipient ${actualTo} != prepared ${expectedTo}` };
+    }
+
+    if (expectedValue !== null && parsed.value !== expectedValue) {
+      return {
+        verified: false,
+        mismatch: true,
+        reason: `amount ${parsed.value} != prepared ${expectedValue}`,
+      };
     }
 
     return { verified: true };
@@ -389,8 +596,14 @@ export async function broadcastTransaction(
     amount: txRecord.amount,
   });
 
-  if (!binding.verified && binding.reason?.startsWith('recipient ')) {
+  if (!binding.verified && binding.mismatch) {
     // A decoded mismatch is unambiguous: refuse it.
+    //
+    // This used to test `reason?.startsWith('recipient ')`, which meant only a
+    // recipient mismatch could refuse a broadcast — matching on message text,
+    // so a reworded reason would silently stop refusing anything. `mismatch` is
+    // now set explicitly by the decoder for every definite disagreement,
+    // amounts included.
     await supabase
       .from('wallet_transactions')
       .update({
@@ -407,6 +620,62 @@ export async function broadcastTransaction(
     };
   }
 
+  if (!binding.verified && !binding.mismatch) {
+    // Not a disagreement — an inability to tell. BCH has no decoder here
+    // (bitcoinjs-lib does not handle its SIGHASH_FORKID variant) and Solana's
+    // transfer amount sits in instruction data whose layout is program-specific,
+    // so on those chains the amount is not bound to what was prepared.
+    //
+    // Refusing outright would take those chains offline, so the broadcast
+    // proceeds. The outcome is already recorded on the row below as
+    // `binding_verified`; this makes the same fact visible in the logs at the
+    // moment it happens, rather than only to whoever later reads the metadata.
+    //
+    // The residual gap is real and is tracked: on BCH and Solana the *amount*
+    // in the signed bytes is still not compared to the prepared amount.
+    console.warn(
+      `[Broadcast] Tx ${input.tx_id} on ${chain} could not be bound to the prepared transaction: ${binding.reason}`
+    );
+  }
+
+  // Re-check the wallet's own spending controls, now, against the record the
+  // signed bytes were just bound to.
+  //
+  // WW-01: the whitelist and daily spend limit were enforced at prepare and
+  // never again. Prepare moves no money — broadcast does — and the check ran
+  // *before* the transaction row was inserted, so two prepares racing each
+  // other both read the same pre-insert total and both passed. By the time we
+  // are here every pending row exists, so the sum is the real one.
+  //
+  // `to_address` and `amount` come from the prepared record rather than the
+  // request, and the binding check above has already refused any signed
+  // transaction that disagrees with them on the chains it can decode.
+  if (txRecord.to_address && txRecord.amount !== null && txRecord.amount !== undefined) {
+    const securityCheck = await checkTransactionAllowed(
+      supabase,
+      walletId,
+      txRecord.to_address,
+      Number(txRecord.amount),
+      chain,
+      // This transaction's own row is already `pending` and counted; excluding
+      // it stops the amount being charged against the limit twice.
+      txRecord.id
+    );
+
+    if (!securityCheck.allowed) {
+      await supabase
+        .from('wallet_transactions')
+        .update({
+          status: 'failed',
+          metadata: { ...txRecord.metadata, failure_reason: securityCheck.reason },
+        })
+        .eq('id', input.tx_id);
+
+      console.error(`[Broadcast] Refused tx ${input.tx_id}: ${securityCheck.reason}`);
+      return { success: false, error: securityCheck.reason, code: 'SECURITY_CHECK_FAILED' };
+    }
+  }
+
   // Broadcast to the network
   const rpc = getRpcEndpoints();
   let txHash: string;
@@ -419,19 +688,24 @@ export async function broadcastTransaction(
       case 'BCH':
         txHash = await withRetry(() => broadcastBCH(input.signed_tx));
         break;
+      // Every EVM chain broadcasts identically — the endpoint is resolved from
+      // the chain inside broadcastEVM. USDT was missing from this list while
+      // fees, prepare-tx and the extension's own chain picker all offered it,
+      // so a USDT send was estimated, prepared, SIGNED, and only then refused
+      // as an unsupported chain. Failing after the user signs is the worst
+      // place in the flow to discover a gap.
       case 'ETH':
       case 'USDC_ETH':
-        txHash = await withRetry(() => broadcastEVM(input.signed_tx, rpc.ETH));
-        break;
+      case 'USDT_ETH':
       case 'POL':
       case 'USDC_POL':
-        txHash = await withRetry(() => broadcastEVM(input.signed_tx, rpc.POL));
-        break;
+      case 'USDT_POL':
       case 'USDC_BASE':
-        txHash = await withRetry(() => broadcastEVM(input.signed_tx, rpc.BASE));
+        txHash = await withRetry(() => broadcastEVM(input.signed_tx, chain));
         break;
       case 'SOL':
       case 'USDC_SOL':
+      case 'USDT_SOL':
         txHash = await withRetry(() => broadcastSOL(input.signed_tx, rpc.SOL));
         break;
       default:

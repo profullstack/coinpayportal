@@ -2,6 +2,9 @@
 const nextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  outputFileTracingIncludes: {
+    '/api/invoices/*/pdf': ['./public/fonts/invoices/NotoSans-Regular.ttf'],
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: '2mb',
@@ -38,6 +41,18 @@ const nextConfig = {
           { key: 'Cache-Control', value: 'public, max-age=300' },
         ],
       },
+      // mta-sts.coinpayportal.com is a custom domain on this same Railway
+      // service, because MTA-STS requires the policy to be served over HTTPS
+      // from that exact hostname with a valid certificate. Serving it here is
+      // the cheapest way to get one, but it means the whole site answers on a
+      // second hostname. Only /.well-known/mta-sts.txt is meant to be fetched
+      // there, and only by mail servers, so keep the rest out of search
+      // results rather than publishing a duplicate of the site.
+      {
+        source: '/(.*)',
+        has: [{ type: 'host', value: 'mta-sts.coinpayportal.com' }],
+        headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }],
+      },
       {
         source: '/(.*)',
         headers: [
@@ -48,11 +63,17 @@ const nextConfig = {
             // 'unsafe-eval' has been removed to prevent script injection attacks.
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' https://datafa.st https://crawlproof.com https://invitejs.trustpilot.com",
+              // cdn.plaid.com serves Plaid Link, used on /finances to connect a
+              // bank. It needs BOTH entries: the script, and frame-src for the
+              // iframe Link renders itself into. Without the frame-src entry it
+              // falls back to default-src 'self', the script loads fine, and
+              // the dialog simply never appears.
+              "script-src 'self' 'unsafe-inline' https://datafa.st https://crawlproof.com https://invitejs.trustpilot.com https://cdn.plaid.com",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https: https://crawlproof.com",
               "font-src 'self' data:",
               "connect-src 'self' https: wss: https://crawlproof.com",
+              "frame-src 'self' https://cdn.plaid.com",
               "object-src 'none'",
               "frame-ancestors 'none'",
               "base-uri 'self'",

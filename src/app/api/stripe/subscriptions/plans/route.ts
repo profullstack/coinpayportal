@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sanitizeStripeMetadata } from '@/lib/stripe/metadata';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
@@ -134,7 +135,7 @@ export async function POST(request: NextRequest) {
       {
         name,
         description: description || undefined,
-        metadata: { ...metadata, business_id: businessId, merchant_id: merchantId },
+        metadata: { ...sanitizeStripeMetadata(metadata, 'stripe/subscriptions/plans'), business_id: businessId, merchant_id: merchantId },
       },
       { stripeAccount: stripeAccount.stripe_account_id }
     );

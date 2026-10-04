@@ -3,6 +3,9 @@
  * POST — returns options for navigator.credentials.get()
  * Public endpoint (no auth required)
  */
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
+import { randomBytes } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateAuthenticationOptions } from '@simplewebauthn/server';
@@ -17,6 +20,17 @@ function getSupabase() {
 }
 
 export async function POST(request: NextRequest) {
+  // No rate limit on any WebAuthn route. This one answers differently for a
+  // registered and an unregistered email, so unlimited it is a free
+  // user-enumeration oracle against the whole merchant base.
+  const rate = await checkRateLimitAsync(getClientIp(request) || 'unknown', 'webauthn_options');
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: 'Too many attempts. Please try again shortly.' },
+      { status: 429 }
+    );
+  }
+
   let body: any = {};
   try {
     body = await request.json();
@@ -29,7 +43,6 @@ export async function POST(request: NextRequest) {
   const rpID = getRpId(request);
 
   let allowCredentials: { id: string; transports?: AuthenticatorTransport[] }[] = [];
-  let userId: string | null = null;
 
   if (email) {
     // Find user by email
@@ -40,7 +53,6 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (merchant) {
-      userId = merchant.id;
       const { data: creds } = await supabase
         .from('webauthn_credentials')
         .select('credential_id, transports')
@@ -59,8 +71,19 @@ export async function POST(request: NextRequest) {
     userVerification: 'preferred',
   });
 
-  // Store challenge — use a session key based on email or a special "anonymous" key
-  const challengeKey = userId || `anon_${options.challenge.slice(0, 16)}`;
+  // NEW-07: the key used to be the merchant's own id whenever the email
+  // resolved. The store holds one challenge per key, and this route is public,
+  // so anyone who knew a merchant's email could overwrite that merchant's
+  // pending challenge at will: the victim's authenticator signs the challenge
+  // it was handed, login-verify consumes whatever the attacker wrote last, the
+  // two never match, and the account cannot be logged into for as long as the
+  // attacker keeps posting. It also broke two honest logins from two devices.
+  //
+  // The key is only a lookup handle — the client echoes it back, and
+  // login-verify derives the user from the stored credential, never from this
+  // value — so it does not need to identify anyone. Making it unguessable and
+  // unique per request removes the shared slot the attack depended on.
+  const challengeKey = randomBytes(32).toString('base64url');
   storeChallenge(challengeKey, options.challenge);
 
   return NextResponse.json({

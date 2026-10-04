@@ -15,6 +15,22 @@ import { isSufficientPayment } from '@/lib/payments/tolerance';
 
 const MAX_FORWARD_RETRY_ATTEMPTS = 5;
 
+async function expirePendingPayment(
+  supabase: SupabaseClient,
+  table: 'payments' | 'business_collection_payments',
+  paymentId: string,
+  now: Date,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from(table)
+    .update({ status: 'expired', updated_at: now.toISOString() })
+    .eq('id', paymentId)
+    .eq('status', 'pending')
+    .select('id');
+  if (error) throw error;
+  return Boolean(data?.length);
+}
+
 function getNextRetryAt(attempts: number): string {
   const baseSeconds = 60; // 1m
   const delaySeconds = Math.min(baseSeconds * Math.pow(2, Math.max(0, attempts - 1)), 60 * 60); // cap at 1h
@@ -142,8 +158,9 @@ export async function confirmAndForwardPayment(
   payment: Payment,
   balance: number,
   now: Date,
-): Promise<void> {
-  const { data: claimed } = await supabase
+): Promise<boolean> {
+  if (payment.status === 'forwarding' || payment.status === 'forwarding_failed') return false;
+  const { data: claimed, error: claimError } = await supabase
     .from('payments')
     .update({
       status: 'confirmed',
@@ -153,10 +170,11 @@ export async function confirmAndForwardPayment(
     .eq('id', payment.id)
     .eq('status', payment.status)
     .select('id');
+  if (claimError) throw claimError;
 
   if (!claimed || claimed.length === 0) {
     console.log(`Payment ${payment.id} was claimed by another worker; skipping duplicate forward`);
-    return;
+    return false;
   }
 
   await sendWebhook(supabase, { ...payment, status: 'confirmed' } as Payment, 'payment.confirmed', {
@@ -175,10 +193,11 @@ export async function confirmAndForwardPayment(
 
   if (addrCheck?.is_escrow) {
     console.log(`Payment ${payment.id} is escrow-held — skipping auto-forward`);
-    return;
+    return true;
   }
 
   await triggerForwarding(supabase, payment.id);
+  return true;
 }
 
 /**
@@ -192,7 +211,7 @@ export async function confirmAndForwardPayment(
  *                       is a quote-validity window, not a promise that nothing
  *                       will arrive later; customers pay invoices days late.
  *   confirmed         — the deposit was seen but forwarding never ran.
- *   forwarding_failed — forwarding threw. The retry queue is supposed to catch
+ *   forwarding_failed — forwarding threw. The retry queue used to catch
  *                       these, but anything that exhausted its attempts (or was
  *                       never enqueued) is orphaned permanently.
  *   forwarding        — a forward started and never completed.
@@ -201,27 +220,18 @@ export async function confirmAndForwardPayment(
  * `forwarding_failed`, not `expired` — so scanning only expired rows would
  * leave most of it stuck.
  *
- * Two guards keep this safe:
- *   - the funds must still be at the address, which proves no earlier forward
- *     succeeded (important for `forwarding`, where a transaction could
- *     otherwise be in flight and get double-sent);
- *   - rows must be older than STUCK_MIN_AGE_MINUTES, so this never races the
- *     normal path on a payment that is being handled right now.
+ * In-flight/ambiguous forwarding claims must never be reopened by this scan.
+ * An unchanged balance or old quote expiry cannot establish that no transaction
+ * was broadcast. Legacy forwarding_failed rows are also excluded until an
+ * operator reconciles them; this scan is not a transaction reconciliation service.
  *
  * Bounded deliberately — each check is a chain RPC call, so this walks the most
  * recent rows rather than the entire history.
  */
-const STUCK_STATUSES = ['expired', 'confirmed', 'forwarding_failed', 'forwarding'];
+const STUCK_STATUSES = ['expired', 'confirmed'];
 const STUCK_LOOKBACK_DAYS = 30;
 const STUCK_MIN_AGE_MINUTES = 30;
 const STUCK_SCAN_LIMIT = 50;
-
-/**
- * How long a recorded on-chain broadcast is left alone before the rescan will
- * consider re-driving it. Well past normal confirmation on every supported
- * chain, so a slow mempool is never mistaken for a failed send.
- */
-const BROADCAST_SETTLE_GRACE_MS = 6 * 60 * 60 * 1000;
 
 export async function rescanLateDeposits(
   supabase: SupabaseClient,
@@ -230,6 +240,22 @@ export async function rescanLateDeposits(
 ): Promise<void> {
   const since = new Date(now.getTime() - STUCK_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
   const until = new Date(now.getTime() - STUCK_MIN_AGE_MINUTES * 60 * 1000);
+
+  // Excluded payments must remain visible without consuming the scan's 50 slots
+  // or performing balance checks that might be mistaken for reconciliation.
+  try {
+    const { count, error: heldError } = await supabase.from('payments')
+      .select('id', { count: 'exact', head: true })
+      .in('status', ['forwarding', 'forwarding_failed'])
+      .lte('updated_at', until.toISOString());
+    if (heldError || count === null) throw heldError || new Error('Reconciliation count unavailable');
+    if (count && count > 0) {
+      console.warn('Payments excluded from automatic forwarding need reconciliation', { count, olderThan: until.toISOString() });
+    }
+  } catch (heldError) {
+    console.error('Failed to count payments awaiting forwarding reconciliation:', heldError);
+    stats.errors++;
+  }
 
   const { data: stuckPayments, error } = await supabase
     .from('payments')
@@ -261,35 +287,23 @@ export async function rescanLateDeposits(
   }
 
   for (const payment of stuckPayments || []) {
-    stats.checked++;
     try {
-      // A payment already in 'forwarding' WITH a recorded transaction hash has
-      // been broadcast. "Funds still at the address" does not prove that send
-      // failed — it may simply not be mined yet, and on a congested chain that
-      // window is longer than STUCK_MIN_AGE_MINUTES. Re-driving it there is
-      // precisely the double-send this rescan is supposed to avoid, so a known
-      // broadcast is given much longer to settle before being touched.
-      if (payment.status === 'forwarding' && payment.forward_tx_hash) {
-        const lastTouched = new Date(payment.updated_at || payment.created_at).getTime();
-        if (Number.isFinite(lastTouched) && now.getTime() - lastTouched < BROADCAST_SETTLE_GRACE_MS) {
-          console.log(
-            `Payment ${payment.id} has an in-flight forward (${payment.forward_tx_hash}); ` +
-              'leaving it to settle rather than re-broadcasting',
-          );
-          continue;
-        }
+      if (payment.status === 'forwarding' || payment.status === 'forwarding_failed') {
+        console.log(`Payment ${payment.id} has an in-flight or uncertain forward; leaving it for reconciliation`);
+        continue;
       }
+      stats.checked++;
 
       const balance = await checkBalance(payment.payment_address, payment.blockchain);
-      // Funds still present ⇒ no earlier forward succeeded, so re-driving this
-      // payment cannot double-send.
-      if (!isSufficientPayment(balance, payment.crypto_amount)) continue;
+      // Sufficient balance is a funding check, not proof of no previous send.
+      if (!isSufficientPayment(balance, payment.crypto_amount, payment.blockchain)) continue;
 
       console.log(
         `Payment ${payment.id} is stuck in '${payment.status}' with ${balance} ${payment.blockchain} still at ${payment.payment_address}; re-driving it`,
       );
-      await confirmAndForwardPayment(supabase, payment as Payment, balance, now);
-      stats.confirmed++;
+      if (await confirmAndForwardPayment(supabase, payment as Payment, balance, now)) {
+        stats.confirmed++;
+      }
     } catch (err) {
       console.error(`Error rescanning stuck payment ${payment.id}:`, err);
       stats.errors++;
@@ -341,13 +355,7 @@ export async function monitorPayments(
       // while funds are already sitting at the generated CoinPay address.
       if (!payment.payment_address) {
         if (isExpired) {
-          await supabase
-            .from('payments')
-            .update({
-              status: 'expired',
-              updated_at: now.toISOString(),
-            })
-            .eq('id', payment.id);
+          if (!(await expirePendingPayment(supabase, 'payments', payment.id, now))) continue;
 
           await sendWebhook(supabase, { ...payment, status: 'expired' } as Payment, 'payment.expired', {
             reason: 'Payment window expired (15 minutes)',
@@ -366,20 +374,15 @@ export async function monitorPayments(
       console.log(`Payment ${payment.id}: balance=${balance}, expected=${payment.crypto_amount}`);
 
       // Settlement requires the full amount — see lib/payments/tolerance.ts.
-      if (isSufficientPayment(balance, payment.crypto_amount)) {
+      if (isSufficientPayment(balance, payment.crypto_amount, payment.blockchain)) {
         if (isExpired) {
           console.log(`Payment ${payment.id} was funded near the end of its window; processing instead of expiring`);
         }
-        await confirmAndForwardPayment(supabase, payment as Payment, balance, now);
-        stats.confirmed++;
+        if (await confirmAndForwardPayment(supabase, payment as Payment, balance, now)) {
+          stats.confirmed++;
+        }
       } else if (isExpired) {
-        await supabase
-          .from('payments')
-          .update({
-            status: 'expired',
-            updated_at: now.toISOString(),
-          })
-          .eq('id', payment.id);
+        if (!(await expirePendingPayment(supabase, 'payments', payment.id, now))) continue;
 
         await sendWebhook(supabase, { ...payment, status: 'expired' } as Payment, 'payment.expired', {
           reason: 'Payment window expired (15 minutes)',
@@ -417,10 +420,7 @@ export async function monitorPayments(
 
         if (!payment.payment_address) {
           if (isExpired) {
-            await supabase
-              .from('business_collection_payments')
-              .update({ status: 'expired', updated_at: now.toISOString() })
-              .eq('id', payment.id);
+            await expirePendingPayment(supabase, 'business_collection_payments', payment.id, now);
           }
           continue;
         }
@@ -430,7 +430,7 @@ export async function monitorPayments(
         // subscription was confirmed — and activated — at a zero balance.
         // isSufficientPayment fails closed on NULL/NaN/zero.
         const balance = await checkBalance(payment.payment_address, payment.blockchain);
-        if (!isSufficientPayment(balance, payment.crypto_amount)) {
+        if (!isSufficientPayment(balance, payment.crypto_amount, payment.blockchain)) {
           if (payment.crypto_amount === null || payment.crypto_amount === undefined) {
             console.error(
               `Business collection payment ${payment.id} has no crypto_amount; refusing to confirm. ` +
@@ -438,10 +438,7 @@ export async function monitorPayments(
             );
           }
           if (isExpired) {
-            await supabase
-              .from('business_collection_payments')
-              .update({ status: 'expired', updated_at: now.toISOString() })
-              .eq('id', payment.id);
+            await expirePendingPayment(supabase, 'business_collection_payments', payment.id, now);
           }
           continue;
         }
@@ -451,12 +448,13 @@ export async function monitorPayments(
         }
 
         // CAS so two schedulers cannot both confirm and both activate the plan.
-        const { data: claimedCollection } = await supabase
+        const { data: claimedCollection, error: claimError } = await supabase
           .from('business_collection_payments')
           .update({ status: 'confirmed', confirmed_at: now.toISOString(), updated_at: now.toISOString() })
           .eq('id', payment.id)
           .eq('status', 'pending')
           .select('id');
+        if (claimError) throw claimError;
 
         if (!claimedCollection || claimedCollection.length === 0) {
           continue;

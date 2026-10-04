@@ -75,8 +75,16 @@ export class BitcoinProvider implements BlockchainProvider {
   private network: bitcoin.Network;
   private isTestnet: boolean;
 
-  // Bitcoin transaction fee in satoshis per byte (conservative estimate)
+  // Fee rate used only when the live estimate cannot be fetched.
   private static readonly SATOSHIS_PER_BYTE = 20;
+  // Floor and ceiling for the live estimate, in satoshis per vbyte.
+  //
+  // The floor keeps a transaction above the relay minimum so a forward is not
+  // built and signed only to be dropped by the network. The ceiling stops a
+  // fee spike from consuming a small deposit outright — better to confirm
+  // slowly than to hand most of a $15 payment to miners.
+  private static readonly MIN_SATOSHIS_PER_BYTE = 2;
+  private static readonly MAX_SATOSHIS_PER_BYTE = 50;
   // Minimum output value (dust limit)
   private static readonly DUST_LIMIT = 546;
 
@@ -123,29 +131,57 @@ export class BitcoinProvider implements BlockchainProvider {
   }
 
   /**
-   * Fetch UTXOs for an address using Tatum API
+   * Esplora (Blockstream) base URL for this network.
+   *
+   * The payment monitor already reads balances from this API, so sourcing the
+   * spendable UTXOs from it too means the set we sign over is the same set the
+   * monitor used to decide the payment was funded.
+   */
+  private esploraBase(): string {
+    return this.isTestnet
+      ? 'https://blockstream.info/testnet/api'
+      : 'https://blockstream.info/api';
+  }
+
+  /**
+   * Fetch the spendable UTXOs for an address.
+   *
+   * This used to call Tatum's `GET /v3/bitcoin/utxo/{address}`, which does not
+   * exist: that route addresses a single UTXO by transaction hash and output
+   * index, so passing an address returned 404 on every call. Tatum's only
+   * address-shaped UTXO route takes an xpub, which we do not hold for these
+   * per-payment deposit addresses. So every BTC forward failed with
+   * "Failed to fetch UTXOs: ... status code 404", the payment was left in
+   * `forwarding_failed`, and the deposit stayed at the intermediary address
+   * while the merchant's invoice already read as paid.
+   *
+   * Esplora answers by address, needs no API key, and is already the monitor's
+   * source of truth for the same addresses.
+   *
+   * Only confirmed UTXOs are returned. Signing over an unconfirmed output
+   * risks building on a transaction that can still be replaced, which would
+   * invalidate the forward we are about to broadcast.
    */
   protected async getUTXOs(address: string): Promise<UTXO[]> {
-    const apiKey = process.env.TATUM_API_KEY;
-    if (!apiKey) {
-      throw new Error('TATUM_API_KEY not configured');
-    }
-
     try {
       const response = await axios.get(
-        `https://api.tatum.io/v3/bitcoin/utxo/${address}`,
-        {
-          headers: {
-            'x-api-key': apiKey,
-          },
-        }
+        `${this.esploraBase()}/address/${address}/utxo`
       );
 
-      return response.data.map((utxo: any) => ({
-        txid: utxo.txHash,
-        vout: utxo.index,
-        value: Math.round(parseFloat(utxo.value) * 100000000), // Convert BTC to satoshis
-      }));
+      const utxos: UTXO[] = (response.data || [])
+        .filter((utxo: any) => utxo?.status?.confirmed)
+        .map((utxo: any) => ({
+          txid: utxo.txid,
+          vout: utxo.vout,
+          value: utxo.value, // Esplora reports satoshis already
+        }));
+
+      const skipped = (response.data?.length ?? 0) - utxos.length;
+      if (skipped > 0) {
+        console.log(`[BTC] Ignoring ${skipped} unconfirmed UTXO(s) for ${address}`);
+      }
+
+      return utxos;
     } catch (error) {
       console.error('[BTC] Failed to fetch UTXOs:', error);
       throw new Error(`Failed to fetch UTXOs: ${error}`);
@@ -153,30 +189,60 @@ export class BitcoinProvider implements BlockchainProvider {
   }
 
   /**
-   * Broadcast a signed transaction using Tatum API
+   * Fetch a raw transaction as hex.
+   *
+   * Needed as `nonWitnessUtxo` when signing: these deposit addresses are
+   * legacy P2PKH, so the signer needs the full previous transaction rather
+   * than just the output. Read from the same API as the UTXO set so a
+   * disagreement between two providers cannot produce an unsignable input.
+   */
+  private async getRawTransactionHex(txid: string): Promise<string> {
+    const response = await axios.get(`${this.esploraBase()}/tx/${txid}/hex`);
+    return typeof response.data === 'string' ? response.data.trim() : String(response.data);
+  }
+
+  /**
+   * Broadcast a signed transaction.
+   *
+   * Tatum stays the primary broadcaster, but a forward that is built and
+   * signed and then cannot be published leaves the funds stranded exactly as
+   * if it had never run — so fall back to Esplora, which needs no key, rather
+   * than failing the send outright.
    */
   protected async broadcastTransaction(txHex: string): Promise<string> {
     const apiKey = process.env.TATUM_API_KEY;
-    if (!apiKey) {
-      throw new Error('TATUM_API_KEY not configured');
+
+    if (apiKey) {
+      try {
+        const response = await axios.post(
+          'https://api.tatum.io/v3/bitcoin/broadcast',
+          { txData: txHex },
+          {
+            headers: {
+              'x-api-key': apiKey,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+
+        return response.data.txId;
+      } catch (error: any) {
+        console.error(
+          '[BTC] Tatum broadcast failed, falling back to Esplora:',
+          error.response?.data || error
+        );
+      }
     }
 
     try {
-      const response = await axios.post(
-        'https://api.tatum.io/v3/bitcoin/broadcast',
-        { txData: txHex },
-        {
-          headers: {
-            'x-api-key': apiKey,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      const response = await axios.post(`${this.esploraBase()}/tx`, txHex, {
+        headers: { 'Content-Type': 'text/plain' },
+      });
 
-      return response.data.txId;
+      return typeof response.data === 'string' ? response.data.trim() : String(response.data);
     } catch (error: any) {
       console.error('[BTC] Failed to broadcast transaction:', error.response?.data || error);
-      throw new Error(`Failed to broadcast transaction: ${error.response?.data?.message || error}`);
+      throw new Error(`Failed to broadcast transaction: ${error.response?.data || error}`);
     }
   }
 
@@ -186,6 +252,45 @@ export class BitcoinProvider implements BlockchainProvider {
    */
   private estimateTxSize(inputCount: number, outputCount: number): number {
     return inputCount * 148 + outputCount * 34 + 10;
+  }
+
+  /**
+   * Current fee rate in satoshis per vbyte.
+   *
+   * This was a flat 20 sat/vB. Forwards are small, single-input sweeps of a
+   * per-payment deposit address, so the fee is a fixed ~260 bytes against
+   * whatever that one payment was worth: at 20 sat/vB a $15 payment loses
+   * about a quarter of its value to miners, and the merchant receives the
+   * remainder with no record of why. A flat rate is also wrong in the other
+   * direction — it silently underpays whenever the network is busier than the
+   * constant assumed, leaving the forward unconfirmed.
+   *
+   * Esplora's estimate for a 3-block target tracks the real market. Clamped at
+   * both ends, and falling back to the old constant if the estimate cannot be
+   * read, so a provider outage cannot produce an unrelayable transaction.
+   */
+  private async getFeeRate(): Promise<number> {
+    try {
+      const response = await axios.get(`${this.esploraBase()}/fee-estimates`);
+      const estimate = Number(response.data?.['3']);
+
+      if (!Number.isFinite(estimate) || estimate <= 0) {
+        throw new Error(`Unusable fee estimate: ${response.data?.['3']}`);
+      }
+
+      const rate = Math.min(
+        Math.max(Math.ceil(estimate), BitcoinProvider.MIN_SATOSHIS_PER_BYTE),
+        BitcoinProvider.MAX_SATOSHIS_PER_BYTE
+      );
+      console.log(`[BTC] Fee rate: ${rate} sat/vB (estimate ${estimate})`);
+      return rate;
+    } catch (error) {
+      console.error(
+        `[BTC] Fee estimate unavailable, falling back to ${BitcoinProvider.SATOSHIS_PER_BYTE} sat/vB:`,
+        error
+      );
+      return BitcoinProvider.SATOSHIS_PER_BYTE;
+    }
   }
 
   /**
@@ -215,7 +320,7 @@ export class BitcoinProvider implements BlockchainProvider {
 
       // Estimate fee (2 outputs: recipient + change)
       const estimatedSize = this.estimateTxSize(utxos.length, 2);
-      const fee = estimatedSize * BitcoinProvider.SATOSHIS_PER_BYTE;
+      const fee = estimatedSize * (await this.getFeeRate());
 
       console.log(`[BTC] Balance: ${totalAvailable} sats, amount: ${amountSatoshis} sats, fee: ${fee} sats`);
 
@@ -229,10 +334,7 @@ export class BitcoinProvider implements BlockchainProvider {
       // Add inputs
       for (const utxo of utxos) {
         // Fetch the raw transaction to get the full output script
-        const rawTxResponse = await axios.get(
-          `https://blockchain.info/rawtx/${utxo.txid}?format=hex`
-        );
-        const rawTx = rawTxResponse.data;
+        const rawTx = await this.getRawTransactionHex(utxo.txid);
 
         psbt.addInput({
           hash: utxo.txid,
@@ -317,15 +419,36 @@ export class BitcoinProvider implements BlockchainProvider {
 
       // Estimate fee (outputs + change)
       const estimatedSize = this.estimateTxSize(utxos.length, outputs.length + 1);
-      const fee = estimatedSize * BitcoinProvider.SATOSHIS_PER_BYTE;
+      const fee = estimatedSize * (await this.getFeeRate());
 
       console.log(`[BTC] Split: balance=${totalAvailable}, total=${totalToSend}, fee=${fee}`);
 
-      // Adjust amounts if needed
+      // IA-010: the adjustment may absorb the fee and nothing more.
+      //
+      // This used to scale every output down by whatever ratio made the
+      // transaction fit, log it at `console.log`, and carry on. The caller
+      // asked to send X, X-δ went out, and everything downstream recorded X:
+      // the merchant's ledger, the fee split and the webhook all described a
+      // payment that did not happen. δ was unbounded — a balance half the
+      // requested amount simply sent half, silently.
+      //
+      // Taking the miner fee out of the outputs is the intended behaviour and
+      // is kept. A balance that cannot cover the outputs *before* fees is a
+      // real deficit and something is wrong upstream, so that fails instead.
       if (totalToSend + fee > totalAvailable) {
+        if (totalToSend > totalAvailable) {
+          throw new Error(
+            `Insufficient balance: address holds ${totalAvailable} sats but ${totalToSend} sats were requested ` +
+            `(before a ${fee} sat fee). Refusing to silently send less than asked.`
+          );
+        }
+
         const ratio = (totalAvailable - fee) / totalToSend;
-        console.log(`[BTC] Adjusting split amounts by ratio ${ratio}`);
-        
+        console.warn(
+          `[BTC] Reducing outputs by ratio ${ratio} to cover the ${fee} sat fee ` +
+          `(balance ${totalAvailable}, requested ${totalToSend})`
+        );
+
         for (const output of outputs) {
           output.value = Math.floor(output.value * ratio);
         }
@@ -337,10 +460,7 @@ export class BitcoinProvider implements BlockchainProvider {
 
       // Add inputs
       for (const utxo of utxos) {
-        const rawTxResponse = await axios.get(
-          `https://blockchain.info/rawtx/${utxo.txid}?format=hex`
-        );
-        const rawTx = rawTxResponse.data;
+        const rawTx = await this.getRawTransactionHex(utxo.txid);
 
         psbt.addInput({
           hash: utxo.txid,
@@ -474,6 +594,12 @@ export class EthereumProvider implements BlockchainProvider {
   ): Promise<string> {
     try {
       const wallet = new ethers.Wallet(privateKey, this.provider);
+      if (ethers.getAddress(from) !== wallet.address) {
+        throw new Error('Sender address does not match the signing wallet');
+      }
+      const destination = ethers.getAddress(to);
+      let valueToSend = ethers.parseEther(amount);
+      if (valueToSend <= 0n) throw new Error('Transfer amount must be positive');
       
       // Get current balance and gas price to calculate max sendable
       const balance = await this.provider.getBalance(wallet.address);
@@ -482,22 +608,36 @@ export class EthereumProvider implements BlockchainProvider {
       const gasPrice = feeData.gasPrice || BigInt(20000000000); // 20 gwei fallback
       const gasCost = gasLimit * gasPrice;
       
-      let valueToSend = ethers.parseEther(amount);
-      
       console.log(`[ETH] Balance: ${ethers.formatEther(balance)} ETH, requested: ${amount} ETH, gas cost: ${ethers.formatEther(gasCost)} ETH`);
       
-      // If requested amount + gas exceeds balance, adjust to send max possible
+      // IA-010: the adjustment may absorb gas and nothing more.
+      //
+      // This used to send whatever was left after gas, whatever the shortfall,
+      // and log it at `console.log`. The caller asked for X, X-δ went out, and
+      // everything downstream recorded X. A balance well below the requested
+      // amount quietly sent whatever it had.
+      //
+      // Gas coming out of a native transfer is unavoidable and is kept. A
+      // balance that cannot cover the amount *before* gas is a real deficit.
       if (valueToSend + gasCost > balance) {
+        if (valueToSend > balance) {
+          throw new Error(
+            `Insufficient balance. Have ${ethers.formatEther(balance)} ETH, ` +
+            `${amount} ETH was requested (before ${ethers.formatEther(gasCost)} ETH of gas). ` +
+            'Refusing to silently send less than asked.'
+          );
+        }
+
         const maxSendable = balance - gasCost;
         if (maxSendable <= BigInt(0)) {
           throw new Error(`Insufficient balance. Have ${ethers.formatEther(balance)} ETH, need at least ${ethers.formatEther(gasCost)} ETH for gas`);
         }
-        console.log(`[ETH] Adjusting amount from ${amount} to ${ethers.formatEther(maxSendable)} ETH (max sendable after gas)`);
+        console.warn(`[ETH] Reducing amount from ${amount} to ${ethers.formatEther(maxSendable)} ETH to cover gas`);
         valueToSend = maxSendable;
       }
       
       const tx = await wallet.sendTransaction({
-        to,
+        to: destination,
         value: valueToSend,
         gasLimit,
         gasPrice,
@@ -522,6 +662,18 @@ export class EthereumProvider implements BlockchainProvider {
   ): Promise<string> {
     try {
       const wallet = new ethers.Wallet(privateKey, this.provider);
+      if (ethers.getAddress(from) !== wallet.address) {
+        throw new Error('Sender address does not match the signing wallet');
+      }
+      if (recipients.length === 0) throw new Error('At least one recipient is required');
+      // Validate the entire split before the first RPC or transfer. A bad later
+      // recipient must not leave an already-paid earlier leg behind.
+      const transfers = recipients.map(recipient => {
+        const address = ethers.getAddress(recipient.address);
+        const value = ethers.parseEther(recipient.amount);
+        if (value <= 0n) throw new Error('Every split amount must be positive');
+        return { address, value };
+      });
       
       // Get current balance and gas price
       const balance = await this.provider.getBalance(wallet.address);
@@ -533,8 +685,8 @@ export class EthereumProvider implements BlockchainProvider {
       
       // Calculate total requested
       let totalRequested = BigInt(0);
-      for (const recipient of recipients) {
-        totalRequested += ethers.parseEther(recipient.amount);
+      for (const recipient of transfers) {
+        totalRequested += recipient.value;
       }
       
       console.log(`[ETH] Split: balance=${ethers.formatEther(balance)}, total=${ethers.formatEther(totalRequested)}, gas=${ethers.formatEther(totalGasCost)}`);
@@ -553,8 +705,8 @@ export class EthereumProvider implements BlockchainProvider {
       
       const txHashes: string[] = [];
       
-      for (const recipient of recipients) {
-        let valueToSend = ethers.parseEther(recipient.amount);
+      for (const recipient of transfers) {
+        let valueToSend = recipient.value;
         if (ratio < BigInt(1000000)) {
           valueToSend = (valueToSend * ratio) / BigInt(1000000);
         }
@@ -1164,7 +1316,32 @@ export class BitcoinCashProvider extends BitcoinProvider {
     const legacyAddress = this.toLegacyAddress(address);
     console.log(`[BCH] Fetching UTXOs for ${address} (legacy: ${legacyAddress})`);
 
-    // Try Blockchair API first (most reliable for BCH UTXOs)
+    // Try Haskoin first: keyless, and the only source in this chain verified
+    // to still answer. Blockchair rate-limits hard without a key (HTTP 430),
+    // fullstack.cash below has retired its v5 API, and the CryptoAPIs
+    // unspent-outputs route is gated behind a paid plan on our subscription.
+    // An address with nothing to spend answers `[]`, not an error.
+    try {
+      const haskoinUrl = `https://api.haskoin.com/bch/address/${address}/unspent?limit=100`;
+      const response = await axios.get(haskoinUrl);
+      const utxos = Array.isArray(response.data) ? response.data : [];
+      console.log(`[BCH] Haskoin found ${utxos.length} UTXOs`);
+
+      if (utxos.length > 0) {
+        return utxos.map((utxo: any) => ({
+          txid: utxo.txid,
+          vout: utxo.index,
+          value: utxo.value, // satoshis
+        }));
+      }
+    } catch (haskoinError: any) {
+      console.error(
+        '[BCH] Haskoin UTXO fetch failed:',
+        haskoinError.response?.status || haskoinError.message
+      );
+    }
+
+    // Then Blockchair
     try {
       const blockchairUrl = `https://api.blockchair.com/bitcoin-cash/dashboards/address/${legacyAddress}?limit=100`;
       console.log(`[BCH] Blockchair UTXO URL: ${blockchairUrl}`);
@@ -1445,41 +1622,31 @@ export class BitcoinCashProvider extends BitcoinProvider {
     return this.sendSplitTransaction(from, [{ address: to, amount }], privateKey);
   }
 
+  /**
+   * Read the confirmed BCH balance.
+   *
+   * Tatum used to lead here, but its `/v3/bcash/address/balance/{address}`
+   * route now rejects any address with "xpub must be a valid mainnet BCH
+   * xpub" — the key is still good for `/v3/bitcoin/` and `/v3/dogecoin/`,
+   * it is this chain's route that changed. With Blockchair behind it also
+   * rate-limiting to HTTP 430 without a key, both arms failed and this
+   * returned "0", which is indistinguishable from an empty address.
+   */
   async getBalance(address: string): Promise<string> {
     try {
-      const apiKey = process.env.TATUM_API_KEY;
-      
       // Convert to legacy address for API calls
       const legacyAddress = this.toLegacyAddress(address);
       console.log(`[BCH Provider] Original address: ${address}`);
       console.log(`[BCH Provider] Legacy address: ${legacyAddress}`);
-      
-      if (!apiKey) {
-        // Fallback to Blockchair API which supports both formats
-        try {
-          const blockchairUrl = `https://api.blockchair.com/bitcoin-cash/dashboards/address/${legacyAddress}`;
-          console.log(`[BCH Provider] Blockchair URL: ${blockchairUrl}`);
-          const response = await axios.get(blockchairUrl);
-          const balance = response.data?.data?.[legacyAddress]?.address?.balance || 0;
-          return (balance / 100000000).toString();
-        } catch (blockchairError) {
-          console.error('[BCH] Blockchair API failed:', blockchairError);
-          return '0';
-        }
+
+      const response = await axios.get(
+        `https://api.haskoin.com/bch/address/${address}/balance`
+      );
+      if (typeof response.data?.confirmed !== 'number') {
+        throw new Error('Haskoin returned no confirmed balance');
       }
-
-      const tatumUrl = `https://api.tatum.io/v3/bcash/address/balance/${legacyAddress}`;
-      console.log(`[BCH Provider] Tatum URL: ${tatumUrl}`);
-      const response = await axios.get(tatumUrl, {
-        headers: {
-          'x-api-key': apiKey,
-        },
-      });
-
-      // Tatum returns balance in BCH
-      const incoming = parseFloat(response.data.incoming || '0');
-      const outgoing = parseFloat(response.data.outgoing || '0');
-      return (incoming - outgoing).toString();
+      // Haskoin reports satoshis.
+      return (response.data.confirmed / 100000000).toString();
     } catch (error: any) {
       console.error(`[BCH] Failed to fetch BCH balance for ${address}:`, error.response?.status, '-', JSON.stringify(error.response?.data || error.message));
       
@@ -1980,20 +2147,20 @@ export function getRpcUrl(chain: BlockchainType): string {
   const urls: Record<BlockchainType, string> = {
     BTC: process.env.BITCOIN_RPC_URL || 'https://blockchain.info',
     BCH: process.env.BCH_RPC_URL || 'https://bch.blockchain.info',
-    ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-    POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    ETH: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+    POL: process.env.POLYGON_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
     SOL: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
     DOGE: process.env.DOGE_RPC_URL || 'https://api.blockcypher.com/v1/doge/main',
     XRP: process.env.XRP_RPC_URL || 'https://xrplcluster.com',
     ADA: process.env.ADA_RPC_URL || 'https://cardano-mainnet.blockfrost.io/api/v0',
     BNB: process.env.BNB_RPC_URL || 'https://bsc-dataseed.binance.org',
-    USDT: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-    USDT_ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-    USDT_POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    USDT: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+    USDT_ETH: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+    USDT_POL: process.env.POLYGON_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
     USDT_SOL: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
-    USDC: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-    USDC_ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-    USDC_POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    USDC: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+    USDC_ETH: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+    USDC_POL: process.env.POLYGON_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
     USDC_SOL: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
     USDC_BASE: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
   };

@@ -180,12 +180,32 @@ export async function checkTransactionAllowed(
   walletId: string,
   toAddress: string,
   amount: number,
-  chain: WalletChain
+  chain: WalletChain,
+  /**
+   * Transaction row to leave out of today's running total.
+   *
+   * WW-01: the check ran only at prepare, *before* the row was inserted. Two
+   * prepares racing each other therefore both saw the same pre-insert total and
+   * both passed, and nothing re-checked at broadcast — the moment money
+   * actually moves. Re-running it at broadcast fixes that, but by then this
+   * transaction's own row is already `pending` and counted, so without
+   * excluding it the amount would be charged against the limit twice and
+   * legitimate sends would be refused. Pass the id being broadcast.
+   */
+  excludeTxId?: string
 ): Promise<{ allowed: true } | { allowed: false; reason: string }> {
   const settingsResult = await getSettings(supabase, walletId);
   if (!settingsResult.success) {
-    // If we can't load settings, allow (fail open for now)
-    return { allowed: true };
+    // Fail CLOSED. This returned `allowed: true` with the comment "fail open
+    // for now", which means a wallet's whitelist and daily spend limit — the
+    // only two controls standing between a compromised session and the balance
+    // — both evaporated whenever the settings row could not be read.
+    //
+    // `getSettings` creates a default row when none exists, so reaching here
+    // means a real database failure, not "this wallet has no settings". Refusing
+    // a send during an outage is recoverable; an unlimited send is not.
+    console.error(`[Settings] Cannot load settings for wallet ${walletId} — denying transaction:`, settingsResult.error);
+    return { allowed: false, reason: 'Could not verify wallet spending controls. Please try again.' };
   }
 
   const settings = settingsResult.data;
@@ -206,23 +226,43 @@ export async function checkTransactionAllowed(
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
 
-    const { data: todayTxs, error } = await supabase
+    // Scoped to the SAME chain.
+    //
+    // `chain` was accepted as a parameter and never used, so today's total
+    // summed raw amounts across every chain the wallet had touched: 1 BTC and
+    // 1 DOGE counted as 2 against one limit. That is not a number with any
+    // meaning — it blocks trivially cheap sends after a single expensive one,
+    // and lets a chain with small unit values run far past the intended cap.
+    // Comparing like with like makes the limit per-chain, which is what the
+    // units it is expressed in already imply.
+    let spendQuery = supabase
       .from('wallet_transactions')
       .select('amount')
       .eq('wallet_id', walletId)
       .eq('direction', 'outgoing')
+      .eq('chain', chain)
       .in('status', ['pending', 'confirming', 'confirmed'])
       .gte('created_at', todayStart.toISOString());
 
-    if (!error && todayTxs) {
-      const todayTotal = todayTxs.reduce((sum, tx) => sum + parseFloat(tx.amount || '0'), 0);
-      if (todayTotal + amount > settings.daily_spend_limit) {
-        console.log(`[Settings] Transaction blocked: daily spend limit exceeded for wallet ${walletId} (limit=${settings.daily_spend_limit}, spent=${todayTotal.toFixed(8)}, requested=${amount})`);
-        return {
-          allowed: false,
-          reason: `Daily spend limit exceeded. Limit: ${settings.daily_spend_limit}, spent today: ${todayTotal.toFixed(8)}, requested: ${amount}`,
-        };
-      }
+    if (excludeTxId) spendQuery = spendQuery.neq('id', excludeTxId);
+
+    const { data: todayTxs, error } = await spendQuery;
+
+    if (error || !todayTxs) {
+      // Second fail-open path: an error here skipped the limit check entirely
+      // and the send proceeded. If today's spend cannot be read, the limit
+      // cannot be enforced, so the answer is no.
+      console.error(`[Settings] Cannot read today's spend for wallet ${walletId} — denying transaction:`, error);
+      return { allowed: false, reason: 'Could not verify daily spend limit. Please try again.' };
+    }
+
+    const todayTotal = todayTxs.reduce((sum, tx) => sum + parseFloat(tx.amount || '0'), 0);
+    if (todayTotal + amount > settings.daily_spend_limit) {
+      console.log(`[Settings] Transaction blocked: daily ${chain} spend limit exceeded for wallet ${walletId} (limit=${settings.daily_spend_limit}, spent=${todayTotal.toFixed(8)}, requested=${amount})`);
+      return {
+        allowed: false,
+        reason: `Daily spend limit exceeded. Limit: ${settings.daily_spend_limit}, spent today: ${todayTotal.toFixed(8)}, requested: ${amount}`,
+      };
     }
   }
 

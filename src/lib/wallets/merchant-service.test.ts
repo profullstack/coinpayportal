@@ -113,7 +113,7 @@ describe('Merchant Wallet Service', () => {
     it('should create wallet without label', async () => {
       const walletData = {
         cryptocurrency: 'ETH' as const,
-        wallet_address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1234',
+        wallet_address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
       };
 
       const expectedWallet = {
@@ -203,7 +203,7 @@ describe('Merchant Wallet Service', () => {
           id: 'wallet-2',
           merchant_id: merchantId,
           cryptocurrency: 'ETH',
-          wallet_address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1234',
+          wallet_address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
           label: null,
           is_active: true,
           created_at: '2024-01-01T00:00:00Z',
@@ -462,7 +462,7 @@ describe('Merchant Wallet Service', () => {
           id: 'mw-2',
           merchant_id: merchantId,
           cryptocurrency: 'ETH',
-          wallet_address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1234',
+          wallet_address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
           is_active: true,
         },
       ];
@@ -545,7 +545,7 @@ describe('Merchant Wallet Service', () => {
           id: 'mw-2',
           merchant_id: merchantId,
           cryptocurrency: 'ETH',
-          wallet_address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1234',
+          wallet_address: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
           is_active: true,
         },
       ];

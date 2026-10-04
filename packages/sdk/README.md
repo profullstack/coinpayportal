@@ -596,9 +596,9 @@ coinpay payment qr pay_abc123
 ### Invoices
 
 Invoice creation is draft-only. It does not send the invoice or move funds.
-The create command prints the public `/now/{invoiceId}` payment link so it can be
-copied into chat. The payment page becomes available after the invoice is sent.
-Create's JSON output includes the same link as `shareUrl`.
+Drafts do not have a public payment link. Publish the draft to create payment
+details for manual sharing, or send it to create payment details and email the
+client.
 When using a business-scoped API key, --business-id may be omitted.
 
 ```bash
@@ -624,6 +624,13 @@ coinpay invoice update inv_abc123 \
   --due-date 2026-09-15 \
   --notes "Updated scope"
 
+# Publish creates real payment details without emailing the client. It asks for
+# confirmation and prints a live /now/{invoiceId} link for manual chat sharing.
+coinpay invoice publish inv_abc123
+
+# Non-interactive publish requires explicit confirmation.
+coinpay invoice publish inv_abc123 --yes --json
+
 # Send creates real payment details and emails the client. The command asks for
 # confirmation and prints the same /now/{invoiceId} link for manual chat sharing.
 coinpay invoice send inv_abc123
@@ -648,8 +655,9 @@ coinpay invoice list --status paid --json
 
 Only draft invoices can be updated or deleted. Draft and overdue invoices can
 be sent; sending an overdue invoice issues new payment details and emails the
-client again. `--yes` skips the confirmation for send/delete, and is required
-when either command runs without a terminal or with `--json`.
+client again. Only drafts can be published. `--yes` skips the confirmation for
+publish/send/delete, and is required when any of those commands runs without a
+terminal or with `--json`.
 
 `--wallet-id` updates the invoice's stored wallet reference. To change the
 actual settlement destination, use `--merchant-wallet-address` (or change the
@@ -681,6 +689,100 @@ coinpay rates list
 coinpay webhook logs biz_123
 coinpay webhook test biz_123 --event payment.completed
 ```
+
+### Finances — your money in one place
+
+```bash
+coinpay finances                 # live dashboard (needs `coinpay login`)
+coinpay finances --days 90       # window for earnings / cashflow: 7, 30, 90, 365
+coinpay finances summary         # plain text, --json for machines
+coinpay finances position        # debt vs income, credits vs debits (also: debt)
+coinpay finances scope <id> business   # put an account on the company's books
+coinpay finances accounts        # linked bank & credit-card accounts (SimpleFIN / Plaid)
+coinpay finances ledger --search anthropic --limit 20
+coinpay finances connections     # institutions and their last sync
+coinpay finances sync            # pull fresh balances (rate-limited by the bank bridge)
+```
+
+The dashboard has seven screens (`1`–`7`, `←`/`→`): **Overview** (gross volume, crypto vs
+cards, commission paid, processor fees, refunds, net earnings, bank position, cashflow,
+invoices, escrow, payouts, a volume-vs-commission graph and a live feed), **Bank &
+Cards**, **Ledger**, **Crypto**, **Cards**, **Invoices & Escrow**, **Debt & Income**.
+`r` refreshes, `s`
+syncs the bank feed, `w` cycles the window, `p` pauses, `?` shows help, `q` quits. It
+refreshes every 30 seconds (`--interval`) and listens to the payments event stream, so
+a crypto payment shows up the moment it is detected.
+
+Click **⧉ MD** on a summary pane to copy Markdown. The header copy button exports
+status, including bank connection health and detailed source errors. Each pane
+carries its displayed window, snapshot timestamp, stream status and partial-data
+warnings. Transaction rows and the live event log are excluded. Tab / Shift+Tab
+focus controls; Enter / Space copies the focused summary. Clipboard writes use
+OSC 52 and require terminal support, including when connected over SSH.
+
+**Debt & Income** is the basic-accounting view, and it reads the same for a company or
+a person: income against spending per month, total owed split into revolving and
+instalment, months to clear each balance at its current payment rate, debt-to-income,
+debt-service ratio, months of cover, card utilisation, the recurring bills it found with
+their next due date, and a business-versus-personal split of all of it.
+
+The business/personal split starts as a guess from the account name, which gets
+"Business Checking (4672)" right and cannot see a personal card carrying company
+spend. Correct it with `coinpay finances scope <account-id> business|personal`,
+or `clear` to hand it back to the guess. The correction is stored separately from
+the derived value, so a re-sync cannot clobber it, and corrected accounts carry a
+trailing `*` in the `Side` column.
+
+Two things about those numbers. Transfers and card payments are excluded from both
+income and spending — a feed holding both a checking account and the card it pays
+contains every card payment twice, so counting raw credits as income inflates both
+sides by the whole card-payment volume. The untouched totals stay on screen as gross
+credits and gross debits, so the netting is auditable. And the figures come from about
+six months of history rather than the dashboard window (`w` does not move them), because
+a monthly charge cannot be seen in thirty days of rows; the per-month averages divide by
+the history that actually exists, which for a recently linked feed is much less than six
+months.
+
+It is built on [@profullstack/hqtui](https://hqtui.com) and needs Node 22.6+; the
+plain-text subcommands work on Node 20. Bank data needs the merchant session from
+`coinpay login` (business API keys are refused on purpose).
+
+From the SDK:
+
+```js
+import { CoinPayClient } from '@profullstack/coinpay';
+import { collectFinanceSnapshot } from '@profullstack/coinpay/finances';
+
+const client = new CoinPayClient({ apiKey: sessionToken });
+const snapshot = await collectFinanceSnapshot(client, { days: 30 });
+console.log(snapshot.earnings.netUsd, snapshot.bank.liabilities, snapshot.invoices.totals.overdue);
+```
+
+#### Statements from the banks
+
+SimpleFIN carries transactions, not the PDF statements. The CLI downloads
+them from each bank on your machine and files them in the statement library:
+
+```bash
+coinpay finances statements login chase    # once per bank, in a window; no password is stored
+coinpay finances statements fetch          # every new statement, imported with its account and period
+coinpay finances statements coverage       # which account-months are still missing
+```
+
+Each bank's session lives in a local Chrome profile under
+`~/.coinpay/statements`. `fetch` exits 3 when a bank needs signing in again.
+Needs Node 22+ and Chrome or Chromium. See
+[docs/STATEMENTS.md](https://github.com/profullstack/coinpayportal/blob/master/docs/STATEMENTS.md).
+
+### MCP
+
+```bash
+claude mcp add coinpay -- coinpay mcp
+```
+
+`coinpay mcp` is a stdio MCP server using your `coinpay login` session. Tools:
+`finance_accounts`, `statements_list`, `statements_coverage`,
+`statements_fetch_runs`, `statements_banks` and `statements_fetch`.
 
 ---
 
@@ -1005,6 +1107,41 @@ Tests use [Vitest](https://vitest.dev/) with mocked `fetch` — no API key neede
 - **Issues:** [github.com/profullstack/coinpayportal/issues](https://github.com/profullstack/coinpayportal/issues)
 
 ---
+
+
+## TaskMarket delegation (x402 v2)
+
+`@profullstack/coinpay/taskmarket` lets an agent or user create and fund a
+[TaskMarket](https://taskmarket.dev) task from inside a CoinPay-powered app,
+using the standard x402 v2 transfer-authorization flow this SDK already speaks.
+
+```js
+import { createTask, discoverTasks, getTask, listSubmissions } from '@profullstack/coinpay/taskmarket';
+
+// Browse open work (public endpoint)
+const open = await discoverTasks({ status: 'open', limit: 25, mode: 'bounty' });
+
+// Create + fund a task. The wallet signs the EIP-712 transfer authorization
+// itself; this module never sees a private key.
+const { taskId } = await createTask(
+  { title: 'Fix my parser bug', description: 'Repro + expected output attached in the linked issue.', reward: 2500000 },
+  {
+    signer: myWalletSigner, // { address, signTypedData({domain, types, primaryType, message}) }
+    capabilities: ['eip155:8453'],
+    spendingLimitUsd: 10,                 // hard cap; refuses anything above
+    authorize: async (d) => confirm(`Send ${d.amount} ${d.asset} to ${d.payTo}?`),
+  }
+);
+
+// Track it and present submissions for human review (never auto-accept)
+const live = await getTask(taskId);
+const submissions = await listSubmissions(taskId);
+```
+
+Safety: no keys ever enter the module; every payment needs fresh `authorize()`
+consent; `spendingLimitUsd` is enforced against the quoted amount in base
+units; after a payment with unknown settlement the caller is told to verify
+with `getTask` instead of retrying blindly.
 
 ## License
 

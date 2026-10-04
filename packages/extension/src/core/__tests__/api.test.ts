@@ -100,12 +100,12 @@ describe('CoinPayApi', () => {
 
     const [, init] = fetchMock.mock.calls[0]!;
     const auth: string = init.headers.Authorization;
-    const [walletId, signature, timestamp] = auth.replace('Wallet ', '').split(':');
+    const [walletId, signature, timestamp, nonce] = auth.replace('Wallet ', '').split(':');
 
     expect(walletId).toBe('wallet-1');
     // The server rebuilds the message from METHOD, its own path, the timestamp,
-    // and the raw body — reconstruct it the same way.
-    const message = `POST:/api/web-wallet/wallet-1/prepare-tx:${timestamp}:${init.body}`;
+    // the per-request nonce, and the raw body — reconstruct it the same way.
+    const message = `POST:/api/web-wallet/wallet-1/prepare-tx:${timestamp}:${nonce}:${init.body}`;
     expect(serverVerify(signature!, message, compressedPublicKey(PRIVATE_KEY))).toBe(true);
   });
 
@@ -284,9 +284,9 @@ describe('CoinPayApi', () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe('https://coinpayportal.com/api/web-wallet/wallet-9/balances');
     const auth: string = init.headers.Authorization;
-    const [, signature, timestamp] = auth.replace('Wallet ', '').split(':');
-    // Server rebuilds `METHOD:path:timestamp:` with an empty body for GET.
-    const message = `GET:/api/web-wallet/wallet-9/balances:${timestamp}:`;
+    const [, signature, timestamp, nonce] = auth.replace('Wallet ', '').split(':');
+    // Server rebuilds `METHOD:path:timestamp:nonce:` with an empty body for GET.
+    const message = `GET:/api/web-wallet/wallet-9/balances:${timestamp}:${nonce}:`;
     expect(serverVerify(signature!, message, compressedPublicKey(PRIVATE_KEY))).toBe(true);
   });
 

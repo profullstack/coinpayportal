@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
-import { getPayout, retryPayout } from '@/lib/payouts/service';
+import { getPayout, retryPayout, resolveIndeterminatePayout } from '@/lib/payouts/service';
 
 /**
  * Verify JWT auth and extract merchant ID.
@@ -106,6 +106,44 @@ export async function PATCH(
     const owns = await verifyBusinessOwnership(supabase, id, auth.merchantId!);
     if (!owns) {
       return NextResponse.json({ success: false, error: 'Business not found or access denied' }, { status: 404 });
+    }
+
+    // N-03: `indeterminate` had no exit at all.
+    //
+    // A payout lands there when the broadcast outcome is unknown — a timeout
+    // after the node may already have accepted the transaction — and
+    // `retryPayout` refuses to touch one, correctly, because re-sending could
+    // pay the recipient twice. Its error told the operator to mark the payout
+    // completed with its tx_hash, or failed and retry, and there was no way to
+    // do either. The state described a procedure nobody could carry out.
+    //
+    // `{ resolution: 'completed' | 'failed' }` in the body is that transition.
+    // It stays manual: only someone who has looked at the chain can say which
+    // way it went, and a wrong automatic answer either pays twice or strands a
+    // real payment.
+    const body = await request.json().catch(() => ({}));
+    const resolution = body?.resolution;
+
+    if (resolution === 'completed' || resolution === 'failed') {
+      const resolved = await resolveIndeterminatePayout(
+        supabase,
+        id,
+        payoutId,
+        resolution,
+        typeof body?.tx_hash === 'string' ? body.tx_hash : undefined
+      );
+
+      if (!resolved.success) {
+        return NextResponse.json({ success: false, error: resolved.error }, { status: 400 });
+      }
+      return NextResponse.json({ success: true, payout: resolved.payout });
+    }
+
+    if (resolution !== undefined) {
+      return NextResponse.json(
+        { success: false, error: "resolution must be 'completed' or 'failed'" },
+        { status: 400 }
+      );
     }
 
     const result = await retryPayout(supabase, id, payoutId);

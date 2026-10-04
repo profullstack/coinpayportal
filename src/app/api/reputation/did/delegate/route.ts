@@ -35,9 +35,22 @@ export async function POST(request: NextRequest) {
     if (!auth.success || !auth.context) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const merchantId = isMerchantAuth(auth.context)
-      ? auth.context.merchantId
-      : auth.context.merchantId;
+    // Identity mutation requires merchant (JWT) auth, not a scoped API key.
+    //
+    // None of these routes checked scopes at all, and `API_SCOPES` has no DID
+    // scope to check — so any business API key, including a read-only
+    // `wallet:read` one, could rebind the merchant's DID and mint
+    // DelegatedAuthority credentials carrying `wallet:transfer` and
+    // `escrow:settle`. A scoped key must not be able to grant authority
+    // stronger than itself. The ternary this replaces had identical branches,
+    // so the type guard was already there and doing nothing.
+    if (!isMerchantAuth(auth.context)) {
+      return NextResponse.json(
+        { error: 'This endpoint requires account (session) authentication, not an API key' },
+        { status: 403 }
+      );
+    }
+    const merchantId = auth.context.merchantId;
 
     const body = await request.json().catch(() => null) as {
       agent_did?: string;
@@ -152,9 +165,22 @@ export async function GET(request: NextRequest) {
     if (!auth.success || !auth.context) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const merchantId = isMerchantAuth(auth.context)
-      ? auth.context.merchantId
-      : auth.context.merchantId;
+    // Identity mutation requires merchant (JWT) auth, not a scoped API key.
+    //
+    // None of these routes checked scopes at all, and `API_SCOPES` has no DID
+    // scope to check — so any business API key, including a read-only
+    // `wallet:read` one, could rebind the merchant's DID and mint
+    // DelegatedAuthority credentials carrying `wallet:transfer` and
+    // `escrow:settle`. A scoped key must not be able to grant authority
+    // stronger than itself. The ternary this replaces had identical branches,
+    // so the type guard was already there and doing nothing.
+    if (!isMerchantAuth(auth.context)) {
+      return NextResponse.json(
+        { error: 'This endpoint requires account (session) authentication, not an API key' },
+        { status: 403 }
+      );
+    }
+    const merchantId = auth.context.merchantId;
 
     const { data: principal } = await supabase
       .from('merchant_dids')
@@ -192,9 +218,22 @@ export async function DELETE(request: NextRequest) {
     if (!auth.success || !auth.context) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const merchantId = isMerchantAuth(auth.context)
-      ? auth.context.merchantId
-      : auth.context.merchantId;
+    // Identity mutation requires merchant (JWT) auth, not a scoped API key.
+    //
+    // None of these routes checked scopes at all, and `API_SCOPES` has no DID
+    // scope to check — so any business API key, including a read-only
+    // `wallet:read` one, could rebind the merchant's DID and mint
+    // DelegatedAuthority credentials carrying `wallet:transfer` and
+    // `escrow:settle`. A scoped key must not be able to grant authority
+    // stronger than itself. The ternary this replaces had identical branches,
+    // so the type guard was already there and doing nothing.
+    if (!isMerchantAuth(auth.context)) {
+      return NextResponse.json(
+        { error: 'This endpoint requires account (session) authentication, not an API key' },
+        { status: 403 }
+      );
+    }
+    const merchantId = auth.context.merchantId;
     const id = request.nextUrl.searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'id query param required' }, { status: 400 });
 

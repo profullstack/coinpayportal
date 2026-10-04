@@ -1,7 +1,7 @@
 {
   "name": "@profullstack/coinpay",
-  "version": "0.8.0",
-  "description": "CoinPay SDK & CLI — Accept cryptocurrency payments (BTC, ETH, SOL, POL, BCH, USDC) with wallet and swap support",
+  "version": "0.14.0",
+  "description": "CoinPay SDK & CLI \u2014 Accept cryptocurrency and card payments (BTC, ETH, SOL, POL, BCH, USDC) with wallet, swap and a live finances dashboard",
   "type": "module",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
@@ -37,6 +37,10 @@
       "import": "./src/swap.js",
       "types": "./src/swap.d.ts"
     },
+    "./statements": {
+      "import": "./src/statements-fetch.js",
+      "types": "./src/statements-fetch.d.ts"
+    },
     "./x402": {
       "import": "./src/x402.js"
     },
@@ -48,6 +52,29 @@
     },
     "./x402-pay-server": {
       "import": "./src/x402-pay-server.js"
+    },
+    "./taskmarket": {
+      "import": "./src/taskmarket.js"
+    },
+    "./finances": {
+      "import": "./src/finances.js",
+      "types": "./src/finances.d.ts"
+    },
+    "./finances-tui": {
+      "import": "./src/finances-tui.js"
+    },
+    "./finances-reports": {
+      "types": "./src/finances-reports.d.ts",
+      "import": "./src/finances-reports.js",
+      "default": "./src/finances-reports.js"
+    },
+    "./finances-commands": {
+      "import": "./src/finances-commands.js",
+      "default": "./src/finances-commands.js"
+    },
+    "./finances-report": {
+      "import": "./src/finances-report.js",
+      "default": "./src/finances-report.js"
     }
   },
   "files": [
@@ -86,7 +113,12 @@
     "payment-gateway",
     "merchant",
     "bip39",
-    "mnemonic"
+    "mnemonic",
+    "finances",
+    "tui",
+    "dashboard",
+    "plaid",
+    "simplefin"
   ],
   "author": "Profullstack, Inc.",
   "license": "MIT",
@@ -103,16 +135,16 @@
     "node": ">=20.0.0"
   },
   "devDependencies": {
-    "vitest": "^4.1.0",
     "eslint": "^8.57.0",
-    "prettier": "^3.4.1"
+    "prettier": "^3.4.1",
+    "vitest": "^4.1.11"
   },
-  "peerDependencies": {},
   "dependencies": {
-    "@scure/bip39": "^1.4.0",
-    "@scure/bip32": "^1.5.0",
+    "@inquirer/prompts": "^8.3.0",
     "@noble/curves": "^1.6.0",
     "@noble/hashes": "^1.5.0",
-    "@inquirer/prompts": "^8.3.0"
+    "@profullstack/hqtui": "^0.6.3",
+    "@scure/bip32": "^1.5.0",
+    "@scure/bip39": "^1.4.0"
   }
 }

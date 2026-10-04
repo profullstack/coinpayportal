@@ -11,12 +11,30 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+
   createMultisigEscrow,
   proposeTransaction,
   broadcastTransaction,
   disputeMultisigEscrow,
   getMultisigEscrow,
 } from './engine';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { proposalChallenge, disputeChallenge } from './proof';
+
+// Proof-of-possession helpers (F-1.1-02).
+//
+// proposeTransaction and disputeMultisigEscrow now verify a secp256k1 signature
+// over the action's own terms before the pubkey is allowed to mean anything.
+// These tests therefore need a REAL keypair: a made-up pubkey can no longer act
+// as a participant, which is the entire point of the fix.
+const TEST_PRIV = secp256k1.utils.randomSecretKey();
+const TEST_PUB = Buffer.from(secp256k1.getPublicKey(TEST_PRIV, true)).toString('hex');
+
+function signChallenge(challenge: string): string {
+  const messageBytes = new TextEncoder().encode(challenge);
+  return Buffer.from(secp256k1.sign(messageBytes, TEST_PRIV)).toString('hex');
+}
+
 
 // ── Mock Setup ──────────────────────────────────────────────
 
@@ -378,12 +396,20 @@ describe('MultisigEscrowEngine', () => {
         return origFrom(table);
       });
 
+      const toAddress = '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd';
+      // Register the real key as the depositor on the stored escrow, so the
+      // verified signature resolves to a participant.
+      for (const [, e] of supabase._escrowStore) {
+        e.depositor_pubkey = TEST_PUB;
+      }
+
       const result = await proposeTransaction(
         supabase,
         escrowId,
         'release',
-        '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
-        '0x1234567890123456789012345678901234567890', // depositor
+        toAddress,
+        TEST_PUB,
+        signChallenge(proposalChallenge({ escrowId, proposalType: 'release', toAddress })),
       );
 
       expect(result.success).toBe(true);
@@ -610,11 +636,18 @@ describe('MultisigEscrowEngine', () => {
       }
 
       const escrowId = Array.from(supabase._escrowStore.keys())[0];
+      // The arbiter holds the real key here, so this still tests the ROLE
+      // rejection rather than stopping at the signature check.
+      for (const [, e] of supabase._escrowStore) {
+        e.arbiter_pubkey = TEST_PUB;
+      }
+      const disputeReason = 'Dispute reason for testing purposes';
       const result = await disputeMultisigEscrow(
         supabase,
         escrowId,
-        '0x9876543210987654321098765432109876543210', // arbiter
-        'Dispute reason for testing purposes',
+        TEST_PUB, // arbiter
+        disputeReason,
+        signChallenge(disputeChallenge({ escrowId, reason: disputeReason })),
       );
 
       expect(result.success).toBe(false);

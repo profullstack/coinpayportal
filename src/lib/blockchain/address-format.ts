@@ -16,8 +16,19 @@
  */
 function baseChainFor(blockchain: string): string {
   const base = blockchain.replace(/^USD[CT]_/, '');
+  // Bare `USDT` and `USDC` — no explicit chain suffix — settle as ERC-20 on
+  // Ethereum everywhere else in the codebase:
+  //
+  //   monitor-balance.ts   case 'USDC': -> checkEVMTokenBalance(RPC_ENDPOINTS.ETH, …)
+  //   rates/fees.ts        USDC/USDT priced off the Ethereum gas path
+  //   payments/service.ts  address generated on the Ethereum family
+  //
+  // This function mapped bare `USDC` to 'SOL', so a merchant configuring a
+  // plain-USDC payout had to supply a *Solana* address to pass validation — and
+  // was then monitored and paid on *Ethereum*. The two halves disagreed about
+  // which chain the money was on, which is the whole of H-R-06.
   if (base === 'USDT') return 'ETH';
-  if (base === 'USDC') return 'SOL';
+  if (base === 'USDC') return 'ETH';
   return base;
 }
 
@@ -34,6 +45,12 @@ export function isValidPayoutAddress(address: string, blockchain: string): boole
   switch (chain) {
     case 'ETH':
     case 'POL':
+    // `USDC_BASE` strips to 'BASE', which had no case here, so the switch fell
+    // through to the `null` default meaning "no validator — trust the address".
+    // USDC on Base is a supported payment chain with a balance checker and a
+    // fee path, so its payout addresses were the one EVM variant accepted
+    // without any format check at all.
+    case 'BASE':
       return /^0x[0-9a-fA-F]{40}$/.test(address);
     case 'SOL':
       return address.length >= 32 && address.length <= 44 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(address);

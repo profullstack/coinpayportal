@@ -313,6 +313,16 @@ export class CoinPayClient {
    * @param eventType  - Event type to simulate (default: `'payment.completed'`)
    */
   testWebhook(businessId: string, eventType?: string): Promise<Record<string, unknown>>;
+  /** Fetch a binary body (PDF, CSV) with its describing headers. */
+  requestBinary(endpoint: string, options?: RequestInit): Promise<{
+    bytes: Uint8Array;
+    contentType: string;
+    filename: string | null;
+    sha256: string | null;
+    headers: Record<string, string>;
+  }>;
+  /** POST a multipart form (file upload). */
+  requestForm(endpoint: string, form: FormData): Promise<any>;
 }
 
 export default CoinPayClient;

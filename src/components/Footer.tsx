@@ -7,6 +7,8 @@ export default function Footer() {
   const footerLinks = {
     product: [
       { name: 'Features', href: '/#features' },
+      { name: 'Remittance', href: '/remittance' },
+      { name: 'Block Explorer', href: '/explorer' },
       { name: 'Pricing', href: '/#pricing' },
       { name: 'Documentation', href: '/docs' },
       { name: 'API Reference', href: '/docs#api' },
@@ -252,6 +254,31 @@ export default function Footer() {
               </Link>
             </div>
           </div>
+          <nav
+            className="webring mt-6 flex items-center justify-center gap-3 text-xs text-gray-400"
+            aria-label="Profullstack webring"
+          >
+            <a
+              href="https://rssamplifier.com/ring/profullstack/previous?from=https%3A%2F%2Fcoinpayportal.com%2F"
+              rel="prev"
+              className="hover:text-purple-400 transition-colors"
+            >
+              {"<<"}
+            </a>
+            <a
+              href="https://rssamplifier.com/ring/profullstack"
+              className="hover:text-purple-400 transition-colors"
+            >
+              Profullstack
+            </a>
+            <a
+              href="https://rssamplifier.com/ring/profullstack/next?from=https%3A%2F%2Fcoinpayportal.com%2F"
+              rel="next"
+              className="hover:text-purple-400 transition-colors"
+            >
+              {">>"}
+            </a>
+          </nav>
         </div>
       </div>
     </footer>

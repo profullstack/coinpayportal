@@ -45,7 +45,56 @@ describe('getPaymentPublic field contract', () => {
     const fields = selected[0]!.split(',');
     expect(fields).not.toContain('business_id');
     expect(fields).not.toContain('merchant_wallet_address');
-    expect(fields).not.toContain('metadata');
+  });
+
+  /**
+   * metadata IS selected, because the card checkout URL lives in it and the
+   * checkout page needs that URL to offer a "Pay with Card" tab. Everything
+   * else in the column stays private, so the guarantee is about what comes
+   * back, not about what is selected.
+   */
+  it('publishes the card checkout URL so the pay page can offer a card tab', async () => {
+    const { client } = mockSupabase({
+      id: 'pay_1',
+      metadata: {
+        stripe_checkout_url: 'https://checkout.stripe.com/c/pay/cs_live_x',
+        payment_method: 'both',
+      },
+    });
+
+    const result = await getPaymentPublic(client, 'pay_1');
+
+    expect(result.payment?.metadata?.stripe_checkout_url).toBe(
+      'https://checkout.stripe.com/c/pay/cs_live_x'
+    );
+  });
+
+  it('strips every other metadata key from the response', async () => {
+    const { client } = mockSupabase({
+      id: 'pay_1',
+      metadata: {
+        stripe_checkout_url: 'https://checkout.stripe.com/c/pay/cs_live_x',
+        user_id: 'user-should-not-leak',
+        wallet_source: 'business',
+        network_fee_usd: 0.01,
+        redirect_url: 'https://merchant.example/thanks',
+      },
+    });
+
+    const result = await getPaymentPublic(client, 'pay_1');
+
+    expect(Object.keys(result.payment?.metadata ?? {})).toEqual(['stripe_checkout_url']);
+  });
+
+  it('returns null metadata for a crypto-only payment', async () => {
+    const { client } = mockSupabase({
+      id: 'pay_1',
+      metadata: { wallet_source: 'business', network_fee_usd: 0.01 },
+    });
+
+    const result = await getPaymentPublic(client, 'pay_1');
+
+    expect(result.payment?.metadata).toBeNull();
   });
 
   it('returns the hashes on the payment', async () => {

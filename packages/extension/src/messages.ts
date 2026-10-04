@@ -217,4 +217,21 @@ export type WalletResponse =
  */
 export type WalletEvent =
   | { type: 'coinpay:progress'; requestId: string; origin: string; progress: BatchProgress }
-  | { type: 'coinpay:approvalResolved'; requestId: string };
+  /**
+   * The request is finished with. `error` is set when the run ended badly —
+   * often before a single payment, which the progress view would otherwise
+   * render as a batch that simply never moves.
+   */
+  | { type: 'coinpay:approvalResolved'; requestId: string; error?: string };
+
+/**
+ * Port name the approval window uses to keep the service worker awake.
+ *
+ * MV3 stops an idle worker after ~30s, taking every pending approval's
+ * resolver with it. The window pings this port while it is open; each message
+ * is an event, and events are what keep the worker running.
+ */
+export const KEEPALIVE_PORT = 'coinpay-keepalive';
+
+/** How often the window pings, comfortably inside the idle timeout. */
+export const KEEPALIVE_INTERVAL_MS = 15_000;

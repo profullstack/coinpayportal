@@ -373,8 +373,8 @@ supabase functions logs monitor-payments
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `BITCOIN_RPC_URL` | Bitcoin RPC endpoint | blockstream.info |
-| `ETHEREUM_RPC_URL` | Ethereum RPC endpoint | eth.llamarpc.com |
-| `POLYGON_RPC_URL` | Polygon RPC endpoint | polygon-rpc.com |
+| `ETHEREUM_RPC_URL` | Ethereum RPC endpoint | ethereum-rpc.publicnode.com |
+| `POLYGON_RPC_URL` | Polygon RPC endpoint | polygon-bor-rpc.publicnode.com |
 | `SOLANA_RPC_URL` | Solana RPC endpoint | mainnet-beta.solana.com |
 | `APP_URL` | Application URL for forwarding trigger | - |
 | `INTERNAL_API_KEY` | API key for internal calls | - |

@@ -12,6 +12,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { WalletChain } from './identity';
 import { isValidChain, validateAddress } from './identity';
 import { estimateFees, type FeeEstimate } from './fees';
+import { evmRpcCall } from './evm-rpc';
+import { fetchBalance } from './balance';
+import { checkSpendable } from './spendable';
 
 /** Truncate an address for safe logging */
 function truncAddr(addr: string): string {
@@ -116,6 +119,7 @@ const CHAIN_IDS: Record<string, number> = {
   USDT_POL: 137,
   USDC_ETH: 1,
   USDC_POL: 137,
+  USDC_BASE: 8453,
 };
 
 /** ERC-20 contract addresses */
@@ -124,10 +128,12 @@ const TOKEN_CONTRACTS: Record<string, string> = {
   USDT_POL: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
   USDC_ETH: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
   USDC_POL: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+  USDC_BASE: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
 };
 const USDC_CONTRACTS = {
   USDC_ETH: TOKEN_CONTRACTS.USDC_ETH,
   USDC_POL: TOKEN_CONTRACTS.USDC_POL,
+  USDC_BASE: TOKEN_CONTRACTS.USDC_BASE,
 };
 
 /** SPL token mints on Solana */
@@ -152,8 +158,8 @@ const SOL_TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 function getRpcEndpoints(): Record<string, string> {
   return {
     BTC: process.env.BITCOIN_RPC_URL || 'https://blockstream.info/api',
-    ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-    POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    ETH: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+    POL: process.env.POLYGON_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
     SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
   };
 }
@@ -167,34 +173,27 @@ async function prepareEVMTransaction(
   to: string,
   amount: string,
   chain: WalletChain,
-  fee: FeeEstimate,
-  rpcUrl: string
+  fee: FeeEstimate
 ): Promise<EVMUnsignedTx> {
   const isToken = chain.startsWith('USDC_') || chain.startsWith('USDT_');
-  const chainId = CHAIN_IDS[chain] || 1;
 
-  // Get nonce
-  const nonceResp = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'eth_getTransactionCount',
-      params: [from, 'pending'],
-      id: 1,
-    }),
-  });
-
-  if (!nonceResp.ok) {
-    throw new Error(`Failed to get nonce: ${nonceResp.status}`);
+  // Never fall back to a default chain id. `|| 1` used to quietly stamp
+  // Ethereum onto any chain missing from CHAIN_IDS, which is the same failure
+  // evm-rpc.ts guards against on the read side: it does not error, it signs a
+  // valid transaction for the WRONG network. Refusing is the only safe answer.
+  const chainId = CHAIN_IDS[chain];
+  if (!chainId) {
+    throw new Error(`No EVM chain id mapped for ${chain}`);
   }
 
-  const nonceData = await nonceResp.json();
+  // Get nonce. Goes through the failover client, so a single broken provider
+  // no longer makes every send on this chain impossible.
+  const nonceData = await evmRpcCall(chain, 'eth_getTransactionCount', [from, 'pending']);
   if (nonceData.error) {
     throw new Error(`Nonce RPC error: ${nonceData.error.message}`);
   }
 
-  const nonce = parseInt(nonceData.result, 16);
+  const nonce = parseInt(nonceData.result as string, 16);
 
   if (isToken) {
     // ERC-20 transfer(address, uint256)
@@ -487,6 +486,68 @@ async function prepareSOLTransaction(
 // ──────────────────────────────────────────────
 
 /**
+ * Refuse a SOL transfer the sending address cannot fund, before it is signed.
+ *
+ * A transfer spends one keypair, but the asset screen shows the sum of every
+ * derived address on the chain, so an amount that looks funded can be backed by
+ * a sibling address instead. Without this the only verdict came from the node
+ * *after* the payer had typed their password, as an "insufficient funds"
+ * simulation failure. Solana also rejects a transfer that leaves the sender
+ * below the rent-exempt floor, which surprises a payer the same way.
+ *
+ * The cached balance decides whether to look: a wallet that already believes the
+ * address can pay is taken at its word, so the common path spends no RPC call at
+ * all and a 25-payment batch still costs one request. Only a cache that says the
+ * send is short earns a live lookup, and only live data may refuse — a stale
+ * cache must never block a send the chain would have accepted.
+ *
+ * Scoped to native SOL: the BTC path already fails on its own UTXO total, and a
+ * token transfer's fee comes from a native balance this does not read. The send
+ * form runs the same check for every chain before the payer ever signs.
+ *
+ * @returns the refusal to return to the caller, or null to let the send proceed.
+ */
+async function refuseUnaffordableSol(
+  input: PrepareTransactionInput,
+  chain: WalletChain,
+  cachedBalance: unknown,
+  fee: FeeEstimate
+): Promise<{ error: string; code: string } | null> {
+  if (cachedBalance === null || cachedBalance === undefined) return null;
+
+  const cachedVerdict = checkSpendable({
+    chain,
+    balance: String(cachedBalance),
+    amount: input.amount,
+    fee: fee.fee,
+  });
+  if (cachedVerdict.ok) return null;
+
+  let liveBalance: string | null = null;
+  try {
+    liveBalance = await fetchBalance(input.from_address, chain);
+  } catch (err: any) {
+    // Confirmation unavailable: let it through rather than refuse on a balance
+    // we could not verify. The node stays the final authority.
+    console.warn(`[PrepareTx] SOL balance confirmation failed: ${err?.message || err}`);
+    return null;
+  }
+
+  const verdict = checkSpendable({
+    chain,
+    balance: liveBalance,
+    amount: input.amount,
+    fee: fee.fee,
+  });
+  if (verdict.ok) return null;
+
+  console.log(
+    `[PrepareTx] Rejected ${chain} tx from ${truncAddr(input.from_address)}: ${verdict.code}`
+  );
+  return { error: verdict.message, code: verdict.code };
+}
+
+/**
  * Prepare an unsigned transaction for signing by the client.
  * Stores the prepared tx in DB with a 5-minute TTL.
  */
@@ -519,7 +580,7 @@ export async function prepareTransaction(
   // Filter by chain too — EVM addresses can be shared across ETH/POL/USDC_* chains
   const { data: addrRecord, error: addrError } = await supabase
     .from('wallet_addresses')
-    .select('id, address, chain')
+    .select('id, address, chain, cached_balance')
     .eq('wallet_id', walletId)
     .eq('address', input.from_address)
     .eq('chain', chain)
@@ -530,29 +591,47 @@ export async function prepareTransaction(
     return { success: false, error: 'From address not found in wallet', code: 'ADDRESS_NOT_FOUND' };
   }
 
-  // Get fee estimate
   const priority = input.priority || 'medium';
-  const feeEstimates = await estimateFees(chain);
-  const fee = feeEstimates[priority];
 
   // Build unsigned transaction
   const rpc = getRpcEndpoints();
   let unsignedTx: UnsignedTransactionData;
+  let fee: FeeEstimate;
 
+  // estimateFees() belongs INSIDE this try. It sat outside for a long time,
+  // and because the route's outer catch answers `serverError()` with no
+  // argument, every fee-estimation failure reached the caller as the bare
+  // string "Internal server error" — no chain, no status, no cause. A dead
+  // RPC provider looked identical to a bug in our own code, which is exactly
+  // how a 403 from a misconfigured Infura project went unexplained: the
+  // extension showed "Internal server error" and the reason was nowhere.
+  // Inside the try it comes back as PREPARE_FAILED plus the real message.
   try {
+    const feeEstimates = await estimateFees(chain);
+    fee = feeEstimates[priority];
+
+    if (chain === 'SOL') {
+      const refusal = await refuseUnaffordableSol(
+        input,
+        chain,
+        addrRecord.cached_balance,
+        fee
+      );
+      if (refusal) return { success: false, ...refusal };
+    }
+
     switch (chain) {
+      // Every EVM chain builds the same way now that the RPC endpoint is
+      // resolved from the chain rather than passed in.
       case 'ETH':
       case 'USDT_ETH':
       case 'USDC_ETH':
-        unsignedTx = await prepareEVMTransaction(
-          input.from_address, input.to_address, input.amount, chain, fee, rpc.ETH
-        );
-        break;
       case 'POL':
       case 'USDT_POL':
       case 'USDC_POL':
+      case 'USDC_BASE':
         unsignedTx = await prepareEVMTransaction(
-          input.from_address, input.to_address, input.amount, chain, fee, rpc.POL
+          input.from_address, input.to_address, input.amount, chain, fee
         );
         break;
       case 'BTC':

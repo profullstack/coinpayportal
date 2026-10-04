@@ -123,24 +123,24 @@ describe('Blockchain Providers', () => {
 
   describe('EthereumProvider', () => {
     it('should create an Ethereum provider', () => {
-      const provider = new EthereumProvider('https://eth.llamarpc.com');
+      const provider = new EthereumProvider('https://ethereum-rpc.publicnode.com');
       expect(provider.chain).toBe('ETH');
-      expect(provider.rpcUrl).toBe('https://eth.llamarpc.com');
+      expect(provider.rpcUrl).toBe('https://ethereum-rpc.publicnode.com');
     });
 
     it('should return required confirmations for Ethereum', () => {
-      const provider = new EthereumProvider('https://eth.llamarpc.com');
+      const provider = new EthereumProvider('https://ethereum-rpc.publicnode.com');
       expect(provider.getRequiredConfirmations()).toBe(12);
     });
 
     it('should have sendTransaction method', () => {
-      const provider = new EthereumProvider('https://eth.llamarpc.com');
+      const provider = new EthereumProvider('https://ethereum-rpc.publicnode.com');
       expect(provider.sendTransaction).toBeDefined();
       expect(typeof provider.sendTransaction).toBe('function');
     });
 
     it('should accept hex-encoded private key for sendTransaction', async () => {
-      const provider = new EthereumProvider('https://eth.llamarpc.com');
+      const provider = new EthereumProvider('https://ethereum-rpc.publicnode.com');
       
       // Ethereum private keys are 32 bytes (64 hex chars)
       const hexPrivateKey = '0'.repeat(64);
@@ -156,7 +156,7 @@ describe('Blockchain Providers', () => {
     });
 
     it('should handle 0x-prefixed private keys', async () => {
-      const provider = new EthereumProvider('https://eth.llamarpc.com');
+      const provider = new EthereumProvider('https://ethereum-rpc.publicnode.com');
       
       // Ethereum accepts both with and without 0x prefix
       const hexPrivateKey = '0x' + '0'.repeat(64);
@@ -168,24 +168,24 @@ describe('Blockchain Providers', () => {
 
   describe('PolygonProvider', () => {
     it('should create a Polygon provider', () => {
-      const provider = new PolygonProvider('https://polygon-rpc.com');
+      const provider = new PolygonProvider('https://polygon-bor-rpc.publicnode.com');
       expect(provider.chain).toBe('POL');
-      expect(provider.rpcUrl).toBe('https://polygon-rpc.com');
+      expect(provider.rpcUrl).toBe('https://polygon-bor-rpc.publicnode.com');
     });
 
     it('should return required confirmations for Polygon', () => {
-      const provider = new PolygonProvider('https://polygon-rpc.com');
+      const provider = new PolygonProvider('https://polygon-bor-rpc.publicnode.com');
       expect(provider.getRequiredConfirmations()).toBe(128);
     });
 
     it('should inherit sendTransaction from EthereumProvider', () => {
-      const provider = new PolygonProvider('https://polygon-rpc.com');
+      const provider = new PolygonProvider('https://polygon-bor-rpc.publicnode.com');
       expect(provider.sendTransaction).toBeDefined();
       expect(typeof provider.sendTransaction).toBe('function');
     });
 
     it('should use same key format as Ethereum (32-byte hex)', async () => {
-      const provider = new PolygonProvider('https://polygon-rpc.com');
+      const provider = new PolygonProvider('https://polygon-bor-rpc.publicnode.com');
       
       // Polygon uses same key format as Ethereum
       const hexPrivateKey = '0'.repeat(64);
@@ -753,23 +753,99 @@ describe('Blockchain Providers', () => {
       expect(typeof broadcastTransaction).toBe('function');
     });
 
-    it('should require TATUM_API_KEY for UTXO fetching', async () => {
+    // Regression: UTXOs used to be fetched from Tatum's
+    // `GET /v3/bitcoin/utxo/{address}`, which addresses a UTXO by tx hash and
+    // output index rather than by address. Every call 404'd, so no BTC payment
+    // could ever be forwarded and deposits stayed at the intermediary address.
+    it('should fetch UTXOs by address from Esplora without a Tatum key', async () => {
+      const axios = (await import('axios')).default;
       const provider = new BitcoinProvider('https://blockchain.info');
-      
-      // Save original env
+
       const originalKey = process.env.TATUM_API_KEY;
       delete process.env.TATUM_API_KEY;
-      
-      // Access private method
+
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        data: [
+          { txid: 'aa'.repeat(32), vout: 0, value: 84768, status: { confirmed: true } },
+        ],
+      } as any);
+
       const getUTXOs = (provider as any).getUTXOs.bind(provider);
-      
-      // Should throw error when API key is not set
-      await expect(getUTXOs('1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa')).rejects.toThrow('TATUM_API_KEY not configured');
-      
-      // Restore
+      const utxos = await getUTXOs('1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa');
+
+      expect(axios.get).toHaveBeenCalledWith(
+        'https://blockstream.info/api/address/1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa/utxo'
+      );
+      // Esplora reports satoshis directly — no BTC-to-sat conversion.
+      expect(utxos).toEqual([{ txid: 'aa'.repeat(32), vout: 0, value: 84768 }]);
+
       if (originalKey) {
         process.env.TATUM_API_KEY = originalKey;
       }
+    });
+
+    // Signing over an unconfirmed output risks building on a transaction that
+    // can still be replaced, which would invalidate the forward we broadcast.
+    it('should ignore unconfirmed UTXOs', async () => {
+      const axios = (await import('axios')).default;
+      const provider = new BitcoinProvider('https://blockchain.info');
+
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        data: [
+          { txid: 'bb'.repeat(32), vout: 0, value: 1000, status: { confirmed: true } },
+          { txid: 'cc'.repeat(32), vout: 1, value: 2000, status: { confirmed: false } },
+        ],
+      } as any);
+
+      const getUTXOs = (provider as any).getUTXOs.bind(provider);
+      const utxos = await getUTXOs('1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa');
+
+      expect(utxos).toEqual([{ txid: 'bb'.repeat(32), vout: 0, value: 1000 }]);
+    });
+  });
+
+  describe('Bitcoin Fee Rate', () => {
+    // A flat 20 sat/vB handed roughly a quarter of a $15 forward to miners.
+    it('should use the live 3-block estimate', async () => {
+      const axios = (await import('axios')).default;
+      const provider = new BitcoinProvider('https://blockchain.info');
+
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        data: { '1': 4.2, '3': 3.1, '6': 2.0 },
+      } as any);
+
+      const getFeeRate = (provider as any).getFeeRate.bind(provider);
+      expect(await getFeeRate()).toBe(4); // ceil(3.1) clamped into range
+    });
+
+    it('should floor the rate so a forward stays relayable', async () => {
+      const axios = (await import('axios')).default;
+      const provider = new BitcoinProvider('https://blockchain.info');
+
+      vi.mocked(axios.get).mockResolvedValueOnce({ data: { '3': 0.09 } } as any);
+
+      const getFeeRate = (provider as any).getFeeRate.bind(provider);
+      expect(await getFeeRate()).toBe(2);
+    });
+
+    it('should cap the rate so a spike cannot consume a small deposit', async () => {
+      const axios = (await import('axios')).default;
+      const provider = new BitcoinProvider('https://blockchain.info');
+
+      vi.mocked(axios.get).mockResolvedValueOnce({ data: { '3': 900 } } as any);
+
+      const getFeeRate = (provider as any).getFeeRate.bind(provider);
+      expect(await getFeeRate()).toBe(50);
+    });
+
+    it('should fall back to the static rate when the estimate is unavailable', async () => {
+      const axios = (await import('axios')).default;
+      const provider = new BitcoinProvider('https://blockchain.info');
+
+      vi.mocked(axios.get).mockRejectedValueOnce(new Error('network down'));
+
+      const getFeeRate = (provider as any).getFeeRate.bind(provider);
+      expect(await getFeeRate()).toBe(20);
     });
   });
 
@@ -784,10 +860,10 @@ describe('Blockchain Providers', () => {
       expect(bchProvider.sendTransaction).toBeDefined();
 
       // Ethereum/Polygon: 32-byte hex (with or without 0x prefix)
-      const ethProvider = new EthereumProvider('https://eth.llamarpc.com');
+      const ethProvider = new EthereumProvider('https://ethereum-rpc.publicnode.com');
       expect(ethProvider.sendTransaction).toBeDefined();
 
-      const polProvider = new PolygonProvider('https://polygon-rpc.com');
+      const polProvider = new PolygonProvider('https://polygon-bor-rpc.publicnode.com');
       expect(polProvider.sendTransaction).toBeDefined();
 
       // Solana: 32-byte seed (hex) OR 64-byte keypair (hex or base58)
@@ -831,12 +907,12 @@ describe('Blockchain Providers', () => {
     });
 
     it('should return EthereumProvider for ETH', () => {
-      const provider = getProvider('ETH', 'https://eth.llamarpc.com');
+      const provider = getProvider('ETH', 'https://ethereum-rpc.publicnode.com');
       expect(provider.chain).toBe('ETH');
     });
 
     it('should return PolygonProvider for POL', () => {
-      const provider = getProvider('POL', 'https://polygon-rpc.com');
+      const provider = getProvider('POL', 'https://polygon-bor-rpc.publicnode.com');
       expect(provider.chain).toBe('POL');
     });
 
@@ -860,12 +936,12 @@ describe('Blockchain Providers', () => {
 
     it('should return default RPC URL for ETH', () => {
       const url = getRpcUrl('ETH');
-      expect(url).toBe('https://eth.llamarpc.com');
+      expect(url).toBe('https://ethereum-rpc.publicnode.com');
     });
 
     it('should return default RPC URL for POL', () => {
       const url = getRpcUrl('POL');
-      expect(url).toBe('https://polygon-rpc.com');
+      expect(url).toBe('https://polygon-bor-rpc.publicnode.com');
     });
 
     it('should return default RPC URL for SOL', () => {

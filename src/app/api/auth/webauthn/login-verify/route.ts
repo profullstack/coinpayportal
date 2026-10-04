@@ -3,6 +3,8 @@
  * POST — verifies assertion and returns JWT
  * Public endpoint (no auth required)
  */
+import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
+import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyAuthenticationResponse } from '@simplewebauthn/server';
@@ -19,6 +21,15 @@ function getSupabase() {
 }
 
 export async function POST(request: NextRequest) {
+  // Backs an authentication decision, so it must not be free to hammer.
+  const rate = await checkRateLimitAsync(getClientIp(request) || 'unknown', 'webauthn_verify');
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: 'Too many attempts. Please try again shortly.' },
+      { status: 429 }
+    );
+  }
+
   let body: any;
   try {
     body = await request.json();

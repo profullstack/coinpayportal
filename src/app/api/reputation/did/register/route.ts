@@ -13,6 +13,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { platformMayManageMerchant } from '@/lib/p2p/platform-ownership';
+import { hashApiKey } from '@/lib/auth/scoped-keys';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
@@ -42,12 +44,23 @@ async function authenticatePlatform(
   if (!authHeader?.startsWith('Bearer ')) return null;
   const apiKey = authHeader.slice(7);
 
+  // Hash first, cleartext as a draining fallback — same contract as the other
+  // issuer-authenticated routes.
+  const { data: byHash } = await supabase
+    .from('reputation_issuers')
+    .select('did, name')
+    .eq('api_key_hash', hashApiKey(apiKey))
+    .eq('active', true)
+    .maybeSingle();
+
+  if (byHash) return byHash;
+
   const { data } = await supabase
     .from('reputation_issuers')
     .select('did, name')
     .eq('api_key', apiKey)
     .eq('active', true)
-    .single();
+    .maybeSingle();
 
   return data;
 }
@@ -83,8 +96,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ did, registered: false, message: 'DID already registered' });
     }
 
-    // Register the DID in merchant_dids (without merchant_id — platform-managed DID)
-    // If email is provided, check if a merchant already exists and link them
+    // Link by email ONLY to an account this platform provisioned.
+    //
+    // L7A-02 / V-02 / REP-F1A-02 are one mechanism: this looked a merchant up by
+    // email and bound an arbitrary DID to them with `verified: true`, on nothing
+    // but a valid issuer key. No proof of possession of the DID, and none of the
+    // email. That let a caller plant a hostile DID on a victim's account —
+    // ideally *before* the victim claimed their own, since the `existing` check
+    // above makes the first registration win and blocks the legitimate claim.
+    //
+    // A DID that cannot be linked is still registered, just unbound: it is
+    // usable for reputation on its own, and binding it to a real account is a
+    // decision only that account can make (via the authenticated `did/claim`).
     let merchantId: string | null = null;
     if (email) {
       const { data: merchant } = await supabase
@@ -92,8 +115,17 @@ export async function POST(request: NextRequest) {
         .select('id')
         .eq('email', email.toLowerCase())
         .maybeSingle();
+
       if (merchant) {
-        merchantId = merchant.id;
+        const owns = await platformMayManageMerchant(supabase, platform.name, merchant.id);
+        if (owns.ok) {
+          merchantId = merchant.id;
+        } else {
+          console.warn(
+            `[DID Register] ${platform.name} named ${email.toLowerCase()} — registering ${did} unlinked: ` +
+            owns.error
+          );
+        }
       }
     }
 
@@ -105,7 +137,10 @@ export async function POST(request: NextRequest) {
         platform: platformName || platform.name,
         email: email?.toLowerCase() || null,
         merchant_id: merchantId,
-        verified: true,
+        // `verified` means proof of possession, and nothing here proves any.
+        // It was set true unconditionally, so a planted DID looked exactly like
+        // one the account holder had actually proven control of.
+        verified: false,
       });
 
     if (insertError) {

@@ -10,6 +10,7 @@ import {
   listInvoices,
   updateInvoice,
   deleteInvoice,
+  publishInvoice,
   sendInvoice,
   getInvoicePaymentData,
   InvoiceStatus,
@@ -332,6 +333,24 @@ describe('Invoice SDK', () => {
       });
       expect(result.payment_address).toBe('0xpay123');
       expect(result.stripe_checkout_url).toBe('https://checkout.stripe.com/sess_123');
+    });
+  });
+
+  describe('publishInvoice', () => {
+    it('publishes an invoice without an email option in the request', async () => {
+      mockClient.request.mockResolvedValue({
+        success: true,
+        invoice: { id: 'inv_123', status: 'sent' },
+        paymentLink: 'https://coinpayportal.com/now/inv_123',
+        emailAttempted: false,
+      });
+
+      const result = await publishInvoice(mockClient, 'inv_123');
+
+      expect(mockClient.request).toHaveBeenCalledWith('/invoices/inv_123/publish', {
+        method: 'POST',
+      });
+      expect(result.emailAttempted).toBe(false);
     });
   });
 

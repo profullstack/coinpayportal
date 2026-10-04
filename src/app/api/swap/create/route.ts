@@ -141,13 +141,29 @@ export async function POST(request: NextRequest) {
         },
       });
 
+    // F-1.3-08: the write error was logged and the response still said
+    // `success: true` with nothing to distinguish it, so a live ChangeNOW swap
+    // with no platform row looked identical to a healthy one. Nothing
+    // downstream could tell, and the swap simply never appeared in history.
+    //
+    // Unlike the Boltz routes there is no key to lose here — the deposit
+    // address in this response is all the user needs to proceed — so failing
+    // the request outright would be worse than useless: it would stop a
+    // perfectly usable swap. The swap is reported, and reported as untracked,
+    // which is the part that was missing.
     if (dbError) {
-      console.error('[Swap] DB save failed (swap still created):', dbError);
-      // Don't fail the request - swap was created successfully
+      console.error('[Swap] DB save failed — swap is live at ChangeNOW but untracked:', dbError);
     }
 
     return NextResponse.json({
       success: true,
+      tracked: !dbError,
+      ...(dbError
+        ? {
+            warning:
+              'This swap was created but could not be recorded, so it will not appear in your swap history. Save the deposit address.',
+          }
+        : {}),
       swap: {
         id: swap.id,
         from: fromUpper,

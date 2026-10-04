@@ -27,6 +27,7 @@ import {
   type ProposalStatus,
   type RevisionInput,
 } from './types';
+import { insertWithInvoiceNumber } from '../invoices/numbering';
 
 export interface ServiceError {
   ok: false;
@@ -173,6 +174,15 @@ export async function addRevision(
     return { ok: false, error: 'A positive amount is required', status: 400 };
   }
 
+  // NEW-F1A-P-02: countering an expired proposal used to work, which meant a
+  // deadline stopped the deal closing but not the negotiation continuing — the
+  // one thing a deadline is for. The opening offer is exempt: a draft being
+  // sent for the first time has no deadline to have passed yet.
+  if (isNegotiable(proposal.status)) {
+    const expired = await assertNotExpired(supabase, proposal);
+    if (expired) return expired;
+  }
+
   const { data: previous } = await supabase
     .from('proposal_revisions')
     .select(REVISION_SELECT)
@@ -255,6 +265,49 @@ export async function addRevision(
 }
 
 /** Guard: may `party` put a counter-offer on this proposal right now? */
+/**
+ * Refuse a proposal past its own deadline, and record that it is past it.
+ *
+ * NEW-F1A-P-02: `expires_at` was checked in exactly one place — `acceptProposal`
+ * — so a proposal could still be countered, rejected, withdrawn, re-sent and
+ * viewed by token long after it had expired. The deadline meant "you cannot
+ * accept this", not "this is over", which is not what either party reads it as
+ * when they set one.
+ *
+ * `'expired'` is also a permitted value of `proposals_status_check` that
+ * *nothing ever wrote*. The state existed in the schema and in the type union
+ * and was unreachable, so no proposal has ever shown as expired in any list or
+ * dashboard — they simply sit as `sent` for ever.
+ *
+ * Both halves are fixed here. The status is flipped on the way past, which
+ * gives the state a producer without a new cron: expiry is only interesting
+ * when someone tries to act, and that is exactly when this runs. The write is
+ * conditioned on the status still being negotiable so it cannot overwrite a
+ * concurrent accept or reject.
+ */
+export async function assertNotExpired(
+  supabase: SupabaseClient,
+  proposal: Proposal,
+): Promise<ServiceResult<null> | null> {
+  if (!proposal.expires_at) return null;
+
+  const expiresAt = new Date(proposal.expires_at).getTime();
+  // An unparseable deadline is treated as no deadline rather than as an expired
+  // one — refusing to act on a proposal because of a bad timestamp would be a
+  // worse failure than letting it through.
+  if (!Number.isFinite(expiresAt) || expiresAt > Date.now()) return null;
+
+  if (isNegotiable(proposal.status)) {
+    await supabase
+      .from('proposals')
+      .update({ status: 'expired', updated_at: new Date().toISOString() })
+      .eq('id', proposal.id)
+      .in('status', ['sent', 'countered']);
+  }
+
+  return { ok: false, error: 'This proposal has expired', code: 'EXPIRED', status: 409 };
+}
+
 export function assertCounterable(
   status: ProposalStatus,
   party: Party,
@@ -309,9 +362,8 @@ export async function acceptProposal(
     return { ok: false, error: reason, code: 'NOT_ACCEPTABLE', status: 409 };
   }
 
-  if (proposal.expires_at && new Date(proposal.expires_at) < new Date()) {
-    return { ok: false, error: 'This proposal has expired', code: 'EXPIRED', status: 409 };
-  }
+  const expiredOnAccept = await assertNotExpired(supabase, proposal);
+  if (expiredOnAccept) return expiredOnAccept;
 
   // Payee gate.
   let payeeAddress = revision.merchant_wallet_address;
@@ -429,6 +481,12 @@ export async function rejectProposal(
     };
   }
 
+  // NEW-F1A-P-02: the deadline applied only to accepting, so an expired
+  // proposal could still be rejected — and the rejection would look like a
+  // live decision rather than something that had already lapsed.
+  const expiredOnReject = await assertNotExpired(supabase, proposal);
+  if (expiredOnReject) return expiredOnReject;
+
   const now = new Date().toISOString();
 
   if (proposal.current_revision_id) {
@@ -503,25 +561,21 @@ export async function convertToInvoice(
     return { ok: false, error: payee.error, code: payee.code, status: payee.status };
   }
 
-  const { data: maxInvoice } = await supabase
-    .from('invoices')
-    .select('invoice_number')
-    .eq('business_id', proposal.business_id)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let nextNum = 1;
-  const match = maxInvoice?.invoice_number?.match(/INV-(\d+)/);
-  if (match) nextNum = parseInt(match[1], 10) + 1;
-
-  const { data: invoice, error } = await supabase
+  // NEW-F1A-P-01: this ordered by `created_at` and took the newest row, which
+  // is not the highest number — backdate or delete an invoice and the next
+  // number collides with one that already exists. There was also no retry on
+  // the unique violation a concurrent create causes, so the loser simply could
+  // not convert their proposal. Both are handled by the shared helper now.
+  const { data: invoice, error } = await insertWithInvoiceNumber<any>(
+    supabase,
+    proposal.business_id,
+    (invoiceNumber) => supabase
     .from('invoices')
     .insert({
       user_id: proposal.user_id,
       business_id: proposal.business_id,
       client_id: proposal.client_id,
-      invoice_number: `INV-${String(nextNum).padStart(3, '0')}`,
+      invoice_number: invoiceNumber,
       status: 'draft',
       currency: revision.currency || 'USD',
       amount: revision.amount,
@@ -538,7 +592,8 @@ export async function convertToInvoice(
       },
     })
     .select('*')
-    .single();
+    .single()
+  );
 
   if (error || !invoice) {
     return { ok: false, error: error?.message || 'Failed to create invoice', status: 400 };

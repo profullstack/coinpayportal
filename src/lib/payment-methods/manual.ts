@@ -18,7 +18,7 @@ export async function getEnabledManualMethods(
   supabase: SupabaseClient,
   businessId: string
 ): Promise<EnabledManualMethod[]> {
-  const [{ data: catalog }, { data: policy }, { data: settings }] = await Promise.all([
+  const [catalogResult, policyResult, settingsResult] = await Promise.all([
     supabase
       .from('payment_method_catalog')
       .select('method_id, display_name, sort_order')
@@ -37,6 +37,15 @@ export async function getEnabledManualMethods(
       .eq('business_id', businessId)
       .eq('enabled', true),
   ]);
+
+  const lookupError = catalogResult.error || policyResult.error || settingsResult.error;
+  if (lookupError) {
+    throw new Error(`Failed to resolve manual payment methods: ${lookupError.message}`);
+  }
+
+  const catalog = catalogResult.data;
+  const policy = policyResult.data;
+  const settings = settingsResult.data;
 
   const unlocked = new Set((policy || []).map((p) => p.method_id));
   const settingByMethod = new Map((settings || []).map((s) => [s.method_id, s]));

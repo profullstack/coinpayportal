@@ -81,7 +81,12 @@ export interface PaymentAddress {
 export interface Payment {
   id: string;
   business_id: string;
-  payment_address_id: string;
+  // `payment_address_id` was declared here but the column was dropped from
+  // `payments` in a November 2025 migration and is absent from the live schema.
+  // Leaving it on the type is what kept three card-payment routes inserting it,
+  // and PostgREST rejects an insert naming an unknown column, so every card
+  // payment 500'd before reaching Stripe. The address itself is in
+  // `payment_address` below.
   amount: string;
   currency: string;
   blockchain: Blockchain;
@@ -123,6 +128,9 @@ export interface MerchantSettings {
   notifications_enabled: boolean;
   email_notifications: boolean;
   web_notifications: boolean;
+  /** Nightly payment digest. On by default; email_notifications still gates it. */
+  nightly_summary_enabled: boolean;
+  nightly_summary_last_sent_at: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -157,10 +157,26 @@ describe('POST /api/invoices/[id]/check-balance', () => {
     expect(mockFrom).toHaveBeenCalledWith('invoices');
   });
 
-  it('marks invoice as paid with 1% tolerance', async () => {
+  it('does NOT mark an invoice paid on a 1% underpayment', async () => {
+    // This test used to assert the opposite, encoding the 1% discount as
+    // intended behaviour. It is a real revenue leak, and worse than that: the
+    // payer unlocks the goods on 99%, then the forwarder is asked to send 100%
+    // out of an address holding 99%, the forward fails, and the funds strand at
+    // the intermediary address. This path now uses the shared
+    // `isSufficientPayment`, which requires the full amount.
     setupInvoiceQuery(baseInvoice);
-    // 0.0496 is within 1% of 0.05
     vi.mocked(checkBalance).mockResolvedValue({ balance: 0.0496 });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: 'inv-1' }) });
+    const data = await res.json();
+    expect(data.status).toBe('pending');
+  });
+
+  it('absorbs floating-point drift without accepting a real underpayment', async () => {
+    // The shared rule keeps a 1e-9 relative epsilon for values round-tripped
+    // through decimal strings — far below one satoshi on any real invoice.
+    setupInvoiceQuery(baseInvoice);
+    vi.mocked(checkBalance).mockResolvedValue({ balance: 0.05 - 0.05 * 1e-10, txHash: 'tx-eps' });
 
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: 'inv-1' }) });
     const data = await res.json();

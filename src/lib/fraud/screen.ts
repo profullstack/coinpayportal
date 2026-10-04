@@ -52,8 +52,10 @@ const BLOCK_MESSAGE =
  * Screen a checkout attempt. Records the decision either way so the next
  * attempt has history to read.
  *
- * Fails open: if screening itself errors, the payment proceeds. A broken
- * fraud check must not become an outage.
+ * Fails SAFE, not open: if screening itself errors, the payment proceeds but is
+ * forced through 3-D Secure. A broken fraud check must not become a payment
+ * outage, but it must not be a free pass either — this used to return `allow`,
+ * so any error anywhere in screening silently waved the payment through.
  */
 export async function screenCheckout(
   supabase: SupabaseClient,
@@ -122,9 +124,16 @@ export async function screenCheckout(
       buyerMessage: result.decision === 'block' ? BLOCK_MESSAGE : undefined,
     };
   } catch (error) {
-    console.error('[Fraud] Screening failed, allowing payment:', error);
+    // Degrade to `verify`, not `allow`.
+    //
+    // A broken fraud check must not become a payment outage — that reasoning
+    // was right, and returning `allow` was the wrong conclusion from it. There
+    // is a middle option: let the payment proceed but force 3-D Secure, which
+    // moves liability for a stolen card back to the issuer. Payments keep
+    // flowing and a screening failure stops being a free pass.
+    console.error('[Fraud] Screening failed — degrading to 3DS rather than allowing:', error);
     return {
-      decision: 'allow',
+      decision: 'verify',
       score: 0,
       findings: [],
       signals,

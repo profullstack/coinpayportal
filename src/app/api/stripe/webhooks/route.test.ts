@@ -24,6 +24,16 @@ vi.mock('@supabase/supabase-js', () => ({
   }),
 }));
 
+
+// Tenant scoping is now a shared helper (src/lib/auth/tenant-scope.ts). These
+// routes used to take the caller-supplied business_id at face value; the helper
+// authorizes it against the authenticated user. Stubbed here so each test states
+// whether the caller is allowed, rather than reproducing the roles tables.
+const mockResolveBusinessScope = vi.fn();
+vi.mock('@/lib/auth/tenant-scope', () => ({
+  resolveBusinessScope: (...args: unknown[]) => mockResolveBusinessScope(...args),
+}));
+
 import { GET, POST } from './route';
 import { NextRequest } from 'next/server';
 
@@ -37,6 +47,7 @@ function makeRequest(url: string, opts: any = {}) {
 describe('GET /api/stripe/webhooks', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockResolveBusinessScope.mockResolvedValue({ ok: true, businessId: 'biz-1' });
     process.env.STRIPE_SECRET_KEY = 'sk_test_123';
     mockGetJwtSecret.mockReturnValue('secret');
     mockVerifyToken.mockReturnValue({ userId: 'user-1' });
@@ -118,6 +129,7 @@ describe('GET /api/stripe/webhooks', () => {
 describe('POST /api/stripe/webhooks', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockResolveBusinessScope.mockResolvedValue({ ok: true, businessId: 'biz-1' });
     process.env.STRIPE_SECRET_KEY = 'sk_test_123';
     mockGetJwtSecret.mockReturnValue('secret');
     mockVerifyToken.mockReturnValue({ userId: 'user-1' });
@@ -206,5 +218,36 @@ describe('POST /api/stripe/webhooks', () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
+  });
+});
+
+describe('/api/stripe/webhooks - tenant scoping (C-01, NEW-13)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockResolveBusinessScope.mockResolvedValue({ ok: true, businessId: 'biz-1' });
+  });
+
+  it('refuses to list another business webhook set', async () => {
+    mockResolveBusinessScope.mockResolvedValue({ ok: false, error: 'Insufficient permissions', status: 403 });
+    const res = await GET(makeRequest('http://localhost/api/stripe/webhooks?business_id=someone-else'));
+    expect(res.status).toBe(403);
+  });
+
+  it('refuses to create a webhook on another business Connect account', async () => {
+    // POST creates the endpoint on the named business's account and returns its
+    // signing secret, so an unchecked business_id hands over a live feed of
+    // another merchant's Stripe events.
+    mockResolveBusinessScope.mockResolvedValue({ ok: false, error: 'Insufficient permissions', status: 403 });
+    const res = await POST(
+      makeRequest('http://localhost/api/stripe/webhooks', {
+        method: 'POST',
+        body: JSON.stringify({
+          business_id: 'someone-else',
+          url: 'https://attacker.example/hook',
+          events: ['invoice.paid'],
+        }),
+      })
+    );
+    expect(res.status).toBe(403);
   });
 });

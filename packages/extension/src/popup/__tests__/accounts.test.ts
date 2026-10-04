@@ -153,9 +153,15 @@ describe('wallet tab asset list', () => {
     const rows = assetRows();
 
     expect(rows.find((r) => r.asset === 'ETH')!.buttons).toContain('Send');
-    // Base is not a pay-chain: showing Send would promise something the
-    // wallet cannot do.
-    expect(rows.find((r) => r.asset === 'USDC_BASE')!.buttons).not.toContain('Send');
+    // USDC on Base signs with the ETH key and the portal prepares it, so it is
+    // spendable — this asserted the opposite while Base was missing from
+    // PAY_CHAINS, which is exactly the gap that stranded a funded balance with
+    // no way to move it.
+    expect(rows.find((r) => r.asset === 'USDC_BASE')!.buttons).toContain('Send');
+    // DOGE is the real "cannot spend" case: the portal reports the balance but
+    // this extension derives no key for it, so offering Send would promise
+    // something it cannot do.
+    expect(rows.find((r) => r.asset === 'DOGE')!.buttons).not.toContain('Send');
   });
 });
 

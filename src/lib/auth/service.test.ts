@@ -120,7 +120,15 @@ describe('Auth Service', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('already');
+
+      // R3-ID-02: the message used to be "Email already exists", which told any
+      // unauthenticated caller whether an address belonged to a merchant —
+      // enumerable across the whole base, and exactly the input the email-keyed
+      // payout and DID-binding attacks needed. It is now identical to the
+      // route's other rejection paths.
+      expect(result.error).not.toContain('already');
+      expect(result.error).not.toContain('exists');
+      expect(result.error).toBe('Registration failed. Please try again later.');
     });
 
     it('should reject weak passwords', async () => {

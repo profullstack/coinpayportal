@@ -1,25 +1,34 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
 
 function CliAuthContent() {
-  const searchParams = useSearchParams();
-  const initialCode = (searchParams.get('code') || '').trim().toUpperCase();
-
-  const [code, setCode] = useState(initialCode);
+  // G-1.2-10: `?code=` is deliberately NOT read.
+  //
+  // Anyone could start a device authorization — it is unauthenticated by
+  // necessity, the CLI has no credential yet — and get a link that pre-filled
+  // this form. Sent to a signed-in merchant, one click handed the *attacker's*
+  // terminal a 7-day session JWT for the victim's account: full takeover, one
+  // click, and the attacker also chose the client name shown below.
+  //
+  // The merchant must type the code their own terminal printed. An attacker can
+  // still send someone here, but cannot make the victim's screen show the
+  // attacker's code.
+  const [code, setCode] = useState('');
   const [clientName, setClientName] = useState<string | null>(null);
   const [needsLogin, setNeedsLogin] = useState(false);
   const [reqStatus, setReqStatus] = useState<string>('');
   const [state, setState] = useState<'idle' | 'working' | 'approved' | 'denied' | 'error'>('idle');
   const [message, setMessage] = useState('');
 
-  // On load, look up the request (this also tells us if we're signed in).
+  // Look the request up once the typed code is complete. This also tells us
+  // whether the visitor is signed in.
+  const lookupCode = code.trim().toUpperCase();
   useEffect(() => {
-    if (!initialCode) return;
+    if (lookupCode.replace('-', '').length < 8) return;
     (async () => {
       try {
-        const res = await fetch(`/api/cli-auth/approve?code=${encodeURIComponent(initialCode)}`);
+        const res = await fetch(`/api/cli-auth/approve?code=${encodeURIComponent(lookupCode)}`);
         if (res.status === 401) {
           setNeedsLogin(true);
           return;
@@ -33,7 +42,7 @@ function CliAuthContent() {
         /* ignore — user can still submit */
       }
     })();
-  }, [initialCode]);
+  }, [lookupCode]);
 
   async function submit(action: 'approve' | 'deny') {
     const c = code.trim().toUpperCase();
@@ -68,7 +77,9 @@ function CliAuthContent() {
   }
 
   const card = 'bg-slate-800 rounded-lg shadow-lg p-8';
-  const loginHref = `/login?redirect=${encodeURIComponent(`/cli-auth?code=${code || initialCode}`)}`;
+  // No code in the redirect: it would survive the login round-trip and
+  // re-create the pre-filled form this fix removes.
+  const loginHref = `/login?redirect=${encodeURIComponent('/cli-auth')}`;
 
   return (
     <div className="min-h-[calc(100vh-200px)] flex items-center justify-center px-4 py-12">
@@ -101,9 +112,22 @@ function CliAuthContent() {
           ) : (
             <>
               <p className="text-slate-300">
-                A command-line client
-                {clientName ? ` on “${clientName}”` : ''} is asking to sign in to your CoinPay account.
+                A command-line client is asking to sign in to your CoinPay account.
               </p>
+
+              {/*
+                `client_name` is chosen by whoever started the request, so it is
+                a claim and not an identity — an attacker picks it as freely as
+                the real client does. Shown, because it helps a user recognise
+                their own machine, but labelled so it cannot be read as
+                verified by us.
+              */}
+              {clientName && (
+                <p className="mt-2 text-sm text-slate-400">
+                  It calls itself <span className="font-mono text-slate-300">“{clientName}”</span>{' '}
+                  <span className="text-slate-500">(self-reported, not verified)</span>.
+                </p>
+              )}
 
               {reqStatus === 'expired' && (
                 <p className="mt-3 rounded border border-red-700 bg-red-900/50 p-3 text-sm text-red-200">
@@ -147,7 +171,10 @@ function CliAuthContent() {
               </div>
 
               <p className="mt-4 text-xs text-slate-500">
-                Only approve this if you just ran <code>coinpay login</code> yourself.
+                Only approve this if you just ran <code>coinpay login</code> yourself, and
+                the code above matches the one in your own terminal. Never enter a
+                code someone else sent you — approving gives that person full
+                access to your account.
               </p>
             </>
           )}

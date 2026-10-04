@@ -7,6 +7,73 @@ require_once __DIR__ . '/../../../../src/StatusMapper.php';
 
 class StatusMapperTest extends TestCase
 {
+    /**
+     * The events the backend ACTUALLY emits.
+     *
+     * Every test below this group covers an event type CoinPayPortal never
+     * sends ('payment.completed', 'payment.overpaid', 'payment.pending', ...).
+     * The map only had mark_paid entries for those fictional events, so every
+     * real delivery fell through to 'ignore' and automated invoice crediting
+     * never fired — with a full, green test suite, because the suite tested the
+     * same fiction the map did.
+     *
+     * Source of truth: the WebhookEvent union in src/lib/supabase/types.ts and
+     * the emit sites in src/lib/webhooks/service.ts.
+     */
+    public function testPaymentConfirmedIsMarkPaid(): void
+    {
+        $this->assertSame('mark_paid', StatusMapper::map('payment.confirmed'));
+    }
+
+    public function testPaymentForwardedIsMarkPaid(): void
+    {
+        $this->assertSame('mark_paid', StatusMapper::map('payment.forwarded'));
+    }
+
+    public function testPaymentForwardingIsMarkPaid(): void
+    {
+        // Downstream of confirmation: the money arrived and is on its way out.
+        $this->assertSame('mark_paid', StatusMapper::map('payment.forwarding'));
+    }
+
+    public function testPaymentCreatedIsPending(): void
+    {
+        $this->assertSame('pending', StatusMapper::map('payment.created'));
+    }
+
+    public function testPaymentDetectedIsPending(): void
+    {
+        $this->assertSame('pending', StatusMapper::map('payment.detected'));
+    }
+
+    public function testEveryEmittedEventIsMapped(): void
+    {
+        // Guards the regression directly: if the backend gains an event type,
+        // this fails rather than silently ignoring deliveries.
+        $emitted = [
+            'payment.created',
+            'payment.detected',
+            'payment.confirmed',
+            'payment.forwarding',
+            'payment.forwarded',
+            'payment.failed',
+            'payment.expired',
+        ];
+
+        foreach ($emitted as $event) {
+            $action = StatusMapper::map($event);
+            $this->assertContains(
+                $action,
+                ['mark_paid', 'pending', 'ignore', 'warn'],
+                sprintf('event %s produced an unexpected action', $event)
+            );
+        }
+
+        // And at least one of them must actually credit an invoice, otherwise
+        // the plugin is inert no matter how well-formed the map looks.
+        $this->assertSame('mark_paid', StatusMapper::map('payment.confirmed'));
+    }
+
     public function testPaymentCompletedIsMarkPaid(): void
     {
         $this->assertSame('mark_paid', StatusMapper::map('payment.completed'));

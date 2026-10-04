@@ -93,6 +93,78 @@ export async function getBoltzReversePairInfo() {
  * Create submarine swap: On-chain BTC → Lightning
  * User sends BTC to returned address, Boltz pays the invoice.
  */
+/**
+ * Confirm a lockup address really encodes the redeem script Boltz returned.
+ *
+ * W-06: `redeemScript` and `swapTree` were declared on both response types and
+ * never read. The lockup address was taken on faith, so a substituted address —
+ * from a compromised endpoint or a hostile proxy — would have been funded
+ * happily, and the refund key we generated locally would be worthless against
+ * it, because it belongs to a DIFFERENT script. The deposit would be
+ * unrecoverable.
+ *
+ * A redeem script pins the address: hashing it reproduces the P2WSH (or
+ * P2SH-wrapped) address exactly. If they disagree, the address did not come
+ * from that script and the swap must not be funded.
+ *
+ * Taproot swaps carry a `swapTree` instead, whose derivation needs the full
+ * tweak and is not reproduced here — those return `null` for "cannot check"
+ * rather than a false pass.
+ */
+export async function lockupAddressMatchesScript(
+  address: string,
+  redeemScript: string | undefined,
+): Promise<boolean | null> {
+  if (!redeemScript) return null;
+
+  const bitcoin = await import('bitcoinjs-lib');
+  const network = bitcoin.networks.bitcoin;
+
+  let script: Buffer;
+  try {
+    script = Buffer.from(redeemScript, 'hex');
+  } catch {
+    return false;
+  }
+  if (script.length === 0) return false;
+
+  const candidates: string[] = [];
+  const push = (fn: () => string | undefined) => {
+    try {
+      const a = fn();
+      if (a) candidates.push(a);
+    } catch {
+      /* not this form */
+    }
+  };
+
+  // Native segwit P2WSH — what Boltz uses for current submarine swaps.
+  push(() => bitcoin.payments.p2wsh({ redeem: { output: script, network }, network }).address);
+  // P2SH-wrapped P2WSH, and bare P2SH, for older swaps.
+  push(() =>
+    bitcoin.payments.p2sh({
+      redeem: bitcoin.payments.p2wsh({ redeem: { output: script, network }, network }),
+      network,
+    }).address
+  );
+  push(() => bitcoin.payments.p2sh({ redeem: { output: script, network }, network }).address);
+
+  if (candidates.length === 0) return null;
+  return candidates.includes(address);
+}
+
+/**
+ * Throw unless the lockup address is provably the one the redeem script
+ * describes. A swap we cannot verify is refused rather than funded on trust.
+ */
+function assertLockupBinding(kind: string, address: string, matched: boolean | null): void {
+  if (matched === false) {
+    throw new Error(
+      `Boltz ${kind}: lockup address ${address} does not match the redeem script returned with it - refusing to fund`
+    );
+  }
+}
+
 export async function createSwapIn(
   invoice: string,
   refundAddress?: string,
@@ -117,6 +189,17 @@ export async function createSwapIn(
     throw new Error(`Boltz createswap failed: ${res.status} - ${err}`);
   }
   const swap = await res.json();
+
+  // The address we are about to tell a user to fund must be the one the redeem
+  // script describes. Our refund key only works against that script.
+  const matched = await lockupAddressMatchesScript(swap.address, swap.redeemScript);
+  assertLockupBinding('submarine swap', swap.address, matched);
+  if (matched === null) {
+    console.warn(
+      `[Boltz] Swap ${swap.id} returned no redeemScript - lockup address ${swap.address} could not be verified against a script`
+    );
+  }
+
   return { ...swap, refundPrivateKey: kp.privateKey };
 }
 
@@ -149,6 +232,15 @@ export async function createSwapOut(
     throw new Error(`Boltz reverse swap failed: ${res.status} - ${err}`);
   }
   const swap = await res.json();
+
+  const matched = await lockupAddressMatchesScript(swap.lockupAddress, swap.redeemScript);
+  assertLockupBinding('reverse swap', swap.lockupAddress, matched);
+  if (matched === null) {
+    console.warn(
+      `[Boltz] Reverse swap ${swap.id} returned no redeemScript - lockup address ${swap.lockupAddress} could not be verified against a script`
+    );
+  }
+
   return { ...swap, claimPrivateKey: kp.privateKey };
 }
 

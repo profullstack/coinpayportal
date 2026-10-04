@@ -8,3 +8,14 @@ npm-debug.log
 README.md
 .next
 .git
+
+# F5-L2-03: keep secrets out of the image.
+#
+# The root Dockerfile does `COPY . .`, so any .env present in the working tree
+# is baked into a layer and travels with the image — .env.prod in particular
+# holds live credentials. Railway builds from git, where these are gitignored,
+# so the documented deployment path was never affected; a local or CI build from
+# a developer's tree was.
+.env
+.env.*
+!.env.example

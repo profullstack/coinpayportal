@@ -3,12 +3,15 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getJwtSecret } from '@/lib/secrets';
 import { getStripe } from '@/lib/server/optional-deps';
+import { resolveBusinessScope } from '@/lib/auth/tenant-scope';
+import { createServiceClient } from '@/lib/supabase/service-client';
 import { encrypt, decrypt } from '@/lib/crypto/encryption';
+import { requireEncryptionKey } from '@/lib/crypto/require-key';
 
 function getEncryptionKey(): string {
-  const key = process.env.ENCRYPTION_KEY;
-  if (!key) throw new Error('ENCRYPTION_KEY not set');
-  return key;
+  // Shared guard: also rejects malformed and known-weak keys, which a bare
+  // presence check accepts.
+  return requireEncryptionKey('stripe webhook secret');
 }
 
 function getSupabase() {
@@ -58,6 +61,19 @@ export async function GET(request: NextRequest) {
     if (!businessId) {
       return NextResponse.json({ success: false, error: 'business_id is required' }, { status: 400 });
     }
+
+    // Authenticating the caller and then trusting the `business_id` they sent
+    // is not authorization. These routes create webhook endpoints ON the named
+    // business's Stripe Connect account and return the signing secret, so an
+    // unchecked business_id hands an attacker a live feed of another merchant's
+    // Stripe events, pointed at a URL of their choosing.
+    const tenant = await resolveBusinessScope(
+      createServiceClient(), authResult, businessId, 'webhook.manage',
+    );
+    if (!tenant.ok) {
+      return NextResponse.json({ success: false, error: tenant.error }, { status: tenant.status });
+    }
+
     const stripeAccountId = await getStripeAccountId(businessId);
     if (!stripeAccountId) {
       return NextResponse.json({ success: true, endpoints: [] });
@@ -197,6 +213,18 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       );
+    }
+
+    // Authenticating the caller and then trusting the `business_id` they sent
+    // is not authorization. These routes create webhook endpoints ON the named
+    // business's Stripe Connect account and return the signing secret, so an
+    // unchecked business_id hands an attacker a live feed of another merchant's
+    // Stripe events, pointed at a URL of their choosing.
+    const tenant = await resolveBusinessScope(
+      createServiceClient(), authResult, business_id, 'webhook.manage',
+    );
+    if (!tenant.ok) {
+      return NextResponse.json({ success: false, error: tenant.error }, { status: tenant.status });
     }
 
     const stripeAccountId = await getStripeAccountId(business_id);

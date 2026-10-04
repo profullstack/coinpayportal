@@ -20,11 +20,12 @@ import {
   deleteInvoice,
   getInvoice,
   listInvoices,
+  publishInvoice,
   sendInvoice,
   updateInvoice,
   InvoiceStatus,
 } from '../src/invoices.js';
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync, chmodSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 import { createInterface } from 'readline';
 import { homedir, hostname } from 'os';
@@ -50,6 +51,13 @@ function handleSelfManage(action) {
     print.error(`coinpay ${action} failed — run it manually:\n  curl -fsSL ${INSTALL_URL} | sh -s -- ${action}`);
     process.exit(1);
   }
+}
+
+/** `coinpay self <sub>`: which installer action, or null. */
+function selfAction(sub) {
+  if (sub === 'update' || sub === 'upgrade' || sub === 'self-update') return 'update';
+  if (sub === 'remove' || sub === 'uninstall') return 'remove';
+  return null;
 }
 
 // ANSI colors
@@ -160,6 +168,26 @@ function createUnauthenticatedClient() {
 
 const BOOLEAN_FLAGS = new Set([
   'active',
+  // finances reports / statements
+  'wait',
+  'strict',
+  'headed',
+  'device',
+  'force',
+  'setup-token-stdin',
+  'overwrite',
+  'no-pending',
+  'liability-positive',
+  'acknowledge',
+  'always',
+  'no-model',
+  'only-uncategorized',
+  'no-attach',
+  'with-documents',
+  'estimate-gaps',
+  'plain',
+  'no-stream',
+  'hidden',
   'active-only',
   'debug',
   'escrow',
@@ -359,9 +387,13 @@ ${colors.cyan}Commands:${colors.reset}
     set-url <base-url>    Set custom API URL
     show                  Show current configuration
 
+  ${colors.bright}login${colors.reset}                 Sign in (OAuth 2.1 in your browser; --device on a machine without one)
+  ${colors.bright}logout${colors.reset}                Forget the saved session
+
   ${colors.bright}auth${colors.reset}
     register              Register new merchant account
-    login                 Login to merchant account
+    login                 Same as \`coinpay login\` (OAuth 2.1; --device over SSH).
+                            --email/--password is the old password sign-in (deprecated)
     me                    Show current merchant info
 
   ${colors.bright}payment${colors.reset}
@@ -378,15 +410,22 @@ ${colors.cyan}Commands:${colors.reset}
     get <id>              Get invoice details
     list                  List invoices with optional filters
     update <id>           Update editable fields on a draft invoice
+    publish <id>          Create payment details without emailing the client
     send <id>             Create payment details and email the client
     delete <id>           Permanently delete a draft invoice
-      --yes               Skip confirmation for send/delete
+      --yes               Skip confirmation for publish/send/delete
 
   ${colors.bright}tokens${colors.reset}
     list                  List checkout tokens (--business-id, --active-only)
 
   ${colors.bright}business${colors.reset}
     create                Create a new business
+      --name <name>       Required
+      --category <slug>   Required; see: coinpay business categories
+      --description <s>   Optional
+      --webhook-url <url> Optional; enables webhooks and a generated secret
+      --webhook-secret <s>  Optional; supply your own instead
+    categories            List the valid business category slugs
     get <id>              Get business details
     list                  List businesses
     update <id>           Update business
@@ -430,6 +469,65 @@ ${colors.cyan}Commands:${colors.reset}
     escrow release <id>   Release card escrow funds
     escrow refund <id>    Refund card escrow
 
+  ${colors.bright}finances${colors.reset}       (also: coinpay money)
+    [tui]                 Live dashboard: earnings, commission, refunds,
+                            bank & credit-card feeds, ledger, invoices, escrow
+      --days <n>          Window for earnings/cashflow (7, 30, 90, 365; default 30)
+      --interval <s>      Refresh every s seconds (default 30)
+      --business-id <id>  Narrow payments to one business
+    summary               Plain-text headline numbers (--json for machines)
+    position              Debt vs income, credits vs debits, recurring bills
+                            (also: coinpay finances debt)
+    scope <id> <side>     Put an account on the business or personal books
+                            (side: business | personal | clear)
+    accounts              Linked bank and card accounts with balances
+    ledger                Bank/card transactions (--limit, --search, --category, --account)
+    connections           Linked institutions and their last sync
+    sync                  Pull fresh balances from the bank bridge (--days)
+    connect               Link SimpleFIN: token prompted without echo, or --setup-token-stdin
+    disconnect <id>       Stop syncs and drop the credential; history stays (--yes)
+    consent <id> on|off   Opt a connection into a once-daily background sync
+    backfill              Fetch a calendar period in safe chunks (--period 2026-Q2 |
+                            --from/--to, --connection, --timezone, --wait, --json)
+    jobs [get|cancel <id>] Persisted sync/report jobs; reading one costs no request
+    coverage              What part of a period was ever fetched (--period, --account)
+    report                Monthly/quarterly/custom activity report (--period 2026-08 |
+                            --from/--to; --account, --scope, --timezone, --format pdf|csv|html|json,
+                            --output <file>, --strict, --estimate-gaps, --wait, --json)
+    reports [get|download|delete <id>]  Report history and downloads
+    statements import <pdf>  Keep an original bank statement (--account, --period|--from/--to)
+    statements list|get|download|reconcile|delete
+                          Statement library; reconcile takes --report --opening --closing --currency
+    statements banks      Linked banks: signed in for statement downloads? last fetch?
+    statements login <bank>  Sign in once in a window (no password is stored; Chrome profile on this machine)
+    statements fetch [bank…]  Download every new PDF statement from the banks and import it
+                            (--since YYYY-MM, --max N, --headed, --render S; exits 3 if a bank needs you)
+    statements assist <bank>  A window: every PDF you download is imported
+    statements assist ftb|irs|irs-business  Tax sources (no linked bank needed): every
+                            notice, letter or transcript you download is filed under
+                            Documents (tax). IRS: use this, locally (ID.me blocks clouds).
+                            Throttled: 2 visits per 30 min, 4 per day; lockouts respected
+    statements coverage   Which account-months have a statement (--months 12)
+    statements runs|local|retry  Fetch history, the local archive, re-import what failed
+    statements cloud [status]  CoinPay cloud fetching (Professional; free for admins)
+    statements cloud connect <bank|ftb|irs>  Sign in once in CoinPay's cloud browser (opens your browser)
+    statements cloud fetch [bank] [--wait]  Fetch now in the cloud; weekly by default
+    statements cloud schedule <bank> weekly|off | cloud forget <bank>
+    books [queue]         Transactions awaiting category review (--status, --scope, --search)
+    books confirm <id>    Confirm a row (--category, --tax, --scope, --note, --always makes a rule)
+    books confirm-all     Accept every pending suggestion (--yes)
+    books categorize      Rules, heuristics, then the model over unreviewed rows (--wait)
+    books rules [add|delete]  Merchant category rules
+    books summary         Totals by tax category (--period 2026|2026-Q3|2026-08, --scope)
+    books export          CPA pack (--period, --scope, --format csv|pdf|html|json, --output;
+                            --with-documents: a ZIP with the period's tax documents, up to 8 MiB)
+    payloads [list|download <id>]  Raw provider responses, exactly as received
+    reports send <id>     Email a report (--to a@x,b@y, --format pdf,csv, --message, --no-attach)
+    books send            Email the CPA pack (--to, --period, --scope, --format,
+                            --with-documents attaches the period's tax documents within
+                            8 MiB; only to your own address)
+    digest [show|set|off|send-now]  Weekly digest email (--days mon,fri --hour 8 --to …)
+
   ${colors.bright}escrow${colors.reset}
     create                Create a new escrow
     get <id>              Get escrow status
@@ -467,11 +565,14 @@ ${colors.cyan}Commands:${colors.reset}
     logs <business-id>    Get webhook logs
     test <business-id>    Send test webhook
 
-  ${colors.bright}self${colors.reset}
+  ${colors.bright}self${colors.reset}                  (each also works without "self": coinpay update)
     update                Update the coinpay CLI to the latest version
     upgrade               Alias for update
     remove                Uninstall the coinpay CLI
     uninstall             Alias for remove
+
+  ${colors.bright}mcp${colors.reset}                   Serve CoinPay finances to an AI agent over MCP (stdio):
+                          claude mcp add coinpay -- coinpay mcp
 
 ${colors.cyan}Wallet Options:${colors.reset}
   --words <12|24>         Number of mnemonic words (default: 12)
@@ -611,7 +712,7 @@ async function promptYesNoOnStderr(question) {
 async function confirmInvoiceMutation(flags, question) {
   if (flags.yes === true) return true;
   if (flags.json) {
-    throw new Error('--json requires --yes for invoice send/delete');
+    throw new Error('--json requires --yes for invoice publish/send/delete');
   }
   if (!process.stdin.isTTY) {
     throw new Error('Confirmation requires an interactive terminal; rerun with --yes');
@@ -679,7 +780,39 @@ function hasGpg() {
 /**
  * Encrypt mnemonic with GPG and save to file
  */
+
+/**
+ * Minimum strength for a passphrase that protects an exported wallet.
+ *
+ * F5-L1-07 / L6B-05: there was no minimum at all here, while the sibling
+ * `generate-hd-wallets` backup asks for eight characters and the web wallet's
+ * create/import flow requires length >= 8 AND a strength score. A one-character
+ * passphrase was accepted on the path that produces a file an attacker can walk
+ * away with — and GPG's default KDF is far cheaper to attack on a GPU than the
+ * scrypt used by the other backup, so the passphrase is doing most of the work.
+ */
+function assertStrongPassphrase(password) {
+  const problems = [];
+  if (!password || password.length < 12) {
+    problems.push('at least 12 characters');
+  }
+  if (!/[a-z]/.test(password ?? '') || !/[A-Z]/.test(password ?? '')) {
+    problems.push('both upper and lower case');
+  }
+  if (!/\d/.test(password ?? '') && !/[^A-Za-z0-9]/.test(password ?? '')) {
+    problems.push('a digit or a symbol');
+  }
+  if (problems.length > 0) {
+    throw new Error(
+      'Passphrase too weak — this is the only thing protecting your wallet file. ' +
+      'It needs ' + problems.join(', ') + '.'
+    );
+  }
+}
+
 async function saveEncryptedWallet(mnemonic, walletId, password, walletFile) {
+  assertStrongPassphrase(password);
+
   if (!hasGpg()) {
     throw new Error('GPG is required for wallet encryption. Install: apt install gnupg');
   }
@@ -705,6 +838,22 @@ async function saveEncryptedWallet(mnemonic, walletId, password, walletFile) {
     ],
     { stdinData: content, passphrase: password }
   );
+
+  // Restrict the file gpg just created (F-L7-01 / F5-L1-02).
+  //
+  // `--output` means GPG creates the file itself, at the process umask — so it
+  // typically lands world-readable, and every other local user can copy an
+  // encrypted wallet at their leisure and attack the passphrase offline.
+  // Sibling writes in this same CLI pass `{ mode: 0o600 }`, but that option
+  // only applies when Node does the writing.
+  try {
+    chmodSync(walletFile, 0o600);
+  } catch (err) {
+    console.warn(
+      `Warning: could not restrict permissions on ${walletFile} — ` +
+      'other local users may be able to read it. ' + (err?.message ?? err)
+    );
+  }
 
   return true;
 }
@@ -925,10 +1074,7 @@ function printInvoiceDetails(invoice, { shareUrl } = {}) {
   if (invoice.dueDate) print.info('Due: ' + invoice.dueDate);
   if (invoice.notes) print.info('Notes: ' + invoice.notes);
   if (shareUrl) {
-    const shareLabel = invoice.status === InvoiceStatus.DRAFT
-      ? 'Share link (opens after send): '
-      : 'Share link: ';
-    print.info(shareLabel + shareUrl);
+    print.info('Share link: ' + shareUrl);
   }
   console.log();
 }
@@ -984,15 +1130,13 @@ async function handleInvoice(subcommand, args, flags) {
         walletId: flags['wallet-id'],
         merchantWalletAddress: flags['merchant-wallet-address'],
       });
-      const shareUrl = invoice.id ? getInvoiceShareUrl(invoice.id) : undefined;
-
       if (flags.json) {
-        print.json(shareUrl ? { ...invoice, shareUrl } : invoice);
+        print.json(invoice);
         break;
       }
 
       print.success('Draft invoice created');
-      printInvoiceDetails(invoice, { shareUrl });
+      printInvoiceDetails(invoice);
       break;
     }
 
@@ -1174,6 +1318,88 @@ async function handleInvoice(subcommand, args, flags) {
       break;
     }
 
+    case 'publish': {
+      rejectUnsupportedFlags(flags, ['yes']);
+      const id = requireSingleInvoiceId(args, 'publish');
+      const current = await getInvoice(client, id);
+      const existingShareUrl = getInvoiceShareUrl(id);
+
+      if (current.status === InvoiceStatus.SENT) {
+        if (!current.paymentAddress) {
+          throw new Error(
+            'Published invoice has no active payment address; refresh it in the web app'
+          );
+        }
+        if (flags.json) {
+          print.json({
+            ...current,
+            shareUrl: existingShareUrl,
+            emailAttempted: false,
+            idempotentReplay: true,
+          });
+          break;
+        }
+        print.success('Invoice is already published; no email sent');
+        printInvoiceDetails(current, { shareUrl: existingShareUrl });
+        break;
+      }
+
+      if (current.status !== InvoiceStatus.DRAFT) {
+        throw new Error(
+          'Only draft invoices can be published (current: ' + (current.status || 'unknown') + ')'
+        );
+      }
+      if (!current.cryptoCurrency) {
+        throw new Error('Set --crypto-currency before publishing this invoice');
+      }
+
+      const label = current.invoiceNumber || current.id;
+      const confirmed = await confirmInvoiceMutation(
+        flags,
+        'Publish ' +
+          label +
+          ' for ' +
+          current.amount +
+          ' ' +
+          (current.currency || '') +
+          ' using ' +
+          current.cryptoCurrency +
+          '? This creates live payment details but does not email the client.'
+      );
+      if (!confirmed) {
+        print.info('Aborted');
+        break;
+      }
+
+      const result = await publishInvoice(client, id);
+      const published = invoiceForOutput(result, id);
+      if (
+        result?.success === false ||
+        published.status !== InvoiceStatus.SENT ||
+        !published.paymentAddress
+      ) {
+        throw new Error('Invoice publish was not confirmed by the server');
+      }
+      const shareUrl =
+        typeof result?.paymentLink === 'string'
+          ? result.paymentLink
+          : getInvoiceShareUrl(published.id);
+
+      if (flags.json) {
+        print.json({
+          ...published,
+          shareUrl,
+          emailAttempted: false,
+          idempotentReplay: result?.idempotentReplay === true,
+        });
+        break;
+      }
+
+      print.success('Invoice published; no email sent');
+      printInvoiceDetails(published, { shareUrl });
+      break;
+    }
+
     case 'send': {
       rejectUnsupportedFlags(flags, ['yes']);
       const id = requireSingleInvoiceId(args, 'send');
@@ -1281,7 +1507,7 @@ async function handleInvoice(subcommand, args, flags) {
 
     default:
       print.error('Unknown invoice command: ' + subcommand);
-      print.info('Available: create, list, get, update, send, delete');
+      print.info('Available: create, list, get, update, publish, send, delete');
       process.exit(1);
   }
 }
@@ -1327,16 +1553,41 @@ async function handleBusiness(subcommand, args, flags) {
   
   switch (subcommand) {
     case 'create': {
-      const { name, 'webhook-url': webhookUrl } = flags;
-      
-      if (!name) {
-        print.error('Required: --name');
+      const {
+        name,
+        category,
+        description,
+        'webhook-url': webhookUrl,
+        'webhook-secret': webhookSecret,
+      } = flags;
+
+      if (!name || !category) {
+        // The API has required a category since businesses started being
+        // classified on create, and this command had no way to send one -- so it
+        // failed with "Select a valid business category" and no route to fixing
+        // it. Naming the flag here is cheaper than reading the taxonomy.
+        print.error('Required: --name <name> --category <slug>');
+        print.info('Categories: coinpay business categories');
         return;
       }
-      
-      const business = await client.createBusiness({ name, webhookUrl });
+
+      const business = await client.createBusiness({
+        name,
+        category,
+        description,
+        webhookUrl,
+        webhookSecret,
+      });
       print.success('Business created');
       print.json(business);
+      break;
+    }
+
+    case 'categories': {
+      // Fetched rather than hardcoded: the taxonomy is server-side and a stale
+      // copy in the CLI is how "Select a valid business category" happens twice.
+      const result = await client.listBusinessCategories();
+      print.json(result);
       break;
     }
     
@@ -2468,13 +2719,20 @@ async function handleAuth(subcommand, args, flags) {
     case 'login': {
       const email = flags.email;
       const password = flags.password;
-      
-      if (!email || !password) {
-        print.error('Required: --email <email> --password <password>');
-        print.info('Example: coinpay auth login --email user@example.com --password mysecret');
+
+      // `auth login` is the documented way in; it is the same OAuth 2.1 sign-in
+      // as `coinpay login`. Only an explicit --email/--password takes the old path.
+      if (email === undefined && password === undefined) {
+        await handleLogin(flags);
         return;
       }
-      
+      print.warn('Password sign-in (--email/--password) is deprecated; use `coinpay login` (OAuth 2.1) or `coinpay login --device`.');
+      if (!email || !password || email === true || password === true) {
+        print.error('Required: --email <email> --password <password>');
+        print.info('Or sign in without a password: coinpay auth login');
+        process.exit(1);
+      }
+
       try {
         const client = createUnauthenticatedClient();
         const { loginMerchant } = await import('../src/auth.js');
@@ -3289,8 +3547,9 @@ const MENU_COMMANDS = [
   ['logout', 'Sign out on this device'],
   ['config', 'API key & endpoint (set-key, set-url, show)'],
   ['auth', 'Merchant account (register, login, me)'],
+  ['finances', 'Live money dashboard (earnings, cards, bank feeds, ledger)'],
   ['payment', 'Payments (create, get, list, qr)'],
-  ['invoice', 'Invoices (create, list, get, update, send, delete)'],
+  ['invoice', 'Invoices (create, list, get, update, publish, send, delete)'],
   ['tokens', 'List checkout tokens'],
   ['business', 'Businesses (create, get, list, update)'],
   ['rates', 'Exchange rates (get, list)'],
@@ -3310,8 +3569,9 @@ const MENU_COMMANDS = [
 const SUBCOMMANDS = {
   config: [['set-key', 'Set your API key'], ['set-url', 'Set custom API URL'], ['show', 'Show current configuration']],
   auth: [['register', 'Register new merchant account'], ['login', 'Login to merchant account'], ['me', 'Show current merchant info']],
+  finances: [['tui', 'Live dashboard (default)'], ['summary', 'Headline numbers as text'], ['position', 'Debt vs income, credits vs debits'], ['scope', 'Set an account business or personal'], ['accounts', 'Bank & card accounts'], ['ledger', 'Bank/card transactions'], ['connections', 'Linked institutions'], ['sync', 'Pull fresh bank data'], ['report', 'Monthly/quarterly activity report'], ['backfill', 'Fetch a calendar period'], ['statements', 'Original bank statements'], ['jobs', 'Sync and report jobs']],
   payment: [['create', 'Create a new payment'], ['get', 'Get payment details <id>'], ['list', 'List payments'], ['qr', 'Get payment QR code <id>']],
-  invoice: [['create', 'Create a draft invoice'], ['list', 'List invoices'], ['get', 'Get invoice details <id>'], ['update', 'Update a draft invoice <id>'], ['send', 'Send an invoice <id>'], ['delete', 'Delete a draft invoice <id>']],
+  invoice: [['create', 'Create a draft invoice'], ['list', 'List invoices'], ['get', 'Get invoice details <id>'], ['update', 'Update a draft invoice <id>'], ['publish', 'Publish an invoice <id>'], ['send', 'Send an invoice <id>'], ['delete', 'Delete a draft invoice <id>']],
   tokens: [['list', 'List checkout tokens']],
   business: [['create', 'Create a new business'], ['get', 'Get business details <id>'], ['list', 'List businesses'], ['update', 'Update business <id>']],
   rates: [['get', 'Get exchange rate <crypto>'], ['list', 'Get all exchange rates']],
@@ -3553,7 +3813,26 @@ async function runInteractiveMenu() {
 // Headless login: ask the server for a device code, show a URL to approve on any
 // device, and poll until a merchant session token is minted and stored. No
 // password on this machine — works over SSH / on a server.
-async function handleLogin() {
+async function handleLogin(flags = {}) {
+  // OAuth 2.1 (authorization code + PKCE, loopback redirect, rotating refresh)
+  // unless asked for the device flow, which is what works over SSH.
+  if (!flags.device) {
+    const cfg = loadConfig();
+    const { loopbackLogin, toStoredSession } = await import('../src/oauth-login.js');
+    try {
+      const tokens = await loopbackLogin({ apiBase: cfg.baseUrl, log: (line) => console.log(line) });
+      cfg.oauth = toStoredSession(tokens);
+      cfg.jwtToken = cfg.oauth.accessToken;
+      saveConfig(cfg);
+      const me = await fetchMe();
+      print.success(me ? `Logged in as ${meLabel(me)} (OAuth 2.1)` : 'Logged in! Session saved to ' + CONFIG_FILE);
+      return;
+    } catch (err) {
+      print.error(`Browser sign-in failed: ${err.message}`);
+      print.info('On a machine without a local browser, use: coinpay login --device');
+      process.exit(1);
+    }
+  }
   const cfg = loadConfig();
   const base = (cfg.baseUrl || 'https://coinpayportal.com/api').replace(/\/$/, '');
 
@@ -3571,13 +3850,19 @@ async function handleLogin() {
     process.exit(1);
   }
 
+  // G-1.2-10: there is no pre-filled approval link any more. A link that filled
+  // in the code turned a phishing message into one-click account takeover —
+  // anyone could start a device authorization and send the resulting link to a
+  // signed-in merchant. Entering the code by hand is what ties the approval to
+  // a terminal the person is actually sitting at.
   print.info('');
-  console.log('  To log in, open this URL on any device (e.g. your desktop) and approve:');
+  console.log('  To log in, open this URL on any device (e.g. your desktop):');
   console.log('');
-  console.log('    ' + colors.cyan + start.verification_uri_complete + colors.reset);
+  console.log('    ' + colors.cyan + start.verification_uri + colors.reset);
   console.log('');
-  console.log('  …or go to ' + colors.cyan + start.verification_uri + colors.reset +
-    ' and enter code ' + colors.bright + start.user_code + colors.reset);
+  console.log('  and enter this code: ' + colors.bright + start.user_code + colors.reset);
+  console.log('');
+  console.log(colors.yellow + '  Only enter a code your own terminal printed.' + colors.reset);
   console.log('');
   print.info('Waiting for approval… (Ctrl-C to cancel)');
 
@@ -3614,6 +3899,7 @@ async function handleLogin() {
 function handleLogout() {
   const cfg = loadConfig();
   delete cfg.jwtToken;
+  delete cfg.oauth;
   saveConfig(cfg);
   print.success('Logged out — session removed from ' + CONFIG_FILE);
 }
@@ -3649,6 +3935,441 @@ async function handleWhoami(flags) {
   print.success(`Signed in as ${meLabel(me)}`);
   if (me.id) print.info(`Merchant ID: ${me.id}`);
   if (flags?.json) print.json(me);
+}
+
+
+/**
+ * Finances — the merchant's money in one place (bank feeds via SimpleFIN or
+ * Plaid, crypto and card earnings, commission paid, refunds, invoices, escrow).
+ *
+ * Needs the merchant session from `coinpay login`; the bank-data routes
+ * refuse business API keys on purpose.
+ */
+function financesClient() {
+  const cfg = loadConfig();
+  const token = process.env.COINPAY_SESSION_TOKEN || cfg.jwtToken;
+  if (!token) {
+    print.error('Finances need your merchant session, not an API key. Run: coinpay login');
+    process.exit(1);
+  }
+  return { client: new CoinPayClient({ apiKey: token, baseUrl: getBaseUrl(), timeout: 120000 }), token, baseUrl: getBaseUrl() };
+}
+
+function pad(value, width, align = 'left') {
+  const s = String(value ?? '');
+  if (s.length >= width) return s;
+  return align === 'right' ? s.padStart(width) : s.padEnd(width);
+}
+
+function printTable(rows, columns) {
+  if (!rows.length) return;
+  const widths = columns.map((c) => Math.max(c.title.length, ...rows.map((r) => String(c.render(r) ?? '').length)));
+  console.log(colors.bright + columns.map((c, i) => pad(c.title, widths[i], c.align)).join('  ') + colors.reset);
+  for (const r of rows) {
+    console.log(columns.map((c, i) => pad(c.render(r) ?? '', widths[i], c.align)).join('  '));
+  }
+}
+
+function printFinanceSummary(snapshot, fmt) {
+  const { money, ago } = fmt;
+  const e = snapshot.earnings;
+  const b = snapshot.bank;
+  const cur = b.currency || 'USD';
+  const win = `${snapshot.windowDays}d`;
+  const line = (label, value, color = '') => console.log(`  ${pad(label, 26)} ${color}${value}${colors.reset}`);
+
+  console.log(`\n${colors.bright}Earnings · ${win}${colors.reset}${snapshot.plan ? colors.cyan + '  (' + snapshot.plan.commission_percent + ' plan)' + colors.reset : ''}`);
+  line('Gross volume', money(e.grossVolumeUsd), colors.bright);
+  line('  crypto', money(e.cryptoVolumeUsd));
+  line('  cards', money(e.cardVolumeUsd));
+  line('Commission paid', `-${money(e.commissionUsd)}`, colors.yellow);
+  line('Card processor fees', `-${money(e.stripeFeesUsd)}`, colors.yellow);
+  line('Refunds', `-${money(e.refundsUsd)}`, e.refundsUsd > 0 ? colors.red : '');
+  line('Net earnings', money(e.netUsd), e.netUsd >= 0 ? colors.green : colors.red);
+  line('Paid transactions', `${e.transactions} (${e.failed} failed, ${e.failureRate}%)`);
+
+  console.log(`\n${colors.bright}Bank & cards${colors.reset}`);
+  if (!b.connections.length) {
+    console.log('  Nothing linked. Connect a bank at ' + new URL('/finances', getBaseUrl()).toString());
+  } else {
+    line('Cash & assets', money(b.assets, cur), colors.green);
+    line('Cards & loans owed', money(b.liabilities, cur), colors.red);
+    line('Net position', money(b.net, cur), b.net >= 0 ? colors.green : colors.red);
+    line(`Cash in · ${win}`, money(b.cashflow.moneyIn, cur), colors.green);
+    line(`Cash out · ${win}`, money(b.cashflow.moneyOut, cur), colors.red);
+    line('Cashflow net', money(b.cashflow.net, cur), b.cashflow.net >= 0 ? colors.green : colors.red);
+    line('Accounts', `${b.accountCount} (${b.creditCards.length} credit cards)`);
+    line('Last bank sync', `${ago(b.connections[0]?.last_synced_at)} · ${b.connections[0]?.last_sync_status || '—'}`);
+  }
+
+  console.log(`\n${colors.bright}Pipeline${colors.reset}`);
+  const inv = snapshot.invoices;
+  const esc = snapshot.escrow;
+  line('Invoices outstanding', `${money(inv.totals.outstanding)} (${inv.counts.outstanding})`, colors.yellow);
+  line('Invoices overdue', `${money(inv.totals.overdue)} (${inv.counts.overdue})`, inv.counts.overdue ? colors.red : '');
+  line(`Invoices paid · ${win}`, `${money(inv.totals.paid)} (${inv.counts.paid})`, colors.green);
+  line('Escrow held', `${money(esc.heldUsd)} (${esc.held})`, colors.cyan);
+  line(`Escrow released · ${win}`, `${money(esc.releasedUsd)} (${esc.released})`);
+  line(`Escrow refunded · ${win}`, `${money(esc.refundedUsd)} (${esc.refunded})`, esc.refunded ? colors.red : '');
+  line('Card payouts pending', money(snapshot.payout.pendingUsd));
+  line(`Card payouts paid · ${win}`, money(snapshot.payout.paidUsd), colors.green);
+
+  if (snapshot.position) printPosition(snapshot.position, fmt, { heading: true });
+
+  const failed = Object.keys(snapshot.errors);
+  if (failed.length) {
+    console.log('');
+    print.warn(`Unavailable: ${failed.map((k) => `${k} (${snapshot.errors[k]})`).join('; ')}`);
+  }
+  console.log('');
+}
+
+/**
+ * Debt against income as text.
+ *
+ * Shared by `finances summary` (as one more section) and `finances position`
+ * (on its own, with the account and recurring detail the summary omits).
+ */
+function printPosition(position, fmt, { heading = false, detail = false } = {}) {
+  const { money, pct } = fmt;
+  const cur = position.currency || 'USD';
+  const look = `${Math.round(position.observedDays ?? position.lookbackDays)}d`;
+  const line = (label, value, color = '') => console.log(`  ${pad(label, 26)} ${color}${value}${colors.reset}`);
+
+  if (heading) console.log(`\n${colors.bright}Debt & income · ${look}${colors.reset}${colors.cyan}  (${position.monthsObserved} months)${colors.reset}`);
+
+  const inc = position.income;
+  const spend = position.spending;
+  const debt = position.debt;
+  const r = position.ratios;
+
+  line('Income', `${money(inc.total, cur)}  (${money(inc.perMonth, cur)}/mo)`, colors.green);
+  line('Spending', `${money(spend.total, cur)}  (${money(spend.perMonth, cur)}/mo)`, colors.red);
+  line('Net', `${money(position.net.total, cur)}  (${money(position.net.perMonth, cur)}/mo)`, position.net.total >= 0 ? colors.green : colors.red);
+  line('Kept of income', pct(position.net.savingsRate, 1));
+  line('Gross credits / debits', `${money(inc.grossCredits, cur)} / ${money(spend.grossDebits, cur)}`);
+  line('Total owed', money(debt.total, cur), colors.red);
+  line('  revolving / instalment', `${money(debt.revolving, cur)} / ${money(debt.instalment, cur)}`);
+  line('Debt paid per month', money(debt.servicePerMonth, cur), colors.green);
+  line('Fixed bills per month', money(position.recurring.monthlyTotal, cur), colors.yellow);
+  line('Clear in', debt.payoffMonths === null ? 'never at this rate' : `${debt.payoffMonths} months (${debt.payoffDate ? debt.payoffDate.slice(0, 10) : '—'})`, debt.payoffMonths === null ? colors.red : '');
+  line('Debt to income', r.debtToIncome === null ? '—' : `${r.debtToIncome.toFixed(2)}x`, (r.debtToIncome ?? 0) > 1 ? colors.red : colors.green);
+  line('Debt service ratio', pct(r.debtServiceRatio, 1), (r.debtServiceRatio ?? 0) > 0.36 ? colors.red : colors.green);
+  line('Months of cover', r.monthsOfCover === null ? '—' : r.monthsOfCover.toFixed(1));
+  line('Card utilisation', pct(r.creditUtilisation, 0));
+
+  for (const sc of position.scopes) {
+    line(`${sc.scope} (${sc.accounts} acct)`, `${money(sc.income, cur)} in · ${money(sc.spending, cur)} out · owes ${money(sc.debt, cur)}`);
+  }
+
+  if (position.confidence.noLiabilityAccounts) {
+    console.log('');
+    print.warn('No card or loan account is linked, so the debt figures are blind.');
+  }
+  if (position.confidence.uncategorisedShare > 0.25) {
+    console.log('');
+    print.warn(`${pct(position.confidence.uncategorisedShare, 0)} of transactions are uncategorised — the income/spending split is rough.`);
+  }
+
+  if (!detail) return;
+
+  if (position.months.length) {
+    console.log(`\n${colors.bright}Month by month${colors.reset}`);
+    printTable(position.months, [
+      { title: 'Month', align: 'left', render: (m) => (m.partial ? `${m.month} *` : m.month) },
+      { title: 'Income', align: 'right', render: (m) => money(m.income, cur) },
+      { title: 'Spending', align: 'right', render: (m) => money(m.spending, cur) },
+      { title: 'Net', align: 'right', render: (m) => money(m.net, cur) },
+      { title: 'Debt paid', align: 'right', render: (m) => money(m.debtService, cur) },
+      { title: 'Rows', align: 'right', render: (m) => String(m.transactions) },
+    ]);
+    console.log(`  ${colors.cyan}* partial month${colors.reset}`);
+  }
+
+  if (debt.accounts.length) {
+    console.log(`\n${colors.bright}Owed by account${colors.reset}`);
+    printTable(debt.accounts, [
+      { title: 'Institution', align: 'left', render: (d) => d.org || '—' },
+      { title: 'Account', align: 'left', render: (d) => d.name },
+      { title: 'Kind', align: 'left', render: (d) => d.kind },
+      { title: 'Side', align: 'left', render: (d) => d.scope },
+      { title: 'Owed', align: 'right', render: (d) => money(d.owed, cur) },
+      { title: 'Share', align: 'right', render: (d) => pct(d.share, 0) },
+      { title: `Paid ${look}`, align: 'right', render: (d) => money(d.paid, cur) },
+      { title: 'Clear in', align: 'right', render: (d) => (d.payoffMonths === null ? 'never' : `${d.payoffMonths} mo`) },
+    ]);
+  }
+
+  if (position.recurring.charges.length) {
+    console.log(`\n${colors.bright}Recurring${colors.reset}  ${colors.cyan}${money(position.recurring.monthlyTotal, cur)}/mo, of which ${money(position.recurring.monthlyDebtService, cur)} is debt${colors.reset}`);
+    printTable(position.recurring.charges, [
+      { title: 'Payee', align: 'left', render: (c) => c.payee },
+      { title: 'Amount', align: 'right', render: (c) => money(c.amount, cur) },
+      { title: 'Every', align: 'left', render: (c) => c.cadence },
+      { title: 'Seen', align: 'right', render: (c) => String(c.occurrences) },
+      { title: 'Last', align: 'left', render: (c) => c.lastSeen.slice(0, 10) },
+      { title: 'Next', align: 'left', render: (c) => c.nextExpected.slice(0, 10) },
+      { title: 'Per month', align: 'right', render: (c) => money(c.monthlyEquivalent, cur) },
+      { title: 'Kind', align: 'left', render: (c) => (c.isDebtService ? 'debt' : 'bill') },
+    ]);
+  }
+  console.log('');
+}
+
+async function handleFinances(subcommand, args, flags) {
+  const parsedDays = Number.parseInt(String(flags.days ?? flags.window ?? ''), 10);
+  const days = Number.isFinite(parsedDays) && parsedDays > 0 ? parsedDays : 30;
+  const fin = await import('../src/finances.js');
+
+  switch (subcommand || 'tui') {
+    case 'tui':
+    case 'dashboard':
+    case 'watch': {
+      const { client, token, baseUrl } = financesClient();
+
+      // A document for somebody who bills by the hour. Every question it
+      // answers up front is a question nobody pays to have asked, so it
+      // defaults to the whole transaction list and a year of history.
+      if (flags.pdf || flags.report) {
+        const reportDays = Number.isFinite(parsedDays) && parsedDays > 0 ? parsedDays : 365;
+        const limit = Number.parseInt(String(flags.limit ?? ''), 10);
+        const snapshot = await fin.collectFinanceSnapshot(client, {
+          days: reportDays,
+          limit: Number.isFinite(limit) && limit > 0 ? limit : 5000,
+          businessId: flags['business-id'],
+          // Page the whole window. Asking for 5000 returns 500, and a report
+          // built on one page understates the period without saying so.
+          allTransactions: true,
+        });
+        const { buildFinanceReportHtml } = await import('../src/finances-report.js');
+        const html = buildFinanceReportHtml(snapshot, {
+          preparedFor: typeof flags.for === 'string' ? flags.for : '',
+          preparedBy: typeof flags.by === 'string' ? flags.by : '',
+          entity: typeof flags.entity === 'string' ? flags.entity : '',
+          includeTransactions: !flags['no-transactions'],
+          transactionLimit: 0,
+          title: typeof flags.title === 'string' ? flags.title : 'Financial summary',
+        });
+
+        const stamp = new Date().toISOString().slice(0, 10);
+        const base = typeof flags.pdf === 'string' && flags.pdf
+          ? String(flags.pdf).replace(/\.pdf$/i, '')
+          : `finances-${stamp}`;
+        const pdfPath = `${base}.pdf`;
+        const htmlOut = `${base}.html`;
+
+        const { writeFileSync } = await import('node:fs');
+        writeFileSync(htmlOut, html, 'utf8');
+
+        const { htmlToPdf, installHint } = await import('../src/pdf.js');
+        const result = await htmlToPdf(html, pdfPath);
+        if (result.ok) {
+          console.log(`Wrote ${pdfPath}`);
+          console.log(`       ${htmlOut}`);
+        } else {
+          // The HTML is the report. Losing the PDF is a downgrade, not a failure.
+          console.log(`Wrote ${htmlOut}`);
+          console.log('');
+          console.log('Could not render a PDF on this machine.');
+          console.log(installHint(result.tried));
+          console.log('');
+          console.log('Or open the HTML in a browser and print it to PDF.');
+        }
+        return;
+      }
+
+      const wantsText = flags.plain || flags.json || !process.stdout.isTTY || !process.stdin.isTTY;
+      if (wantsText) {
+        const snapshot = await fin.collectFinanceSnapshot(client, { days, businessId: flags['business-id'] });
+        if (flags.json) { print.json(snapshot); return; }
+        const fmt = await import('../src/finances-tui.js');
+        printFinanceSummary(snapshot, fmt);
+        return;
+      }
+      const parsedInterval = Number.parseInt(String(flags.interval ?? ''), 10);
+      const { runFinancesTui } = await import('../src/finances-tui.js');
+      await runFinancesTui({
+        client,
+        baseUrl,
+        token: flags['no-stream'] ? null : token,
+        days,
+        interval: Number.isFinite(parsedInterval) ? parsedInterval : 30,
+        businessId: flags['business-id'],
+        theme: flags.theme,
+      });
+      return;
+    }
+
+    case 'summary': {
+      const { client } = financesClient();
+      const snapshot = await fin.collectFinanceSnapshot(client, { days, businessId: flags['business-id'] });
+      if (flags.json) { print.json(snapshot); return; }
+      const fmt = await import('../src/finances-tui.js');
+      printFinanceSummary(snapshot, fmt);
+      return;
+    }
+
+    case 'position':
+    case 'debt':
+    case 'income': {
+      // Reads the summary route alone: everything on this screen comes from
+      // there, so there is no reason to fan out to eleven sources for it.
+      const { client } = financesClient();
+      const summary = await fin.getFinanceSummary(client, { days, includeHidden: Boolean(flags.hidden) });
+      const position = summary?.position;
+      if (!position) {
+        print.error('This CoinPay server does not report a debt-and-income position yet.');
+        process.exit(1);
+      }
+      if (flags.json) { print.json(position); return; }
+      const fmt = await import('../src/finances-tui.js');
+      console.log('');
+      printPosition(position, fmt, { heading: true, detail: true });
+      return;
+    }
+
+    case 'scope': {
+      // Which set of books an account belongs to. The name-derived guess is
+      // right about "Business Checking" and blind to a personal card carrying
+      // company spend, so the correction is stored and always wins.
+      const { client } = financesClient();
+      const accountId = args[0];
+      const value = (args[1] || '').toLowerCase();
+      if (!accountId) {
+        print.error('Usage: coinpay finances scope <account-id> <business|personal|clear>  (ids: coinpay finances accounts)');
+        process.exit(1);
+      }
+      const scope = value === 'clear' || value === 'auto' || value === '' ? null : value;
+      if (scope !== null && scope !== 'business' && scope !== 'personal') {
+        print.error(`Unknown scope '${value}'. Use business, personal, or clear.`);
+        process.exit(1);
+      }
+      const account = await fin.updateFinanceAccount(client, accountId, { scope });
+      if (flags.json) { print.json({ account }); return; }
+      print.success(
+        `${account.name} → ${account.effective_scope}${scope === null ? ' (derived from the name again)' : ''}`,
+      );
+      return;
+    }
+
+    case 'accounts': {
+      const { client } = financesClient();
+      const accounts = await fin.listFinanceAccounts(client, { includeHidden: Boolean(flags.hidden) });
+      if (flags.json) { print.json({ accounts }); return; }
+      if (!accounts.length) { print.info('No linked accounts. Connect a bank at ' + new URL('/finances', getBaseUrl()).toString()); return; }
+      const { money, shortDate } = await import('../src/finances-tui.js');
+      console.log('');
+      printTable(accounts, [
+        { title: 'Institution', render: (a) => a.org_name || '—' },
+        { title: 'Account', render: (a) => a.name },
+        { title: 'Kind', render: (a) => a.effective_kind || a.kind },
+        { title: 'Side', render: (a) => `${a.effective_scope || '—'}${a.scope_override ? '*' : ''}` },
+        { title: 'Balance', align: 'right', render: (a) => money(a.display_balance ?? a.balance ?? 0, a.currency || 'USD') },
+        { title: 'Available', align: 'right', render: (a) => (a.available_balance == null ? '—' : money(a.available_balance, a.currency || 'USD')) },
+        { title: 'As of', render: (a) => shortDate(a.balance_date) },
+        { title: 'Id', render: (a) => a.id },
+      ]);
+      console.log('');
+      return;
+    }
+
+    case 'ledger':
+    case 'transactions': {
+      const { client } = financesClient();
+      const parsedLimit = Number.parseInt(String(flags.limit ?? ''), 10);
+      const page = await fin.listFinanceTransactions(client, {
+        limit: Number.isFinite(parsedLimit) ? parsedLimit : 50,
+        offset: Number.parseInt(String(flags.offset ?? '0'), 10) || 0,
+        search: flags.search,
+        category: flags.category,
+        accountId: flags.account,
+        startDate: flags.start || flags.since,
+        endDate: flags.end || flags.until,
+        includePending: !flags['no-pending'],
+      });
+      if (flags.json) { print.json(page); return; }
+      if (!page.rows?.length) { print.info('No transactions match.'); return; }
+      const { money, shortDate } = await import('../src/finances-tui.js');
+      console.log('');
+      printTable(page.rows, [
+        { title: 'Date', render: (r) => shortDate(r.transacted_at || r.posted) },
+        { title: 'Account', render: (r) => `${r.org_name ? r.org_name.split(' ')[0] + ' ' : ''}${r.account_name}` },
+        { title: 'Payee / description', render: (r) => (r.payee || r.description || r.memo || '—').slice(0, 40) },
+        { title: 'Category', render: (r) => r.category || '—' },
+        { title: 'Amount', align: 'right', render: (r) => money(r.amount, r.currency || 'USD') },
+        { title: '', render: (r) => (r.pending ? 'pending' : '') },
+      ]);
+      console.log(`\n${page.rows.length} of ${page.total}` + (page.total > page.offset + page.rows.length ? `  (--offset ${page.offset + page.rows.length} for more)` : ''));
+      console.log('');
+      return;
+    }
+
+    case 'connections': {
+      const { client } = financesClient();
+      const data = await fin.listFinanceConnections(client);
+      if (flags.json) { print.json(data); return; }
+      const list = data.connections || [];
+      if (!list.length) {
+        print.info('No bank connections. Link one at ' + new URL('/finances', getBaseUrl()).toString() + (data.plaidEnabled ? ' (Plaid or SimpleFIN)' : ' (SimpleFIN)'));
+        return;
+      }
+      const { ago } = await import('../src/finances-tui.js');
+      console.log('');
+      for (const c of list) {
+        console.log(`${colors.bright}${c.label || c.id}${colors.reset}  ${colors.cyan}${c.provider}${colors.reset}  ${c.is_active ? colors.green + 'active' : colors.yellow + 'inactive'}${colors.reset}`);
+        console.log(`  id          ${c.id}`);
+        console.log(`  last sync   ${ago(c.last_synced_at)} · ${c.last_sync_status || '—'} · ${c.last_sync_accounts ?? 0} accounts / ${c.last_sync_transactions ?? 0} transactions`);
+        if (c.last_sync_error) console.log(`  ${colors.yellow}note${colors.reset}        ${c.last_sync_error}`);
+      }
+      console.log('');
+      return;
+    }
+
+    case 'sync': {
+      const { client } = financesClient();
+      print.info('Pulling fresh balances and transactions from the bank bridge…');
+      const parsedSyncDays = Number.parseInt(String(flags.days ?? ''), 10);
+      const result = await fin.syncFinances(client, {
+        days: Number.isFinite(parsedSyncDays) ? parsedSyncDays : undefined,
+        connectionId: flags.connection || flags['connection-id'],
+      });
+      if (flags.json) { print.json(result); return; }
+      const t = result.totals || {};
+      print.success(`Synced ${t.accounts ?? 0} accounts: ${t.transactionsNew ?? 0} new of ${t.transactionsSeen ?? 0} transactions (${result.status}).`);
+      for (const r of result.results || []) {
+        if (r.status === 'partial' || r.error) print.warn(`${r.connectionId || r.id || 'connection'}: ${r.error || r.status}`);
+      }
+      return;
+    }
+
+    case 'connect':
+    case 'disconnect':
+    case 'consent':
+    case 'backfill':
+    case 'jobs':
+    case 'coverage':
+    case 'report':
+    case 'reports':
+    case 'statements':
+    case 'books':
+    case 'payloads':
+    case 'digest': {
+      const { client } = financesClient();
+      const { runFinancesCommand } = await import('../src/finances-commands.js');
+      const code = await runFinancesCommand(subcommand, args, flags, {
+        client,
+        out: (line) => console.log(line),
+        err: (line) => console.error(line),
+      });
+      if (code !== 0) process.exit(code);
+      return;
+    }
+
+    default:
+      print.error(`Unknown finances command: ${subcommand}`);
+      console.log('Usage: coinpay finances [tui|summary|accounts|ledger|connections|sync|connect|disconnect|backfill|jobs|coverage|report|reports|statements|books|payloads|digest]');
+      process.exit(1);
+  }
 }
 
 async function main() {
@@ -3688,10 +4409,12 @@ async function handleLightning(subcommand, args, flags) {
         console.error(colors.red + 'Error: --wallet-id required' + colors.reset);
         process.exit(1);
       }
-      const mnemonic = await getDecryptedMnemonic(flags);
+      // NEW-20: this used to decrypt the stored seed — prompting for the
+      // passphrase — purely to post it to the server, which validated it and
+      // threw it away. Provisioning is a custodial LNbits wallet, so nothing
+      // is derived or signed here. The seed never leaves the machine now.
       const result = await client.lightning.enableWallet({
         wallet_id: walletId,
-        mnemonic,
         business_id: flags['business-id'],
       });
       console.log(colors.green + '⚡ Lightning wallet enabled!' + colors.reset);
@@ -3818,9 +4541,21 @@ async function handleLightning(subcommand, args, flags) {
   }
 }
 
+    // An OAuth 2.1 session's access token lasts an hour: rotate it before any
+    // command that might use it, keeping the new single-use refresh token.
+    if (!['login', 'logout', 'help', 'version', '--version', '-v'].includes(command)) {
+      const sessionCfg = loadConfig();
+      if (sessionCfg.oauth) {
+        const { ensureFreshSession } = await import('../src/oauth-login.js');
+        if (!(await ensureFreshSession(sessionCfg, saveConfig))) {
+          print.warn('Your CoinPay sign-in expired. Run: coinpay login');
+        }
+      }
+    }
+
     switch (command) {
       case 'login':
-        await handleLogin();
+        await handleLogin(flags);
         break;
 
       case 'logout':
@@ -3900,11 +4635,52 @@ async function handleLightning(subcommand, args, flags) {
         await handleOAuth(subcommand, args, flags);
         break;
 
+      case 'finances':
+      case 'finance':
+      case 'money':
+        await handleFinances(subcommand, args, flags);
+        break;
+
+      case 'mcp': {
+        // stdout is the protocol channel: nothing else may print to it.
+        const { serveStdio } = await import('../src/mcp.js');
+        await serveStdio({
+          version: VERSION,
+          getClient: async () => {
+            const cfg = loadConfig();
+            if (cfg.oauth) {
+              const { ensureFreshSession } = await import('../src/oauth-login.js');
+              await ensureFreshSession(cfg, saveConfig);
+            }
+            const token = process.env.COINPAY_SESSION_TOKEN || cfg.jwtToken;
+            if (!token) throw new Error('Not logged in: run `coinpay login` (finance tools need the merchant session)');
+            return new CoinPayClient({ apiKey: token, baseUrl: getBaseUrl(), timeout: 120000 });
+          },
+        });
+        break;
+      }
+
+      case 'tui':
+      case 'dashboard':
+        await handleFinances('tui', [subcommand, ...args].filter(Boolean), flags);
+        break;
+
       case 'update':
       case 'upgrade':
       case 'self-update':
         handleSelfManage('update');
         break;
+
+      case 'self': {
+        const action = selfAction(subcommand);
+        if (!action) {
+          print.error(`Unknown self command: ${subcommand || '(none)'}`);
+          print.info('Available: coinpay self update|upgrade|remove|uninstall');
+          process.exit(1);
+        }
+        handleSelfManage(action);
+        break;
+      }
 
       case 'remove':
       case 'uninstall':
@@ -3977,12 +4753,16 @@ async function handleOAuth(subcommand, args, flags) {
         description,
       });
 
+      // The API wraps the record: { success, client: { ..., client_secret }, warning }.
+      // Accept a bare record too so either shape prints.
+      const created = result.client ?? result;
+
       print.success('OAuth client created');
-      if (result.client_id) {
-        console.log(`\n  ${colors.bright}Client ID:${colors.reset}     ${result.client_id}`);
+      if (created.client_id) {
+        console.log(`\n  ${colors.bright}Client ID:${colors.reset}     ${created.client_id}`);
       }
-      if (result.client_secret) {
-        console.log(`  ${colors.bright}Client Secret:${colors.reset} ${colors.yellow}${result.client_secret}${colors.reset}`);
+      if (created.client_secret) {
+        console.log(`  ${colors.bright}Client Secret:${colors.reset} ${colors.yellow}${created.client_secret}${colors.reset}`);
         console.log();
         print.warn('Save the client secret — it is only shown once!');
       }
@@ -4000,13 +4780,15 @@ async function handleOAuth(subcommand, args, flags) {
       }
 
       const result = await client.getOAuthClient(id);
+      // GET /oauth/clients/:id also wraps the record as { success, client }.
+      const found = result.client ?? result;
 
-      print.success(`OAuth Client: ${result.name || id}`);
-      if (result.client_id) print.info(`  Client ID: ${result.client_id}`);
-      if (result.description) print.info(`  Description: ${result.description}`);
-      if (result.redirect_uris) print.info(`  Redirect URIs: ${result.redirect_uris.join(', ')}`);
-      if (result.scopes) print.info(`  Scopes: ${Array.isArray(result.scopes) ? result.scopes.join(', ') : result.scopes}`);
-      if (result.created_at) print.info(`  Created: ${result.created_at}`);
+      print.success(`OAuth Client: ${found.name || id}`);
+      if (found.client_id) print.info(`  Client ID: ${found.client_id}`);
+      if (found.description) print.info(`  Description: ${found.description}`);
+      if (found.redirect_uris) print.info(`  Redirect URIs: ${found.redirect_uris.join(', ')}`);
+      if (found.scopes) print.info(`  Scopes: ${Array.isArray(found.scopes) ? found.scopes.join(', ') : found.scopes}`);
+      if (found.created_at) print.info(`  Created: ${found.created_at}`);
 
       if (flags.json) print.json(result);
       break;

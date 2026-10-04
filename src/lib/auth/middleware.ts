@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { verifyToken } from './jwt';
+import { merchantFromAccessToken } from './oauth-bearer';
 import { isApiKey, getBusinessByApiKey } from './apikey';
 import { resolveScopedKey, scopesSatisfy, WILDCARD_SCOPE } from './scoped-keys';
 
@@ -105,10 +106,19 @@ async function authenticateWithJWT(
       };
     }
 
-    // Verify JWT token
-    const decoded = verifyToken(token, jwtSecret);
-    
-    if (!decoded || !decoded.userId) {
+    // Verify JWT token; failing that, an OAuth 2.1 access token with the
+    // `merchant` scope (the CoinPay CLI's login).
+    let userId: string | null = null;
+    let jwtError: unknown = null;
+    try {
+      const decoded = verifyToken(token, jwtSecret);
+      userId = decoded?.userId ?? null;
+    } catch (err) {
+      jwtError = err;
+    }
+    if (!userId) userId = merchantFromAccessToken(token)?.id ?? null;
+    if (!userId) {
+      if (jwtError) throw jwtError;
       return {
         success: false,
         error: 'Invalid token',
@@ -119,7 +129,7 @@ async function authenticateWithJWT(
     const { data: merchant, error } = await supabase
       .from('merchants')
       .select('id, email')
-      .eq('id', decoded.userId)
+      .eq('id', userId)
       .single();
 
     if (error || !merchant) {

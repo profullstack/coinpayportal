@@ -150,6 +150,24 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // NEW-F1A-P-03: `client_id` was written straight through. `clients` rows
+    // carry a `business_id`, so an unvalidated id attaches another business's
+    // customer record to this proposal — cross-tenant by construction.
+    if (client_id) {
+      const { data: clientRow } = await supabase
+        .from('clients')
+        .select('id, business_id')
+        .eq('id', client_id)
+        .maybeSingle();
+
+      if (!clientRow || clientRow.business_id !== resolvedBusinessId) {
+        return NextResponse.json(
+          { success: false, error: 'client_id does not belong to this business' },
+          { status: 400 },
+        );
+      }
+    }
+
     const { data: business } = await supabase
       .from('businesses')
       .select('id, merchant_id')

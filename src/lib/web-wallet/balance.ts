@@ -44,12 +44,12 @@ function getRpcEndpoints(): Record<string, string> {
   return {
     BTC: process.env.BITCOIN_RPC_URL || 'https://blockstream.info/api',
     BCH: process.env.BCH_RPC_URL || 'https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet',
-    ETH: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
-    POL: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    ETH: process.env.ETHEREUM_RPC_URL || 'https://ethereum-rpc.publicnode.com',
+    POL: process.env.POLYGON_RPC_URL || 'https://polygon-bor-rpc.publicnode.com',
     SOL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
     BNB: process.env.BNB_RPC_URL || 'https://bsc-dataseed.binance.org',
     BASE: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
-    DOGE: process.env.DOGE_RPC_URL || 'https://dogechain.info/api/v1',
+    DOGE: process.env.DOGE_RPC_URL || 'https://api.blockcypher.com/v1/doge/main',
     XRP: process.env.XRP_RPC_URL || 'https://s1.ripple.com:51234',
     ADA: process.env.ADA_RPC_URL || 'https://cardano-mainnet.blockfrost.io/api/v0',
   };
@@ -113,33 +113,18 @@ async function fetchBTCBalance(address: string): Promise<string> {
  * Fetch BCH balance using multiple fallback APIs.
  */
 async function fetchBCHBalance(address: string): Promise<string> {
-  // Try Tatum first
-  const tatumKey = process.env.TATUM_API_KEY;
-  if (tatumKey) {
-    try {
-      // Tatum needs legacy format; for simplicity accept as-is (Tatum handles CashAddr)
-      const resp = await fetch(`https://api.tatum.io/v3/bcash/address/balance/${address}`, {
-        headers: { 'x-api-key': tatumKey },
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        const incoming = parseFloat(data.incoming || '0');
-        const outgoing = parseFloat(data.outgoing || '0');
-        return (incoming - outgoing).toString();
-      }
-    } catch (err) {
-      console.error('BCH Tatum balance fetch failed, trying next provider:', err);
-    }
-  }
-
-  // Try CryptoAPIs
+  // All three providers this used to try had stopped working: Tatum's
+  // `/v3/bcash/` route rejects an address as "must be a valid mainnet BCH
+  // xpub", the CryptoAPIs route below was on a retired API version answering
+  // `endpoint_deprecated`, and fullstack.cash serves its marketing page for
+  // the v5 paths. BCH balances here resolved to nothing at all.
   const cryptoKey = process.env.CRYPTO_APIS_KEY;
   if (cryptoKey) {
     try {
       let addr = address.toLowerCase();
       if (addr.startsWith('bitcoincash:')) addr = addr.substring(12);
       const resp = await fetch(
-        `https://rest.cryptoapis.io/blockchain-data/bitcoin-cash/mainnet/addresses/${addr}`,
+        `https://rest.cryptoapis.io/addresses-latest/utxo/bitcoin-cash/mainnet/${addr}/balance`,
         { headers: { 'Content-Type': 'application/json', 'X-API-Key': cryptoKey } }
       );
       if (resp.ok) {
@@ -151,18 +136,17 @@ async function fetchBCHBalance(address: string): Promise<string> {
     }
   }
 
-  // Fallback: fullstack.cash
+  // Fallback: Haskoin — keyless, and a different operator to the one above.
   try {
-    const resp = await fetch(`https://api.fullstack.cash/v5/electrumx/balance/${address}`);
+    const resp = await fetch(`https://api.haskoin.com/bch/address/${address}/balance`);
     if (resp.ok) {
       const data = await resp.json();
-      if (data.success) {
-        const sats = (data.balance?.confirmed || 0) + (data.balance?.unconfirmed || 0);
-        return (sats / 1e8).toString();
+      if (typeof data?.confirmed === 'number') {
+        return (data.confirmed / 1e8).toString();
       }
     }
   } catch (err) {
-    console.error('BCH fullstack.cash balance fetch failed:', err);
+    console.error('BCH Haskoin balance fetch failed:', err);
   }
 
   throw new Error('All BCH balance APIs failed');
@@ -326,17 +310,23 @@ async function fetchDOGEBalance(address: string): Promise<string> {
     console.error('DOGE Blockcypher balance fetch failed:', err);
   }
 
-  // Fallback to Dogechain
+  // Fallback to Tatum. dogechain.info held this slot until it started
+  // returning 403 to every request; Tatum reuses the key already provisioned
+  // for BTC/BCH rather than adding a credential.
   try {
-    const resp = await fetch(`https://dogechain.info/api/v1/address/balance/${address}`);
-    if (resp.ok) {
-      const data = await resp.json();
-      if (data.success === 1) {
+    const apiKey = process.env.TATUM_API_KEY;
+    if (apiKey) {
+      const resp = await fetch(`https://api.tatum.io/v3/dogecoin/address/balance/${address}`, {
+        headers: { 'x-api-key': apiKey },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        // Tatum reports DOGE, not satoshis.
         return data.balance || '0';
       }
     }
   } catch (err) {
-    console.error('DOGE Dogechain balance fetch failed:', err);
+    console.error('DOGE Tatum balance fetch failed:', err);
   }
 
   throw new Error('All DOGE balance APIs failed');

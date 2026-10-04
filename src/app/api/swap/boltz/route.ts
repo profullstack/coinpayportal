@@ -85,7 +85,33 @@ export async function POST(request: NextRequest) {
             refundPrivateKey: swap.refundPrivateKey,
           }),
         });
-        if (dbError) console.error('[Boltz] DB save failed:', dbError);
+        // A-05: this used to log and answer `success: true`.
+        //
+        // `refundPrivateKey` is the only thing that can reclaim the funds if the
+        // swap fails, and this row is the only place the platform keeps it. A
+        // failed insert therefore left a live Boltz swap whose refund key exists
+        // nowhere on our side — and told the user everything was fine, so they
+        // went ahead and deposited against it.
+        //
+        // The swap cannot be un-created at Boltz, so the honest answer is not a
+        // bare 500 either: that loses the key just as completely. The key is
+        // returned so the caller can save it — it is already in the `swap`
+        // object on the success path, so this exposes nothing new to the same
+        // authenticated caller — and the status code stops the client from
+        // treating this as a normal creation.
+        if (dbError) {
+          console.error('[Boltz] DB save failed — swap-in is live but untracked:', dbError);
+          return NextResponse.json(
+            {
+              success: false,
+              tracked: false,
+              error:
+                'The swap was created at Boltz but could not be recorded. SAVE THE REFUND KEY BELOW before depositing — it is the only way to reclaim your funds if the swap fails, and we were unable to store a copy.',
+              swap,
+            },
+            { status: 500 }
+          );
+        }
       }
 
       return NextResponse.json({ success: true, swap });
@@ -116,7 +142,22 @@ export async function POST(request: NextRequest) {
             claimPrivateKey: swap.claimPrivateKey,
           }),
         });
-        if (dbError) console.error('[Boltz] DB save failed:', dbError);
+        // A-05, reverse direction. `claimPrivateKey` is the only thing that can
+        // claim the on-chain side of a swap-out; losing it strands the funds in
+        // the lockup with no way to redeem them. Same reasoning as swap-in.
+        if (dbError) {
+          console.error('[Boltz] DB save failed — swap-out is live but untracked:', dbError);
+          return NextResponse.json(
+            {
+              success: false,
+              tracked: false,
+              error:
+                'The swap was created at Boltz but could not be recorded. SAVE THE CLAIM KEY BELOW — it is the only way to claim the on-chain funds, and we were unable to store a copy.',
+              swap,
+            },
+            { status: 500 }
+          );
+        }
       }
 
       return NextResponse.json({ success: true, swap });

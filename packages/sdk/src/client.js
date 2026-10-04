@@ -31,6 +31,11 @@ export class CoinPayClient {
     this.lightning = new LightningClient(this);
   }
 
+  /** The API base this client talks to (read-only). */
+  get baseUrl() {
+    return this.#baseUrl;
+  }
+
   /**
    * Make an authenticated API request
    * @param {string} endpoint - API endpoint
@@ -71,6 +76,97 @@ export class CoinPayClient {
       if (error.name === 'AbortError') {
         throw new Error(`Request timeout after ${this.#timeout}ms`);
       }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
+   * Fetch a binary body (a PDF, a CSV) rather than JSON.
+   *
+   * `request()` always parses JSON, which a file download is not. This
+   * returns the bytes plus the headers that describe them; an error body
+   * is still parsed as JSON so its `code` survives.
+   * @param {string} endpoint - API endpoint
+   * @param {Object} [options] - Fetch options
+   * @returns {Promise<{bytes: Uint8Array, contentType: string, filename: string|null, sha256: string|null, headers: Record<string,string>}>}
+   */
+  async requestBinary(endpoint, options = {}) {
+    if (!this.#apiKey) {
+      throw new Error('API key is required for authenticated requests.');
+    }
+    const url = `${this.#baseUrl}${endpoint}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.#timeout);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: { 'Authorization': `Bearer ${this.#apiKey}`, ...options.headers },
+      });
+      if (!response.ok) {
+        let data = {};
+        try { data = await response.json(); } catch { /* not JSON */ }
+        const structured = data && data.error && typeof data.error === 'object' ? data.error : null;
+        const error = new Error((structured && structured.message) || data.error || `HTTP ${response.status}`);
+        error.status = response.status;
+        error.response = data;
+        if (structured && structured.code) error.code = structured.code;
+        throw error;
+      }
+      const headers = {};
+      response.headers.forEach((value, key) => { headers[key] = value; });
+      const disposition = headers['content-disposition'] || '';
+      const match = /filename="?([^";]+)"?/i.exec(disposition);
+      return {
+        bytes: new Uint8Array(await response.arrayBuffer()),
+        contentType: headers['content-type'] || 'application/octet-stream',
+        filename: match ? match[1] : null,
+        sha256: headers['x-content-sha256'] || null,
+        headers,
+      };
+    } catch (error) {
+      if (error.name === 'AbortError') throw new Error(`Request timeout after ${this.#timeout}ms`);
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
+   * POST a multipart form (a file upload). The browser/undici sets the
+   * boundary, so no Content-Type is forced here.
+   * @param {string} endpoint - API endpoint
+   * @param {FormData} form - The form to send
+   * @returns {Promise<Object>} API response
+   */
+  async requestForm(endpoint, form) {
+    if (!this.#apiKey) {
+      throw new Error('API key is required for authenticated requests.');
+    }
+    const url = `${this.#baseUrl}${endpoint}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.#timeout);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        body: form,
+        signal: controller.signal,
+        headers: { 'Authorization': `Bearer ${this.#apiKey}` },
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        const structured = data && data.error && typeof data.error === 'object' ? data.error : null;
+        const error = new Error((structured && structured.message) || data.error || `HTTP ${response.status}`);
+        error.status = response.status;
+        error.response = data;
+        if (structured && structured.code) error.code = structured.code;
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      if (error.name === 'AbortError') throw new Error(`Request timeout after ${this.#timeout}ms`);
       throw error;
     } finally {
       clearTimeout(timeoutId);
@@ -454,21 +550,59 @@ export class CoinPayClient {
 
   /**
    * Create a new business
+   *
+   * Field names are snake_case because that is what the API reads. This used to
+   * send `webhookUrl`, which POST /api/businesses does not look at -- it reads
+   * `input.webhook_url` -- so every business created through the SDK came back
+   * with a null webhook_url and no webhook secret, silently. The value was
+   * accepted, echoed nowhere, and dropped.
+   *
+   * `category` is required by the API and was not sent at all, so
+   * `coinpay business create` failed outright with "Select a valid business
+   * category" and there was no flag to supply one. Valid slugs live in
+   * src/lib/business/taxonomy.ts.
+   *
    * @param {Object} params - Business parameters
    * @param {string} params.name - Business name
+   * @param {string} params.category - Taxonomy slug; required by the API
+   * @param {string} [params.description]
    * @param {string} [params.webhookUrl] - Webhook URL
+   * @param {string} [params.webhookSecret] - Supply one, or the API generates it
    * @param {Object} [params.walletAddresses] - Wallet addresses by chain
    * @returns {Promise<Object>} Created business
    */
-  async createBusiness({ name, webhookUrl, walletAddresses }) {
+  async createBusiness({
+    name,
+    category,
+    description,
+    webhookUrl,
+    webhookSecret,
+    walletAddresses,
+  }) {
     return this.request('/businesses', {
       method: 'POST',
       body: JSON.stringify({
         name,
-        webhookUrl,
+        category,
+        description,
+        webhook_url: webhookUrl,
+        webhook_secret: webhookSecret,
         walletAddresses,
       }),
     });
+  }
+
+  /**
+   * The taxonomy a business may be created with.
+   *
+   * Fetched rather than bundled: a copy inside the SDK goes stale the moment a
+   * category is added, and a stale copy is how "Select a valid business category"
+   * happens a second time.
+   *
+   * @returns {Promise<Object>} { success, categories: [{ slug, label, group, baseRisk }] }
+   */
+  async listBusinessCategories() {
+    return this.request('/businesses/categories', { method: 'GET' });
   }
 
   /**

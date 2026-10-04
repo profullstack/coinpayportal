@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authorizeInvoice } from '@/lib/auth/invoice-access';
-import { createPayment, type Blockchain } from '@/lib/payments/service';
-import { isBusinessPaidTier } from '@/lib/entitlements/service';
 import { deliverInvoiceEmail, getInvoicePaymentLink } from '@/lib/email/invoice-delivery';
-import { createInvoiceStripeCheckout } from '@/lib/payments/invoice-stripe';
-import { businessHasPaypal } from '@/lib/paypal/accounts';
-import { getEnabledManualMethods } from '@/lib/payment-methods/manual';
-import { resolvePayee, assertPayee } from '@/lib/payments/payee';
+import { activateInvoicePayment } from '@/lib/invoices/activation';
 
 /**
  * POST /api/invoices/[id]/send
@@ -49,153 +44,22 @@ export async function POST(
       return NextResponse.json({ success: false, error: 'Crypto currency must be set before sending' }, { status: 400 });
     }
 
-    // An invoice never goes out without a payee. Drafts created before the coin
-    // was picked (or before this rule existed) get one last resolution attempt
-    // here; if the account still yields nothing the caller is told to enter one
-    // manually instead of the net silently settling to the platform wallet,
-    // which is what `merchant_wallet_address || ''` used to cause.
-    let payeeAddress = (invoice.merchant_wallet_address || '').trim();
-    if (!payeeAddress) {
-      const resolved = await resolvePayee(supabase, {
-        businessId: invoice.business_id,
-        merchantId: invoice.businesses?.merchant_id ?? invoice.user_id,
-        cryptocurrency: invoice.crypto_currency,
-      });
-      if (!resolved.ok) {
-        return NextResponse.json(
-          { success: false, error: resolved.error, code: resolved.code },
-          { status: resolved.status }
-        );
-      }
-      payeeAddress = resolved.address;
-    } else {
-      const check = assertPayee(payeeAddress, invoice.crypto_currency);
-      if (!check.ok) {
-        return NextResponse.json(
-          { success: false, error: check.error, code: check.code },
-          { status: check.status }
-        );
-      }
-      payeeAddress = check.address;
-    }
-
     const clientEmail = invoice.clients?.email;
     if (!clientEmail) {
       return NextResponse.json({ success: false, error: 'Client email is required to send invoice' }, { status: 400 });
     }
 
-    const isPaidTier = await isBusinessPaidTier(supabase, invoice.business_id);
-
-    // An invoice's payer is not standing at a checkout page — they pay when the
-    // invoice falls due, which is usually days out. The default 15-minute
-    // window would mark this payment expired long before then, and a deposit
-    // arriving afterwards used to strand at the intermediary address. Size the
-    // window to the due date with a week of slack for late payers.
-    const INVOICE_GRACE_MINUTES = 60 * 24 * 7;
-    const MIN_INVOICE_WINDOW_MINUTES = 60 * 24;
-    const minutesUntilDue = invoice.due_date
-      ? Math.ceil((new Date(invoice.due_date).getTime() - Date.now()) / 60000)
-      : 0;
-    const expiresInMinutes = Math.max(
-      MIN_INVOICE_WINDOW_MINUTES,
-      minutesUntilDue + INVOICE_GRACE_MINUTES,
-    );
-
-    // Create a normal CoinPay payment so invoices use the same intermediary
-    // payment address, tiered commission, and secure forwarding path as /payments.
-    const paymentResult = await createPayment(supabase, {
-      business_id: invoice.business_id,
-      amount: parseFloat(invoice.amount),
-      currency: invoice.currency || 'USD',
-      blockchain: invoice.crypto_currency as Blockchain,
-      merchant_wallet_address: payeeAddress,
-      expires_in_minutes: expiresInMinutes,
-      metadata: {
-        ...(invoice.metadata && typeof invoice.metadata === 'object' ? invoice.metadata : {}),
-        source: 'invoice',
-        invoice_id: invoice.id,
-        invoice_number: invoice.invoice_number,
-      },
-    });
-
-    if (!paymentResult.success || !paymentResult.payment?.payment_address) {
+    const activation = await activateInvoicePayment(supabase, invoice);
+    if (!activation.ok) {
       return NextResponse.json(
-        { success: false, error: `Failed to create invoice payment: ${paymentResult.error || 'No payment address generated'}` },
-        { status: 500 }
+        { success: false, error: activation.error, code: activation.code },
+        { status: activation.status }
       );
     }
 
-    const coinpayPayment = paymentResult.payment;
-    const cryptoAmount = Number(coinpayPayment.crypto_amount || 0);
-
-    // Calculate fee amount
-    const feeAmount = parseFloat(invoice.amount) * parseFloat(invoice.fee_rate);
-
-    // Try to create Stripe Checkout Session if business has stripe connected account
-    let stripeCheckoutUrl: string | null = null;
-    let stripeSessionId: string | null = null;
-
-    try {
-      const checkout = await createInvoiceStripeCheckout(supabase, invoice, isPaidTier);
-      if (checkout) {
-        stripeCheckoutUrl = checkout.stripeCheckoutUrl;
-        stripeSessionId = checkout.stripeSessionId;
-      }
-    } catch (stripeError) {
-      // Stripe session creation is optional - don't fail the entire send
-      console.error('Failed to create Stripe checkout session for invoice:', stripeError);
-    }
-
-    // Enable the PayPal option if the business has connected a PayPal account.
-    // Orders are created on-demand when the payer clicks pay, so there's nothing
-    // to pre-generate here — just flag availability for the pay page.
-    let paypalEnabled = false;
-    try {
-      paypalEnabled = await businessHasPaypal(supabase, invoice.business_id);
-    } catch (paypalError) {
-      console.error('Failed to check PayPal availability for invoice:', paypalError);
-    }
-
-    // Snapshot the business's enabled manual P2P methods (Venmo/Cash App/Zelle)
-    // with their handles so the pay page can show the customer where to send.
-    let manualMethods: Awaited<ReturnType<typeof getEnabledManualMethods>> = [];
-    try {
-      manualMethods = await getEnabledManualMethods(supabase, invoice.business_id);
-    } catch (manualError) {
-      console.error('Failed to resolve manual methods for invoice:', manualError);
-    }
-
+    const updatedInvoice = activation.invoice;
+    const cryptoAmount = Number(updatedInvoice.crypto_amount || 0);
     const emailAttemptedAt = new Date().toISOString();
-
-    // Commit the live payment resource before attempting email. A provider
-    // failure must not orphan the payment address or pretend creation failed.
-    const { data: updatedInvoice, error: updateError } = await supabase
-      .from('invoices')
-      .update({
-        status: 'sent',
-        crypto_amount: cryptoAmount.toFixed(8),
-        payment_address: coinpayPayment.payment_address,
-        // Persist whatever we settled on, so the stored invoice matches the
-        // payment that was actually created.
-        merchant_wallet_address: payeeAddress,
-        fee_amount: feeAmount,
-        metadata: {
-          ...(invoice.metadata && typeof invoice.metadata === 'object' ? invoice.metadata : {}),
-          coinpay_payment_id: coinpayPayment.id,
-        },
-        ...(stripeCheckoutUrl && { stripe_checkout_url: stripeCheckoutUrl }),
-        ...(stripeSessionId && { stripe_session_id: stripeSessionId }),
-        paypal_enabled: paypalEnabled,
-        manual_methods: manualMethods,
-        updated_at: emailAttemptedAt,
-      })
-      .eq('id', id)
-      .select(`*, clients (id, name, email, company_name), businesses (id, name)`)
-      .single();
-
-    if (updateError) {
-      return NextResponse.json({ success: false, error: 'Failed to update invoice' }, { status: 500 });
-    }
 
     // Keep delivery tracking separate from the payment commit. This preserves
     // the live invoice if application code is deployed before the migration or

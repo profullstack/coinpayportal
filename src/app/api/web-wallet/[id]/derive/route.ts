@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { deriveAddress } from '@/lib/web-wallet/service';
 import { authenticateWalletRequest } from '@/lib/web-wallet/auth';
+import { checkRateLimit } from '@/lib/web-wallet/rate-limit';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
 
 /**
@@ -42,6 +43,16 @@ export async function POST(
 
     if (!auth.success) {
       return WalletErrors.unauthorized(auth.error);
+    }
+
+    // Its five sibling mutating routes are rate limited; this one was not.
+    // Each call performs HD derivation and writes a row, so an authenticated
+    // wallet could grow its own address table without bound. Keyed by wallet
+    // rather than IP, since the caller is authenticated by signature.
+    const rateCheck = checkRateLimit(id, 'wallet_derive');
+    if (!rateCheck.allowed) {
+      console.log(`[Derive] POST /derive rate limited for wallet ${id}`);
+      return WalletErrors.rateLimited(rateCheck.resetAt - Math.floor(Date.now() / 1000));
     }
 
     if (auth.walletId !== id) {

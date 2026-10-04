@@ -8,6 +8,7 @@ import { encrypt } from '../crypto/encryption';
 import { requireEncryptionKey, requireMasterMnemonic } from '../crypto/require-key';
 import type { BlockchainType } from './providers';
 import { secp256k1 } from '@noble/curves/secp256k1';
+import { createHash } from 'crypto';
 
 /**
  * Wallet interface
@@ -171,7 +172,15 @@ function generateSolanaWallet(
  */
 export async function generatePaymentAddress(
   businessId: string,
-  chain: BlockchainType
+  chain: BlockchainType,
+  /**
+   * Explicit derivation index, overriding the hash of `businessId`.
+   *
+   * F-1.3-14: the hash alone is not safe to derive money-holding addresses
+   * from — see `hashStringToNumber`. Callers that can check the resulting
+   * address for uniqueness pass an index and retry on collision.
+   */
+  indexOverride?: number
 ): Promise<PaymentAddress> {
   // Both secrets are fail-closed: an ephemeral mnemonic loses the keys to any
   // funds received at the derived address, and a fallback encryption key means
@@ -179,7 +188,7 @@ export async function generatePaymentAddress(
   const masterMnemonic = requireMasterMnemonic();
 
   // Use business ID hash as index for deterministic address generation
-  const index = hashStringToNumber(businessId);
+  const index = indexOverride ?? hashStringToNumber(businessId);
 
   const wallet = await generateWalletFromMnemonic(masterMnemonic, chain, index);
 
@@ -193,16 +202,27 @@ export async function generatePaymentAddress(
 }
 
 /**
- * Hash a string to a number for deterministic index generation
+ * Hash a string to a derivation index.
+ *
+ * F-1.3-14: this is a 32-bit string fold reduced modulo 10^6, and the addresses
+ * it derives hold customer money. A million slots means two different inputs
+ * share an index — and therefore an address and a private key — with about even
+ * odds by the 1,180th one. When that happens, one collection payment's funds
+ * land at another's address: the balance check confirms the wrong payment, and
+ * the sweep sends the money to the wrong destination. It is not an attack, just
+ * arithmetic.
+ *
+ * The range is widened to the full non-hardened BIP32 space using a real hash,
+ * which pushes the even-odds point from ~1,180 to ~54,000. That is a mitigation
+ * rather than a fix, and it is deliberately not the whole answer: callers that
+ * can check for uniqueness pass `indexOverride` and retry, which is what makes
+ * a collision impossible rather than merely unlikely.
  */
-function hashStringToNumber(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  return Math.abs(hash) % 1000000; // Limit to reasonable range
+export function hashStringToNumber(str: string): number {
+  // 2^31 - 1: the largest non-hardened BIP32 index.
+  const MAX_INDEX = 0x7fffffff;
+  const digest = createHash('sha256').update(str).digest();
+  return digest.readUInt32BE(0) % MAX_INDEX;
 }
 
 /**

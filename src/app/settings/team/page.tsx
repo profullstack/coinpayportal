@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
 import { TeamManager } from '@/components/team/TeamManager';
+import { AskYourData } from '@/components/ask/AskYourData';
 import type { Role } from '@/lib/auth/permissions';
 
 interface Org {
@@ -91,6 +92,11 @@ export default function OrgTeamPage() {
               </div>
             )}
             {selected && <TeamManager scope="org" scopeId={selected} />}
+            {selected && (
+              <div className="mt-8">
+                <AskYourData scope="org" organizationId={selected} title="Ask about this organization" />
+              </div>
+            )}
           </div>
         )}
       </div>

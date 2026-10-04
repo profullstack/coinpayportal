@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { authenticateRequest, isMerchantAuth, isBusinessAuth } from '@/lib/auth/middleware';
+import { authenticateRequest, isMerchantAuth, isBusinessAuth, hasScope } from '@/lib/auth/middleware';
 import { createPayout } from '@/lib/payouts/service';
 
 /**
@@ -43,6 +43,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: authResult.error || 'Authentication required' },
         { status: 401 }
+      );
+    }
+
+    // F-1.1-07: `payouts:create` is offered when a merchant mints a scoped key,
+    // so a merchant can create a key deliberately without it — and this, the
+    // only route the scope governs, never looked. A key restricted to reading
+    // could send money out of the business's wallet. The sibling
+    // /api/payments/create has checked its own scope all along; this is the
+    // asymmetry, not a new control. Legacy keys hold '*' and still pass.
+    if (!hasScope(authResult.context, 'payouts:create')) {
+      return NextResponse.json(
+        { success: false, error: 'API key missing required scope: payouts:create' },
+        { status: 403 }
       );
     }
 
