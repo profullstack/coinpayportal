@@ -99,6 +99,27 @@ describe.skipIf(!chrome)('persistent bank browsers against a fake bank', () => {
     }
   });
 
+  it('comes back from a restart with one tab, not every tab the last run had open', { timeout: 90_000 }, async () => {
+    let held = await acquireBankBrowser(MERCHANT, 'tabsbank', { check });
+    try {
+      for (let i = 0; i < 3; i += 1) await held.bb.browser.cdp.send('Target.createTarget', { url: `${origin}/other-${i}` });
+      await held.bb.browser.cdp.send('Page.navigate', { url: `${origin}/login` }, held.bb.page);
+      await sleep(1500);
+    } finally {
+      held.release();
+    }
+    await closeBankBrowser(MERCHANT, 'tabsbank');
+    held = await acquireBankBrowser(MERCHANT, 'tabsbank', { check });
+    try {
+      await sleep(1000);
+      const { targetInfos } = (await held.bb.browser.cdp.send('Target.getTargets')) as { targetInfos: { type: string; url: string }[] };
+      expect(targetInfos.filter((t) => t.type === 'page' && !t.url.startsWith('chrome')).length).toBe(1);
+    } finally {
+      held.release();
+      await closeBankBrowser(MERCHANT, 'tabsbank', { deleteProfile: true });
+    }
+  });
+
   it('lets one job at a time use a bank browser', { timeout: 60_000 }, async () => {
     const first = await acquireBankBrowser(MERCHANT, 'fakebank', { check });
     let secondIn = false;
