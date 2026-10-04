@@ -148,6 +148,20 @@ RFC 1918, link-local or metadata (169.254.169.254), CGNAT, IPv6 ULA, and no
 dotless Compose service names. A DNS-rebinding host could still flip between
 that check and Chrome's own lookup; that window is the remaining risk.
 
+**Keep-alive.** A bank ends a web session after some minutes without
+activity; the saved cookies keep CoinPay's browser trusted as a device (no
+MFA again) but not signed in. Measured on the first real connection: Chase
+had ended the session within 45 minutes. So every connected bank is touched
+every `FINANCES_BANK_KEEPALIVE_MINUTES` (default 10, at least 3, with 20%
+jitter): restore the session in a fresh fenced browser, open the statements
+page, save the cookies the bank rotated, close. It holds a browser slot for
+seconds, not continuously. When the bank ends the session anyway (a page
+asking for a password, or a bounce to its sign-in URL), the bank becomes
+"needs sign-in" and the merchant is emailed once with a reconnect link.
+`PATCH .../banks/:key {keepalive: false}` turns it off for one bank;
+`FINANCES_BANK_KEEPALIVE_ENABLED=false` for the server. Most banks still cap a
+session at some hours, so expect an occasional reconnect.
+
 **Limits.** At most `FINANCES_CLOUD_BROWSER_MAX` (default 2) Chromes at once;
 a fetch that finds the server busy waits two minutes. A sign-in session closes
 after 10 minutes without input, or 30 in all. Up to 12 new statements per bank
