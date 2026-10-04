@@ -399,6 +399,12 @@ export default function FinancesContent({ focus = null }: { focus?: 'reports' | 
           >
             Books
           </Link>
+          <Link
+            href="/finances/history"
+            className="rounded border border-slate-600 px-4 py-2 text-sm text-gray-300 hover:bg-slate-800"
+          >
+            History
+          </Link>
         </div>
       </div>
 
