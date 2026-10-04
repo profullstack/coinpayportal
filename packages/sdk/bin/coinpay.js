@@ -164,6 +164,7 @@ const BOOLEAN_FLAGS = new Set([
   // finances reports / statements
   'wait',
   'strict',
+  'headed',
   'setup-token-stdin',
   'overwrite',
   'no-pending',
@@ -483,6 +484,13 @@ ${colors.cyan}Commands:${colors.reset}
     statements import <pdf>  Keep an original bank statement (--account, --period|--from/--to)
     statements list|get|download|reconcile|delete
                           Statement library; reconcile takes --report --opening --closing --currency
+    statements banks      Linked banks: signed in for statement downloads? last fetch?
+    statements login <bank>  Sign in once in a window (no password is stored; Chrome profile on this machine)
+    statements fetch [bank…]  Download every new PDF statement from the banks and import it
+                            (--since YYYY-MM, --max N, --headed, --render S; exits 3 if a bank needs you)
+    statements assist <bank>  A window: every PDF you download is imported
+    statements coverage   Which account-months have a statement (--months 12)
+    statements runs|local|retry  Fetch history, the local archive, re-import what failed
     books [queue]         Transactions awaiting category review (--status, --scope, --search)
     books confirm <id>    Confirm a row (--category, --tax, --scope, --note, --always makes a rule)
     books confirm-all     Accept every pending suggestion (--yes)
@@ -534,6 +542,8 @@ ${colors.cyan}Commands:${colors.reset}
 
   ${colors.bright}self${colors.reset}
     update                Update the coinpay CLI to the latest version
+    mcp                   Serve CoinPay finances to an AI agent over MCP (stdio):
+                            claude mcp add coinpay -- coinpay mcp
     upgrade               Alias for update
     remove                Uninstall the coinpay CLI
     uninstall             Alias for remove
@@ -4565,6 +4575,20 @@ async function handleLightning(subcommand, args, flags) {
       case 'money':
         await handleFinances(subcommand, args, flags);
         break;
+
+      case 'mcp': {
+        // stdout is the protocol channel: nothing else may print to it.
+        const { serveStdio } = await import('../src/mcp.js');
+        await serveStdio({
+          version: VERSION,
+          getClient: async () => {
+            const token = process.env.COINPAY_SESSION_TOKEN || loadConfig().jwtToken;
+            if (!token) throw new Error('Not logged in: run `coinpay login` (finance tools need the merchant session)');
+            return new CoinPayClient({ apiKey: token, baseUrl: getBaseUrl(), timeout: 120000 });
+          },
+        });
+        break;
+      }
 
       case 'tui':
       case 'dashboard':

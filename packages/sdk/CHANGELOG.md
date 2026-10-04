@@ -5,6 +5,18 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-10-04
+
+### Added
+- `coinpay finances statements banks|login|fetch|assist|coverage|runs|local|retry`:
+  download the original PDF statements behind every linked account from the
+  banks themselves (SimpleFIN has none) and import them into the statement
+  library with their account and period. Bank sessions stay in local Chrome
+  profiles; `fetch` exits 3 when a bank needs signing in again.
+- `coinpay mcp`: a stdio MCP server with finance and statement tools,
+  including `statements_fetch`.
+- SDK: `reportStatementFetchRun`, `listStatementFetchRuns`, `getStatementCoverage`.
+
 ## [0.11.2] - 2026-09-16
 
 ### Added

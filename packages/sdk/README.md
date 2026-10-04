@@ -758,6 +758,32 @@ const snapshot = await collectFinanceSnapshot(client, { days: 30 });
 console.log(snapshot.earnings.netUsd, snapshot.bank.liabilities, snapshot.invoices.totals.overdue);
 ```
 
+#### Statements from the banks
+
+SimpleFIN carries transactions, not the PDF statements. The CLI downloads
+them from each bank on your machine and files them in the statement library:
+
+```bash
+coinpay finances statements login chase    # once per bank, in a window; no password is stored
+coinpay finances statements fetch          # every new statement, imported with its account and period
+coinpay finances statements coverage       # which account-months are still missing
+```
+
+Each bank's session lives in a local Chrome profile under
+`~/.coinpay/statements`. `fetch` exits 3 when a bank needs signing in again.
+Needs Node 22+ and Chrome or Chromium. See
+[docs/STATEMENTS.md](https://github.com/profullstack/coinpayportal/blob/master/docs/STATEMENTS.md).
+
+### MCP
+
+```bash
+claude mcp add coinpay -- coinpay mcp
+```
+
+`coinpay mcp` is a stdio MCP server using your `coinpay login` session. Tools:
+`finance_accounts`, `statements_list`, `statements_coverage`,
+`statements_fetch_runs`, `statements_banks` and `statements_fetch`.
+
 ---
 
 ## Webhook Integration

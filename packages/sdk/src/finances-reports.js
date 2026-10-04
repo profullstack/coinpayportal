@@ -256,6 +256,22 @@ export async function reconcileFinanceStatement(client, statementId, {
   return data.reconciliation;
 }
 
+/** Report one bank's statement fetch run (counts only). */
+export async function reportStatementFetchRun(client, run) {
+  const data = await call(client, '/finances/statements/fetch-runs', { method: 'POST', body: JSON.stringify(run) });
+  return data.run;
+}
+
+/** `{latest, runs}`: the newest fetch run per bank, and the recent history. */
+export async function listStatementFetchRuns(client, { limit } = {}) {
+  return call(client, `/finances/statements/fetch-runs${query({ limit })}`);
+}
+
+/** Which of the last `months` months have a statement, per account, plus each bank's latest fetch. */
+export async function getStatementCoverage(client, { months } = {}) {
+  return call(client, `/finances/statements/coverage${query({ months })}`);
+}
+
 // ── Books ──
 
 /** Rows awaiting review (default) plus the category vocabularies. */
