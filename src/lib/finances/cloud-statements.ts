@@ -143,20 +143,29 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
     return;
   }
 
-  let browserHandle: Awaited<ReturnType<typeof launchCloudBrowser>> | null = null;
+  const sf = await loadEngine();
+  const taxInfo = sf.taxSource(institutionKey);
+  const tax = !!taxInfo;
+
+  // A bank fetches inside its own long-running browser (bank-browsers.ts),
+  // already fenced and signed in; a tax source gets a throwaway one.
+  let browserHandle: { browser: Awaited<ReturnType<typeof launchCloudBrowser>>['browser']; release: () => Promise<void>; page: string | null };
   try {
-    browserHandle = await launchCloudBrowser();
+    if (tax) {
+      const handle = await launchCloudBrowser();
+      browserHandle = { ...handle, page: null };
+    } else {
+      const { acquireBankBrowser } = await import('./bank-browsers');
+      const held = await acquireBankBrowser(merchantId, institutionKey, { restore: () => loadSessionState(row) });
+      browserHandle = { browser: held.bb.browser, release: async () => held.release(), page: held.bb.page };
+    }
   } catch (err) {
-    if (err instanceof BrowserBusyError) {
-      await releaseWithStatus(job, 'queued', { run_after: new Date(Date.now() + 2 * 60_000).toISOString(), error_message: err.message });
+    if (err instanceof BrowserBusyError || (err as { code?: string }).code === 'cloud_browser_busy') {
+      await releaseWithStatus(job, 'queued', { run_after: new Date(Date.now() + 2 * 60_000).toISOString(), error_message: (err as Error).message });
       return;
     }
     throw err;
   }
-
-  const sf = await loadEngine();
-  const taxInfo = sf.taxSource(institutionKey);
-  const tax = !!taxInfo;
   if (tax) {
     // Counted before the visit. A refusal waits for the site, it never retries into a lock.
     const verdict = await takeSiteAttempt(merchantId, institutionKey, 'fetch');
@@ -177,17 +186,22 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
 
   try {
     const { browser } = browserHandle;
-    let pageSession: string | null = null;
-    const stopGuard = await installRequestGuard(browser.cdp, {
-      onTarget: (info) => {
-        if (info.type === 'page' && !info.url.startsWith('chrome') && !pageSession) pageSession = info.sessionId;
-      },
-    });
+    let pageSession: string | null = browserHandle.page;
+    // The bank browser was fenced (and restored) when it launched.
+    const stopGuard = pageSession
+      ? () => undefined
+      : await installRequestGuard(browser.cdp, {
+          onTarget: (info) => {
+            if (info.type === 'page' && !info.url.startsWith('chrome') && !pageSession) pageSession = info.sessionId;
+          },
+        });
     try {
       for (let i = 0; i < 50 && !pageSession; i += 1) await new Promise((r) => setTimeout(r, 100));
       if (!pageSession) throw new Error('The cloud browser opened no tab');
-      const state = await loadSessionState(row);
-      if (state) await restoreState(browser.cdp, pageSession, state);
+      if (!browserHandle.page) {
+        const state = await loadSessionState(row);
+        if (state) await restoreState(browser.cdp, pageSession, state);
+      }
 
       const institution = await institutionFor(merchantId, institutionKey);
       const start = sf.startUrls(institution, row.start_url ?? undefined).fetch;
@@ -328,6 +342,11 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
   if (status === 'login_needed') {
     const { notifyNeedsSignIn } = await import('./bank-keepalive');
     await notifyNeedsSignIn(row).catch(() => undefined);
+    if (!tax) {
+      // No session to keep alive: free the memory, keep the profile (the bank still knows the device).
+      const { closeBankBrowser } = await import('./bank-browsers');
+      await closeBankBrowser(merchantId, institutionKey).catch(() => undefined);
+    }
   }
   await recordFetchRun(access, {
     institutionKey,

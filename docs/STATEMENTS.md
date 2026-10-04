@@ -143,7 +143,7 @@ aggregators do, without one in between:
    fetch run (`client: coinpay-cloud`), and saves the cookies again, since
    banks rotate them. When the bank asks for a password again the bank is
    marked **needs sign-in** and the PWA offers Reconnect.
-4. **Forget** deletes the sealed session at once. Imported statements stay.
+4. **Forget** deletes the sealed session, closes the bank's browser and deletes its profile at once. Imported statements stay.
 
 **The fence.** A browser people can drive on CoinPay's server would otherwise
 be a way into its private network. Every request from every tab, popup, frame
@@ -153,19 +153,29 @@ RFC 1918, link-local or metadata (169.254.169.254), CGNAT, IPv6 ULA, and no
 dotless Compose service names. A DNS-rebinding host could still flip between
 that check and Chrome's own lookup; that window is the remaining risk.
 
-**Keep-alive.** A bank ends a web session after some minutes without
-activity; the saved cookies keep CoinPay's browser trusted as a device (no
-MFA again) but not signed in. Measured on the first real connection: Chase
-had ended the session within 45 minutes. So every connected bank is touched
-every `FINANCES_BANK_KEEPALIVE_MINUTES` (default 10, at least 3, with 20%
-jitter): restore the session in a fresh fenced browser, open the statements
-page, save the cookies the bank rotated, close. It holds a browser slot for
-seconds, not continuously. When the bank ends the session anyway (a page
-asking for a password, or a bounce to its sign-in URL), the bank becomes
-"needs sign-in" and the merchant is emailed once with a reconnect link.
+**Keep-alive, one browser per bank.** A bank ends a web session after some
+minutes without activity, and restoring its cookies into a fresh browser does
+not hold the session: on the first real connections Chase, Alliant and
+American Express all ended within the hour (Amex nine minutes after a touch
+that found it alive), because banks tie a session to more than cookies. So
+each connected bank keeps the very browser it was signed in with
+(`bank-browsers.ts`): the sign-in streams it, keep-alive refreshes the
+statements page inside it every `FINANCES_BANK_KEEPALIVE_MINUTES` (default 10,
+min 3, 20% jitter), and fetches run inside it, one job at a time per bank.
+Its Chrome profile lives on the files volume
+(`FINANCES_FILES_DIR/bank-profiles/<merchant>/<bank>`) with session restore
+on, so a deploy that restarts the container reopens the same signed-in
+profile; the sealed cookie copy is put back on every fresh launch too.
+**At rest that profile is protected only by Chrome's own (weak) Linux cookie
+encryption**, a deliberate trade for surviving deploys. At most
+`FINANCES_BANK_BROWSERS_MAX` (default 8) run at once; past that the least
+recently used idle one is closed (profile and sealed copy kept). When a bank
+ends the session anyway (a password page, or a bounce to its sign-in URL) it
+becomes "needs sign-in", its browser is closed (profile kept, so the bank
+still knows the device), and the merchant is emailed once. Tax sources are
+never kept alive (their visit budget applies) and use a throwaway browser.
 `PATCH .../banks/:key {keepalive: false}` turns it off for one bank;
-`FINANCES_BANK_KEEPALIVE_ENABLED=false` for the server. Most banks still cap a
-session at some hours, so expect an occasional reconnect.
+`FINANCES_BANK_KEEPALIVE_ENABLED=false` for the server.
 
 **Limits.** At most `FINANCES_CLOUD_BROWSER_MAX` (default 2) Chromes at once;
 a fetch that finds the server busy waits two minutes. A sign-in session closes
