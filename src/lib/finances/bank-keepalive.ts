@@ -117,7 +117,9 @@ export async function touchBankSession(row: BankSessionRow): Promise<'alive' | '
     return 'skipped';
   }
 
-  const startUrl = row.start_url ?? sf.startUrls({ key: row.institution_key, url: null }, null).fetch;
+  const { effectiveStartUrl } = await import('./cloud-statements');
+  const startUrl = effectiveStartUrl(row.institution_key, row.start_url, sf.DRIVERS) ?? sf.startUrls({ key: row.institution_key, url: null }, null).fetch;
+  const known = sf.DRIVERS.find((d) => d.key === row.institution_key)?.statements ?? null;
   if (!startUrl) return 'skipped';
 
   const { acquireBankBrowser, closeBankBrowser } = await import('./bank-browsers');
@@ -131,7 +133,9 @@ export async function touchBankSession(row: BankSessionRow): Promise<'alive' | '
   const now = new Date().toISOString();
   let lapsed = false;
   try {
-    const result = await refreshSession(held.bb.browser, held.bb.page, { startUrl });
+    let result = await refreshSession(held.bb.browser, held.bb.page, { startUrl });
+    // Not believed from a page that is not the known statements page.
+    if (!result.signedIn && known && known !== startUrl) result = await refreshSession(held.bb.browser, held.bb.page, { startUrl: known });
     if (result.signedIn) {
       await saveSession({
         access,

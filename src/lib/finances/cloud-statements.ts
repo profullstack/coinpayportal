@@ -20,6 +20,28 @@ import { recordSiteLockout, takeSiteAttempt } from './site-attempts';
  * A paid feature: an active Professional plan, or free for CoinPay admins.
  */
 
+/** True for a site's front page: path "/" whatever the query says. */
+export function isSiteRoot(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.pathname === '/' || u.pathname === '';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Where a fetch or a keep-alive starts: the page saved at sign-in, unless it
+ * is the bank's front page and a statements page is known for that bank.
+ * (American Express was saved on www.americanexpress.com/?inav=…, whose
+ * login box shows even while signed in.)
+ */
+export function effectiveStartUrl(institutionKey: string, saved: string | null | undefined, drivers: ReadonlyArray<{ key: string; statements?: string }>): string | null {
+  const known = drivers.find((d) => d.key === institutionKey)?.statements ?? null;
+  if (saved && known && isSiteRoot(saved)) return known;
+  return saved ?? known;
+}
+
 export class CloudStatementsError extends Error {
   constructor(public code: string, message: string, public status = 400) {
     super(message);
@@ -204,7 +226,7 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
       }
 
       const institution = await institutionFor(merchantId, institutionKey);
-      const start = sf.startUrls(institution, row.start_url ?? undefined).fetch;
+      const start = effectiveStartUrl(institutionKey, row.start_url, sf.DRIVERS) ?? sf.startUrls(institution, undefined).fetch;
       if (!start) throw new CloudStatementsError('no_start', 'No page to start from; sign in again');
       const tz = (await resolveFinanceTimezone(merchantId, null, { remember: false }))?.timezone ?? 'UTC';
 
@@ -290,9 +312,12 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
       // bank has a known statements page: try that, and remember it if it works.
       let learnedStart: string | null = null;
       const known = sf.DRIVERS.find((d) => d.key === institutionKey)?.statements;
-      if (page.status === 'no_statements' && known && known !== start) {
+      // A home page can show a login box even while signed in (American
+      // Express does), so "needs sign-in" there is not believed until the
+      // known statements page agrees.
+      if ((page.status === 'no_statements' || (page.status === 'login_needed' && !tax)) && known && known !== start) {
         const retry = await sf.fetchInstitution(browser, { start: known, ...fetchOptions });
-        if (retry.status !== 'no_statements') {
+        if (retry.status !== 'no_statements' || page.status === 'login_needed') {
           page = retry;
           if (retry.status === 'ok') learnedStart = known;
         }
