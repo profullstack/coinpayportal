@@ -14,7 +14,7 @@ vi.mock('./audit', () => ({ auditFinance: vi.fn() }));
 import { findChrome } from '@profullstack/coinpay/statements';
 import { cloudBrowserStats, finishLiveSession, launchCloudBrowser, liveStatus, parseLiveInput, sendLiveInput, startLiveSession, subscribeLive, LiveSessionError } from './cloud-browser';
 import { installRequestGuard } from './bank-guard';
-import { captureState, restoreState } from './bank-sessions';
+import { captureState, restoreState, RESTORE_STORAGE } from './bank-sessions';
 
 describe('parseLiveInput', () => {
   it('clamps coordinates to the viewport and refuses what it does not know', () => {
@@ -111,9 +111,22 @@ describe.skipIf(!chrome)('cloud browser with real Chromium', () => {
           files.push({ name: d.suggestedName, context: d.context });
         },
       });
-      stop();
       expect(result).toMatchObject({ status: 'ok', candidates: 2 });
       expect(files.map((f) => sf.periodOf(f.context)?.month).sort()).toEqual(['2026-06', '2026-08']);
+
+      // Site storage goes back as call arguments: hostile-looking values stay data.
+      await browser.cdp.send('Page.navigate', { url: `${origin}/statements` }, page!);
+      await sleep(800);
+      const { result: global } = (await browser.cdp.send('Runtime.evaluate', { expression: 'globalThis' }, page!)) as { result: { objectId: string } };
+      const call = (o: string, items: unknown) =>
+        browser.cdp.send('Runtime.callFunctionOn', { objectId: global.objectId, functionDeclaration: RESTORE_STORAGE, arguments: [{ value: o }, { value: items }], returnByValue: true }, page!);
+      const evil = `"]);document.title='pwned';//`;
+      await call(origin, [['deviceId', 'd-1'], [evil, `</script><script>alert(1)</script>`], [1, 'not a pair'], 'junk']);
+      const { result: read } = (await browser.cdp.send('Runtime.evaluate', { expression: `JSON.stringify([localStorage.getItem('deviceId'), localStorage.getItem(${JSON.stringify(evil)}), document.title, localStorage.length])`, returnByValue: true }, page!)) as { result: { value: string } };
+      expect(JSON.parse(read.value)).toEqual(['d-1', '</script><script>alert(1)</script>', '', 2]);
+      const { result: refused } = (await call('https://other.example', [['x', 'y']])) as { result: { value: boolean } };
+      expect(refused.value).toBe(false);
+      stop();
     } finally {
       await release();
       bank.close();

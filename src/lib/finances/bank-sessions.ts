@@ -182,6 +182,16 @@ export async function captureState(cdp: Cdp, pageSession: string | null): Promis
   };
 }
 
+/** Runs in the page with (origin, items) as arguments; a fixed string, no interpolation. */
+export const RESTORE_STORAGE = `function (origin, items) {
+  if (location.origin !== origin || !Array.isArray(items)) return false;
+  for (const pair of items) {
+    if (!Array.isArray(pair) || typeof pair[0] !== 'string' || typeof pair[1] !== 'string') continue;
+    try { localStorage.setItem(pair[0], pair[1]); } catch (e) {}
+  }
+  return true;
+}`;
+
 /**
  * Put a saved session back into a fresh browser: cookies first, then each
  * origin's localStorage, set from a page on that origin (robots.txt is the
@@ -193,16 +203,24 @@ export async function restoreState(cdp: Cdp, pageSession: string, state: Session
     if (!items.length || !origin.startsWith('https://')) continue;
     await cdp.send('Page.navigate', { url: `${origin}/robots.txt` }, pageSession).catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 1500));
-    await cdp
-      .send(
-        'Runtime.evaluate',
+    // The saved values came from the bank's page: pass them as call arguments,
+    // never spliced into the code that runs there.
+    try {
+      const { result } = (await cdp.send('Runtime.evaluate', { expression: 'globalThis' }, pageSession)) as { result: { objectId?: string } };
+      if (!result.objectId) continue;
+      await cdp.send(
+        'Runtime.callFunctionOn',
         {
-          expression: `(() => { if (location.origin !== ${JSON.stringify(origin)}) return false; for (const [k, v] of ${JSON.stringify(items)}) { try { localStorage.setItem(k, v); } catch {} } return true; })()`,
+          objectId: result.objectId,
+          functionDeclaration: RESTORE_STORAGE,
+          arguments: [{ value: origin }, { value: items }],
           returnByValue: true,
         },
         pageSession,
-      )
-      .catch(() => undefined);
+      );
+    } catch {
+      // A page that will not take storage keeps the cookies, which matter most.
+    }
   }
 }
 

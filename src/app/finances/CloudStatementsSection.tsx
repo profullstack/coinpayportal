@@ -64,7 +64,10 @@ export default function CloudStatementsSection({ authHeaders, onChanged }: { aut
 
   const connect = (bank: Bank) =>
     call(bank.key, '/api/finances/statements/cloud/connect', { method: 'POST', body: JSON.stringify({ institutionKey: bank.key }) }, (data) => {
-      window.location.href = String(data.viewerUrl);
+      // Built from the session id, never navigated to as a server-supplied URL.
+      const id = String((data.live as { id?: unknown } | undefined)?.id ?? '');
+      if (/^[A-Za-z0-9_-]{16,64}$/.test(id)) window.location.assign(`/finances/statements/connect/${id}`);
+      else setMessage('The sign-in session did not start');
     });
   const fetchNow = (bank: Bank) =>
     call(bank.key, '/api/finances/statements/cloud/fetch', { method: 'POST', body: JSON.stringify({ institutionKey: bank.key }) }, () => {

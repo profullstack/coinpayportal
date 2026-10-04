@@ -3,8 +3,20 @@
  */
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
+import { request } from 'node:http';
 
 import { authorizeUrl, ensureFreshSession, loopbackLogin, pkcePair, siteOrigin, toStoredSession } from '../src/oauth-login.js';
+
+/** The "browser" following the redirect: always the loopback host, only port and path vary. */
+const callLoopback = (back) =>
+  new Promise((resolve) => {
+    const req = request({ host: '127.0.0.1', port: Number(back.port), path: `${back.pathname}${back.search}`, method: 'GET' }, (res) => {
+      res.resume();
+      res.on('end', resolve);
+    });
+    req.on('error', resolve);
+    req.end();
+  });
 
 const s256 = (v) => createHash('sha256').update(v).digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
@@ -46,7 +58,7 @@ describe('loopbackLogin', () => {
       const back = new URL(u.searchParams.get('redirect_uri'));
       back.searchParams.set('code', 'the-code');
       back.searchParams.set('state', u.searchParams.get('state'));
-      setTimeout(() => fetch(back), 20);
+      setTimeout(() => callLoopback(back), 20);
       open.challenge = u.searchParams.get('code_challenge');
       return true;
     };
@@ -62,7 +74,7 @@ describe('loopbackLogin', () => {
       const back = new URL(new URL(url).searchParams.get('redirect_uri'));
       back.searchParams.set('code', 'x');
       back.searchParams.set('state', 'forged');
-      setTimeout(() => fetch(back).catch(() => {}), 20);
+      setTimeout(() => callLoopback(back), 20);
       return true;
     };
     await expect(loopbackLogin({ apiBase: 'https://coinpay.example/api', open, fetchImpl: async () => { throw new Error('must not exchange'); }, timeoutMs: 5000 })).rejects.toThrow(/state mismatch/);
