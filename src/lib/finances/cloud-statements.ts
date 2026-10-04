@@ -167,6 +167,7 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
     }
   }
   const counts = { imported: 0, duplicates: 0, unmatched: 0, refused: 0 };
+  const refusedReasons = new Set<string>();
   let status: 'ok' | 'login_needed' | 'no_statements' | 'locked' | 'error' = 'error';
   let message: string | null = null;
   let candidates = 0;
@@ -203,7 +204,9 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
         pauseMs: tax ? 3000 : 1200,
         onFile: async (download: { bytes: Buffer; suggestedName: string; label: string; context: string; key: string | null }) => {
           current = await heartbeat(current);
-          if (download.key) seen.add(download.key);
+          // A row counts as fetched only once its PDF is in the library. A
+          // refused, unmatched or non-PDF download stays retryable, so a fix
+          // to the check or the matching picks it up on the next run.
           if (!sf.isPdf(download.bytes)) return;
           if (tax) {
             // Notices, letters and transcripts go to the document library, once per file.
@@ -227,9 +230,13 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
               });
               if (doc.duplicate) counts.duplicates += 1;
               else counts.imported += 1;
+              // Fetched once it is in the library, as for statements (#397).
+              if (download.key) seen.add(download.key);
             } catch (err) {
-              if (err instanceof DocumentError) counts.refused += 1;
-              else throw err;
+              if (err instanceof DocumentError) {
+                counts.refused += 1;
+                refusedReasons.add(err.message);
+              } else throw err;
             }
             return;
           }
@@ -255,9 +262,11 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
             });
             if (result.duplicateOf && result.duplicateOf === result.statement.id) counts.duplicates += 1;
             else counts.imported += 1;
+            if (download.key) seen.add(download.key);
           } catch (err) {
-            if (err instanceof StatementError) counts.refused += 1;
-            else throw err;
+            if (!(err instanceof StatementError)) throw err;
+            counts.refused += 1;
+            refusedReasons.add(err.message.replace(/^Rejected:\s*/, '').slice(0, 160));
           }
         },
       });
@@ -270,7 +279,7 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
         message = `${institution.name} shows a locked account; CoinPay will not try again before ${until}.`;
       } else if (status === 'login_needed') message = tax ? `${institution.name} asked to sign in again. CoinPay never re-enters credentials; reconnect it when you are ready.` : 'The bank asked for a password again. Reconnect it in CoinPay.';
       else if (status === 'no_statements') message = 'No statement links on the saved page. Reconnect and finish on the statements list.';
-      else if (counts.refused) message = `${counts.refused} PDF(s) refused by the statement check.`;
+      else if (counts.refused) message = `${counts.refused} PDF(s) refused by the statement check: ${[...refusedReasons].join('; ')}`.slice(0, 480);
 
       // Keep the cookies the bank just issued, even after a failed run's partial work.
       if (status !== 'login_needed' && status !== 'locked') {
@@ -318,7 +327,7 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
     finishedAt,
   }).catch(() => undefined);
 
-  const result = { status, candidates, ...counts, silent };
+  const result = { status, candidates, ...counts, silent, refusedReasons: [...refusedReasons] };
   if (status === 'ok' || status === 'login_needed' || status === 'no_statements' || status === 'locked') {
     await releaseWithStatus(current, status === 'ok' ? 'completed' : 'partial', { result, ...(message ? { error_message: message } : {}) });
   } else {
