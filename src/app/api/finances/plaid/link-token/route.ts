@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { createLinkToken } from '@/lib/finances/plaid';
 import { isPlaidEnabled } from '@/lib/finances/provider';
 
@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
  * the per-account billing does not advertise a button that cannot work.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
 
   if (!isPlaidEnabled()) {

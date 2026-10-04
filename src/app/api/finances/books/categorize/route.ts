@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { createCategorizeJob, toPublicJob } from '@/lib/finances/jobs';
 import { isModelCategorizationEnabled } from '@/lib/finances/categorize-model';
 import { financeErrorFromException, financeJson, readJsonBody } from '@/lib/finances/api';
-import { audit } from '@/lib/finances/audit';
+import { auditFinance } from '@/lib/finances/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
  * Answers 202 with the job; reviewed rows are never touched.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
   if (guard instanceof NextResponse) return guard;
   const body = await readJsonBody<{ useModel?: unknown; onlyUncategorized?: unknown }>(req);
   try {
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
       useModel: body.useModel !== false,
       onlyUncategorized: body.onlyUncategorized === true,
     });
-    await audit(guard.id, 'books.categorize.queue', 'job', job.id, { model: isModelCategorizationEnabled() });
+    await auditFinance(guard, 'books.categorize.queue', 'job', job.id, { model: isModelCategorizationEnabled() });
     return financeJson({ job: toPublicJob(job), modelEnabled: isModelCategorizationEnabled() }, 202);
   } catch (err) {
     return financeErrorFromException(err, 'Could not queue categorisation');

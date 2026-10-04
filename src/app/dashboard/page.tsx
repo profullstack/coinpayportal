@@ -7,6 +7,7 @@ import Papa from 'papaparse';
 import { useRealtimePayments, type RealtimePayment } from '@/lib/realtime/useRealtimePayments';
 import { authFetch, requireAuth } from '@/lib/auth/client';
 import { DisputeEvidenceModal } from '@/components/disputes/DisputeEvidenceModal';
+import { AskYourData } from '@/components/ask/AskYourData';
 import dynamic from 'next/dynamic';
 
 // Recharts is heavy and client-only; load it on the client after mount so it
@@ -1764,6 +1765,11 @@ export default function DashboardPage() {
             {error}
           </div>
         )}
+
+        {/* Ask Your Data (Professional; free for admins) */}
+        <div className="mb-8">
+          <AskYourData scope="me" />
+        </div>
 
         {/* Combined Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6 mb-8">

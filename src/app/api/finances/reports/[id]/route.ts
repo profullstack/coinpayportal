@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant, requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { getReport, listArtifacts, deleteReport, toPublicReport } from '@/lib/finances/reports';
 import { getJob, toPublicJob } from '@/lib/finances/jobs';
 import { financeError, financeErrorFromException, financeJson, isUuid } from '@/lib/finances/api';
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  * which formats are ready. Never touches the provider.
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return financeError('not_found', 'Report not found', 404);
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 /** DELETE /api/finances/reports/[id] — remove the dataset and artifacts. Source rows stay. */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.manage', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return financeError('not_found', 'Report not found', 404);

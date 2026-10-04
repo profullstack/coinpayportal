@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { bulkReview, BooksError } from '@/lib/finances/books';
 import { financeError, financeErrorFromException, financeJson, isUuid, readJsonBody } from '@/lib/finances/api';
 
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  * Omitting category/taxCategory confirms each row's current suggestion.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
   if (guard instanceof NextResponse) return guard;
   const body = await readJsonBody<{ ids?: unknown; category?: unknown; taxCategory?: unknown; scope?: unknown; createRule?: unknown }>(req);
   const ids = Array.isArray(body.ids) ? body.ids.filter((v): v is string => isUuid(v)) : [];

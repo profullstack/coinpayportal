@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant, requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { listRules, createRule, BooksError } from '@/lib/finances/books';
 import { financeError, financeErrorFromException, financeJson, readJsonBody } from '@/lib/finances/api';
 
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 
 /** GET /api/finances/books/rules — this merchant's category rules. */
 export async function GET(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   try {
     return financeJson({ rules: await listRules(guard.id) });
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
  * pattern, category, taxCategory?, scope? }`.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
   if (guard instanceof NextResponse) return guard;
   const body = await readJsonBody<{ matchField?: unknown; matchType?: unknown; pattern?: unknown; category?: unknown; taxCategory?: unknown; scope?: unknown }>(req);
   const matchField = body.matchField === 'description' ? 'description' : 'payee';

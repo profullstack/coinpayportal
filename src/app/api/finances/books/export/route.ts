@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { booksSummary, renderBooksCsv, renderBooksHtml, renderBooksPdf, toPublicRow } from '@/lib/finances/books';
 import { resolvePeriod, boundPeriod } from '@/lib/finances/periods';
 import { resolveFinanceTimezone } from '@/lib/finances/settings';
 import { financeError, financeErrorFromException } from '@/lib/finances/api';
 import { canonicalJson } from '@/lib/finances/render';
-import { audit } from '@/lib/finances/audit';
+import { auditFinance } from '@/lib/finances/audit';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -18,7 +18,7 @@ export const maxDuration = 120;
  * count printed on it; not an immutable report revision.
  */
 export async function GET(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const q = req.nextUrl.searchParams;
 
@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
       bytes = await renderBooksPdf(summary);
       contentType = 'application/pdf';
     }
-    await audit(guard.id, 'books.export', 'merchant', guard.id, { format, rows: summary.rows, scope });
+    await auditFinance(guard, 'books.export', 'merchant', guard.id, { format, rows: summary.rows, scope });
     return new NextResponse(new Uint8Array(bytes), {
       status: 200,
       headers: {

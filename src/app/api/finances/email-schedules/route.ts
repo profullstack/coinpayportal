@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant, requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { getSchedule, upsertSchedule, deleteSchedule, toPublicSchedule, ScheduleError } from '@/lib/finances/schedules';
 import { getFinanceSettings } from '@/lib/finances/settings';
 import { EmailingError } from '@/lib/finances/emailing';
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 /** GET /api/finances/email-schedules — the weekly digest schedule, if any. */
 export async function GET(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   try {
     const schedule = await getSchedule(guard.id);
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
  * merchant's own address.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.manage', { write: true });
   if (guard instanceof NextResponse) return guard;
   const body = await readJsonBody<Record<string, unknown>>(req);
   try {
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
 /** DELETE /api/finances/email-schedules — stop the weekly digest. */
 export async function DELETE(req: NextRequest) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.manage', { write: true });
   if (guard instanceof NextResponse) return guard;
   try {
     const removed = await deleteSchedule(guard.id);

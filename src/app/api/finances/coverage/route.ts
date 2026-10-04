@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { listAccounts } from '@/lib/finances/summary';
 import { computeCoverage, summarizeCoverage } from '@/lib/finances/coverage';
 import { resolvePeriod, boundPeriod } from '@/lib/finances/periods';
@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
  * replace `period`.
  */
 export async function GET(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const q = req.nextUrl.searchParams;
 

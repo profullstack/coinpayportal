@@ -50,3 +50,18 @@ export async function findReceipt(
   if (error) throw new Error(`Could not read receipts: ${error.message}`);
   return (data as { object_id: string | null; metadata: Record<string, unknown> } | null) ?? null;
 }
+
+/**
+ * `audit` for a request authorized by `requireFinanceAccess`: the event is filed
+ * under the books' owner, and when a teammate acted, `actor_id` says who.
+ */
+export async function auditFinance(
+  access: { id: string; actorId: string },
+  action: string,
+  objectType: string,
+  objectId: string | null,
+  metadata: Record<string, string | number | boolean | null> = {},
+): Promise<void> {
+  const meta = access.actorId !== access.id ? { ...metadata, actor_id: access.actorId } : metadata;
+  return audit(access.id, action, objectType, objectId, meta);
+}

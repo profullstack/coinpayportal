@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { syncAllConnections, syncConnection, DEFAULT_SYNC_DAYS } from '@/lib/finances/sync';
 import { BudgetExhaustedError } from '@/lib/finances/budget';
 
@@ -19,7 +19,7 @@ export const maxDuration = 300;
  * syncs every active connection.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
   if (guard instanceof NextResponse) return guard;
 
   let body: { days?: unknown; connectionId?: unknown } = {};

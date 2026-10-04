@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { listPayloads, toPublicPayload } from '@/lib/finances/payloads';
 import { financeErrorFromException, financeJson } from '@/lib/finances/api';
 
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 
 /** GET /api/finances/payloads?connection=&limit=&offset= — the raw provider response archive, newest first. */
 export async function GET(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const q = req.nextUrl.searchParams;
   try {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { getSchedule, sendDigest, markDigestSent, ScheduleError } from '@/lib/finances/schedules';
 import { EmailingError } from '@/lib/finances/emailing';
 import { financeError, financeErrorFromException, financeJson } from '@/lib/finances/api';
@@ -9,7 +9,7 @@ export const maxDuration = 120;
 
 /** POST /api/finances/email-schedules/send-now — send the digest immediately, as a test or on demand. */
 export async function POST(req: NextRequest) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.manage', { write: true });
   if (guard instanceof NextResponse) return guard;
   try {
     const schedule = await getSchedule(guard.id);

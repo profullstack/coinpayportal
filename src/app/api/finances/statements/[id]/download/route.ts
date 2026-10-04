@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { getStatement, readStatementBytes, StatementError } from '@/lib/finances/statements';
 import { financeError, financeErrorFromException, isUuid } from '@/lib/finances/api';
-import { audit } from '@/lib/finances/audit';
+import { auditFinance } from '@/lib/finances/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
  * embedded inline and nothing is cached.
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return financeError('not_found', 'Statement not found', 404);
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const statement = await getStatement(id, guard.id);
     if (!statement) return financeError('not_found', 'Statement not found', 404);
     const { bytes, filename } = await readStatementBytes(statement);
-    await audit(guard.id, 'statement.download', 'statement', statement.id, { bytes: bytes.length });
+    await auditFinance(guard, 'statement.download', 'statement', statement.id, { bytes: bytes.length });
     return new NextResponse(new Uint8Array(bytes), {
       status: 200,
       headers: {

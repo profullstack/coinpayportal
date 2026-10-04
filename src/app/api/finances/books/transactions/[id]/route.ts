@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { reviewTransaction, toPublicRow, BooksError } from '@/lib/finances/books';
 import { financeError, financeErrorFromException, financeJson, isUuid, readJsonBody } from '@/lib/finances/api';
 
@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
  * becomes a rule so future syncs agree.
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return financeError('not_found', 'Transaction not found', 404);

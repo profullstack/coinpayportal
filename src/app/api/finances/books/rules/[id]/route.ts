@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { deleteRule } from '@/lib/finances/books';
 import { financeError, financeErrorFromException, financeJson, isUuid } from '@/lib/finances/api';
 
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 
 /** DELETE /api/finances/books/rules/[id] — remove a rule. Rows it already categorised keep their values. */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return financeError('not_found', 'Rule not found', 404);

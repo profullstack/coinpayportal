@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { listQueue, toPublicRow, SPEND_CATEGORIES } from '@/lib/finances/books';
 import { TAX_CATEGORIES, TAX_CATEGORY_LABELS } from '@/lib/finances/tax';
 import { isModelCategorizationEnabled } from '@/lib/finances/categorize-model';
@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
  * Filters: `status`, `account`, `scope`, `start`, `end`, `search`, `limit`, `offset`.
  */
 export async function GET(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const q = req.nextUrl.searchParams;
   const status = q.get('status');

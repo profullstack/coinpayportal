@@ -52,8 +52,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     invitedByMerchantId: caller.merchantId,
     actorRole: auth.role,
     baseUrl: appBaseUrl(request),
+    financeAccess: body?.financeAccess === true,
   });
   if (!result.success) return errorResponse(result);
 
-  return NextResponse.json({ success: true, invitation: { id: result.invitation.id, email: result.invitation.email, role: result.invitation.role } });
+  return NextResponse.json({ success: true, invitation: { id: result.invitation.id, email: result.invitation.email, role: result.invitation.role, financeAccess: body?.financeAccess === true } });
 }
