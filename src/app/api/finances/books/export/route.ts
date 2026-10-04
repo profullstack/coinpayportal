@@ -6,6 +6,7 @@ import { resolveFinanceTimezone } from '@/lib/finances/settings';
 import { financeError, financeErrorFromException } from '@/lib/finances/api';
 import { canonicalJson } from '@/lib/finances/render';
 import { auditFinance } from '@/lib/finances/audit';
+import { packManifest, taxAttachmentsFor, TAX_PACK_MAX_BYTES, zipStore } from '@/lib/finances/tax-pack';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -16,6 +17,11 @@ export const maxDuration = 120;
  * The CPA pack: totals by tax category plus every row behind them, as an
  * attachment. Built from the books as they stand now, with the unreviewed
  * count printed on it; not an immutable report revision.
+ *
+ * `with_documents=1` answers a ZIP instead: the pack, the period's tax
+ * documents (notices, letters, transcripts) that fit in 8 MiB together with
+ * it, and MANIFEST.txt naming what was left out. `X-Documents-Attached` and
+ * `X-Documents-Skipped` carry the counts.
  */
 export async function GET(req: NextRequest) {
   const guard = await requireFinanceAccess(req, 'finance.read');
@@ -30,6 +36,7 @@ export async function GET(req: NextRequest) {
   if (!format) return financeError('invalid_request', 'format must be csv, pdf, html or json', 400);
   const scopeParam = q.get('scope');
   const scope: 'business' | 'personal' | 'all' = scopeParam === 'personal' ? 'personal' : scopeParam === 'all' ? 'all' : 'business';
+  const withDocuments = q.get('with_documents') === '1' || q.get('with_documents') === 'true';
 
   try {
     const tz = await resolveFinanceTimezone(guard.id, q.get('timezone'), { remember: false });
@@ -69,6 +76,29 @@ export async function GET(req: NextRequest) {
     } else {
       bytes = await renderBooksPdf(summary);
       contentType = 'application/pdf';
+    }
+    if (withDocuments) {
+      const booksName = `coinpay-books-${fileLabel}-${scope}.${format}`;
+      const plan = await taxAttachmentsFor(guard.id, bounded.startDate, bounded.endDate, TAX_PACK_MAX_BYTES - bytes.length);
+      const zip = zipStore([
+        { name: booksName, content: bytes },
+        ...plan.attached.map((a) => ({ name: `tax-documents/${a.filename}`, content: a.content })),
+        { name: 'MANIFEST.txt', content: Buffer.from(packManifest(bounded.label, booksName, plan), 'utf8') },
+      ]);
+      await auditFinance(guard, 'books.export', 'merchant', guard.id, { format, rows: summary.rows, scope, documents: plan.attached.length, documents_skipped: plan.skipped.length });
+      return new NextResponse(new Uint8Array(zip), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Length': String(zip.length),
+          'Content-Disposition': `attachment; filename="coinpay-cpa-pack-${fileLabel}-${scope}.zip"`,
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff',
+          'X-Unreviewed-Rows': String(summary.unreviewed),
+          'X-Documents-Attached': String(plan.attached.length),
+          'X-Documents-Skipped': String(plan.skipped.length),
+        },
+      });
     }
     await auditFinance(guard, 'books.export', 'merchant', guard.id, { format, rows: summary.rows, scope });
     return new NextResponse(new Uint8Array(bytes), {

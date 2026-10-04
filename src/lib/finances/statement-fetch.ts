@@ -32,6 +32,9 @@ export class FetchRunError extends Error {
  */
 export function institutionKey(domain: string | null | undefined, name: string | null | undefined): string {
   const host = (domain ?? '').replace(/^https?:\/\//, '').split(/[/:]/)[0]!.toLowerCase();
+  // Same explicit list as the CLI's HOST_KEYS: webapp.ftb.ca.gov is "ftb", not "ca".
+  if (/(^|\.)ftb\.ca\.gov$/.test(host)) return 'ftb';
+  if (/(^|\.)irs\.gov$/.test(host)) return 'irs';
   const labels = host.split('.').filter(Boolean);
   const slug = (value: string) =>
     value

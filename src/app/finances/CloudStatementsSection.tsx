@@ -12,7 +12,7 @@ type CloudSession = {
   lastStatus: string | null;
   fetchedRows: number;
 };
-type Bank = { key: string; name: string; accounts: string[]; cloud: CloudSession | null };
+type Bank = { key: string; name: string; kind?: 'bank' | 'tax'; accounts: string[]; cloud: CloudSession | null };
 type Access = { allowed: boolean; reason: string; message: string };
 
 function ago(iso: string | null): string {
@@ -63,7 +63,10 @@ export default function CloudStatementsSection({ authHeaders, onChanged }: { aut
   };
 
   const connect = (bank: Bank) =>
-    call(bank.key, '/api/finances/statements/cloud/connect', { method: 'POST', body: JSON.stringify({ institutionKey: bank.key }) }, (data) => {
+    bank.kind === 'tax' && bank.key.startsWith('irs') &&
+    !window.confirm('IRS sign-in goes through ID.me behind Cloudflare, which often refuses datacenter addresses like CoinPay cloud. If it will not load, use the CLI on your own computer instead: coinpay finances statements assist irs. Try the cloud browser anyway?')
+      ? Promise.resolve()
+      : call(bank.key, '/api/finances/statements/cloud/connect', { method: 'POST', body: JSON.stringify({ institutionKey: bank.key }) }, (data) => {
       // Built from the session id, never navigated to as a server-supplied URL.
       const id = String((data.live as { id?: unknown } | undefined)?.id ?? '');
       if (/^[A-Za-z0-9_-]{16,64}$/.test(id)) window.location.assign(`/finances/statements/connect/${id}`);
@@ -105,7 +108,8 @@ export default function CloudStatementsSection({ authHeaders, onChanged }: { aut
             return (
               <div key={bank.key} className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-800 p-2">
                 <div className="text-xs">
-                  <span className="text-gray-200">{bank.name}</span> <span className={tone}>· {state}</span>
+                  <span className="text-gray-200">{bank.name}</span>
+                  {bank.kind === 'tax' && <span className="text-gray-500"> · tax notices &amp; transcripts</span>} <span className={tone}>· {state}</span>
                   {cloud && (
                     <span className="text-gray-500">
                       {' '}

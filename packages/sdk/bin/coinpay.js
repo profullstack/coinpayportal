@@ -53,6 +53,13 @@ function handleSelfManage(action) {
   }
 }
 
+/** `coinpay self <sub>`: which installer action, or null. */
+function selfAction(sub) {
+  if (sub === 'update' || sub === 'upgrade' || sub === 'self-update') return 'update';
+  if (sub === 'remove' || sub === 'uninstall') return 'remove';
+  return null;
+}
+
 // ANSI colors
 const colors = {
   reset: '\x1b[0m',
@@ -176,6 +183,7 @@ const BOOLEAN_FLAGS = new Set([
   'no-model',
   'only-uncategorized',
   'no-attach',
+  'with-documents',
   'estimate-gaps',
   'plain',
   'no-stream',
@@ -379,9 +387,13 @@ ${colors.cyan}Commands:${colors.reset}
     set-url <base-url>    Set custom API URL
     show                  Show current configuration
 
+  ${colors.bright}login${colors.reset}                 Sign in (OAuth 2.1 in your browser; --device on a machine without one)
+  ${colors.bright}logout${colors.reset}                Forget the saved session
+
   ${colors.bright}auth${colors.reset}
     register              Register new merchant account
-    login                 Sign in (OAuth 2.1 in your browser; --device on a machine without one)
+    login                 Same as \`coinpay login\` (OAuth 2.1; --device over SSH).
+                            --email/--password is the old password sign-in (deprecated)
     me                    Show current merchant info
 
   ${colors.bright}payment${colors.reset}
@@ -491,10 +503,14 @@ ${colors.cyan}Commands:${colors.reset}
     statements fetch [bank…]  Download every new PDF statement from the banks and import it
                             (--since YYYY-MM, --max N, --headed, --render S; exits 3 if a bank needs you)
     statements assist <bank>  A window: every PDF you download is imported
+    statements assist ftb|irs|irs-business  Tax sources (no linked bank needed): every
+                            notice, letter or transcript you download is filed under
+                            Documents (tax). IRS: use this, locally (ID.me blocks clouds).
+                            Throttled: 2 visits per 30 min, 4 per day; lockouts respected
     statements coverage   Which account-months have a statement (--months 12)
     statements runs|local|retry  Fetch history, the local archive, re-import what failed
     statements cloud [status]  CoinPay cloud fetching (Professional; free for admins)
-    statements cloud connect <bank>  Sign in once in CoinPay's cloud browser (opens your browser)
+    statements cloud connect <bank|ftb|irs>  Sign in once in CoinPay's cloud browser (opens your browser)
     statements cloud fetch [bank] [--wait]  Fetch now in the cloud; weekly by default
     statements cloud schedule <bank> weekly|off | cloud forget <bank>
     books [queue]         Transactions awaiting category review (--status, --scope, --search)
@@ -503,10 +519,13 @@ ${colors.cyan}Commands:${colors.reset}
     books categorize      Rules, heuristics, then the model over unreviewed rows (--wait)
     books rules [add|delete]  Merchant category rules
     books summary         Totals by tax category (--period 2026|2026-Q3|2026-08, --scope)
-    books export          CPA pack (--period, --scope, --format csv|pdf|html|json, --output)
+    books export          CPA pack (--period, --scope, --format csv|pdf|html|json, --output;
+                            --with-documents: a ZIP with the period's tax documents, up to 8 MiB)
     payloads [list|download <id>]  Raw provider responses, exactly as received
     reports send <id>     Email a report (--to a@x,b@y, --format pdf,csv, --message, --no-attach)
-    books send            Email the CPA pack (--to, --period, --scope, --format)
+    books send            Email the CPA pack (--to, --period, --scope, --format,
+                            --with-documents attaches the period's tax documents within
+                            8 MiB; only to your own address)
     digest [show|set|off|send-now]  Weekly digest email (--days mon,fri --hour 8 --to …)
 
   ${colors.bright}escrow${colors.reset}
@@ -546,13 +565,14 @@ ${colors.cyan}Commands:${colors.reset}
     logs <business-id>    Get webhook logs
     test <business-id>    Send test webhook
 
-  ${colors.bright}self${colors.reset}
+  ${colors.bright}self${colors.reset}                  (each also works without "self": coinpay update)
     update                Update the coinpay CLI to the latest version
-    mcp                   Serve CoinPay finances to an AI agent over MCP (stdio):
-                            claude mcp add coinpay -- coinpay mcp
     upgrade               Alias for update
     remove                Uninstall the coinpay CLI
     uninstall             Alias for remove
+
+  ${colors.bright}mcp${colors.reset}                   Serve CoinPay finances to an AI agent over MCP (stdio):
+                          claude mcp add coinpay -- coinpay mcp
 
 ${colors.cyan}Wallet Options:${colors.reset}
   --words <12|24>         Number of mnemonic words (default: 12)
@@ -2699,13 +2719,20 @@ async function handleAuth(subcommand, args, flags) {
     case 'login': {
       const email = flags.email;
       const password = flags.password;
-      
-      if (!email || !password) {
-        print.error('Required: --email <email> --password <password>');
-        print.info('Example: coinpay auth login --email user@example.com --password mysecret');
+
+      // `auth login` is the documented way in; it is the same OAuth 2.1 sign-in
+      // as `coinpay login`. Only an explicit --email/--password takes the old path.
+      if (email === undefined && password === undefined) {
+        await handleLogin(flags);
         return;
       }
-      
+      print.warn('Password sign-in (--email/--password) is deprecated; use `coinpay login` (OAuth 2.1) or `coinpay login --device`.');
+      if (!email || !password || email === true || password === true) {
+        print.error('Required: --email <email> --password <password>');
+        print.info('Or sign in without a password: coinpay auth login');
+        process.exit(1);
+      }
+
       try {
         const client = createUnauthenticatedClient();
         const { loginMerchant } = await import('../src/auth.js');
@@ -4643,6 +4670,17 @@ async function handleLightning(subcommand, args, flags) {
       case 'self-update':
         handleSelfManage('update');
         break;
+
+      case 'self': {
+        const action = selfAction(subcommand);
+        if (!action) {
+          print.error(`Unknown self command: ${subcommand || '(none)'}`);
+          print.info('Available: coinpay self update|upgrade|remove|uninstall');
+          process.exit(1);
+        }
+        handleSelfManage(action);
+        break;
+      }
 
       case 'remove':
       case 'uninstall':

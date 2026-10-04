@@ -46,6 +46,11 @@ bank issued them.
 
 ## Fetching from the banks
 
+The same fetcher also reaches the tax agencies (`ftb`, `irs`,
+`irs-business`) with no linked bank; their notices, letters and transcripts
+go to the document library, under a strict attempt throttle. See
+[TAX-DOCUMENTS.md](./TAX-DOCUMENTS.md).
+
 SimpleFIN supplies balances and transactions, never the PDFs: the protocol
 has no document endpoint and the Bridge keeps none. So the CLI downloads them
 from each bank itself, **on the merchant's own machine**, and imports each one

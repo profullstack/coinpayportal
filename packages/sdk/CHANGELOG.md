@@ -5,6 +5,40 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-10-05
+
+### Added
+- Tax document sources: `ftb` (California FTB, MyFTB), `irs` (IRS Online
+  Account) and `irs-business` (IRS Business Tax Account). They need no linked
+  bank: `coinpay finances statements login|assist|fetch <source>` and
+  `statements cloud connect|fetch|schedule <source>` take them. Notices,
+  letters and transcripts are collected in a tax mode (the bank collector
+  still skips them) and filed into the document library as category `tax`,
+  with tax year, document type and the source key; one copy per file.
+- Attempt throttle for tax sources: at most 2 visits per 30 minutes and 4 per
+  day, counted before the visit, lockout pages detected and respected (no
+  override), credentials never re-entered. Ledger at
+  `~/.coinpay/statements/throttle.json`.
+- `coinpay finances books export --with-documents` (a ZIP with the period's
+  tax documents and a manifest) and `books send --with-documents` (to the
+  account owner's own address only), within 8 MiB; what does not fit is listed.
+- MCP: `tax_documents_list`, `tax_documents_get`; `statements_banks` lists the
+  tax sources with their throttle state. API: `GET /finances/documents?category=`
+  and `GET /finances/documents/:id`; SDK `getFinanceDocument`.
+- SDK: `uploadFinanceDocument`, `listFinanceDocuments`; statements engine
+  exports `TAX_SOURCES`, `standaloneSources`, `withStandaloneSources`,
+  `keepCandidate`, `collectScript`, `classifyTaxDocument`, `keepTaxDocument`
+  and the throttle helpers (`evaluateThrottle`, `detectLockout`, …).
+
+### Fixed
+- `coinpay auth login` is the OAuth 2.1 sign-in the help always advertised
+  (`--device` works); `--email/--password` keeps the old password path with a
+  deprecation note.
+- `coinpay self update|upgrade|remove|uninstall` now work as listed in the help
+  (the top-level forms still do). `coinpay mcp` is listed on its own.
+- `institutionKey` maps `*.ftb.ca.gov` to `ftb` (was `ca`) and `*.irs.gov`
+  to `irs`.
+
 ## [0.13.0] - 2026-10-04
 
 ### Added

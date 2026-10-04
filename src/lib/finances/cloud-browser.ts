@@ -121,6 +121,8 @@ interface LiveSession {
   stopGuard: () => void;
   blocked: number;
   timer: NodeJS.Timeout;
+  ticks: number;
+  onPageText?: (text: string) => void;
 }
 
 const live = new Map<string, LiveSession>();
@@ -161,6 +163,17 @@ async function readLocation(s: LiveSession): Promise<void> {
   }
 }
 
+/** Hand the page's visible text to the session's watcher (lockout detection for tax sources). */
+async function readText(s: LiveSession): Promise<void> {
+  if (!s.page || s.status !== 'live' || !s.onPageText) return;
+  try {
+    const { result } = (await s.browser.cdp.send('Runtime.evaluate', { expression: "document.body ? (document.body.innerText || '').slice(0, 6000) : ''", returnByValue: true }, s.page)) as { result: { value?: string } };
+    if (result.value) s.onPageText(result.value);
+  } catch {
+    // Mid-navigation; the next tick reads it.
+  }
+}
+
 function expire(s: LiveSession, status: LiveStatus, error: string | null = null): void {
   if (['saved', 'cancelled', 'expired', 'failed'].includes(s.status)) return;
   clearInterval(s.timer);
@@ -178,6 +191,8 @@ export async function startLiveSession(params: {
   institutionKey: string;
   institutionLabel: string | null;
   url: string;
+  /** Called every few seconds with the page's text while the merchant drives it. */
+  onPageText?: (text: string) => void;
 }): Promise<{ id: string; status: LiveStatus }> {
   const verdict = await checkUrl(params.url);
   if (!verdict.ok) throw new LiveSessionError('invalid_request', `That address cannot be opened: ${verdict.reason}`);
@@ -207,11 +222,17 @@ export async function startLiveSession(params: {
     statusListeners: new Set(),
     stopGuard: () => undefined,
     blocked: 0,
+    ticks: 0,
+    onPageText: params.onPageText,
     timer: setInterval(() => {
       const now = Date.now();
+      s.ticks += 1;
       if (now - s.touchedAt > IDLE_MS) expire(s, 'expired', 'No activity for 10 minutes');
       else if (now - s.createdAt > MAX_MS) expire(s, 'expired', 'Sign-in sessions last 30 minutes');
-      else void readLocation(s);
+      else {
+        void readLocation(s);
+        if (s.ticks % 3 === 0) void readText(s);
+      }
     }, 1000),
   };
   s.timer.unref?.();

@@ -8,6 +8,8 @@ import { createShareLink } from './share';
 import { escapeHtml, canonicalJson, GENERATED_BY_NOTICE } from './render';
 import { formatFixed, displayDecimalsFor } from './decimal';
 import { audit } from './audit';
+import { taxAttachmentsFor, type TaxAttachmentPlan } from './tax-pack';
+import { getSupabaseAdmin } from '../supabase/server';
 
 /**
  * Emailing reports and the CPA pack.
@@ -270,6 +272,44 @@ export async function renderBooksFormat(summary: BooksSummary, format: string, e
   return { bytes: await renderBooksPdf(summary), filename: `coinpay-books-${label}.pdf`, contentType: 'application/pdf' };
 }
 
+/**
+ * Tax documents (FTB/IRS notices, letters, transcripts) stay on CoinPay
+ * surfaces; by email they go only to the books owner's own address. To hand
+ * them to an accountant, the owner downloads `books export --with-documents`
+ * and shares it themselves.
+ */
+export function ownerOnlyRecipientsError(ownerEmail: string | null, recipients: readonly string[]): EmailingError | null {
+  const owner = (ownerEmail ?? '').trim().toLowerCase();
+  const others = recipients.filter((r) => r.toLowerCase() !== owner);
+  if (owner && others.length === 0) return null;
+  return new EmailingError(
+    'tax_documents_owner_only',
+    owner
+      ? `Tax documents are only emailed to the account owner (${owner}). Send without --with-documents, or download them with books export --with-documents.`
+      : 'Tax documents are only emailed to the account owner, and this account has no email address on file.',
+    400,
+  );
+}
+
+async function requireOwnerOnlyRecipients(merchantId: string, recipients: readonly string[]): Promise<void> {
+  const { data } = await getSupabaseAdmin().from('merchants').select('email').eq('id', merchantId).maybeSingle();
+  const err = ownerOnlyRecipientsError((data as { email?: string | null } | null)?.email ?? null, recipients);
+  if (err) throw err;
+}
+
+/** The tax documents block of the CPA pack email: what is attached, and what did not fit. */
+export function taxDocumentsHtml(documents: { attached: string[]; skipped: Array<{ title: string; reason: string }> }): string {
+  const attached = documents.attached.length
+    ? `<p style="margin:12px 0 4px;font-size:13px">Tax documents attached (${documents.attached.length}): ${escapeHtml(documents.attached.join(', '))}.</p>`
+    : documents.skipped.length
+      ? ''
+      : '<p style="margin:12px 0 4px;font-size:13px">No tax documents on file for this period.</p>';
+  const skipped = documents.skipped.length
+    ? `<p style="margin:0 0 4px;font-size:12px;color:#555">Not attached, to stay under the email size limit (download them in CoinPay under Finances, Documents): ${escapeHtml(documents.skipped.map((d) => `${d.title} (${d.reason})`).join('; '))}.</p>`
+    : '';
+  return attached + skipped;
+}
+
 /** Email the CPA pack for a period, as the books stand now. */
 export async function sendBooksEmail(input: {
   merchantId: string;
@@ -280,8 +320,11 @@ export async function sendBooksEmail(input: {
   attach?: boolean;
   expiresInDays?: number;
   subjectPrefix?: string;
-}): Promise<SendOutcome & { unreviewed: number; rows: number }> {
+  /** Also attach the period's tax documents (category 'tax'), within the same size cap. */
+  withDocuments?: boolean;
+}): Promise<SendOutcome & { unreviewed: number; rows: number; documents?: { attached: string[]; skipped: TaxAttachmentPlan['skipped'] } }> {
   const recipients = normalizeRecipients(input.to);
+  if (input.withDocuments) await requireOwnerOnlyRecipients(input.merchantId, recipients);
   const formats = (input.formats?.length ? input.formats : ['pdf', 'csv']).filter((f) => ['pdf', 'csv', 'html', 'json'].includes(f));
   if (formats.length === 0) throw new EmailingError('invalid_request', 'formats must be among pdf, csv, html, json', 400);
   const bounded = resolveBooksSelection(input.selection);
@@ -309,13 +352,28 @@ export async function sendBooksEmail(input: {
     }
   }
 
+  // Tax documents ride in whatever room the books files left.
+  let documents: { attached: string[]; skipped: TaxAttachmentPlan['skipped'] } | undefined;
+  if (input.withDocuments) {
+    const used = attachments.reduce((n, a) => n + a.content.length, 0);
+    const plan = input.attach !== false
+      ? await taxAttachmentsFor(input.merchantId, bounded.startDate, bounded.endDate, MAX_ATTACHMENT_BYTES - used)
+      : await taxAttachmentsFor(input.merchantId, bounded.startDate, bounded.endDate, 0);
+    for (const doc of plan.attached) {
+      attachments.push({ filename: doc.filename, content: doc.content, contentType: 'application/pdf' });
+      attached.push(doc.filename);
+    }
+    documents = { attached: plan.attached.map((d) => d.filename), skipped: plan.skipped };
+  }
+
   const body = `<p style="margin:0 0 8px"><strong>${escapeHtml(bounded.label)}</strong> (${escapeHtml(bounded.timezone)}) · ${escapeHtml(input.selection.scope)} books${bounded.periodToDate ? ' · period to date' : ''}</p>
 ${totalsHtml(summary.totals as Array<{ currency: string; [k: string]: string | number }>, [['income', 'Income'], ['expenses', 'Expenses'], ['net', 'Net'], ['excluded', 'Excluded']])}
-<p style="margin:12px 0 0;font-size:12px;color:#555">${summary.rows} rows, ${summary.unreviewed} not yet reviewed, ${summary.uncategorized} uncategorised. Tax categories are a bookkeeping mapping prepared for an accountant, not tax advice.</p>`;
+<p style="margin:12px 0 0;font-size:12px;color:#555">${summary.rows} rows, ${summary.unreviewed} not yet reviewed, ${summary.uncategorized} uncategorised. Tax categories are a bookkeeping mapping prepared for an accountant, not tax advice.</p>
+${documents ? taxDocumentsHtml(documents) : ''}`;
   const subject = `${input.subjectPrefix ?? 'CoinPay books'}: ${bounded.label} (${input.selection.scope})`;
   const html = wrapEmail(subject, 'Totals by tax category and the rows behind them, from the CoinPay books as they stand today.', body, { url: link.url, expiresAt: link.row.expires_at }, input.message ?? null, attached);
 
   const outcome = await deliver(recipients, subject, html, attachments);
-  await audit(input.merchantId, 'books.email', 'merchant', input.merchantId, { recipients: recipients.length, sent: outcome.sent.length, failed: outcome.failed.length, attached: attached.length, scope: input.selection.scope });
-  return { ...outcome, attached, linkUrl: link.url, linkExpiresAt: link.row.expires_at, unreviewed: summary.unreviewed, rows: summary.rows };
+  await audit(input.merchantId, 'books.email', 'merchant', input.merchantId, { recipients: recipients.length, sent: outcome.sent.length, failed: outcome.failed.length, attached: attached.length, scope: input.selection.scope, ...(documents ? { documents: documents.attached.length, documents_skipped: documents.skipped.length } : {}) });
+  return { ...outcome, attached, linkUrl: link.url, linkExpiresAt: link.row.expires_at, unreviewed: summary.unreviewed, rows: summary.rows, ...(documents ? { documents } : {}) };
 }

@@ -60,8 +60,36 @@ export const TOOLS = [
       return text({
         chrome: sf.findChrome(),
         banks: institutions.map((i) => ({ key: i.key, name: i.name, accounts: i.accounts.map((a) => a.name), signedIn: sf.signedIn(i.key, home), ...state.institutions[i.key] })),
+        // FTB and IRS need no linked bank; each is throttled (2 visits / 30 min, 4 / day).
+        taxSources: sf.standaloneSources().map((s) => ({ key: s.key, name: s.name, signedIn: sf.signedIn(s.key, home), throttle: sf.checkLocalThrottle(home, s.key), ...state.institutions[s.key] })),
       });
     },
+  },
+  {
+    name: 'tax_documents_list',
+    description:
+      'Tax documents in the CoinPay document library: notices, letters and transcripts fetched from California FTB and the IRS (or uploaded), with tax year, type, source and period. Details only, not the files. Optionally one tax year or one source (ftb, irs, irs-business).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taxYear: { type: 'integer', minimum: 1990, maximum: 2100 },
+        source: { type: 'string', description: 'ftb, irs or irs-business' },
+        limit: { type: 'integer', minimum: 1, maximum: 500 },
+      },
+      additionalProperties: false,
+    },
+    handler: async (args, { client }) => {
+      const documents = (await reports.listFinanceDocuments(client, { category: 'tax', limit: args.limit }))
+        .filter((d) => args.taxYear === undefined || d.taxYear === args.taxYear)
+        .filter((d) => args.source === undefined || d.institutionKey === args.source);
+      return text({ documents });
+    },
+  },
+  {
+    name: 'tax_documents_get',
+    description: 'One document from the CoinPay document library by id: title, type, tax year, source, period, size, and its download path in CoinPay.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+    handler: async (args, { client }) => text({ document: await reports.getFinanceDocument(client, args.id) }),
   },
   {
     name: 'statements_cloud_status',
@@ -121,7 +149,7 @@ export async function handleMessage(message, ctx) {
         capabilities: { tools: {} },
         serverInfo: { name: 'coinpay', version: ctx.version || '0.0.0' },
         instructions:
-          'CoinPay finances. Statement PDFs come from the banks themselves (SimpleFIN has none): statements_coverage shows what is missing, statements_fetch downloads what is new on this machine. A bank marked login_needed needs a person to run `coinpay finances statements login <bank>`.',
+          'CoinPay finances. Statement PDFs come from the banks themselves (SimpleFIN has none): statements_coverage shows what is missing, statements_fetch downloads what is new on this machine. A bank marked login_needed needs a person to run `coinpay finances statements login <bank>`. Tax notices, letters and transcripts (California FTB, IRS) are in tax_documents_list; tax data stays on CoinPay surfaces and is never sent elsewhere.',
       });
     case 'notifications/initialized':
     case 'notifications/cancelled':

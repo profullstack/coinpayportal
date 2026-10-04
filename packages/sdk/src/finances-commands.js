@@ -146,7 +146,7 @@ async function runCloudAction(rest, flags, { client, emit, progress }) {
     const lines = [data.access.allowed ? `CoinPay cloud: ${data.access.message}` : `CoinPay cloud is not available: ${data.access.message}`, ''];
     for (const bank of data.banks) {
       const c = bank.cloud;
-      lines.push(`${bank.key}  ${bank.name}  ·  ${!c ? 'not connected' : c.state === 'login_needed' ? 'needs sign-in' : c.state}${c ? `  ·  last fetch ${ago(c.lastFetchAt)}${c.lastStatus ? ` (${c.lastStatus})` : ''}  ·  ${c.schedule}` : ''}`);
+      lines.push(`${bank.key}  ${bank.name}${bank.kind === 'tax' ? ' (tax documents)' : ''}  ·  ${!c ? 'not connected' : c.state === 'login_needed' ? 'needs sign-in' : c.state}${c ? `  ·  last fetch ${ago(c.lastFetchAt)}${c.lastStatus ? ` (${c.lastStatus})` : ''}  ·  ${c.schedule}` : ''}`);
     }
     const next = data.banks.find((b) => !b.cloud || b.cloud.state !== 'active');
     if (data.access.allowed && next) lines.push('', `Next: coinpay finances statements cloud connect ${next.key}`);
@@ -155,8 +155,9 @@ async function runCloudAction(rest, flags, { client, emit, progress }) {
   }
 
   if (sub === 'connect') {
-    if (!name) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements cloud connect <bank> [--url <sign-in page>]');
+    if (!name) throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements cloud connect <bank|ftb|irs|irs-business> [--url <sign-in page>]');
     const data = await api.connectCloudBank(client, { institutionKey: name, url: typeof flags.url === 'string' ? flags.url : undefined });
+    if (data.warning) progress(`warning: ${data.warning}`);
     const { siteOrigin, openInBrowser } = await import('./oauth-login.js');
     const viewer = new URL(data.viewerUrl, siteOrigin(client.baseUrl)).toString();
     const opened = flags['no-open'] ? false : openInBrowser(viewer);
@@ -262,7 +263,8 @@ async function runStatementFetchAction(action, rest, flags, { client, out, emit,
     }
 
     const bound = await sf.clientApi(client);
-    const institutions = sf.groupInstitutions(await bound.listAccounts());
+    const linked = sf.groupInstitutions(await bound.listAccounts());
+    const institutions = sf.withStandaloneSources(linked);
     if (action === 'banks') {
       const state = sf.loadLocal(home);
       let latest = [];
@@ -271,27 +273,60 @@ async function runStatementFetchAction(action, rest, flags, { client, out, emit,
       } catch {
         // An older deployment without the route still lists the banks.
       }
-      const rows = institutions.map((i) => ({ ...i, signedIn: sf.signedIn(i.key, home), local: state.institutions[i.key] || {}, lastRun: latest.find((r) => r.institutionKey === i.key) || null }));
+      const rows = institutions.map((i) => ({
+        ...i,
+        signedIn: sf.signedIn(i.key, home),
+        local: state.institutions[i.key] || {},
+        lastRun: latest.find((r) => r.institutionKey === i.key) || null,
+        throttle: sf.isTaxSource(i) ? sf.checkLocalThrottle(home, i.key) : null,
+      }));
+      const banks = rows.filter((b) => !sf.isTaxSource(b));
+      const taxRows = rows.filter((b) => sf.isTaxSource(b));
+      const line = (b) => `${b.key}  ${b.name}  ·  ${b.signedIn ? `signed in ${ago(b.local.loggedInAt)}` : 'not signed in'}  ·  last fetch ${b.lastRun ? `${b.lastRun.status} ${ago(b.lastRun.finishedAt)}` : 'never'}${b.throttle && !b.throttle.ok ? `  ·  waiting: ${b.throttle.message}` : ''}`;
       emit({ home, chrome, banks: rows }, [
-        ...rows.map((b) => `${b.key}  ${b.name}  ·  ${b.signedIn ? `signed in ${ago(b.local.loggedInAt)}` : 'not signed in'}  ·  last fetch ${b.lastRun ? `${b.lastRun.status} ${ago(b.lastRun.finishedAt)}` : 'never'}\n${b.accounts.map((a) => `    ${a.name}${a.last4 ? '' : '  (no last four digits: its statements may need filing by hand)'}`).join('\n')}`),
-        ...(rows.some((b) => !b.signedIn) ? ['', `Next: coinpay finances statements login ${rows.find((b) => !b.signedIn).key}`] : []),
+        ...banks.map((b) => `${line(b)}\n${b.accounts.map((a) => `    ${a.name}${a.last4 ? '' : '  (no last four digits: its statements may need filing by hand)'}`).join('\n')}`),
+        ...(banks.length ? [] : ['No linked banks.']),
+        '',
+        'Tax sources (notices, letters, transcripts -> Documents; at most 2 visits per 30 min, 4 per day):',
+        ...taxRows.map((b) => line(b)),
+        ...(banks.some((b) => !b.signedIn) ? ['', `Next: coinpay finances statements login ${banks.find((b) => !b.signedIn).key}`] : []),
         ...(chrome ? [] : ['', sf.NO_CHROME]),
       ].join('\n'));
       return EXIT.OK;
     }
     if (action === 'login' || action === 'assist') {
-      if (rest.length !== 1) throw new CliExit(EXIT.INVALID, `Usage: coinpay finances statements ${action} <bank>`);
+      if (rest.length !== 1) throw new CliExit(EXIT.INVALID, `Usage: coinpay finances statements ${action} <bank|ftb|irs|irs-business>`);
       if (!chrome) throw new CliExit(EXIT.FAILURE, sf.NO_CHROME);
-      const institution = sf.pickInstitution(institutions, rest[0]);
+      const institution = sf.pickInstitution(linked, rest[0]);
+      const tax = sf.isTaxSource(institution);
       const state = sf.loadLocal(home);
       const local = (state.institutions[institution.key] ||= {});
       const urls = sf.startUrls(institution, local.start);
+      let onPageText;
+      if (tax) {
+        // Counted before the window opens. --force never lifts a lockout.
+        const verdict = sf.takeLocalAttempt(home, institution.key, action);
+        if (!verdict.ok) throw new CliExit(EXIT.STRICT, `${institution.name}: not opening, ${verdict.message}`);
+        const source = sf.taxSource(institution.key) || {};
+        let warned = false;
+        onPageText = (text) => {
+          const lock = sf.detectLockout(text);
+          if (!lock) return;
+          const until = sf.lockoutUntil(lock, new Date(), undefined, source.lockoutMinutes);
+          sf.recordLocalLockout(home, institution.key, until, `lockout page during ${action}`);
+          if (!warned) {
+            warned = true;
+            progress(`${institution.name} shows a locked account. Stop trying and close the window; CoinPay will not open it again before ${until}.`);
+          }
+        };
+        progress(`${institution.name}: sign in once, by hand. If a code arrives late, do not resubmit the form; close the window and wait. (${sf.TAX_THROTTLE.perWindow} visits per 30 minutes, ${sf.TAX_THROTTLE.perDay} per day.)`);
+      }
       const browser = await sf.openBrowser({ chrome, profile: sf.profileDir(institution.key, home), headless: false, force: flags.force === true });
       if (action === 'login') {
         const url = typeof flags.url === 'string' ? flags.url : urls.login;
         if (!url) throw new CliExit(EXIT.INVALID, `CoinPay has no site for ${institution.name}; pass --url with its sign-in page`);
         out(`Opening ${institution.name}. Sign in, go to the page that lists your statements, then close the window.`);
-        const last = await sf.loginWindow(browser, url);
+        const last = await sf.loginWindow(browser, url, { onPageText });
         await browser.close();
         local.loggedInAt = new Date().toISOString();
         if (last) local.start = last;
@@ -299,13 +334,18 @@ async function runStatementFetchAction(action, rest, flags, { client, out, emit,
         emit({ bank: institution.key, start: local.start || urls.fetch }, last ? `Saved. fetch will start at ${last}` : 'Saved. The window closed on a sign-in page, so fetch starts from the bank\'s known page.');
         return EXIT.OK;
       }
-      out(`Opening ${institution.name}. Download each statement you want; each is imported as it lands. Close the window when done.`);
+      out(tax
+        ? `Opening ${institution.name}. Sign in, open your notices, letters or transcripts, and download each PDF; each is filed under Documents (tax) as it lands. Close the window when done.`
+        : `Opening ${institution.name}. Download each statement you want; each is imported as it lands. Close the window when done.`);
       let kept = 0;
       try {
         await sf.assistWindow(browser, {
           start: urls.fetch,
+          onPageText,
           onFile: async (download) => {
-            const result = await sf.keepStatement({ institution, download, state, home, importStatement: bound.importStatement, how: 'assist' });
+            const result = tax
+              ? await sf.keepTaxDocument({ institution, download, state, home, fileDocument: bound.fileDocument, how: 'assist' })
+              : await sf.keepStatement({ institution, download, state, home, importStatement: bound.importStatement, how: 'assist' });
             if (result.status === 'imported') kept += 1;
             progress(`  ${result.status}: ${result.entry ? result.entry.path : result.name}${result.entry && result.entry.importError ? ` (${result.entry.importError})` : ''}`);
             sf.saveLocal(state, home);
@@ -314,7 +354,7 @@ async function runStatementFetchAction(action, rest, flags, { client, out, emit,
       } finally {
         await browser.close();
       }
-      emit({ bank: institution.key, imported: kept }, `${kept} imported`);
+      emit({ bank: institution.key, imported: kept }, tax ? `${kept} filed under Documents (tax)` : `${kept} imported`);
       return EXIT.OK;
     }
     // fetch
@@ -325,7 +365,7 @@ async function runStatementFetchAction(action, rest, flags, { client, out, emit,
     const render = flags.render !== undefined ? Number(flags.render) : 25;
     if (!Number.isFinite(render) || render < 3 || render > 300) throw new CliExit(EXIT.INVALID, '--render is seconds, 3 to 300');
     const results = await sf.runStatementFetch({ api: bound, banks: rest, since, max, renderMs: render * 1000, headless: flags.headed !== true, chrome, home, log: progress, force: flags.force === true });
-    emit({ banks: results }, results.map((r) => `${r.bank}: ${r.status}, ${r.imported} imported, ${r.duplicates} already had, ${r.unmatched} unmatched${r.message ? ` (${r.message})` : ''}`).join('\n'));
+    emit({ banks: results }, results.map((r) => `${r.bank}: ${r.status}, ${r.imported} ${r.kind === 'tax' ? 'filed' : 'imported'}, ${r.duplicates} already had${r.kind === 'tax' ? '' : `, ${r.unmatched} unmatched`}${r.message ? ` (${r.message})` : ''}`).join('\n'));
     return results.every((r) => r.status === 'ok' && r.failed === 0) ? EXIT.OK : EXIT.STRICT;
   } catch (err) {
     if (err instanceof sf.StatementFetchError) throw new CliExit(EXIT.INVALID, err.message);
@@ -625,7 +665,7 @@ export async function runFinancesCommand(subcommand, args, flags, ctx) {
           return EXIT.OK;
         }
         if (STATEMENT_FETCH_ACTIONS.has(action)) return await runStatementFetchAction(action, args.slice(1), flags, { client, out, emit, progress });
-        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements [import <file>|list|get <id>|download <id>|reconcile <id>|delete <id>|banks|login <bank>|fetch [bank…]|assist <bank>|coverage|runs|local|retry]');
+        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements [import <file>|list|get <id>|download <id>|reconcile <id>|delete <id>|banks|login <bank>|fetch [bank…]|assist <bank>|coverage|runs|local|retry|cloud …]  (tax sources: ftb, irs, irs-business)');
       }
 
       case 'books': {
@@ -698,7 +738,7 @@ export async function runFinancesCommand(subcommand, args, flags, ctx) {
           return EXIT.OK;
         }
         if (action === 'send') {
-          if (typeof flags.to !== 'string') throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books send --to cpa@x.com,me@x.com --period 2026 [--scope business] [--format pdf,csv] [--message "…"]');
+          if (typeof flags.to !== 'string') throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books send --to cpa@x.com,me@x.com --period 2026 [--scope business] [--format pdf,csv] [--message "…"] [--with-documents (your own address only)]');
           const period = typeof flags.period === 'string' ? flags.period : null;
           const from = typeof flags.from === 'string' ? flags.from : undefined;
           const toDate = typeof flags['to-date'] === 'string' ? flags['to-date'] : undefined;
@@ -710,8 +750,12 @@ export async function runFinancesCommand(subcommand, args, flags, ctx) {
             formats: flags.format ? listFlag(flags.format) : undefined,
             message: typeof flags.message === 'string' ? flags.message : null,
             attach: flags['no-attach'] ? false : true,
+            withDocuments: flags['with-documents'] === true,
           });
-          emit(data, `Sent to ${data.sent.join(', ') || 'nobody'}${data.failed.length ? `; failed: ${data.failed.map((f) => `${f.to} (${f.error})`).join(', ')}` : ''}. ${data.rows} rows, ${data.unreviewed} unreviewed. Link (expires ${data.linkExpiresAt.slice(0, 10)}): ${data.linkUrl}`);
+          const docs = data.documents
+            ? ` Tax documents attached: ${data.documents.attached.length ? data.documents.attached.join(', ') : 'none'}.${data.documents.skipped.length ? ` Not attached (in CoinPay under Documents): ${data.documents.skipped.map((d) => `${d.title} (${d.reason})`).join(', ')}.` : ''}`
+            : '';
+          emit(data, `Sent to ${data.sent.join(', ') || 'nobody'}${data.failed.length ? `; failed: ${data.failed.map((f) => `${f.to} (${f.error})`).join(', ')}` : ''}. ${data.rows} rows, ${data.unreviewed} unreviewed.${docs} Link (expires ${data.linkExpiresAt.slice(0, 10)}): ${data.linkUrl}`);
           return data.sent.length > 0 ? EXIT.OK : EXIT.FAILURE;
         }
         if (action === 'summary' || action === 'export') {
@@ -734,10 +778,16 @@ export async function runFinancesCommand(subcommand, args, flags, ctx) {
             return EXIT.OK;
           }
           const format = typeof flags.format === 'string' ? flags.format.toLowerCase() : 'csv';
-          const file = await api.exportBooks(client, { period: period || undefined, from, to, timezone, scope, format });
-          const output = typeof flags.output === 'string' ? flags.output : file.filename || `books-${period || 'range'}.${format}`;
+          const withDocuments = flags['with-documents'] === true;
+          const file = await api.exportBooks(client, { period: period || undefined, from, to, timezone, scope, format, withDocuments });
+          const output = typeof flags.output === 'string' ? flags.output : file.filename || `books-${period || 'range'}.${withDocuments ? 'zip' : format}`;
           const path = writeDownload(output, Buffer.from(file.bytes), { overwrite: flags.overwrite === true });
-          emit({ output: path, bytes: file.bytes.length, unreviewed: Number(file.headers['x-unreviewed-rows'] || 0) }, `Wrote ${path} (${file.bytes.length} bytes; ${file.headers['x-unreviewed-rows'] || 0} unreviewed rows)`);
+          const attachedDocs = Number(file.headers['x-documents-attached'] || 0);
+          const skippedDocs = Number(file.headers['x-documents-skipped'] || 0);
+          emit(
+            { output: path, bytes: file.bytes.length, unreviewed: Number(file.headers['x-unreviewed-rows'] || 0), ...(withDocuments ? { documentsAttached: attachedDocs, documentsSkipped: skippedDocs } : {}) },
+            `Wrote ${path} (${file.bytes.length} bytes; ${file.headers['x-unreviewed-rows'] || 0} unreviewed rows)${withDocuments ? `. ${attachedDocs} tax document(s) inside${skippedDocs ? `, ${skippedDocs} left out to stay under 8 MiB (listed in MANIFEST.txt)` : ''}` : ''}`,
+          );
           return EXIT.OK;
         }
         throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances books [queue|confirm <id>|confirm-all --yes|categorize|rules [add|delete]|summary|export|send]');
