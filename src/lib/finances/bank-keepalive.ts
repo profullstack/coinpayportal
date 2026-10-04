@@ -2,6 +2,7 @@ import 'server-only';
 import { getSupabaseAdmin } from '../supabase/server';
 import { sendEmail } from '../email';
 import { BrowserBusyError, launchCloudBrowser, loadEngine } from './cloud-browser';
+import { checkSiteThrottle } from './site-attempts';
 import { captureState, getBankSession, loadSessionState, nextTouchAt, saveSession, updateBankSession, type BankSessionRow, type SessionState } from './bank-sessions';
 
 /**
@@ -106,6 +107,16 @@ export async function touchBankSession(row: BankSessionRow): Promise<'alive' | '
     await updateBankSession(row.merchant_id, row.institution_key, { keepalive: false, next_touch_at: null });
     return 'skipped';
   }
+  // A bank that locked the account (recorded by the connect lockout watcher)
+  // must not be touched again until the lock clears, or the keepalive just
+  // keeps re-triggering it. Back off until the recorded lock ends.
+  const throttle = await checkSiteThrottle(row.merchant_id, row.institution_key);
+  if (!throttle.ok && throttle.reason === 'locked') {
+    const until = throttle.retryAt ? Date.parse(throttle.retryAt) : Date.now() + 6 * 3_600_000;
+    await updateBankSession(row.merchant_id, row.institution_key, { next_touch_at: nextTouchAt(until) });
+    return 'skipped';
+  }
+
   const startUrl = row.start_url ?? sf.startUrls({ key: row.institution_key, url: null }, null).fetch;
   if (!startUrl) return 'skipped';
 
@@ -138,7 +149,10 @@ export async function touchBankSession(row: BankSessionRow): Promise<'alive' | '
     return 'login_needed';
   } catch (err) {
     console.error(`[bank-keepalive] ${row.institution_key}:`, err instanceof Error ? err.message : err);
-    await updateBankSession(row.merchant_id, row.institution_key, { next_touch_at: nextTouchAt() }).catch(() => undefined);
+    // A bank that errors (loops, refuses the datacenter, challenges) should not
+    // be retried on the normal ~10 minute cadence — back off about an hour so a
+    // persistently unhappy bank is not hammered into a lock.
+    await updateBankSession(row.merchant_id, row.institution_key, { next_touch_at: nextTouchAt(Date.now() + 60 * 60_000) }).catch(() => undefined);
     return 'error';
   } finally {
     held.release();
