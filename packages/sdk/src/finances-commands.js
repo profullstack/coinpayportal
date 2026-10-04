@@ -123,6 +123,131 @@ function describeReport(report) {
   return parts.filter(Boolean).join(' · ');
 }
 
+const STATEMENT_FETCH_ACTIONS = new Set(['banks', 'login', 'fetch', 'assist', 'coverage', 'runs', 'local', 'retry']);
+
+function ago(iso) {
+  if (!iso) return 'never';
+  const hours = (Date.now() - Date.parse(iso)) / 3_600_000;
+  if (hours < 1) return 'just now';
+  return hours < 48 ? `${Math.round(hours)}h ago` : `${Math.round(hours / 24)}d ago`;
+}
+
+/**
+ * Downloading statements from the banks themselves (SimpleFIN has no
+ * documents). Runs on this machine: each bank's session lives in a local
+ * Chrome profile under ~/.coinpay/statements and never reaches CoinPay.
+ * `fetch` exits 3 when any bank needs signing in again or showed nothing.
+ */
+async function runStatementFetchAction(action, rest, flags, { client, out, emit, progress }) {
+  const sf = await import('./statements-fetch.js');
+  const home = sf.statementsHome();
+  const chrome = typeof flags.chrome === 'string' ? flags.chrome : sf.findChrome();
+  const months = (value, fallback) => {
+    if (value === undefined) return fallback;
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 1 || n > 36) throw new CliExit(EXIT.INVALID, '--months is a whole number from 1 to 36');
+    return n;
+  };
+
+  try {
+    if (action === 'coverage') {
+      const data = await api.getStatementCoverage(client, { months: months(flags.months, 12) });
+      const mark = { have: '■', missing: '·', open: '○' };
+      const lines = data.accounts.map((a) => `${a.months.map((m) => mark[m.state]).join('')}  ${a.institutionKey}  ${a.accountName}${a.missing ? `  (${a.missing} missing)` : ''}`);
+      const fetchers = (data.fetchers || []).map((r) => `${r.institutionKey}: ${r.status} ${ago(r.finishedAt)}${r.message ? ` (${r.message})` : ''}`);
+      emit(data, [`${data.months[0]} … ${data.months[data.months.length - 1]}   ■ have  · missing  ○ this month`, ...lines, '', `${data.missing} account-months missing`, ...(fetchers.length ? ['', 'Last fetch per bank:', ...fetchers] : ['', 'No statement fetch has run yet: coinpay finances statements banks'])].join('\n'));
+      return EXIT.OK;
+    }
+    if (action === 'runs') {
+      const data = await api.listStatementFetchRuns(client, { limit: flags.limit ? Number(flags.limit) : undefined });
+      emit(data, data.runs.length ? data.runs.map((r) => `${r.finishedAt}  ${r.institutionKey}  ${r.status}  ${r.filed} imported, ${r.duplicates} had, ${r.unmatched} unmatched${r.message ? `  ${r.message}` : ''}`).join('\n') : 'No statement fetch has run yet.');
+      return EXIT.OK;
+    }
+    if (action === 'local') {
+      const state = sf.loadLocal(home);
+      emit({ home, entries: state.entries }, state.entries.length
+        ? state.entries.map((e) => `${e.statementId ? 'imported ' : 'local    '} ${e.path}${e.importError ? `  (${e.importError})` : ''}`).join('\n')
+        : `Nothing downloaded yet (${home})`);
+      return EXIT.OK;
+    }
+    if (action === 'retry') {
+      const result = await sf.retryImports({ api: await sf.clientApi(client), home, log: progress });
+      emit(result, `${result.imported} imported, ${result.skipped} skipped (no account or period), ${result.failed} failed`);
+      return result.failed ? EXIT.FAILURE : EXIT.OK;
+    }
+
+    const bound = await sf.clientApi(client);
+    const institutions = sf.groupInstitutions(await bound.listAccounts());
+    if (action === 'banks') {
+      const state = sf.loadLocal(home);
+      let latest = [];
+      try {
+        latest = (await api.listStatementFetchRuns(client, { limit: 200 })).latest || [];
+      } catch {
+        // An older deployment without the route still lists the banks.
+      }
+      const rows = institutions.map((i) => ({ ...i, signedIn: sf.signedIn(i.key, home), local: state.institutions[i.key] || {}, lastRun: latest.find((r) => r.institutionKey === i.key) || null }));
+      emit({ home, chrome, banks: rows }, [
+        ...rows.map((b) => `${b.key}  ${b.name}  ·  ${b.signedIn ? `signed in ${ago(b.local.loggedInAt)}` : 'not signed in'}  ·  last fetch ${b.lastRun ? `${b.lastRun.status} ${ago(b.lastRun.finishedAt)}` : 'never'}\n${b.accounts.map((a) => `    ${a.name}${a.last4 ? '' : '  (no last four digits: its statements may need filing by hand)'}`).join('\n')}`),
+        ...(rows.some((b) => !b.signedIn) ? ['', `Next: coinpay finances statements login ${rows.find((b) => !b.signedIn).key}`] : []),
+        ...(chrome ? [] : ['', sf.NO_CHROME]),
+      ].join('\n'));
+      return EXIT.OK;
+    }
+    if (action === 'login' || action === 'assist') {
+      if (rest.length !== 1) throw new CliExit(EXIT.INVALID, `Usage: coinpay finances statements ${action} <bank>`);
+      if (!chrome) throw new CliExit(EXIT.FAILURE, sf.NO_CHROME);
+      const institution = sf.pickInstitution(institutions, rest[0]);
+      const state = sf.loadLocal(home);
+      const local = (state.institutions[institution.key] ||= {});
+      const urls = sf.startUrls(institution, local.start);
+      const browser = await sf.openBrowser({ chrome, profile: sf.profileDir(institution.key, home), headless: false });
+      if (action === 'login') {
+        const url = typeof flags.url === 'string' ? flags.url : urls.login;
+        if (!url) throw new CliExit(EXIT.INVALID, `CoinPay has no site for ${institution.name}; pass --url with its sign-in page`);
+        out(`Opening ${institution.name}. Sign in, go to the page that lists your statements, then close the window.`);
+        const last = await sf.loginWindow(browser, url);
+        await browser.close();
+        local.loggedInAt = new Date().toISOString();
+        if (last) local.start = last;
+        sf.saveLocal(state, home);
+        emit({ bank: institution.key, start: local.start || urls.fetch }, last ? `Saved. fetch will start at ${last}` : 'Saved. The window closed on a sign-in page, so fetch starts from the bank\'s known page.');
+        return EXIT.OK;
+      }
+      out(`Opening ${institution.name}. Download each statement you want; each is imported as it lands. Close the window when done.`);
+      let kept = 0;
+      try {
+        await sf.assistWindow(browser, {
+          start: urls.fetch,
+          onFile: async (download) => {
+            const result = await sf.keepStatement({ institution, download, state, home, importStatement: bound.importStatement, how: 'assist' });
+            if (result.status === 'imported') kept += 1;
+            progress(`  ${result.status}: ${result.entry ? result.entry.path : result.name}${result.entry && result.entry.importError ? ` (${result.entry.importError})` : ''}`);
+            sf.saveLocal(state, home);
+          },
+        });
+      } finally {
+        await browser.close();
+      }
+      emit({ bank: institution.key, imported: kept }, `${kept} imported`);
+      return EXIT.OK;
+    }
+    // fetch
+    const since = typeof flags.since === 'string' ? flags.since : null;
+    if (since && !/^\d{4}-(0[1-9]|1[0-2])$/.test(since)) throw new CliExit(EXIT.INVALID, '--since is YYYY-MM');
+    const max = flags.max !== undefined ? Number(flags.max) : 24;
+    if (!Number.isInteger(max) || max < 1 || max > 500) throw new CliExit(EXIT.INVALID, '--max is a whole number from 1 to 500');
+    const render = flags.render !== undefined ? Number(flags.render) : 25;
+    if (!Number.isFinite(render) || render < 3 || render > 300) throw new CliExit(EXIT.INVALID, '--render is seconds, 3 to 300');
+    const results = await sf.runStatementFetch({ api: bound, banks: rest, since, max, renderMs: render * 1000, headless: flags.headed !== true, chrome, home, log: progress });
+    emit({ banks: results }, results.map((r) => `${r.bank}: ${r.status}, ${r.imported} imported, ${r.duplicates} already had, ${r.unmatched} unmatched${r.message ? ` (${r.message})` : ''}`).join('\n'));
+    return results.every((r) => r.status === 'ok' && r.failed === 0) ? EXIT.OK : EXIT.STRICT;
+  } catch (err) {
+    if (err instanceof sf.StatementFetchError) throw new CliExit(EXIT.INVALID, err.message);
+    throw err;
+  }
+}
+
 /**
  * Run one subcommand. `ctx` supplies the client and the output channels.
  * @returns {Promise<number>} an exit code
@@ -414,7 +539,8 @@ export async function runFinancesCommand(subcommand, args, flags, ctx) {
           emit(data, data.note);
           return EXIT.OK;
         }
-        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements [import <file>|list|get <id>|download <id>|reconcile <id>|delete <id>]');
+        if (STATEMENT_FETCH_ACTIONS.has(action)) return await runStatementFetchAction(action, args.slice(1), flags, { client, out, emit, progress });
+        throw new CliExit(EXIT.INVALID, 'Usage: coinpay finances statements [import <file>|list|get <id>|download <id>|reconcile <id>|delete <id>|banks|login <bank>|fetch [bank…]|assist <bank>|coverage|runs|local|retry]');
       }
 
       case 'books': {

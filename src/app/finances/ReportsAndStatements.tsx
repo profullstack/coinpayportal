@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import StatementFetchPanel from './StatementFetchPanel';
 
 /**
  * Reports and Statements for /finances.
@@ -714,6 +715,8 @@ export default function ReportsAndStatements({ accounts, connections = [], authH
         <p className="text-xs text-gray-500">
           Original PDFs you supply, kept privately beside the account and period you say they cover. Nothing is read out of them, and CoinPay does not verify their issuer.
         </p>
+
+        <StatementFetchPanel authHeaders={authHeaders} refreshKey={statements.length} />
 
         <div className="grid gap-3 md:grid-cols-4 mt-4">
           <label className="text-xs text-gray-400">

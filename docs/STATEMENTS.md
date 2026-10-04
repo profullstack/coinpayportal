@@ -44,6 +44,61 @@ a different account or period create a separate record and say
 `duplicateOf`. A matching hash proves the bytes are the same, not that the
 bank issued them.
 
+## Fetching from the banks
+
+SimpleFIN supplies balances and transactions, never the PDFs: the protocol
+has no document endpoint and the Bridge keeps none. So the CLI downloads them
+from each bank itself, **on the merchant's own machine**, and imports each one
+through the endpoint above:
+
+```bash
+coinpay finances statements banks            # linked banks: signed in here? last fetch?
+coinpay finances statements login chase      # once per bank, in a window
+coinpay finances statements fetch            # every new statement, every signed-in bank
+coinpay finances statements fetch citi --since 2026-01 --headed
+coinpay finances statements assist dcu       # a window; every PDF you download is imported
+coinpay finances statements coverage         # which account-months have a statement
+coinpay finances statements runs|local|retry
+```
+
+- **Sessions stay local.** Each bank gets its own Chrome profile under
+  `~/.coinpay/statements/profiles/<bank>` (`COINPAY_STATEMENTS_DIR` moves it),
+  signed in by a person in a real window. CoinPay never asks for or receives a
+  bank password, cookie or page. While the login window is open, go on to the
+  page that lists statements before closing it: that page is where `fetch`
+  starts from then on, so a bank with no built-in entry works the same way.
+- **What fetch clicks.** Headless by default. It follows the page's
+  "Statements" link when the list is not there yet, and clicks each control in
+  a dated row that reads like a download (`Download`, `PDF`, `View statement`,
+  a `.pdf` link), pressing a dialog's `Download` button when a click opens one.
+  Preference, paperless and tax-form links are left alone.
+- **Filing.** The account is the one whose last four digits appear in the row
+  or file name (or the bank's only account); the period is the cycle the row
+  prints, imported as `--from/--to` with `cycle=custom`, else the closing
+  month. A copy of every file stays in `~/.coinpay/statements/files`; one that
+  cannot be placed is kept there and reported as unmatched (`statements
+  local`, then import it by hand or `statements retry`). A row already
+  fetched is never clicked again, and identical bytes are never imported twice.
+- **Runs are reported.** After each bank, the CLI posts counts only to
+  `POST /api/finances/statements/fetch-runs` (`ok`, `login_needed`,
+  `no_statements`, `error`; no URL or content). `GET
+  /api/finances/statements/coverage?months=12` combines those with the library:
+  per account, each month is `have`, `missing` or `open` (the current month),
+  by the month the statement closed in. The PWA shows both on
+  `/finances/statements`.
+- **Unattended.** `fetch` exits `3` when any bank needs a sign-in or showed no
+  statements, so a weekly cron entry can tell you:
+  `30 7 * * 1 coinpay finances statements fetch`.
+- **Agents.** `coinpay mcp` serves the same over MCP (stdio):
+  `statements_coverage`, `statements_fetch_runs`, `statements_banks`,
+  `statements_list`, `statements_fetch` (runs a fetch on this machine) and
+  `finance_accounts`. `claude mcp add coinpay -- coinpay mcp`.
+
+Bank pages change without notice; nothing here depends on one bank's markup,
+and when the finder sees no statements it says so rather than guessing.
+`statements assist` is the fallback. Requires Node 22+ and a Chrome or
+Chromium (`CHROME_PATH`).
+
 ## Storage
 
 Bytes go to the private volume (`FINANCES_FILES_DIR`, `/mnt/files/finances`
