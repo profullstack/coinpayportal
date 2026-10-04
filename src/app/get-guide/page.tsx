@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import { GuideForm } from '@/components/field-guide/GuideForm';
+import { guideAvailable } from '@/lib/field-guide/asset';
+import { SUPPORT_EMAIL } from '@/lib/field-guide/lead.mjs';
 
 export const metadata: Metadata = {
   title: 'Free Online S-Corp Field Guide | CoinPayPortal',
@@ -7,7 +9,8 @@ export const metadata: Metadata = {
   alternates: { canonical: '/get-guide' },
 };
 
-export default function GetGuidePage() {
+export default async function GetGuidePage() {
+  const guideReady = await guideAvailable();
   return (
     <section className="bg-[#f4f1e9] px-6 py-12 text-[#203b2f] sm:py-20">
       <div className="mx-auto grid max-w-6xl items-start gap-10 lg:grid-cols-2 lg:gap-16">
@@ -23,7 +26,21 @@ export default function GetGuidePage() {
           <p className="mt-6 text-sm leading-relaxed">This is a vendor-authored, AI-assisted educational guide, not an independent product review or individualized legal, tax, accounting, or investment advice. CoinPayPortal, Mercury and moomoo perform different roles; no native integration or universal product ranking is promised.</p>
           <p className="mt-6 text-sm">Outside Santa Clara County? The download confirmation includes an optional regional setup call through our <a href="/contact" className="font-semibold underline">official contact page</a>.</p>
         </div>
-        <GuideForm />
+        {guideReady ? (
+          <GuideForm />
+        ) : (
+          <div className="rounded-2xl border border-[#b5bcae] bg-white/60 p-8">
+            <h2 className="font-serif text-2xl">The guide is being finalized.</h2>
+            <p className="mt-3 leading-relaxed">
+              We&apos;re putting the final edition together. Email{' '}
+              <a href={`mailto:${SUPPORT_EMAIL}`} className="font-semibold underline">{SUPPORT_EMAIL}</a>{' '}
+              and we&apos;ll send you the PDF as soon as it&apos;s ready.
+            </p>
+            <a href="/contact" className="mt-6 inline-flex items-center justify-center rounded-lg bg-[#203b2f] px-6 py-3 font-semibold text-white transition hover:bg-[#2d5040]">
+              Contact us
+            </a>
+          </div>
+        )}
       </div>
     </section>
   );
