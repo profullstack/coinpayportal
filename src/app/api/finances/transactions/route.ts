@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { listTransactions } from '@/lib/finances/summary';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,7 @@ function parseDate(value: string | null): Date | null {
  * bucket), `start`, `end`, `pending=0`, plus `limit`/`offset`.
  */
 export async function GET(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
 
   const params = req.nextUrl.searchParams;

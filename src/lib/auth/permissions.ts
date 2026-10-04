@@ -41,7 +41,13 @@ export type Capability =
   | 'wallet.manage'
   // owner-only
   | 'business.delete'
-  | 'funds.move';
+  | 'funds.move'
+  // Finances (the org owner's bank/card books). These apply only to a member the
+  // owner has granted finance access; see src/lib/finances/access.ts.
+  | 'finance.read'     // readonly+: view transactions, books, reports, statements
+  | 'finance.write'    // writer+: categorize, rules, sync, generate reports/statements
+  | 'finance.manage'   // admin+: email schedules, send packs/reports, delete reports
+  | 'finance.connect'; // owner only: link/unlink banks (Plaid, SimpleFIN), consent
 
 /** Rank used to compare roles (e.g. you cannot grant a role >= your own). */
 export const ROLE_RANK: Record<Role, number> = {
@@ -51,7 +57,7 @@ export const ROLE_RANK: Record<Role, number> = {
   readonly: 0,
 };
 
-const READ: Capability[] = ['business.read'];
+const READ: Capability[] = ['business.read', 'finance.read'];
 
 const WRITER_CAPS: Capability[] = [
   ...READ,
@@ -60,6 +66,7 @@ const WRITER_CAPS: Capability[] = [
   'customer.write',
   'payment.markPaid',
   'escrow.write',
+  'finance.write',
 ];
 
 const ADMIN_CAPS: Capability[] = [
@@ -73,9 +80,10 @@ const ADMIN_CAPS: Capability[] = [
   // Managing which wallet addresses a business RECEIVES to (import/add/remove).
   // Note: 'funds.move' (withdrawals / moving funds OUT) stays owner-only.
   'wallet.manage',
+  'finance.manage',
 ];
 
-const OWNER_CAPS: Capability[] = [...ADMIN_CAPS, 'business.delete', 'funds.move'];
+const OWNER_CAPS: Capability[] = [...ADMIN_CAPS, 'business.delete', 'funds.move', 'finance.connect'];
 
 export const ROLE_CAPABILITIES: Record<Role, ReadonlySet<Capability>> = {
   readonly: new Set(READ),

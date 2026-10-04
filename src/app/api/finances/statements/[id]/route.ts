@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant, requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { getStatement, deleteStatement, toPublicStatement } from '@/lib/finances/statements';
 import { listReconciliations, toPublicReconciliation } from '@/lib/finances/reconciliation';
 import { financeError, financeErrorFromException, financeJson, isUuid } from '@/lib/finances/api';
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 /** GET /api/finances/statements/[id] — metadata, inspection and reconciliation state. */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return financeError('not_found', 'Statement not found', 404);
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
  * synced transactions are not touched.
  */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.manage', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return financeError('not_found', 'Statement not found', 404);

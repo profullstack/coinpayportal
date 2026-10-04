@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { cancelJob, toPublicJob } from '@/lib/finances/jobs';
 import { financeError, financeErrorFromException, financeJson, isUuid } from '@/lib/finances/api';
-import { audit } from '@/lib/finances/audit';
+import { auditFinance } from '@/lib/finances/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,14 +11,14 @@ export const dynamic = 'force-dynamic';
  * work to stop at its next checkpoint (between provider requests).
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return financeError('not_found', 'Job not found', 404);
   try {
     const job = await cancelJob(id, guard.id);
     if (!job) return financeError('not_found', 'Job not found', 404);
-    await audit(guard.id, 'job.cancel', 'job', job.id, { status: job.status });
+    await auditFinance(guard, 'job.cancel', 'job', job.id, { status: job.status });
     return financeJson({ job: toPublicJob(job) });
   } catch (err) {
     return financeErrorFromException(err, 'Could not cancel the job');

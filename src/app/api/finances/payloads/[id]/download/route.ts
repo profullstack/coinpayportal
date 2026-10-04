@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { getPayload, readPayloadBytes } from '@/lib/finances/payloads';
 import { financeError, financeErrorFromException, isUuid } from '@/lib/finances/api';
-import { audit } from '@/lib/finances/audit';
+import { auditFinance } from '@/lib/finances/audit';
 
 export const dynamic = 'force-dynamic';
 
 /** GET /api/finances/payloads/[id]/download — the provider response exactly as received, as an attachment. */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return financeError('not_found', 'Payload not found', 404);
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const payload = await getPayload(id, guard.id);
     if (!payload) return financeError('not_found', 'Payload not found', 404);
     const bytes = await readPayloadBytes(payload);
-    await audit(guard.id, 'payload.download', 'payload', payload.id, { bytes: bytes.length });
+    await auditFinance(guard, 'payload.download', 'payload', payload.id, { bytes: bytes.length });
     return new NextResponse(new Uint8Array(bytes), {
       status: 200,
       headers: {

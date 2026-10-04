@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { booksSummary, toPublicRow } from '@/lib/finances/books';
 import { resolvePeriod, boundPeriod } from '@/lib/finances/periods';
 import { resolveFinanceTimezone } from '@/lib/finances/settings';
@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
  * rows, and says how many those are.
  */
 export async function GET(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const q = req.nextUrl.searchParams;
   const scopeParam = q.get('scope');

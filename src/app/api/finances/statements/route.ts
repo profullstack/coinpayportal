@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant, requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { importStatement, listStatements, toPublicStatement, maxStatementBytes, StatementError } from '@/lib/finances/statements';
 import { resolveFinanceTimezone } from '@/lib/finances/settings';
 import { financeError, financeErrorFromException, financeJson, isFeatureEnabled, isUuid } from '@/lib/finances/api';
@@ -19,7 +19,7 @@ export const maxDuration = 120;
  * into the ledger: this is a document, not a data source.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
   if (guard instanceof NextResponse) return guard;
   if (!isFeatureEnabled('FINANCES_STATEMENT_IMPORTS_ENABLED')) return financeError('feature_disabled', 'Statement imports are disabled on this deployment', 503);
 
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
 
 /** GET /api/finances/statements?account=&period=&from=&to= — the library. */
 export async function GET(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const q = req.nextUrl.searchParams;
   const parsedLimit = Number.parseInt(q.get('limit') ?? '', 10);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant, requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { deleteConnection, describeConnectionDeletion, getConnection } from '@/lib/finances/sync';
-import { audit } from '@/lib/finances/audit';
+import { auditFinance } from '@/lib/finances/audit';
 import { isUuid } from '@/lib/finances/api';
 
 export const dynamic = 'force-dynamic';
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  * would take with it, so a client can show that list before asking.
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return NextResponse.json({ error: 'Finance connection not found' }, { status: 404 });
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
  * cannot be re-claimed, so re-linking means a fresh token at the bridge.
  */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
 
   const { id } = await params;
@@ -66,7 +66,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     }
 
     await deleteConnection(id, guard.id);
-    await audit(guard.id, 'connection.delete', 'connection', id, {
+    await auditFinance(guard, 'connection.delete', 'connection', id, {
       accounts: affected.accounts,
       transactions: affected.transactions,
       statements: affected.statements,

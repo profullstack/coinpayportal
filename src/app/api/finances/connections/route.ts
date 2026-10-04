@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant, requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { listConnections, createConnection } from '@/lib/finances/sync';
 import { claimSetupToken, redactAccessUrl, ClaimError, decodeSetupToken, assertAllowedProviderUrl } from '@/lib/finances/simplefin';
 import { isPlaidEnabled } from '@/lib/finances/provider';
 import { requireEncryptionKey } from '@/lib/crypto/require-key';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import { audit, findReceipt } from '@/lib/finances/audit';
+import { auditFinance, findReceipt } from '@/lib/finances/audit';
 import { idempotencyKeyFrom } from '@/lib/finances/api';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
  * outcome. Never returns the access URL; there is no route that does.
  */
 export async function GET(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
 
   try {
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
  * bridge rather than retry it.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
 
   let body: { setupToken?: unknown; label?: unknown; protocolVersion?: unknown };
@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
       label,
       protocolVersion,
     });
-    await audit(guard.id, 'connection.claim', 'connection', connection.id, {
+    await auditFinance(guard, 'connection.claim', 'connection', connection.id, {
       provider: 'simplefin',
       protocolVersion: protocolVersion ?? 1,
       idempotencyKey: idempotencyKey ?? null,

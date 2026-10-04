@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { sendBooksEmail, EmailingError } from '@/lib/finances/emailing';
 import { resolveFinanceTimezone } from '@/lib/finances/settings';
 import { financeError, financeErrorFromException, financeJson, readJsonBody } from '@/lib/finances/api';
@@ -13,7 +13,7 @@ export const maxDuration = 120;
  * scope?: "business", formats?: ["pdf","csv"], message?, attach?, expiresInDays? }`.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.manage', { write: true });
   if (guard instanceof NextResponse) return guard;
   const body = await readJsonBody<{
     to?: unknown; period?: unknown; from?: unknown; toDate?: unknown; scope?: unknown; timezone?: unknown;

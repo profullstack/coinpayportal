@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { setSyncConsent } from '@/lib/finances/sync';
-import { audit } from '@/lib/finances/audit';
+import { auditFinance } from '@/lib/finances/audit';
 import { isUuid, readJsonBody } from '@/lib/finances/api';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
  * to spend its request budget every day.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return NextResponse.json({ error: 'Finance connection not found' }, { status: 404 });
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   try {
     const connection = await setSyncConsent(id, guard.id, body.dailySync);
-    await audit(guard.id, 'connection.consent', 'connection', id, { dailySync: body.dailySync });
+    await auditFinance(guard, 'connection.consent', 'connection', id, { dailySync: body.dailySync });
     return NextResponse.json({ connection }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to update consent';

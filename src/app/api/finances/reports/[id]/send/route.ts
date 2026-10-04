@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { sendReportEmail, EmailingError } from '@/lib/finances/emailing';
 import { financeError, financeErrorFromException, financeJson, isUuid, readJsonBody } from '@/lib/finances/api';
 
@@ -14,7 +14,7 @@ export const maxDuration = 120;
  * no login. Sending is the merchant's decision each time.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.manage', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return financeError('not_found', 'Report not found', 404);

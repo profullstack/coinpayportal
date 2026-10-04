@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { isAccountKind } from '@/lib/finances/classify';
 import { isAccountScope } from '@/lib/finances/position';
@@ -26,7 +26,7 @@ const ACCOUNT_COLUMNS =
  * what an institution said, and an editable ledger is not a ledger.
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
   if (guard instanceof NextResponse) return guard;
 
   const { id } = await params;

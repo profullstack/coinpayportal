@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant, requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { createReport, listReports, listArtifacts, toPublicReport, ReportError, REPORT_FORMATS, type ReportFormat } from '@/lib/finances/reports';
 import { toPublicJob } from '@/lib/finances/jobs';
 import { resolveFinanceTimezone } from '@/lib/finances/settings';
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
  * formats?: ["pdf","csv","json","html"], strict? }`.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
   if (guard instanceof NextResponse) return guard;
   if (!isFeatureEnabled('FINANCES_REPORTS_ENABLED')) return financeError('feature_disabled', 'Reports are disabled on this deployment', 503);
 
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
 
 /** GET /api/finances/reports — report history, newest first. */
 export async function GET(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const q = req.nextUrl.searchParams;
   const parsedLimit = Number.parseInt(q.get('limit') ?? '', 10);

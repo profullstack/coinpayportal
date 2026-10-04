@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { getReport, readArtifact, ReportError, REPORT_FORMATS, type ReportFormat } from '@/lib/finances/reports';
 import { financeError, financeErrorFromException, isUuid } from '@/lib/finances/api';
-import { audit } from '@/lib/finances/audit';
+import { auditFinance } from '@/lib/finances/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
  * Ownership is rechecked here; nothing about the URL is a capability.
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return financeError('not_found', 'Report not found', 404);
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const artifact = await readArtifact({ ...report, status: 'ready' }, format as ReportFormat);
     if (!artifact) return financeError('report_not_ready', 'This format is not available', 409, { reportId: report.id });
 
-    await audit(guard.id, 'report.download', 'report', report.id, { format, bytes: artifact.bytes.length });
+    await auditFinance(guard, 'report.download', 'report', report.id, { format, bytes: artifact.bytes.length });
     return new NextResponse(new Uint8Array(artifact.bytes), {
       status: 200,
       headers: {

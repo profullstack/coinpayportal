@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { getJob, toPublicJob } from '@/lib/finances/jobs';
 import { financeError, financeErrorFromException, financeJson, isUuid } from '@/lib/finances/api';
 
@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
  * attempt time. Reading a job never touches the provider.
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return financeError('not_found', 'Job not found', 404);

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { exchangePublicToken } from '@/lib/finances/plaid';
 import { isPlaidEnabled } from '@/lib/finances/provider';
 import { createPlaidConnection } from '@/lib/finances/sync';
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
  * no route that returns it.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
 
   if (!isPlaidEnabled()) {

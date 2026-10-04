@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { createBackfillJobs, createRefreshJob, toPublicJob } from '@/lib/finances/jobs';
 import { resolveFinanceTimezone } from '@/lib/finances/settings';
 import { financeError, financeErrorFromException, financeJson, idempotencyKeyFrom, isUuid, readJsonBody } from '@/lib/finances/api';
-import { audit } from '@/lib/finances/audit';
+import { auditFinance } from '@/lib/finances/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
  * contract; this is the asynchronous sibling.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
   if (guard instanceof NextResponse) return guard;
 
   const body = await readJsonBody<{
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
         days: Number.isFinite(parsedDays) ? parsedDays : undefined,
         idempotencyKey: idempotencyKeyFrom(req),
       });
-      await audit(guard.id, 'sync_job.create', 'job', job.id, { kind: 'refresh' });
+      await auditFinance(guard, 'sync_job.create', 'job', job.id, { kind: 'refresh' });
       return financeJson({ jobs: [toPublicJob(job)], job: toPublicJob(job) }, 202);
     }
 
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       idempotencyKey: idempotencyKeyFrom(req),
     });
     for (const job of jobs) {
-      await audit(guard.id, 'sync_job.create', 'job', job.id, { kind: 'backfill', windows: (job.params.windows as unknown[]).length });
+      await auditFinance(guard, 'sync_job.create', 'job', job.id, { kind: 'backfill', windows: (job.params.windows as unknown[]).length });
     }
     return financeJson({ jobs: jobs.map(toPublicJob), job: toPublicJob(jobs[0]), timezone: tz }, 202);
   } catch (err) {

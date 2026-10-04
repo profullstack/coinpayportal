@@ -19,6 +19,7 @@ interface Member {
   email: string | null;
   name: string | null;
   role: Role;
+  financeAccess?: boolean;
   createdAt: string;
 }
 
@@ -26,6 +27,7 @@ interface Invitation {
   id: string;
   email: string;
   role: Role;
+  financeAccess?: boolean;
   expiresAt: string;
   createdAt: string;
 }
@@ -33,8 +35,15 @@ interface Invitation {
 const ROLE_LABELS: Record<Role, string> = {
   owner: 'Owner',
   admin: 'Admin',
-  writer: 'Writer (need-to-know writes)',
+  writer: 'Read & write',
   readonly: 'Read only',
+};
+
+const ROLE_HELP: Record<Role, string> = {
+  owner: 'Everything, including moving funds.',
+  admin: 'Read & write, plus team, settings, API keys and billing. Cannot move funds.',
+  writer: 'View everything; create invoices, payment links and customers. With Finances: categorize and run reports.',
+  readonly: 'View everything, change nothing. Good for accountants and auditors.',
 };
 
 export function TeamManager({ scope, scopeId }: { scope: Scope; scopeId: string }) {
@@ -51,6 +60,7 @@ export function TeamManager({ scope, scopeId }: { scope: Scope; scopeId: string 
 
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<Role>('readonly');
+  const [inviteFinance, setInviteFinance] = useState(false);
 
   const load = useCallback(async () => {
     setError('');
@@ -73,6 +83,8 @@ export function TeamManager({ scope, scopeId }: { scope: Scope; scopeId: string 
   }, [load]);
 
   const canManage = can(myRole, 'team.manage');
+  // Finances are the org owner's own bank and card accounts: only they can share them.
+  const canGrantFinance = scope === 'org' && myRole === 'owner';
   // Roles this actor is allowed to grant (strictly below their own rank).
   const assignableRoles = myRole
     ? INVITABLE_ROLES.filter((r) => canAssignRole(myRole, r))
@@ -89,7 +101,11 @@ export function TeamManager({ scope, scopeId }: { scope: Scope; scopeId: string 
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
+          body: JSON.stringify({
+            email: inviteEmail.trim(),
+            role: inviteRole,
+            ...(canGrantFinance ? { financeAccess: inviteFinance } : {}),
+          }),
         },
         router,
       );
@@ -102,6 +118,7 @@ export function TeamManager({ scope, scopeId }: { scope: Scope; scopeId: string 
       setSuccess(`Invitation sent to ${inviteEmail.trim()}`);
       setInviteEmail('');
       setInviteRole('readonly');
+      setInviteFinance(false);
       await load();
     } finally {
       setBusy(false);
@@ -124,6 +141,27 @@ export function TeamManager({ scope, scopeId }: { scope: Scope; scopeId: string 
     const { response, data } = result;
     if (!response.ok || !data.success) {
       setError(data.error || 'Failed to update role');
+      return;
+    }
+    await load();
+  };
+
+  const handleFinanceToggle = async (memberId: string, financeAccess: boolean) => {
+    setError('');
+    setSuccess('');
+    const result = await authFetch(
+      `${base}/members/${memberId}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ financeAccess }),
+      },
+      router,
+    );
+    if (!result) return;
+    const { response, data } = result;
+    if (!response.ok || !data.success) {
+      setError(data.error || 'Failed to update finance access');
       return;
     }
     await load();
@@ -174,8 +212,9 @@ export function TeamManager({ scope, scopeId }: { scope: Scope; scopeId: string 
       {canManage && (
         <form
           onSubmit={handleInvite}
-          className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-end bg-gray-50 dark:bg-gray-900/40 p-4 rounded-lg"
+          className="bg-gray-50 dark:bg-gray-900/40 p-4 rounded-lg space-y-3"
         >
+          <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Invite by email
@@ -212,6 +251,25 @@ export function TeamManager({ scope, scopeId }: { scope: Scope; scopeId: string 
           >
             {busy ? 'Sending…' : 'Send invite'}
           </button>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{ROLE_HELP[inviteRole]}</p>
+          {canGrantFinance && (
+            <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                type="checkbox"
+                checked={inviteFinance}
+                onChange={(e) => setInviteFinance(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+              />
+              <span>
+                <span className="font-medium">Include Finances</span>
+                <span className="block text-xs text-gray-500 dark:text-gray-400">
+                  Your bank and card transactions, books, reports and statements, with the role above.
+                  Leave off for developers.
+                </span>
+              </span>
+            </label>
+          )}
         </form>
       )}
 
@@ -223,6 +281,7 @@ export function TeamManager({ scope, scopeId }: { scope: Scope; scopeId: string 
               <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
                 <th className="py-2 pr-4">Member</th>
                 <th className="py-2 pr-4">Role</th>
+                {scope === 'org' && <th className="py-2 pr-4">Finances</th>}
                 <th className="py-2"></th>
               </tr>
             </thead>
@@ -259,6 +318,25 @@ export function TeamManager({ scope, scopeId }: { scope: Scope; scopeId: string 
                         <span className="text-gray-700 dark:text-gray-300">{ROLE_LABELS[m.role]}</span>
                       )}
                     </td>
+                    {scope === 'org' && (
+                      <td className="py-3 pr-4">
+                        {m.role === 'owner' ? (
+                          <span className="text-gray-500 dark:text-gray-400">Owner</span>
+                        ) : canGrantFinance ? (
+                          <label className="inline-flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={!!m.financeAccess}
+                              onChange={(e) => handleFinanceToggle(m.id, e.target.checked)}
+                              className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                            />
+                            <span className="text-gray-700 dark:text-gray-300">{m.financeAccess ? 'Yes' : 'No'}</span>
+                          </label>
+                        ) : (
+                          <span className="text-gray-700 dark:text-gray-300">{m.financeAccess ? 'Yes' : 'No'}</span>
+                        )}
+                      </td>
+                    )}
                     <td className="py-3 text-right">
                       {editable && (
                         <button
@@ -286,6 +364,9 @@ export function TeamManager({ scope, scopeId }: { scope: Scope; scopeId: string 
                 <div>
                   <span className="font-medium text-gray-900 dark:text-white">{inv.email}</span>
                   <span className="text-gray-500 dark:text-gray-400"> · {ROLE_LABELS[inv.role]}</span>
+                  {inv.financeAccess && (
+                    <span className="text-gray-500 dark:text-gray-400"> · Finances</span>
+                  )}
                 </div>
                 <button
                   onClick={() => handleRevoke(inv.id)}

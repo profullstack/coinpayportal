@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchantForWrite } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { disconnectConnection, getConnection } from '@/lib/finances/sync';
-import { audit } from '@/lib/finances/audit';
+import { auditFinance } from '@/lib/finances/audit';
 import { isUuid } from '@/lib/finances/api';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
  * is disabled there by its owner. The response says so.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireMerchantForWrite(req);
+  const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   if (!isUuid(id)) return NextResponse.json({ error: 'Finance connection not found' }, { status: 404 });
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!before) return NextResponse.json({ error: 'Finance connection not found' }, { status: 404 });
     await disconnectConnection(id, guard.id);
     const connection = await getConnection(id, guard.id);
-    await audit(guard.id, 'connection.disconnect', 'connection', id, { provider: before.provider });
+    await auditFinance(guard, 'connection.disconnect', 'connection', id, { provider: before.provider });
     return NextResponse.json({
       connection,
       note:

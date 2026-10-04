@@ -86,6 +86,19 @@ describe('permissions: can()', () => {
     expect(can(null, 'business.read')).toBe(false);
     expect(can(undefined, 'business.read')).toBe(false);
   });
+
+  it('finance capabilities climb with the role; linking banks is owner-only', () => {
+    const table: Array<[Role, Capability, boolean]> = [
+      ['readonly', 'finance.read', true],
+      ['readonly', 'finance.write', false],
+      ['writer', 'finance.write', true],
+      ['writer', 'finance.manage', false],
+      ['admin', 'finance.manage', true],
+      ['admin', 'finance.connect', false],
+      ['owner', 'finance.connect', true],
+    ];
+    for (const [role, cap, expected] of table) expect(can(role, cap), `${role} ${cap}`).toBe(expected);
+  });
 });
 
 describe('permissions: role ranking and assignment', () => {

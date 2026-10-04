@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMerchant } from '@/lib/auth/merchant-guard';
+import { requireFinanceAccess } from '@/lib/finances/access';
 import { recategorizeStored } from '@/lib/finances/sync';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,7 @@ export const maxDuration = 300;
  * ~24 requests/day SimpleFIN allows. Scoped to the caller's own transactions.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireMerchant(req);
+  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
   if (guard instanceof NextResponse) return guard;
 
   try {
