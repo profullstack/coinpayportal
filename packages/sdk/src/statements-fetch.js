@@ -1108,7 +1108,8 @@ const GENERIC_LABEL = /^(download|view|open|pdf|print|save|get|show)\b/i;
  * day it was fetched.
  */
 export function classifyTaxDocument({ label = '', context = '', suggestedName = '' } = {}, fetchedAt = new Date()) {
-  const text = [label, context, String(suggestedName || '').replace(/[_-]+/g, ' ')].filter(Boolean).join(' ').replace(/\s+/g, ' ');
+  // Collapsed and capped: a link label and its row never need more, and every pattern below stays linear.
+  const text = [label, context, String(suggestedName || '').replace(/[_-]+/g, ' ')].filter(Boolean).join(' ').replace(/\s+/g, ' ').slice(0, 2000);
   const code = (/\b(CP\s?-?\d{2,4}[A-Z]?|LTR\s?-?\d{3,4}[A-Z]?)\b/i.exec(text) || [])[1] || null;
   const docType = /transcript/i.test(text)
     ? 'transcript'
@@ -1123,7 +1124,7 @@ export function classifyTaxDocument({ label = '', context = '', suggestedName = 
             : 'other';
 
   let taxYear = null;
-  const explicit = /\b(?:tax\s*(?:year|period)|TY)\s*:?\s*((?:19|20)\d{2})\b/i.exec(text);
+  const explicit = /\b(?:tax\s*(?:year|period)|TY)[\s:]*((?:19|20)\d{2})\b/i.exec(text);
   if (explicit) taxYear = Number(explicit[1]);
   else if (docType === 'transcript' || docType === 'form' || docType === 'return') {
     // A lone year that is not part of a printed date ("2024 Account Transcript").
