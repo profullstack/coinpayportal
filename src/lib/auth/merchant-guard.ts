@@ -41,20 +41,27 @@ export async function requireMerchant(
     return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 });
   }
 
-  let merchantId: string;
-  let email: string;
+  let merchantId: string | undefined;
+  let email = '';
   try {
     const decoded = verifyToken(token, secret);
-    merchantId = decoded.userId;
-    email = decoded.email;
+    merchantId = decoded?.userId;
+    email = decoded?.email ?? '';
   } catch {
-    // An OAuth 2.1 access token (the CoinPay CLI's login) is accepted only when
-    // its grant carries the `merchant` scope; a token issued to a third-party
-    // app for `openid profile` must not open the merchant API.
+    merchantId = undefined;
+  }
+  // An OAuth 2.1 access token (the CoinPay CLI's login) is accepted only when
+  // its grant carries the `merchant` scope; a token issued to a third-party
+  // app for `openid profile` must not open the merchant API. Checked whether
+  // the session-JWT verify threw OR passed without a userId: when OAuth tokens
+  // are signed with JWT_SECRET (no OIDC_SIGNING_SECRET), the signature checks
+  // out and only the missing userId tells them apart.
+  if (!merchantId) {
     const oauth = merchantFromAccessToken(headerToken);
-    if (!oauth) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    merchantId = oauth.id;
-    email = '';
+    if (oauth) {
+      merchantId = oauth.id;
+      email = '';
+    }
   }
 
   if (!merchantId) {

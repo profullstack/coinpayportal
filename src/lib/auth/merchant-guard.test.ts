@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('server-only', () => ({}));
@@ -84,5 +85,41 @@ describe('requireMerchant', () => {
     delete process.env.JWT_SECRET;
     const token = generateToken({ userId: MERCHANT.id, email: MERCHANT.email }, SECRET);
     expect(await statusOf(await requireMerchant(request({ auth: `Bearer ${token}` })))).toBe(500);
+  });
+});
+
+/**
+ * The CoinPay CLI's OAuth 2.1 login. In production OIDC_SIGNING_SECRET is
+ * unset, so access tokens are signed with JWT_SECRET: the session-JWT check
+ * passes the signature and returns no userId. That case used to 401 every
+ * finance route ("Not authenticated" right after a successful `coinpay login`).
+ */
+describe('requireMerchant with an OAuth access token', () => {
+  beforeEach(() => {
+    process.env.JWT_SECRET = SECRET;
+    delete process.env.OIDC_SIGNING_SECRET;
+    single.mockReset();
+    single.mockResolvedValue({ data: MERCHANT, error: null });
+  });
+
+  it('accepts a merchant-scoped token signed with the same secret as sessions', async () => {
+    const { generateAccessToken } = await import('../oauth/tokens');
+    const token = generateAccessToken({ id: MERCHANT.id }, { client_id: 'coinpay-cli' }, ['openid', 'profile', 'email', 'merchant']);
+    expect(await requireMerchant(request({ auth: `Bearer ${token}` }))).toEqual({ id: MERCHANT.id, email: MERCHANT.email });
+  });
+
+  it('accepts it when signed with a separate OIDC secret too', async () => {
+    process.env.OIDC_SIGNING_SECRET = randomBytes(32).toString('hex');
+    const { generateAccessToken } = await import('../oauth/tokens');
+    const token = generateAccessToken({ id: MERCHANT.id }, { client_id: 'coinpay-cli' }, ['openid', 'merchant']);
+    expect(await requireMerchant(request({ auth: `Bearer ${token}` }))).toEqual({ id: MERCHANT.id, email: MERCHANT.email });
+  });
+
+  it('refuses a token without the merchant scope, and never from a cookie', async () => {
+    const { generateAccessToken } = await import('../oauth/tokens');
+    const thirdParty = generateAccessToken({ id: MERCHANT.id }, { client_id: 'cp_app' }, ['openid', 'profile']);
+    expect(await statusOf(await requireMerchant(request({ auth: `Bearer ${thirdParty}` })))).toBe(401);
+    const cli = generateAccessToken({ id: MERCHANT.id }, { client_id: 'coinpay-cli' }, ['openid', 'merchant']);
+    expect(await statusOf(await requireMerchant(request({ cookie: cli })))).toBe(401);
   });
 });
