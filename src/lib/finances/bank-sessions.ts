@@ -350,6 +350,9 @@ export async function disconnectBankSession(access: { id: string; actorId: strin
   const row = await getBankSession(access.id, institutionKey);
   if (!row) return false;
   if (row.object_key) await deleteObject(row.object_key).catch(() => undefined);
+  // The bank's long-running browser and its profile on the volume go too.
+  const { closeBankBrowser } = await import('./bank-browsers');
+  await closeBankBrowser(access.id, institutionKey, { deleteProfile: true }).catch(() => undefined);
   const { error } = await getSupabaseAdmin().from('finance_bank_sessions').delete().eq('id', row.id).eq('merchant_id', access.id);
   if (error) throw new Error(`Could not disconnect: ${error.message}`);
   await auditFinance(access, 'bank_session.disconnected', 'bank_session', row.id, { institution: institutionKey });

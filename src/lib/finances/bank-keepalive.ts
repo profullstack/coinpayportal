@@ -2,8 +2,7 @@ import 'server-only';
 import { getSupabaseAdmin } from '../supabase/server';
 import { sendEmail } from '../email';
 import { BrowserBusyError, launchCloudBrowser, loadEngine } from './cloud-browser';
-import { installRequestGuard } from './bank-guard';
-import { captureState, getBankSession, loadSessionState, nextTouchAt, restoreState, saveSession, updateBankSession, type BankSessionRow, type SessionState } from './bank-sessions';
+import { captureState, getBankSession, loadSessionState, nextTouchAt, saveSession, updateBankSession, type BankSessionRow, type SessionState } from './bank-sessions';
 
 /**
  * Keeping cloud bank sessions alive.
@@ -12,7 +11,7 @@ import { captureState, getBankSession, loadSessionState, nextTouchAt, restoreSta
  * cookies keep CoinPay's browser trusted as a device, so the bank does not ask
  * for MFA again, but not signed in. So every connected bank is *touched* on a
  * short interval (FINANCES_BANK_KEEPALIVE_MINUTES, default 10, with jitter):
- * restore the session in a fresh fenced browser, open the statements page,
+ * refresh the statements page in the bank's own long-running browser,
  * and save the cookies the bank just rotated. A touch takes seconds and holds
  * one of the server's browser slots only that long.
  *
@@ -22,57 +21,39 @@ import { captureState, getBankSession, loadSessionState, nextTouchAt, restoreSta
  */
 
 type Browser = Awaited<ReturnType<typeof launchCloudBrowser>>['browser'];
-type Check = (url: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * The core of a touch, on a browser it is handed: restore `state`, open
- * `startUrl`, and decide whether the bank still has us signed in. Watches for
- * a password field or a sign-in URL for up to `watchMs`, since banks bounce a
- * lapsed session to their sign-in page from JavaScript.
+ * The core of a touch, in the bank's own long-running browser: open
+ * `startUrl` in its main tab and decide whether the bank still has us signed
+ * in. Watches for a password field or a sign-in URL for up to `watchMs`, since
+ * banks bounce a lapsed session to their sign-in page from JavaScript. On
+ * success, captures the cookies for the sealed copy.
  */
-export async function touchSession(
+export async function refreshSession(
   browser: Browser,
-  { state, startUrl, watchMs = 15_000, check }: { state: SessionState; startUrl: string; watchMs?: number; check?: Check },
+  page: string,
+  { startUrl, watchMs = 15_000 }: { startUrl: string; watchMs?: number },
 ): Promise<{ signedIn: true; state: SessionState; url: string } | { signedIn: false; url: string }> {
   const sf = await loadEngine();
-  let page: string | null = null;
-  const stop = await installRequestGuard(browser.cdp, {
-    ...(check ? { check } : {}),
-    onTarget: (t) => {
-      if (t.type === 'page' && !t.url.startsWith('chrome') && !page) page = t.sessionId;
-    },
-  });
-  try {
-    for (let i = 0; i < 50 && !page; i += 1) await sleep(100);
-    if (!page) throw new Error('The cloud browser opened no tab');
-    const session: string = page;
-    const { userAgent } = (await browser.cdp.send('Browser.getVersion')) as { userAgent: string };
-    await browser.cdp.send('Network.setUserAgentOverride', { userAgent: userAgent.replace('HeadlessChrome', 'Chrome') }, session).catch(() => undefined);
-    await restoreState(browser.cdp, session, state);
-    await browser.cdp.send('Page.enable', {}, session).catch(() => undefined);
-    await browser.cdp.send('Page.navigate', { url: startUrl }, session);
-
-    const evaluate = async (expression: string) => {
-      try {
-        const { result } = (await browser.cdp.send('Runtime.evaluate', { expression, returnByValue: true }, session)) as { result: { value?: unknown } };
-        return result.value;
-      } catch {
-        return null;
-      }
-    };
-    const deadline = Date.now() + watchMs;
-    let url = startUrl;
-    while (Date.now() < deadline) {
-      await sleep(1500);
-      url = String((await evaluate('location.href')) ?? url);
-      if ((await evaluate(sf.SIGNED_OUT)) === true || sf.isSignInUrl(url)) return { signedIn: false, url };
+  await browser.cdp.send('Page.navigate', { url: startUrl }, page);
+  const evaluate = async (expression: string) => {
+    try {
+      const { result } = (await browser.cdp.send('Runtime.evaluate', { expression, returnByValue: true }, page)) as { result: { value?: unknown } };
+      return result.value;
+    } catch {
+      return null;
     }
-    return { signedIn: true, state: await captureState(browser.cdp, session), url };
-  } finally {
-    stop();
+  };
+  const deadline = Date.now() + watchMs;
+  let url = startUrl;
+  while (Date.now() < deadline) {
+    await sleep(1500);
+    url = String((await evaluate('location.href')) ?? url);
+    if ((await evaluate(sf.SIGNED_OUT)) === true || sf.isSignInUrl(url)) return { signedIn: false, url };
   }
+  return { signedIn: true, state: await captureState(browser.cdp, page), url };
 }
 
 /** Email the merchant once that a bank needs them to sign in again. */
@@ -119,22 +100,27 @@ export async function touchBankSession(row: BankSessionRow): Promise<'alive' | '
     return 'skipped';
   }
 
-  const state = await loadSessionState(row);
-  if (!state) return 'skipped';
   const sf = await loadEngine();
+  if (sf.taxSource(row.institution_key)) {
+    // Tax sites have a visit budget (finance_site_attempts); never keep them alive.
+    await updateBankSession(row.merchant_id, row.institution_key, { keepalive: false, next_touch_at: null });
+    return 'skipped';
+  }
   const startUrl = row.start_url ?? sf.startUrls({ key: row.institution_key, url: null }, null).fetch;
   if (!startUrl) return 'skipped';
 
-  let handle: Awaited<ReturnType<typeof launchCloudBrowser>>;
+  const { acquireBankBrowser, closeBankBrowser } = await import('./bank-browsers');
+  let held: Awaited<ReturnType<typeof acquireBankBrowser>>;
   try {
-    handle = await launchCloudBrowser();
+    held = await acquireBankBrowser(row.merchant_id, row.institution_key, { restore: () => loadSessionState(row) });
   } catch (err) {
-    if (err instanceof BrowserBusyError) return 'busy';
+    if (err instanceof BrowserBusyError || (err as { code?: string }).code === 'cloud_browser_busy') return 'busy';
     throw err;
   }
   const now = new Date().toISOString();
+  let lapsed = false;
   try {
-    const result = await touchSession(handle.browser, { state, startUrl });
+    const result = await refreshSession(held.bb.browser, held.bb.page, { startUrl });
     if (result.signedIn) {
       await saveSession({
         access,
@@ -146,6 +132,7 @@ export async function touchBankSession(row: BankSessionRow): Promise<'alive' | '
       await updateBankSession(row.merchant_id, row.institution_key, { last_touch_at: now, next_touch_at: nextTouchAt() });
       return 'alive';
     }
+    lapsed = true;
     await updateBankSession(row.merchant_id, row.institution_key, { state: 'login_needed', last_status: 'needs sign-in', last_touch_at: now, next_touch_at: null });
     await notifyNeedsSignIn(row);
     return 'login_needed';
@@ -154,7 +141,9 @@ export async function touchBankSession(row: BankSessionRow): Promise<'alive' | '
     await updateBankSession(row.merchant_id, row.institution_key, { next_touch_at: nextTouchAt() }).catch(() => undefined);
     return 'error';
   } finally {
-    await handle.release();
+    held.release();
+    // Nothing left to keep alive: free the memory, keep the profile.
+    if (lapsed) await closeBankBrowser(row.merchant_id, row.institution_key).catch(() => undefined);
   }
 }
 

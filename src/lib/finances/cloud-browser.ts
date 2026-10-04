@@ -123,6 +123,7 @@ interface LiveSession {
   timer: NodeJS.Timeout;
   ticks: number;
   onPageText?: (text: string) => void;
+  offCdp: () => void;
 }
 
 const live = new Map<string, LiveSession>();
@@ -179,6 +180,9 @@ function expire(s: LiveSession, status: LiveStatus, error: string | null = null)
   clearInterval(s.timer);
   setStatus(s, status, error);
   s.stopGuard();
+  s.offCdp();
+  // A bank's browser outlives the sign-in: stop streaming it, then let go.
+  if (s.page) void s.browser.cdp.send('Page.stopScreencast', {}, s.page).catch(() => undefined);
   void s.release();
   // Keep the record a little while so the CLI and the PWA can read the outcome.
   setTimeout(() => live.delete(s.id), 5 * 60_000).unref?.();
@@ -200,7 +204,39 @@ export async function startLiveSession(params: {
     if (existing.merchantId === params.merchantId && ['starting', 'live', 'saving'].includes(existing.status)) expire(existing, 'cancelled');
   }
 
-  const { browser, release } = await launchCloudBrowser();
+  // A bank signs in on its own long-running browser (bank-browsers.ts), the
+  // one keep-alive and fetches will use. Tax sources keep a throwaway browser
+  // under their visit throttle.
+  const sf = await loadEngine();
+  const persistent = !sf.taxSource(params.institutionKey);
+  let browser: Browser;
+  let release: () => Promise<void>;
+  let mainPage: string | null = null;
+  let follow: ((onPage: (sessionId: string) => void) => () => void) | null = null;
+  if (persistent) {
+    const { acquireBankBrowser, closeBankBrowser } = await import('./bank-browsers');
+    const { getBankSession, loadSessionState } = await import('./bank-sessions');
+    const held = await acquireBankBrowser(params.merchantId, params.institutionKey, {
+      restore: async () => {
+        const row = await getBankSession(params.merchantId, params.institutionKey).catch(() => null);
+        return row ? loadSessionState(row).catch(() => null) : null;
+      },
+    });
+    browser = held.bb.browser;
+    mainPage = held.bb.page;
+    follow = (onPage) => held.bb.onTarget((info) => {
+      if (info.type === 'page' && !info.url.startsWith('chrome')) onPage(info.sessionId);
+    });
+    release = async () => {
+      held.release();
+      // A sign-in that never saved leaves nothing worth keeping a browser for.
+      const { getBankSession: get } = await import('./bank-sessions');
+      const row = await get(params.merchantId, params.institutionKey).catch(() => null);
+      if (!row || row.state !== 'active') await closeBankBrowser(params.merchantId, params.institutionKey);
+    };
+  } else {
+    ({ browser, release } = await launchCloudBrowser());
+  }
   const id = randomBytes(18).toString('base64url');
   const s: LiveSession = {
     id,
@@ -224,6 +260,7 @@ export async function startLiveSession(params: {
     blocked: 0,
     ticks: 0,
     onPageText: params.onPageText,
+    offCdp: () => undefined,
     timer: setInterval(() => {
       const now = Date.now();
       s.ticks += 1;
@@ -240,7 +277,7 @@ export async function startLiveSession(params: {
 
   try {
     const { cdp } = browser;
-    cdp.on(({ method, params: p, sessionId }) => {
+    s.offCdp = cdp.on(({ method, params: p, sessionId }) => {
       if (method === 'Page.screencastFrame' && sessionId === s.page) {
         void cdp.send('Page.screencastFrameAck', { sessionId: p.sessionId }, sessionId).catch(() => undefined);
         const frame: LiveFrame = { data: String(p.data), url: s.url, title: s.title, at: Date.now() };
@@ -254,17 +291,23 @@ export async function startLiveSession(params: {
         }
       }
     });
-    await cdp.send('Target.setDiscoverTargets', { discover: true });
-    s.stopGuard = await installRequestGuard(cdp, {
-      onBlocked: () => {
-        s.blocked += 1;
-      },
-      // Follow the newest tab: banks open statements and MFA in popups.
-      onTarget: (info) => {
-        // Chrome's own UI (chrome://omnibox-popup…) also shows up as a page.
-        if (info.type === 'page' && !info.url.startsWith('chrome')) void showPage(s, info.sessionId);
-      },
-    });
+    if (follow && mainPage) {
+      // Already fenced at launch; follow the newest tab (banks open MFA and statements in popups).
+      s.stopGuard = follow((sessionId) => void showPage(s, sessionId));
+      await showPage(s, mainPage);
+    } else {
+      await cdp.send('Target.setDiscoverTargets', { discover: true });
+      s.stopGuard = await installRequestGuard(cdp, {
+        onBlocked: () => {
+          s.blocked += 1;
+        },
+        // Follow the newest tab: banks open statements and MFA in popups.
+        onTarget: (info) => {
+          // Chrome's own UI (chrome://omnibox-popup…) also shows up as a page.
+          if (info.type === 'page' && !info.url.startsWith('chrome')) void showPage(s, info.sessionId);
+        },
+      });
+    }
     for (let i = 0; i < 50 && !s.page; i += 1) await new Promise((r) => setTimeout(r, 100));
     if (!s.page) throw new Error('The cloud browser opened no tab');
     await cdp.send('Page.navigate', { url: params.url }, s.page);

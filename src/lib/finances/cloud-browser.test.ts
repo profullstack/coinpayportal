@@ -8,12 +8,14 @@ import { createServer, type Server } from 'http';
 
 vi.mock('server-only', () => ({}));
 vi.mock('../supabase/server', () => ({ getSupabaseAdmin: () => ({}) }));
-vi.mock('./files', () => ({ putObject: vi.fn(), getObject: vi.fn(), deleteObject: vi.fn() }));
+const FILES = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'coinpay-live-files-'));
+vi.mock('./files', () => ({ putObject: vi.fn(), getObject: vi.fn(), deleteObject: vi.fn(), filesDir: () => FILES }));
 vi.mock('./audit', () => ({ auditFinance: vi.fn() }));
 
 import { findChrome } from '@profullstack/coinpay/statements';
 import { cloudBrowserStats, finishLiveSession, launchCloudBrowser, liveStatus, parseLiveInput, sendLiveInput, startLiveSession, subscribeLive, LiveSessionError } from './cloud-browser';
 import { installRequestGuard } from './bank-guard';
+import { bankBrowserStats } from './bank-browsers';
 import { captureState, restoreState, RESTORE_STORAGE } from './bank-sessions';
 
 describe('parseLiveInput', () => {
@@ -160,31 +162,34 @@ describe.skipIf(!chrome)('cloud browser with real Chromium', () => {
 
   it('streams a live session and replays clicks and typing', { timeout: 60_000 }, async () => {
     const html = '<title>empty</title><input id="user" oninput="document.title = this.value" style="position:absolute;left:20px;top:20px;width:300px;height:40px">';
-    const { id } = await startLiveSession({ merchantId: 'm-1', actorId: 'm-1', institutionKey: 'testbank', institutionLabel: 'Test Bank', url: `data:text/html,${encodeURIComponent(html)}` });
+    const M = '00000000-0000-4000-8000-0000000000aa';
+    const { id } = await startLiveSession({ merchantId: M, actorId: M, institutionKey: 'testbank', institutionLabel: 'Test Bank', url: `data:text/html,${encodeURIComponent(html)}` });
     const frames: string[] = [];
     const statuses: string[] = [];
-    const unsubscribe = subscribeLive(id, 'm-1', (f) => frames.push(f.data), (s) => statuses.push(s));
+    const unsubscribe = subscribeLive(id, M, (f) => frames.push(f.data), (s) => statuses.push(s));
     try {
       expect(() => liveStatus(id, 'someone-else')).toThrow(LiveSessionError);
       for (let i = 0; i < 50 && frames.length === 0; i += 1) await sleep(100);
       expect(frames.length).toBeGreaterThan(0);
       expect(Buffer.from(frames[0]!, 'base64').subarray(0, 2).toString('hex')).toBe('ffd8'); // JPEG
 
-      await sendLiveInput(id, 'm-1', { type: 'click', x: 100, y: 40 });
-      await sendLiveInput(id, 'm-1', { type: 'text', text: 'anthony' });
-      await sendLiveInput(id, 'm-1', { type: 'key', key: 'Backspace' });
-      for (let i = 0; i < 30 && liveStatus(id, 'm-1').title !== 'anthon'; i += 1) await sleep(100);
-      expect(liveStatus(id, 'm-1').title).toBe('anthon');
+      await sendLiveInput(id, M, { type: 'click', x: 100, y: 40 });
+      await sendLiveInput(id, M, { type: 'text', text: 'anthony' });
+      await sendLiveInput(id, M, { type: 'key', key: 'Backspace' });
+      for (let i = 0; i < 30 && liveStatus(id, M).title !== 'anthon'; i += 1) await sleep(100);
+      expect(liveStatus(id, M).title).toBe('anthon');
       // A data: page sets no cookies, so there is nothing to keep yet.
-      await expect(finishLiveSession(id, { id: 'm-1', actorId: 'm-1' }, true)).rejects.toThrow(/no cookies/);
-      expect(liveStatus(id, 'm-1').status).toBe('live');
-      await finishLiveSession(id, { id: 'm-1', actorId: 'm-1' }, false);
-      expect(liveStatus(id, 'm-1').status).toBe('cancelled');
+      await expect(finishLiveSession(id, { id: M, actorId: M }, true)).rejects.toThrow(/no cookies/);
+      expect(liveStatus(id, M).status).toBe('live');
+      await finishLiveSession(id, { id: M, actorId: M }, false);
+      expect(liveStatus(id, M).status).toBe('cancelled');
       expect(statuses).toContain('cancelled');
     } finally {
       unsubscribe();
     }
-    for (let i = 0; i < 50 && cloudBrowserStats().running > 0; i += 1) await sleep(100);
+    // A bank signs in on its persistent browser; a cancelled, never-saved sign-in closes it.
+    for (let i = 0; i < 50 && bankBrowserStats().running > 0; i += 1) await sleep(100);
+    expect(bankBrowserStats().running).toBe(0);
     expect(cloudBrowserStats().running).toBe(0);
   });
 });
