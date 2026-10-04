@@ -256,6 +256,43 @@ export async function reconcileFinanceStatement(client, statementId, {
   return data.reconciliation;
 }
 
+// ── Document library ──
+
+/**
+ * File a document (multipart POST /finances/documents). `file` is the bytes.
+ * Tax documents from the fetcher pass `category: 'tax'`, `source: 'fetch'`,
+ * `institutionKey`, `taxYear` and `docType`. Answers `{document, duplicate}`:
+ * the server keeps one copy per file (by sha256) and says when it had it.
+ */
+export async function uploadFinanceDocument(client, {
+  file, filename = 'document.pdf', title, category, periodLabel, notes, contentType = 'application/pdf', source, institutionKey, taxYear, docType,
+} = {}) {
+  if (!file) throw new Error('A file is required');
+  const form = new FormData();
+  const blob = file instanceof Blob ? file : new Blob([file], { type: contentType });
+  form.append('file', blob, filename);
+  form.append('title', title || filename);
+  if (category) form.append('category', category);
+  if (periodLabel) form.append('period', periodLabel);
+  if (notes) form.append('notes', notes);
+  if (source) form.append('source', source);
+  if (institutionKey) form.append('institutionKey', institutionKey);
+  if (taxYear !== undefined && taxYear !== null) form.append('taxYear', String(taxYear));
+  if (docType) form.append('docType', docType);
+  return client.requestForm('/finances/documents', form);
+}
+
+/** The document library, newest first; `category: 'tax'` for FTB/IRS notices, letters and transcripts. */
+export async function listFinanceDocuments(client, { category, limit } = {}) {
+  const data = await call(client, `/finances/documents${query({ category, limit })}`);
+  return data.documents || [];
+}
+
+export async function getFinanceDocument(client, documentId) {
+  const data = await call(client, `/finances/documents/${encodeURIComponent(documentId)}`);
+  return data.document;
+}
+
 /** Report one bank's statement fetch run (counts only). */
 export async function reportStatementFetchRun(client, run) {
   const data = await call(client, '/finances/statements/fetch-runs', { method: 'POST', body: JSON.stringify(run) });
@@ -351,9 +388,13 @@ export async function getBooksSummary(client, { period, from, to, timezone, scop
   return call(client, `/finances/books/summary${query({ period, from, to, timezone, scope, rows: rows ? 1 : undefined })}`);
 }
 
-/** The CPA pack as bytes. */
-export async function exportBooks(client, { period, from, to, timezone, scope, format = 'csv' } = {}) {
-  return client.requestBinary(`/finances/books/export${query({ period, from, to, timezone, scope, format })}`);
+/**
+ * The CPA pack as bytes. With `withDocuments` the answer is a ZIP: the pack
+ * plus the period's tax documents that fit in 8 MiB, and MANIFEST.txt naming
+ * what was left out.
+ */
+export async function exportBooks(client, { period, from, to, timezone, scope, format = 'csv', withDocuments = false } = {}) {
+  return client.requestBinary(`/finances/books/export${query({ period, from, to, timezone, scope, format, with_documents: withDocuments ? 1 : undefined })}`);
 }
 
 // ── Raw provider payloads ──
@@ -377,10 +418,10 @@ export async function sendFinanceReportEmail(client, reportId, { to, formats, me
 }
 
 /** Email the CPA pack for a period. `toDate` is the exclusive end for a custom range. */
-export async function sendBooksEmail(client, { to, period, from, toDate, timezone, scope, formats, message, attach, expiresInDays } = {}) {
+export async function sendBooksEmail(client, { to, period, from, toDate, timezone, scope, formats, message, attach, expiresInDays, withDocuments } = {}) {
   return call(client, '/finances/books/send', {
     method: 'POST',
-    body: JSON.stringify({ to, period, from, toDate, timezone, scope, formats, message, attach, expiresInDays }),
+    body: JSON.stringify({ to, period, from, toDate, timezone, scope, formats, message, attach, expiresInDays, withDocuments: withDocuments === true ? true : undefined }),
   });
 }
 

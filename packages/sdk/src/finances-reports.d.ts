@@ -316,7 +316,43 @@ export function getBooksSummary(
   client: CoinPayClient,
   options?: PeriodSelection & { scope?: 'business' | 'personal' | 'all'; rows?: boolean },
 ): Promise<{ period: Record<string, unknown>; scope: string; lines: BooksSummaryLine[]; totals: Array<{ currency: string; income: string; expenses: string; net: string; excluded: string }>; rows: number; unreviewed: number; uncategorized: number; notice: string; transactions?: BooksRow[] }>;
-export function exportBooks(client: CoinPayClient, options?: PeriodSelection & { scope?: 'business' | 'personal' | 'all'; format?: 'csv' | 'pdf' | 'html' | 'json' }): Promise<BinaryResponse>;
+export function exportBooks(client: CoinPayClient, options?: PeriodSelection & { scope?: 'business' | 'personal' | 'all'; format?: 'csv' | 'pdf' | 'html' | 'json'; withDocuments?: boolean }): Promise<BinaryResponse>;
+
+export interface FinanceDocument {
+  id: string;
+  title: string;
+  category: 'report' | 'statement' | 'tax' | 'invoice' | 'other';
+  periodLabel: string | null;
+  notes: string | null;
+  filename: string | null;
+  contentType: string;
+  bytes: number;
+  source: 'upload' | 'api' | 'fetch' | 'cloud';
+  institutionKey: string | null;
+  taxYear: number | null;
+  docType: string | null;
+  uploadedBy: string | null;
+  createdAt: string;
+  downloadUrl: string;
+}
+export function uploadFinanceDocument(
+  client: CoinPayClient,
+  options: {
+    file: Uint8Array | Blob;
+    filename?: string;
+    title?: string;
+    category?: 'report' | 'statement' | 'tax' | 'invoice' | 'other';
+    periodLabel?: string | null;
+    notes?: string | null;
+    contentType?: string;
+    source?: 'fetch';
+    institutionKey?: string;
+    taxYear?: number | null;
+    docType?: string | null;
+  },
+): Promise<{ document: FinanceDocument; duplicate: boolean }>;
+export function listFinanceDocuments(client: CoinPayClient, options?: { category?: FinanceDocument['category']; limit?: number }): Promise<FinanceDocument[]>;
+export function getFinanceDocument(client: CoinPayClient, documentId: string): Promise<FinanceDocument>;
 export function listFinancePayloads(client: CoinPayClient, options?: { connectionId?: string; limit?: number; offset?: number }): Promise<{ payloads: Array<Record<string, unknown>>; total: number }>;
 export function downloadFinancePayload(client: CoinPayClient, payloadId: string): Promise<BinaryResponse>;
 
@@ -350,8 +386,8 @@ export function sendFinanceReportEmail(
 ): Promise<SendOutcome>;
 export function sendBooksEmail(
   client: CoinPayClient,
-  options: { to: string | string[]; period?: string; from?: string; toDate?: string; timezone?: string; scope?: 'business' | 'personal' | 'all'; formats?: string[]; message?: string | null; attach?: boolean; expiresInDays?: number },
-): Promise<SendOutcome & { unreviewed: number; rows: number }>;
+  options: { to: string | string[]; period?: string; from?: string; toDate?: string; timezone?: string; scope?: 'business' | 'personal' | 'all'; formats?: string[]; message?: string | null; attach?: boolean; expiresInDays?: number; withDocuments?: boolean },
+): Promise<SendOutcome & { unreviewed: number; rows: number; documents?: { attached: string[]; skipped: Array<{ title: string; bytes: number; reason: string }> } }>;
 export function getWeeklyDigest(client: CoinPayClient): Promise<WeeklyDigest | null>;
 export function setWeeklyDigest(
   client: CoinPayClient,

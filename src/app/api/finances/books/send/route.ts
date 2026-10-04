@@ -10,14 +10,17 @@ export const maxDuration = 120;
 /**
  * POST /api/finances/books/send — email the CPA pack for a period.
  * Body: `{ to: [...], period?: "2026"|"2026-Q3"|"2026-08", from?, to?,
- * scope?: "business", formats?: ["pdf","csv"], message?, attach?, expiresInDays? }`.
+ * scope?: "business", formats?: ["pdf","csv"], message?, attach?, expiresInDays?,
+ * withDocuments? }`. `withDocuments: true` also attaches the period's tax
+ * documents within the 8 MiB limit; the answer's `documents` lists what was
+ * attached and what did not fit.
  */
 export async function POST(req: NextRequest) {
   const guard = await requireFinanceAccess(req, 'finance.manage', { write: true });
   if (guard instanceof NextResponse) return guard;
   const body = await readJsonBody<{
     to?: unknown; period?: unknown; from?: unknown; toDate?: unknown; scope?: unknown; timezone?: unknown;
-    formats?: unknown; message?: unknown; attach?: unknown; expiresInDays?: unknown;
+    formats?: unknown; message?: unknown; attach?: unknown; expiresInDays?: unknown; withDocuments?: unknown;
   }>(req);
   const scope: 'business' | 'personal' | 'all' = body.scope === 'personal' ? 'personal' : body.scope === 'all' ? 'all' : 'business';
   try {
@@ -37,6 +40,7 @@ export async function POST(req: NextRequest) {
       message: typeof body.message === 'string' ? body.message.slice(0, 2000) : null,
       attach: body.attach !== false,
       expiresInDays: typeof body.expiresInDays === 'number' ? body.expiresInDays : undefined,
+      withDocuments: body.withDocuments === true,
     });
     return financeJson(outcome, outcome.sent.length > 0 ? 200 : 502);
   } catch (err) {

@@ -28,6 +28,9 @@ import { createHash } from 'node:crypto';
 import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { detectLockout, lockoutUntil, recordLocalLockout, takeLocalAttempt } from './statements-throttle.js';
+
+export * from './statements-throttle.js';
 
 export class StatementFetchError extends Error {
   constructor(message) {
@@ -60,9 +63,20 @@ export function slug(value) {
     .slice(0, 60) || 'bank';
 }
 
+/**
+ * Hosts whose key is not their second-level label: webapp.ftb.ca.gov would
+ * otherwise be "ca". Explicit, because a government domain says nothing
+ * general about which label names the agency. The server keeps the same list.
+ */
+export const HOST_KEYS = [
+  [/(^|\.)ftb\.ca\.gov$/, 'ftb'],
+  [/(^|\.)irs\.gov$/, 'irs'],
+];
+
 /** secure.chase.com and chase.com are both `chase`. The server computes the same key. */
 export function institutionKey(domain, name) {
   const host = String(domain || '').replace(/^https?:\/\//, '').split(/[/:]/)[0].toLowerCase();
+  for (const [pattern, key] of HOST_KEYS) if (pattern.test(host)) return key;
   const labels = host.split('.').filter(Boolean);
   if (labels.length >= 2) {
     const second = labels[labels.length - 2];
@@ -97,15 +111,16 @@ export function groupInstitutions(accounts) {
   return [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 
-/** A bank named on the command line: its key, or the start of its key or name. */
-export function pickInstitution(institutions, name) {
+/** A bank or tax source named on the command line: its key, or the start of its key or name. */
+export function pickInstitution(linked, name) {
+  const institutions = withStandaloneSources(linked);
   const wanted = String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
   const exact = institutions.find((entry) => entry.key.replace(/-/g, '') === wanted);
   if (exact) return exact;
   const loose = institutions.filter((entry) => entry.key.replace(/-/g, '').startsWith(wanted) || entry.name.toLowerCase().replace(/[^a-z0-9]/g, '').startsWith(wanted));
   if (loose.length === 1) return loose[0];
   if (loose.length) throw new StatementFetchError(`"${name}" matches ${loose.map((entry) => entry.key).join(', ')}; be more specific`);
-  throw new StatementFetchError(`no bank called "${name}" among your linked accounts (${institutions.map((entry) => entry.key).join(', ') || 'none linked'})`);
+  throw new StatementFetchError(`no bank or tax source called "${name}" (linked banks: ${(linked || []).map((entry) => entry.key).join(', ') || 'none'}; tax sources: ${TAX_SOURCES.map((entry) => entry.key).join(', ')})`);
 }
 
 // ---------------------------------------------------------------------------
@@ -130,8 +145,66 @@ export const DRIVERS = [
   { key: 'dcu', login: 'https://digital.dcu.org/' },
 ];
 
+const IRS_CLOUD_WARNING = (key) =>
+  `IRS sign-in goes through ID.me behind Cloudflare, which often refuses datacenter addresses like CoinPay cloud. If the sign-in page will not load or keeps looping, use the local window instead: coinpay finances statements assist ${key}`;
+
+/**
+ * Tax agencies: sources of their own, not reached through a linked bank, so
+ * they work with no SimpleFIN account at all. What they hold is notices,
+ * letters and transcripts, filed into the document library as category
+ * "tax" (never the statement library: there is no account or cycle).
+ * Keys are explicit, never derived from the domain.
+ */
+export const TAX_SOURCES = [
+  {
+    key: 'ftb',
+    kind: 'tax',
+    name: 'California FTB (MyFTB)',
+    login: 'https://webapp.ftb.ca.gov/MyFTBAccess/',
+    // MyFTB locks for 30 minutes and restarts the lock on any attempt inside it.
+    lockoutMinutes: 35,
+  },
+  {
+    key: 'irs',
+    kind: 'tax',
+    name: 'IRS Online Account',
+    login: 'https://sa.www4.irs.gov/ola/',
+    lockoutMinutes: 60,
+    cloudWarning: IRS_CLOUD_WARNING('irs'),
+  },
+  {
+    // https://www.irs.gov/businessaccount links "Sign in to business tax account" here.
+    key: 'irs-business',
+    kind: 'tax',
+    name: 'IRS Business Tax Account',
+    login: 'https://sa.www4.irs.gov/bola/',
+    lockoutMinutes: 60,
+    cloudWarning: IRS_CLOUD_WARNING('irs-business'),
+  },
+];
+
+export function taxSource(key) {
+  return TAX_SOURCES.find((entry) => entry.key === key) || null;
+}
+
+/** The tax sources as institutions with no accounts, so every bank code path takes them. */
+export function standaloneSources() {
+  return TAX_SOURCES.map((source) => ({ key: source.key, kind: 'tax', name: source.name, url: source.login, accounts: [] }));
+}
+
+/** Linked banks plus the tax sources (a linked bank keeps its key if it ever collides). */
+export function withStandaloneSources(institutions) {
+  const out = [...(institutions || [])];
+  for (const source of standaloneSources()) if (!out.some((entry) => entry.key === source.key)) out.push(source);
+  return out;
+}
+
+export function isTaxSource(institution) {
+  return !!institution && (institution.kind === 'tax' || (!(institution.accounts || []).length && !!taxSource(institution.key)));
+}
+
 export function startUrls(institution, learnt) {
-  const driver = DRIVERS.find((entry) => entry.key === institution.key);
+  const driver = DRIVERS.find((entry) => entry.key === institution.key) || (isTaxSource(institution) ? taxSource(institution.key) : null);
   return {
     login: (driver && driver.login) || institution.url || null,
     fetch: learnt || (driver && (driver.statements || driver.login)) || institution.url || null,
@@ -599,14 +672,45 @@ export const OPEN_STATEMENTS = `(() => {
 })()`;
 
 /**
- * Every visible control that looks like it downloads one dated statement,
- * tagged data-stmt-i for clickScript. Row text is read with innerText, which
- * keeps the break between table cells ("1234" and "July" stay two words).
+ * Whether a control is worth clicking. `mode` is 'statements' (a bank) or
+ * 'tax' (an agency). Pure and self-contained: its source is placed into the
+ * page script, so it may not refer to anything outside itself.
+ *
+ * Bank pages skip tax forms and 1099s (those are not statements). A tax page
+ * is the opposite: notices, letters, transcripts and forms are the point, and
+ * they are often listed by tax year rather than by date.
  */
-export const COLLECT = `(() => {
-  const DATE = /((?<![a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?\\s+(\\d{1,2},?\\s+)?\\d{4}\\b)|(\\b\\d{1,2}\\/\\d{1,2}\\/\\d{2,4}\\b)|(\\b\\d{4}-\\d{2}(-\\d{2})?\\b)/i;
+export function keepCandidate(mode, label, context, href) {
+  const DATE = /((?<![a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2},?\s+)?\d{4}\b)|(\b\d{1,2}\/\d{1,2}\/\d{2,4}\b)|(\b\d{4}-\d{2}(-\d{2})?\b)/i;
+  const pdf = /\.pdf(\b|$)/i.test(href || '');
+  const all = `${label} ${context} ${href || ''}`;
+  if (mode === 'tax') {
+    const SKIP = /preference|paperless|setting|privacy|terms of|help|learn more|enroll|faq|instruction|contact us|log ?out|sign ?out|log ?off|feedback|survey|payment plan|make a payment|pay now|chat/i;
+    const ACTION = /notice|letter|transcript|correspondence|document|form\b|1099|w-?2|return|pdf|download|view|open|save|print|\bcp\s?-?\d{2,4}|\bltr\s?-?\d{3,4}/i;
+    const YEAR = /\b(19|20)\d{2}\b/;
+    const DOC = /notice|letter|transcript|correspondence|\bcp\s?-?\d{2,4}|\bltr\s?\d{3,4}/i;
+    if (SKIP.test(label)) return false;
+    if (pdf) return true;
+    if (!ACTION.test(label)) return false;
+    return DATE.test(all) || YEAR.test(all) || DOC.test(all);
+  }
   const SKIP = /preference|paperless|setting|notification|tax form|1099|privacy|agreement|terms|help|learn more|enroll/i;
   const ACTION = /statement|download|pdf|view|open|save/i;
+  if (!pdf && !ACTION.test(label)) return false;
+  if (SKIP.test(label)) return false;
+  return DATE.test(all);
+}
+
+/**
+ * Every visible control that looks like it downloads one document, tagged
+ * data-stmt-i for clickScript. Row text is read with innerText, which keeps
+ * the break between table cells ("1234" and "July" stay two words).
+ */
+export function collectScript(mode = 'statements') {
+  return `(() => {
+  const MODE = ${JSON.stringify(mode === 'tax' ? 'tax' : 'statements')};
+  const keep = ${keepCandidate.toString()};
+  const DATE = /((?<![a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?\\s+(\\d{1,2},?\\s+)?\\d{4}\\b)|(\\b\\d{1,2}\\/\\d{1,2}\\/\\d{2,4}\\b)|(\\b\\d{4}-\\d{2}(-\\d{2})?\\b)/i;
   const visible = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
   const clean = (s) => (s || '').replace(/\\s+/g, ' ').trim();
   const textOf = (el) => clean(el.innerText || el.textContent);
@@ -628,10 +732,8 @@ export const COLLECT = `(() => {
       if (!visible(el)) continue;
       const label = clean(el.getAttribute('aria-label') || el.getAttribute('title') || el.innerText || el.textContent);
       const href = el.getAttribute('href') || '';
-      if (!/\\.pdf(\\b|$)/i.test(href) && !ACTION.test(label)) continue;
-      if (SKIP.test(label)) continue;
       const context = textOf(rowOf(el)).slice(0, 300);
-      if (!DATE.test(label + ' ' + context + ' ' + href)) continue;
+      if (!keep(MODE, label, context, href)) continue;
       el.setAttribute('data-stmt-i', String(index));
       let absolute = null;
       if (href && !href.startsWith('#') && !/^javascript:/i.test(href)) { try { absolute = new URL(href, doc.baseURI).href; } catch {} }
@@ -641,6 +743,24 @@ export const COLLECT = `(() => {
   }
   return JSON.stringify(out);
 })()`;
+}
+
+export const COLLECT = collectScript('statements');
+export const COLLECT_TAX = collectScript('tax');
+
+/** On a tax site: follow its own link to notices, letters or documents. */
+export const OPEN_TAX_DOCS = `(() => {
+  const want = /^(my |view |all )?(notices?|letters?|notices? (and|&) letters?|correspondence|documents?|records?|tax records?|transcripts?|view (my )?(notices|letters|documents|records))$/i;
+  for (const el of document.querySelectorAll('a, button, [role=link], [role=tab], [role=menuitem]')) {
+    const r = el.getBoundingClientRect();
+    const label = (el.getAttribute('aria-label') || el.textContent || '').replace(/\\s+/g, ' ').trim();
+    if (label.length < 50 && want.test(label) && r.width > 0 && r.height > 0) { el.click(); return label; }
+  }
+  return null;
+})()`;
+
+/** The page's visible text, for lockout detection (bounded). */
+export const PAGE_TEXT = `(() => (document.body ? (document.body.innerText || '').slice(0, 6000) : ''))()`;
 
 export function clickScript(index) {
   return `(() => {
@@ -766,15 +886,19 @@ async function closeStrays(cdp, keep) {
   }
 }
 
-async function findCandidates(cdp, sessionId, renderMs) {
+async function findCandidates(cdp, sessionId, renderMs, mode = 'statements', watchLockout = false) {
   const deadline = Date.now() + renderMs;
   let followed = false;
   for (;;) {
+    if (watchLockout) {
+      const lock = detectLockout(await evaluate(cdp, sessionId, PAGE_TEXT));
+      if (lock) return { signedOut: false, locked: lock, candidates: [] };
+    }
     if (await evaluate(cdp, sessionId, SIGNED_OUT)) return { signedOut: true, candidates: [] };
-    const raw = await evaluate(cdp, sessionId, COLLECT);
+    const raw = await evaluate(cdp, sessionId, mode === 'tax' ? COLLECT_TAX : COLLECT);
     const candidates = raw ? JSON.parse(raw) : [];
     if (candidates.length) return { signedOut: false, candidates };
-    if (!followed && Date.now() > deadline - renderMs / 2) followed = (await evaluate(cdp, sessionId, OPEN_STATEMENTS)) !== null;
+    if (!followed && Date.now() > deadline - renderMs / 2) followed = (await evaluate(cdp, sessionId, mode === 'tax' ? OPEN_TAX_DOCS : OPEN_STATEMENTS)) !== null;
     if (Date.now() > deadline) return { signedOut: false, candidates: [] };
     await sleep(1500);
   }
@@ -783,8 +907,11 @@ async function findCandidates(cdp, sessionId, renderMs) {
 /**
  * Visit one bank's statements page and hand every new PDF to `onFile`.
  * `seen` holds candidate keys already fetched; returns the page's status.
+ * `mode: 'tax'` collects notices, letters and transcripts; `watchLockout`
+ * stops at a lockout page (status 'locked', with the minutes it names).
+ * Nothing here ever submits a credential: a lost session is reported, never retried.
  */
-export async function fetchInstitution(browser, { start, seen = new Set(), since = null, max = 24, renderMs = 25_000, onFile, log = () => {} }) {
+export async function fetchInstitution(browser, { start, seen = new Set(), since = null, max = 24, renderMs = 25_000, onFile, log = () => {}, mode = 'statements', watchLockout = false, pauseMs = 1200 }) {
   const { cdp } = browser;
   const { sessionId, targetId } = await attachPage(cdp);
   await hideHeadless(cdp, sessionId);
@@ -792,15 +919,16 @@ export async function fetchInstitution(browser, { start, seen = new Set(), since
   const downloads = await Downloads.start(cdp, staging);
   try {
     await navigate(cdp, sessionId, start);
-    let found = await findCandidates(cdp, sessionId, renderMs);
+    let found = await findCandidates(cdp, sessionId, renderMs, mode, watchLockout);
     const url = (await evaluate(cdp, sessionId, 'location.href')) || start;
+    if (found.locked) return { status: 'locked', url, candidates: 0, silent: [], lockout: found.locked };
     if (found.signedOut) return { status: 'login_needed', url, candidates: 0, silent: [] };
     if (!found.candidates.length) return { status: 'no_statements', url, candidates: 0, silent: [] };
 
     const todo = found.candidates
       .map((candidate) => ({ candidate, key: candidateKey(candidate), period: periodOf(candidate.context, candidate.label) }))
       .filter(({ key }) => !seen.has(key))
-      .filter(({ period }) => !since || !period || period.month >= since)
+      .filter(({ period }) => mode === 'tax' || !since || !period || period.month >= since)
       .filter((item, index, all) => all.findIndex((other) => other.key === item.key) === index)
       .slice(0, max);
 
@@ -812,7 +940,11 @@ export async function fetchInstitution(browser, { start, seen = new Set(), since
       if (!clicked) {
         // The last click navigated the tab; come back and find the same row.
         await navigate(cdp, sessionId, start);
-        found = await findCandidates(cdp, sessionId, renderMs);
+        found = await findCandidates(cdp, sessionId, renderMs, mode, watchLockout);
+        if (found.locked) {
+          for (const line of silent) log(`  ? no download from: ${line}`);
+          return { status: 'locked', url, candidates: total, silent, lockout: found.locked };
+        }
         const again = found.candidates.find((other) => candidateKey(other) === key);
         clicked = again ? await evaluate(cdp, sessionId, clickScript(again.index)) : false;
       }
@@ -826,7 +958,7 @@ export async function fetchInstitution(browser, { start, seen = new Set(), since
       if (!bytes) { silent.push(label); continue; }
       await onFile({ bytes, suggestedName: event.suggestedName, label: candidate.label, context: candidate.context, key });
       // A bank that sees forty clicks a second ends the session.
-      await sleep(1200);
+      await sleep(pauseMs);
     }
     for (const line of silent) log(`  ? no download from: ${line}`);
     return { status: 'ok', url, candidates: total, silent };
@@ -836,8 +968,35 @@ export async function fetchInstitution(browser, { start, seen = new Set(), since
   }
 }
 
+/**
+ * Read the page's text every few seconds while a person drives a window, so
+ * a lockout page they run into is recorded. Returns a stop function.
+ */
+function watchText(cdp, sessionId, onPageText, everyMs = 3000) {
+  if (!onPageText) return () => {};
+  let stopped = false;
+  let timer = null;
+  const tick = async () => {
+    if (stopped) return;
+    const text = await evaluate(cdp, sessionId, PAGE_TEXT);
+    if (text && !stopped) {
+      try {
+        await onPageText(text);
+      } catch {
+        // Recording must never break the person's window.
+      }
+    }
+    if (!stopped) timer = setTimeout(tick, everyMs);
+  };
+  timer = setTimeout(tick, everyMs);
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+  };
+}
+
 /** A sign-in window; resolves with the last real page when the person closes it. */
-export async function loginWindow(browser, url) {
+export async function loginWindow(browser, url, { onPageText } = {}) {
   const { cdp } = browser;
   await cdp.send('Target.setDiscoverTargets', { discover: true });
   let last = null;
@@ -847,14 +1006,16 @@ export async function loginWindow(browser, url) {
     if (info.type === 'page' && /^https:/.test(info.url || '')) last = info.url;
   });
   const { sessionId } = await attachPage(cdp);
+  const stopWatch = watchText(cdp, sessionId, onPageText);
   await navigate(cdp, sessionId, url).catch(() => {});
   await browser.exited;
+  stopWatch();
   stop();
   return last && !isSignInUrl(last) ? last : null;
 }
 
 /** A window on the statements page; every PDF the person downloads goes to `onFile` until it closes. */
-export async function assistWindow(browser, { start, onFile }) {
+export async function assistWindow(browser, { start, onFile, onPageText }) {
   const { cdp } = browser;
   const { sessionId } = await attachPage(cdp);
   await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: CLICK_RECORDER }, sessionId);
@@ -863,6 +1024,7 @@ export async function assistWindow(browser, { start, onFile }) {
   let open = true;
   browser.exited.then(() => { open = false; });
   let handled = 0;
+  const stopWatch = watchText(cdp, sessionId, onPageText);
   try {
     await navigate(cdp, sessionId, start).catch(() => {});
     await evaluate(cdp, sessionId, CLICK_RECORDER);
@@ -876,6 +1038,7 @@ export async function assistWindow(browser, { start, onFile }) {
       if (bytes) await onFile({ bytes, suggestedName: event.suggestedName, label: clicked.label, context: clicked.context, key: null });
     }
   } finally {
+    stopWatch();
     downloads.stop();
     rmSync(staging, { recursive: true, force: true });
   }
@@ -932,16 +1095,148 @@ export async function keepStatement({ institution, download, state, home, import
   }
 }
 
+// ---------------------------------------------------------------------------
+// Tax documents: notices, letters, transcripts → the document library
+// ---------------------------------------------------------------------------
+
+const GENERIC_LABEL = /^(download|view|open|pdf|print|save|get|show)\b/i;
+
+/**
+ * What a tax document is, from the link label, its row and the file name:
+ * `{docType, code, taxYear, noticeDate, periodLabel, title}`. The period
+ * label is the tax year when one is printed, else the notice date, else the
+ * day it was fetched.
+ */
+export function classifyTaxDocument({ label = '', context = '', suggestedName = '' } = {}, fetchedAt = new Date()) {
+  // Collapsed and capped: a link label and its row never need more, and every pattern below stays linear.
+  const text = [label, context, String(suggestedName || '').replace(/[_-]+/g, ' ')].filter(Boolean).join(' ').replace(/\s+/g, ' ').slice(0, 2000);
+  const code = (/\b(CP\s?-?\d{2,4}[A-Z]?|LTR\s?-?\d{3,4}[A-Z]?)\b/i.exec(text) || [])[1] || null;
+  const docType = /transcript/i.test(text)
+    ? 'transcript'
+    : /\bnotice\b|\bCP\s?-?\d{2,4}/i.test(text)
+      ? 'notice'
+      : /\bletter\b|\bLTR\s?-?\d{3,4}|correspondence/i.test(text)
+        ? 'letter'
+        : /\b(form|1099|1098|w-?2|k-1|5498)\b/i.test(text)
+          ? 'form'
+          : /\breturn\b/i.test(text)
+            ? 'return'
+            : 'other';
+
+  let taxYear = null;
+  const explicit = /\b(?:tax\s*(?:year|period)|TY)[\s:]*((?:19|20)\d{2})\b/i.exec(text);
+  if (explicit) taxYear = Number(explicit[1]);
+  else if (docType === 'transcript' || docType === 'form' || docType === 'return') {
+    // A lone year that is not part of a printed date ("2024 Account Transcript").
+    const withoutDates = text
+      .replace(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g, ' ')
+      .replace(/\b\d{4}-\d{2}(-\d{2})?\b/g, ' ')
+      .replace(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2},?\s+)?\d{4}\b/gi, ' ');
+    const years = [...new Set([...withoutDates.matchAll(/\b((?:19|20)\d{2})\b/g)].map((m) => Number(m[1])))];
+    if (years.length === 1) taxYear = years[0];
+  }
+  if (taxYear !== null && (taxYear < 1990 || taxYear > fetchedAt.getUTCFullYear() + 1)) taxYear = null;
+
+  const precise = findDates(text).filter((entry) => entry.precise).map((entry) => entry.date);
+  const noticeDate = precise.length ? precise[0] : null;
+  const periodLabel = taxYear !== null ? String(taxYear) : noticeDate || fetchedAt.toISOString().slice(0, 10);
+
+  const cleanLabel = String(label || '').replace(/\s+/g, ' ').trim();
+  const title = (cleanLabel && !GENERIC_LABEL.test(cleanLabel) ? cleanLabel : String(context || '').replace(/\s+/g, ' ').trim().slice(0, 120) || basename(String(suggestedName || 'tax-document.pdf'), '.pdf')).slice(0, 200) || 'Tax document';
+  return { docType, code, taxYear, noticeDate, periodLabel, title };
+}
+
+function archiveTax(home, institution, info, suggestedName, bytes) {
+  const folder = join(institution.key, info.taxYear ? String(info.taxYear) : '_undated');
+  const stem = slug(basename(suggestedName || info.title || 'document', '.pdf')) || 'document';
+  for (let attempt = 1; ; attempt += 1) {
+    const absolute = join(home, 'files', folder, `${stem}${attempt === 1 ? '' : `-${attempt}`}.pdf`);
+    if (existsSync(absolute)) continue;
+    mkdirSync(dirname(absolute), { recursive: true, mode: 0o700 });
+    writeFileSync(absolute, bytes, { mode: 0o600 });
+    return absolute;
+  }
+}
+
+/**
+ * Keep one PDF from a tax source: archive it locally and file it in the
+ * document library (category "tax"). No account matching, no statement
+ * period: a notice is not a statement. `fileDocument` is the SDK call bound
+ * to a client (POST /finances/documents); the server dedupes by sha256.
+ */
+export async function keepTaxDocument({ institution, download, state, home, fileDocument, how = 'fetch', now = new Date() }) {
+  if (!isPdf(download.bytes)) return { status: 'not_pdf', name: download.suggestedName };
+  const hash = sha256(download.bytes);
+  const known = state.entries.find((entry) => entry.sha256 === hash);
+  if (known) {
+    if (download.key && !known.key) known.key = download.key;
+    return { status: 'duplicate', entry: known };
+  }
+  const info = classifyTaxDocument(download, now);
+  const path = archiveTax(home, institution, info, download.suggestedName, download.bytes);
+  const entry = {
+    sha256: hash,
+    path,
+    kind: 'tax',
+    institution: institution.key,
+    accountId: null,
+    month: null,
+    title: info.title,
+    docType: info.docType,
+    taxYear: info.taxYear,
+    periodLabel: info.periodLabel,
+    key: download.key,
+    how,
+    downloadedAt: now.toISOString(),
+    statementId: null,
+    documentId: null,
+    importError: null,
+  };
+  state.entries.push(entry);
+  return fileTaxEntry({ entry, institution, bytes: download.bytes, filename: download.suggestedName, fileDocument });
+}
+
+async function fileTaxEntry({ entry, institution, bytes, filename, fileDocument }) {
+  if (!fileDocument) {
+    entry.importError = 'this CoinPay client cannot file documents';
+    return { status: 'import_failed', entry };
+  }
+  try {
+    const data = await fileDocument({
+      file: bytes,
+      filename: filename || basename(entry.path),
+      title: entry.title,
+      category: 'tax',
+      periodLabel: entry.periodLabel,
+      taxYear: entry.taxYear,
+      docType: entry.docType,
+      institutionKey: institution.key,
+      source: 'fetch',
+      notes: `Downloaded from ${institution.name} by the CoinPay CLI (${entry.how}).`,
+    });
+    entry.documentId = data && data.document ? data.document.id : null;
+    entry.importError = null;
+    return { status: data && data.duplicate ? 'duplicate' : 'imported', entry };
+  } catch (err) {
+    entry.importError = err && err.message ? err.message : String(err);
+    return { status: 'import_failed', entry };
+  }
+}
+
 /**
  * Fetch every signed-in bank (or the ones named) and import what is new.
  * `api` carries `listAccounts()`, `importStatement(opts)` and `reportRun(run)`.
  * Returns one summary per bank; never throws for one bank's failure.
  */
-export async function runStatementFetch({ api, banks = [], since = null, max = 24, renderMs = 25_000, headless = true, chrome = findChrome(), home = statementsHome(), log = () => {}, client = 'coinpay-cli', force = false }) {
-  const institutions = groupInstitutions(await api.listAccounts());
-  if (!institutions.length) throw new StatementFetchError('no linked accounts; connect a bank in CoinPay first');
-  const chosen = banks.length ? banks.map((name) => pickInstitution(institutions, name)) : institutions.filter((entry) => signedIn(entry.key, home));
-  if (!chosen.length) throw new StatementFetchError(`no bank is signed in yet. Start with: coinpay finances statements login ${institutions[0].key}`);
+export async function runStatementFetch({ api, banks = [], since = null, max = 24, renderMs = 25_000, headless = true, chrome = findChrome(), home = statementsHome(), log = () => {}, client = 'coinpay-cli', force = false, now = () => new Date() }) {
+  const linked = groupInstitutions(await api.listAccounts());
+  const institutions = withStandaloneSources(linked);
+  const chosen = banks.length ? banks.map((name) => pickInstitution(linked, name)) : institutions.filter((entry) => signedIn(entry.key, home));
+  if (!chosen.length) {
+    throw new StatementFetchError(linked.length
+      ? `no bank is signed in yet. Start with: coinpay finances statements login ${linked[0].key}`
+      : 'no linked accounts and no tax source signed in. Connect a bank in CoinPay, or start with: coinpay finances statements assist irs');
+  }
   if (!chrome) throw new StatementFetchError(NO_CHROME);
 
   const state = loadLocal(home);
@@ -950,20 +1245,31 @@ export async function runStatementFetch({ api, banks = [], since = null, max = 2
     const local = (state.institutions[institution.key] ||= {});
     const start = startUrls(institution, local.start).fetch;
     const startedAt = new Date().toISOString();
-    const summary = { bank: institution.key, name: institution.name, status: 'ok', candidates: 0, imported: 0, duplicates: 0, unmatched: 0, failed: 0, silent: 0, message: null };
+    const tax = isTaxSource(institution);
+    const summary = { bank: institution.key, name: institution.name, kind: tax ? 'tax' : 'bank', status: 'ok', candidates: 0, imported: 0, duplicates: 0, unmatched: 0, failed: 0, silent: 0, message: null };
     log(`${institution.key}: ${start || 'no start page'}`);
     let browser;
     try {
       if (!signedIn(institution.key, home) || !start) {
         summary.status = 'login_needed';
-        summary.message = `not signed in: coinpay finances statements login ${institution.key}`;
+        summary.message = `not signed in: coinpay finances statements ${tax ? 'assist' : 'login'} ${institution.key}`;
+      } else if (tax && !(summary.throttle = takeLocalAttempt(home, institution.key, 'fetch', now())).ok) {
+        // Counted before the visit; refused visits never reach the site.
+        summary.status = 'throttled';
+        summary.message = `not fetched: ${summary.throttle.message}`;
       } else {
         browser = await openBrowser({ chrome, profile: profileDir(institution.key, home), headless, force });
         const seen = new Set(state.entries.filter((entry) => entry.institution === institution.key && entry.key).map((entry) => entry.key));
         const page = await fetchInstitution(browser, {
-          start, seen, since, max, renderMs, log,
+          start, seen, since, renderMs, log,
+          max: tax ? Math.min(max, 12) : max,
+          mode: tax ? 'tax' : 'statements',
+          watchLockout: tax,
+          pauseMs: tax ? 3000 : 1200,
           onFile: async (download) => {
-            const kept = await keepStatement({ institution, download, state, home, importStatement: api.importStatement });
+            const kept = tax
+              ? await keepTaxDocument({ institution, download, state, home, fileDocument: api.fileDocument, now: now() })
+              : await keepStatement({ institution, download, state, home, importStatement: api.importStatement });
             if (kept.status === 'imported') summary.imported += 1;
             else if (kept.status === 'duplicate') summary.duplicates += 1;
             else if (kept.status === 'unmatched') summary.unmatched += 1;
@@ -975,8 +1281,19 @@ export async function runStatementFetch({ api, banks = [], since = null, max = 2
         summary.status = page.status;
         summary.candidates = page.candidates;
         summary.silent = page.silent.length;
-        if (page.status === 'login_needed') summary.message = `the bank asks for a password again: coinpay finances statements login ${institution.key}`;
-        if (page.status === 'no_statements') summary.message = `no statement links at ${new URL(page.url).origin}; sign in again and close the window on the statements list, or use assist`;
+        if (page.status === 'locked') {
+          // Recorded, then left alone: no retry until the site's own lock is over.
+          const until = lockoutUntil(page.lockout, now(), undefined, (taxSource(institution.key) || {}).lockoutMinutes);
+          recordLocalLockout(home, institution.key, until, 'lockout page during fetch');
+          summary.lockedUntil = until;
+          summary.message = `${institution.name} shows a locked account; nothing more will be tried before ${until}`;
+        }
+        if (page.status === 'login_needed') summary.message = tax
+          ? `${institution.name} asks you to sign in again. CoinPay never re-enters credentials or codes; when you are ready: coinpay finances statements assist ${institution.key}`
+          : `the bank asks for a password again: coinpay finances statements login ${institution.key}`;
+        if (page.status === 'no_statements') summary.message = tax
+          ? `no notices, letters or transcripts found at ${new URL(page.url).origin}; download them by hand with: coinpay finances statements assist ${institution.key}`
+          : `no statement links at ${new URL(page.url).origin}; sign in again and close the window on the statements list, or use assist`;
         if (summary.failed) summary.message = `${summary.failed} file(s) could not be imported; see coinpay finances statements local`;
       }
     } catch (err) {
@@ -989,11 +1306,17 @@ export async function runStatementFetch({ api, banks = [], since = null, max = 2
       saveLocal(state, home);
     }
     log(`  ${summary.status}: ${summary.candidates} on the page, ${summary.imported} imported, ${summary.duplicates} already had, ${summary.unmatched} unmatched${summary.message ? `; ${summary.message}` : ''}`);
+    // A refused (throttled) visit never reached the site: nothing to report.
+    if (summary.status === 'throttled') {
+      results.push(summary);
+      continue;
+    }
     try {
       await api.reportRun({
         institutionKey: institution.key,
         institutionLabel: institution.name,
-        status: summary.status,
+        // The server's run statuses predate lockouts; a lockout is an error with its message.
+        status: summary.status === 'locked' ? 'error' : summary.status,
         candidates: summary.candidates,
         filed: summary.imported,
         duplicates: summary.duplicates,
@@ -1019,15 +1342,25 @@ export async function clientApi(client) {
     listAccounts: () => listFinanceAccounts(client),
     importStatement: (opts) => reports.importFinanceStatement(client, opts),
     reportRun: (run) => reports.reportStatementFetchRun(client, run),
+    fileDocument: (opts) => reports.uploadFinanceDocument(client, opts),
   };
 }
 
 /** Re-import local files whose import failed or never happened (e.g. after linking an account). */
 export async function retryImports({ api, home = statementsHome(), log = () => {} }) {
   const state = loadLocal(home);
-  const institutions = groupInstitutions(await api.listAccounts());
+  const institutions = withStandaloneSources(groupInstitutions(await api.listAccounts()));
   const out = { imported: 0, skipped: 0, failed: 0 };
-  for (const entry of state.entries.filter((e) => !e.statementId)) {
+  for (const entry of state.entries.filter((e) => !e.statementId && !e.documentId)) {
+    if (entry.kind === 'tax') {
+      const source = institutions.find((i) => i.key === entry.institution);
+      if (!source || !existsSync(entry.path)) { out.skipped += 1; continue; }
+      const result = await fileTaxEntry({ entry, institution: source, bytes: readFileSync(entry.path), filename: basename(entry.path), fileDocument: api.fileDocument });
+      if (result.status === 'import_failed') { out.failed += 1; log(`failed ${entry.path}: ${entry.importError}`); }
+      else { out.imported += 1; log(`filed ${entry.path}`); }
+      saveLocal(state, home);
+      continue;
+    }
     const institution = institutions.find((i) => i.key === entry.institution);
     const account = institution && institution.accounts.find((a) => a.id === entry.accountId);
     const span = importPeriod(entry.month ? { month: entry.month, from: entry.from, to: entry.to } : null);

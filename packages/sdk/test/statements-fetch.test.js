@@ -109,7 +109,7 @@ describe('accounts and banks', () => {
     const banks = groupInstitutions(coinpayAccounts);
     expect(pickInstitution(banks, 'CHASE').key).toBe('chase');
     expect(pickInstitution(banks, 'bay').key).toBe('bay-federal-credit-union');
-    expect(() => pickInstitution(banks, 'citi')).toThrow(/no bank called "citi"/);
+    expect(() => pickInstitution(banks, 'citi')).toThrow(/no bank or tax source called "citi"/);
   });
 
   it('starts at the learnt page, then the known statements page, then the bank site', () => {
