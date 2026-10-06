@@ -12,6 +12,9 @@ set -euo pipefail
 
 LNBITS_DIR="/opt/lnbits"
 LNBITS_DATA="/opt/lnbits-data"
+# LNbits runs as this user (dev2, since 2026-10-06); git and pip run as root, so
+# ownership is handed back before the service starts again.
+LNBITS_USER="${LNBITS_USER:-lightning}"
 BACKUP_DIR="/opt/lnbits-backups"
 MAX_BACKUPS=10
 
@@ -126,6 +129,10 @@ fi
 # ─────────────────────────────────────────────
 # 5. Start LNbits
 # ─────────────────────────────────────────────
+if id "${LNBITS_USER}" &>/dev/null; then
+  chown -R "${LNBITS_USER}:${LNBITS_USER}" "${LNBITS_DIR}" "${LNBITS_DATA}"
+fi
+
 echo "▶ [5/5] Starting LNbits..."
 
 systemctl start lnbits
