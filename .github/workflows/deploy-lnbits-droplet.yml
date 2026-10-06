@@ -1,134 +1,57 @@
-name: Deploy LNbits Droplet
+name: Deploy LNbits (dev2)
 
-# Auto-deploys on push to master, by design.
+# Auto-deploys on push to master, by design (see git history for the approval-gate
+# discussion, N-020).
 #
-# The audit flagged this as a missing approval gate (N-020): the job holds an
-# SSH private key for a production droplet, so every merge reaches production
-# infrastructure with nobody in the loop. That gate was added and then removed
-# again at the maintainer's request — continuous deployment here is deliberate,
-# and the trade-off is the maintainer's to make, not the audit's.
+# LNbits + Core Lightning moved off the DigitalOcean droplet onto dev2 on 2026-10-06.
+# The job ssh'es to dev2 as the deploy account with the same DEV2_* secrets as
+# deploy-dev2.yml and runs ONE fixed, root-owned command:
 #
-# If you ever want the gate back, it is two lines: replace the `on:` block with
-# `workflow_dispatch:` and add `environment: production` to the job, then set a
-# required reviewer under Settings -> Environments -> production.
+#   sudo -n /usr/local/sbin/deploy-lnbits
 #
-# The credential handling below is NOT part of that trade-off and stays.
+# allowed by a single-command sudoers rule. It is a copy of scripts/deploy-lnbits.sh
+# installed by hand, so a commit to this repo can no longer run arbitrary code as
+# root on the LNbits host. After changing scripts/deploy-lnbits.sh, re-install it:
+#
+#   sudo install -m 755 -o root -g root scripts/deploy-lnbits.sh /usr/local/sbin/deploy-lnbits
 on:
   push:
     branches: [master]
   workflow_dispatch:
 
+concurrency:
+  group: deploy-lnbits
+  cancel-in-progress: false
+
+permissions: {}
+
 jobs:
   deploy-lnbits:
     runs-on: ubuntu-latest
-    env:
-      # secrets ONLY — never vars.
-      #
-      # These previously fell back to `vars.*`. GitHub Actions variables are not
-      # secrets: they are stored in plaintext, readable by anyone with repo
-      # access, and — critically — NOT masked in job logs. An SSH private key or
-      # a dotenv file of credentials supplied that way would be printed in the
-      # clear by any step that echoed it. If the secret is missing the job now
-      # fails loudly rather than silently reading a non-secret.
-      ENV_FILE: ${{ secrets.ENV_FILE }}
-      DIRECT_SSH_KEY: ${{ secrets.LNBITS_DROPLET_SSH_KEY || secrets.LNBITS_DROP_SSH_KEY }}
+    timeout-minutes: 20
     steps:
-      - name: Checkout
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-
-      - name: Load ENV_FILE
-        shell: bash
+      - name: Set up ssh
+        env:
+          SSH_KEY: ${{ secrets.DEV2_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV2_KNOWN_HOSTS }}
         run: |
-          set -euo pipefail
-          if [ -z "${ENV_FILE:-}" ]; then
-            echo "ENV_FILE is empty. Add secret/variable ENV_FILE with dotenv contents."
-            exit 1
-          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
-          # Export KEY=VALUE lines into job env (ignore comments/blank lines)
-          #
-          # F5-L2-01: every value extracted here is registered with the runner's
-          # log masker as it is parsed.
-          #
-          # GitHub masks the `ENV_FILE` secret as a single blob. It does NOT know
-          # that the LNbits admin key, the droplet SSH key and everything else
-          # inside it are secrets in their own right, so any later step that
-          # echoed one — a `set -x`, a curl trace, a failing command printing its
-          # arguments — wrote it to the job log in the clear. Job logs outlive
-          # the credentials in them.
-          #
-          # `::add-mask::` matches literal strings only, so a multi-line value
-          # (an SSH private key) has to be masked line by line. Values shorter
-          # than 8 characters are skipped: masking something like `true` or a
-          # port number would replace every incidental occurrence of it and make
-          # the log unreadable without protecting anything.
-          while IFS= read -r line; do
-            [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-            key="${line%%=*}"
-            value="${line#*=}"
-            key="${key#"${key%%[![:space:]]*}"}"
-            key="${key%"${key##*[![:space:]]}"}"
-            [[ -z "$key" ]] && continue
+      - name: Deploy LNbits
+        env:
+          DEV2_USER: ${{ secrets.DEV2_USER }}
+          DEV2_HOST: ${{ secrets.DEV2_HOST }}
+        run: ssh -o BatchMode=yes "$DEV2_USER@$DEV2_HOST" sudo -n /usr/local/sbin/deploy-lnbits
 
-            # Strip one layer of surrounding quotes so the masked string is what
-            # a consumer actually sees, not the quoted form.
-            unquoted="$value"
-            if [[ "$unquoted" == \"*\" || "$unquoted" == \'*\' ]]; then
-              unquoted="${unquoted:1:${#unquoted}-2}"
-            fi
-
-            while IFS= read -r masked_line; do
-              [[ ${#masked_line} -ge 8 ]] && echo "::add-mask::$masked_line"
-            done <<< "$unquoted"
-
-            {
-              echo "$key<<__EOF__"
-              echo "$value"
-              echo "__EOF__"
-            } >> "$GITHUB_ENV"
-          done <<< "$ENV_FILE"
-
-      - name: Validate required vars
-        shell: bash
+      - name: Verify LNbits answers
         run: |
-          set -euo pipefail
-          # Backward-compat aliases
-          if [ -z "${LNBITS_DROPLET_SSH_KEY:-}" ] && [ -n "${LNBITS_DROP_SSH_KEY:-}" ]; then
-            echo "LNBITS_DROPLET_SSH_KEY=${LNBITS_DROP_SSH_KEY}" >> "$GITHUB_ENV"
-            export LNBITS_DROPLET_SSH_KEY="${LNBITS_DROP_SSH_KEY}"
-          fi
-          if [ -z "${LNBITS_DROPLET_SSH_KEY:-}" ] && [ -n "${DIRECT_SSH_KEY:-}" ]; then
-            echo "LNBITS_DROPLET_SSH_KEY<<__EOF__" >> "$GITHUB_ENV"
-            echo "${DIRECT_SSH_KEY}" >> "$GITHUB_ENV"
-            echo "__EOF__" >> "$GITHUB_ENV"
-            export LNBITS_DROPLET_SSH_KEY="${DIRECT_SSH_KEY}"
-          fi
-
-          for k in LNBITS_DROPLET_HOST LNBITS_DROPLET_USER LNBITS_DROPLET_SSH_KEY LNBITS_ADMIN_KEY; do
-            if [ -z "${!k:-}" ]; then
-              echo "Missing required ENV_FILE key: $k"
-              exit 1
-            fi
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://ln.coinpayportal.com/api/v1/health" || true)
+            [ "$code" = "200" ] && { echo "ln.coinpayportal.com $code"; exit 0; }
+            echo "attempt $i: $code"; sleep 10
           done
-
-      - name: Deploy to LNbits host
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ env.LNBITS_DROPLET_HOST }}
-          username: ${{ env.LNBITS_DROPLET_USER }}
-          key: ${{ env.LNBITS_DROPLET_SSH_KEY }}
-          script_stop: true
-          script: |
-            cd ~/coinpayportal || exit 1
-            git fetch origin master 2>&1 || true
-            git reset --hard origin/master 2>&1
-            sudo bash scripts/deploy-lnbits.sh 2>&1
-
-      - name: Verify LNURLp endpoint
-        shell: bash
-        run: |
-          set -euo pipefail
-          code=$(curl -s -o /tmp/lnurlp.json -w "%{http_code}" "https://ln.coinpayportal.com/lnurlp/api/v1/links" \
-            -H "X-Api-Key: ${LNBITS_ADMIN_KEY}")
-          test "$code" = "200"
-          head -c 500 /tmp/lnurlp.json
+          echo "ln.coinpayportal.com never answered"; exit 1
