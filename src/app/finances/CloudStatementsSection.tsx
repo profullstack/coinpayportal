@@ -14,7 +14,7 @@ type CloudSession = {
   lastTouchAt?: string | null;
   fetchedRows: number;
 };
-type Bank = { key: string; name: string; kind?: 'bank' | 'tax'; accounts: string[]; cloud: CloudSession | null };
+type Bank = { key: string; name: string; kind?: 'bank' | 'tax' | 'brokerage'; accounts: string[]; cloud: CloudSession | null };
 type Access = { allowed: boolean; reason: string; message: string };
 
 function ago(iso: string | null): string {
@@ -128,7 +128,8 @@ export default function CloudStatementsSection({ authHeaders, onChanged }: { aut
               <div key={bank.key} className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-800 p-2">
                 <div className="text-xs">
                   <span className="text-gray-200">{bank.name}</span>
-                  {bank.kind === 'tax' && <span className="text-gray-500"> · tax notices &amp; transcripts</span>} <span className={tone}>· {state}</span>
+                  {bank.kind === 'tax' && <span className="text-gray-500"> · tax notices &amp; transcripts</span>}
+                  {bank.kind === 'brokerage' && <span className="text-gray-500"> · statements, confirmations &amp; 1099s</span>} <span className={tone}>· {state}</span>
                   {cloud && (
                     <span className="text-gray-500">
                       {' '}

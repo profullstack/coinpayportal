@@ -507,10 +507,12 @@ ${colors.cyan}Commands:${colors.reset}
                             notice, letter or transcript you download is filed under
                             Documents (tax). IRS: use this, locally (ID.me blocks clouds).
                             Throttled: 2 visits per 30 min, 4 per day; lockouts respected
+    statements login|fetch|assist webull  Brokerage (no linked account needed): monthly
+                            statements, trade confirmations and 1099s are filed under Documents
     statements coverage   Which account-months have a statement (--months 12)
     statements runs|local|retry  Fetch history, the local archive, re-import what failed
     statements cloud [status]  CoinPay cloud fetching (Professional; free for admins)
-    statements cloud connect <bank|ftb|irs>  Sign in once in CoinPay's cloud browser (opens your browser)
+    statements cloud connect <bank|ftb|irs|webull>  Sign in once in CoinPay's cloud browser (opens your browser)
     statements cloud fetch [bank] [--wait]  Fetch now in the cloud; weekly by default
     statements cloud schedule <bank> weekly|off | cloud forget <bank>
     books [queue]         Transactions awaiting category review (--status, --scope, --search)

@@ -51,6 +51,20 @@ The same fetcher also reaches the tax agencies (`ftb`, `irs`,
 go to the document library, under a strict attempt throttle. See
 [TAX-DOCUMENTS.md](./TAX-DOCUMENTS.md).
 
+Brokerages work the same way with no linked account. `webull` starts at
+Webull's E-Documents page (`https://www.webull.com/edocs`) and collects in a
+`documents` mode: monthly statements and trade confirmations go to the
+document library as category `statement` (period = month, or the day for a
+confirmation), 1099 / 1042-S / 5498 forms as category `tax`, type `form`,
+with their tax year. No visit throttle; a Webull account linked through
+SimpleFIN keeps the ordinary bank path.
+
+```bash
+coinpay finances statements login webull     # sign in once, close the window on E-Documents
+coinpay finances statements fetch webull
+coinpay finances statements cloud connect webull && coinpay finances statements cloud schedule webull weekly
+```
+
 SimpleFIN supplies balances and transactions, never the PDFs: the protocol
 has no document endpoint and the Bridge keeps none. So the CLI downloads them
 from each bank itself, **on the merchant's own machine**, and imports each one

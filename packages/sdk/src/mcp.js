@@ -61,7 +61,9 @@ export const TOOLS = [
         chrome: sf.findChrome(),
         banks: institutions.map((i) => ({ key: i.key, name: i.name, accounts: i.accounts.map((a) => a.name), signedIn: sf.signedIn(i.key, home), ...state.institutions[i.key] })),
         // FTB and IRS need no linked bank; each is throttled (2 visits / 30 min, 4 / day).
-        taxSources: sf.standaloneSources().map((s) => ({ key: s.key, name: s.name, signedIn: sf.signedIn(s.key, home), throttle: sf.checkLocalThrottle(home, s.key), ...state.institutions[s.key] })),
+        taxSources: sf.standaloneSources().filter((s) => s.kind === 'tax').map((s) => ({ key: s.key, name: s.name, signedIn: sf.signedIn(s.key, home), throttle: sf.checkLocalThrottle(home, s.key), ...state.institutions[s.key] })),
+        // Brokerages with no linked account (Webull): statements, confirmations and 1099s go to Documents.
+        brokerages: sf.standaloneSources().filter((s) => s.kind === 'brokerage' && !institutions.some((i) => i.key === s.key)).map((s) => ({ key: s.key, name: s.name, signedIn: sf.signedIn(s.key, home), ...state.institutions[s.key] })),
       });
     },
   },

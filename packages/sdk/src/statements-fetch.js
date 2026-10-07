@@ -120,7 +120,7 @@ export function pickInstitution(linked, name) {
   const loose = institutions.filter((entry) => entry.key.replace(/-/g, '').startsWith(wanted) || entry.name.toLowerCase().replace(/[^a-z0-9]/g, '').startsWith(wanted));
   if (loose.length === 1) return loose[0];
   if (loose.length) throw new StatementFetchError(`"${name}" matches ${loose.map((entry) => entry.key).join(', ')}; be more specific`);
-  throw new StatementFetchError(`no bank or tax source called "${name}" (linked banks: ${(linked || []).map((entry) => entry.key).join(', ') || 'none'}; tax sources: ${TAX_SOURCES.map((entry) => entry.key).join(', ')})`);
+  throw new StatementFetchError(`no bank or tax source called "${name}" (linked banks: ${(linked || []).map((entry) => entry.key).join(', ') || 'none'}; tax sources: ${TAX_SOURCES.map((entry) => entry.key).join(', ')}; brokerages: ${BROKERAGE_SOURCES.map((entry) => entry.key).join(', ')})`);
 }
 
 // ---------------------------------------------------------------------------
@@ -183,13 +183,37 @@ export const TAX_SOURCES = [
   },
 ];
 
+/**
+ * Brokerages: sources of their own too, because SimpleFIN rarely links a
+ * brokerage, and when it does it carries positions, never documents. What
+ * they hold is monthly statements, trade confirmations and tax forms
+ * (1099s), all filed into the document library: statements and confirms as
+ * category "statement" with their month, tax forms as category "tax".
+ * Unlike tax agencies they are not throttled: a brokerage session behaves
+ * like a bank's. A linked account with the same key keeps the bank path.
+ */
+export const BROKERAGE_SOURCES = [
+  {
+    key: 'webull',
+    kind: 'brokerage',
+    name: 'Webull',
+    // E-Documents: statements, trade confirmations and tax documents in one list.
+    login: 'https://www.webull.com/edocs',
+    statements: 'https://www.webull.com/edocs',
+  },
+];
+
 export function taxSource(key) {
   return TAX_SOURCES.find((entry) => entry.key === key) || null;
 }
 
-/** The tax sources as institutions with no accounts, so every bank code path takes them. */
+export function brokerageSource(key) {
+  return BROKERAGE_SOURCES.find((entry) => entry.key === key) || null;
+}
+
+/** The tax and brokerage sources as institutions with no accounts, so every bank code path takes them. */
 export function standaloneSources() {
-  return TAX_SOURCES.map((source) => ({ key: source.key, kind: 'tax', name: source.name, url: source.login, accounts: [] }));
+  return [...TAX_SOURCES, ...BROKERAGE_SOURCES].map((source) => ({ key: source.key, kind: source.kind, name: source.name, url: source.login, accounts: [] }));
 }
 
 /** Linked banks plus the tax sources (a linked bank keeps its key if it ever collides). */
@@ -203,8 +227,19 @@ export function isTaxSource(institution) {
   return !!institution && (institution.kind === 'tax' || (!(institution.accounts || []).length && !!taxSource(institution.key)));
 }
 
+/** A brokerage source with no linked account: its documents go to the document library. */
+export function isBrokerageSource(institution) {
+  return !!institution && (institution.kind === 'brokerage' || (!(institution.accounts || []).length && !!brokerageSource(institution.key)));
+}
+
+/** How the fetcher reads a source's page: 'tax', 'documents' (a brokerage) or 'statements' (a bank). */
+export function sourceMode(institution) {
+  return isTaxSource(institution) ? 'tax' : isBrokerageSource(institution) ? 'documents' : 'statements';
+}
+
 export function startUrls(institution, learnt) {
-  const driver = DRIVERS.find((entry) => entry.key === institution.key) || (isTaxSource(institution) ? taxSource(institution.key) : null);
+  const driver = DRIVERS.find((entry) => entry.key === institution.key)
+    || (isTaxSource(institution) ? taxSource(institution.key) : isBrokerageSource(institution) ? brokerageSource(institution.key) : null);
   return {
     login: (driver && driver.login) || institution.url || null,
     fetch: learnt || (driver && (driver.statements || driver.login)) || institution.url || null,
@@ -672,13 +707,14 @@ export const OPEN_STATEMENTS = `(() => {
 })()`;
 
 /**
- * Whether a control is worth clicking. `mode` is 'statements' (a bank) or
- * 'tax' (an agency). Pure and self-contained: its source is placed into the
+ * Whether a control is worth clicking. `mode` is 'statements' (a bank),
+ * 'tax' (an agency) or 'documents' (a brokerage). Pure and self-contained: its source is placed into the
  * page script, so it may not refer to anything outside itself.
  *
  * Bank pages skip tax forms and 1099s (those are not statements). A tax page
  * is the opposite: notices, letters, transcripts and forms are the point, and
- * they are often listed by tax year rather than by date.
+ * they are often listed by tax year rather than by date. A brokerage keeps
+ * both: dated statements and confirmations, and 1099s listed by tax year.
  */
 export function keepCandidate(mode, label, context, href) {
   const DATE = /((?<![a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2},?\s+)?\d{4}\b)|(\b\d{1,2}\/\d{1,2}\/\d{2,4}\b)|(\b\d{4}-\d{2}(-\d{2})?\b)/i;
@@ -694,6 +730,15 @@ export function keepCandidate(mode, label, context, href) {
     if (!ACTION.test(label)) return false;
     return DATE.test(all) || YEAR.test(all) || DOC.test(all);
   }
+  if (mode === 'documents') {
+    const SKIP = /preference|paperless|setting|notification|privacy|agreement|terms|help|learn more|enroll|faq|disclosure|log ?out|sign ?out|feedback|survey|chat/i;
+    const ACTION = /statement|confirm|1099|1042|5498|tax|form\b|document|download|pdf|view|open|save/i;
+    const TAXFORM = /1099|1042|5498|tax (document|form)/i;
+    const YEAR = /\b(19|20)\d{2}\b/;
+    if (SKIP.test(label)) return false;
+    if (!pdf && !ACTION.test(label)) return false;
+    return DATE.test(all) || (TAXFORM.test(all) && YEAR.test(all));
+  }
   const SKIP = /preference|paperless|setting|notification|tax form|1099|privacy|agreement|terms|help|learn more|enroll/i;
   const ACTION = /statement|download|pdf|view|open|save/i;
   if (!pdf && !ACTION.test(label)) return false;
@@ -708,7 +753,7 @@ export function keepCandidate(mode, label, context, href) {
  */
 export function collectScript(mode = 'statements') {
   return `(() => {
-  const MODE = ${JSON.stringify(mode === 'tax' ? 'tax' : 'statements')};
+  const MODE = ${JSON.stringify(mode === 'tax' || mode === 'documents' ? mode : 'statements')};
   const keep = ${keepCandidate.toString()};
   const DATE = /((?<![a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?\\s+(\\d{1,2},?\\s+)?\\d{4}\\b)|(\\b\\d{1,2}\\/\\d{1,2}\\/\\d{2,4}\\b)|(\\b\\d{4}-\\d{2}(-\\d{2})?\\b)/i;
   const visible = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
@@ -747,6 +792,7 @@ export function collectScript(mode = 'statements') {
 
 export const COLLECT = collectScript('statements');
 export const COLLECT_TAX = collectScript('tax');
+export const COLLECT_DOCS = collectScript('documents');
 
 /** On a tax site: follow its own link to notices, letters or documents. */
 export const OPEN_TAX_DOCS = `(() => {
@@ -755,6 +801,17 @@ export const OPEN_TAX_DOCS = `(() => {
     const r = el.getBoundingClientRect();
     const label = (el.getAttribute('aria-label') || el.textContent || '').replace(/\\s+/g, ' ').trim();
     if (label.length < 50 && want.test(label) && r.width > 0 && r.height > 0) { el.click(); return label; }
+  }
+  return null;
+})()`;
+
+/** On a brokerage: follow its own link to statements or documents. */
+export const OPEN_DOCUMENTS = `(() => {
+  const want = /^(e-?)?(documents?|statements?)$|^(account )?statements?$|^(tax )?documents?$|^(my |view |all )?(documents|statements)$|^trade confirmations?$/i;
+  for (const el of document.querySelectorAll('a, button, [role=link], [role=tab], [role=menuitem]')) {
+    const r = el.getBoundingClientRect();
+    const label = (el.getAttribute('aria-label') || el.textContent || '').replace(/\\s+/g, ' ').trim();
+    if (label.length < 40 && want.test(label) && r.width > 0 && r.height > 0) { el.click(); return label; }
   }
   return null;
 })()`;
@@ -895,10 +952,10 @@ async function findCandidates(cdp, sessionId, renderMs, mode = 'statements', wat
       if (lock) return { signedOut: false, locked: lock, candidates: [] };
     }
     if (await evaluate(cdp, sessionId, SIGNED_OUT)) return { signedOut: true, candidates: [] };
-    const raw = await evaluate(cdp, sessionId, mode === 'tax' ? COLLECT_TAX : COLLECT);
+    const raw = await evaluate(cdp, sessionId, mode === 'tax' ? COLLECT_TAX : mode === 'documents' ? COLLECT_DOCS : COLLECT);
     const candidates = raw ? JSON.parse(raw) : [];
     if (candidates.length) return { signedOut: false, candidates };
-    if (!followed && Date.now() > deadline - renderMs / 2) followed = (await evaluate(cdp, sessionId, mode === 'tax' ? OPEN_TAX_DOCS : OPEN_STATEMENTS)) !== null;
+    if (!followed && Date.now() > deadline - renderMs / 2) followed = (await evaluate(cdp, sessionId, mode === 'tax' ? OPEN_TAX_DOCS : mode === 'documents' ? OPEN_DOCUMENTS : OPEN_STATEMENTS)) !== null;
     if (Date.now() > deadline) return { signedOut: false, candidates: [] };
     await sleep(1500);
   }
@@ -907,7 +964,8 @@ async function findCandidates(cdp, sessionId, renderMs, mode = 'statements', wat
 /**
  * Visit one bank's statements page and hand every new PDF to `onFile`.
  * `seen` holds candidate keys already fetched; returns the page's status.
- * `mode: 'tax'` collects notices, letters and transcripts; `watchLockout`
+ * `mode: 'tax'` collects notices, letters and transcripts, `mode: 'documents'`
+ * a brokerage's statements, confirmations and tax forms; `watchLockout`
  * stops at a lockout page (status 'locked', with the minutes it names).
  * Nothing here ever submits a credential: a lost session is reported, never retried.
  */
@@ -1196,6 +1254,69 @@ export async function keepTaxDocument({ institution, download, state, home, file
   return fileTaxEntry({ entry, institution, bytes: download.bytes, filename: download.suggestedName, fileDocument });
 }
 
+// ---------------------------------------------------------------------------
+// Brokerage documents: statements, confirmations, 1099s → the document library
+// ---------------------------------------------------------------------------
+
+/**
+ * What a brokerage document is: `{category, docType, taxYear, periodLabel, title}`.
+ * Tax forms (1099, 1042-S, 5498) are category "tax", type "form", by tax
+ * year; everything else (monthly statements, trade confirmations) is
+ * category "statement" with its month as the period.
+ */
+export function classifyBrokerageDocument({ label = '', context = '', suggestedName = '' } = {}, fetchedAt = new Date()) {
+  const text = [label, context, String(suggestedName || '').replace(/[_-]+/g, ' ')].filter(Boolean).join(' ').replace(/\s+/g, ' ').slice(0, 2000);
+  const cleanLabel = String(label || '').replace(/\s+/g, ' ').trim();
+  const fallback = String(context || '').replace(/\s+/g, ' ').trim().slice(0, 120) || basename(String(suggestedName || 'document.pdf'), '.pdf');
+  if (/\b(1099|1042|5498)\b|tax (document|form)/i.test(text)) {
+    const tax = classifyTaxDocument({ label, context, suggestedName }, fetchedAt);
+    return { category: 'tax', docType: 'form', taxYear: tax.taxYear, periodLabel: tax.periodLabel, title: tax.title };
+  }
+  const confirm = /confirm/i.test(text);
+  const period = periodOf(context, suggestedName, label);
+  const periodLabel = confirm && period && period.to ? period.to : period ? period.month : fetchedAt.toISOString().slice(0, 7);
+  const title = (cleanLabel && !GENERIC_LABEL.test(cleanLabel) ? cleanLabel : fallback).slice(0, 200) || (confirm ? 'Trade confirmation' : 'Statement');
+  return { category: 'statement', docType: null, taxYear: null, periodLabel, title };
+}
+
+/**
+ * Keep one PDF from a brokerage: archive it locally and file it in the
+ * document library, as `keepTaxDocument` does for agencies.
+ */
+export async function keepBrokerageDocument({ institution, download, state, home, fileDocument, how = 'fetch', now = new Date() }) {
+  if (!isPdf(download.bytes)) return { status: 'not_pdf', name: download.suggestedName };
+  const hash = sha256(download.bytes);
+  const known = state.entries.find((entry) => entry.sha256 === hash);
+  if (known) {
+    if (download.key && !known.key) known.key = download.key;
+    return { status: 'duplicate', entry: known };
+  }
+  const info = classifyBrokerageDocument(download, now);
+  const path = archiveTax(home, institution, { ...info, taxYear: info.taxYear || info.periodLabel.slice(0, 4) }, download.suggestedName, download.bytes);
+  const entry = {
+    sha256: hash,
+    path,
+    kind: 'brokerage',
+    category: info.category,
+    institution: institution.key,
+    accountId: null,
+    month: null,
+    title: info.title,
+    docType: info.docType,
+    taxYear: info.taxYear,
+    periodLabel: info.periodLabel,
+    key: download.key,
+    how,
+    downloadedAt: now.toISOString(),
+    statementId: null,
+    documentId: null,
+    importError: null,
+  };
+  state.entries.push(entry);
+  return fileTaxEntry({ entry, institution, bytes: download.bytes, filename: download.suggestedName, fileDocument });
+}
+
+/** Files a tax or brokerage entry in the document library under its own category. */
 async function fileTaxEntry({ entry, institution, bytes, filename, fileDocument }) {
   if (!fileDocument) {
     entry.importError = 'this CoinPay client cannot file documents';
@@ -1206,7 +1327,7 @@ async function fileTaxEntry({ entry, institution, bytes, filename, fileDocument 
       file: bytes,
       filename: filename || basename(entry.path),
       title: entry.title,
-      category: 'tax',
+      category: entry.category || 'tax',
       periodLabel: entry.periodLabel,
       taxYear: entry.taxYear,
       docType: entry.docType,
@@ -1246,7 +1367,8 @@ export async function runStatementFetch({ api, banks = [], since = null, max = 2
     const start = startUrls(institution, local.start).fetch;
     const startedAt = new Date().toISOString();
     const tax = isTaxSource(institution);
-    const summary = { bank: institution.key, name: institution.name, kind: tax ? 'tax' : 'bank', status: 'ok', candidates: 0, imported: 0, duplicates: 0, unmatched: 0, failed: 0, silent: 0, message: null };
+    const mode = sourceMode(institution);
+    const summary = { bank: institution.key, name: institution.name, kind: tax ? 'tax' : mode === 'documents' ? 'brokerage' : 'bank', status: 'ok', candidates: 0, imported: 0, duplicates: 0, unmatched: 0, failed: 0, silent: 0, message: null };
     log(`${institution.key}: ${start || 'no start page'}`);
     let browser;
     try {
@@ -1263,13 +1385,15 @@ export async function runStatementFetch({ api, banks = [], since = null, max = 2
         const page = await fetchInstitution(browser, {
           start, seen, since, renderMs, log,
           max: tax ? Math.min(max, 12) : max,
-          mode: tax ? 'tax' : 'statements',
+          mode,
           watchLockout: tax,
           pauseMs: tax ? 3000 : 1200,
           onFile: async (download) => {
             const kept = tax
               ? await keepTaxDocument({ institution, download, state, home, fileDocument: api.fileDocument, now: now() })
-              : await keepStatement({ institution, download, state, home, importStatement: api.importStatement });
+              : mode === 'documents'
+                ? await keepBrokerageDocument({ institution, download, state, home, fileDocument: api.fileDocument, now: now() })
+                : await keepStatement({ institution, download, state, home, importStatement: api.importStatement });
             if (kept.status === 'imported') summary.imported += 1;
             else if (kept.status === 'duplicate') summary.duplicates += 1;
             else if (kept.status === 'unmatched') summary.unmatched += 1;
@@ -1293,7 +1417,9 @@ export async function runStatementFetch({ api, banks = [], since = null, max = 2
           : `the bank asks for a password again: coinpay finances statements login ${institution.key}`;
         if (page.status === 'no_statements') summary.message = tax
           ? `no notices, letters or transcripts found at ${new URL(page.url).origin}; download them by hand with: coinpay finances statements assist ${institution.key}`
-          : `no statement links at ${new URL(page.url).origin}; sign in again and close the window on the statements list, or use assist`;
+          : mode === 'documents'
+            ? `no statements, confirmations or tax forms found at ${new URL(page.url).origin}; open the documents list and download by hand with: coinpay finances statements assist ${institution.key}`
+            : `no statement links at ${new URL(page.url).origin}; sign in again and close the window on the statements list, or use assist`;
         if (summary.failed) summary.message = `${summary.failed} file(s) could not be imported; see coinpay finances statements local`;
       }
     } catch (err) {
@@ -1352,7 +1478,7 @@ export async function retryImports({ api, home = statementsHome(), log = () => {
   const institutions = withStandaloneSources(groupInstitutions(await api.listAccounts()));
   const out = { imported: 0, skipped: 0, failed: 0 };
   for (const entry of state.entries.filter((e) => !e.statementId && !e.documentId)) {
-    if (entry.kind === 'tax') {
+    if (entry.kind === 'tax' || entry.kind === 'brokerage') {
       const source = institutions.find((i) => i.key === entry.institution);
       if (!source || !existsSync(entry.path)) { out.skipped += 1; continue; }
       const result = await fileTaxEntry({ entry, institution: source, bytes: readFileSync(entry.path), filename: basename(entry.path), fileDocument: api.fileDocument });

@@ -5,6 +5,25 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-10-07
+
+### Added
+- Brokerage sources, starting with `webull` (Webull E-Documents). Like the tax
+  sources they need no linked account: `coinpay finances statements
+  login|assist|fetch webull` and `statements cloud connect|fetch|schedule
+  webull`. A new `documents` collector mode keeps dated statements and trade
+  confirmations and 1099s listed by tax year (the bank collector skips 1099s).
+  Monthly statements and confirmations are filed into the document library as
+  category `statement` with their month (a confirmation with its day); 1099,
+  1042-S and 5498 forms as category `tax`, type `form`, with the tax year. One
+  copy per file; `statements retry` re-files failures. Brokerages are not
+  throttled like the agencies. If SimpleFIN ever links a Webull account, it
+  keeps the bank path (statements matched to the account).
+- MCP `statements_banks` lists `brokerages`; statements engine exports
+  `BROKERAGE_SOURCES`, `brokerageSource`, `isBrokerageSource`, `sourceMode`,
+  `classifyBrokerageDocument`, `keepBrokerageDocument`, `COLLECT_DOCS`,
+  `OPEN_DOCUMENTS`.
+
 ## [0.14.0] - 2026-10-05
 
 ### Added
