@@ -24,6 +24,7 @@ export default function SubmitReceiptPage() {
     escrow_sig: '',
     agent_sig: '',
     buyer_sig: '',
+    issuer_key: '',
   });
 
   function generateIds() {
@@ -66,7 +67,10 @@ export default function SubmitReceiptPage() {
     try {
       const res = await fetch('/api/reputation/receipt', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${form.issuer_key.trim()}`,
+        },
         body: JSON.stringify(receipt),
       });
       const data = await res.json();
@@ -180,6 +184,16 @@ export default function SubmitReceiptPage() {
           <input type="text" value={form.escrow_sig} onChange={e => updateField('escrow_sig', e.target.value)}
             placeholder="Required (or leave empty for 'manual-submission')"
             className="w-full px-3 py-2 border rounded-lg dark:bg-gray-800 dark:border-gray-700" />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Issuer API Key</label>
+          <input type="password" value={form.issuer_key} onChange={e => updateField('issuer_key', e.target.value)}
+            placeholder="cprt_..." autoComplete="off" required
+            className="w-full px-3 py-2 border rounded-lg dark:bg-gray-800 dark:border-gray-700" />
+          <p className="text-xs text-gray-500 mt-1">
+            Receipts are accepted only from an active registered issuer, and only with that issuer&apos;s DID as the platform DID.
+          </p>
         </div>
 
         <button type="submit" disabled={loading}

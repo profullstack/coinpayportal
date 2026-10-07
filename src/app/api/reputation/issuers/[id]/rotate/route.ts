@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { authenticateRequest, isMerchantAuth } from '@/lib/auth/middleware';
 import { createServiceClient } from '@/lib/supabase/service-client';
+import { hashApiKey } from '@/lib/auth/scoped-keys';
 
 function getSupabase() {
   return createServiceClient();
@@ -44,7 +45,8 @@ export async function POST(
 
     const { data, error } = await supabase
       .from('reputation_issuers')
-      .update({ api_key: newApiKey })
+      // Store only the hash; clear any legacy raw key at the same time.
+      .update({ api_key_hash: hashApiKey(newApiKey), api_key: null })
       .eq('id', id)
       .select('id, did, name, domain, active, created_at')
       .single();

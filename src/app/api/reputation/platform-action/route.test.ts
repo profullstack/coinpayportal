@@ -19,7 +19,7 @@ vi.mock('@supabase/supabase-js', () => ({
                 return {
                   eq: (...eq2Args: unknown[]) => {
                     mockEq(...eq2Args);
-                    return { single: () => mockSingle() };
+                    return { single: () => mockSingle(), maybeSingle: () => mockSingle() };
                   },
                 };
               },
