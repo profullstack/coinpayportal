@@ -402,6 +402,28 @@ describe('finances Plaid provider', () => {
       expect(body.country_codes).toEqual(['US']);
     });
 
+    it('asks for two years of history, and an OAuth redirect only when one is configured', async () => {
+      vi.mocked(global.fetch).mockResolvedValue(jsonResponse({ link_token: 'link-1', expiration: '2026-08-29T10:00:00Z' }));
+
+      await createLinkToken({ clientUserId: 'merchant-1' });
+      let body = JSON.parse((vi.mocked(global.fetch).mock.calls[0][1] as RequestInit).body as string);
+      expect(body.transactions).toEqual({ days_requested: 730 });
+      expect(body).not.toHaveProperty('redirect_uri');
+
+      vi.stubEnv('PLAID_TRANSACTIONS_DAYS', '365');
+      vi.stubEnv('PLAID_REDIRECT_URI', 'https://coinpayportal.com/finances');
+      await createLinkToken({ clientUserId: 'merchant-1' });
+      body = JSON.parse((vi.mocked(global.fetch).mock.calls[1][1] as RequestInit).body as string);
+      expect(body).toMatchObject({ transactions: { days_requested: 365 }, redirect_uri: 'https://coinpayportal.com/finances' });
+
+      // Plaid refuses a plain-http redirect; never send one.
+      vi.stubEnv('PLAID_REDIRECT_URI', 'http://coinpayportal.com/finances');
+      await createLinkToken({ clientUserId: 'merchant-1' });
+      body = JSON.parse((vi.mocked(global.fetch).mock.calls[2][1] as RequestInit).body as string);
+      expect(body).not.toHaveProperty('redirect_uri');
+      vi.unstubAllEnvs();
+    });
+
     it('keeps a completed link when the institution lookup fails', async () => {
       vi.mocked(global.fetch)
         // `access_token` is the Plaid response field name, and this is the value a

@@ -424,6 +424,27 @@ export function getCountryCodes(): string[] {
   return codes.length ? [...new Set(codes)] : ['US'];
 }
 
+/**
+ * Days of history Plaid pulls when a bank is first linked: PLAID_TRANSACTIONS_DAYS,
+ * default 730 (Plaid's maximum). Without it Plaid pulls 90 days, and the
+ * window cannot be widened after the item is linked.
+ */
+export function getTransactionsDays(): number {
+  const days = Number.parseInt(process.env.PLAID_TRANSACTIONS_DAYS || '', 10);
+  return Number.isInteger(days) && days >= 1 && days <= 730 ? days : 730;
+}
+
+/**
+ * Where an OAuth bank (Chase, Bank of America, Wells Fargo…) sends the
+ * browser back to: PLAID_REDIRECT_URI, which must also be listed under
+ * Allowed redirect URIs in the Plaid dashboard or link/token/create fails.
+ * Unset, OAuth institutions cannot finish linking in production.
+ */
+export function getRedirectUri(): string | null {
+  const uri = process.env.PLAID_REDIRECT_URI?.trim();
+  return uri && /^https:\/\//.test(uri) ? uri : null;
+}
+
 /** Create a short-lived token for Plaid Link, the client-side connect UI. */
 export async function createLinkToken(params: {
   /** Stable, non-PII id for the end user. The merchant id. */
@@ -448,6 +469,8 @@ export async function createLinkToken(params: {
       // bills liabilities separately, per account per month, so a deployment
       // that only wants cashflow can drop it via PLAID_PRODUCTS.
       products: getProducts(),
+      ...(getProducts().includes('transactions') ? { transactions: { days_requested: getTransactionsDays() } } : {}),
+      ...(getRedirectUri() ? { redirect_uri: getRedirectUri() } : {}),
       country_codes: getCountryCodes(),
       language: 'en',
       ...(process.env.PLAID_LINK_CUSTOMIZATION?.trim()
