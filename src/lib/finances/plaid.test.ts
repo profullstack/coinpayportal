@@ -376,6 +376,32 @@ describe('finances Plaid provider', () => {
       vi.unstubAllEnvs();
     });
 
+    it('names the Link customization and its countries so Data Transparency Messaging applies', async () => {
+      vi.stubEnv('PLAID_LINK_CUSTOMIZATION', 'coinpay-us');
+      vi.stubEnv('PLAID_COUNTRY_CODES', ' us, ca ,US,x ');
+      vi.mocked(global.fetch).mockResolvedValueOnce(
+        jsonResponse({ link_token: 'link-1', expiration: '2026-08-29T10:00:00Z' }),
+      );
+
+      await createLinkToken({ clientUserId: 'merchant-1' });
+
+      const body = JSON.parse((vi.mocked(global.fetch).mock.calls[0][1] as RequestInit).body as string);
+      expect(body).toMatchObject({ link_customization_name: 'coinpay-us', country_codes: ['US', 'CA'] });
+      vi.unstubAllEnvs();
+    });
+
+    it('sends no customization name when none is set, so Plaid uses its default', async () => {
+      vi.mocked(global.fetch).mockResolvedValueOnce(
+        jsonResponse({ link_token: 'link-1', expiration: '2026-08-29T10:00:00Z' }),
+      );
+
+      await createLinkToken({ clientUserId: 'merchant-1' });
+
+      const body = JSON.parse((vi.mocked(global.fetch).mock.calls[0][1] as RequestInit).body as string);
+      expect(body).not.toHaveProperty('link_customization_name');
+      expect(body.country_codes).toEqual(['US']);
+    });
+
     it('keeps a completed link when the institution lookup fails', async () => {
       vi.mocked(global.fetch)
         // `access_token` is the Plaid response field name, and this is the value a
