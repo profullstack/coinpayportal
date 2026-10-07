@@ -12,6 +12,7 @@ import { isValidDid, sign } from '@/lib/reputation/crypto';
 import { isValidActionCategory } from '@/lib/reputation/trust-engine';
 import { z } from 'zod';
 import { createServiceClient } from '@/lib/supabase/service-client';
+import { authenticateIssuer } from '@/lib/reputation/issuer-auth';
 
 function getSupabase() {
   return createServiceClient();
@@ -29,19 +30,7 @@ const platformActionSchema = z.object({
  * Authenticate platform by API key → returns platform DID if valid
  */
 async function authenticatePlatform(request: NextRequest): Promise<{ did: string; name: string } | null> {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const apiKey = authHeader.slice(7);
-
-  const supabase = getSupabase();
-  const { data } = await supabase
-    .from('reputation_issuers')
-    .select('did, name')
-    .eq('api_key', apiKey)
-    .eq('active', true)
-    .single();
-
-  return data;
+  return authenticateIssuer(getSupabase(), request.headers.get('authorization'));
 }
 
 export async function POST(request: NextRequest) {

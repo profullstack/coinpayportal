@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await supabase
       .from('reputation_issuers')
-      .select('id, did, name, domain, active, api_key, created_at')
+      .select('id, did, name, domain, active, api_key_hash, created_at')
       .eq('merchant_id', authResult.context.merchantId)
       .order('created_at', { ascending: false });
 
@@ -124,10 +124,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Failed to fetch issuers' }, { status: 500 });
     }
 
-    // Mask API keys — show only last 8 chars
-    const issuers = (data || []).map(issuer => ({
+    // Never read or echo key material: the raw key is shown once at creation
+    // or rotation and only its hash is stored. Report whether one is set.
+    const issuers = (data || []).map(({ api_key_hash, ...issuer }) => ({
       ...issuer,
-      api_key: issuer.api_key ? `...${issuer.api_key.slice(-8)}` : null,
+      has_api_key: Boolean(api_key_hash),
     }));
 
     return NextResponse.json({ success: true, issuers });

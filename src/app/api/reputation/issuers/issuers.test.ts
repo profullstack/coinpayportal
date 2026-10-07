@@ -134,7 +134,8 @@ describe('GET /api/reputation/issuers', () => {
     mockListResult = { data: [mockIssuer], error: null };
   });
 
-  it('should list issuers with masked keys', async () => {
+  it('should list issuers without any key material', async () => {
+    mockListResult = { data: [{ ...mockIssuer, api_key: undefined, api_key_hash: 'deadbeef' }], error: null };
     const req = makeRequest('GET');
     const res = await GET(req);
     const data = await res.json();
@@ -142,8 +143,9 @@ describe('GET /api/reputation/issuers', () => {
     expect(res.status).toBe(200);
     expect(data.success).toBe(true);
     expect(data.issuers).toHaveLength(1);
-    expect(data.issuers[0].api_key).toMatch(/^\.\.\./);
-    expect(data.issuers[0].api_key).toHaveLength(11); // "..." + 8 chars
+    expect(data.issuers[0].has_api_key).toBe(true);
+    expect(data.issuers[0]).not.toHaveProperty('api_key');
+    expect(data.issuers[0]).not.toHaveProperty('api_key_hash');
   });
 
   it('should reject without auth', async () => {

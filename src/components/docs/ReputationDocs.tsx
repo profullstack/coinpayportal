@@ -107,7 +107,7 @@ Authorization: Bearer <token>`}
       <ApiEndpoint method="POST" path="/api/reputation/receipt" description="Submit a task receipt after escrow settlement. This contributes to the agent's reputation score.">
         <CodeBlock title="Request">
 {`POST /api/reputation/receipt
-Authorization: Bearer <token>
+Authorization: Bearer <issuer API key>   # active registered issuer; platform_did must be its DID
 Content-Type: application/json
 
 {
@@ -345,7 +345,7 @@ compliance.violation (weight: -20)`}
       <ApiEndpoint method="POST" path="/api/reputation/receipt" description="Submit an action receipt (Phase 2). Now accepts action_category and action_type fields.">
         <CodeBlock title="Request (Phase 2)">
 {`POST /api/reputation/receipt
-Authorization: Bearer <token>
+Authorization: Bearer <issuer API key>   # active registered issuer; platform_did must be its DID
 Content-Type: application/json
 
 {

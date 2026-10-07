@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { platformMayManageMerchant } from '@/lib/p2p/platform-ownership';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
+import { authenticateIssuer } from '@/lib/reputation/issuer-auth';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -40,18 +41,7 @@ async function authenticatePlatform(
   supabase: ReturnType<typeof getSupabase>,
   request: NextRequest,
 ): Promise<{ did: string; name: string } | null> {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const apiKey = authHeader.slice(7);
-
-  const { data } = await supabase
-    .from('reputation_issuers')
-    .select('did, name')
-    .eq('api_key', apiKey)
-    .eq('active', true)
-    .single();
-
-  return data;
+  return authenticateIssuer(supabase, request.headers.get('authorization'));
 }
 
 export async function POST(request: NextRequest) {

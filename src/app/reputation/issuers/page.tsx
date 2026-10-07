@@ -11,7 +11,7 @@ interface Issuer {
   name: string;
   domain: string;
   active: boolean;
-  api_key: string | null;
+  has_api_key?: boolean;
   created_at: string;
 }
 
@@ -219,7 +219,7 @@ export default function IssuersPage() {
                     </td>
                     <td className="px-6 py-4 text-gray-300">{issuer.domain}</td>
                     <td className="px-6 py-4">
-                      <code className="text-sm text-gray-400">{issuer.api_key || '—'}</code>
+                      <code className="text-sm text-gray-400">{issuer.has_api_key ? 'cprt_••••••••' : '—'}</code>
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${issuer.active ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>
