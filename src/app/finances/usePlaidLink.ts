@@ -26,6 +26,8 @@ interface PlaidHandler {
 interface PlaidGlobal {
   create: (config: {
     token: string;
+    /** Set when an OAuth bank has sent the browser back to finish Link. */
+    receivedRedirectUri?: string;
     onSuccess: (publicToken: string, metadata: { institution?: { name?: string } | null }) => void;
     onExit: (error: { display_message?: string; error_message?: string } | null) => void;
   }) => PlaidHandler;
@@ -36,6 +38,13 @@ declare global {
     Plaid?: PlaidGlobal;
   }
 }
+
+/**
+ * An OAuth bank (Chase, Bank of America…) leaves the page for its own site and
+ * comes back to PLAID_REDIRECT_URI with `oauth_state_id`; Link must then be
+ * reopened with the same token. The token waits in sessionStorage meanwhile.
+ */
+const PENDING_TOKEN_KEY = 'coinpay.plaid.linkToken';
 
 /** Resolves once the Link script has defined `window.Plaid`. */
 let scriptPromise: Promise<PlaidGlobal> | null = null;
@@ -118,6 +127,67 @@ export function usePlaidLink({ authHeaders, onLinked, onError }: UsePlaidLinkOpt
     };
   }, []);
 
+  const start = useCallback(
+    (plaid: PlaidGlobal, token: string, receivedRedirectUri?: string) => {
+      handlerRef.current?.destroy();
+      handlerRef.current = plaid.create({
+        token,
+        ...(receivedRedirectUri ? { receivedRedirectUri } : {}),
+        onSuccess: (publicToken, metadata) => {
+          sessionStorage.removeItem(PENDING_TOKEN_KEY);
+          void (async () => {
+            try {
+              const res = await fetch('/api/finances/plaid/exchange', {
+                method: 'POST',
+                headers: authHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({
+                  publicToken,
+                  label: metadata?.institution?.name ?? undefined,
+                }),
+              });
+              const data = await res.json();
+              if (!res.ok) {
+                onError(data.error || 'Could not finish the Plaid link.');
+                return;
+              }
+              await onLinked(data.connection?.label ?? null);
+            } catch {
+              onError('Network error finishing the Plaid link.');
+            }
+          })();
+        },
+        onExit: (error) => {
+          sessionStorage.removeItem(PENDING_TOKEN_KEY);
+          // A plain cancel reports no error, and is not worth a message.
+          if (error) onError(error.display_message || error.error_message || 'Plaid link cancelled.');
+        },
+      });
+      handlerRef.current.open();
+    },
+    [authHeaders, onLinked, onError],
+  );
+
+  // Back from an OAuth bank: reopen Link with the token it started with.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('oauth_state_id')) return;
+    const token = sessionStorage.getItem(PENDING_TOKEN_KEY);
+    if (!token) {
+      onError('The bank sent you back, but the Plaid link had expired. Connect the bank again.');
+      return;
+    }
+    const received = window.location.href;
+    // Drop the state id from the address bar so a reload does not resume twice.
+    url.searchParams.delete('oauth_state_id');
+    window.history.replaceState(null, '', url.toString());
+    loadPlaidScript()
+      .then((plaid) => start(plaid, token, received))
+      .catch((err) => onError(err instanceof Error ? err.message : 'Could not reopen Plaid Link.'));
+    // Once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const open = useCallback(() => {
     let cancelled = false;
     setStarting(true);
@@ -139,38 +209,8 @@ export function usePlaidLink({ authHeaders, onLinked, onError }: UsePlaidLinkOpt
         }
         if (cancelled) return;
 
-        handlerRef.current?.destroy();
-        handlerRef.current = plaid.create({
-          token: tokenData.linkToken,
-          onSuccess: (publicToken, metadata) => {
-            void (async () => {
-              try {
-                const res = await fetch('/api/finances/plaid/exchange', {
-                  method: 'POST',
-                  headers: authHeaders({ 'Content-Type': 'application/json' }),
-                  body: JSON.stringify({
-                    publicToken,
-                    label: metadata?.institution?.name ?? undefined,
-                  }),
-                });
-                const data = await res.json();
-                if (!res.ok) {
-                  onError(data.error || 'Could not finish the Plaid link.');
-                  return;
-                }
-                await onLinked(data.connection?.label ?? null);
-              } catch {
-                onError('Network error finishing the Plaid link.');
-              }
-            })();
-          },
-          onExit: (error) => {
-            // A plain cancel reports no error, and is not worth a message.
-            if (error) onError(error.display_message || error.error_message || 'Plaid link cancelled.');
-          },
-        });
-
-        handlerRef.current.open();
+        sessionStorage.setItem(PENDING_TOKEN_KEY, tokenData.linkToken);
+        start(plaid, tokenData.linkToken);
       } catch (err) {
         onError(err instanceof Error ? err.message : 'Could not open Plaid Link.');
       } finally {
@@ -181,7 +221,7 @@ export function usePlaidLink({ authHeaders, onLinked, onError }: UsePlaidLinkOpt
     return () => {
       cancelled = true;
     };
-  }, [authHeaders, onLinked, onError]);
+  }, [authHeaders, onError, start]);
 
   return { open: () => void open(), starting };
 }
