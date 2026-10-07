@@ -168,6 +168,8 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
   const sf = await loadEngine();
   const taxInfo = sf.taxSource(institutionKey);
   const tax = !!taxInfo;
+  // A brokerage with no linked account (Webull) files into the document library.
+  const brokerage = !tax && !!sf.brokerageSource(institutionKey);
 
   // A bank fetches inside its own long-running browser (bank-browsers.ts),
   // already fenced and signed in; a tax source gets a throwaway one.
@@ -268,6 +270,37 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
             }
             return;
           }
+          if (brokerage && !institution.accounts.length) {
+            // Statements, trade confirmations and 1099s go to the document library, once per file.
+            const info = sf.classifyBrokerageDocument(download);
+            try {
+              const doc = await createDocument({
+                merchantId,
+                uploadedBy: merchantId,
+                title: info.title,
+                category: info.category,
+                periodLabel: info.periodLabel,
+                notes: `Downloaded from ${institution.name} by CoinPay cloud with your saved session.`,
+                filename: download.suggestedName || null,
+                declaredType: 'application/pdf',
+                bytes: Buffer.from(download.bytes),
+                source: 'cloud',
+                institutionKey,
+                taxYear: info.taxYear,
+                docType: info.docType,
+                dedupe: true,
+              });
+              if (doc.duplicate) counts.duplicates += 1;
+              else counts.imported += 1;
+              if (download.key) seen.add(download.key);
+            } catch (err) {
+              if (err instanceof DocumentError) {
+                counts.refused += 1;
+                refusedReasons.add(err.message);
+              } else throw err;
+            }
+            return;
+          }
           const account = sf.matchAccount(institution.accounts, download.context, download.suggestedName, download.label);
           const span = sf.importPeriod(sf.periodOf(download.context, download.suggestedName, download.label));
           if (!account || !span) {
@@ -302,7 +335,7 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
         seen,
         max: MAX_PER_RUN,
         renderMs: 25_000,
-        mode: (tax ? 'tax' : 'statements') as 'tax' | 'statements',
+        mode: sf.sourceMode(institution) as 'tax' | 'documents' | 'statements',
         watchLockout: tax,
         pauseMs: tax ? 3000 : 1200,
         onFile,

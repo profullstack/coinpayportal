@@ -53,12 +53,12 @@ describe('standalone tax sources', () => {
 
   it('merge after the linked banks, and a linked bank keeps its key', () => {
     const linked = groupInstitutions([{ id: 'a1', name: 'CHECKING (1234)', org_name: 'Example Bank', org_domain: 'examplebank.test' }]);
-    expect(withStandaloneSources(linked).map((i) => i.key)).toEqual(['examplebank', 'ftb', 'irs', 'irs-business']);
+    expect(withStandaloneSources(linked).map((i) => i.key)).toEqual(['examplebank', 'ftb', 'irs', 'irs-business', 'webull']);
     const clash = [{ key: 'irs', name: 'Irs Credit Union', url: 'https://irs-cu.test', accounts: [{ id: 'x', name: 'S (0001)', last4: '0001', institution: 'irs' }] }];
     const merged = withStandaloneSources(clash);
     expect(merged.filter((i) => i.key === 'irs')).toHaveLength(1);
     expect(isTaxSource(merged.find((i) => i.key === 'irs'))).toBe(false);
-    expect(standaloneSources().every((s) => isTaxSource(s))).toBe(true);
+    expect(standaloneSources().filter((s) => s.kind === 'tax').every((s) => isTaxSource(s))).toBe(true);
   });
 
   it('start at the agency sign-in page', () => {

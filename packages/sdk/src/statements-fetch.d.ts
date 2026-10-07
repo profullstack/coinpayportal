@@ -14,8 +14,8 @@ export interface Institution {
   name: string;
   url: string | null;
   accounts: FetcherAccount[];
-  /** 'tax' for an agency (FTB, IRS); absent for a bank. */
-  kind?: 'tax';
+  /** 'tax' for an agency (FTB, IRS), 'brokerage' for a brokerage with no linked account (Webull); absent for a bank. */
+  kind?: 'tax' | 'brokerage';
 }
 
 export interface TaxSource {
@@ -25,6 +25,22 @@ export interface TaxSource {
   login: string;
   lockoutMinutes: number;
   cloudWarning?: string;
+}
+
+export interface BrokerageSource {
+  key: string;
+  kind: 'brokerage';
+  name: string;
+  login: string;
+  statements?: string;
+}
+
+export interface BrokerageDocumentInfo {
+  category: 'statement' | 'tax';
+  docType: 'form' | null;
+  taxYear: number | null;
+  periodLabel: string;
+  title: string;
 }
 
 export interface ThrottleLimits {
@@ -96,16 +112,24 @@ export const DRIVERS: ReadonlyArray<{ key: string; login: string; statements?: s
 export const HOST_KEYS: ReadonlyArray<[RegExp, string]>;
 export const TAX_SOURCES: readonly TaxSource[];
 export function taxSource(key: string): TaxSource | null;
+export const BROKERAGE_SOURCES: readonly BrokerageSource[];
+export function brokerageSource(key: string): BrokerageSource | null;
+export function isBrokerageSource(institution: { key: string; kind?: string; accounts?: readonly unknown[] } | null | undefined): boolean;
+export function sourceMode(institution: { key: string; kind?: string; accounts?: readonly unknown[] }): 'statements' | 'tax' | 'documents';
 export function standaloneSources(): Institution[];
 export function withStandaloneSources(institutions: readonly Institution[]): Institution[];
 export function isTaxSource(institution: { key: string; kind?: string; accounts?: readonly unknown[] } | null | undefined): boolean;
-export function keepCandidate(mode: 'statements' | 'tax', label: string, context: string, href: string | null): boolean;
-export function collectScript(mode?: 'statements' | 'tax'): string;
+export function keepCandidate(mode: 'statements' | 'tax' | 'documents', label: string, context: string, href: string | null): boolean;
+export function collectScript(mode?: 'statements' | 'tax' | 'documents'): string;
 export const COLLECT_TAX: string;
 export const OPEN_TAX_DOCS: string;
+export const COLLECT_DOCS: string;
+export const OPEN_DOCUMENTS: string;
 export const PAGE_TEXT: string;
 export function classifyTaxDocument(download: { label?: string; context?: string; suggestedName?: string }, fetchedAt?: Date): TaxDocumentInfo;
 export function keepTaxDocument(options: Record<string, unknown>): Promise<Record<string, unknown>>;
+export function classifyBrokerageDocument(download: { label?: string; context?: string; suggestedName?: string }, fetchedAt?: Date): BrokerageDocumentInfo;
+export function keepBrokerageDocument(options: Record<string, unknown>): Promise<Record<string, unknown>>;
 export const TAX_THROTTLE: ThrottleLimits;
 export function evaluateThrottle(source: { attempts?: ReadonlyArray<string | { at: string }>; lockedUntil?: string | null; lockReason?: string | null }, now?: Date, limits?: ThrottleLimits): ThrottleVerdict;
 export function detectLockout(text: string | null | undefined): { minutes: number | null } | null;
@@ -159,7 +183,7 @@ export function fetchInstitution(
     renderMs?: number;
     onFile: (download: Download) => Promise<void> | void;
     log?: (line: string) => void;
-    mode?: 'statements' | 'tax';
+    mode?: 'statements' | 'tax' | 'documents';
     watchLockout?: boolean;
     pauseMs?: number;
   },
