@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { requireAuth } from '@/lib/auth/client';
 import { AskYourData } from '@/components/ask/AskYourData';
+import { institutionKey, statementPage } from '@/lib/finances/statement-pages';
 import { formatMoney, formatCompact, formatDate, formatRelative, percentOf } from '@/lib/finances/format';
 import { ACCOUNT_KINDS, categoryLabel, type AccountKind } from '@/lib/finances/classify';
 
@@ -26,6 +27,7 @@ type Account = {
   id: string;
   name: string;
   org_name: string | null;
+  org_domain: string | null;
   currency: string;
   balance: number | null;
   available_balance: number | null;
@@ -620,11 +622,9 @@ export default function FinancesContent({ focus = null }: { focus?: 'reports' | 
             <div className="space-y-6">
               {byInstitution.map(([org, rows]) => (
                 <div key={org} className="rounded-lg border border-slate-700 bg-slate-900/50 overflow-hidden">
-                  <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-3">
                     <h3 className="text-sm font-semibold text-white">{org}</h3>
-                    <span className="text-xs text-gray-500">
-                      {rows.length} account{rows.length === 1 ? '' : 's'}
-                    </span>
+                    <StatementLink domain={rows[0]?.org_domain ?? null} name={rows[0]?.org_name ?? null} count={rows.length} />
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -952,6 +952,29 @@ function Tile({
         {value}
       </div>
       {detail && <div className="mt-1 text-xs text-gray-500">{detail}</div>}
+    </div>
+  );
+}
+
+/** An institution's statements page, with the clicks to reach the PDF. */
+function StatementLink({ domain, name, count }: { domain: string | null; name: string | null; count: number }) {
+  const page = statementPage({ key: institutionKey(domain, name), url: domain ? `https://${domain.replace(/^https?:\/\//, '')}` : null });
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <span className="text-gray-500">
+        {count} account{count === 1 ? '' : 's'}
+      </span>
+      {page.url && (
+        <>
+          <details className="group">
+            <summary className="cursor-pointer list-none rounded border border-slate-700 px-2 py-1 text-gray-400">How</summary>
+            <p className="mt-2 max-w-md text-gray-400">{page.steps} Then import the PDF under Statements below.</p>
+          </details>
+          <a href={page.url} target="_blank" rel="noopener noreferrer" className="rounded border border-emerald-500/40 px-2 py-1 text-emerald-300">
+            {page.label === 'Statements' ? 'Statements' : 'Statements (sign in)'} ↗
+          </a>
+        </>
+      )}
     </div>
   );
 }

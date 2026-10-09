@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from '../supabase/server';
 import { listAccounts } from './summary';
 import { listStatements } from './statements';
 import { auditFinance } from './audit';
+import { institutionKey } from './statement-pages';
 
 /**
  * Statement fetching: the server's half.
@@ -25,31 +26,7 @@ export class FetchRunError extends Error {
   status = 400;
 }
 
-/**
- * One short key per institution: the name its site goes by. secure.chase.com
- * and chase.com are both `chase`. The CLI computes the same key, so a run
- * and an account meet on it.
- */
-export function institutionKey(domain: string | null | undefined, name: string | null | undefined): string {
-  const host = (domain ?? '').replace(/^https?:\/\//, '').split(/[/:]/)[0]!.toLowerCase();
-  // Same explicit list as the CLI's HOST_KEYS: webapp.ftb.ca.gov is "ftb", not "ca".
-  if (/(^|\.)ftb\.ca\.gov$/.test(host)) return 'ftb';
-  if (/(^|\.)irs\.gov$/.test(host)) return 'irs';
-  const labels = host.split('.').filter(Boolean);
-  const slug = (value: string) =>
-    value
-      .normalize('NFKD')
-      .replace(/[̀-ͯ]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 60) || 'bank';
-  if (labels.length >= 2) {
-    const second = labels[labels.length - 2]!;
-    return slug(labels.length >= 3 && /^(co|com|org|net|gov|ac)$/.test(second) ? labels[labels.length - 3]! : second);
-  }
-  return slug(name ?? host ?? 'bank');
-}
+export { institutionKey } from './statement-pages';
 
 export interface FetchRunInput {
   institutionKey: string;
