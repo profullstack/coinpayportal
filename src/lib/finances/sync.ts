@@ -162,6 +162,29 @@ export async function createConnection(params: {
   const key = requireEncryptionKey('finance connection storage');
   const supabase = getSupabaseAdmin();
 
+  // The same access URL saved twice is one connection, not two: a second row
+  // pulls every account again and doubles every balance and total.
+  const { data: existing, error: existingError } = await supabase
+    .from('finance_connections')
+    .select(`${CONNECTION_COLUMNS}, access_url_encrypted`)
+    .eq('merchant_id', params.merchantId)
+    .eq('provider', 'simplefin')
+    .neq('lifecycle_state', 'disconnected');
+  if (existingError) throw new Error(`Could not check existing SimpleFIN connections: ${existingError.message}`);
+  for (const row of existing ?? []) {
+    let stored: string | null = null;
+    try {
+      stored = decrypt(row.access_url_encrypted as string, key);
+    } catch {
+      continue;
+    }
+    if (stored === params.accessUrl) {
+      const { access_url_encrypted: _omit, ...connection } = row as Record<string, unknown>;
+      void _omit;
+      return connection as unknown as FinanceConnectionRow;
+    }
+  }
+
   const { data, error } = await supabase
     .from('finance_connections')
     .insert({
@@ -491,9 +514,48 @@ async function archivePayload(options: IngestOptions, errorsCount: number): Prom
  * @throws {Error} only for storage failures; provider-reported errors are
  *         returned in the result, scoped to the source or account they name.
  */
-export async function ingestAccountSet(options: IngestOptions): Promise<SyncResult> {
-  const { connectionId, merchantId, provider, set, jobId = null } = options;
+/**
+ * Accounts this connection reports that an older, still-linked connection of
+ * the same merchant and provider already holds (same provider account id).
+ * Two SimpleFIN tokens for one bridge account report identical ids; storing
+ * both copies doubled every balance, total and tax figure.
+ */
+export async function accountsLinkedElsewhere(
+  options: Pick<IngestOptions, 'connectionId' | 'merchantId' | 'provider' | 'set'>,
+): Promise<Set<string>> {
+  const ids = [...new Set(options.set.accounts.map((a) => a.id))];
+  if (ids.length === 0) return new Set();
   const supabase = getSupabaseAdmin();
+  const { data: self } = await supabase.from('finance_connections').select('created_at').eq('id', options.connectionId).maybeSingle();
+  const { data: others, error } = await supabase
+    .from('finance_connections')
+    .select('id, created_at')
+    .eq('merchant_id', options.merchantId)
+    .eq('provider', options.provider)
+    .eq('is_active', true)
+    .neq('lifecycle_state', 'disconnected')
+    .neq('id', options.connectionId);
+  if (error) throw new Error(`Could not check other connections: ${error.message}`);
+  const selfCreated = self?.created_at ? Date.parse(self.created_at as string) : Infinity;
+  // Only an OLDER connection wins, so the two never skip each other's accounts.
+  const older = (others ?? [])
+    .filter((c) => Date.parse(c.created_at as string) < selfCreated || (Date.parse(c.created_at as string) === selfCreated && (c.id as string) < options.connectionId))
+    .map((c) => c.id as string);
+  if (older.length === 0) return new Set();
+  const { data: taken, error: takenError } = await supabase
+    .from('finance_accounts')
+    .select('external_id')
+    .in('connection_id', older)
+    .in('external_id', ids);
+  if (takenError) throw new Error(`Could not check accounts on other connections: ${takenError.message}`);
+  return new Set((taken ?? []).map((row) => row.external_id as string));
+}
+
+export async function ingestAccountSet(options: IngestOptions): Promise<SyncResult> {
+  const { connectionId, merchantId, provider, jobId = null } = options;
+  const supabase = getSupabaseAdmin();
+  const elsewhere = await accountsLinkedElsewhere(options);
+  const set = elsewhere.size > 0 ? { ...options.set, accounts: options.set.accounts.filter((a) => !elsewhere.has(a.id)) } : options.set;
   const now = new Date().toISOString();
   const windowStart = options.window.start.toISOString();
   const windowEnd = (options.window.end ?? new Date()).toISOString();
@@ -501,6 +563,9 @@ export async function ingestAccountSet(options: IngestOptions): Promise<SyncResu
   const providerErrors = collectProviderErrors(set);
   const errors = providerErrors.filter((e) => !isAdvisory(e.message));
   const notices = providerErrors.filter((e) => isAdvisory(e.message)).map((e) => e.message);
+  if (elsewhere.size > 0) {
+    notices.push(`${elsewhere.size} account${elsewhere.size === 1 ? ' is' : 's are'} already linked through another connection and ${elsewhere.size === 1 ? 'was' : 'were'} not imported again`);
+  }
   const capped = notices.some(isCapNotice);
   const payloadId = await archivePayload(options, errors.length);
   let rules: CategoryRule[] = [];
