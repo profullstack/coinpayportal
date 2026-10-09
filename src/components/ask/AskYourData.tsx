@@ -27,10 +27,12 @@ export function AskYourData({
   scope = 'me',
   organizationId,
   title = 'Ask Your Data',
+  placeholder,
 }: {
   scope?: Scope;
   organizationId?: string;
   title?: string;
+  placeholder?: string;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState<Status>({ state: 'loading' });
@@ -137,7 +139,7 @@ export function AskYourData({
             rows={3}
             maxLength={2000}
             disabled={status.state === 'loading' || busy}
-            placeholder={PLACEHOLDER[scope]}
+            placeholder={placeholder ?? PLACEHOLDER[scope]}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:outline-none resize-y"
           />
           <div className="flex items-center justify-between gap-3">

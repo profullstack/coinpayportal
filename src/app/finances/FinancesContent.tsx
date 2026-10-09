@@ -6,6 +6,7 @@ import ReportsAndStatements from './ReportsAndStatements';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { requireAuth } from '@/lib/auth/client';
+import { AskYourData } from '@/components/ask/AskYourData';
 import { formatMoney, formatCompact, formatDate, formatRelative, percentOf } from '@/lib/finances/format';
 import { ACCOUNT_KINDS, categoryLabel, type AccountKind } from '@/lib/finances/classify';
 
@@ -606,6 +607,11 @@ export default function FinancesContent({ focus = null }: { focus?: 'reports' | 
               />
               Show hidden accounts{summary.hiddenCount > 0 ? ` (${summary.hiddenCount})` : ''}
             </label>
+          </div>
+
+          {/* Ask Your Data (Professional; free for admins) */}
+          <div className="mb-8">
+            <AskYourData scope="me" title="Ask about your finances" placeholder="e.g. What did I spend on software last quarter, and which accounts paid for it?" />
           </div>
 
           {/* ---------------- accounts ---------------- */}
