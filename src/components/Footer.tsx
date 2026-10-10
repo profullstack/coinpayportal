@@ -1,7 +1,7 @@
 import Link from 'next/link';
+import { Footer as ProfullstackFooter } from '@profullstack/footer/react';
 
 export default function Footer() {
-  const currentYear = new Date().getFullYear();
   const onionUrl = process.env.NEXT_PUBLIC_ONION_URL;
 
   const footerLinks = {
@@ -71,226 +71,182 @@ export default function Footer() {
   };
 
   return (
-    <footer className="bg-slate-900 border-t border-slate-800">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12">
-        <div className="grid grid-cols-2 gap-8 md:grid-cols-5">
-          {/* Product */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-100 tracking-wider uppercase">
-              Product
-            </h3>
-            <ul className="mt-4 space-y-3">
-              {footerLinks.product.map((link) => (
-                <li key={link.name}>
-                  <Link
-                    href={link.href}
-                    className="text-sm text-gray-400 hover:text-purple-400 transition-colors"
-                  >
-                    {link.name}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Company */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-100 tracking-wider uppercase">
-              Company
-            </h3>
-            <ul className="mt-4 space-y-3">
-              {footerLinks.company.map((link) => (
-                <li key={link.name}>
-                  <Link
-                    href={link.href}
-                    className="text-sm text-gray-400 hover:text-purple-400 transition-colors"
-                  >
-                    {link.name}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Legal */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-100 tracking-wider uppercase">
-              Legal
-            </h3>
-            <ul className="mt-4 space-y-3">
-              {footerLinks.legal.map((link) => (
-                <li key={link.name}>
-                  <Link
-                    href={link.href}
-                    className="text-sm text-gray-400 hover:text-purple-400 transition-colors"
-                  >
-                    {link.name}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Support */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-100 tracking-wider uppercase">
-              Support
-            </h3>
-            <ul className="mt-4 space-y-3">
-              {footerLinks.support.map((link) => (
-                <li key={link.name}>
-                  {/^(https?:|mailto:|tel:)/.test(link.href) ? (
-                    <a
-                      href={link.href}
-                      target={link.href.startsWith('http') ? '_blank' : undefined}
-                      rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
-                      className="text-sm text-gray-400 hover:text-purple-400 transition-colors inline-flex items-center"
-                    >
-                      {link.name}
-                      {link.href.startsWith('http') && (
-                        <svg
-                          className="ml-1 h-3 w-3"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                          />
-                        </svg>
-                      )}
-                    </a>
-                  ) : (
+    <>
+      <footer className="bg-slate-900 border-t border-slate-800">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12">
+          <div className="grid grid-cols-2 gap-8 md:grid-cols-5">
+            {/* Product */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-100 tracking-wider uppercase">
+                Product
+              </h3>
+              <ul className="mt-4 space-y-3">
+                {footerLinks.product.map((link) => (
+                  <li key={link.name}>
                     <Link
                       href={link.href}
                       className="text-sm text-gray-400 hover:text-purple-400 transition-colors"
                     >
                       {link.name}
                     </Link>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
 
-          {/* Social */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-100 tracking-wider uppercase mb-4">
-              Connect
-            </h3>
-            <div className="flex space-x-4">
-              {footerLinks.social.map((link) => (
-                <a
-                  key={link.name}
-                  href={link.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-gray-400 hover:text-purple-400 transition-colors"
-                  aria-label={link.name}
-                >
-                  {link.icon}
-                </a>
-              ))}
+            {/* Company */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-100 tracking-wider uppercase">
+                Company
+              </h3>
+              <ul className="mt-4 space-y-3">
+                {footerLinks.company.map((link) => (
+                  <li key={link.name}>
+                    <Link
+                      href={link.href}
+                      className="text-sm text-gray-400 hover:text-purple-400 transition-colors"
+                    >
+                      {link.name}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Legal */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-100 tracking-wider uppercase">
+                Legal
+              </h3>
+              <ul className="mt-4 space-y-3">
+                {footerLinks.legal.map((link) => (
+                  <li key={link.name}>
+                    <Link
+                      href={link.href}
+                      className="text-sm text-gray-400 hover:text-purple-400 transition-colors"
+                    >
+                      {link.name}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Support */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-100 tracking-wider uppercase">
+                Support
+              </h3>
+              <ul className="mt-4 space-y-3">
+                {footerLinks.support.map((link) => (
+                  <li key={link.name}>
+                    {/^(https?:|mailto:|tel:)/.test(link.href) ? (
+                      <a
+                        href={link.href}
+                        target={link.href.startsWith('http') ? '_blank' : undefined}
+                        rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
+                        className="text-sm text-gray-400 hover:text-purple-400 transition-colors inline-flex items-center"
+                      >
+                        {link.name}
+                        {link.href.startsWith('http') && (
+                          <svg
+                            className="ml-1 h-3 w-3"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                            />
+                          </svg>
+                        )}
+                      </a>
+                    ) : (
+                      <Link
+                        href={link.href}
+                        className="text-sm text-gray-400 hover:text-purple-400 transition-colors"
+                      >
+                        {link.name}
+                      </Link>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Social */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-100 tracking-wider uppercase mb-4">
+                Connect
+              </h3>
+              <div className="flex space-x-4">
+                {footerLinks.social.map((link) => (
+                  <a
+                    key={link.name}
+                    href={link.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-gray-400 hover:text-purple-400 transition-colors"
+                    aria-label={link.name}
+                  >
+                    {link.icon}
+                  </a>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Bottom section */}
-        <div className="mt-12 border-t border-slate-700 pt-8">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center space-x-2">
-              <p className="text-sm text-gray-400">
-                © {currentYear}{' '}
-                <a
-                  href="https://profullstack.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:text-purple-600 transition-colors"
-                >
-                  Profullstack, Inc.
-                </a>{' '}
-                All rights reserved.
-              </p>
-            </div>
-            
-            <div className="mt-4 md:mt-0 flex items-center space-x-4">
-              {onionUrl && (
-                <a
-                  href={onionUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={onionUrl}
-                  className="flex flex-col text-xs text-gray-400 hover:text-purple-400 transition-colors"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <span className="relative flex h-2 w-2" aria-hidden="true">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
-                      <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+          {/* Bottom section */}
+          <div className="mt-12 border-t border-slate-700 pt-8">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center space-x-4">
+                {onionUrl && (
+                  <a
+                    href={onionUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={onionUrl}
+                    className="flex flex-col text-xs text-gray-400 hover:text-purple-400 transition-colors"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <span className="relative flex h-2 w-2" aria-hidden="true">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                      </span>
+                      🧅 Available on Tor network
                     </span>
-                    🧅 Available on Tor network
-                  </span>
-                  <span className="font-mono break-all text-purple-400">
-                    {onionUrl.replace(/^https?:\/\//, '')}
-                  </span>
-                </a>
-              )}
-              <p className="text-xs text-gray-400">
-                Crypto payments, escrow &amp; wallets • 0.5% transaction fee
-              </p>
-              <p className="text-xs text-gray-400">
-                <Link href="/custody" className="hover:text-gray-300 underline">
-                  Who holds your money
+                    <span className="font-mono break-all text-purple-400">
+                      {onionUrl.replace(/^https?:\/\//, '')}
+                    </span>
+                  </a>
+                )}
+                <p className="text-xs text-gray-400">
+                  Crypto payments, escrow &amp; wallets • 0.5% transaction fee
+                </p>
+                <p className="text-xs text-gray-400">
+                  <Link href="/custody" className="hover:text-gray-300 underline">
+                    Who holds your money
+                  </Link>
+                </p>
+                <Link href="/escrow">
+                  <img
+                    src="/badges/escrow-badge.svg"
+                    alt="Escrow Services by coinpayportal.com"
+                    className="h-16"
+                  />
                 </Link>
-              </p>
-              <Link href="/escrow">
-                <img
-                  src="/badges/escrow-badge.svg"
-                  alt="Escrow Services by coinpayportal.com"
-                  className="h-16"
-                />
-              </Link>
+              </div>
             </div>
           </div>
-          <nav
-            className="webring mt-6 flex items-center justify-center gap-3 text-xs text-gray-400"
-            aria-label="Profullstack webring"
-          >
-            <a
-              href="https://rssamplifier.com/ring/profullstack/previous?from=https%3A%2F%2Fcoinpayportal.com%2F"
-              rel="prev"
-              title="Previous site"
-              className="hover:text-purple-400 transition-colors"
-            >
-              {"<<"}
-            </a>
-            <a
-              href="https://rssamplifier.com/ring/profullstack"
-              className="hover:text-purple-400 transition-colors"
-            >
-              Profullstack
-            </a>
-            <a
-              href="https://rssamplifier.com/ring/profullstack/next?from=https%3A%2F%2Fcoinpayportal.com%2F"
-              rel="next"
-              title="Next site"
-              className="hover:text-purple-400 transition-colors"
-            >
-              {">>"}
-            </a>
-            <a
-              href="https://rssamplifier.com/ring/profullstack/random?from=https%3A%2F%2Fcoinpayportal.com%2F"
-              title="Random site"
-              aria-label="Random site"
-              className="hover:text-purple-400 transition-colors"
-            >
-              {"⚄"}
-            </a>
-          </nav>
         </div>
+      </footer>
+      {/* Copyright and the Profullstack webring: @profullstack/footer, server-rendered. */}
+      <div className="bg-slate-900 text-gray-400">
+        <ProfullstackFooter site="https://coinpayportal.com/" />
       </div>
-    </footer>
+    </>
   );
 }
