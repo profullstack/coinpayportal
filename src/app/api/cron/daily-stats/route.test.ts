@@ -92,7 +92,7 @@ describe('POST /api/cron/daily-stats', () => {
     expect(res.status).toBe(401);
   });
 
-  it('sends the report with real counts to anthony@', async () => {
+  it('sends the report with real counts to anthony@ and preshy@', async () => {
     healthy(446);
 
     const res = await POST(makeRequest({ authorization: 'Bearer test-secret' }));
@@ -104,8 +104,9 @@ describe('POST /api/cron/daily-stats', () => {
     expect(json.subject).toContain('446 merchants');
     expect(json.subject).toContain('3408 payments');
     expect(json.subject).toContain('$100.50 settled');
-    expect(mockSendEmail).toHaveBeenCalledTimes(1);
+    expect(mockSendEmail).toHaveBeenCalledTimes(2);
     expect(mockSendEmail.mock.calls[0][0].to).toBe('anthony@profullstack.com');
+    expect(mockSendEmail.mock.calls[1][0].to).toBe('preshy@profullstack.com');
     expect(mockSendEmail.mock.calls[0][0].from).toContain('@coinpayportal.com');
   });
 

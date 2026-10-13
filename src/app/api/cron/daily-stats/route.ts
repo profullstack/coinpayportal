@@ -4,7 +4,7 @@
  * POST /api/cron/daily-stats            computes the report and emails it
  * POST /api/cron/daily-stats?dry_run=1  returns the counts as JSON, sends nothing
  *
- * The CoinPayPortal daily report (08:00 UTC, to anthony@profullstack.com).
+ * The CoinPayPortal daily report (08:00 UTC, to anthony@ and preshy@profullstack.com).
  * It runs inside the app so it reads the same database, with the same keys,
  * and sends through the same mailer as the site. It used to be
  * scripts/daily-stats-email.ts run from a DigitalOcean droplet with its own

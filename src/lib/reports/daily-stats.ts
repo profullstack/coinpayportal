@@ -20,7 +20,7 @@ import { sendEmail } from '../email';
 
 type Client = { from: (table: string) => any };
 
-export const DAILY_STATS_TO = 'anthony@profullstack.com';
+export const DAILY_STATS_TO = ['anthony@profullstack.com', 'preshy@profullstack.com'];
 export const DAILY_STATS_FROM =
   process.env.STATS_FROM_EMAIL || 'CoinPay Stats <stats@coinpayportal.com>';
 
@@ -506,12 +506,20 @@ SPAM DETECTION
   };
 }
 
-/** Sends through the app's mailer (Resend when RESEND_API_KEY is set). Throws on failure. */
+/**
+ * Sends through the app's mailer (Resend when RESEND_API_KEY is set), one message per
+ * recipient since sendEmail takes a single address. Throws on the first failure and
+ * returns the first message id.
+ */
 export async function sendDailyStatsEmail(
   report: { subject: string; html: string },
-  to: string = DAILY_STATS_TO
+  to: string | string[] = DAILY_STATS_TO
 ): Promise<string | undefined> {
-  const result = await sendEmail({ to, subject: report.subject, html: report.html, from: DAILY_STATS_FROM });
-  if (!result.success) throw new Error(result.error || 'email send failed');
-  return result.messageId;
+  let firstId: string | undefined;
+  for (const addr of Array.isArray(to) ? to : [to]) {
+    const result = await sendEmail({ to: addr, subject: report.subject, html: report.html, from: DAILY_STATS_FROM });
+    if (!result.success) throw new Error(result.error || 'email send failed');
+    firstId ??= result.messageId;
+  }
+  return firstId;
 }
