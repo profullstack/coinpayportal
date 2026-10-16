@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { businessSiteUrl, renderDailyStats, type DailyStats } from './daily-stats';
+import { businessAdminUrl, businessSiteUrl, renderDailyStats, type DailyStats } from './daily-stats';
 
 function stats(recentBusinesses: DailyStats['recentBusinesses']): DailyStats {
   const n = { total: 1, new24h: 0, new7d: 0, new30d: 0 };
@@ -33,6 +33,21 @@ describe('businessSiteUrl', () => {
     expect(businessSiteUrl('not a url')).toBeNull();
     expect(businessSiteUrl('javascript:alert(1)')).toBeNull();
   });
+
+  it('ignores our own and private hosts, which say nothing about the merchant', () => {
+    expect(businessSiteUrl('https://supabase.coinpayportal.com/functions/v1/hook')).toBeNull();
+    expect(businessSiteUrl('https://coinpayportal.com/api/webhooks/x')).toBeNull();
+    expect(businessSiteUrl('http://localhost:3000/hook')).toBeNull();
+    expect(businessSiteUrl('http://203.0.113.9/hook')).toBeNull();
+    expect(businessSiteUrl('http://[::1]:8080/hook')).toBeNull();
+  });
+});
+
+describe('businessAdminUrl', () => {
+  it('deep-links the admin business search', () => {
+    expect(businessAdminUrl('Bitway ')).toBe('https://coinpayportal.com/admin/businesses?search=Bitway%20');
+    expect(businessAdminUrl(null)).toBe('https://coinpayportal.com/admin/businesses');
+  });
 });
 
 describe('renderDailyStats recent businesses', () => {
@@ -44,8 +59,8 @@ describe('renderDailyStats recent businesses', () => {
       ])
     );
     expect(html).toContain('<a href="https://walkerlabs.io" style="color: #7c3aed;">walkerlabs.io</a>');
-    expect(html).toMatch(/<strong>bardr<\/strong> <span/);
-    expect(text).toContain('- Walker Labs - https://walkerlabs.io (2026-10-13)');
-    expect(text).toContain('- bardr (2026-10-13)');
+    expect(html).toContain('<a href="https://coinpayportal.com/admin/businesses?search=bardr" style="color: #1a1a2e;"><strong>bardr</strong></a> <span');
+    expect(text).toContain('- Walker Labs - https://walkerlabs.io (2026-10-13) https://coinpayportal.com/admin/businesses?search=Walker%20Labs');
+    expect(text).toContain('- bardr (2026-10-13) https://coinpayportal.com/admin/businesses?search=bardr');
   });
 });

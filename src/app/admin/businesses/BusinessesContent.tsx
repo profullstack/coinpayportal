@@ -60,6 +60,12 @@ export default function BusinessesContent() {
 
   // Filters
   const [search, setSearch] = useState('');
+
+  // ?search= deep links (the daily stats email links each new business here).
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('search');
+    if (q) setSearch(q);
+  }, []);
   const [tagFilter, setTagFilter] = useState('');
   const [category, setCategory] = useState('');
   const [risk, setRisk] = useState('');

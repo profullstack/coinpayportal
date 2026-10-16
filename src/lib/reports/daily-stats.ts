@@ -127,18 +127,35 @@ async function recent<T>(supabase: Client, table: string, columns: string, limit
 /**
  * The merchant's site, for the report's business list. Businesses have no
  * website column, so this is the origin of the webhook they configured: the
- * one URL every integrated business gives us. Null when there is none, or it
- * is not an http(s) URL.
+ * one URL every integrated business gives us. Null when there is none, it is
+ * not an http(s) URL, or it points at our own or private infrastructure
+ * (webhooks relayed through coinpayportal.com say nothing about the merchant).
  */
 export function businessSiteUrl(webhookUrl: string | null | undefined): string | null {
   if (!webhookUrl) return null;
   try {
     const u = new URL(webhookUrl);
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    const host = u.hostname.toLowerCase();
+    if (
+      host === 'coinpayportal.com' ||
+      host.endsWith('.coinpayportal.com') ||
+      host === 'localhost' ||
+      /^[\d.]+$/.test(host) ||
+      host.includes(':')
+    ) {
+      return null;
+    }
     return u.origin;
   } catch {
     return null;
   }
+}
+
+/** The business in the admin list, for a one-click look from the email. */
+export function businessAdminUrl(name: string | null | undefined): string {
+  const base = 'https://coinpayportal.com/admin/businesses';
+  return name ? `${base}?search=${encodeURIComponent(name)}` : base;
 }
 
 /** Every row of a select, paged by id so a table past 1000 rows is not truncated. */
@@ -366,7 +383,7 @@ BUSINESSES
   New (24h): ${b.new24h}
   New (7d): ${b.new7d}
   New (30d): ${b.new30d}
-${s.recentBusinesses.map((r) => `  - ${r.name || '(no name)'}${businessSiteUrl(r.webhook_url) ? ` - ${businessSiteUrl(r.webhook_url)}` : ''} (${day(r.created_at)})`).join('\n') || '  (none)'}
+${s.recentBusinesses.map((r) => `  - ${r.name || '(no name)'}${businessSiteUrl(r.webhook_url) ? ` - ${businessSiteUrl(r.webhook_url)}` : ''} (${day(r.created_at)}) ${businessAdminUrl(r.name)}`).join('\n') || '  (none)'}
 
 INTEGRATIONS
   Businesses with API key: ${i.withApiKey}
@@ -426,7 +443,7 @@ SPAM DETECTION
             const link = site
               ? ` - <a href="${escapeHtml(site)}" style="color: #7c3aed;">${escapeHtml(new URL(site).host)}</a>`
               : '';
-            return `<li style="margin-bottom: 4px;"><strong>${escapeHtml(r.name || '(no name)')}</strong>${link} <span style="color: #999;">(${escapeHtml(day(r.created_at))})</span></li>`;
+            return `<li style="margin-bottom: 4px;"><a href="${escapeHtml(businessAdminUrl(r.name))}" style="color: #1a1a2e;"><strong>${escapeHtml(r.name || '(no name)')}</strong></a>${link} <span style="color: #999;">(${escapeHtml(day(r.created_at))})</span></li>`;
           }
         )
         .join('')}
