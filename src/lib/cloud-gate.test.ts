@@ -89,6 +89,21 @@ describe('judgeCloudClient', () => {
     expect(judgeCloudClient(req({ 'x-forwarded-for': CLOUD_IP }), '/installer').charge).toBe(true);
   });
 
+  it('never charges a client opening an invoice, portal or proposal to pay it', () => {
+    for (const path of [
+      '/invoices/6f1c2d3e-0000-4000-8000-000000000001/pay',
+      '/now/6f1c2d3e-0000-4000-8000-000000000001',
+      '/portal/yZfnIAHabcdefghijklmnopqrstuvwxyz0123456789',
+      '/proposals/respond/tok_abc',
+    ]) {
+      expect(judgeCloudClient(req({ 'x-forwarded-for': CLOUD_IP }), path)).toMatchObject({ charge: false, reason: 'payer page' });
+    }
+    // The merchant's own invoice pages stay gated like any other page.
+    expect(judgeCloudClient(req({ 'x-forwarded-for': CLOUD_IP }), '/invoices').charge).toBe(true);
+    expect(judgeCloudClient(req({ 'x-forwarded-for': CLOUD_IP }), '/invoices/abc').charge).toBe(true);
+    expect(judgeCloudClient(req({ 'x-forwarded-for': CLOUD_IP }), '/invoices/abc/pay/extra').charge).toBe(true);
+  });
+
   it('never charges a search crawler, even from a cloud address', () => {
     // These send readers back; charging them de-indexes the site.
     for (const ua of [

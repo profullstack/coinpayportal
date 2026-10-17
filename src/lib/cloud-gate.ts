@@ -156,6 +156,14 @@ function isSignedIn(request: Request): boolean {
 /** Fetched by tools from servers by nature: the CLI installer and /.well-known discovery. */
 const MACHINE_PATHS = /^\/(?:install\.sh$|\.well-known\/)/;
 
+/**
+ * Pages a merchant's client opens to see or pay what they owe. A client on a
+ * corporate VPN or a cloud desktop sits in a datacenter range like any
+ * scraper, and asking them to pay a toll before they can pay an invoice is a
+ * lost payment, not a blocked crawler.
+ */
+const PAYER_PATHS = /^\/(?:invoices\/[^/]+\/pay\/?$|now\/[^/]+\/?$|portal\/[^/]+\/?$|proposals\/respond\/[^/]+\/?$)/;
+
 /** The forwarded client address, or null when there is none to judge. */
 export function clientAddress(request: Request): string | null {
   const forwarded = request.headers.get('x-forwarded-for');
@@ -178,6 +186,7 @@ export function judgeCloudClient(request: Request, pathname: string): CloudVerdi
 
   if (pathname.startsWith('/api/')) return { charge: false, reason: 'api route' };
   if (MACHINE_PATHS.test(pathname)) return { charge: false, reason: 'installer or discovery file' };
+  if (PAYER_PATHS.test(pathname)) return { charge: false, reason: 'payer page' };
 
   const ip = clientAddress(request);
   if (!ip) return { charge: false, reason: 'no client address (internal)' };
