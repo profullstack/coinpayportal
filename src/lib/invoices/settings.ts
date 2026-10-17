@@ -75,11 +75,14 @@ export const settingsUpdateSchema = z
     }
   });
 
-function normalize(row: Partial<InvoiceSettings> | null | undefined): InvoiceSettings {
+export function normalize(row: (Partial<InvoiceSettings> & { business_id?: string }) | null | undefined): InvoiceSettings {
   if (!row) return { ...DEFAULT_INVOICE_SETTINGS };
+  // Only settings fields: a stored row's business_id merged into an update
+  // made the strict schema refuse every save after the first.
+  const { business_id: _businessId, ...fields } = row;
   return {
     ...DEFAULT_INVOICE_SETTINGS,
-    ...row,
+    ...fields,
     reminder_days: Array.isArray(row.reminder_days) ? row.reminder_days : DEFAULT_INVOICE_SETTINGS.reminder_days,
     late_fee_value: row.late_fee_value == null ? null : Number(row.late_fee_value),
   };

@@ -4,6 +4,7 @@ import {
   dueReminderOffsets,
   lateFeeDue,
   computeLateFee,
+  normalize,
   settingsUpdateSchema,
   type InvoiceSettings,
 } from './settings';
@@ -51,6 +52,14 @@ describe('late fee', () => {
     expect(computeLateFee('100', settings({ late_fee_type: 'fixed', late_fee_value: 25 }))).toBe(25);
     expect(computeLateFee(0.1, settings({ late_fee_type: 'percent', late_fee_value: 1 }))).toBeNull();
     expect(computeLateFee(100, DEFAULT_INVOICE_SETTINGS)).toBeNull();
+  });
+});
+
+describe('normalize', () => {
+  it('drops business_id so a stored row merges into an update cleanly', () => {
+    const stored = normalize({ business_id: 'b1', reminder_days: [-3, 0], late_fee_type: 'percent', late_fee_value: 1.5 } as never);
+    expect(stored).not.toHaveProperty('business_id');
+    expect(settingsUpdateSchema.safeParse({ ...stored, brand_color: '#112233' }).success).toBe(true);
   });
 });
 
