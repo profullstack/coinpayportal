@@ -447,7 +447,12 @@ export function transitionFor(row: BankTransferRow, remote: BankTransfer, now: D
       // The provider's "completed" is the network's opinion; ours waits for
       // the hold. Both mean the funds have moved.
       if (row.status === 'returned') return patch;
-      const settledAt = row.settled_at ?? remote.settledAt ?? nowIso;
+      // A provider timestamp ahead of our clock (skew, or a clock we do not
+      // share) would push the hold and the return window into the future;
+      // nothing can have settled later than the moment we observed it.
+      const remoteSettledAt =
+        remote.settledAt && new Date(remote.settledAt).getTime() <= now.getTime() ? remote.settledAt : null;
+      const settledAt = row.settled_at ?? remoteSettledAt ?? nowIso;
       const holdUntil = row.hold_until ?? new Date(new Date(settledAt).getTime() + holdDays() * DAY_MS).toISOString();
       patch.settled_at = settledAt;
       patch.hold_until = holdUntil;
