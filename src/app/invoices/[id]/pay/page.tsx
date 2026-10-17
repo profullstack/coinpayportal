@@ -36,6 +36,7 @@ interface InvoicePayData {
   notes: string | null;
   created_at: string;
   businesses: { id: string; name: string } | null;
+  brand?: { color: string | null; logo_url: string | null; footer: string | null } | null;
 }
 
 export default function InvoicePayPage() {
@@ -232,6 +233,15 @@ export default function InvoicePayPage() {
             </svg>
             <span className="font-semibold">CoinPay</span>
           </Link>
+          {invoice.brand?.logo_url && /^https:\/\//.test(invoice.brand.logo_url) && (
+            // eslint-disable-next-line @next/next/no-img-element -- merchant logo on an arbitrary https host
+            <img
+              src={invoice.brand.logo_url}
+              alt={invoice.businesses?.name || 'Merchant logo'}
+              className="mx-auto mb-3 max-h-14 max-w-[240px] object-contain"
+              referrerPolicy="no-referrer"
+            />
+          )}
           {invoice.businesses && (
             <p className="text-gray-400 text-sm">Invoice from {invoice.businesses.name}</p>
           )}
@@ -239,6 +249,9 @@ export default function InvoicePayPage() {
 
         {/* Payment Card */}
         <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-xl overflow-hidden border border-gray-700">
+          {invoice.brand?.color && /^#[0-9a-fA-F]{6}$/.test(invoice.brand.color) && (
+            <div className="h-1.5" style={{ backgroundColor: invoice.brand.color }} data-testid="brand-bar" />
+          )}
           {/* Status Header */}
           <div className={`px-6 py-4 ${
             isPaid ? 'bg-green-500/20 border-b border-green-500/30' :
@@ -548,6 +561,9 @@ export default function InvoicePayPage() {
 
         {/* Footer */}
         <div className="mt-6 text-center">
+          {invoice.brand?.footer && (
+            <p className="text-gray-400 text-sm whitespace-pre-wrap mb-2">{invoice.brand.footer}</p>
+          )}
           <p className="text-gray-500 text-sm">
             Powered by <Link href="/" className="text-purple-400 hover:text-purple-300">CoinPay</Link>
           </p>

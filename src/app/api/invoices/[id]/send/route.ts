@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { authorizeInvoice } from '@/lib/auth/invoice-access';
 import { deliverInvoiceEmail, getInvoicePaymentLink } from '@/lib/email/invoice-delivery';
 import { activateInvoicePayment } from '@/lib/invoices/activation';
+import { loadInvoiceSettings } from '@/lib/invoices/settings';
+import { brandFrom } from '@/lib/invoices/reminders';
 
 /**
  * POST /api/invoices/[id]/send
@@ -88,8 +90,10 @@ export async function POST(
 
     let emailResult;
     try {
+      const settings = await loadInvoiceSettings(supabase, invoice.business_id);
       emailResult = await deliverInvoiceEmail({
         ...updatedInvoice,
+        brand: brandFrom(settings, invoice.businesses?.name),
         crypto_amount: cryptoAmount.toFixed(8),
         crypto_currency: invoice.crypto_currency,
         line_items: invoice.line_items,

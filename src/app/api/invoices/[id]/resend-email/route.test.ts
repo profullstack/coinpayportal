@@ -129,7 +129,7 @@ describe('POST /api/invoices/[id]/resend-email', () => {
     expect(paymentQuery.eq).toHaveBeenCalledWith('payment_address', 'existing-solana-payment-address');
     expect(mockCheckRateLimitAsync).toHaveBeenCalledWith('biz-1', 'invoice_email_resend');
     expect(mockDeliverInvoiceEmail).toHaveBeenCalledOnce();
-    expect(mockDeliverInvoiceEmail).toHaveBeenCalledWith(sentInvoice);
+    expect(mockDeliverInvoiceEmail).toHaveBeenCalledWith({ ...sentInvoice, brand: expect.objectContaining({ color: null }) });
     expect(invoiceUpdatePayloads[0]).toMatchObject({ email_status: 'pending' });
     expect(invoiceUpdatePayloads[1]).toMatchObject({
       email_status: 'accepted',

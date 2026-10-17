@@ -89,6 +89,28 @@ describe('invoiceSentTemplate', () => {
     expect(html).toContain('$1.60');
   });
 
+  it('applies a valid brand and refuses an unsafe one', () => {
+    const base = {
+      invoiceNumber: 'INV-1', businessName: 'Shop', amount: 10, currency: 'USD',
+      cryptoAmount: '0.001', cryptoCurrency: 'BTC', paymentLink: 'https://coinpayportal.com/pay/1',
+    };
+    const good = invoiceSentTemplate({
+      ...base,
+      brand: { name: 'Shop', color: '#112233', logoUrl: 'https://shop.example/logo.png', footer: 'Thanks <3' },
+    }).html;
+    expect(good).toContain('#112233');
+    expect(good).toContain('<img src="https://shop.example/logo.png"');
+    expect(good).toContain('Thanks &lt;3');
+
+    const bad = invoiceSentTemplate({
+      ...base,
+      brand: { color: 'red;}</style><script>x()</script>', logoUrl: 'javascript:alert(1)' },
+    }).html;
+    expect(bad).not.toContain('<script>x()');
+    expect(bad).not.toContain('javascript:');
+    expect(bad).toContain('#9333ea');
+  });
+
   it('refuses a javascript: payment link', () => {
     const { html } = invoiceSentTemplate({
       invoiceNumber: 'INV-1',

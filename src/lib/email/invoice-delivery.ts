@@ -1,5 +1,5 @@
 import { sendEmail, type SendEmailResult } from '.';
-import { invoiceSentTemplate } from './invoice-templates';
+import { invoiceSentTemplate, type InvoiceBrand } from './invoice-templates';
 
 export interface InvoiceEmailData {
   id: string;
@@ -14,6 +14,7 @@ export interface InvoiceEmailData {
   subtotal?: string | number | null;
   discount_total?: string | number | null;
   tax_total?: string | number | null;
+  brand?: InvoiceBrand | null;
   clients?: { email?: string | null } | null;
   businesses?: { name?: string | null } | null;
 }
@@ -52,6 +53,7 @@ export async function deliverInvoiceEmail(invoice: InvoiceEmailData): Promise<In
     subtotal: invoice.subtotal != null ? Number(invoice.subtotal) : null,
     discountTotal: Number(invoice.discount_total ?? 0),
     taxTotal: Number(invoice.tax_total ?? 0),
+    brand: invoice.brand ?? null,
   });
 
   const result = await sendEmail({

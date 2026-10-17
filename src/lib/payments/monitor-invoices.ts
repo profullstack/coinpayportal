@@ -3,13 +3,14 @@
  */
 
 import { sendEmail } from '../email';
-import { invoicePaidMerchantTemplate, invoiceOverdueTemplate } from '../email/invoice-templates';
+import { invoicePaidMerchantTemplate } from '../email/invoice-templates';
 import { checkBalance } from './monitor-balance';
 import { isSufficientPayment } from './tolerance';
 import { resolvePayee } from './payee';
 import { getPaymentReceivingWallet } from '../wallets/supported-coins';
 import { fetchAllKeyset } from '../db/keyset';
 import { insertWithInvoiceNumber } from '../invoices/numbering';
+import { runReminderCycle } from '../invoices/reminders';
 
 // Invoice Payment Monitoring
 // ────────────────────────────────────────────────────────────
@@ -307,32 +308,19 @@ export async function runInvoiceMonitorCycle(supabase: any, now: Date): Promise<
             .update({ status: 'overdue', updated_at: now.toISOString() })
             .eq('id', invoice.id);
           stats.overdue++;
-
-          const clientEmail = invoice.clients?.email;
-          if (clientEmail) {
-            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com';
-            const template = invoiceOverdueTemplate({
-              invoiceNumber: invoice.invoice_number,
-              amount: parseFloat(invoice.amount),
-              currency: invoice.currency || 'USD',
-              dueDate: invoice.due_date,
-              businessName: invoice.businesses?.name || 'CoinPay Merchant',
-              paymentLink: `${appUrl}/invoices/${invoice.id}/pay`,
-            });
-
-            await sendEmail({
-              to: clientEmail,
-              subject: template.subject,
-              html: template.html,
-            });
-            stats.reminders++;
-          }
+          // The overdue email is sent by runReminderCycle below, once, on the
+          // business's schedule (offset 0 by default).
         } catch (err) {
           console.error(`[Monitor] Error processing overdue invoice ${invoice.id}:`, err);
           stats.errors++;
         }
       }
     }
+
+    // 3. Scheduled reminders (before and after due) and late fees.
+    const reminderStats = await runReminderCycle(supabase, now);
+    stats.reminders += reminderStats.reminders;
+    stats.errors += reminderStats.errors;
   } catch (err) {
     console.error('[Monitor] Invoice monitor error:', err);
     stats.errors++;

@@ -4,6 +4,14 @@
 
 import { escapeHtml, escapeUrl } from './escape';
 
+/** A business's own look on the emails its clients receive. */
+export interface InvoiceBrand {
+  name?: string | null;
+  color?: string | null;
+  logoUrl?: string | null;
+  footer?: string | null;
+}
+
 interface InvoiceSentData {
   invoiceNumber: string;
   amount: number;
@@ -18,6 +26,7 @@ interface InvoiceSentData {
   subtotal?: number | null;
   discountTotal?: number | null;
   taxTotal?: number | null;
+  brand?: InvoiceBrand | null;
 }
 
 interface InvoicePaidData {
@@ -42,6 +51,11 @@ interface InvoiceOverdueData {
   dueDate: string;
   businessName: string;
   paymentLink: string;
+  brand?: InvoiceBrand | null;
+}
+
+interface InvoiceReminderData extends InvoiceOverdueData {
+  daysUntilDue: number;
 }
 
 function formatAmount(amount: number, currency: string = 'USD'): string {
@@ -52,7 +66,18 @@ function formatDate(date: string): string {
   return new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(new Date(date));
 }
 
-function wrapTemplate(content: string): string {
+const DEFAULT_ACCENT = '#9333ea';
+
+function wrapTemplate(content: string, brand?: InvoiceBrand | null): string {
+  // Re-checked here as well as on save: a colour lands inside a style attribute.
+  const accent = brand?.color && /^#[0-9a-fA-F]{6}$/.test(brand.color) ? brand.color : DEFAULT_ACCENT;
+  const logo = brand?.logoUrl && /^https:\/\//i.test(brand.logoUrl) ? escapeUrl(brand.logoUrl) : null;
+  const header = logo
+    ? `<img src="${logo}" alt="${escapeHtml(brand?.name || '')}" style="max-height: 56px; max-width: 240px;">`
+    : `<div class="logo">${brand?.name ? escapeHtml(brand.name) : 'CoinPay'}</div>`;
+  const footer = brand?.footer
+    ? `<p>${escapeHtml(brand.footer).replace(/\n/g, '<br>')}</p><p>Payments by CoinPay</p>`
+    : '<p>Powered by CoinPay - Crypto Payment Gateway</p>';
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -62,22 +87,22 @@ function wrapTemplate(content: string): string {
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5; }
     .container { background-color: #ffffff; border-radius: 8px; padding: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #9333ea; }
-    .logo { font-size: 28px; font-weight: bold; color: #9333ea; }
+    .header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid ${accent}; }
+    .logo { font-size: 28px; font-weight: bold; color: ${accent}; }
     .details { background-color: #f9fafb; border-radius: 6px; padding: 20px; margin: 20px 0; }
     .detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
     .detail-row:last-child { border-bottom: none; }
     .detail-label { font-weight: 600; color: #6b7280; }
     .detail-value { color: #111827; text-align: right; }
-    .button { display: inline-block; padding: 14px 32px; background-color: #9333ea; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; margin: 20px 0; }
+    .button { display: inline-block; padding: 14px 32px; background-color: ${accent}; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; margin: 20px 0; }
     .footer { text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 14px; }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="header"><div class="logo">CoinPay</div></div>
+    <div class="header">${header}</div>
     ${content}
-    <div class="footer"><p>Powered by CoinPay - Crypto Payment Gateway</p></div>
+    <div class="footer">${footer}</div>
   </div>
 </body>
 </html>`.trim();
@@ -150,7 +175,7 @@ export function invoiceSentTemplate(data: InvoiceSentData) {
 
   return {
     subject: `Invoice ${data.invoiceNumber} from ${data.businessName} - ${formatAmount(data.amount, data.currency)}`,
-    html: wrapTemplate(content),
+    html: wrapTemplate(content, data.brand),
   };
 }
 
@@ -240,6 +265,43 @@ export function invoiceOverdueTemplate(data: InvoiceOverdueData) {
 
   return {
     subject: `OVERDUE: Invoice ${data.invoiceNumber} from ${data.businessName} - ${formatAmount(data.amount, data.currency)}`,
-    html: wrapTemplate(content),
+    html: wrapTemplate(content, data.brand),
+  };
+}
+
+/**
+ * Friendly reminder before the due date
+ */
+export function invoiceReminderTemplate(data: InvoiceReminderData) {
+  const when = data.daysUntilDue === 1 ? 'tomorrow' : `in ${data.daysUntilDue} days`;
+  const content = `
+    <div>
+      <h2 style="color: #111827;">Invoice due ${when}</h2>
+      <p>A friendly reminder that invoice ${escapeHtml(data.invoiceNumber)} from <strong>${escapeHtml(data.businessName)}</strong> is due ${when}.</p>
+
+      <div class="details">
+        <div class="detail-row">
+          <span class="detail-label">Invoice:</span>
+          <span class="detail-value">${escapeHtml(data.invoiceNumber)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Amount:</span>
+          <span class="detail-value">${formatAmount(data.amount, data.currency)}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Due Date:</span>
+          <span class="detail-value">${formatDate(data.dueDate)}</span>
+        </div>
+      </div>
+
+      <div style="text-align: center;">
+        <a href="${escapeUrl(data.paymentLink)}" class="button">Pay Now</a>
+      </div>
+    </div>
+  `;
+
+  return {
+    subject: `Reminder: invoice ${data.invoiceNumber} from ${data.businessName} is due ${when}`,
+    html: wrapTemplate(content, data.brand),
   };
 }

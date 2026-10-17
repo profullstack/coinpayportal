@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authorizeInvoice } from '@/lib/auth/invoice-access';
 import { deliverInvoiceEmail, getInvoicePaymentLink } from '@/lib/email/invoice-delivery';
+import { loadInvoiceSettings } from '@/lib/invoices/settings';
+import { brandFrom } from '@/lib/invoices/reminders';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 
 /**
@@ -239,7 +241,8 @@ export async function POST(
 
     let emailResult;
     try {
-      emailResult = await deliverInvoiceEmail(invoice);
+      const settings = await loadInvoiceSettings(supabase, invoice.business_id);
+      emailResult = await deliverInvoiceEmail({ ...invoice, brand: brandFrom(settings, invoice.businesses?.name) });
     } catch (emailError) {
       emailResult = {
         success: false,

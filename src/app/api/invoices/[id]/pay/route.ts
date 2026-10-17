@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { loadInvoiceSettings } from '@/lib/invoices/settings';
 
 /**
  * GET /api/invoices/[id]/pay
@@ -34,6 +35,7 @@ export async function GET(
         due_date,
         notes,
         created_at,
+        business_id,
         businesses (id, name)
       `)
       .eq('id', id)
@@ -53,7 +55,15 @@ export async function GET(
       ? invoice.line_items.map(({ item_id: _itemId, ...line }: Record<string, unknown>) => line)
       : null;
 
-    return NextResponse.json({ success: true, invoice: { ...invoice, line_items: lineItems } });
+    const settings = await loadInvoiceSettings(supabase, invoice.business_id);
+    const brand = {
+      color: settings.brand_color,
+      logo_url: settings.logo_url,
+      footer: settings.invoice_footer,
+    };
+    const { business_id: _businessId, ...publicInvoice } = invoice;
+
+    return NextResponse.json({ success: true, invoice: { ...publicInvoice, line_items: lineItems, brand } });
   } catch (error) {
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
