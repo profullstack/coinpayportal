@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import AchPayForm, { useAchAvailability } from '@/components/AchPayForm';
+import LineItemsTable, { type InvoiceLine } from '@/components/invoices/LineItemsTable';
 
 // 'crypto' | 'card' | 'paypal' | a manual method_id (e.g. 'zelle').
 type PaymentTab = string;
@@ -21,6 +22,10 @@ interface InvoicePayData {
   status: string;
   currency: string;
   amount: string;
+  line_items: InvoiceLine[] | null;
+  subtotal: string | null;
+  discount_total: string | null;
+  tax_total: string | null;
   crypto_currency: string;
   crypto_amount: string;
   payment_address: string;
@@ -511,6 +516,19 @@ export default function InvoicePayPage() {
                   </div>
                 )}
               </>
+            )}
+
+            {invoice.line_items && invoice.line_items.length > 0 && (
+              <div className="bg-gray-900/50 rounded-xl p-4" data-testid="invoice-line-items">
+                <LineItemsTable
+                  lines={invoice.line_items}
+                  currency={invoice.currency}
+                  subtotal={invoice.subtotal}
+                  discountTotal={invoice.discount_total}
+                  taxTotal={invoice.tax_total}
+                  total={invoice.amount}
+                />
+              </div>
             )}
 
             {/* Notes */}

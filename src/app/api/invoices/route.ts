@@ -6,6 +6,7 @@ import { resolveMerchant } from '@/lib/auth/merchant';
 import { authorizeBusiness, listAccessibleBusinessIds } from '@/lib/auth/authz';
 import { resolvePayee } from '@/lib/payments/payee';
 import { insertWithInvoiceNumber } from '@/lib/invoices/numbering';
+import { computeInvoiceTotals, itemisedInvoiceColumns, LineItemError } from '@/lib/invoices/line-items';
 import {
   creationIdentity, findCreatedInvoice, createInvoiceOnce, InvoiceCreationError,
 } from '@/lib/invoices/creation';
@@ -106,10 +107,17 @@ export async function POST(request: NextRequest) {
     }
     const identity = creationIdentity(request.headers.get('Idempotency-Key'), body);
     const {
-      business_id, client_id, currency, amount, crypto_currency,
+      business_id, client_id, currency, crypto_currency,
       due_date, notes, wallet_id, merchant_wallet_address,
       schedule, // optional: { recurrence, custom_interval_days, end_date, max_occurrences }
     } = body;
+
+    // Itemised invoices: the total is computed from the lines, never trusted.
+    let itemised: ReturnType<typeof itemisedInvoiceColumns> | null = null;
+    if (body.line_items !== undefined && body.line_items !== null) {
+      itemised = itemisedInvoiceColumns(computeInvoiceTotals(body.line_items, body.discount));
+    }
+    const amount = itemised ? itemised.amount : body.amount;
 
     // For API key auth, derive business_id from the key when not supplied in body.
     // If supplied, it must match the key's business to prevent cross-business abuse.
@@ -259,6 +267,7 @@ export async function POST(request: NextRequest) {
       status: 'draft',
       currency: currency || 'USD',
       amount,
+      ...(itemised ?? {}),
       crypto_currency: crypto_currency || null,
       merchant_wallet_address: payeeAddress,
       wallet_id: wallet_id || null,
@@ -332,6 +341,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, invoice }, { status: 201 });
   } catch (error) {
+    if (error instanceof LineItemError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: 'INVALID_LINE_ITEMS' }, { status: 400 },
+      );
+    }
     if (error instanceof InvoiceCreationError) {
       return NextResponse.json(
         { success: false, error: error.message, code: error.code }, { status: error.status },

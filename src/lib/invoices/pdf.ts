@@ -3,7 +3,7 @@ import path from 'node:path';
 import { jsPDF } from 'jspdf';
 import { z } from 'zod';
 
-export const PUBLIC_INVOICE_PDF_FIELDS = 'invoice_number,status,currency,amount,due_date,created_at,businesses(name)';
+export const PUBLIC_INVOICE_PDF_FIELDS = 'invoice_number,status,currency,amount,line_items,subtotal,discount_total,tax_total,due_date,created_at,businesses(name)';
 export const PUBLIC_INVOICE_STATUSES = ['sent', 'overdue', 'paid'] as const;
 export const invoicePdfId = z.string().uuid();
 
@@ -24,6 +24,17 @@ function loadFont(): Promise<string> {
 const label = z.string().min(1).max(240).transform(value => value.normalize('NFC'))
   .refine(value => value.trim().length > 0 && /^[\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}\p{M}\p{N}\p{P}\p{Zs}\p{S}]+$/u.test(value));
 const date = z.string().datetime({ offset: true });
+const money = z.union([z.string(), z.number()]).transform(String)
+  .refine(value => /^(0|[1-9]\d{0,11})(\.\d{1,2})?$/.test(value));
+// Catalog descriptions may span lines; the snapshot prints each on one.
+const lineLabel = z.string().transform(value => value.replace(/\s+/g, ' ').trim()).pipe(label);
+const line = z.object({
+  description: lineLabel,
+  quantity: z.number().positive().max(1_000_000),
+  unit_price: money,
+  amount: money,
+});
+export const PDF_MAX_LINES = 12;
 const schema = z.object({
   invoice_number: label,
   status: z.enum(PUBLIC_INVOICE_STATUSES),
@@ -31,6 +42,10 @@ const schema = z.object({
   // Do not round corrupt values or unsafe JSON numbers into plausible money.
   amount: z.union([z.string(), z.number()]).transform(String)
     .refine(value => /^(0|[1-9]\d{0,11})(\.\d{1,2})?$/.test(value) && Number(value) > 0),
+  line_items: z.array(line).max(100).nullable().optional(),
+  subtotal: money.nullable().optional(),
+  discount_total: money.nullable().optional(),
+  tax_total: money.nullable().optional(),
   due_date: date.nullable(),
   created_at: date,
   businesses: z.object({ name: label }),
@@ -88,8 +103,25 @@ export async function renderInvoiceSnapshot(input: unknown, id: string, generate
   y = draw(`Invoice: ${invoice.invoice_number}`, y);
   y = draw(`Issuer: ${invoice.businesses.name}`, y);
   y = draw(`Status: ${invoice.status.toUpperCase()}`, y);
-  const [whole, fraction = ''] = invoice.amount.split('.');
-  y = draw(`Invoice total: ${whole}.${fraction.padEnd(2, '0')} ${invoice.currency}`, y, 16);
+  const cash = (value: string) => {
+    const [whole, fraction = ''] = value.split('.');
+    return `${whole}.${fraction.padEnd(2, '0')} ${invoice.currency}`;
+  };
+  const lines = invoice.line_items ?? [];
+  if (lines.length > 0) {
+    for (const l of lines.slice(0, PDF_MAX_LINES)) {
+      y = draw(`${l.description}: ${l.quantity} x ${cash(l.unit_price)} = ${cash(l.amount)}`, y - 3, 9);
+    }
+    if (lines.length > PDF_MAX_LINES) {
+      y = draw(`+${lines.length - PDF_MAX_LINES} more items on the live invoice`, y - 3, 9);
+    }
+    if (invoice.subtotal) y = draw(`Subtotal: ${cash(invoice.subtotal)}`, y - 2, 10);
+    if (invoice.discount_total && Number(invoice.discount_total) > 0) {
+      y = draw(`Discount: -${cash(invoice.discount_total)}`, y - 3, 10);
+    }
+    if (invoice.tax_total && Number(invoice.tax_total) > 0) y = draw(`Tax: ${cash(invoice.tax_total)}`, y - 3, 10);
+  }
+  y = draw(`Invoice total: ${cash(invoice.amount)}`, y, 16);
   y = draw(`Created (UTC): ${new Date(invoice.created_at).toISOString().slice(0, 10)}`, y);
   if (invoice.due_date) y = draw(`Due (UTC): ${new Date(invoice.due_date).toISOString().slice(0, 10)}`, y);
   y = draw(`Generated (UTC): ${generatedAt.toISOString()}`, y);

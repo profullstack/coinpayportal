@@ -24,6 +24,12 @@ import {
   sendInvoice,
   updateInvoice,
   InvoiceStatus,
+  listTaxRates,
+  createTaxRate,
+  deleteTaxRate,
+  listInvoiceItems,
+  createInvoiceItem,
+  deleteInvoiceItem,
 } from '../src/invoices.js';
 import { readFileSync, writeFileSync, existsSync, unlinkSync, chmodSync } from 'fs';
 import { execSync, spawn } from 'child_process';
@@ -206,8 +212,18 @@ const BOOLEAN_FLAGS = new Set([
 /**
  * Parse command line arguments
  */
+// Flags that may be given more than once collect into an array.
+const REPEATABLE_FLAGS = new Set(['item']);
+
 function parseArgs(args) {
   const result = { command: null, subcommand: null, args: [], flags: {} };
+  const setFlag = (name, value) => {
+    if (REPEATABLE_FLAGS.has(name) && value !== true) {
+      result.flags[name] = [...(Array.isArray(result.flags[name]) ? result.flags[name] : []), value];
+    } else {
+      result.flags[name] = value;
+    }
+  };
   
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -215,14 +231,14 @@ function parseArgs(args) {
     if (arg.startsWith('--')) {
       const eqIdx = arg.indexOf('=');
       if (eqIdx !== -1) {
-        result.flags[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
+        setFlag(arg.slice(2, eqIdx), arg.slice(eqIdx + 1));
       } else {
         const name = arg.slice(2);
         const next = args[i + 1];
         if (BOOLEAN_FLAGS.has(name)) {
           result.flags[name] = true;
         } else if (next && !next.startsWith('-')) {
-          result.flags[name] = next;
+          setFlag(name, next);
           i++;
         } else {
           result.flags[name] = true;
@@ -289,6 +305,40 @@ function isValidDate(value) {
   );
 }
 
+function parseItemFlags(values) {
+  return values.map((value) => {
+    const [description, qty, price, tax, taxName] = String(value).split('|').map((p) => p.trim());
+    const quantity = Number(qty);
+    const unitPrice = parseNonNegativeAmount(price);
+    const taxRate = tax ? Number(tax) : null;
+    if (!description || !(quantity > 0) || unitPrice === null || (tax && !(taxRate >= 0 && taxRate <= 100))) {
+      print.error('--item must look like "Description|qty|unit price[|tax %[|tax name]]", got: ' + value);
+      process.exit(1);
+    }
+    return {
+      description,
+      quantity,
+      unit_price: unitPrice,
+      ...(taxRate ? { tax_rate: taxRate, tax_name: taxName || null } : {}),
+    };
+  });
+}
+
+function parseNonNegativeAmount(value) {
+  if (typeof value !== 'string' || !/^\d+(\.\d{1,2})?$/.test(value)) return null;
+  return Number(value);
+}
+
+/** "10%" is a percent discount, "25" a fixed one in the invoice currency. */
+function parseDiscountFlag(value) {
+  const match = /^(\d+(?:\.\d+)?)(%?)$/.exec(String(value).trim());
+  if (!match || !(Number(match[1]) > 0)) {
+    print.error('--discount must be a percent like 10% or a fixed amount like 25');
+    process.exit(1);
+  }
+  return { type: match[2] ? 'percent' : 'fixed', value: Number(match[1]) };
+}
+
 function requireFlagValues(flags, names) {
   for (const name of names) {
     if (flags[name] === true) {
@@ -325,6 +375,10 @@ function invoiceForOutput(data, fallbackId) {
     clientId: invoice.clientId ?? invoice.client_id,
     currency: invoice.currency,
     amount: invoice.amount,
+    lineItems: invoice.lineItems ?? invoice.line_items ?? null,
+    subtotal: invoice.subtotal ?? null,
+    discountTotal: invoice.discountTotal ?? invoice.discount_total ?? null,
+    taxTotal: invoice.taxTotal ?? invoice.tax_total ?? null,
     cryptoCurrency: invoice.cryptoCurrency ?? invoice.crypto_currency,
     cryptoAmount: invoice.cryptoAmount ?? invoice.crypto_amount,
     status: invoice.status,
@@ -403,7 +457,9 @@ ${colors.cyan}Commands:${colors.reset}
     qr <id>               Get payment QR code
 
   ${colors.bright}invoice${colors.reset}
-    create                Create a draft invoice (--amount required)
+    create                Create a draft invoice (--amount, or one or more
+                          --item "Desc|qty|price[|tax %[|tax name]]" and
+                          an optional --discount 10% / --discount 25)
       --wallet-id <id>    Route settlement through a saved wallet
       --merchant-wallet-address <address>
                             Route settlement to a direct address
@@ -414,6 +470,17 @@ ${colors.cyan}Commands:${colors.reset}
     send <id>             Create payment details and email the client
     delete <id>           Permanently delete a draft invoice
       --yes               Skip confirmation for publish/send/delete
+
+  ${colors.bright}item${colors.reset}
+    list                  Saved products/services (--business-id)
+    create                Save one: --name, --price [--unit hour] [--description]
+                          [--tax-rate-id <id>]
+    delete <id>           Delete a saved item (issued invoices keep their copy)
+
+  ${colors.bright}tax-rate${colors.reset}
+    list                  Saved tax rates (--business-id)
+    create                Save one: --name "CA Sales Tax" --rate 8.25 [--default]
+    delete <id>           Delete a saved tax rate
 
   ${colors.bright}tokens${colors.reset}
     list                  List checkout tokens (--business-id, --active-only)
@@ -1068,6 +1135,15 @@ function printInvoiceDetails(invoice, { shareUrl } = {}) {
   console.log('\n' + colors.bright + label + colors.reset);
   print.info('ID: ' + invoice.id);
   print.info('Status: ' + (invoice.status || 'unknown'));
+  if (Array.isArray(invoice.lineItems) && invoice.lineItems.length > 0) {
+    for (const line of invoice.lineItems) {
+      const tax = line.tax_rate ? ' +' + line.tax_rate + '% ' + (line.tax_name || 'tax') : '';
+      print.info('  ' + line.description.split('\n')[0] + ': ' + line.quantity + ' x ' + line.unit_price + ' = ' + line.amount + tax);
+    }
+    print.info('Subtotal: ' + invoice.subtotal);
+    if (Number(invoice.discountTotal) > 0) print.info('Discount: -' + invoice.discountTotal);
+    if (Number(invoice.taxTotal) > 0) print.info('Tax: ' + invoice.taxTotal);
+  }
   print.info('Amount: ' + invoice.amount + ' ' + (invoice.currency || ''));
   if (invoice.businessId) print.info('Business: ' + invoice.businessId);
   if (invoice.clientId) print.info('Client: ' + invoice.clientId);
@@ -1088,6 +1164,92 @@ function printInvoiceDetails(invoice, { shareUrl } = {}) {
 /**
  * Invoice commands
  */
+async function handleCatalog(kind, subcommand, args, flags) {
+  const client = createClient();
+  const isItem = kind === 'item';
+  requireFlagValues(flags, ['business-id', 'name', 'price', 'unit', 'description', 'tax-rate-id', 'rate']);
+
+  switch (subcommand) {
+    case 'list': {
+      const rows = isItem
+        ? await listInvoiceItems(client, { businessId: flags['business-id'] })
+        : await listTaxRates(client, { businessId: flags['business-id'] });
+      if (flags.json) {
+        print.json(rows);
+        break;
+      }
+      if (rows.length === 0) {
+        print.info(isItem ? 'No saved items' : 'No saved tax rates');
+        break;
+      }
+      for (const row of rows) {
+        print.info(
+          isItem
+            ? row.id + '  ' + row.name + '  ' + row.unit_price + (row.unit ? ' / ' + row.unit : '')
+            : row.id + '  ' + row.name + '  ' + row.rate + '%' + (row.is_default ? '  (default)' : '')
+        );
+      }
+      break;
+    }
+
+    case 'create': {
+      if (!flags.name) {
+        print.error('--name is required');
+        process.exit(1);
+      }
+      let row;
+      if (isItem) {
+        const unitPrice = parseNonNegativeAmount(flags.price);
+        if (unitPrice === null) {
+          print.error('--price must be a decimal with at most two decimal places');
+          process.exit(1);
+        }
+        row = await createInvoiceItem(client, {
+          businessId: flags['business-id'],
+          name: flags.name,
+          unitPrice,
+          description: flags.description,
+          unit: flags.unit,
+          taxRateId: flags['tax-rate-id'],
+        });
+      } else {
+        const rate = Number(flags.rate);
+        if (flags.rate === undefined || !(rate >= 0 && rate <= 100)) {
+          print.error('--rate must be a percent between 0 and 100');
+          process.exit(1);
+        }
+        row = await createTaxRate(client, {
+          businessId: flags['business-id'],
+          name: flags.name,
+          rate,
+          isDefault: flags.default === true || flags.default === 'true',
+        });
+      }
+      if (flags.json) {
+        print.json(row);
+        break;
+      }
+      print.success((isItem ? 'Item' : 'Tax rate') + ' saved: ' + row.id);
+      break;
+    }
+
+    case 'delete': {
+      if (args.length !== 1) {
+        print.error('Usage: coinpay ' + kind + ' delete <id>');
+        process.exit(1);
+      }
+      if (isItem) await deleteInvoiceItem(client, args[0]);
+      else await deleteTaxRate(client, args[0]);
+      print.success('Deleted ' + args[0]);
+      break;
+    }
+
+    default:
+      print.error('Usage: coinpay ' + kind + ' <list|create|delete>');
+      process.exit(1);
+  }
+}
+
 async function handleInvoice(subcommand, args, flags) {
   const client = createClient();
 
@@ -1103,12 +1265,23 @@ async function handleInvoice(subcommand, args, flags) {
         'notes',
         'wallet-id',
         'merchant-wallet-address',
+        'item',
+        'discount',
       ]);
 
-      const amount = parsePositiveAmount(flags.amount);
-      if (amount === null) {
+      // --item "Description|qty|unit price[|tax %[|tax name]]", repeatable.
+      const lineItems = flags.item === undefined ? undefined : parseItemFlags(flags.item);
+      const discount = flags.discount === undefined ? undefined : parseDiscountFlag(flags.discount);
+      if (discount && !lineItems) {
+        print.error('--discount applies to itemised invoices; add one or more --item');
+        process.exit(1);
+      }
+
+      const amount = lineItems ? undefined : parsePositiveAmount(flags.amount);
+      if (!lineItems && amount === null) {
         print.error('--amount must be a positive decimal with at most two decimal places');
         print.info('Example: coinpay invoice create --amount 125 --currency USD --notes "Consulting"');
+        print.info('Or itemise: coinpay invoice create --item "Design|3|100" --item "Hosting|1|19.99|8.25|CA tax"');
         process.exit(1);
       }
 
@@ -1130,6 +1303,8 @@ async function handleInvoice(subcommand, args, flags) {
         clientId: flags['client-id'],
         currency: currency.toUpperCase(),
         amount,
+        lineItems,
+        discount,
         cryptoCurrency: cryptoCurrency?.toUpperCase(),
         dueDate,
         notes: flags.notes,
@@ -4587,6 +4762,11 @@ async function handleLightning(subcommand, args, flags) {
 
       case 'invoice':
         await handleInvoice(subcommand, args, flags);
+        break;
+
+      case 'item':
+      case 'tax-rate':
+        await handleCatalog(command, subcommand, args, flags);
         break;
 
       case 'tokens':

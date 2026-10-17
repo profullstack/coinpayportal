@@ -82,6 +82,12 @@ import {
   sendInvoice,
   getInvoicePaymentData,
   InvoiceStatus,
+  listTaxRates,
+  createTaxRate,
+  deleteTaxRate,
+  listInvoiceItems,
+  createInvoiceItem,
+  deleteInvoiceItem,
 } from './invoices.js';
 
 // Wallet exports
@@ -231,6 +237,12 @@ export {
   sendInvoice,
   getInvoicePaymentData,
   InvoiceStatus,
+  listTaxRates,
+  createTaxRate,
+  deleteTaxRate,
+  listInvoiceItems,
+  createInvoiceItem,
+  deleteInvoiceItem,
   
   // Wallet
   WalletClient,

@@ -14,6 +14,10 @@ interface InvoiceSentData {
   businessName: string;
   paymentLink: string;
   notes?: string;
+  lineItems?: Array<{ description: string; quantity: number; unit_price: number; amount: number }> | null;
+  subtotal?: number | null;
+  discountTotal?: number | null;
+  taxTotal?: number | null;
 }
 
 interface InvoicePaidData {
@@ -79,6 +83,29 @@ function wrapTemplate(content: string): string {
 </html>`.trim();
 }
 
+function lineItemsHtml(data: InvoiceSentData): string {
+  if (!data.lineItems || data.lineItems.length === 0) return '';
+  const cell = 'padding: 6px 0; border-bottom: 1px solid #e5e7eb;';
+  const rows = data.lineItems
+    .map(
+      (l) => `<tr>
+        <td style="${cell}">${escapeHtml(l.description).replace(/\n/g, '<br>')}</td>
+        <td style="${cell} text-align: right; white-space: nowrap;">${escapeHtml(String(l.quantity))} x ${formatAmount(l.unit_price, data.currency)}</td>
+        <td style="${cell} text-align: right; white-space: nowrap;">${formatAmount(l.amount, data.currency)}</td>
+      </tr>`
+    )
+    .join('');
+  const total = (label: string, value: number) =>
+    `<tr><td colspan="2" style="padding: 4px 0; text-align: right; color: #6b7280;">${label}</td><td style="padding: 4px 0; text-align: right;">${formatAmount(value, data.currency)}</td></tr>`;
+  return `
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin: 20px 0;">
+        ${rows}
+        ${data.subtotal != null ? total('Subtotal', data.subtotal) : ''}
+        ${data.discountTotal ? total('Discount', -data.discountTotal) : ''}
+        ${data.taxTotal ? total('Tax', data.taxTotal) : ''}
+      </table>`;
+}
+
 /**
  * Invoice sent to client email template
  */
@@ -108,6 +135,8 @@ export function invoiceSentTemplate(data: InvoiceSentData) {
         </div>
         ` : ''}
       </div>
+
+      ${lineItemsHtml(data)}
 
       ${data.notes ? `<p style="color: #6b7280; font-style: italic;">Note: ${escapeHtml(data.notes)}</p>` : ''}
 

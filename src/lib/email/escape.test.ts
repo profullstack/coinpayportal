@@ -70,6 +70,25 @@ describe('invoiceSentTemplate', () => {
     expect(html).toContain('&lt;img src=x');
   });
 
+  it('escapes line item descriptions and keeps their line breaks', () => {
+    const { html } = invoiceSentTemplate({
+      invoiceNumber: 'INV-1',
+      businessName: 'Shop',
+      amount: 21.6,
+      currency: 'USD',
+      cryptoAmount: '0.001',
+      cryptoCurrency: 'BTC',
+      paymentLink: 'https://coinpayportal.com/pay/1',
+      lineItems: [{ description: 'Logo\n<b onclick=x>bold</b>', quantity: 2, unit_price: 10, amount: 20 }],
+      subtotal: 20,
+      taxTotal: 1.6,
+    });
+
+    expect(html).not.toContain('<b onclick');
+    expect(html).toContain('Logo<br>&lt;b onclick');
+    expect(html).toContain('$1.60');
+  });
+
   it('refuses a javascript: payment link', () => {
     const { html } = invoiceSentTemplate({
       invoiceNumber: 'INV-1',

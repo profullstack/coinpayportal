@@ -5,6 +5,20 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-10-17
+
+### Added
+- Itemised invoices: `createInvoice` / `updateInvoice` take `lineItems`
+  (description, quantity, unit price, optional tax rate) and a `discount`
+  (`percent` or `fixed`, applied before tax). The server computes the total;
+  `amount` is only for single-amount invoices.
+- `coinpay invoice create --item "Desc|qty|price[|tax %[|tax name]]"`
+  (repeatable) and `--discount 10%` / `--discount 25`.
+- Saved products/services and tax rates: `coinpay item list|create|delete`,
+  `coinpay tax-rate list|create|delete`; SDK `listInvoiceItems`,
+  `createInvoiceItem`, `deleteInvoiceItem`, `listTaxRates`, `createTaxRate`,
+  `deleteTaxRate`.
+
 ## [0.16.0] - 2026-10-12
 
 ### Added

@@ -10,6 +10,10 @@ export interface InvoiceEmailData {
   crypto_currency: string;
   due_date?: string | null;
   notes?: string | null;
+  line_items?: Array<{ description: string; quantity: number; unit_price: number; amount: number }> | null;
+  subtotal?: string | number | null;
+  discount_total?: string | number | null;
+  tax_total?: string | number | null;
   clients?: { email?: string | null } | null;
   businesses?: { name?: string | null } | null;
 }
@@ -44,6 +48,10 @@ export async function deliverInvoiceEmail(invoice: InvoiceEmailData): Promise<In
     businessName: invoice.businesses?.name || 'CoinPay Merchant',
     paymentLink,
     notes: invoice.notes || undefined,
+    lineItems: invoice.line_items ?? null,
+    subtotal: invoice.subtotal != null ? Number(invoice.subtotal) : null,
+    discountTotal: Number(invoice.discount_total ?? 0),
+    taxTotal: Number(invoice.tax_total ?? 0),
   });
 
   const result = await sendEmail({

@@ -92,6 +92,10 @@ export async function POST(
         ...updatedInvoice,
         crypto_amount: cryptoAmount.toFixed(8),
         crypto_currency: invoice.crypto_currency,
+        line_items: invoice.line_items,
+        subtotal: invoice.subtotal,
+        discount_total: invoice.discount_total,
+        tax_total: invoice.tax_total,
         clients: invoice.clients,
         businesses: invoice.businesses,
       });

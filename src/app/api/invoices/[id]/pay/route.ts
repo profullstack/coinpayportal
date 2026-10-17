@@ -21,6 +21,10 @@ export async function GET(
         status,
         currency,
         amount,
+        line_items,
+        subtotal,
+        discount_total,
+        tax_total,
         crypto_currency,
         crypto_amount,
         payment_address,
@@ -44,7 +48,12 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Invoice not available for payment' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, invoice });
+    // Catalog ids are the merchant's bookkeeping, not the payer's business.
+    const lineItems = Array.isArray(invoice.line_items)
+      ? invoice.line_items.map(({ item_id: _itemId, ...line }: Record<string, unknown>) => line)
+      : null;
+
+    return NextResponse.json({ success: true, invoice: { ...invoice, line_items: lineItems } });
   } catch (error) {
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }

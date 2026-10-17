@@ -108,6 +108,75 @@ describe('CLI Invoice Commands', () => {
     expect(result.output).toContain('Permanently delete a draft invoice');
   });
 
+  it('creates an itemised invoice from repeated --item flags', async () => {
+    respond = () => ({
+      status: 201,
+      body: {
+        success: true,
+        invoice: invoiceFixture({
+          amount: 318.1,
+          subtotal: 319.99,
+          discount_total: 16,
+          tax_total: 14.11,
+          line_items: [
+            { description: 'Design', quantity: 3, unit_price: 100, amount: 300, tax_rate: null },
+            { description: 'Hosting', quantity: 1, unit_price: 19.99, amount: 19.99, tax_rate: 8.25, tax_name: 'CA' },
+          ],
+        }),
+      },
+    });
+
+    const result = await runCLI(
+      [
+        'invoice', 'create', '--business-id', 'biz_123',
+        '--item', 'Design|3|100',
+        '--item', 'Hosting|1|19.99|8.25|CA',
+        '--discount', '5%',
+      ],
+      baseUrl
+    );
+
+    expect(result.status).toBe(0);
+    expect(requests[0].body).toEqual({
+      business_id: 'biz_123',
+      currency: 'USD',
+      line_items: [
+        { description: 'Design', quantity: 3, unit_price: 100 },
+        { description: 'Hosting', quantity: 1, unit_price: 19.99, tax_rate: 8.25, tax_name: 'CA' },
+      ],
+      discount: { type: 'percent', value: 5 },
+    });
+    expect(result.output).toContain('Design: 3 x 100 = 300');
+    expect(result.output).toContain('Subtotal: 319.99');
+  });
+
+  it('rejects a malformed --item before calling the API', async () => {
+    const result = await runCLI(['invoice', 'create', '--item', 'Design|zero|100'], baseUrl);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('--item must look like');
+    expect(requests).toHaveLength(0);
+  });
+
+  it('saves a tax rate and lists saved items', async () => {
+    respond = (req) =>
+      req.url.startsWith('/api/tax-rates')
+        ? { status: 201, body: { success: true, tax_rate: { id: 'tax_1', name: 'CA', rate: 8.25, is_default: true } } }
+        : { body: { success: true, invoice_items: [{ id: 'item_1', name: 'Design', unit_price: 100, unit: 'hour' }] } };
+
+    const saved = await runCLI(['tax-rate', 'create', '--name', 'CA', '--rate', '8.25', '--default'], baseUrl);
+    expect(saved.status).toBe(0);
+    expect(requests[0]).toMatchObject({
+      method: 'POST',
+      url: '/api/tax-rates',
+      body: { name: 'CA', rate: 8.25, is_default: true },
+    });
+
+    const listed = await runCLI(['item', 'list', '--business-id', 'biz_123'], baseUrl);
+    expect(listed.status).toBe(0);
+    expect(requests[1].url).toBe('/api/invoice-items?business_id=biz_123');
+    expect(listed.output).toContain('item_1  Design  100 / hour');
+  });
+
   it('creates a draft invoice and emits clean JSON', async () => {
     respond = () => ({
       status: 201,

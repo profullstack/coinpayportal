@@ -47,6 +47,21 @@ describe('invoice creation identity', () => {
       creationIdentity('key', { ...original, ...change }).hash
     );
   });
+  it('binds itemised terms and ignores a stray amount', () => {
+    const lines = [{ description: 'Design', quantity: 2, unit_price: 50 }];
+    const a = creationIdentity('key', { line_items: lines });
+    expect(creationIdentity('key', { line_items: lines, amount: 999 }).hash).toBe(a.hash);
+    expect(
+      creationIdentity('key', { line_items: [{ ...lines[0], quantity: 3 }] }).hash
+    ).not.toBe(a.hash);
+    expect(
+      creationIdentity('key', { line_items: lines, discount: { type: 'percent', value: 5 } }).hash
+    ).not.toBe(a.hash);
+  });
+  it('requires an amount or line items', () => {
+    expect(() => creationIdentity('key', { notes: 'nothing to bill' })).toThrow(/amount or line_items/);
+    expect(() => creationIdentity('key', { line_items: [] })).toThrow();
+  });
   it.each(['', ' ', 'x'.repeat(256), 'two words', 'line\nbreak', 'non-ascii-\u00e9'])(
     'rejects invalid key %j',
     (key) => {

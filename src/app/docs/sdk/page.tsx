@@ -1718,6 +1718,35 @@ console.log('Invoice:', invoice.invoiceNumber); // INV-001
 console.log('Status:', invoice.status);         // draft`}
           </CodeBlock>
 
+          <h3 className="text-xl font-semibold text-white mb-4 mt-8">Itemised Invoice</h3>
+          <p className="text-gray-300 mb-4">
+            Send line items instead of an amount and the server computes the total: quantity x rate per line,
+            one optional discount applied before tax, then each line&apos;s tax. Save products and tax rates you
+            bill often with <code>coinpay item create</code> and <code>coinpay tax-rate create</code>, or under
+            Invoices → Items &amp; Taxes.
+          </p>
+          <CodeBlock title="Line items, tax and a discount" language="javascript">
+{`import { createInvoice } from '@profullstack/coinpay';
+
+const invoice = await createInvoice(client, {
+  businessId: 'your-business-id',
+  currency: 'USD',
+  lineItems: [
+    { description: 'Logo design', quantity: 3, unit_price: 100 },
+    { description: 'Hosting (Oct)', quantity: 1, unit_price: 19.99, tax_rate: 8.25, tax_name: 'CA Sales Tax' },
+  ],
+  discount: { type: 'percent', value: 5 },   // or { type: 'fixed', value: 25 }
+});
+
+console.log(invoice.subtotal, invoice.discountTotal, invoice.taxTotal, invoice.amount);`}
+          </CodeBlock>
+          <CodeBlock title="Same thing from the CLI" language="bash">
+{`coinpay invoice create --business-id <id> \\
+  --item "Logo design|3|100" \\
+  --item "Hosting (Oct)|1|19.99|8.25|CA Sales Tax" \\
+  --discount 5%`}
+          </CodeBlock>
+
           <h3 className="text-xl font-semibold text-white mb-4 mt-8">Send Invoice</h3>
           <CodeBlock title="Send invoice to client (generates payment link)" language="javascript">
 {`const result = await client.invoices.send(invoice.id);

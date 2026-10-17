@@ -70,7 +70,8 @@ describe('public invoice PDF (real jsPDF renderer)', () => {
       created_at: fixture().created_at, due_date: null, businesses: { name: 'Phuc Nguyen' },
     });
     expect(PUBLIC_INVOICE_PDF_FIELDS.split(',')).toEqual([
-      'invoice_number', 'status', 'currency', 'amount', 'due_date', 'created_at', 'businesses(name)',
+      'invoice_number', 'status', 'currency', 'amount', 'line_items', 'subtotal', 'discount_total',
+      'tax_total', 'due_date', 'created_at', 'businesses(name)',
     ]);
   });
 

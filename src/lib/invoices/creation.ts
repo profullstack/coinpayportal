@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
+import { lineItemsSchema, discountSchema } from './line-items';
 
 const login = z.string().regex(/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i);
 const githubSource = z
@@ -27,12 +28,16 @@ const keyedRequest = z.object({
     .regex(/^[A-Z]{3}$/)
     .optional()
     .default('USD'),
+  // Optional when line_items is sent: the server computes the total from them.
   amount: z
     .number()
     .finite()
     .min(0.01)
     .max(999999999.99)
-    .refine((n) => n === Math.round(n * 100) / 100, 'Use at most two decimals'),
+    .refine((n) => n === Math.round(n * 100) / 100, 'Use at most two decimals')
+    .optional(),
+  line_items: lineItemsSchema.nullable().optional(),
+  discount: discountSchema.nullable().optional(),
   crypto_currency: z.string().max(32).nullable().optional(),
   due_date: z.string().datetime({ offset: true }).nullable().optional(),
   notes: z.string().max(5000).nullable().optional(),
@@ -62,7 +67,7 @@ const keyedRequest = z.object({
     )
     .nullable()
     .optional(),
-});
+}).refine((b) => b.amount !== undefined || !!b.line_items, 'amount or line_items is required');
 
 export class InvoiceCreationError extends Error {
   constructor(
@@ -106,7 +111,11 @@ export function creationIdentity(keyHeader: string | null, body: Record<string, 
   const terms = {
     client_id: input.client_id || null,
     currency: input.currency,
-    amount: input.amount,
+    amount: input.line_items ? null : input.amount,
+    // Only itemised requests carry these keys, so amount-only hashes are unchanged.
+    ...(input.line_items
+      ? { line_items: input.line_items, discount: input.discount || null }
+      : {}),
     crypto_currency: input.crypto_currency || null,
     due_date: input.due_date || null,
     notes: input.notes || null,

@@ -80,7 +80,7 @@ describe('CreateInvoicePage', () => {
       expect(mockAuthFetch).toHaveBeenCalledWith('/api/businesses/biz_1/payment-methods', {}, expect.anything());
     });
 
-    const cryptoSelect = screen.getAllByRole('combobox')[3];
+    const cryptoSelect = screen.getByLabelText('Invoice crypto');
     const optionValues = Array.from(cryptoSelect.querySelectorAll('option')).map((option) => option.getAttribute('value'));
 
     expect(optionValues).toContain('USDT_ETH');
@@ -119,7 +119,7 @@ describe('CreateInvoicePage', () => {
       expect(mockAuthFetch).toHaveBeenCalledWith('/api/businesses/biz_1/payment-methods', {}, expect.anything());
     });
 
-    const cryptoSelect = screen.getAllByRole('combobox')[3];
+    const cryptoSelect = screen.getByLabelText('Invoice crypto');
     const optionValues = Array.from(cryptoSelect.querySelectorAll('option')).map((option) => option.getAttribute('value'));
 
     // Every supported coin is offered, not just the ones with a stored wallet:
@@ -137,5 +137,33 @@ describe('CreateInvoicePage', () => {
 
     // Card is shown as an enabled method.
     expect(screen.getByText(/Card payments enabled/)).toBeInTheDocument();
+  });
+  it('sends line items, not an amount, for an itemised invoice', async () => {
+    const user = userEvent.setup();
+    render(<CreateInvoicePage />);
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Create Invoice' })).toBeInTheDocument();
+    });
+    await user.selectOptions(screen.getAllByRole('combobox')[0], 'biz_1');
+
+    await user.type(screen.getByLabelText('Line 1 description'), 'Logo design');
+    const qty = screen.getByLabelText('Qty');
+    await user.clear(qty);
+    await user.type(qty, '2');
+    await user.type(screen.getByLabelText('Rate'), '150');
+    expect(screen.getByTestId('line-items-totals')).toHaveTextContent('$300.00');
+
+    await user.click(screen.getByRole('button', { name: 'Create Invoice' }));
+
+    await waitFor(() => {
+      const post = mockAuthFetch.mock.calls.find(([url, init]) => url === '/api/invoices' && init?.method === 'POST');
+      expect(post).toBeTruthy();
+      const body = JSON.parse(post![1].body);
+      expect(body.amount).toBeUndefined();
+      expect(body.line_items).toEqual([
+        { item_id: null, description: 'Logo design', quantity: 2, unit_price: 150, tax_rate: null, tax_name: null },
+      ]);
+      expect(body.discount).toBeNull();
+    });
   });
 });

@@ -4,6 +4,10 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
+import LineItemsEditor, {
+  emptyLine, previewTotals, toApiLines,
+  type CatalogItem, type DraftDiscount, type DraftLine, type TaxRate,
+} from '@/components/invoices/LineItemsEditor';
 
 interface Business {
   id: string;
@@ -69,6 +73,13 @@ export default function CreateInvoicePage() {
 
   const [showNewClient, setShowNewClient] = useState(false);
 
+  // Itemised by default; "single amount" keeps the old one-number invoice.
+  const [itemised, setItemised] = useState(true);
+  const [lines, setLines] = useState<DraftLine[]>([emptyLine()]);
+  const [discount, setDiscount] = useState<DraftDiscount>({ type: 'percent', value: '' });
+  const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -77,6 +88,7 @@ export default function CreateInvoicePage() {
     if (form.business_id) {
       fetchClients(form.business_id);
       fetchPaymentMethods(form.business_id);
+      fetchCatalog(form.business_id);
     } else {
       setWallets([]);
       setCardsEnabled(null);
@@ -98,6 +110,19 @@ export default function CreateInvoicePage() {
   const fetchClients = async (businessId: string) => {
     const result = await authFetch(`/api/clients?business_id=${businessId}`, {}, router);
     if (result?.data.success) setClients(result.data.clients);
+  };
+
+  const fetchCatalog = async (businessId: string) => {
+    const [rates, items] = await Promise.all([
+      authFetch(`/api/tax-rates?business_id=${businessId}`, {}, router),
+      authFetch(`/api/invoice-items?business_id=${businessId}`, {}, router),
+    ]);
+    const loadedRates: TaxRate[] = rates?.data.success ? rates.data.tax_rates ?? [] : [];
+    setTaxRates(loadedRates);
+    setCatalog(items?.data.success ? items.data.invoice_items ?? [] : []);
+    // Pre-select the default tax on rows nobody has touched yet.
+    const fallback = loadedRates.find(t => t.is_default)?.id ?? '';
+    setLines(ls => ls.map(l => (!l.description && !l.unit_price ? { ...l, tax_rate_id: fallback } : l)));
   };
 
   // Load every accepted payment method for the business (crypto wallets + card
@@ -136,6 +161,14 @@ export default function CreateInvoicePage() {
       return;
     }
 
+    if (itemised) {
+      const { error: lineError } = previewTotals(lines, taxRates, discount);
+      if (lineError) {
+        setError(lineError);
+        return;
+      }
+    }
+
     setSaving(true);
 
     try {
@@ -165,7 +198,9 @@ export default function CreateInvoicePage() {
       const invoiceData: Record<string, unknown> = {
         business_id: form.business_id,
         client_id: clientId || undefined,
-        amount: parseFloat(form.amount),
+        ...(itemised
+          ? toApiLines(lines, taxRates, discount)
+          : { amount: parseFloat(form.amount) }),
         currency: form.currency,
         crypto_currency: form.crypto_currency || undefined,
         due_date: form.due_date || undefined,
@@ -292,15 +327,40 @@ export default function CreateInvoicePage() {
             )}
           </div>
 
-          {/* Amount & Currency */}
+          {/* Line items or a single amount, then currency */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-300">
+                {itemised ? 'Line Items *' : 'Amount *'}
+              </label>
+              <button
+                type="button"
+                onClick={() => setItemised(!itemised)}
+                className="text-xs text-purple-400 hover:text-purple-300"
+              >
+                {itemised ? 'Use a single amount instead' : 'Itemise this invoice'}
+              </button>
+            </div>
+            {itemised && (
+              <LineItemsEditor
+                lines={lines}
+                onLinesChange={setLines}
+                discount={discount}
+                onDiscountChange={setDiscount}
+                taxRates={taxRates}
+                catalog={catalog}
+                currency={form.currency}
+              />
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-4">
-            <div>
+            <div className={itemised ? 'hidden' : ''}>
               <label className="block text-sm font-medium text-gray-300 mb-2">Amount *</label>
               <input
                 type="number"
                 step="0.01"
                 min="0.01"
-                required
+                required={!itemised}
                 value={form.amount}
                 onChange={e => setForm({ ...form, amount: e.target.value })}
                 className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
@@ -330,6 +390,7 @@ export default function CreateInvoicePage() {
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">Crypto</label>
               <select
+                aria-label="Invoice crypto"
                 value={form.crypto_currency}
                 onChange={e => {
                   const wallet = wallets.find(w => w.cryptocurrency === e.target.value);

@@ -406,6 +406,10 @@ function InvoicesPageContent() {
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'clients' ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-400 hover:text-white'}`}>
             Clients
           </button>
+          <Link href="/invoices/catalog"
+            className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white transition-colors">
+            Items &amp; Taxes
+          </Link>
         </div>
 
         {/* Tab Content */}

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
+import LineItemsTable, { type InvoiceLine } from '@/components/invoices/LineItemsTable';
 
 interface Invoice {
   id: string;
@@ -11,6 +12,10 @@ interface Invoice {
   status: string;
   currency: string;
   amount: string;
+  line_items: InvoiceLine[] | null;
+  subtotal: string | null;
+  discount_total: string | null;
+  tax_total: string | null;
   crypto_currency: string | null;
   crypto_amount: string | null;
   payment_address: string | null;
@@ -306,6 +311,20 @@ export default function InvoiceDetailPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Details */}
           <div className="lg:col-span-2 space-y-6">
+            {invoice.line_items && invoice.line_items.length > 0 && (
+              <div className="bg-gray-800/50 rounded-2xl border border-gray-700 p-6">
+                <h3 className="text-lg font-semibold text-white mb-4">Line Items</h3>
+                <LineItemsTable
+                  lines={invoice.line_items}
+                  currency={invoice.currency}
+                  subtotal={invoice.subtotal}
+                  discountTotal={invoice.discount_total}
+                  taxTotal={invoice.tax_total}
+                  total={invoice.amount}
+                />
+              </div>
+            )}
+
             {/* Amount Card */}
             <div className="bg-gray-800/50 rounded-2xl border border-gray-700 p-6">
               <h3 className="text-lg font-semibold text-white mb-4">Invoice Details</h3>

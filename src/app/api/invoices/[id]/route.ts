@@ -5,6 +5,7 @@ import { resolvePayee } from '@/lib/payments/payee';
 import { can } from '@/lib/auth/permissions';
 import { authorizeBusiness } from '@/lib/auth/authz';
 import { randomUUID } from 'node:crypto';
+import { computeInvoiceTotals, itemisedInvoiceColumns, LineItemError } from '@/lib/invoices/line-items';
 
 /**
  * GET /api/invoices/[id]
@@ -56,7 +57,7 @@ export async function PUT(
       request,
       id,
       'invoice.write',
-      'id, status, business_id, user_id, crypto_currency, merchant_wallet_address, updated_at, metadata',
+      'id, status, business_id, user_id, crypto_currency, merchant_wallet_address, updated_at, metadata, line_items, discount',
     );
     if (!access.ok) {
       return NextResponse.json({ success: false, error: access.error }, { status: access.status });
@@ -69,6 +70,8 @@ export async function PUT(
       merchant_wallet_address: string | null;
       updated_at: string | null;
       metadata: Record<string, unknown> | null;
+      line_items: unknown[] | null;
+      discount: unknown;
     };
 
     const allowedFields: Record<string, unknown> = {};
@@ -90,6 +93,32 @@ export async function PUT(
       }
       for (const field of editableFields) {
         if (body[field] !== undefined) allowedFields[field] = body[field];
+      }
+
+      // Itemised totals are recomputed on any line or discount change, and an
+      // itemised invoice's amount is never set directly.
+      if (body.line_items === null) {
+        Object.assign(allowedFields, {
+          line_items: null, subtotal: null, discount: null, discount_total: 0, tax_total: 0,
+        });
+      } else if (body.line_items !== undefined || (body.discount !== undefined && existing.line_items)) {
+        const lines = body.line_items !== undefined ? body.line_items : existing.line_items;
+        const discount = body.discount !== undefined ? body.discount : existing.discount;
+        try {
+          Object.assign(allowedFields, itemisedInvoiceColumns(computeInvoiceTotals(lines, discount)));
+        } catch (err) {
+          if (err instanceof LineItemError) {
+            return NextResponse.json(
+              { success: false, error: err.message, code: 'INVALID_LINE_ITEMS' }, { status: 400 },
+            );
+          }
+          throw err;
+        }
+      } else if (existing.line_items && body.amount !== undefined) {
+        return NextResponse.json(
+          { success: false, error: 'This invoice is itemised; edit line_items instead of amount' },
+          { status: 400 },
+        );
       }
 
       // Re-resolve the payee whenever the coin or the address itself is touched.
