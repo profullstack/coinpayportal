@@ -5,6 +5,31 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-10-17
+
+### Added
+- Projects and time tracking: `coinpay project list|create|get|invoice`,
+  `coinpay time log|start|stop|list`. `project invoice` bills unbilled
+  billable time as a draft itemised invoice; billed time is locked.
+- `coinpay invoice aging`: unpaid sent invoices by days past due, per
+  currency and per client.
+- `coinpay invoice settings`: reminder schedule (`--reminders "-3,0,7"`),
+  late fee (`--late-fee 1.5%` or `25`, `--late-fee-after 3`) and branding
+  (`--brand-color`, `--logo-url`, `--footer`).
+- `coinpay client portal-link <id>`: one link where a client sees and pays
+  all their invoices; `--revoke` turns it off.
+- MCP: `invoice_list`, `invoice_get`, `invoice_create_draft`,
+  `invoice_ar_aging`, `project_list`, `project_get`, `time_log`,
+  `project_invoice_time`.
+- SDK: `getArAging`, `getInvoiceSettings`, `updateInvoiceSettings`,
+  `createClientPortalLink`, `revokeClientPortalLink`, `listProjects`,
+  `getProject`, `createProject`, `logTime`, `startTimer`, `stopTimer`,
+  `listTimeEntries`, `invoiceProjectTime`.
+
+### Fixed
+- A flag value that starts with a minus and a digit (`--reminders -3,0,7`)
+  is read as the value instead of as another flag.
+
 ## [0.17.0] - 2026-10-17
 
 ### Added

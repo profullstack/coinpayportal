@@ -31,6 +31,21 @@ import {
   createInvoiceItem,
   deleteInvoiceItem,
 } from '../src/invoices.js';
+import {
+  getArAging,
+  getInvoiceSettings,
+  updateInvoiceSettings,
+  createClientPortalLink,
+  revokeClientPortalLink,
+  listProjects,
+  getProject,
+  createProject,
+  logTime,
+  startTimer,
+  stopTimer,
+  listTimeEntries,
+  invoiceProjectTime,
+} from '../src/projects.js';
 import { readFileSync, writeFileSync, existsSync, unlinkSync, chmodSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 import { createInterface } from 'readline';
@@ -173,6 +188,11 @@ function createUnauthenticatedClient() {
 }
 
 const BOOLEAN_FLAGS = new Set([
+  // projects, time, client portal
+  'non-billable',
+  'unbilled',
+  'archived',
+  'revoke',
   'active',
   // finances reports / statements
   'wait',
@@ -237,7 +257,7 @@ function parseArgs(args) {
         const next = args[i + 1];
         if (BOOLEAN_FLAGS.has(name)) {
           result.flags[name] = true;
-        } else if (next && !next.startsWith('-')) {
+        } else if (next && (!next.startsWith('-') || /^-\d/.test(next))) {
           setFlag(name, next);
           i++;
         } else {
@@ -470,6 +490,27 @@ ${colors.cyan}Commands:${colors.reset}
     send <id>             Create payment details and email the client
     delete <id>           Permanently delete a draft invoice
       --yes               Skip confirmation for publish/send/delete
+
+  ${colors.bright}invoice aging${colors.reset}     Unpaid invoices by days past due (--business-id)
+  ${colors.bright}invoice settings${colors.reset}  Show reminders, late fee, branding; change with
+                    --reminders "-3,0,7" | off, --late-fee 1.5% | 25 | none,
+                    --late-fee-after 3, --brand-color "#7c3aed", --logo-url, --footer
+
+  ${colors.bright}client${colors.reset}
+    portal-link <client-id>   Create a portal link listing all their invoices
+                              (replaces the old link; --revoke to turn it off)
+
+  ${colors.bright}project${colors.reset}
+    list                  Projects (--business-id, --archived)
+    create                --name, [--client-id] [--rate 120] [--budget 40]
+    get <id>              Hours, unbilled, billed and paid
+    invoice <id>          Bill unbilled time as a draft invoice
+
+  ${colors.bright}time${colors.reset}
+    log                   --project <id> --minutes 90 | --hours 1.5 [--description] [--non-billable]
+    start                 --project <id> [--description]   start a timer
+    stop                  stop your running timer
+    list                  --project <id> [--unbilled]
 
   ${colors.bright}item${colors.reset}
     list                  Saved products/services (--business-id)
@@ -1164,6 +1205,141 @@ function printInvoiceDetails(invoice, { shareUrl } = {}) {
 /**
  * Invoice commands
  */
+async function handleClientCommand(subcommand, args, flags) {
+  const client = createClient();
+  if (subcommand !== 'portal-link' || args.length !== 1) {
+    print.error('Usage: coinpay client portal-link <client-id> [--revoke]');
+    process.exit(1);
+  }
+  if (flags.revoke) {
+    await revokeClientPortalLink(client, args[0]);
+    print.success('Portal link revoked');
+    return;
+  }
+  const url = await createClientPortalLink(client, args[0]);
+  if (flags.json) print.json({ url });
+  else {
+    print.success('Portal link (any earlier link no longer works):');
+    console.log(url);
+  }
+}
+
+function hoursOf(minutes) {
+  return minutes == null ? 'running' : Math.floor(minutes / 60) + 'h' + String(minutes % 60).padStart(2, '0') + 'm';
+}
+
+async function handleProject(subcommand, args, flags) {
+  const client = createClient();
+  requireFlagValues(flags, ['business-id', 'name', 'client-id', 'rate', 'budget', 'currency']);
+  switch (subcommand) {
+    case 'list': {
+      const rows = await listProjects(client, { businessId: flags['business-id'], includeArchived: !!flags.archived });
+      if (flags.json) return print.json(rows);
+      if (!rows.length) return print.info('No projects');
+      for (const p of rows) {
+        print.info(p.id + '  ' + p.name + (p.hourly_rate != null ? '  ' + p.hourly_rate + '/hr' : '') + (p.status === 'archived' ? '  (archived)' : ''));
+      }
+      return;
+    }
+    case 'create': {
+      if (!flags.name) {
+        print.error('--name is required');
+        process.exit(1);
+      }
+      const rate = flags.rate === undefined ? undefined : parseNonNegativeAmount(String(flags.rate));
+      if (rate === null) {
+        print.error('--rate must be an amount with at most two decimals');
+        process.exit(1);
+      }
+      const project = await createProject(client, {
+        businessId: flags['business-id'],
+        name: flags.name,
+        clientId: flags['client-id'],
+        hourlyRate: rate,
+        currency: flags.currency?.toUpperCase(),
+        budgetHours: flags.budget === undefined ? undefined : Number(flags.budget),
+      });
+      if (flags.json) return print.json(project);
+      return print.success('Project created: ' + project.id);
+    }
+    case 'get': {
+      if (args.length !== 1) {
+        print.error('Usage: coinpay project get <id>');
+        process.exit(1);
+      }
+      const { project, stats } = await getProject(client, args[0]);
+      if (flags.json) return print.json({ project, stats });
+      print.info(project.name + (project.hourly_rate != null ? '  ' + project.hourly_rate + '/hr' : ''));
+      print.info('Hours: ' + stats.hours + (project.budget_hours ? ' of ' + project.budget_hours : '') + ' (' + stats.billable_hours + ' billable)');
+      print.info('Unbilled: ' + stats.unbilled_amount + '   Billed: ' + stats.billed_amount + '   Paid: ' + stats.paid_amount);
+      return;
+    }
+    case 'invoice': {
+      if (args.length !== 1) {
+        print.error('Usage: coinpay project invoice <id>');
+        process.exit(1);
+      }
+      const result = await invoiceProjectTime(client, args[0]);
+      if (flags.json) return print.json(result);
+      print.success('Draft ' + result.invoice.invoice_number + ' for ' + result.invoice.amount + ' from ' + result.entries_billed + ' entries');
+      return print.info('Review and send: coinpay invoice send ' + result.invoice.id);
+    }
+    default:
+      print.error('Usage: coinpay project <list|create|get|invoice>');
+      process.exit(1);
+  }
+}
+
+async function handleTime(subcommand, args, flags) {
+  const client = createClient();
+  requireFlagValues(flags, ['project', 'minutes', 'hours', 'description', 'business-id']);
+  switch (subcommand) {
+    case 'log': {
+      const minutes = flags.minutes !== undefined ? Number(flags.minutes) : Math.round(Number(flags.hours) * 60);
+      if (!flags.project || !Number.isInteger(minutes) || minutes < 1) {
+        print.error('Usage: coinpay time log --project <id> --minutes 90 (or --hours 1.5) [--description "..."]');
+        process.exit(1);
+      }
+      const entry = await logTime(client, {
+        projectId: flags.project,
+        minutes,
+        description: flags.description,
+        billable: flags['non-billable'] ? false : undefined,
+      });
+      if (flags.json) return print.json(entry);
+      return print.success('Logged ' + hoursOf(entry.minutes));
+    }
+    case 'start': {
+      if (!flags.project) {
+        print.error('Usage: coinpay time start --project <id> [--description "..."]');
+        process.exit(1);
+      }
+      const entry = await startTimer(client, { projectId: flags.project, description: flags.description });
+      if (flags.json) return print.json(entry);
+      return print.success('Timer started (' + entry.id + ')');
+    }
+    case 'stop': {
+      const entry = await stopTimer(client, { entryId: args[0], businessId: flags['business-id'] });
+      if (flags.json) return print.json(entry);
+      return print.success('Timer stopped: ' + hoursOf(entry.minutes));
+    }
+    case 'list': {
+      const rows = await listTimeEntries(client, { projectId: flags.project, businessId: flags['business-id'], unbilled: !!flags.unbilled });
+      if (flags.json) return print.json(rows);
+      if (!rows.length) return print.info('No time logged');
+      for (const e of rows) {
+        print.info(
+          e.started_at.slice(0, 10) + '  ' + hoursOf(e.minutes).padStart(8) + '  ' + (e.invoice_id ? 'billed  ' : e.billable ? 'unbilled' : 'internal') + '  ' + (e.description || '')
+        );
+      }
+      return;
+    }
+    default:
+      print.error('Usage: coinpay time <log|start|stop|list>');
+      process.exit(1);
+  }
+}
+
 async function handleCatalog(kind, subcommand, args, flags) {
   const client = createClient();
   const isItem = kind === 'item';
@@ -1686,9 +1862,82 @@ async function handleInvoice(subcommand, args, flags) {
       break;
     }
 
+    case 'aging': {
+      requireFlagValues(flags, ['business-id']);
+      const report = await getArAging(client, { businessId: flags['business-id'] });
+      if (flags.json) {
+        print.json(report);
+        break;
+      }
+      if (!report.totals?.length) {
+        print.info('Nothing outstanding');
+        break;
+      }
+      const cols = ['current', '1_30', '31_60', '61_90', '90_plus', 'total'];
+      print.info('                          current     1-30    31-60    61-90      90+    total');
+      for (const row of [...report.totals.map((t) => ({ ...t, name: 'TOTAL ' + t.currency })), ...report.clients]) {
+        print.info(
+          String(row.name).slice(0, 24).padEnd(24) +
+            cols.map((c) => String(row[c] ? row[c].toFixed(2) : '-').padStart(9)).join('')
+        );
+      }
+      break;
+    }
+
+    case 'settings': {
+      requireFlagValues(flags, ['business-id', 'reminders', 'late-fee', 'late-fee-after', 'brand-color', 'logo-url', 'footer']);
+      const changes = {};
+      if (flags.reminders !== undefined) {
+        if (flags.reminders === 'off') changes.reminders_enabled = false;
+        else {
+          const days = String(flags.reminders).split(',').map((d) => Number(d.trim()));
+          if (days.some((d) => !Number.isInteger(d))) {
+            print.error('--reminders must be days relative to the due date, like "-3,0,7", or off');
+            process.exit(1);
+          }
+          changes.reminders_enabled = true;
+          changes.reminder_days = days;
+        }
+      }
+      if (flags['late-fee'] !== undefined) {
+        const fee = String(flags['late-fee']).trim();
+        const m = /^(\d+(?:\.\d{1,2})?)(%?)$/.exec(fee);
+        if (fee === 'none') changes.late_fee_type = 'none';
+        else if (m) Object.assign(changes, { late_fee_type: m[2] ? 'percent' : 'fixed', late_fee_value: Number(m[1]) });
+        else {
+          print.error('--late-fee must be a percent like 1.5%, an amount like 25, or none');
+          process.exit(1);
+        }
+      }
+      if (flags['late-fee-after'] !== undefined) changes.late_fee_after_days = Number(flags['late-fee-after']);
+      if (flags['brand-color'] !== undefined) changes.brand_color = flags['brand-color'] === 'none' ? null : flags['brand-color'];
+      if (flags['logo-url'] !== undefined) changes.logo_url = flags['logo-url'] === 'none' ? null : flags['logo-url'];
+      if (flags.footer !== undefined) changes.invoice_footer = flags.footer === 'none' ? null : flags.footer;
+
+      const settings = Object.keys(changes).length
+        ? await updateInvoiceSettings(client, { businessId: flags['business-id'], ...changes })
+        : await getInvoiceSettings(client, { businessId: flags['business-id'] });
+      if (flags.json) {
+        print.json(settings);
+        break;
+      }
+      print.info('Reminders: ' + (settings.reminders_enabled ? settings.reminder_days.join(', ') + ' days from due' : 'off'));
+      print.info(
+        'Late fee: ' +
+          (settings.late_fee_type === 'none'
+            ? 'none'
+            : (settings.late_fee_type === 'percent' ? settings.late_fee_value + '%' : settings.late_fee_value) +
+              ', ' + settings.late_fee_after_days + ' days after due')
+      );
+      print.info('Brand colour: ' + (settings.brand_color || 'default'));
+      print.info('Logo: ' + (settings.logo_url || 'none'));
+      if (settings.invoice_footer) print.info('Footer: ' + settings.invoice_footer);
+      break;
+    }
+
     default:
       print.error('Unknown invoice command: ' + subcommand);
-      print.info('Available: create, list, get, update, publish, send, delete');
+      print.info('Available: create, list, get, update, publish, send, delete, aging, settings');
       process.exit(1);
   }
 }
@@ -4762,6 +5011,18 @@ async function handleLightning(subcommand, args, flags) {
 
       case 'invoice':
         await handleInvoice(subcommand, args, flags);
+        break;
+
+      case 'client':
+        await handleClientCommand(subcommand, args, flags);
+        break;
+
+      case 'project':
+        await handleProject(subcommand, args, flags);
+        break;
+
+      case 'time':
+        await handleTime(subcommand, args, flags);
         break;
 
       case 'item':

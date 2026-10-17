@@ -1747,6 +1747,33 @@ console.log(invoice.subtotal, invoice.discountTotal, invoice.taxTotal, invoice.a
   --discount 5%`}
           </CodeBlock>
 
+          <h3 className="text-xl font-semibold text-white mb-4 mt-8">Reminders, Late Fees and Branding</h3>
+          <p className="text-gray-300 mb-4">
+            Each business sets when unpaid invoices are chased (days relative to the due date), an optional late fee
+            charged once as its own invoice, and the logo, colour and footer clients see on emails, the pay page and
+            the client portal. Without settings you get one reminder on the due date and no fee.
+          </p>
+          <CodeBlock title="Settings, portal links, aging" language="bash">
+{`coinpay invoice settings --reminders "-3,0,7,14" --late-fee 1.5% --late-fee-after 3 \\
+  --brand-color "#0f766e" --logo-url https://example.com/logo.png --footer "Thanks!"
+
+coinpay client portal-link <client-id>   # one link with every invoice for that client
+coinpay invoice aging                    # unpaid by days past due, per client`}
+          </CodeBlock>
+
+          <h3 className="text-xl font-semibold text-white mb-4 mt-8">Projects and Time</h3>
+          <p className="text-gray-300 mb-4">
+            Log time against a project (or run a timer), then bill the unbilled billable hours as a draft itemised
+            invoice. Billed time is locked; deleting the draft frees it again.
+          </p>
+          <CodeBlock title="Track and bill time" language="bash">
+{`coinpay project create --name "Website rebuild" --client-id <id> --rate 120 --budget 40
+coinpay time start --project <project-id> --description "Homepage"
+coinpay time stop
+coinpay time log --project <project-id> --hours 1.5 --description "Review call"
+coinpay project invoice <project-id>     # draft invoice from unbilled time`}
+          </CodeBlock>
+
           <h3 className="text-xl font-semibold text-white mb-4 mt-8">Send Invoice</h3>
           <CodeBlock title="Send invoice to client (generates payment link)" language="javascript">
 {`const result = await client.invoices.send(invoice.id);

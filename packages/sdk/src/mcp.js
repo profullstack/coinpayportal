@@ -15,6 +15,8 @@ import { createInterface } from 'node:readline';
 import * as reports from './finances-reports.js';
 import { getFinanceSummary, listFinanceAccounts, listFinanceTransactions } from './finances.js';
 import * as sf from './statements-fetch.js';
+import { listInvoices, getInvoice, createInvoice } from './invoices.js';
+import * as projects from './projects.js';
 
 export const PROTOCOL_VERSION = '2025-06-18';
 
@@ -217,6 +219,107 @@ export const TOOLS = [
       });
       return { ...text({ banks: results }), isError: false };
     },
+  },
+  {
+    name: 'invoice_list',
+    description: 'List invoices (number, status, amount, currency, due date, client). Filter by status: draft, sent, overdue, paid, cancelled.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        businessId: { type: 'string' },
+        status: { type: 'string', enum: ['draft', 'sent', 'overdue', 'paid', 'cancelled'] },
+        clientId: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
+    handler: async (args, { client }) => text(await listInvoices(client, args)),
+  },
+  {
+    name: 'invoice_get',
+    description: 'One invoice with its line items, totals, payment details and status.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+    handler: async (args, { client }) => text(await getInvoice(client, args.id)),
+  },
+  {
+    name: 'invoice_create_draft',
+    description:
+      'Create a DRAFT itemised invoice (nothing is sent). lineItems: [{description, quantity, unit_price, tax_rate?, tax_name?}]; discount: {type: percent|fixed, value}. The server computes the total.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        businessId: { type: 'string' },
+        clientId: { type: 'string' },
+        currency: { type: 'string', description: 'ISO code, default USD' },
+        dueDate: { type: 'string', description: 'ISO date' },
+        notes: { type: 'string' },
+        lineItems: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 100,
+          items: {
+            type: 'object',
+            properties: {
+              description: { type: 'string' },
+              quantity: { type: 'number' },
+              unit_price: { type: 'number' },
+              tax_rate: { type: 'number' },
+              tax_name: { type: 'string' },
+            },
+            required: ['description', 'quantity', 'unit_price'],
+            additionalProperties: false,
+          },
+        },
+        discount: {
+          type: 'object',
+          properties: { type: { type: 'string', enum: ['percent', 'fixed'] }, value: { type: 'number' } },
+          required: ['type', 'value'],
+          additionalProperties: false,
+        },
+      },
+      required: ['lineItems'],
+      additionalProperties: false,
+    },
+    handler: async (args, { client }) => text(await createInvoice(client, { ...args, currency: args.currency || 'USD' })),
+  },
+  {
+    name: 'invoice_ar_aging',
+    description: 'Accounts receivable aging: unpaid sent invoices by days past due (current, 1-30, 31-60, 61-90, 90+), per currency and per client.',
+    inputSchema: { type: 'object', properties: { businessId: { type: 'string' } }, additionalProperties: false },
+    handler: async (args, { client }) => text(await projects.getArAging(client, args)),
+  },
+  {
+    name: 'project_list',
+    description: 'List active projects (name, client, hourly rate, budget).',
+    inputSchema: { type: 'object', properties: { businessId: { type: 'string' }, includeArchived: { type: 'boolean' } }, additionalProperties: false },
+    handler: async (args, { client }) => text({ projects: await projects.listProjects(client, args) }),
+  },
+  {
+    name: 'project_get',
+    description: 'One project with hours logged, unbilled value, billed and paid totals.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+    handler: async (args, { client }) => text(await projects.getProject(client, args.id)),
+  },
+  {
+    name: 'time_log',
+    description: 'Log finished time on a project, in minutes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'string' },
+        minutes: { type: 'integer', minimum: 1, maximum: 100000 },
+        description: { type: 'string' },
+        billable: { type: 'boolean' },
+      },
+      required: ['projectId', 'minutes'],
+      additionalProperties: false,
+    },
+    handler: async (args, { client }) => text({ time_entry: await projects.logTime(client, args) }),
+  },
+  {
+    name: 'project_invoice_time',
+    description: "Bill a project's unbilled billable time as a DRAFT itemised invoice (not sent). Returns the invoice number and amount.",
+    inputSchema: { type: 'object', properties: { projectId: { type: 'string' } }, required: ['projectId'], additionalProperties: false },
+    handler: async (args, { client }) => text(await projects.invoiceProjectTime(client, args.projectId)),
   },
 ];
 

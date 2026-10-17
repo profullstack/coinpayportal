@@ -76,6 +76,24 @@ export type {
   ListInvoicesResult,
 } from './invoices.js';
 
+// Projects, time, aging, invoice settings, portal links
+export {
+  getArAging,
+  getInvoiceSettings,
+  updateInvoiceSettings,
+  createClientPortalLink,
+  revokeClientPortalLink,
+  listProjects,
+  getProject,
+  createProject,
+  logTime,
+  startTimer,
+  stopTimer,
+  listTimeEntries,
+  invoiceProjectTime,
+} from './projects.js';
+export type { ArAging, AgingRow, InvoiceSettings, Project, ProjectStats, TimeEntry } from './projects.js';
+
 // Webhook exports
 export {
   verifyWebhookSignature,

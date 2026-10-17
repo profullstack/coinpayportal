@@ -52,7 +52,7 @@ export const CATALOG_TABLES = {
 
 export type CatalogTable = keyof typeof CATALOG_TABLES;
 
-type Ok = { ok: true; supabase: SupabaseClient; businessId: string };
+type Ok = { ok: true; supabase: SupabaseClient; businessId: string; merchantId: string };
 type Err = { ok: false; response: NextResponse };
 
 const fail = (error: string, status: number): Err => ({
@@ -77,18 +77,18 @@ export async function authorizeCatalog(
     if (requestedBusinessId && requestedBusinessId !== auth.apiKeyBusinessId) {
       return fail('business_id does not match the API key', 403);
     }
-    return { ok: true, supabase, businessId: auth.apiKeyBusinessId };
+    return { ok: true, supabase, businessId: auth.apiKeyBusinessId, merchantId: auth.merchantId };
   }
   if (!requestedBusinessId) return fail('business_id is required', 400);
   const authz = await authorizeBusiness(supabase, auth.merchantId, requestedBusinessId, capability);
   if (!authz.ok) return fail(authz.error, authz.status);
-  return { ok: true, supabase, businessId: requestedBusinessId };
+  return { ok: true, supabase, businessId: requestedBusinessId, merchantId: auth.merchantId };
 }
 
 /** Load a catalog row's business, then authorize the caller on it. */
 export async function authorizeCatalogRow(
   request: NextRequest,
-  table: CatalogTable,
+  table: CatalogTable | 'projects' | 'time_entries',
   id: string,
   capability: Capability
 ): Promise<Ok | Err> {

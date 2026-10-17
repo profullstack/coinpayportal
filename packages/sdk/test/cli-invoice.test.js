@@ -177,6 +177,40 @@ describe('CLI Invoice Commands', () => {
     expect(listed.output).toContain('item_1  Design  100 / hour');
   });
 
+  it('logs time in hours and bills a project', async () => {
+    respond = (req) =>
+      req.url === '/api/time-entries'
+        ? { status: 201, body: { success: true, time_entry: { id: 't1', minutes: 90 } } }
+        : { status: 201, body: { success: true, invoice: { id: 'inv_9', invoice_number: 'INV-009', amount: 180 }, entries_billed: 2 } };
+
+    const logged = await runCLI(['time', 'log', '--project', 'p1', '--hours', '1.5', '--description', 'Review', '--non-billable'], baseUrl);
+    expect(logged.status).toBe(0);
+    expect(requests[0].body).toEqual({ project_id: 'p1', minutes: 90, description: 'Review', billable: false });
+    expect(logged.output).toContain('Logged 1h30m');
+
+    const billed = await runCLI(['project', 'invoice', 'p1'], baseUrl);
+    expect(billed.status).toBe(0);
+    expect(requests[1]).toMatchObject({ method: 'POST', url: '/api/projects/p1/invoice' });
+    expect(billed.output).toContain('Draft INV-009 for 180 from 2 entries');
+  });
+
+  it('sets a percent late fee and a reminder schedule', async () => {
+    respond = (req) => ({
+      body: {
+        success: true,
+        settings: { reminders_enabled: true, late_fee_after_days: 0, brand_color: null, logo_url: null, ...req.body },
+      },
+    });
+    const result = await runCLI(['invoice', 'settings', '--business-id', 'b1', '--reminders', '-3,0,7', '--late-fee', '1.5%'], baseUrl);
+    expect(result.status).toBe(0);
+    expect(requests[0]).toMatchObject({
+      method: 'PUT',
+      url: '/api/invoice-settings',
+      body: { business_id: 'b1', reminders_enabled: true, reminder_days: [-3, 0, 7], late_fee_type: 'percent', late_fee_value: 1.5 },
+    });
+    expect(result.output).toContain('Late fee: 1.5%, 0 days after due');
+  });
+
   it('creates a draft invoice and emits clean JSON', async () => {
     respond = () => ({
       status: 201,

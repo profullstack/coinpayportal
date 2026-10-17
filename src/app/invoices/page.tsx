@@ -421,7 +421,7 @@ function InvoicesPageContent() {
         </div>
 
         {/* Tabs */}
-        <div className="mb-6 flex border-b border-gray-700">
+        <div className="mb-6 flex border-b border-gray-700 overflow-x-auto whitespace-nowrap">
           <button onClick={() => switchTab('invoices')}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'invoices' ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-400 hover:text-white'}`}>
             Invoices
@@ -437,6 +437,14 @@ function InvoicesPageContent() {
           <Link href="/invoices/settings"
             className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white transition-colors">
             Reminders &amp; Branding
+          </Link>
+          <Link href="/projects"
+            className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white transition-colors">
+            Projects &amp; Time
+          </Link>
+          <Link href="/invoices/aging"
+            className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white transition-colors">
+            Aging
           </Link>
         </div>
 

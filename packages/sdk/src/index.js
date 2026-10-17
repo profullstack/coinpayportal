@@ -90,6 +90,23 @@ import {
   deleteInvoiceItem,
 } from './invoices.js';
 
+// Projects, time, aging, invoice settings, portal links
+import {
+  getArAging,
+  getInvoiceSettings,
+  updateInvoiceSettings,
+  createClientPortalLink,
+  revokeClientPortalLink,
+  listProjects,
+  getProject,
+  createProject,
+  logTime,
+  startTimer,
+  stopTimer,
+  listTimeEntries,
+  invoiceProjectTime,
+} from './projects.js';
+
 // Wallet exports
 import {
   WalletClient,
@@ -243,6 +260,19 @@ export {
   listInvoiceItems,
   createInvoiceItem,
   deleteInvoiceItem,
+  getArAging,
+  getInvoiceSettings,
+  updateInvoiceSettings,
+  createClientPortalLink,
+  revokeClientPortalLink,
+  listProjects,
+  getProject,
+  createProject,
+  logTime,
+  startTimer,
+  stopTimer,
+  listTimeEntries,
+  invoiceProjectTime,
   
   // Wallet
   WalletClient,
