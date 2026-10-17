@@ -6,17 +6,66 @@ export const VALID_SCOPES = ['openid', 'profile', 'email', 'did', 'wallet:read',
 
 export type OAuthScope = (typeof VALID_SCOPES)[number];
 
+export type ScopeInfo = {
+  label: string;
+  description: string;
+  icon: string;
+  /**
+   * A permission that can spend or redirect the user's money. The consent page
+   * sets it apart so it cannot be skimmed past on the way to Authorize.
+   */
+  sensitive?: boolean;
+};
+
+/**
+ * What each scope lets an app do, in the words the consent screen shows.
+ *
+ * `merchant` must stay honest about reach: a merchant-scope access token is
+ * accepted by authenticateRequest (src/lib/auth/middleware.ts) and
+ * requireMerchant (src/lib/auth/merchant-guard.ts), so it can reach
+ * /api/payouts/create (crypto payouts from a business wallet) and
+ * /api/banking/transfers as well as the routes that opt in with
+ * `allowOAuth`. Do not tell users it cannot move money.
+ */
+export const SCOPE_INFO: Record<OAuthScope, ScopeInfo> = {
+  openid: { label: 'Identity', description: 'Verify your identity', icon: '🔑' },
+  profile: { label: 'Profile', description: 'Access your name and profile picture', icon: '👤' },
+  email: { label: 'Email', description: 'Access your email address', icon: '📧' },
+  did: { label: 'DID', description: 'Access your decentralized identifier', icon: '🆔' },
+  'wallet:read': { label: 'Wallet', description: 'View your wallet addresses', icon: '💰' },
+  merchant: {
+    label: 'Merchant account (full access)',
+    description:
+      'Act as you on your CoinPay merchant account: create businesses, payments and invoices, ' +
+      'add payout addresses, change business settings such as webhooks, and send payouts and ' +
+      'transfers from your businesses. Only approve apps you trust with your money.',
+    icon: '⚠️',
+    sensitive: true,
+  },
+};
+
+/**
+ * Describe a requested scope for the consent screen. A scope with no entry
+ * (one added to VALID_SCOPES later without copy) still renders, under its own
+ * name, rather than silently disappearing from what the user is approving.
+ */
+export function describeScope(scope: string): ScopeInfo {
+  if (Object.prototype.hasOwnProperty.call(SCOPE_INFO, scope)) {
+    return SCOPE_INFO[scope as OAuthScope];
+  }
+  return {
+    label: scope,
+    description: `Access granted by the "${scope}" permission`,
+    icon: '❔',
+  };
+}
+
 /**
  * Human-readable scope descriptions for consent screen
  */
-export const SCOPE_DESCRIPTIONS: Record<string, string> = {
-  openid: 'Verify your identity',
-  profile: 'Access your name and profile picture',
-  email: 'Access your email address',
-  did: 'Access your decentralized identifier',
-  'wallet:read': 'View your wallet addresses',
-  merchant: 'Act as you in CoinPay: payments, invoices, finances and bank statements (the CoinPay CLI)',
-};
+export const SCOPE_DESCRIPTIONS: Record<string, string> = Object.fromEntries(
+  Object.entries(SCOPE_INFO).map(([scope, info]) => [scope, info.description])
+);
 
 /**
  * Filter requested scopes down to what this client may actually receive.

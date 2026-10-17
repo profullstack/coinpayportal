@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateScopes, scopeIncludes, VALID_SCOPES } from './scopes';
+import { validateScopes, scopeIncludes, VALID_SCOPES, SCOPE_INFO, describeScope } from './scopes';
 
 describe('OAuth Scopes', () => {
   describe('validateScopes', () => {
@@ -87,6 +87,41 @@ describe('OAuth Scopes', () => {
 
     it('keeps the old behaviour when no client scopes are supplied', () => {
       expect(validateScopes('openid profile')).toEqual(['openid', 'profile']);
+    });
+  });
+
+  describe('consent copy', () => {
+    it('describes every valid scope', () => {
+      for (const scope of VALID_SCOPES) {
+        expect(SCOPE_INFO[scope]?.label, scope).toBeTruthy();
+        expect(SCOPE_INFO[scope]?.description, scope).toBeTruthy();
+      }
+    });
+
+    it('marks merchant as sensitive and says it can send money', () => {
+      const info = describeScope('merchant');
+      expect(info.sensitive).toBe(true);
+      expect(info.label).toMatch(/merchant/i);
+      // A merchant-scope token reaches /api/payouts/create and
+      // /api/banking/transfers, so the copy must not promise otherwise.
+      expect(info.description).toMatch(/send payouts/);
+      expect(info.description).not.toMatch(/cannot/i);
+    });
+
+    it('keeps the read-only scopes unmarked', () => {
+      for (const scope of ['openid', 'profile', 'email', 'did', 'wallet:read']) {
+        expect(describeScope(scope).sensitive, scope).toBeFalsy();
+      }
+    });
+
+    it('renders an unknown scope under its own name instead of dropping it', () => {
+      const info = describeScope('ledger:write');
+      expect(info.label).toBe('ledger:write');
+      expect(info.description).toContain('ledger:write');
+    });
+
+    it('does not resolve inherited object keys as scopes', () => {
+      expect(describeScope('constructor').label).toBe('constructor');
     });
   });
 });

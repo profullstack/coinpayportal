@@ -2,14 +2,7 @@
 
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useState, useEffect, Suspense } from 'react';
-
-const SCOPE_LABELS: Record<string, { label: string; description: string; icon: string }> = {
-  openid: { label: 'Identity', description: 'Verify your identity', icon: '🔑' },
-  profile: { label: 'Profile', description: 'Access your name and profile picture', icon: '👤' },
-  email: { label: 'Email', description: 'Access your email address', icon: '📧' },
-  did: { label: 'DID', description: 'Access your decentralized identifier', icon: '🆔' },
-  'wallet:read': { label: 'Wallet', description: 'View your wallet addresses', icon: '💰' },
-};
+import { describeScope } from '@/lib/oauth/scopes';
 
 function ConsentContent() {
   const searchParams = useSearchParams();
@@ -103,10 +96,24 @@ function ConsentContent() {
             <h2 className="text-white font-semibold mb-3">This app will be able to:</h2>
             <ul className="space-y-3">
               {scopes.map((s) => {
-                const info = SCOPE_LABELS[s];
-                if (!info) return null;
+                const info = describeScope(s);
+                if (info.sensitive) {
+                  return (
+                    <li
+                      key={s}
+                      data-scope={s}
+                      className="flex items-start gap-3 p-3 bg-amber-900/30 border border-amber-600 rounded-lg text-amber-100"
+                    >
+                      <span className="text-xl">{info.icon}</span>
+                      <div>
+                        <div className="font-semibold text-amber-200">{info.label}</div>
+                        <div className="text-sm text-amber-100/90">{info.description}</div>
+                      </div>
+                    </li>
+                  );
+                }
                 return (
-                  <li key={s} className="flex items-start gap-3 text-gray-300">
+                  <li key={s} data-scope={s} className="flex items-start gap-3 text-gray-300">
                     <span className="text-xl">{info.icon}</span>
                     <div>
                       <div className="font-medium text-white">{info.label}</div>
