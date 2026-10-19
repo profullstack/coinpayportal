@@ -294,3 +294,63 @@ describe('weekly digest, the default account report', () => {
     expect((await subs.backfillWeeklyDigests({ now: NOW })).created).toBe(0);
   });
 });
+
+describe('weekly payments, the default report without a bank linked', () => {
+  const payments = () => db.tables.finance_email_schedules.filter((r) => r.kind === 'weekly_payments');
+  const D = 'merchant-ddd';
+  const E = 'merchant-eee';
+  const F = 'merchant-fff';
+  const G = 'merchant-ggg';
+
+  beforeEach(() => {
+    db.tables.merchants.push(
+      { id: D, email: 'dan@example.com' },
+      { id: E, email: 'eve@example.com' },
+      { id: F, email: 'fraud@example.com' },
+      { id: G, email: 'quiet@example.com' },
+    );
+    db.tables.businesses = [
+      { id: 'b-a', merchant_id: A },
+      { id: 'b-d', merchant_id: D },
+      { id: 'b-e', merchant_id: E },
+      { id: 'b-f', merchant_id: F },
+      { id: 'b-g', merchant_id: G },
+    ];
+    db.tables.payments = [
+      // Alice has a bank linked: she gets the weekly digest instead.
+      { business_id: 'b-a', status: 'confirmed' },
+      { business_id: 'b-d', status: 'forwarded' },
+      { business_id: 'b-e', status: 'confirmed' },
+      { business_id: 'b-f', status: 'confirmed' },
+      // Quiet only ever had expired checkouts.
+      { business_id: 'b-g', status: 'expired' },
+    ];
+    db.tables.invoices = [{ business_id: 'b-g', status: 'draft' }];
+    db.tables.merchant_settings = [{ merchant_id: E, email_notifications: false }];
+    db.tables.fraud_blocklist = [{ kind: 'merchant', value: F }];
+  });
+
+  it('goes to active merchants without a bank, never to quiet, muted or blocklisted ones', async () => {
+    expect(await subs.backfillWeeklyPayments({ now: NOW })).toEqual({ considered: 1, created: 1 });
+    expect(payments()).toHaveLength(1);
+    expect(payments()[0]).toMatchObject({ merchant_id: D, weekdays: [1, 5], hour: 8, recipients: ['dan@example.com'], timezone: 'America/Los_Angeles', formats: ['html'], active: true });
+    expect(payments()[0].next_run_at).toBe('2026-10-19T15:00:00.000Z');
+  });
+
+  it('a sent invoice counts as activity too', async () => {
+    db.tables.invoices.push({ business_id: 'b-g', status: 'sent' });
+    await subs.backfillWeeklyPayments({ now: NOW });
+    expect(payments().map((r) => r.merchant_id).sort()).toEqual([D, G]);
+  });
+
+  it('is idempotent, and turning it off sticks', async () => {
+    await subs.backfillWeeklyPayments({ now: NOW });
+    expect((await subs.backfillWeeklyPayments({ now: NOW })).created).toBe(0);
+    expect(await subs.unsubscribeSchedule(D, 'weekly_payments', 'dan@example.com')).toBe('unsubscribed');
+    expect((await subs.getEmailPreferences(D))?.weekly_payments_opted_out_at).toBeTruthy();
+    expect((await subs.backfillWeeklyPayments({ now: NOW })).created).toBe(0);
+    expect(payments()).toHaveLength(0);
+    // The other default reports' opt-outs are untouched.
+    expect((await subs.getEmailPreferences(D))?.weekly_digest_opted_out_at).toBeNull();
+  });
+});

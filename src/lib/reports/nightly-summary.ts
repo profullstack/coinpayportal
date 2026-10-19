@@ -68,8 +68,10 @@ export async function aggregateNightlySummary(
   supabase: SupabaseClient<any>,
   merchantId: string,
   now: Date = new Date(),
+  /** How far back to look; the weekly payments report passes seven days. */
+  windowMs: number = DAY_MS,
 ): Promise<NightlySummary | null> {
-  const windowStart = new Date(now.getTime() - DAY_MS);
+  const windowStart = new Date(now.getTime() - windowMs);
 
   const { data: merchant } = await supabase
     .from('merchants')

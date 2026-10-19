@@ -576,7 +576,7 @@ async function runCategorizeJob(initial: FinanceJobRow): Promise<void> {
  */
 async function runEmailJob(initial: FinanceJobRow): Promise<void> {
   const job = initial;
-  const { getScheduleById, sendDigest, sendDailySummary, markDigestSent, merchantHasAccounts } = await import('./schedules');
+  const { getScheduleById, sendDigest, sendDailySummary, sendWeeklyPayments, markDigestSent, merchantHasAccounts } = await import('./schedules');
   const scheduleId = job.params.scheduleId as string | undefined;
   const reportId = job.params.reportId as string | undefined;
   const books = job.params.books as { period?: string; from?: string; to?: string; timezone: string; scope: 'business' | 'personal' | 'all' } | undefined;
@@ -628,6 +628,19 @@ async function runEmailJob(initial: FinanceJobRow): Promise<void> {
       await releaseWithStatus(job, daily.failed.length === 0 ? 'completed' : daily.sent.length > 0 ? 'partial' : 'failed', {
         result: { sent: daily.sent.length, failed: daily.failed, due: daily.due, overdue: daily.overdue },
         ...(daily.sent.length === 0 ? { error_code: 'email_failed', error_message: daily.failed[0]?.error ?? 'send failed' } : {}),
+      });
+      return;
+    }
+    if (schedule.kind === 'weekly_payments') {
+      const weekly = await sendWeeklyPayments(schedule);
+      if (weekly.skipped) {
+        await releaseWithStatus(job, 'cancelled', { error_message: 'No payments or invoices this week; nothing to send' });
+        return;
+      }
+      if (weekly.sent.length > 0) await markDigestSent(scheduleId!);
+      await releaseWithStatus(job, weekly.failed.length === 0 ? 'completed' : weekly.sent.length > 0 ? 'partial' : 'failed', {
+        result: { sent: weekly.sent.length, failed: weekly.failed, payments: weekly.payments },
+        ...(weekly.sent.length === 0 ? { error_code: 'email_failed', error_message: weekly.failed[0]?.error ?? 'send failed' } : {}),
       });
       return;
     }

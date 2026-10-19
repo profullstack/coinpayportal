@@ -30,6 +30,7 @@ const invalid = () => page('Link not valid', '<p>This unsubscribe link is incomp
 const COPY = {
   daily_summary: { name: 'the daily summary', title: 'Unsubscribe from the daily summary', on: '<code>coinpay finances daily on</code>' },
   weekly_digest: { name: 'the weekly digest', title: 'Turn off the weekly digest', on: '<a href="/finances/books#weekly-digest">Finances settings</a>' },
+  weekly_payments: { name: 'the weekly payments report', title: 'Turn off the weekly payments report', on: '<a href="/settings#weekly-payments">Settings</a>' },
 } as const;
 
 export async function GET(req: NextRequest) {

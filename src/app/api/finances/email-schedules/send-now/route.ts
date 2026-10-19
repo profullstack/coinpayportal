@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireFinanceAccess } from '@/lib/finances/access';
-import { getSchedule, sendDigest, sendDailySummary, markDigestSent, isScheduleKind, ScheduleError } from '@/lib/finances/schedules';
+import { getSchedule, sendDigest, sendDailySummary, sendWeeklyPayments, markDigestSent, isScheduleKind, ScheduleError } from '@/lib/finances/schedules';
 import { EmailingError } from '@/lib/finances/emailing';
 import { financeError, financeErrorFromException, financeJson } from '@/lib/finances/api';
 
@@ -19,7 +19,13 @@ export async function POST(req: NextRequest) {
   const kind = isScheduleKind(kindParam) ? kindParam : 'weekly_digest';
   try {
     const schedule = await getSchedule(guard.id, kind);
-    if (!schedule) return financeError('not_found', kind === 'daily_summary' ? 'No daily summary is configured yet' : 'No weekly digest is configured yet', 404);
+    if (!schedule) return financeError('not_found', `No ${kind.replace('_', ' ')} is configured yet`, 404);
+    if (kind === 'weekly_payments') {
+      const weekly = await sendWeeklyPayments(schedule);
+      if (weekly.skipped) return financeJson({ ...weekly, message: 'No payments or invoices in the last seven days; nothing sent' });
+      if (weekly.sent.length > 0) await markDigestSent(schedule.id);
+      return financeJson(weekly, weekly.sent.length > 0 ? 200 : 502);
+    }
     if (kind === 'daily_summary') {
       const daily = await sendDailySummary(schedule);
       if (daily.sent.length > 0) await markDigestSent(schedule.id);

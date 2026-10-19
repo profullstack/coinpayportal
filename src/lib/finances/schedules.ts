@@ -24,13 +24,18 @@ import { escapeHtml } from './render';
  * connection, off for good once the owner turns one off (`daily-subscriptions.ts`).
  * The weekly digest also carries a one-click unsubscribe and a settings link.
  *
+ * - `weekly_payments` is the default report for merchants with no bank
+ *   linked: the last seven days of crypto payments and invoices
+ *   (`reports/weekly-payments.ts`), on for every merchant with recent
+ *   payment or invoice activity, and skipped for a week with none.
+ *
  * The worker turns a due row into an `email_report` job. Days and the hour
  * are in the merchant's finance timezone; the next run is computed from
  * those, never from the server clock's day.
  */
 
-export type ScheduleKind = 'weekly_digest' | 'daily_summary';
-export const SCHEDULE_KINDS: ScheduleKind[] = ['weekly_digest', 'daily_summary'];
+export type ScheduleKind = 'weekly_digest' | 'daily_summary' | 'weekly_payments';
+export const SCHEDULE_KINDS: ScheduleKind[] = ['weekly_digest', 'daily_summary', 'weekly_payments'];
 
 export function isScheduleKind(value: unknown): value is ScheduleKind {
   return typeof value === 'string' && (SCHEDULE_KINDS as string[]).includes(value);
@@ -40,6 +45,7 @@ export function isScheduleKind(value: unknown): value is ScheduleKind {
 const KIND_DEFAULTS: Record<ScheduleKind, { weekdays: number[]; hour: number; scope: 'business' | 'personal' | 'all'; formats: string[] }> = {
   weekly_digest: { weekdays: [1, 5], hour: 8, scope: 'all', formats: ['pdf', 'csv'] },
   daily_summary: { weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 7, scope: 'all', formats: ['html'] },
+  weekly_payments: { weekdays: [1, 5], hour: 8, scope: 'all', formats: ['html'] },
 };
 
 export interface EmailScheduleRow {
@@ -263,20 +269,54 @@ export async function sendDigest(schedule: EmailScheduleRow, now: Date = new Dat
   return { ...outcome, rows: summary.rows, unreviewed: summary.unreviewed };
 }
 
+const FOOTER: Record<'weekly_digest' | 'weekly_payments', { settings: string; off: string }> = {
+  weekly_digest: { settings: '/finances/books#weekly-digest', off: 'Turn off weekly digest' },
+  weekly_payments: { settings: '/settings#weekly-payments', off: 'Turn off weekly payments report' },
+};
+
 /**
- * The weekly digest's footer for one recipient: the settings link and a
- * signed one-click link that turns the digest off for that address alone,
+ * A weekly default report's footer for one recipient: the settings link and
+ * a signed one-click link that turns that report off for that address alone,
  * plus the RFC 8058 headers so mail clients offer the same.
  */
-export function digestFooter(appUrl: string, merchantId: string, to: string, secret?: string): { html: string; headers: Record<string, string> } {
+export function digestFooter(
+  appUrl: string,
+  merchantId: string,
+  to: string,
+  secret?: string,
+  kind: 'weekly_digest' | 'weekly_payments' = 'weekly_digest',
+): { html: string; headers: Record<string, string> } {
   const base = appUrl.replace(/\/$/, '');
-  const token = signUnsubscribe({ merchantId, kind: 'weekly_digest', email: to }, secret);
+  const token = signUnsubscribe({ merchantId, kind, email: to }, secret);
   const unsubscribeUrl = `${base}/api/finances/unsubscribe?t=${token}`;
-  const settingsUrl = `${base}/finances/books#weekly-digest`;
+  const settingsUrl = `${base}${FOOTER[kind].settings}`;
   return {
-    html: `<p style="font-size:12px;color:#666;margin:12px 0 0">Your default weekly report. <a href="${escapeHtml(settingsUrl)}">Settings</a> · <a href="${escapeHtml(unsubscribeUrl)}">Turn off weekly digest</a></p>`,
+    html: `<p style="font-size:12px;color:#666;margin:12px 0 0">Your default weekly report. <a href="${escapeHtml(settingsUrl)}">Settings</a> · <a href="${escapeHtml(unsubscribeUrl)}">${FOOTER[kind].off}</a></p>`,
     headers: { 'List-Unsubscribe': `<${unsubscribeUrl}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
   };
+}
+
+/**
+ * Send the weekly payments report: the last seven days of crypto payments
+ * and invoices. A week with no activity sends nothing (`skipped: true`).
+ */
+export async function sendWeeklyPayments(schedule: EmailScheduleRow, now: Date = new Date()): Promise<{ sent: string[]; failed: Array<{ to: string; error: string }>; skipped: boolean; payments: number }> {
+  const { aggregateWeeklyPayments, hasActivity, renderWeeklyPaymentsEmail } = await import('../reports/weekly-payments');
+  const { sendEmail } = await import('../email');
+  const { appBaseUrl } = await import('./share');
+  const report = await aggregateWeeklyPayments(getSupabaseAdmin(), schedule.merchant_id, now);
+  if (!report || !hasActivity(report)) return { sent: [], failed: [], skipped: true, payments: 0 };
+  const sent: string[] = [];
+  const failed: Array<{ to: string; error: string }> = [];
+  for (const to of schedule.recipients) {
+    const footer = digestFooter(appBaseUrl(), schedule.merchant_id, to, undefined, 'weekly_payments');
+    const { subject, html } = renderWeeklyPaymentsEmail(report, footer.html);
+    const result = await sendEmail({ to, subject, html, headers: footer.headers });
+    if (result.success) sent.push(to);
+    else failed.push({ to, error: result.error ?? 'send failed' });
+  }
+  await audit(schedule.merchant_id, 'weekly_payments.email', 'schedule', schedule.id, { recipients: schedule.recipients.length, sent: sent.length, failed: failed.length, payments: report.payments });
+  return { sent, failed, skipped: false, payments: report.payments };
 }
 
 /** Whether a merchant has any finance account at all; no account, no digest. */

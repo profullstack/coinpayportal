@@ -239,6 +239,8 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          <WeeklyPaymentsToggle />
+
           {/* Notification Events Info */}
           <div className="p-6 bg-gray-50 dark:bg-gray-900">
             <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">
@@ -477,6 +479,76 @@ export default function SettingsPage() {
             registered email address.
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The weekly payments report, a default account report: on for merchants
+ * with recent payments or invoices. Turning it off is remembered.
+ */
+function WeeklyPaymentsToggle() {
+  const router = useRouter();
+  const [state, setState] = useState<{ active: boolean; nextRunAt: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    void (async () => {
+      const result = await authFetch('/api/finances/email-schedules?kind=weekly_payments', {}, router);
+      if (!result || !result.response.ok) return;
+      const schedule = result.data.schedule as { active: boolean; nextRunAt: string | null } | null;
+      setState({ active: Boolean(schedule?.active), nextRunAt: schedule?.nextRunAt ?? null });
+      if (!schedule && !result.data.weeklyPaymentsOptedOutAt) setMessage('Turns on by itself once you take a payment or send an invoice.');
+    })();
+  }, [router]);
+
+  const toggle = async () => {
+    if (!state) return;
+    setBusy(true);
+    setMessage('');
+    const result = await authFetch('/api/finances/email-schedules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'weekly_payments', active: !state.active, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+    }, router);
+    setBusy(false);
+    if (!result) return;
+    if (!result.response.ok) {
+      setMessage('Could not save. Try again.');
+      return;
+    }
+    const schedule = result.data.schedule as { active: boolean; nextRunAt: string | null };
+    setState({ active: schedule.active, nextRunAt: schedule.nextRunAt });
+    setMessage(schedule.active ? 'On.' : 'Off. It stays off until you turn it back on.');
+  };
+
+  return (
+    <div id="weekly-payments" className="px-6 pb-6">
+      <div className="flex items-center justify-between py-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex-1">
+          <h3 className="text-base font-medium text-gray-900 dark:text-white">
+            Weekly payments report{' '}
+            <span className="ml-1 rounded bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wide text-gray-500 dark:text-gray-300">Default report</span>
+          </h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            Payments and invoices from the last 7 days, Mon and Fri 08:00. Skipped when nothing happened.
+            {state?.active && state.nextRunAt ? ` Next: ${new Date(state.nextRunAt).toLocaleString()}.` : ''}
+          </p>
+          {message && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{message}</p>}
+        </div>
+        <button
+          type="button"
+          onClick={toggle}
+          disabled={!state || busy}
+          className={`${state?.active ? 'bg-purple-600' : 'bg-gray-200 dark:bg-gray-600'} relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:cursor-not-allowed`}
+          role="switch"
+          aria-checked={Boolean(state?.active)}
+          aria-label="Weekly payments report"
+        >
+          <span className={`${state?.active ? 'translate-x-5' : 'translate-x-0'} pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`} />
+        </button>
       </div>
     </div>
   );

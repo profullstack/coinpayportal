@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   const guard = await requireFinanceAccess(req, 'finance.read');
   if (guard instanceof NextResponse) return guard;
   const kind = kindOf(req);
-  if (!kind) return financeError('invalid_request', 'kind must be weekly_digest or daily_summary', 400);
+  if (!kind) return financeError('invalid_request', 'kind must be weekly_digest, daily_summary or weekly_payments', 400);
   try {
     const all = await listSchedules(guard.id);
     const schedule = all.find((s) => s.kind === kind) ?? null;
@@ -34,9 +34,10 @@ export async function GET(req: NextRequest) {
       dailySpendTarget: prefs?.daily_spend_target ?? null,
       dailySummaryOptedOutAt: prefs?.daily_summary_opted_out_at ?? null,
       weeklyDigestOptedOutAt: prefs?.weekly_digest_opted_out_at ?? null,
+      weeklyPaymentsOptedOutAt: prefs?.weekly_payments_opted_out_at ?? null,
       // The weekly digest and the daily summary are the default account
       // reports: on for every merchant with a linked bank unless turned off.
-      defaultReports: ['weekly_digest', 'daily_summary'],
+      defaultReports: ['weekly_digest', 'daily_summary', 'weekly_payments'],
     });
   } catch (err) {
     return financeErrorFromException(err, 'Could not read the schedule');
@@ -61,7 +62,7 @@ export async function POST(req: NextRequest) {
   if (guard instanceof NextResponse) return guard;
   const body = await readJsonBody<Record<string, unknown>>(req);
   const kind = kindOf(req, body);
-  if (!kind) return financeError('invalid_request', 'kind must be weekly_digest or daily_summary', 400);
+  if (!kind) return financeError('invalid_request', 'kind must be weekly_digest, daily_summary or weekly_payments', 400);
   const hasTarget = body !== null && typeof body === 'object' && 'target' in body;
   if (hasTarget && kind !== 'daily_summary') return financeError('invalid_request', 'target applies to the daily summary only', 400);
   let target: number | null = null;
@@ -97,7 +98,7 @@ export async function DELETE(req: NextRequest) {
   const guard = await requireFinanceAccess(req, 'finance.manage', { write: true });
   if (guard instanceof NextResponse) return guard;
   const kind = kindOf(req);
-  if (!kind) return financeError('invalid_request', 'kind must be weekly_digest or daily_summary', 400);
+  if (!kind) return financeError('invalid_request', 'kind must be weekly_digest, daily_summary or weekly_payments', 400);
   try {
     const removed = await deleteSchedule(guard.id, kind);
     return financeJson({ success: removed });

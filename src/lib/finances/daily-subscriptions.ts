@@ -10,6 +10,8 @@ import { audit } from './audit';
  * kind has its own opt-out column.
  *
  * - Weekly digest: Monday and Friday 08:00, all accounts, PDF and CSV.
+ * - Weekly payments: Monday and Friday 08:00, crypto payments and invoices,
+ *   for merchants with recent activity and no bank linked (`paymentsEligible`).
  *
  * - A merchant with at least one connection that is not disconnected, no
  *   daily summary schedule and no opt-out gets one: 07:00 every day in their
@@ -32,14 +34,23 @@ export const DEFAULT_DAILY_TIMEZONE = 'America/Los_Angeles';
 export const DEFAULT_DAILY_HOUR = 7;
 const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
 
-export type DefaultKind = 'daily_summary' | 'weekly_digest';
-export const DEFAULT_KINDS: DefaultKind[] = ['daily_summary', 'weekly_digest'];
+export type DefaultKind = 'daily_summary' | 'weekly_digest' | 'weekly_payments';
+export const DEFAULT_KINDS: DefaultKind[] = ['daily_summary', 'weekly_digest', 'weekly_payments'];
+type OptOutColumn = 'daily_summary_opted_out_at' | 'weekly_digest_opted_out_at' | 'weekly_payments_opted_out_at';
 
 /** What a default schedule of each kind starts as, and where its opt-out lives. */
-export const DEFAULT_SCHEDULES: Record<DefaultKind, { weekdays: number[]; hour: number; formats: string[]; optOut: 'daily_summary_opted_out_at' | 'weekly_digest_opted_out_at' }> = {
+export const DEFAULT_SCHEDULES: Record<DefaultKind, { weekdays: number[]; hour: number; formats: string[]; optOut: OptOutColumn }> = {
   daily_summary: { weekdays: EVERY_DAY, hour: DEFAULT_DAILY_HOUR, formats: ['html'], optOut: 'daily_summary_opted_out_at' },
   weekly_digest: { weekdays: [1, 5], hour: 8, formats: ['pdf', 'csv'], optOut: 'weekly_digest_opted_out_at' },
+  weekly_payments: { weekdays: [1, 5], hour: 8, formats: ['html'], optOut: 'weekly_payments_opted_out_at' },
 };
+
+/** Payment statuses that mean money arrived (as nightly-summary.ts counts them). */
+const SETTLED_PAYMENTS = ['confirmed', 'forwarded', 'completed'];
+/** Invoices that went out to a client; drafts and cancellations are not activity. */
+const LIVE_INVOICES = ['sent', 'paid', 'overdue'];
+/** How recent payment or invoice activity must be to get the weekly payments report. */
+export const PAYMENTS_ACTIVITY_DAYS = 90;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CHUNK = 200;
 
@@ -48,6 +59,7 @@ export interface EmailPreferences {
   daily_spend_target: number | null;
   daily_summary_opted_out_at: string | null;
   weekly_digest_opted_out_at: string | null;
+  weekly_payments_opted_out_at: string | null;
 }
 
 export interface DefaultScheduleRow {
@@ -126,18 +138,19 @@ export async function getEmailPreferences(merchantId: string): Promise<EmailPref
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from('finance_email_preferences')
-    .select('merchant_id, daily_spend_target, daily_summary_opted_out_at, weekly_digest_opted_out_at')
+    .select('merchant_id, daily_spend_target, daily_summary_opted_out_at, weekly_digest_opted_out_at, weekly_payments_opted_out_at')
     .eq('merchant_id', merchantId)
     .maybeSingle();
   if (error) throw new Error(`Could not read email preferences: ${error.message}`);
   if (!data) return null;
-  const row = data as { merchant_id: string; daily_spend_target: unknown; daily_summary_opted_out_at: string | null; weekly_digest_opted_out_at?: string | null };
+  const row = data as { merchant_id: string; daily_spend_target: unknown; daily_summary_opted_out_at: string | null; weekly_digest_opted_out_at?: string | null; weekly_payments_opted_out_at?: string | null };
   const target = row.daily_spend_target === null || row.daily_spend_target === undefined ? null : Number(row.daily_spend_target);
   return {
     merchant_id: row.merchant_id,
     daily_spend_target: Number.isFinite(target) ? target : null,
     daily_summary_opted_out_at: row.daily_summary_opted_out_at ?? null,
     weekly_digest_opted_out_at: row.weekly_digest_opted_out_at ?? null,
+    weekly_payments_opted_out_at: row.weekly_payments_opted_out_at ?? null,
   };
 }
 
@@ -189,12 +202,7 @@ export async function backfillDefaultSchedules(
   const supabase = getSupabaseAdmin();
   const { nextRunAt } = await import('./schedules');
 
-  let connQuery = supabase.from('finance_connections').select('merchant_id').neq('lifecycle_state', 'disconnected');
-  if (merchantIds) connQuery = connQuery.in('merchant_id', merchantIds);
-  const { data: conns, error: connError } = await connQuery.limit(10_000);
-  if (connError) throw new Error(`Could not read connections: ${connError.message}`);
-  const connected = new Set((conns ?? []).map((r) => r.merchant_id as string).filter(Boolean));
-  if (merchantIds) for (const id of [...connected]) if (!merchantIds.includes(id)) connected.delete(id);
+  const connected = kind === 'weekly_payments' ? await paymentsEligible(merchantIds, now) : await liveConnections(merchantIds);
   const ids = [...connected];
   if (ids.length === 0) return { considered: 0, created: 0 };
 
@@ -234,6 +242,59 @@ export async function backfillDefaultSchedules(
   return { considered: ids.length, created };
 }
 
+/** Merchants (among `merchantIds`, or all) with a connection that is not disconnected. */
+async function liveConnections(merchantIds?: string[]): Promise<Set<string>> {
+  const supabase = getSupabaseAdmin();
+  let connQuery = supabase.from('finance_connections').select('merchant_id').neq('lifecycle_state', 'disconnected');
+  if (merchantIds) connQuery = connQuery.in('merchant_id', merchantIds);
+  const { data: conns, error: connError } = await connQuery.limit(10_000);
+  if (connError) throw new Error(`Could not read connections: ${connError.message}`);
+  const connected = new Set((conns ?? []).map((r) => r.merchant_id as string).filter(Boolean));
+  if (merchantIds) for (const id of [...connected]) if (!merchantIds.includes(id)) connected.delete(id);
+  return connected;
+}
+
+/**
+ * Who gets the weekly payments report by default: merchants with a settled
+ * payment or a sent/paid/overdue invoice in the last 90 days and no bank
+ * linked (those get the weekly digest). Not merchants who switched email
+ * notifications off, and not anyone on the fraud blocklist. Any read that
+ * fails stops the run, so a lookup we cannot see never subscribes anybody.
+ */
+async function paymentsEligible(merchantIds: string[] | undefined, now: Date): Promise<Set<string>> {
+  const supabase = getSupabaseAdmin();
+  const since = new Date(now.getTime() - PAYMENTS_ACTIVITY_DAYS * 86_400_000).toISOString();
+  const [pay, inv] = await Promise.all([
+    supabase.from('payments').select('business_id').in('status', SETTLED_PAYMENTS).gte('created_at', since).limit(50_000),
+    supabase.from('invoices').select('business_id').in('status', LIVE_INVOICES).gte('updated_at', since).limit(50_000),
+  ]);
+  for (const r of [pay, inv]) if (r.error) throw new Error(`Could not read payment activity: ${r.error.message}`);
+  const businessIds = [...new Set([...(pay.data ?? []), ...(inv.data ?? [])].map((r) => r.business_id as string).filter(Boolean))];
+  const active = new Set<string>();
+  for (const part of chunks(businessIds)) {
+    const { data, error } = await supabase.from('businesses').select('id, merchant_id').in('id', part);
+    if (error) throw new Error(`Could not read businesses: ${error.message}`);
+    for (const row of data ?? []) if (row.merchant_id) active.add(row.merchant_id as string);
+  }
+  if (merchantIds) for (const id of [...active]) if (!merchantIds.includes(id)) active.delete(id);
+  if (active.size === 0) return active;
+
+  const ids = [...active];
+  const linked = await liveConnections(ids);
+  for (const part of chunks(ids)) {
+    const [settings, blocked] = await Promise.all([
+      supabase.from('merchant_settings').select('merchant_id, email_notifications').in('merchant_id', part),
+      supabase.from('fraud_blocklist').select('value').eq('kind', 'merchant').in('value', part),
+    ]);
+    for (const r of [settings, blocked]) if (r.error) throw new Error(`Could not read merchant settings: ${r.error.message}`);
+    for (const row of settings.data ?? []) if (row.email_notifications === false) active.delete(row.merchant_id as string);
+    for (const row of blocked.data ?? []) active.delete(row.value as string);
+  }
+  for (const id of linked) active.delete(id);
+  return active;
+}
+
+export const backfillWeeklyPayments = (opts: { merchantIds?: string[]; now?: Date } = {}) => backfillDefaultSchedules('weekly_payments', opts);
 export const backfillDailySummaries = (opts: { merchantIds?: string[]; now?: Date } = {}) => backfillDefaultSchedules('daily_summary', opts);
 export const backfillWeeklyDigests = (opts: { merchantIds?: string[]; now?: Date } = {}) => backfillDefaultSchedules('weekly_digest', opts);
 
@@ -259,6 +320,7 @@ export async function ensureDefaultReports(merchantId: string): Promise<{ daily_
 const DISABLE_ENV: Record<DefaultKind, string> = {
   daily_summary: 'FINANCES_DAILY_DEFAULT_SUBSCRIBE',
   weekly_digest: 'FINANCES_WEEKLY_DEFAULT_SUBSCRIBE',
+  weekly_payments: 'FINANCES_WEEKLY_PAYMENTS_DEFAULT_SUBSCRIBE',
 };
 let lastBackfillAt = 0;
 const BACKFILL_EVERY_MS = 6 * 3_600_000;
