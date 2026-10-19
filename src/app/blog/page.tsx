@@ -5,7 +5,7 @@ import { listPosts, formatBlogDate, SITE_URL } from '@/lib/blog';
 import AdUnit from '@/components/AdUnit';
 
 // Drop a mid-list unit after this many posts, but only when the list is long
-// enough that it isn't effectively the bottom unit again.
+// enough that the unit isn't left sitting at the foot of the page.
 const MID_AD_AFTER = 3;
 const MID_AD_MIN_POSTS = 6;
 
@@ -106,9 +106,6 @@ export default async function BlogIndexPage() {
           ))}
         </ul>
       )}
-
-      {/* Bottom unit: after the list. */}
-      <AdUnit className="mt-10" />
     </div>
   );
 }

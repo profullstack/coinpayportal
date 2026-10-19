@@ -47,7 +47,7 @@ export default async function BlogPostPage({ params }: RouteParams) {
 
   const html = post.content_html ? stripDeadLinks(sanitizeBlogHtml(post.content_html)) : null;
   // Null for short posts and markdown-only bodies — those render straight
-  // through with just the top and bottom units.
+  // through with just the top unit.
   const split = splitHtmlForMidAd(html);
 
   const ldJson = {
@@ -141,10 +141,6 @@ export default async function BlogPostPage({ params }: RouteParams) {
           </Link>
         </div>
       </article>
-
-      {/* Bottom unit: after the article, below our own CTA so it never
-          outranks it. */}
-      <AdUnit className="mt-10" />
 
       <script
         type="application/ld+json"
