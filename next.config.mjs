@@ -80,7 +80,8 @@ const nextConfig = {
               "img-src 'self' data: blob: https: https://crawlproof.com",
               "font-src 'self' data:",
               "connect-src 'self' https: wss: https://crawlproof.com",
-              "frame-src 'self' blob: https://cdn.plaid.com https://www.paypal.com https://www.sandbox.paypal.com https://*.paypal.com",
+              // crawlproof.com: the ad.network unit on the home page.
+              "frame-src 'self' blob: https://crawlproof.com https://cdn.plaid.com https://www.paypal.com https://www.sandbox.paypal.com https://*.paypal.com",
               "object-src 'none'",
               "frame-ancestors 'none'",
               "base-uri 'self'",
