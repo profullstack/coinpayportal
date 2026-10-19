@@ -42,3 +42,16 @@ describe('unsubscribe tokens', () => {
     }
   });
 });
+
+describe('weekly digest unsubscribe link', () => {
+  it('round-trips and cannot be turned into a daily summary token', () => {
+    const weekly = { merchantId: 'merchant-aaa', kind: 'weekly_digest' as const, email: 'alice@example.com' };
+    const token = signUnsubscribe(weekly, SECRET);
+    expect(verifyUnsubscribe(token, SECRET)).toEqual(weekly);
+    const [, sig] = token.split('.');
+    const swapped = Buffer.from(JSON.stringify({ m: 'merchant-aaa', k: 'daily_summary', e: 'alice@example.com' })).toString('base64url');
+    expect(verifyUnsubscribe(`${swapped}.${sig}`, SECRET)).toBeNull();
+    const unknownKind = Buffer.from(JSON.stringify({ m: 'merchant-aaa', k: 'everything', e: 'alice@example.com' })).toString('base64url');
+    expect(verifyUnsubscribe(`${unknownKind}.${sig}`, SECRET)).toBeNull();
+  });
+});

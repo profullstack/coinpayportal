@@ -5,6 +5,8 @@ import { normalizeRecipients, sendBooksEmail, sendReportEmail, resolveBooksSelec
 import { booksSummary } from './books';
 import type { EmailAttachment } from '../email';
 import { audit } from './audit';
+import { signUnsubscribe } from './unsubscribe-token';
+import { escapeHtml } from './render';
 
 /**
  * Scheduled emails, one row per merchant per kind:
@@ -17,6 +19,10 @@ import { audit } from './audit';
  *   (`daily-summary.ts`). No attachments. On by default for every merchant
  *   with a linked connection (`daily-subscriptions.ts`), with a one-click
  *   unsubscribe in every email.
+ *
+ * Both are the default account reports: on for every merchant with a linked
+ * connection, off for good once the owner turns one off (`daily-subscriptions.ts`).
+ * The weekly digest also carries a one-click unsubscribe and a settings link.
  *
  * The worker turns a due row into an `email_report` job. Days and the hour
  * are in the merchant's finance timezone; the next run is computed from
@@ -32,7 +38,7 @@ export function isScheduleKind(value: unknown): value is ScheduleKind {
 
 /** Defaults a new schedule of each kind starts from. */
 const KIND_DEFAULTS: Record<ScheduleKind, { weekdays: number[]; hour: number; scope: 'business' | 'personal' | 'all'; formats: string[] }> = {
-  weekly_digest: { weekdays: [1, 5], hour: 8, scope: 'business', formats: ['pdf', 'csv'] },
+  weekly_digest: { weekdays: [1, 5], hour: 8, scope: 'all', formats: ['pdf', 'csv'] },
   daily_summary: { weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 7, scope: 'all', formats: ['html'] },
 };
 
@@ -155,12 +161,12 @@ export async function upsertSchedule(
     .select(COLUMNS)
     .single();
   if (error) throw new Error(`Could not save the schedule: ${error.message}`);
-  // The owner's own choice about the daily summary is the only thing that
+  // The owner's own choice about a default report is the only thing that
   // overrides an earlier opt-out, either way.
-  if (kind === 'daily_summary') {
-    const { clearDailySummaryOptOut, recordDailySummaryOptOut } = await import('./daily-subscriptions');
-    if (active) await clearDailySummaryOptOut(merchantId);
-    else await recordDailySummaryOptOut(merchantId);
+  {
+    const { clearOptOut, recordOptOut } = await import('./daily-subscriptions');
+    if (active) await clearOptOut(merchantId, kind);
+    else await recordOptOut(merchantId, kind);
   }
   await audit(merchantId, 'email_schedule.save', 'schedule', (data as EmailScheduleRow).id, { kind, weekdays: weekdays.join(','), hour, active, recipients: recipients.length });
   return data as EmailScheduleRow;
@@ -168,11 +174,11 @@ export async function upsertSchedule(
 
 export async function deleteSchedule(merchantId: string, kind: ScheduleKind = 'weekly_digest'): Promise<boolean> {
   const supabase = getSupabaseAdmin();
-  // Turning the daily summary off is an opt-out: recorded first, so the
+  // Turning a default report off is an opt-out: recorded first, so the
   // default-subscribe backfill never puts it back.
-  if (kind === 'daily_summary') {
-    const { recordDailySummaryOptOut } = await import('./daily-subscriptions');
-    await recordDailySummaryOptOut(merchantId);
+  {
+    const { recordOptOut } = await import('./daily-subscriptions');
+    await recordOptOut(merchantId, kind);
   }
   const { data, error } = await supabase.from('finance_email_schedules').delete().eq('merchant_id', merchantId).eq('kind', kind).select('id');
   if (error) throw new Error(`Could not delete the schedule: ${error.message}`);
@@ -188,8 +194,11 @@ export async function sendDigest(schedule: EmailScheduleRow, now: Date = new Dat
   const today = localDate(now, schedule.timezone);
   const from = addDays(today, -7);
   const label = `${from} to ${addDays(today, -1)}`;
+  const { appBaseUrl } = await import('./share');
+  const footer = (to: string) => digestFooter(appBaseUrl(), schedule.merchant_id, to);
   const booksOnly = (why: string) =>
     sendBooksEmail({
+      footer,
       merchantId: schedule.merchant_id,
       selection: { from, to: today, timezone: schedule.timezone, scope: schedule.scope },
       to: schedule.recipients,
@@ -249,8 +258,31 @@ export async function sendDigest(schedule: EmailScheduleRow, now: Date = new Dat
     message: `Your weekly digest for ${label}: the activity report with its executive summary and charts, and the ${schedule.scope} books for the same seven days. Review anything still unconfirmed at /finances/books.`,
     extraAttachments: extras,
     extraBody: booksEmailBlock(summary, label),
+    footer,
   });
   return { ...outcome, rows: summary.rows, unreviewed: summary.unreviewed };
+}
+
+/**
+ * The weekly digest's footer for one recipient: the settings link and a
+ * signed one-click link that turns the digest off for that address alone,
+ * plus the RFC 8058 headers so mail clients offer the same.
+ */
+export function digestFooter(appUrl: string, merchantId: string, to: string, secret?: string): { html: string; headers: Record<string, string> } {
+  const base = appUrl.replace(/\/$/, '');
+  const token = signUnsubscribe({ merchantId, kind: 'weekly_digest', email: to }, secret);
+  const unsubscribeUrl = `${base}/api/finances/unsubscribe?t=${token}`;
+  const settingsUrl = `${base}/finances/books#weekly-digest`;
+  return {
+    html: `<p style="font-size:12px;color:#666;margin:12px 0 0">Your default weekly report. <a href="${escapeHtml(settingsUrl)}">Settings</a> · <a href="${escapeHtml(unsubscribeUrl)}">Turn off weekly digest</a></p>`,
+    headers: { 'List-Unsubscribe': `<${unsubscribeUrl}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+  };
+}
+
+/** Whether a merchant has any finance account at all; no account, no digest. */
+export async function merchantHasAccounts(merchantId: string): Promise<boolean> {
+  const { listAccounts } = await import('./summary');
+  return (await listAccounts(merchantId)).length > 0;
 }
 
 export async function listSchedules(merchantId: string): Promise<EmailScheduleRow[]> {

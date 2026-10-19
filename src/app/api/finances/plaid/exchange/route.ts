@@ -46,10 +46,11 @@ export async function POST(req: NextRequest) {
       accessToken: exchange.accessToken,
       label,
     });
-    // A first linked bank turns the daily summary on, to the owner's own
-    // address, unless they opted out before. Never fails the link.
-    const { ensureDefaultDailySummary } = await import('@/lib/finances/daily-subscriptions');
-    await ensureDefaultDailySummary(guard.id);
+    // A first linked bank turns the default reports (daily summary, weekly
+    // digest) on, to the owner's own address, unless they opted out before.
+    // Never fails the link.
+    const { ensureDefaultReports } = await import('@/lib/finances/daily-subscriptions');
+    await ensureDefaultReports(guard.id);
 
     return NextResponse.json({ connection }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {

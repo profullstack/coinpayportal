@@ -33,6 +33,10 @@ export async function GET(req: NextRequest) {
       schedules: all.map(toPublicSchedule),
       dailySpendTarget: prefs?.daily_spend_target ?? null,
       dailySummaryOptedOutAt: prefs?.daily_summary_opted_out_at ?? null,
+      weeklyDigestOptedOutAt: prefs?.weekly_digest_opted_out_at ?? null,
+      // The weekly digest and the daily summary are the default account
+      // reports: on for every merchant with a linked bank unless turned off.
+      defaultReports: ['weekly_digest', 'daily_summary'],
     });
   } catch (err) {
     return financeErrorFromException(err, 'Could not read the schedule');
@@ -85,7 +89,10 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/** DELETE /api/finances/email-schedules — stop the weekly digest, or `?kind=daily_summary`. */
+/**
+ * DELETE /api/finances/email-schedules — stop the weekly digest, or
+ * `?kind=daily_summary`. Either is an opt-out that nothing automatic undoes.
+ */
 export async function DELETE(req: NextRequest) {
   const guard = await requireFinanceAccess(req, 'finance.manage', { write: true });
   if (guard instanceof NextResponse) return guard;

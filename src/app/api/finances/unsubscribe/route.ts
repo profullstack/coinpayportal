@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUnsubscribe } from '@/lib/finances/unsubscribe-token';
-import { unsubscribeDailySummary } from '@/lib/finances/daily-subscriptions';
+import { unsubscribeSchedule } from '@/lib/finances/daily-subscriptions';
 import { escapeHtml } from '@/lib/finances/render';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * One-click unsubscribe from the finance daily summary, no login: the signed
- * token (`?t=`) names the merchant and the address it was sent to.
+ * One-click unsubscribe from a finance default report (the daily summary or
+ * the weekly digest), no login: the signed token (`?t=`) names the merchant,
+ * the report and the address it was sent to.
  *
  * - POST unsubscribes. Mail clients send it themselves for the
  *   `List-Unsubscribe-Post: List-Unsubscribe=One-Click` header (RFC 8058),
@@ -24,17 +25,23 @@ function page(title: string, body: string, status = 200): NextResponse {
   return new NextResponse(html, { status, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });
 }
 
-const invalid = () => page('Link not valid', '<p>This unsubscribe link is incomplete or was altered. Use the link from the email itself, or turn the summary off with <code>coinpay finances daily off</code>.</p>', 400);
+const invalid = () => page('Link not valid', '<p>This unsubscribe link is incomplete or was altered. Use the link from the email itself, or turn it off at <a href="/finances/books#weekly-digest">Finances settings</a>.</p>', 400);
+
+const COPY = {
+  daily_summary: { name: 'the daily summary', title: 'Unsubscribe from the daily summary', on: '<code>coinpay finances daily on</code>' },
+  weekly_digest: { name: 'the weekly digest', title: 'Turn off the weekly digest', on: '<a href="/finances/books#weekly-digest">Finances settings</a>' },
+} as const;
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('t');
   const claim = verifyUnsubscribe(token);
   if (!claim) return invalid();
+  const copy = COPY[claim.kind];
   return page(
-    'Unsubscribe from the daily summary',
-    `<p>Stop sending the CoinPay finance daily summary to <strong>${escapeHtml(claim.email)}</strong>?</p>
+    copy.title,
+    `<p>Stop sending ${copy.name} to <strong>${escapeHtml(claim.email)}</strong>?</p>
 <form method="post" action="?t=${encodeURIComponent(token!)}"><input type="hidden" name="List-Unsubscribe" value="One-Click"><button type="submit" style="font-size:15px;padding:8px 16px">Unsubscribe</button></form>
-<p style="font-size:13px;color:#666">It will not be turned back on unless you turn it on yourself (<code>coinpay finances daily on</code>).</p>`,
+<p style="font-size:13px;color:#666">It stays off unless you turn it back on (${copy.on}).</p>`,
   );
 }
 
@@ -42,9 +49,10 @@ export async function POST(req: NextRequest) {
   const claim = verifyUnsubscribe(req.nextUrl.searchParams.get('t'));
   if (!claim) return invalid();
   try {
-    const outcome = await unsubscribeDailySummary(claim.merchantId, claim.email);
-    const done = outcome === 'already' ? 'You were already unsubscribed.' : 'You will not get the daily summary again.';
-    return page('Unsubscribed', `<p>${escapeHtml(done)} (${escapeHtml(claim.email)})</p><p style="font-size:13px;color:#666">Changed your mind? <code>coinpay finances daily on</code> turns it back on.</p>`);
+    const copy = COPY[claim.kind];
+    const outcome = await unsubscribeSchedule(claim.merchantId, claim.kind, claim.email);
+    const done = outcome === 'already' ? 'You were already unsubscribed.' : `You will not get ${copy.name} again.`;
+    return page('Unsubscribed', `<p>${escapeHtml(done)} (${escapeHtml(claim.email)})</p><p style="font-size:13px;color:#666">Changed your mind? Turn it back on: ${copy.on}.</p>`);
   } catch (err) {
     console.error('[finances/unsubscribe] failed', err instanceof Error ? err.message : err);
     return page('Could not unsubscribe', '<p>Something went wrong on our side. Please try the link again in a minute.</p>', 500);

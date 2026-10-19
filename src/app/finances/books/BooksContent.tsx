@@ -121,12 +121,14 @@ export default function BooksContent() {
   const [digestDays, setDigestDays] = useState<number[]>([1, 5]);
   const [digestHour, setDigestHour] = useState(8);
   const [digestTo, setDigestTo] = useState('');
-  const [digestScope, setDigestScope] = useState<'business' | 'personal' | 'all'>('business');
+  const [digestScope, setDigestScope] = useState<'business' | 'personal' | 'all'>('all');
+  const [digestOptedOut, setDigestOptedOut] = useState(false);
   const [digestBusy, setDigestBusy] = useState(false);
 
   const loadDigest = useCallback(async () => {
     const res = await fetch('/api/finances/email-schedules', { headers: authHeaders(), cache: 'no-store' });
     const data = await res.json();
+    if (res.ok) setDigestOptedOut(Boolean(data.weeklyDigestOptedOutAt));
     if (res.ok && data.schedule) {
       setDigest(data.schedule);
       setDigestDays(data.schedule.weekdays);
@@ -134,6 +136,14 @@ export default function BooksContent() {
       setDigestTo(data.schedule.recipients.join(', '));
       setDigestScope(data.schedule.scope);
     }
+  }, []);
+
+  // The digest email's Settings link lands on #weekly-digest, which lives on the summary tab.
+  useEffect(() => {
+    if (window.location.hash !== '#weekly-digest') return;
+    setTab('summary');
+    const timer = setTimeout(() => document.getElementById('weekly-digest')?.scrollIntoView({ block: 'center' }), 300);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -172,7 +182,8 @@ export default function BooksContent() {
       const data = await res.json();
       if (!res.ok) throw new Error(readError(data, 'Could not save the digest'));
       setDigest(data.schedule);
-      setNotice(active ? `Weekly digest on. Next send ${data.schedule.nextRunAt ? new Date(data.schedule.nextRunAt).toLocaleString() : 'soon'} to ${data.schedule.recipients.join(', ')}.` : 'Weekly digest paused.');
+      setDigestOptedOut(!active);
+      setNotice(active ? `Weekly digest on. Next send ${data.schedule.nextRunAt ? new Date(data.schedule.nextRunAt).toLocaleString() : 'soon'} to ${data.schedule.recipients.join(', ')}.` : 'Weekly digest off. It stays off until you turn it back on.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save the digest');
     } finally {
@@ -611,9 +622,20 @@ export default function BooksContent() {
             </div>
           </div>
 
-          <div className="mt-4 rounded border border-slate-800 bg-slate-950/40 p-3">
-            <h3 className="text-sm font-semibold text-gray-200 mb-1">Weekly digest {digest?.active ? <span className="text-emerald-300 font-normal text-xs">on · next {digest.nextRunAt ? new Date(digest.nextRunAt).toLocaleString() : 'soon'}</span> : <span className="text-gray-500 font-normal text-xs">off</span>}</h3>
-            <p className="text-xs text-gray-500 mb-2">The previous seven days of your books, emailed on the days you pick at the hour you pick ({GUESSED_TZ}), with the PDF and CSV attached.</p>
+          <div id="weekly-digest" className="mt-4 rounded border border-slate-800 bg-slate-950/40 p-3">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <h3 className="text-sm font-semibold text-gray-200">
+                Weekly digest <span className="ml-1 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wide text-gray-400">Default report</span>{' '}
+                {digest?.active
+                  ? <span className="text-emerald-300 font-normal text-xs">on · next {digest.nextRunAt ? new Date(digest.nextRunAt).toLocaleString() : 'soon'}</span>
+                  : <span className="text-gray-500 font-normal text-xs">{digest || digestOptedOut ? 'off' : 'on by default once a bank is linked'}</span>}
+              </h3>
+              <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                <input type="checkbox" role="switch" aria-label="Weekly digest on" checked={Boolean(digest?.active)} disabled={digestBusy || digestDays.length === 0} onChange={(e) => saveDigest(e.target.checked)} />
+                {digest?.active ? 'On' : 'Off'}
+              </label>
+            </div>
+            <p className="text-xs text-gray-500 mb-2">On for every account with a linked bank. Last seven days of your books, PDF and CSV attached ({GUESSED_TZ}). Every email has a one-click off link.</p>
             <div className="flex flex-wrap items-center gap-2 text-xs text-gray-300">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label, day) => (
                 <label key={label} className={`rounded border px-2 py-1 cursor-pointer ${digestDays.includes(day) ? 'border-purple-500 text-gray-100' : 'border-slate-700 text-gray-500'}`}>
@@ -630,7 +652,7 @@ export default function BooksContent() {
             </div>
             <div className="mt-2 flex gap-2">
               <button type="button" onClick={() => saveDigest(true)} disabled={digestBusy || digestDays.length === 0} className={btnPrimary}>{digest?.active ? 'Save' : 'Turn on'}</button>
-              {digest?.active && <button type="button" onClick={() => saveDigest(false)} disabled={digestBusy} className={btnSecondary}>Pause</button>}
+              {digest?.active && <button type="button" onClick={() => saveDigest(false)} disabled={digestBusy} className={btnSecondary}>Turn off</button>}
               {digest && <button type="button" onClick={sendDigestNow} disabled={digestBusy} className={btnSecondary}>Send now</button>}
               {digest?.lastSentAt && <span className="text-xs text-gray-500 self-center">last sent {new Date(digest.lastSentAt).toLocaleString()}</span>}
             </div>

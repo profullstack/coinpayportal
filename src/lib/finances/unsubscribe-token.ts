@@ -15,9 +15,11 @@ import { requireEncryptionKey } from '../crypto/require-key';
  * constant fallback).
  */
 
+export type UnsubscribeKind = 'daily_summary' | 'weekly_digest';
+
 export interface UnsubscribeClaim {
   merchantId: string;
-  kind: 'daily_summary';
+  kind: UnsubscribeKind;
   email: string;
 }
 
@@ -53,8 +55,8 @@ export function verifyUnsubscribe(token: unknown, secret: string = unsubscribeSe
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
   try {
     const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { m?: unknown; k?: unknown; e?: unknown };
-    if (typeof data.m !== 'string' || !data.m || data.k !== 'daily_summary' || typeof data.e !== 'string' || !data.e) return null;
-    return { merchantId: data.m, kind: 'daily_summary', email: data.e };
+    if (typeof data.m !== 'string' || !data.m || (data.k !== 'daily_summary' && data.k !== 'weekly_digest') || typeof data.e !== 'string' || !data.e) return null;
+    return { merchantId: data.m, kind: data.k, email: data.e };
   } catch {
     return null;
   }

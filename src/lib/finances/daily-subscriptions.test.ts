@@ -216,3 +216,81 @@ describe('unsubscribe sticks', () => {
     expect(() => subs.parseSpendTarget('lots')).toThrow();
   });
 });
+
+describe('weekly digest, the default account report', () => {
+  const weekly = () => db.tables.finance_email_schedules.filter((r) => r.kind === 'weekly_digest');
+
+  it('linking a first connection turns on the weekly digest (and the daily summary) for that merchant only', async () => {
+    db.tables.merchants.push({ id: 'merchant-new', email: 'new@example.com' });
+    db.tables.finance_connections.push({ id: 'c9', merchant_id: 'merchant-new', lifecycle_state: 'active' });
+    expect(await subs.ensureDefaultReports('merchant-new')).toEqual({ daily_summary: true, weekly_digest: true });
+    expect(weekly()).toHaveLength(1);
+    expect(weekly()[0]).toMatchObject({
+      merchant_id: 'merchant-new',
+      weekdays: [1, 5],
+      hour: 8,
+      scope: 'all',
+      formats: ['pdf', 'csv'],
+      recipients: ['new@example.com'],
+      timezone: 'America/Los_Angeles',
+      active: true,
+    });
+    // Saturday 2026-10-17 12:00Z: the next slot is Monday 08:00 PDT.
+    expect(weekly()[0].next_run_at).toBe('2026-10-19T15:00:00.000Z');
+    expect(await subs.ensureDefaultReports('merchant-new')).toEqual({ daily_summary: false, weekly_digest: false });
+  });
+
+  it('backfill is idempotent and leaves an existing schedule exactly as it was', async () => {
+    const own = { id: 'own-weekly', merchant_id: A, kind: 'weekly_digest', weekdays: [1], hour: 6, timezone: 'America/Los_Angeles', scope: 'business', recipients: ['alice@example.com'], active: true, next_run_at: '2026-10-26T13:00:00.000Z' };
+    db.tables.finance_email_schedules.push({ ...own });
+    expect(await subs.backfillWeeklyDigests({ now: NOW })).toEqual({ considered: 2, created: 1 });
+    expect(await subs.backfillWeeklyDigests({ now: NOW })).toEqual({ considered: 2, created: 0 });
+    expect(weekly()).toHaveLength(2);
+    expect(weekly().find((r) => r.merchant_id === A)).toEqual(own);
+    const bob = weekly().find((r) => r.merchant_id === B)!;
+    expect(bob.timezone).toBe('America/New_York');
+    expect(bob.next_run_at).toBe('2026-10-19T12:00:00.000Z');
+  });
+
+  it('creates nothing for merchants without finance data', async () => {
+    db.tables.merchants.push({ id: 'merchant-empty', email: 'empty@example.com' });
+    await subs.backfillWeeklyDigests({ now: NOW });
+    expect(await subs.ensureDefaultWeeklyDigest('merchant-empty')).toBe(false);
+    // Carol only has a disconnected connection.
+    expect(await subs.ensureDefaultWeeklyDigest(C)).toBe(false);
+    expect(weekly().map((r) => r.merchant_id).sort()).toEqual([A, B]);
+  });
+
+  it('turning it off (DELETE, the toggle, the email link) is remembered and never undone automatically', async () => {
+    await subs.backfillWeeklyDigests({ now: NOW });
+
+    expect(await deleteSchedule(A, 'weekly_digest')).toBe(true);
+    expect((await subs.getEmailPreferences(A))?.weekly_digest_opted_out_at).toBeTruthy();
+    // The daily summary opt-out is separate.
+    expect((await subs.getEmailPreferences(A))?.daily_summary_opted_out_at).toBeNull();
+
+    await upsertSchedule(B, { active: false }, { timezone: 'America/New_York', email: 'bob@example.com' }, 'weekly_digest');
+    expect((await subs.getEmailPreferences(B))?.weekly_digest_opted_out_at).toBeTruthy();
+    db.tables.finance_email_schedules = db.tables.finance_email_schedules.filter((r) => !(r.merchant_id === B && r.kind === 'weekly_digest'));
+
+    expect((await subs.backfillWeeklyDigests({ now: NOW })).created).toBe(0);
+    db.tables.finance_connections.push({ id: 'c6', merchant_id: A, lifecycle_state: 'active' });
+    expect((await subs.ensureDefaultReports(A)).weekly_digest).toBe(false);
+    expect(weekly()).toHaveLength(0);
+
+    // Only the owner turns it back on.
+    await upsertSchedule(A, { active: true }, { timezone: 'America/Los_Angeles', email: 'alice@example.com' }, 'weekly_digest');
+    expect((await subs.getEmailPreferences(A))?.weekly_digest_opted_out_at).toBeNull();
+    expect(weekly().map((r) => r.merchant_id)).toEqual([A]);
+  });
+
+  it('the one-click link turns off only the weekly digest, for that address', async () => {
+    await subs.backfillDefaultSchedules('daily_summary', { now: NOW });
+    await subs.backfillWeeklyDigests({ now: NOW });
+    expect(await subs.unsubscribeSchedule(A, 'weekly_digest', 'alice@example.com')).toBe('unsubscribed');
+    expect(await subs.unsubscribeSchedule(A, 'weekly_digest', 'alice@example.com')).toBe('already');
+    expect(weekly().map((r) => r.merchant_id)).toEqual([B]);
+    expect(daily().map((r) => r.merchant_id).sort()).toEqual([A, B]);
+    expect((await subs.backfillWeeklyDigests({ now: NOW })).created).toBe(0);
+  });
+});

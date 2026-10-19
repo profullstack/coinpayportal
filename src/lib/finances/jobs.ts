@@ -576,7 +576,7 @@ async function runCategorizeJob(initial: FinanceJobRow): Promise<void> {
  */
 async function runEmailJob(initial: FinanceJobRow): Promise<void> {
   const job = initial;
-  const { getScheduleById, sendDigest, sendDailySummary, markDigestSent } = await import('./schedules');
+  const { getScheduleById, sendDigest, sendDailySummary, markDigestSent, merchantHasAccounts } = await import('./schedules');
   const scheduleId = job.params.scheduleId as string | undefined;
   const reportId = job.params.reportId as string | undefined;
   const books = job.params.books as { period?: string; from?: string; to?: string; timezone: string; scope: 'business' | 'personal' | 'all' } | undefined;
@@ -629,6 +629,11 @@ async function runEmailJob(initial: FinanceJobRow): Promise<void> {
         result: { sent: daily.sent.length, failed: daily.failed, due: daily.due, overdue: daily.overdue },
         ...(daily.sent.length === 0 ? { error_code: 'email_failed', error_message: daily.failed[0]?.error ?? 'send failed' } : {}),
       });
+      return;
+    }
+    // No accounts means an empty digest: say nothing until one is linked.
+    if (!(await merchantHasAccounts(schedule.merchant_id))) {
+      await releaseWithStatus(job, 'cancelled', { error_message: 'No finance accounts yet; nothing to send' });
       return;
     }
     const outcome = await sendDigest(schedule);
@@ -750,12 +755,12 @@ export async function runWorkerTick({
     result.errors.push(`email schedule: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
-    // Merchants who linked a bank without the daily summary (before it was
-    // on by default, or by a path that does not subscribe) get it here.
-    const { maybeBackfillDailySummaries } = await import('./daily-subscriptions');
-    await maybeBackfillDailySummaries();
+    // Merchants who linked a bank without the default reports (before they
+    // were on by default, or by a path that does not subscribe) get them here.
+    const { maybeBackfillDefaultSchedules } = await import('./daily-subscriptions');
+    await maybeBackfillDefaultSchedules();
   } catch (err) {
-    result.errors.push(`daily summary backfill: ${err instanceof Error ? err.message : String(err)}`);
+    result.errors.push(`default report backfill: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
     const { enqueueScheduledStatementFetches } = await import('./cloud-statements');
