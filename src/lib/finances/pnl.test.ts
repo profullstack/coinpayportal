@@ -37,10 +37,17 @@ describe('buildPnl', () => {
     expect(s.totals.income).toBe('3328.24');
   });
 
-  it('counts a deposit with no stated source as income and itemizes it', () => {
+  it('counts a T. Rowe Price "UST MONEY TRAN" deposit as a retirement withdrawal', () => {
     const s = build([row('chk', '2026-09-10', '15508.36', 'ELECTRONIC DEPOSIT - 000053UST MONEY TRAN000053 ANTHONY ETTINGER')]);
-    expect(line(s, 'unidentified')?.total).toBe('15508.36');
+    expect(line(s, 'retirement')?.total).toBe('15508.36');
+    expect(line(s, 'unidentified')).toBeUndefined();
     expect(s.itemized.map((r) => r.amount)).toEqual(['15508.36']);
+  });
+
+  it('counts a deposit with no stated source as income and itemizes it', () => {
+    const s = build([row('chk', '2026-09-10', '1200.15', 'ELECTRONIC DEPOSIT - ACME HOLDINGS')]);
+    expect(line(s, 'unidentified')?.total).toBe('1200.15');
+    expect(s.itemized.map((r) => r.amount)).toEqual(['1200.15']);
   });
 
   it('never counts a credit on a card as income', () => {

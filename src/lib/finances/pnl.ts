@@ -126,7 +126,10 @@ const PERSONAL_EXPENSE_LABELS: Record<string, string> = {
 
 // Patterns over the bank's own text. Order matters: a retirement custodian's
 // deposit is often auto-categorised "transfer", so it is tested first.
-const RE_RETIREMENT = /\b(EMPOWER|ITC2\.0|ITRUST|T ?ROWE|TRP\b|FIDELITY|VANGUARD|SCHWAB|PRINCIPAL|VOYA|TIAA|NATIONWIDE RET|401\(?K\)?|IRA DIST|PENSION|ANNUITY|CALPERS|CALSTRS)/i;
+// T. Rowe Price pays IRA distributions out of its U.S. Treasury Money fund
+// (PRTXX), and the bank shows only "000053UST MONEY TRAN000053": no custodian
+// name, and no word boundary before UST, so it sits outside the \b group.
+const RE_RETIREMENT = /\b(EMPOWER|ITC2\.0|ITRUST|T ?ROWE|TRP\b|FIDELITY|VANGUARD|SCHWAB|PRINCIPAL|VOYA|TIAA|NATIONWIDE RET|401\(?K\)?|IRA DIST|PENSION|ANNUITY|CALPERS|CALSTRS)|UST MONEY TRAN/i;
 const RE_WAGES = /\b(PAYROLL|PAYRL|DIR DEP|DIRECT DEP|SALARY|ADP\b|GUSTO|PAYCHEX|TRINET|JUSTWORKS|RIPPLING)/i;
 const RE_BENEFITS = /\b(EDD\b|UNEMPLOY|SSA TREAS|SOC SEC|SSI\b|DISABILITY|CALFRESH|EBT\b)/i;
 const RE_TAX = /\b(TAX REF|IRS TREAS|IRS USATAXPYMT|FRANCHISE TAX|FTB\b|CA TAX|STATE TAX)/i;
