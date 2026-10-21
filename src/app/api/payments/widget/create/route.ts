@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { createPayment, Blockchain } from '@/lib/payments/service';
+import { resolveReturnUrl, returnUrlMetadata } from '@/lib/payments/return-url';
 import { getStripe } from '@/lib/server/optional-deps';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { getClientIp } from '@/lib/web-wallet/client-ip';
@@ -213,6 +214,17 @@ export async function POST(request: NextRequest) {
     };
     if (description) baseMetadata.description = description;
 
+    // Stripe-style return URLs, kept on the payment so the crypto pay page
+    // sends the buyer back too, not only the card rail.
+    const returnUrls = returnUrlMetadata({ success_url, cancel_url });
+    if (!returnUrls.ok) {
+      return NextResponse.json(
+        { success: false, error: returnUrls.error, code: returnUrls.code },
+        { status: 400, headers: cors },
+      );
+    }
+    Object.assign(baseMetadata, returnUrls.metadata);
+
     if (method === 'crypto') {
       const blockchain = CURRENCY_TO_BLOCKCHAIN[currency.toLowerCase()];
       if (!blockchain) {
@@ -385,8 +397,12 @@ export async function POST(request: NextRequest) {
           source: 'payments.js',
         },
       },
-      success_url: success_url || `${appUrl}/pay/${paymentId}?status=success`,
-      cancel_url: cancel_url || `${appUrl}/pay/${paymentId}`,
+      success_url: returnUrls.metadata.redirect_url
+        ? resolveReturnUrl(returnUrls.metadata.redirect_url, paymentId)
+        : `${appUrl}/pay/${paymentId}?status=success`,
+      cancel_url: returnUrls.metadata.cancel_url
+        ? resolveReturnUrl(returnUrls.metadata.cancel_url, paymentId)
+        : `${appUrl}/pay/${paymentId}`,
       metadata: {
         coinpay_payment_id: paymentId,
         business_id: stripe.business_id,

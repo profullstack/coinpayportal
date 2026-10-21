@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { generatePaymentAddress, type SystemBlockchain } from '../wallets/system-wallet';
 import { STATIC_NETWORK_FEES_USD, getEstimatedNetworkFee, getStaticNetworkFee } from './network-fees';
 import { isBusinessPaidTier } from '../entitlements/service';
+import { safeReturnUrl } from './return-url';
 
 // Re-export network fee utilities
 export { STATIC_NETWORK_FEES_USD, getEstimatedNetworkFee, getStaticNetworkFee };
@@ -219,24 +220,7 @@ export interface PublicPaymentMetadata {
   cancel_url?: string;
 }
 
-/**
- * A merchant-supplied return link, if it is safe to put in an href: an
- * absolute http(s) URL of sane length. Anything else (javascript:, data:,
- * relative paths, garbage) is dropped rather than rendered.
- */
-export function safeReturnUrl(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.length > 2048) return null;
-  try {
-    const url = new URL(trimmed);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
-    if (url.username || url.password) return null;
-    return url.href;
-  } catch {
-    return null;
-  }
-}
+export { safeReturnUrl };
 
 export interface PaymentResult {
   success: boolean;

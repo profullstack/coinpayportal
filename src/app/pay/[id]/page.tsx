@@ -4,9 +4,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import AchPayForm, { useAchAvailability } from '@/components/AchPayForm';
+import { resolveReturnUrl } from '@/lib/payments/return-url';
 
 const PAYMENT_EXPIRY_MINUTES = 15;
 const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
+const REDIRECT_DELAY_MS = 3000; // Success message, then back to the merchant
 const BALANCE_CHECK_INTERVAL_MS = 15000; // Check blockchain balance every 15 seconds
 
 interface Payment {
@@ -376,15 +378,16 @@ export default function PublicPaymentPage() {
     const isComplete = paymentStatus === 'confirmed' || paymentStatus === 'forwarding' || paymentStatus === 'forwarded';
     const redirectUrl = payment?.metadata?.redirect_url;
 
-    if (isComplete && redirectUrl) {
-      // Wait 5 seconds before redirecting to let user see the success message
+    if (isComplete && redirectUrl && payment?.id) {
+      // A short beat on the success message, then back to the merchant, the
+      // way Stripe Checkout returns to success_url.
       const redirectTimeout = setTimeout(() => {
-        window.location.href = redirectUrl;
-      }, 5000);
+        window.location.href = resolveReturnUrl(redirectUrl, payment.id);
+      }, REDIRECT_DELAY_MS);
 
       return () => clearTimeout(redirectTimeout);
     }
-  }, [paymentStatus, payment?.metadata?.redirect_url]);
+  }, [paymentStatus, payment?.id, payment?.metadata?.redirect_url]);
 
   // Format time remaining as MM:SS
   const formatTimeRemaining = (seconds: number) => {
@@ -450,7 +453,8 @@ export default function PublicPaymentPage() {
   const merchantName = payment.merchant_name || business?.name || null;
   // "Back to <merchant>" from a dead checkout: the merchant's cancel_url, else
   // the URL they send completed payments to. Both are sanitised server-side.
-  const merchantReturnUrl = payment.metadata?.cancel_url || payment.metadata?.redirect_url || null;
+  const merchantReturnRaw = payment.metadata?.cancel_url || payment.metadata?.redirect_url || null;
+  const merchantReturnUrl = merchantReturnRaw ? resolveReturnUrl(merchantReturnRaw, payment.id) : null;
 
   // Determine current step for progress indicator
   const getCurrentStep = (): number => {
@@ -968,7 +972,7 @@ export default function PublicPaymentPage() {
             {isPaymentComplete && payment.metadata?.redirect_url && (
               <div className="text-center">
                 <a
-                  href={payment.metadata.redirect_url}
+                  href={resolveReturnUrl(payment.metadata.redirect_url, payment.id)}
                   className="inline-flex items-center justify-center gap-2 w-full px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white font-medium rounded-xl transition-colors"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

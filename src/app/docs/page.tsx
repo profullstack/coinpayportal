@@ -1389,7 +1389,7 @@ data.coins.filter(c => c.is_active).forEach(coin => {
   "amount_usd": 100.00,
   "currency": "usdc_pol",  // See currency options below
   "description": "Order #12345",  // optional
-  "redirect_url": "https://yoursite.com/success",  // optional - redirect after payment
+  "success_url": "https://yoursite.com/success?payment={PAYMENT_ID}",  // optional - where the buyer goes after paying (redirect_url also accepted)
   "cancel_url": "https://yoursite.com/checkout",  // optional - "Back to" link on an expired pay page
   "expires_in_minutes": 60  // optional - payment window, 15-120 (default 15)
 }`}
@@ -1423,7 +1423,7 @@ data.coins.filter(c => c.is_active).forEach(coin => {
                 </p>
               </div>
 
-              <CodeBlock title="cURL Example with redirect_url" language="curl">
+              <CodeBlock title="cURL Example with success_url" language="curl">
 {`curl -X POST https://coinpayportal.com/api/payments/create \\
   -H "Authorization: Bearer YOUR_TOKEN" \\
   -H "Content-Type: application/json" \\
@@ -1431,7 +1431,8 @@ data.coins.filter(c => c.is_active).forEach(coin => {
     "business_id": "business-123",
     "amount_usd": 100.00,
     "currency": "usdc_pol",
-    "redirect_url": "https://yoursite.com/order/success?id=12345"
+    "success_url": "https://yoursite.com/order/success?id=12345&payment={PAYMENT_ID}",
+    "cancel_url": "https://yoursite.com/checkout"
   }'`}
               </CodeBlock>
 
@@ -1449,7 +1450,8 @@ data.coins.filter(c => c.is_active).forEach(coin => {
     "metadata": {
       "network_fee_usd": 0.50,
       "total_amount_usd": 100.50,
-      "redirect_url": "https://yoursite.com/order/success?id=12345"
+      "redirect_url": "https://yoursite.com/order/success?id=12345&payment=%7BPAYMENT_ID%7D",
+      "cancel_url": "https://yoursite.com/checkout"
     },
     "created_at": "2024-01-01T12:00:00Z",
     "expires_at": "2024-01-01T12:15:00Z"
@@ -1460,7 +1462,7 @@ data.coins.filter(c => c.is_active).forEach(coin => {
               <div className="mt-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
                 <h4 className="font-semibold text-green-400 mb-2">Auto-Redirect After Payment</h4>
                 <p className="text-green-300 text-sm">
-                  When <code className="text-green-200">redirect_url</code> is provided, customers are automatically redirected back to your site 5 seconds after payment completion. A &quot;Return to Merchant&quot; button is also shown for immediate redirect.
+                  Works like Stripe Checkout: when <code className="text-green-200">success_url</code> (or the older <code className="text-green-200">redirect_url</code>) is provided, customers are sent back to your site 3 seconds after the payment confirms, on the crypto and card rails. A &quot;Return to Merchant&quot; button is also shown for an immediate return. Put <code className="text-green-200">{'{PAYMENT_ID}'}</code> (or Stripe&apos;s <code className="text-green-200">{'{CHECKOUT_SESSION_ID}'}</code>) anywhere in the URL to receive the CoinPay payment id. <code className="text-green-200">cancel_url</code> is where an expired or abandoned checkout sends them. Still credit the order from the signed webhook, not from the redirect.
                 </p>
               </div>
             </ApiEndpoint>

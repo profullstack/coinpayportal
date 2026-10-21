@@ -228,6 +228,8 @@ export class CoinPayClient {
    * @param {string} params.blockchain - Blockchain/cryptocurrency (BTC, ETH, SOL, POL, BCH, USDC_ETH, USDC_POL, USDC_SOL)
    * @param {string} [params.description] - Payment description (shown to customer)
    * @param {Object} [params.metadata] - Custom metadata (e.g., { orderId: 'ORD-123', customerId: 'CUST-456' })
+   * @param {string} [params.successUrl] - Where the pay page sends the customer once the payment confirms, like Stripe's success_url. {PAYMENT_ID} is replaced with the payment id.
+   * @param {string} [params.cancelUrl] - Where "Back to merchant" goes from an expired or abandoned checkout
    * @returns {Promise<Object>} Created payment with address and QR code
    *
    * @example
@@ -238,7 +240,8 @@ export class CoinPayClient {
    *   currency: 'USD',
    *   blockchain: 'BTC',
    *   description: 'Order #12345',
-   *   metadata: { orderId: '12345', customerEmail: 'customer@example.com' }
+   *   metadata: { orderId: '12345', customerEmail: 'customer@example.com' },
+   *   successUrl: 'https://yoursite.com/orders/12345?payment={PAYMENT_ID}',
    * });
    *
    * // Display payment.payment_address and payment.qr_code to customer
@@ -250,6 +253,8 @@ export class CoinPayClient {
     blockchain,
     description,
     metadata,
+    successUrl,
+    cancelUrl,
   }) {
     // Map to API field names (snake_case)
     return this.request('/payments/create', {
@@ -261,6 +266,8 @@ export class CoinPayClient {
         blockchain: blockchain?.toUpperCase(),
         description,
         metadata,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
       }),
     });
   }

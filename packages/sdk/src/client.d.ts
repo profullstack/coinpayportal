@@ -27,6 +27,10 @@ export interface PaymentParams {
   description?: string;
   /** Custom metadata attached to the payment (e.g., `{ orderId: 'ORD-123' }`) */
   metadata?: Record<string, unknown>;
+  /** Where the pay page sends the customer once the payment confirms, like Stripe's `success_url`. `{PAYMENT_ID}` is replaced with the payment id. */
+  successUrl?: string;
+  /** Where "Back to merchant" goes from an expired or abandoned checkout */
+  cancelUrl?: string;
 }
 
 /** Parameters for listing payments */

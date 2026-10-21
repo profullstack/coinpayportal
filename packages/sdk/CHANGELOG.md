@@ -5,6 +5,14 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-10-21
+
+### Added
+- `createPayment({ successUrl, cancelUrl })`, like Stripe Checkout: once the payment confirms, the
+  hosted pay page sends the customer to `successUrl` (`{PAYMENT_ID}` is replaced with the payment id);
+  `cancelUrl` is the "Back to merchant" link from an expired checkout. Before this the crypto checkout
+  had no way to return the buyer and left them on "Payment Complete!".
+
 ## [0.22.0] - 2026-10-19
 
 ### Added

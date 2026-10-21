@@ -34,6 +34,8 @@ import { CoinPayClient } from './client.js';
  * @param {string} params.blockchain - Blockchain to use (BTC, ETH, SOL, POL, BCH, USDC_ETH, USDC_POL, USDC_SOL)
  * @param {string} [params.description] - Payment description shown to customer
  * @param {Object} [params.metadata] - Custom metadata for your records
+ * @param {string} [params.successUrl] - Where the pay page sends the customer after the payment confirms ({PAYMENT_ID} is filled in)
+ * @param {string} [params.cancelUrl] - Where "Back to merchant" goes from an expired checkout
  * @returns {Promise<Object>} Created payment with address and QR code
  *
  * @example
@@ -60,6 +62,8 @@ export async function createPayment({
   blockchain,
   description,
   metadata,
+  successUrl,
+  cancelUrl,
 }) {
   const coinpay = client || new CoinPayClient({ apiKey });
   
@@ -70,6 +74,8 @@ export async function createPayment({
     blockchain,
     description,
     metadata,
+    successUrl,
+    cancelUrl,
   });
 }
 
