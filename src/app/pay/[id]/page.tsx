@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import AchPayForm, { useAchAvailability } from '@/components/AchPayForm';
-import { resolveReturnUrl } from '@/lib/payments/return-url';
+import { resolveReturnUrl, safeReturnUrl } from '@/lib/payments/return-url';
 
 const PAYMENT_EXPIRY_MINUTES = 15;
 const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
@@ -378,11 +378,17 @@ export default function PublicPaymentPage() {
     const isComplete = paymentStatus === 'confirmed' || paymentStatus === 'forwarding' || paymentStatus === 'forwarded';
     const redirectUrl = payment?.metadata?.redirect_url;
 
-    if (isComplete && redirectUrl && payment?.id) {
+    // The API already sanitised it; check again so only an absolute http(s)
+    // URL is ever navigated to from here.
+    const destination = isComplete && redirectUrl && payment?.id
+      ? safeReturnUrl(resolveReturnUrl(redirectUrl, payment.id))
+      : null;
+
+    if (destination) {
       // A short beat on the success message, then back to the merchant, the
       // way Stripe Checkout returns to success_url.
       const redirectTimeout = setTimeout(() => {
-        window.location.href = resolveReturnUrl(redirectUrl, payment.id);
+        window.location.assign(destination);
       }, REDIRECT_DELAY_MS);
 
       return () => clearTimeout(redirectTimeout);
