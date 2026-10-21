@@ -2,21 +2,15 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { recordAuditEvent } from '../audit/log';
 import { createBusinessCollectionPayment } from '../payments/business-collection';
 
+import { SUBSCRIPTION_PRICES, getSubscriptionPrice, type BillingPeriod } from './plans';
+
+export { SUBSCRIPTION_PRICES, getSubscriptionPrice };
+export type { BillingPeriod };
+
 /**
  * Subscription payment types
  */
-export type BillingPeriod = 'monthly' | 'yearly';
 export type SubscriptionStatus = 'active' | 'cancelled' | 'past_due' | 'trialing' | 'pending_payment';
-
-/**
- * Subscription payment configuration
- */
-export const SUBSCRIPTION_PRICES = {
-  professional: {
-    monthly: 49,
-    yearly: 490, // ~17% discount
-  },
-} as const;
 
 /**
  * Statuses a `business_collection_payments` row can hold once the funds have
@@ -67,19 +61,9 @@ export interface SubscriptionPaymentResult {
 }
 
 /**
- * Get subscription price for a plan and billing period
- */
-export function getSubscriptionPrice(planId: string, billingPeriod: BillingPeriod): number | null {
-  const planPrices = SUBSCRIPTION_PRICES[planId as keyof typeof SUBSCRIPTION_PRICES];
-  if (!planPrices) {
-    return null;
-  }
-  return planPrices[billingPeriod];
-}
-
-/**
- * Create a subscription payment using the business collection system
- * This creates a crypto payment that, when confirmed, will upgrade the merchant's subscription
+ * LEGACY: a five-coin business collection payment. The plan checkout now uses
+ * a hosted checkout session (./checkout.ts); this stays only so collection
+ * payments created before that change can still be read and activated.
  */
 export async function createSubscriptionPayment(
   supabase: SupabaseClient,

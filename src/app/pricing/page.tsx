@@ -50,10 +50,17 @@ export default function PricingPage() {
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
   const [upgrading, setUpgrading] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
+  const [justUpgraded, setJustUpgraded] = useState(false);
 
   useEffect(() => {
     fetchPlans();
     checkAuth();
+    try {
+      // Back from a paid plan checkout (its success_url).
+      setJustUpgraded(new URLSearchParams(window.location.search).get('upgraded') === '1');
+    } catch {
+      // no window.location in some test environments
+    }
   }, []);
 
   const fetchPlans = async () => {
@@ -89,8 +96,6 @@ export default function PricingPage() {
     setLoading(false);
   };
 
-  const selectedBlockchain = 'ETH';
-
   const handleUpgrade = async (planId: string) => {
     if (!isAuthenticated) {
       router.push('/login?redirect=/pricing');
@@ -112,7 +117,6 @@ export default function PricingPage() {
         body: JSON.stringify({
           plan_id: planId,
           billing_period: billingPeriod,
-          blockchain: selectedBlockchain,
         }),
       }, router);
       if (!result) return;
@@ -252,6 +256,12 @@ export default function PricingPage() {
             </button>
           </div>
         </div>
+
+        {justUpgraded && (
+          <div className="mb-8 max-w-2xl mx-auto rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-200" data-testid="upgrade-success">
+            Payment received. Your Professional plan is active.
+          </div>
+        )}
 
         {checkoutError && (
           <div className="mb-8 max-w-2xl mx-auto rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
@@ -418,9 +428,9 @@ export default function PricingPage() {
                 What payment methods do you accept?
               </h3>
               <p className="mt-2 text-gray-400">
-                We accept all major credit cards (Visa, Mastercard, American Express) 
-                through our secure payment processor, Stripe. We also support 
-                cryptocurrency payments for annual subscriptions.
+                Every coin CoinPay supports, including USDC and USDT stablecoins on
+                Polygon, Solana, Base and Ethereum, plus Bitcoin, Ethereum, Solana and
+                more, or PayPal. You pick on the checkout page, monthly or yearly.
               </p>
             </div>
             <div className="bg-white/5 rounded-lg border border-white/10 p-6">

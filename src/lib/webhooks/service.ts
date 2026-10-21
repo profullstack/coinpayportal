@@ -554,6 +554,7 @@ export async function sendPaymentWebhook(
       await markCheckoutSessionPaidFromWebhook(supabase, {
         sessionId: String(paymentData.metadata.checkout_session_id),
         paymentId,
+        businessId,
         method: paymentData.payment_method === 'paypal' || paymentData.rail === 'paypal'
           ? 'PAYPAL'
           : (paymentData.blockchain || paymentData.currency || null),

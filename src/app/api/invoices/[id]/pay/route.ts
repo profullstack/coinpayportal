@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { loadInvoiceSettings } from '@/lib/invoices/settings';
+import { businessHasPaypal } from '@/lib/paypal/accounts';
 
 /**
  * GET /api/invoices/[id]/pay
@@ -63,7 +64,17 @@ export async function GET(
     };
     const { business_id: _businessId, ...publicInvoice } = invoice;
 
-    return NextResponse.json({ success: true, invoice: { ...publicInvoice, line_items: lineItems, brand } });
+    // PayPal by default once the business has it connected; paypal_enabled is
+    // only written at send time, so invoices sent earlier never offered it.
+    let paypalEnabled = !!invoice.paypal_enabled;
+    if (!paypalEnabled && invoice.status !== 'paid') {
+      paypalEnabled = await businessHasPaypal(supabase, invoice.business_id).catch(() => false);
+    }
+
+    return NextResponse.json({
+      success: true,
+      invoice: { ...publicInvoice, paypal_enabled: paypalEnabled, line_items: lineItems, brand },
+    });
   } catch (error) {
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }

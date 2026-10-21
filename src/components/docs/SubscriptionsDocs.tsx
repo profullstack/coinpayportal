@@ -115,12 +115,11 @@ export function SubscriptionsDocs() {
       </ApiEndpoint>
 
       {/* Create Subscription Checkout */}
-      <ApiEndpoint method="POST" path="/api/subscriptions/checkout" description="Create a crypto payment for subscription upgrade.">
+      <ApiEndpoint method="POST" path="/api/subscriptions/checkout" description="Start a plan upgrade: returns a hosted checkout where you pay with any supported coin or PayPal.">
         <CodeBlock title="Request Body">
 {`{
   "plan_id": "professional",
-  "billing_period": "monthly",  // or "yearly"
-  "blockchain": "ETH"  // BTC, BCH, ETH, POL, SOL
+  "billing_period": "monthly"  // or "yearly"
 }`}
         </CodeBlock>
 
@@ -130,20 +129,25 @@ export function SubscriptionsDocs() {
   -H "Content-Type: application/json" \\
   -d '{
     "plan_id": "professional",
-    "billing_period": "monthly",
-    "blockchain": "ETH"
+    "billing_period": "monthly"
   }'`}
         </CodeBlock>
 
         <CodeBlock title="Response">
 {`{
   "success": true,
+  "session": {
+    "id": "cs_Ju1h16BXSobdRs7XWg9MUIj0",
+    "url": "https://coinpayportal.com/checkout/cs_Ju1h16BXSobdRs7XWg9MUIj0",
+    "expires_at": "2024-01-15T12:00:00Z",
+    "methods": ["USDC_POL", "USDC_SOL", "USDC_BASE", "BTC", "ETH", "SOL", "PAYPAL"]
+  },
   "payment": {
-    "id": "pay_abc123",
-    "payment_address": "0x1234...5678",
+    "id": "cs_Ju1h16BXSobdRs7XWg9MUIj0",
+    "checkout_path": "/checkout/cs_Ju1h16BXSobdRs7XWg9MUIj0",
+    "checkout_url": "https://coinpayportal.com/checkout/cs_Ju1h16BXSobdRs7XWg9MUIj0",
     "amount": 49,
     "currency": "USD",
-    "blockchain": "ETH",
     "expires_at": "2024-01-15T12:00:00Z"
   },
   "plan": {
@@ -152,7 +156,7 @@ export function SubscriptionsDocs() {
     "billing_period": "monthly",
     "price": 49
   },
-  "instructions": "Send exactly $49 worth of ETH to the payment address..."
+  "instructions": "Open the checkout and pay $49 with any listed coin or PayPal..."
 }`}
         </CodeBlock>
       </ApiEndpoint>

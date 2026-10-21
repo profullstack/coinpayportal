@@ -56,7 +56,7 @@ describe('payment webhooks carry who paid and for which property', () => {
       property: 'example.com',
       metadata: META,
     });
-    expect(markPaid).toHaveBeenCalledWith(expect.anything(), { sessionId: META.checkout_session_id, paymentId: 'pay-1', method: 'USDC_POL' });
+    expect(markPaid).toHaveBeenCalledWith(expect.anything(), { sessionId: META.checkout_session_id, paymentId: 'pay-1', method: 'USDC_POL', businessId: 'biz' });
   });
 
   it('loads metadata off the payment row when the confirm path did not pass it', async () => {

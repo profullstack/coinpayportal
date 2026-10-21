@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authenticateRequest, isMerchantAuth, isBusinessAuth } from '@/lib/auth/middleware';
-import {
-  createSubscriptionPayment,
-  getSubscriptionPrice,
-  SUPPORTED_BLOCKCHAINS,
-  type BillingPeriod,
-  type SupportedBlockchain,
-} from '@/lib/subscriptions/service';
+import { getSubscriptionPrice, type BillingPeriod } from '@/lib/subscriptions/service';
+import { createSubscriptionCheckout, countOpenSubscriptionCheckouts } from '@/lib/subscriptions/checkout';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 
 /**
@@ -21,17 +16,17 @@ const MAX_PENDING_SUBSCRIPTION_CHECKOUTS = 10;
 
 /**
  * POST /api/subscriptions/checkout
- * Create a crypto payment for subscription upgrade
- * 
+ * Start a plan upgrade as a hosted checkout session on CoinPay's own business:
+ * the merchant picks any coin it can receive, or PayPal, on /checkout/cs_...
+ *
  * Request body:
  * - plan_id: string (e.g., 'professional')
  * - billing_period: 'monthly' | 'yearly'
- * - blockchain: 'BTC' | 'BCH' | 'ETH' | 'POL' | 'SOL'
+ * - blockchain: ignored (older clients send it; the buyer now picks on the page)
  */
 export async function POST(request: NextRequest) {
   try {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://coinpayportal.com';
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
@@ -68,8 +63,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse request body
-    const body = await request.json();
-    const { plan_id, billing_period, blockchain } = body;
+    const body = await request.json().catch(() => ({}));
+    const { plan_id, billing_period } = body ?? {};
 
     // Validate plan_id
     if (!plan_id || plan_id !== 'professional') {
@@ -87,17 +82,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate blockchain
-    if (!blockchain || !SUPPORTED_BLOCKCHAINS.includes(blockchain)) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: `Invalid blockchain. Supported: ${SUPPORTED_BLOCKCHAINS.join(', ')}` 
-        },
-        { status: 400 }
-      );
-    }
-
     // Get price for display
     const price = getSubscriptionPrice(plan_id, billing_period as BillingPeriod);
     if (price === null) {
@@ -109,12 +93,9 @@ export async function POST(request: NextRequest) {
 
     // SUB-02: bound how many of these one merchant can have open.
     //
-    // The route was authenticated but otherwise unbounded, and every call
-    // derives an HD address, encrypts its private key and writes a
-    // `business_collection_payments` row. A merchant looping it accumulates
-    // rows and encrypted key material without limit and burns derivation
-    // indexes that are never reclaimed — none of which needs an attacker, just
-    // a retry loop in a client.
+    // The route was authenticated but otherwise unbounded. Every call writes a
+    // checkout session, and every coin picked on it derives an HD address, so
+    // a retry loop in a client would accumulate rows without limit.
     //
     // Two bounds, because they catch different things: the rate limit stops a
     // burst, and the pending cap stops a slow accumulation that would never
@@ -130,15 +111,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { count: pendingCount, error: pendingError } = await supabase
-      .from('business_collection_payments')
-      .select('id', { count: 'exact', head: true })
-      .eq('merchant_id', merchantId)
-      .eq('status', 'pending');
-
-    if (pendingError) {
-      console.error('[Subscriptions] Could not count pending checkouts:', pendingError);
-    } else if ((pendingCount ?? 0) >= MAX_PENDING_SUBSCRIPTION_CHECKOUTS) {
+    const pendingCount = await countOpenSubscriptionCheckouts(supabase, merchantId);
+    if (pendingCount !== null && pendingCount >= MAX_PENDING_SUBSCRIPTION_CHECKOUTS) {
       return NextResponse.json(
         {
           success: false,
@@ -150,33 +124,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create subscription payment
-    const result = await createSubscriptionPayment(supabase, {
+    const result = await createSubscriptionCheckout(supabase, {
       merchantId,
       planId: plan_id,
       billingPeriod: billing_period as BillingPeriod,
-      blockchain: blockchain as SupportedBlockchain,
     });
 
-    if (!result.success || !result.payment) {
+    if (!result.success) {
       return NextResponse.json(
-        { success: false, error: result.error || 'Failed to create subscription payment' },
-        { status: 400 }
+        { success: false, error: result.error, ...(result.code ? { code: result.code } : {}) },
+        { status: result.status }
       );
     }
 
-    // Return payment details for the user to complete
+    const { session } = result;
     return NextResponse.json({
       success: true,
+      session: {
+        id: session.id,
+        url: session.url,
+        expires_at: session.expires_at,
+        methods: session.methods,
+      },
+      // Same keys the pricing page (and older clients) already follow.
       payment: {
-        id: result.payment.id,
-        checkout_path: `/pay/${result.payment.id}`,
-        checkout_url: `${appUrl.replace(/\/$/, '')}/pay/${result.payment.id}`,
-        payment_address: result.payment.paymentAddress,
-        amount: result.payment.amount,
-        currency: result.payment.currency,
-        blockchain: result.payment.blockchain,
-        expires_at: result.payment.expiresAt,
+        id: session.id,
+        checkout_path: session.path,
+        checkout_url: session.url,
+        amount: session.amount,
+        currency: 'USD',
+        expires_at: session.expires_at,
       },
       plan: {
         id: plan_id,
@@ -184,7 +161,7 @@ export async function POST(request: NextRequest) {
         billing_period,
         price,
       },
-      instructions: `Send exactly $${price} worth of ${blockchain} to the payment address. Your subscription will be activated once the payment is confirmed on the blockchain.`,
+      instructions: `Open the checkout and pay $${price} with any listed coin or PayPal. Your plan activates as soon as the payment confirms.`,
     });
   } catch (error) {
     console.error('Subscription checkout error:', error);

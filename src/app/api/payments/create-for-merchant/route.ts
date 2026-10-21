@@ -11,6 +11,11 @@
  *          user-managed table behind /settings/wallets) for the
  *          requested cryptocurrency.
  *
+ * PayPal:  opens a PayPal order on the seller's first business with a
+ *          connected PayPal account (paypal_accounts.connected), the same
+ *          path as POST /api/paypal/payments/create. Ask for it with
+ *          payment_method: 'paypal' (or currency: 'paypal').
+ *
  * Card:    routes via Stripe Connect on the first business of the
  *          merchant whose stripe_accounts row has charges_enabled=true,
  *          using application_fee_amount + transfer_data destination so
@@ -19,10 +24,16 @@
  *
  * Body:    { merchant_id, amount_usd, currency, payment_method?,
  *            description?, success_url?, cancel_url?, webhook_url?,
- *            metadata? }
+ *            metadata?, customer_email?, account_id?, property? }
+ *
+ *          customer_email / account_id / property are optional: a malformed
+ *          value is dropped, never a 400, so existing callers keep working.
+ *          They are stored in the payment metadata, so every webhook carries
+ *          them, the same as /api/payments/create.
  *
  * Returns: { success, payment_id, payment_method, address?,
  *            amount_crypto?, currency?, expires_at?,
+ *            checkout_url?, paypal_approve_url?, paypal_order_id?,
  *            stripe_checkout_url?, stripe_session_id? }
  */
 
@@ -38,6 +49,8 @@ import { z } from 'zod';
 import { createPayment, Blockchain } from '@/lib/payments/service';
 import { resolveReturnUrl, returnUrlMetadata } from '@/lib/payments/return-url';
 import { getStripe } from '@/lib/server/optional-deps';
+import { customerMetadata } from '@/lib/checkout/customer';
+import { createPaypalPaymentForBusiness } from '@/lib/paypal/create-payment';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -50,7 +63,7 @@ const bodySchema = z.object({
   merchant_id: z.string().uuid(),
   amount_usd: z.number().positive().max(1_000_000),
   currency: z.string().min(1).max(20),
-  payment_method: z.enum(['crypto', 'card']).optional(),
+  payment_method: z.enum(['crypto', 'card', 'paypal']).optional(),
   description: z.string().max(500).optional(),
   success_url: z.string().url().optional(),
   cancel_url: z.string().url().optional(),
@@ -127,6 +140,28 @@ async function pickStripeBusiness(
   };
 }
 
+async function pickPaypalBusiness(
+  supabase: ReturnType<typeof getSupabase>,
+  merchantId: string,
+): Promise<string | null> {
+  const { data: businesses } = await supabase
+    .from('businesses')
+    .select('id')
+    .eq('merchant_id', merchantId)
+    .order('created_at', { ascending: true });
+  const ids = (businesses ?? []).map((b: { id: string }) => b.id);
+  if (ids.length === 0) return null;
+  const { data: accounts } = await supabase
+    .from('paypal_accounts')
+    .select('business_id, created_at')
+    .in('business_id', ids)
+    .eq('connected', true)
+    .order('created_at', { ascending: true });
+  // Oldest business first, matching pickAnyBusiness for the crypto rail.
+  const connected = new Set((accounts ?? []).map((a: { business_id: string }) => a.business_id));
+  return ids.find((id) => connected.has(id)) ?? null;
+}
+
 async function pickAnyBusiness(
   supabase: ReturnType<typeof getSupabase>,
   merchantId: string,
@@ -176,7 +211,12 @@ export async function POST(request: NextRequest) {
     } = parsed.data;
 
     const method =
-      payment_method ?? (currency.toLowerCase() === 'card' ? 'card' : 'crypto');
+      payment_method ??
+      (currency.toLowerCase() === 'card'
+        ? 'card'
+        : currency.toLowerCase() === 'paypal'
+          ? 'paypal'
+          : 'crypto');
 
     // Verify the platform may act for this merchant — not merely that the
     // merchant exists.
@@ -198,6 +238,15 @@ export async function POST(request: NextRequest) {
       cross_network: true,
     };
     if (description) baseMetadata.description = description;
+
+    // Who paid and for which property. Optional on this route: a missing or
+    // malformed value is dropped (non-strict), never a 400. Read from the top
+    // level, falling back to the same keys inside metadata.
+    const customerFields = customerMetadata({
+      ...(metadata && typeof metadata === 'object' ? metadata : {}),
+      ...(body && typeof body === 'object' ? body : {}),
+    });
+    if (customerFields.ok) Object.assign(baseMetadata, customerFields.metadata);
 
     // Stripe-style return URLs, kept on the payment so the crypto pay page
     // sends the buyer back too, not only the card rail.
@@ -273,6 +322,52 @@ export async function POST(request: NextRequest) {
             null,
           currency: blockchain,
           expires_at: result.payment.expires_at,
+        },
+        { status: 201 },
+      );
+    }
+
+    // ── PayPal branch ────────────────────────────────────────────────
+    if (method === 'paypal') {
+      const paypalBusinessId = await pickPaypalBusiness(supabase, merchant_id);
+      if (!paypalBusinessId) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Seller has not connected PayPal: PayPal payments unavailable',
+            code: 'PAYPAL_NOT_CONNECTED',
+          },
+          { status: 400 },
+        );
+      }
+      const result = await createPaypalPaymentForBusiness(supabase, {
+        businessId: paypalBusinessId,
+        amount: Math.round(amount_usd * 100) / 100,
+        currency: 'USD',
+        description: description ?? null,
+        metadata: { ...baseMetadata, payment_method: 'paypal' },
+        // The hosted PayPal page sends the payer here after capture/cancel.
+        successUrl: returnUrls.metadata.redirect_url ?? null,
+        cancelUrl: returnUrls.metadata.cancel_url ?? null,
+        customerEmail: (baseMetadata.customer_email as string | undefined) ?? null,
+        clientIp: getClientIp(request),
+      });
+      if (!result.ok) {
+        return NextResponse.json(
+          { success: false, error: result.error },
+          { status: result.status },
+        );
+      }
+      return NextResponse.json(
+        {
+          success: true,
+          payment_id: result.response.transaction_id,
+          payment_method: 'paypal',
+          checkout_url: result.response.checkout_url,
+          paypal_approve_url: result.response.approve_url,
+          paypal_order_id: result.response.order_id,
+          amount_usd: result.response.amount,
+          currency: 'USD',
         },
         { status: 201 },
       );

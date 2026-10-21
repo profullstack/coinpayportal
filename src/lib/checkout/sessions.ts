@@ -10,6 +10,8 @@ import { createPaypalPaymentForBusiness } from '@/lib/paypal/create-payment';
 import { customerMetadata, normalizeProperty } from './customer';
 import { CHECKOUT_COINS, PAYPAL_METHOD, type CheckoutMethod } from './methods';
 import { markCheckoutSessionPaidFromWebhook } from './settle';
+import { activateSubscriptionFromCheckoutSession } from '@/lib/subscriptions/activate';
+import { billingBusinessId } from '@/lib/subscriptions/plans';
 
 export { CHECKOUT_COINS, PAYPAL_METHOD };
 
@@ -408,6 +410,12 @@ export async function refreshSessionStatus(
   supabase: SupabaseClient,
   session: CheckoutSessionRow
 ): Promise<CheckoutSessionRow> {
+  if (session.status === 'paid' && session.business_id === billingBusinessId()) {
+    // A plan checkout whose grant failed on the webhook path retries here.
+    await activateSubscriptionFromCheckoutSession(supabase, session.id).catch((e) =>
+      console.error('[Checkout] subscription activation retry failed:', e)
+    );
+  }
   if (session.status !== 'open') return session;
 
   if (session.payment_id) {
@@ -417,7 +425,7 @@ export async function refreshSessionStatus(
       .eq('id', session.payment_id)
       .maybeSingle();
     if (p && ['confirmed', 'forwarding', 'forwarded', 'forwarding_failed'].includes(p.status)) {
-      await markCheckoutSessionPaidFromWebhook(supabase, { sessionId: session.id, paymentId: p.id, method: p.blockchain });
+      await markCheckoutSessionPaidFromWebhook(supabase, { sessionId: session.id, paymentId: p.id, method: p.blockchain, businessId: session.business_id });
       return (await loadSession(supabase, session.id)) ?? session;
     }
   }
@@ -428,7 +436,7 @@ export async function refreshSessionStatus(
       .eq('id', session.paypal_transaction_id)
       .maybeSingle();
     if (t && t.status === 'completed') {
-      await markCheckoutSessionPaidFromWebhook(supabase, { sessionId: session.id, paymentId: t.id, method: PAYPAL_METHOD });
+      await markCheckoutSessionPaidFromWebhook(supabase, { sessionId: session.id, paymentId: t.id, method: PAYPAL_METHOD, businessId: session.business_id });
       return (await loadSession(supabase, session.id)) ?? session;
     }
   }

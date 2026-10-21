@@ -26,7 +26,7 @@ export async function POST(
 
     const { data: invoice, error } = await supabase
       .from('invoices')
-      .select('*, businesses (id, name, merchant_id)')
+      .select('*, businesses (id, name, merchant_id), clients (id, email)')
       .eq('id', id)
       .single();
 
@@ -168,6 +168,8 @@ export async function POST(
           paypal_order_id: orderId,
           paypal_capture_id: capture.captureId,
           payer_email: capture.payerEmail,
+          invoice_number: invoice.invoice_number,
+          customer_email: invoice.clients?.email ?? null,
           amount: capture.amount ? Number(capture.amount) : Number(invoice.amount),
           currency: capture.currency || invoice.currency || 'USD',
           status: 'completed',
@@ -189,6 +191,9 @@ export async function POST(
         payment_rail: 'paypal',
         paypal_order_id: orderId,
         paypal_capture_id: capture.captureId,
+        invoice_id: invoice.id,
+        client_id: invoice.client_id ?? null,
+        customer_email: invoice.clients?.email ?? null,
       }).catch((err) => console.error('[PayPal] webhook dispatch failed', err));
     }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createInvoicePaypalOrder } from '@/lib/paypal/invoice-paypal';
+import { businessHasPaypal } from '@/lib/paypal/accounts';
 
 /**
  * POST /api/invoices/[id]/paypal/create-order
@@ -18,7 +19,7 @@ export async function POST(
 
     const { data: invoice, error } = await supabase
       .from('invoices')
-      .select('id, invoice_number, amount, currency, status, business_id, paypal_enabled, businesses (name)')
+      .select('id, invoice_number, amount, currency, status, business_id, client_id, paypal_enabled, businesses (name, merchant_id), clients (email)')
       .eq('id', id)
       .single();
 
@@ -28,7 +29,10 @@ export async function POST(
     if (!['sent', 'overdue'].includes(invoice.status)) {
       return NextResponse.json({ success: false, error: 'Invoice is not open for payment' }, { status: 400 });
     }
-    if (!invoice.paypal_enabled) {
+    // PayPal is on by default once the business has it connected, including
+    // for invoices sent before it was connected (paypal_enabled is only set at
+    // send time).
+    if (!invoice.paypal_enabled && !(await businessHasPaypal(supabase, invoice.business_id))) {
       return NextResponse.json({ success: false, error: 'PayPal is not enabled for this invoice' }, { status: 400 });
     }
 
@@ -69,9 +73,16 @@ export async function POST(
       business_id: invoice.business_id,
       invoice_id: invoice.id,
       paypal_order_id: order.orderId,
+      merchant_id: (invoice as any).businesses?.merchant_id ?? null,
+      invoice_number: invoice.invoice_number,
+      customer_email: (invoice as any).clients?.email ?? null,
       amount: Number(invoice.amount),
       currency: invoice.currency || 'USD',
-      status: 'created',
+      // 'created' is not an allowed status (paypal_transactions_status_check),
+      // so this insert failed on every invoice and no invoice could be paid
+      // with PayPal. A new, uncaptured order is 'pending'.
+      status: 'pending',
+      metadata: { invoice_id: invoice.id, client_id: (invoice as any).client_id ?? null },
     });
 
     if (bindError) {

@@ -89,8 +89,8 @@ describe('PricingPage', () => {
             success: true,
             payment: {
               id: 'pay_upgrade_123',
-              checkout_path: '/pay/pay_upgrade_123',
-              checkout_url: 'https://coinpayportal.com/pay/pay_upgrade_123',
+              checkout_path: '/checkout/cs_upgrade_123',
+              checkout_url: 'https://coinpayportal.com/checkout/cs_upgrade_123',
             },
           },
         };
@@ -114,12 +114,11 @@ describe('PricingPage', () => {
           body: JSON.stringify({
             plan_id: 'professional',
             billing_period: 'monthly',
-            blockchain: 'ETH',
           }),
         }),
         expect.any(Object)
       );
-      expect(mockPush).toHaveBeenCalledWith('/pay/pay_upgrade_123');
+      expect(mockPush).toHaveBeenCalledWith('/checkout/cs_upgrade_123');
     });
 
     expect(screen.queryByText('Complete Your Payment')).not.toBeInTheDocument();
