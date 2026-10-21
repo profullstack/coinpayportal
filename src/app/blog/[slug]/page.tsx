@@ -4,7 +4,6 @@ import { notFound } from 'next/navigation';
 import { getPostBySlug, formatBlogDate, SITE_URL } from '@/lib/blog';
 import { sanitizeBlogHtml } from '@/lib/blog-sanitize';
 import { stripDeadLinks } from '@/lib/dead-links';
-import { splitHtmlForMidAd } from '@/lib/blog-split-html';
 import AdUnit from '@/components/AdUnit';
 import { serializeJsonLd } from '@/lib/seo/json-ld';
 
@@ -46,9 +45,6 @@ export default async function BlogPostPage({ params }: RouteParams) {
   if (!post) notFound();
 
   const html = post.content_html ? stripDeadLinks(sanitizeBlogHtml(post.content_html)) : null;
-  // Null for short posts and markdown-only bodies — those render straight
-  // through with just the top unit.
-  const split = splitHtmlForMidAd(html);
 
   const ldJson = {
     '@context': 'https://schema.org',
@@ -104,21 +100,11 @@ export default async function BlogPostPage({ params }: RouteParams) {
           )}
         </header>
 
-        {/* Top unit: below the headline block, above the body. */}
-        <AdUnit className="mb-8" />
+        {/* The page's one unit: a text_link line below the headline block. */}
+        <AdUnit className="mb-3" />
 
         {html ? (
-          split ? (
-            <>
-              <div className="blog-content" dangerouslySetInnerHTML={{ __html: split.before }} />
-              {/* Mid unit: sits at a top-level block boundary near the middle,
-                  so it never breaks a list, quote or code block apart. */}
-              <AdUnit className="my-8" />
-              <div className="blog-content" dangerouslySetInnerHTML={{ __html: split.after }} />
-            </>
-          ) : (
-            <div className="blog-content" dangerouslySetInnerHTML={{ __html: html }} />
-          )
+          <div className="blog-content" dangerouslySetInnerHTML={{ __html: html }} />
         ) : post.content_markdown ? (
           <pre className="whitespace-pre-wrap text-gray-300">{post.content_markdown}</pre>
         ) : (

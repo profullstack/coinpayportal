@@ -177,25 +177,6 @@ export function HomeContent() {
         </div>
       </section>
 
-      {/* ad.network unit. An iframe rather than crawlproof.com/ad.js: ad.js
-          renders into srcdoc frames, which inherit this site's strict CSP. */}
-      <aside
-        data-ad-network="pUTEpva09JC1uuOu"
-        data-cp-ad
-        data-slot="41d2025c-d2c3-4c4c-a4b6-ccf3b1b014dc"
-        data-format="banner_300x250"
-        className="flex justify-center py-8"
-      >
-        <iframe
-          src="https://crawlproof.com/api/ads/frame?slot=41d2025c-d2c3-4c4c-a4b6-ccf3b1b014dc&format=banner_300x250"
-          width="300"
-          height="250"
-          loading="lazy"
-          style={{ border: 0 }}
-          title="Advertisement"
-        />
-      </aside>
-
       {/* Live Demo Section */}
       <section className="relative py-24 bg-slate-900/50" id="demo">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

@@ -4,11 +4,6 @@ import Link from 'next/link';
 import { listPosts, formatBlogDate, SITE_URL } from '@/lib/blog';
 import AdUnit from '@/components/AdUnit';
 
-// Drop a mid-list unit after this many posts, but only when the list is long
-// enough that the unit isn't left sitting at the foot of the page.
-const MID_AD_AFTER = 3;
-const MID_AD_MIN_POSTS = 6;
-
 export const metadata: Metadata = {
   title: 'Blog — CoinPay',
   description:
@@ -26,7 +21,6 @@ export const dynamic = 'force-dynamic';
 
 export default async function BlogIndexPage() {
   const posts = await listPosts(100);
-  const midAdAfter = posts.length >= MID_AD_MIN_POSTS ? MID_AD_AFTER : -1;
 
   return (
     <div className="container mx-auto px-4 py-12 max-w-5xl">
@@ -40,8 +34,8 @@ export default async function BlogIndexPage() {
         </div>
       </header>
 
-      {/* Top unit: above the list. */}
-      <AdUnit className="mb-8" />
+      {/* The page's one unit: a text_link line above the list. */}
+      <AdUnit className="mb-3" />
 
       {posts.length === 0 ? (
         <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-8 text-center text-gray-400">
@@ -95,13 +89,6 @@ export default async function BlogIndexPage() {
                   </div>
                 </Link>
               </li>
-              {/* Mid unit: between cards, as a plain row so it doesn't
-                  masquerade as a post. */}
-              {i + 1 === midAdAfter && (
-                <li className="list-none">
-                  <AdUnit />
-                </li>
-              )}
             </Fragment>
           ))}
         </ul>

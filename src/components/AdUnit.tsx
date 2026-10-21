@@ -10,8 +10,6 @@ const SLOT_ID =
 
 const SCRIPT_SRC = 'https://crawlproof.com/ad.js';
 
-type AdFormat = 'banner_300x250' | 'banner_728x90' | 'banner_320x50' | 'text_link';
-
 declare global {
   interface Window {
     crawlproofAds?: { scan: () => void };
@@ -19,20 +17,13 @@ declare global {
 }
 
 /**
- * A single ad container filled by crawlproof.com/ad.js.
- *
- * Omitting `format` lets the script size the unit to its container — a
- * leaderboard on desktop, a mobile banner on narrow screens. The script only
- * auto-scans once at load, so units mounted by client-side navigation have to
- * re-trigger the scan it exposes.
+ * A single low-profile ad container filled by crawlproof.com/ad.js: always the
+ * fluid 40px text_link line (it carries its own "Sponsored" mark). At most one
+ * per page, never on the home page. The script only auto-scans once at load,
+ * so units mounted by client-side navigation have to re-trigger the scan it
+ * exposes.
  */
-export default function AdUnit({
-  format,
-  className,
-}: {
-  format?: AdFormat;
-  className?: string;
-}) {
+export default function AdUnit({ className }: { className?: string }) {
   useEffect(() => {
     if (window.crawlproofAds) {
       window.crawlproofAds.scan();
@@ -46,5 +37,5 @@ export default function AdUnit({
     document.body.appendChild(s);
   }, []);
 
-  return <div data-cp-ad data-slot={SLOT_ID} data-format={format} className={className} />;
+  return <div data-cp-ad data-slot={SLOT_ID} data-format="text_link" className={className} />;
 }
