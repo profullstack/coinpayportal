@@ -41,6 +41,7 @@ import { addressesEqual } from '@/lib/x402/address';
 import { evmChainId, isV2Payment } from '@/lib/x402/v2';
 import { EVM_NETWORKS, checkSchemeForNetwork } from '@/lib/x402/networks';
 import { normalizeNanoBlockHash, verifyNanoBlock } from '@/lib/x402/nano';
+import { sanitizeX402Metadata } from '@/lib/x402/metadata';
 import {
   authoriseAgentSpend,
   recordAgentSpend,
@@ -400,6 +401,8 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { payment } = body;
+    // Optional seller annotation: which property and page this sale bought.
+    const metadata = sanitizeX402Metadata(body?.metadata);
 
     if (!payment?.payload) {
       return NextResponse.json({ error: 'Invalid payment data' }, { status: 400 });
@@ -682,6 +685,17 @@ export async function POST(request: NextRequest) {
         settled_at: result.pending ? null : new Date().toISOString(),
       })
       .eq('id', verifiedPayment.id);
+
+    // A separate write, so a missing column or a bad value can never undo the
+    // status update above (PostgREST refuses a whole UPDATE over one unknown
+    // column, and the route would not notice).
+    if (metadata) {
+      const { error: metaError } = await supabase
+        .from('x402_payments')
+        .update({ metadata })
+        .eq('id', verifiedPayment.id);
+      if (metaError) console.error('x402 settle: could not record metadata', metaError.message);
+    }
 
     return NextResponse.json({
       settled: !result.pending,

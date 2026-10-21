@@ -17,6 +17,7 @@ import { NextRequest } from 'next/server';
 
 const mockSingle = vi.fn();
 const mockEq = vi.fn();
+const mockUpdate = vi.fn();
 
 function makeQueryChain() {
   const chain: any = {};
@@ -30,7 +31,8 @@ function makeQueryChain() {
   });
   chain.single = mockSingle;
   chain.maybeSingle = mockSingle;
-  chain.update = vi.fn(() => {
+  chain.update = vi.fn((values: unknown) => {
+    mockUpdate(values);
     isWrite = true;
     return chain;
   });
@@ -140,6 +142,24 @@ describe('POST /api/x402/settle — v2 (EIP-3009) proofs name their chain as CAI
     // keyed by the EIP-3009 nonce.
     expect(mockEq).toHaveBeenCalledWith('network', 'eip155:8453');
     expect(mockEq).toHaveBeenCalledWith('unique_key', NONCE);
+  });
+
+  it('records the seller metadata (sanitized) in its own write', async () => {
+    const res = await POST(
+      makeRequest({
+        payment: v2Payment(),
+        metadata: { property: 'example.com', resource_path: '/a/b', ip: '1.2.3.4', ip_hash: 'h1' },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledWith({
+      metadata: { property: 'example.com', resource_path: '/a/b', ip_hash: 'h1' },
+    });
+  });
+
+  it('writes no metadata when none is sent', async () => {
+    await POST(makeRequest({ payment: v2Payment() }));
+    expect(mockUpdate.mock.calls.some(([v]) => v && typeof v === 'object' && 'metadata' in v)).toBe(false);
   });
 
   it('still refuses a v2 proof whose scheme is not exact', async () => {
