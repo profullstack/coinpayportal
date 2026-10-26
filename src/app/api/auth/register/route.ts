@@ -5,6 +5,14 @@ import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { checkSpamSignup } from '@/lib/auth/spam-detection';
 import { z } from 'zod';
+import {
+  COLUMNS,
+  DEFAULT_REQUIRED,
+  validateProfile,
+  saveSignupProfile,
+  type ProfileField,
+} from '@profullstack/profile';
+import { profileStore } from '@/lib/profile';
 
 /**
  * Request body schema
@@ -64,9 +72,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // The shared @profullstack/profile fields. The signup page always sends
+    // them, so first and last name are required there; an API/SDK caller that
+    // sends none of them is not blocked and can fill them in later through
+    // /api/v1/me/profile.
+    const raw = body as Record<string, unknown>;
+    const profileInput: Record<string, unknown> = Object.fromEntries(
+      COLUMNS.map((c) => [c, raw?.[c]])
+    );
+    profileInput.email = validation.data.email;
+    const sentProfile = COLUMNS.some((c) => c !== 'email' && raw?.[c] !== undefined);
+    const profileRequired: readonly ProfileField[] = sentProfile ? DEFAULT_REQUIRED : ['email'];
+    const profileCheck = validateProfile(profileInput, { required: profileRequired });
+    if (!profileCheck.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: Object.values(profileCheck.errors)[0] ?? 'Some fields need fixing.',
+          errors: profileCheck.errors,
+        },
+        { status: 400 }
+      );
+    }
+    const profileName = [profileCheck.profile.first_name, profileCheck.profile.last_name]
+      .filter(Boolean)
+      .join(' ');
+    const registerInput = {
+      ...validation.data,
+      name: validation.data.name || profileName || undefined,
+    };
+
     // Spam detection — block bots without CAPTCHAs
     const spamCheck = checkSpamSignup({
-      name: validation.data.name,
+      name: registerInput.name,
       email: validation.data.email,
       honeypot: body.website, // hidden honeypot field
       registrationStartMs: body._ts ? Number(body._ts) : undefined,
@@ -111,7 +149,7 @@ export async function POST(request: NextRequest) {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Register merchant
-    const result = await register(supabase, validation.data);
+    const result = await register(supabase, registerInput);
 
     if (!result.success) {
       return NextResponse.json(
@@ -121,6 +159,19 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       );
+    }
+
+    // The account exists; a failed profile save never fails the signup (the
+    // fields can be filled in later from settings).
+    if (result.merchant) {
+      try {
+        await saveSignupProfile(profileStore(supabase), result.merchant.id, profileInput, {
+          email: result.merchant.email,
+          required: profileRequired,
+        });
+      } catch (profileErr) {
+        console.error('[register] Profile save failed:', profileErr);
+      }
     }
 
     // Return success response

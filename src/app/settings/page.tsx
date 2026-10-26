@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { authFetch } from '@/lib/auth/client';
+import { ContactDetailsForm } from '@/components/settings/ContactDetailsForm';
 
 interface Settings {
   notifications_enabled: boolean;
@@ -124,6 +125,8 @@ export default function SettingsPage() {
 
         {/* Settings Card */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+          <ContactDetailsForm />
+
           {/* Notifications Section */}
           <div className="p-6 border-b border-gray-200 dark:border-gray-700">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">

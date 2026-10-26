@@ -51,6 +51,7 @@
     "@profullstack/emailer": "^1.0.1",
     "@profullstack/footer": "latest",
     "@profullstack/footprint": "workspace:*",
+    "@profullstack/profile": "0.1.3",
     "@profullstack/referrals": "^0.1.0",
     "@profullstack/stack": "^0.1.3",
     "@profullstack/throttle": "^0.3.3",

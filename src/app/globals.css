@@ -181,3 +181,22 @@ html {
 .blog-content th { background: rgba(168, 85, 247, 0.08); color: rgb(255 255 255); }
 .blog-content figure { margin: 1.5rem 0; }
 .blog-content figcaption { text-align: center; color: rgb(148 163 184); font-size: 0.875rem; margin-top: 0.5rem; }
+/* @profullstack/profile fields: same look as the signup form's inputs. */
+.pfs-profile { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 1.5rem; }
+.pfs-profile__row label { display: block; margin-bottom: 0.5rem; font-size: 0.875rem; font-weight: 500; color: #374151; }
+.pfs-profile__row input {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  color: #111827;
+  background: #fff;
+}
+.pfs-profile__row input::placeholder { color: #9ca3af; }
+.pfs-profile__row input:focus { outline: none; border-color: transparent; box-shadow: 0 0 0 2px #a855f7; }
+.pfs-profile__row input[aria-invalid="true"] { border-color: #f87171; }
+.pfs-profile__optional { color: #6b7280; font-weight: 400; }
+.pfs-profile__error { margin-top: 0.25rem; font-size: 0.75rem; color: #dc2626; }
+.dark .pfs-profile__row label { color: #d1d5db; }
+.dark .pfs-profile__row input { background: #374151; border-color: #4b5563; color: #fff; }
+.dark .pfs-profile__optional { color: #9ca3af; }

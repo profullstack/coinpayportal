@@ -3,6 +3,17 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { ProfileFields } from '@profullstack/profile/react';
+import type { ProfileField } from '@profullstack/profile';
+
+// The shared profile fields; email has its own input below.
+const PROFILE_FIELDS: ProfileField[] = [
+  'first_name',
+  'last_name',
+  'company_domain',
+  'job_title',
+  'linkedin_url',
+];
 
 export default function SignupPage() {
   const router = useRouter();
@@ -10,8 +21,9 @@ export default function SignupPage() {
     email: '',
     password: '',
     confirmPassword: '',
-    name: '',
   });
+  const [profile, setProfile] = useState<Partial<Record<ProfileField, string | null>>>({});
+  const [profileErrors, setProfileErrors] = useState<Partial<Record<ProfileField, string>>>({});
   // Stamped on mount rather than during render. Calling Date.now() in the render
   // body is impure — it would produce a different value on every re-render and,
   // being a client component, a different one on the server than in the browser.
@@ -45,6 +57,8 @@ export default function SignupPage() {
       !validateEmail(formData.email) &&
       !validatePassword(formData.password) &&
       formData.password === formData.confirmPassword &&
+      Boolean(profile.first_name?.trim()) &&
+      Boolean(profile.last_name?.trim()) &&
       formData.password.length > 0
     );
   };
@@ -67,6 +81,7 @@ export default function SignupPage() {
       return;
     }
     setFieldErrors({});
+    setProfileErrors({});
 
     setLoading(true);
 
@@ -79,7 +94,7 @@ export default function SignupPage() {
         body: JSON.stringify({
           email: formData.email,
           password: formData.password,
-          name: formData.name,
+          ...Object.fromEntries(PROFILE_FIELDS.map((k) => [k, profile[k] ?? ''])),
           website: honeypot,
           _ts: formLoadedAt.current,
         }),
@@ -88,6 +103,7 @@ export default function SignupPage() {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
+        setProfileErrors(data.errors ?? {});
         setError(data.error || 'Registration failed');
         setLoading(false);
         return;
@@ -140,24 +156,14 @@ export default function SignupPage() {
               />
             </div>
 
-            <div>
-              <label
-                htmlFor="name"
-                className="block text-sm font-medium text-gray-700 mb-2"
-              >
-                Full Name (Optional)
-              </label>
-              <input
-                id="name"
-                type="text"
-                value={formData.name}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder:text-gray-400 text-gray-900"
-                placeholder="John Doe"
-              />
-            </div>
+            <ProfileFields
+              fields={PROFILE_FIELDS}
+              idPrefix="signup-"
+              values={profile}
+              onChange={setProfile}
+              errors={profileErrors}
+              disabled={loading}
+            />
 
             <div>
               <label
