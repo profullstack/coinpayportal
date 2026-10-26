@@ -8,6 +8,12 @@ vi.mock('@/lib/rates/tatum', () => ({
   getMultipleRates: vi.fn(),
 }));
 
+// Keep the rate limiter off the network: with no reachable Supabase the
+// client retries before falling back to memory, which outlasts the test timeout.
+vi.mock('@/lib/web-wallet/rate-limit', () => ({
+  checkRateLimitAsync: vi.fn().mockResolvedValue({ allowed: true, limit: 0, remaining: 0, resetAt: 0 }),
+}));
+
 import { getExchangeRate } from '@/lib/rates/tatum';
 
 function createRequest(url: string): NextRequest {

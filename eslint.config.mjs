@@ -16,6 +16,7 @@ const eslintConfig = [
       "react-hooks/exhaustive-deps": "warn",
       "react-hooks/immutability": "warn",
       "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/purity": "warn",
       "react-hooks/rules-of-hooks": "warn",
       "@next/next/no-html-link-for-pages": "warn",
     },

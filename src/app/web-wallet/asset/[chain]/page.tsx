@@ -700,7 +700,7 @@ function SendTab({ chain, onSuccess, onSwitchToReceive }: { chain: WalletChain; 
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
   const [rateLoading, setRateLoading] = useState(false);
   const [rateError, setRateError] = useState('');
-  const debounceRef = useRef<NodeJS.Timeout>();
+  const debounceRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const chainSymbol = CHAIN_SYMBOLS[chain] || chain;
 

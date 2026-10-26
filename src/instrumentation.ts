@@ -35,7 +35,7 @@ function registerPostHogLogger() {
       'service.name': serviceName,
       'deployment.environment': process.env.RAILWAY_ENVIRONMENT_NAME || process.env.NODE_ENV || 'unknown',
     }),
-    processors: [new SimpleLogRecordProcessor(exporter)],
+    processors: [new SimpleLogRecordProcessor({ exporter })],
   });
 
   (globalThis as any).__posthogLogger = loggerProvider.getLogger(serviceName);

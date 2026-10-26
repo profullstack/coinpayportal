@@ -19,12 +19,19 @@ overrides:
   # dies with "is not a function", taking eslint down with it. A range like
   # '>=2.1.4' does not help — pnpm resolves it to the highest match, which is v5
   # again. 2.1.4 carries the DoS fix and keeps the export shape consumers expect.
-  brace-expansion: '2.1.4'
+  # Scoped per major (2026-10-26): minimatch 10.2+ imports the named `expand`
+  # export that only brace-expansion 5 has, so one global pin breaks either
+  # minimatch 9 or minimatch 10. The upper bound on the right keeps each line
+  # inside its own major (a bare floor resolves to the newest major).
+  'brace-expansion@<2.0.0': '>=1.1.20 <2.0.0'
+  'brace-expansion@>=2.0.0 <3.0.0': '>=2.1.6 <3.0.0'
+  'brace-expansion@>=4.0.0': '>=5.0.11'
   picomatch: '>=4.0.4'
   flatted: '>=3.4.2'
   h3: '>=1.15.11'
   socket.io-parser: '>=4.2.7'
-  minimatch: '>=9.0.9'
+  'minimatch@>=9.0.0 <10.0.0': '>=9.0.9 <10.0.0'
+  'minimatch@>=10.0.0': '>=10.2.6'
   rollup: '>=4.60.1'
   bn.js: '>=5.2.3'
   ajv: '6.14.0'

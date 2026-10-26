@@ -183,7 +183,7 @@ export default function CreateEscrowPage() {
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
   const [rateLoading, setRateLoading] = useState(false);
   const [rateError, setRateError] = useState('');
-  const debounceRef = useRef<NodeJS.Timeout>();
+  const debounceRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   // Check if user is logged in and fetch their businesses
   const fetchBusinesses = useCallback(async () => {
