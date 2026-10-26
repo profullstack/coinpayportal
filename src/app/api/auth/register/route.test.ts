@@ -26,6 +26,9 @@ vi.mock('@supabase/supabase-js', () => ({
 
 import { POST } from './route';
 
+// Generated per run: meets the strength rules, never a literal in the repo.
+const PASSWORD = `Aa1-${crypto.randomUUID()}`;
+
 const req = (body: unknown) =>
   new NextRequest('https://coinpayportal.com/api/auth/register', {
     method: 'POST',
@@ -49,7 +52,7 @@ describe('POST /api/auth/register profile fields', () => {
     const res = await POST(
       req({
         email: 'Ada@Acme.com',
-        password: 'Goodpass1',
+        password: PASSWORD,
         first_name: 'Ada',
         last_name: 'Lovelace',
         company_domain: 'https://www.acme.com/about',
@@ -79,7 +82,7 @@ describe('POST /api/auth/register profile fields', () => {
 
   it('refuses a form signup without first and last name before creating anything', async () => {
     const res = await POST(
-      req({ email: 'ada@example.com', password: 'Goodpass1', first_name: '', last_name: '', job_title: '' })
+      req({ email: 'ada@example.com', password: PASSWORD, first_name: '', last_name: '', job_title: '' })
     );
     expect(res.status).toBe(400);
     const body = await res.json();
@@ -88,7 +91,7 @@ describe('POST /api/auth/register profile fields', () => {
   });
 
   it('does not block an API signup that sends no profile fields', async () => {
-    const res = await POST(req({ email: 'ada@example.com', password: 'Goodpass1' }));
+    const res = await POST(req({ email: 'ada@example.com', password: PASSWORD }));
     expect(res.status).toBe(201);
     expect(register).toHaveBeenCalled();
   });
