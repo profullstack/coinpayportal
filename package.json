@@ -92,7 +92,7 @@
     "tweetnacl": "^1.0.3",
     "viem": "^2.40.3",
     "xrpl": "^4.6.0",
-    "zod": "^4.6.6"
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
