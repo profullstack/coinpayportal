@@ -151,7 +151,7 @@ client_secret=cps_xxxxxxxxxxxx...`}
   "sub": "user-uuid-123",
   "name": "Alice Merchant",
   "email": "alice@example.com",
-  "email_verified": true,
+  "email_verified": false,
   "wallets": [
     { "address": "bc1q...", "chain": "BTC", "label": "Main" },
     { "address": "0x1234...", "chain": "ETH", "label": "Acme Inc", "business_id": "biz-uuid" }
@@ -167,6 +167,17 @@ client_secret=cps_xxxxxxxxxxxx...`}
           inactive wallets and per-business filtering — call{' '}
           <code className="text-gray-300">GET /api/wallets</code> with the same access token.
         </p>
+
+        <div className="mt-4 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+          <p className="text-yellow-300 text-sm">
+            <strong>Bind accounts to <code>sub</code>, not to <code>email</code>.</strong>{' '}
+            CoinPay does not verify email addresses, so <code>email_verified</code> is always{' '}
+            <code>false</code>: anyone can register a CoinPay account with any address. Never sign a
+            user into an existing local account, or grant admin or other privileges, because the
+            CoinPay email matches. Store the <code>sub</code> on the account and look it up by that;
+            link CoinPay to an existing account only while the user is already signed in to it.
+          </p>
+        </div>
       </ApiEndpoint>
 
       <h3 className="text-xl font-semibold text-white mt-8 mb-4">Wallets Endpoint</h3>
