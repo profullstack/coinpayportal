@@ -1,11 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('server-only', () => ({}));
-vi.mock('../supabase/server', () => ({ getSupabaseAdmin: () => ({}) }));
+const vaultRows = vi.hoisted(() => new Map<string, unknown>());
+vi.mock('../supabase/server', () => ({
+  getSupabaseAdmin: () => ({
+    from: () => {
+      const f: Record<string, string> = {};
+      const q: any = {
+        select: () => q,
+        eq: (c: string, v: string) => ((f[c] = v), q),
+        maybeSingle: async () => {
+          const r = vaultRows.get(`${f.subject_type}:${f.subject_id}`);
+          return { data: r ? { record: r } : null, error: null };
+        },
+      };
+      return q;
+    },
+  }),
+}));
 vi.mock('./files', () => ({ putObject: vi.fn(), getObject: vi.fn(), deleteObject: vi.fn() }));
 vi.mock('./audit', () => ({ auditFinance: vi.fn() }));
 
-import { openState, resetSessionKey, sealState, type SessionState } from './bank-sessions';
+import { openLegacyState, openState, resetSessionKey, sealLegacyState, sealState, type SessionState } from './bank-sessions';
+import { bytesToBase64, createVault } from '../vault/sealed-vault';
+import { lockVault, unlockVault, VaultLockedError, VaultMissingError } from '../vault/vault-service';
+import { resetUnlockStore } from '../vault/unlock-store';
 
 const state: SessionState = {
   version: 1,
@@ -15,31 +34,69 @@ const state: SessionState = {
   storage: { 'https://secure.chase.com': [['deviceId', 'abc']] },
 };
 
-describe('sealed bank sessions', () => {
-  beforeEach(() => {
-    process.env.FINANCES_BANK_SESSION_KEY = 'a'.repeat(64);
-    resetSessionKey();
-  });
+let dek: Uint8Array;
+let m = 0;
+let merchant = '';
 
-  it('round-trips and never contains the cookie in the clear', () => {
-    const sealed = sealState(state, 'merchant-1', 'chase');
+beforeEach(async () => {
+  process.env.FINANCES_BANK_SESSION_KEY = 'a'.repeat(64);
+  resetSessionKey();
+  resetUnlockStore();
+  merchant = `merchant-${++m}`;
+  const v = await createVault('correct horse battery', 'merchant', merchant);
+  vaultRows.set(`merchant:${merchant}`, v.record);
+  dek = v.dek;
+  await unlockVault('merchant', merchant, bytesToBase64(dek), 3600_000);
+});
+
+describe('bank sessions sealed to the merchant vault', () => {
+  it('round-trips and never contains the cookie in the clear', async () => {
+    const sealed = await sealState(state, merchant, 'chase');
     expect(sealed.toString('latin1')).not.toContain('secret-session');
-    expect(openState(sealed, 'merchant-1', 'chase')).toEqual(state);
+    expect(await openState(sealed, merchant, 'chase')).toEqual(state);
   });
 
-  it('will not open for another merchant or bank (bound by AAD)', () => {
-    const sealed = sealState(state, 'merchant-1', 'chase');
-    expect(() => openState(sealed, 'merchant-2', 'chase')).toThrow();
-    expect(() => openState(sealed, 'merchant-1', 'citi')).toThrow();
+  it('will not open for another bank (bound by AAD)', async () => {
+    const sealed = await sealState(state, merchant, 'chase');
+    await expect(openState(sealed, merchant, 'citi')).rejects.toThrow();
   });
 
-  it('will not open under another key, or once tampered with', () => {
-    const sealed = sealState(state, 'merchant-1', 'chase');
+  it('seals while locked, opens only while unlocked', async () => {
+    lockVault('merchant', merchant);
+    const sealed = await sealState(state, merchant, 'chase');
+    await expect(openState(sealed, merchant, 'chase')).rejects.toBeInstanceOf(VaultLockedError);
+    await unlockVault('merchant', merchant, bytesToBase64(dek), 3600_000);
+    expect(await openState(sealed, merchant, 'chase')).toEqual(state);
+  });
+
+  it('the server key alone opens nothing (no env fallback)', async () => {
+    const sealed = await sealState(state, merchant, 'chase');
+    resetUnlockStore(); // a restart
+    await expect(openState(sealed, merchant, 'chase')).rejects.toBeInstanceOf(VaultLockedError);
+  });
+
+  it('a merchant without a vault cannot save a session', async () => {
+    await expect(sealState(state, 'no-vault', 'chase')).rejects.toBeInstanceOf(VaultMissingError);
+  });
+});
+
+describe('legacy (CPBS1) sessions', () => {
+  it('open only while unlocked', async () => {
+    const legacy = sealLegacyState(state, merchant, 'chase');
+    expect(await openState(legacy, merchant, 'chase')).toEqual(state);
+    lockVault('merchant', merchant);
+    await expect(openState(legacy, merchant, 'chase')).rejects.toBeInstanceOf(VaultLockedError);
+  });
+
+  it('stay bound to merchant, bank and key, and detect tampering', () => {
+    const sealed = sealLegacyState(state, 'merchant-1', 'chase');
+    expect(openLegacyState(sealed, 'merchant-1', 'chase')).toEqual(state);
+    expect(() => openLegacyState(sealed, 'merchant-2', 'chase')).toThrow();
     const tampered = Buffer.from(sealed);
     tampered[tampered.length - 1] ^= 1;
-    expect(() => openState(tampered, 'merchant-1', 'chase')).toThrow();
+    expect(() => openLegacyState(tampered, 'merchant-1', 'chase')).toThrow();
     process.env.FINANCES_BANK_SESSION_KEY = 'b'.repeat(64);
     resetSessionKey();
-    expect(() => openState(sealed, 'merchant-1', 'chase')).toThrow();
+    expect(() => openLegacyState(sealed, 'merchant-1', 'chase')).toThrow();
   });
 });

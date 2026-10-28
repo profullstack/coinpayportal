@@ -4,6 +4,9 @@ import { getSupabaseAdmin } from '../supabase/server';
 import { requireEncryptionKey } from '../crypto/require-key';
 import { putObject, getObject, deleteObject } from './files';
 import { auditFinance } from './audit';
+import { legacyKeyMigrationEnabled } from '../crypto/legacy-migration';
+import { isSealedBinary } from '../vault/sealed-vault';
+import { hasVault, merchantUnlocked, openBinaryFor, sealBinaryFor, VaultLockedError, VaultMissingError } from '../vault/vault-service';
 
 /**
  * A bank session CoinPay keeps for a merchant, the way an aggregator keeps a
@@ -12,10 +15,13 @@ import { auditFinance } from './audit';
  * password. Plaid keeps an access token per Item; this keeps the browser
  * state the bank itself uses to recognise a returning device.
  *
- * Two layers of encryption: the state is sealed with a key used for nothing
- * else (FINANCES_BANK_SESSION_KEY, or HKDF over ENCRYPTION_KEY with its own
- * label), then stored through the files volume, which seals it again with the
- * document key. A leaked statement key alone opens no bank session.
+ * Sealed to the merchant's secrets vault (2026-10-28): the state is sealed to
+ * the vault's public key, so only the merchant's unlock opens it, then stored
+ * through the files volume, which encrypts it again with the document key.
+ * Keep-alive and statement fetches therefore run only while the merchant is
+ * unlocked. Legacy objects (CPBS1, under FINANCES_BANK_SESSION_KEY or HKDF
+ * over ENCRYPTION_KEY) still open while unlocked and LEGACY_KEY_MIGRATION is
+ * on, and are re-sealed on the next save or by the vault's legacy migration.
  */
 
 export interface SavedCookie {
@@ -110,8 +116,31 @@ export function resetSessionKey(): void {
   cachedKey = null;
 }
 
-/** Bound to the merchant and bank: a sealed blob moved to another row will not open. */
-export function sealState(state: SessionState, merchantId: string, institutionKey: string): Buffer {
+function sessionAad(merchantId: string, institutionKey: string): string {
+  return `finance_bank_sessions:${merchantId}:${institutionKey}`;
+}
+
+/** Seal a session to the merchant's vault. Bound to the merchant and bank. */
+export async function sealState(state: SessionState, merchantId: string, institutionKey: string): Promise<Buffer> {
+  const sealed = await sealBinaryFor('merchant', merchantId, Buffer.from(JSON.stringify(state), 'utf8'), sessionAad(merchantId, institutionKey));
+  return Buffer.from(sealed);
+}
+
+/** Open a stored session: vault-sealed (needs the merchant's unlock) or legacy CPBS1. */
+export async function openState(sealed: Buffer, merchantId: string, institutionKey: string): Promise<SessionState> {
+  if (isSealedBinary(sealed)) {
+    const plain = await openBinaryFor('merchant', merchantId, sealed, sessionAad(merchantId, institutionKey));
+    return JSON.parse(Buffer.from(plain).toString('utf8')) as SessionState;
+  }
+  // Legacy: same rule as every merchant secret, it opens only while unlocked.
+  if (!(await hasVault('merchant', merchantId))) throw new VaultMissingError('merchant');
+  if (!merchantUnlocked(merchantId)) throw new VaultLockedError('merchant');
+  if (!legacyKeyMigrationEnabled()) throw new Error('This bank session predates the secrets vault; sign in to the bank again');
+  return openLegacyState(sealed, merchantId, institutionKey);
+}
+
+/** Legacy (CPBS1) sealing, kept only to read and migrate old objects and for tests. */
+export function sealLegacyState(state: SessionState, merchantId: string, institutionKey: string): Buffer {
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', sessionKey(), iv);
   cipher.setAAD(Buffer.from(`${merchantId}:${institutionKey}`));
@@ -119,7 +148,7 @@ export function sealState(state: SessionState, merchantId: string, institutionKe
   return Buffer.concat([MAGIC, iv, cipher.getAuthTag(), body]);
 }
 
-export function openState(sealed: Buffer, merchantId: string, institutionKey: string): SessionState {
+export function openLegacyState(sealed: Buffer, merchantId: string, institutionKey: string): SessionState {
   if (!sealed.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error('Not a sealed bank session');
   const iv = sealed.subarray(MAGIC.length, MAGIC.length + 12);
   const tag = sealed.subarray(MAGIC.length + 12, MAGIC.length + 28);
@@ -295,7 +324,7 @@ export async function saveSession(params: {
 }): Promise<BankSessionRow> {
   const supabase = getSupabaseAdmin();
   const existing = await getBankSession(params.access.id, params.institutionKey);
-  const stored = await putObject('bank-sessions', params.access.id, sealState(params.state, params.access.id, params.institutionKey));
+  const stored = await putObject('bank-sessions', params.access.id, await sealState(params.state, params.access.id, params.institutionKey));
   const now = new Date().toISOString();
   const patch: Record<string, unknown> = {
     merchant_id: params.access.id,

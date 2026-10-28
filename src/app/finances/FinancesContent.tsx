@@ -429,6 +429,12 @@ export default function FinancesContent({ focus = null }: { focus?: 'reports' | 
           {connection.last_sync_status === 'partial' && (
             <span className="text-amber-400"> · some institutions reported errors</span>
           )}
+          {connection.last_sync_status === 'locked' && (
+            <span className="text-amber-400">
+              {' '}· sync paused: your bank credentials are sealed.{' '}
+              <Link href="/dashboard/vault" className="underline">Unlock your secrets vault</Link> to resume.
+            </span>
+          )}
         </p>
       )}
 

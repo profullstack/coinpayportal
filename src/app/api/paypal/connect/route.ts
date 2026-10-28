@@ -3,7 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveMerchant } from '@/lib/auth/merchant';
 import { verifyBusinessAccess } from '@/lib/wallets/supported-coins';
 import { getPaypalAccessToken, type PaypalEnvironment } from '@/lib/paypal/client';
-import { encryptPaypalSecret } from '@/lib/paypal/accounts';
+import { sealPaypalSecret } from '@/lib/paypal/accounts';
+import { vaultErrorBody } from '@/lib/vault/vault-service';
 
 function getSupabase() {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -77,6 +78,17 @@ export async function POST(request: NextRequest) {
       .eq('id', businessId)
       .single();
 
+    // Sealed to the business owner's secrets vault: REST calls with it work
+    // only while they are unlocked (423 / partner fallback otherwise).
+    let sealedSecret: string;
+    try {
+      sealedSecret = await sealPaypalSecret(clientSecret, businessId);
+    } catch (err) {
+      const v = vaultErrorBody(err);
+      if (v) return NextResponse.json(v.body, { status: v.status });
+      throw err;
+    }
+
     const { error: upsertError } = await supabase
       .from('paypal_accounts')
       .upsert(
@@ -84,7 +96,8 @@ export async function POST(request: NextRequest) {
           merchant_id: business?.merchant_id ?? authResult.merchantId,
           business_id: businessId,
           paypal_client_id: clientId,
-          paypal_client_secret_encrypted: encryptPaypalSecret(clientSecret, businessId),
+          paypal_client_secret_encrypted: sealedSecret,
+          seal_version: 2,
           environment,
           email,
           connected: true,

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireFinanceAccess } from '@/lib/finances/access';
 import { listConnections, createConnection } from '@/lib/finances/sync';
+import { hasVault, VaultMissingError } from '@/lib/vault/vault-service';
 import { claimSetupToken, redactAccessUrl, ClaimError, decodeSetupToken, assertAllowedProviderUrl } from '@/lib/finances/simplefin';
 import { isPlaidEnabled } from '@/lib/finances/provider';
-import { requireEncryptionKey } from '@/lib/crypto/require-key';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { auditFinance, findReceipt } from '@/lib/finances/audit';
 import { idempotencyKeyFrom } from '@/lib/finances/api';
@@ -71,11 +71,17 @@ export async function POST(req: NextRequest) {
   const label = typeof body.label === 'string' ? body.label : null;
 
   // --- preflight: nothing here has spent the token ---------------------------
+  // The credential is sealed to the merchant's secrets vault, so the vault
+  // must exist before the single-use token is spent. Loading it here also
+  // warms the public key the seal needs.
   try {
-    requireEncryptionKey('finance connection storage');
+    if (!(await hasVault('merchant', guard.id))) {
+      const missing = new VaultMissingError('merchant');
+      return NextResponse.json({ error: `${missing.message}. The token was not used.`, code: missing.code }, { status: 423 });
+    }
   } catch {
     return NextResponse.json(
-      { error: 'Encrypted storage is not configured; the token was not used', code: 'storage_error' },
+      { error: 'Encrypted storage is unavailable; the token was not used', code: 'storage_error' },
       { status: 503 },
     );
   }

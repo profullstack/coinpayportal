@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isVaultError } from '../vault/vault-service';
 import { PeriodError } from './periods';
 import { BudgetExhaustedError } from './budget';
 import { JobConflictError } from './jobs';
@@ -14,6 +15,8 @@ import { JobConflictError } from './jobs';
  */
 
 export type FinanceErrorCode =
+  | 'vault_locked'
+  | 'vault_missing'
   | 'invalid_request'
   | 'invalid_period'
   | 'invalid_timezone'
@@ -91,6 +94,7 @@ export function financeErrorFromException(err: unknown, fallback = 'Request fail
     return financeError('local_budget_exhausted', err.message, 429, { retryable: true, retryAfter: err.nextAvailableAt });
   }
   if (err instanceof JobConflictError) return financeError('idempotency_conflict', err.message, 409);
+  if (isVaultError(err)) return financeError(err.code, err.message, err.status);
   const code = (err as { code?: string } | null)?.code;
   const message = err instanceof Error ? err.message : fallback;
   if (code === 'provider_reconnect_required') return financeError(code, message, 409);

@@ -1,25 +1,59 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { encrypt, decrypt, deriveKey } from '@/lib/crypto/encryption';
+import { decrypt, deriveKey } from '@/lib/crypto/encryption';
 import { getEncryptionKey } from '@/lib/secrets';
 import type { PaypalCallContext, PaypalCredentials, PaypalEnvironment } from './client';
 import { getPaypalPlatformConfig } from './platform';
+import { openMerchantSecret, sealForMerchant } from '@/lib/vault/merchant-secret';
+import { isVaultError, merchantIdForBusiness, VaultMissingError } from '@/lib/vault/vault-service';
 
 /**
- * The PayPal client secret is encrypted at rest with a per-business derived key
- * so a leaked ENCRYPTION_KEY alone (without the business id) can't decrypt it,
- * mirroring how business webhook secrets are handled.
+ * The PayPal client secret of a self-serve business is sealed to the business
+ * owner's secrets vault (2026-10-28). PayPal REST calls with it (checkout,
+ * capture, refunds, balance) work only while the owner has unlocked; while
+ * locked, `resolvePaypalContext` falls back to partner onboarding when the
+ * business has it, and otherwise answers 423 "PayPal locked".
+ *
+ * Legacy rows (encrypted under a per-business key derived from
+ * ENCRYPTION_KEY) open only while unlocked and are re-sealed on that use.
  */
-function secretKeyFor(businessId: string): string {
+function legacyKeyFor(businessId: string): string {
   return deriveKey(getEncryptionKey(), businessId);
 }
 
-export function encryptPaypalSecret(secret: string, businessId: string): string {
-  return encrypt(secret, secretKeyFor(businessId));
+function paypalSecretAad(businessId: string): string {
+  return `paypal_accounts:${businessId}:client_secret`;
 }
 
-export function decryptPaypalSecret(ciphertext: string, businessId: string): string {
-  return decrypt(ciphertext, secretKeyFor(businessId));
+/** Legacy decryption, only for migration. */
+export function decryptLegacyPaypalSecret(ciphertext: string, businessId: string): string {
+  return decrypt(ciphertext, legacyKeyFor(businessId));
 }
+
+/** Seal a client secret to the business owner's vault (works while locked). */
+export async function sealPaypalSecret(secret: string, businessId: string): Promise<string> {
+  const merchantId = await merchantIdForBusiness(businessId);
+  if (!merchantId) throw new Error('Business not found');
+  return sealForMerchant(merchantId, secret, paypalSecretAad(businessId));
+}
+
+/** Open a stored client secret. Throws VaultLockedError / VaultMissingError when the owner has not unlocked. */
+export async function openPaypalSecret(supabase: SupabaseClient, businessId: string, stored: string): Promise<string> {
+  const merchantId = await merchantIdForBusiness(businessId);
+  if (!merchantId) throw new VaultMissingError('merchant');
+  return openMerchantSecret({
+    merchantId,
+    stored,
+    aad: paypalSecretAad(businessId),
+    legacyDecrypt: (v) => decryptLegacyPaypalSecret(v, businessId),
+    persist: (sealed) =>
+      Promise.resolve(
+        supabase.from('paypal_accounts').update({ paypal_client_secret_encrypted: sealed, seal_version: 2 }).eq('business_id', businessId),
+      ),
+  });
+}
+
+export const PAYPAL_LOCKED_MESSAGE =
+  'PayPal locked: the merchant must unlock their secrets vault before PayPal payments can be taken';
 
 /**
  * Resolve a business's connected PayPal credentials (with the secret decrypted),
@@ -44,9 +78,16 @@ export async function getBusinessPaypalCredentials(
     return null;
   }
 
+  let clientSecret: string;
+  try {
+    clientSecret = await openPaypalSecret(supabase, businessId, account.paypal_client_secret_encrypted);
+  } catch (err) {
+    if (isVaultError(err)) return null; // locked: callers already treat null as "not available"
+    throw err;
+  }
   return {
     clientId: account.paypal_client_id,
-    clientSecret: decryptPaypalSecret(account.paypal_client_secret_encrypted, businessId),
+    clientSecret,
     environment: (account.environment as PaypalEnvironment) || 'live',
   };
 }
@@ -102,8 +143,10 @@ export interface PaypalContext {
 
 export interface PaypalContextError {
   error: string;
-  /** 400 for "not connected", 409 for "connected but cannot take money yet". */
+  /** 400 for "not connected", 409 for "connected but cannot take money yet", 423 for "PayPal locked". */
   status: number;
+  /** 'paypal_locked' when the owner's secrets vault is locked. */
+  code?: string;
 }
 
 /**
@@ -193,11 +236,35 @@ export async function resolvePaypalContext(
     return { error: 'Stored PayPal credentials are incomplete', status: 409 };
   }
 
+  let clientSecret: string;
+  try {
+    clientSecret = await openPaypalSecret(supabase, businessId, account.paypal_client_secret_encrypted);
+  } catch (err) {
+    if (!isVaultError(err)) throw err;
+    // Locked. A business that also finished partner onboarding can still be
+    // paid through the platform's credentials; otherwise PayPal is locked.
+    const config = getPaypalPlatformConfig();
+    if (config && account.merchant_id_in_paypal && account.payments_receivable) {
+      return {
+        mode: 'partner',
+        creds: { clientId: config.clientId, clientSecret: config.clientSecret, environment: config.environment },
+        callContext: { authAssertionMerchantId: account.merchant_id_in_paypal, bnCode: config.bnCode },
+        payeeMerchantId: account.merchant_id_in_paypal,
+        platformFeePayeeMerchantId: config.partnerMerchantId,
+        supportsPlatformFee: true,
+        paymentsReceivable: true,
+        merchantIdInPaypal: account.merchant_id_in_paypal,
+        environment: config.environment,
+      };
+    }
+    return { error: PAYPAL_LOCKED_MESSAGE, status: 423, code: 'paypal_locked' };
+  }
+
   return {
     mode: 'self_serve',
     creds: {
       clientId: account.paypal_client_id!,
-      clientSecret: decryptPaypalSecret(account.paypal_client_secret_encrypted, businessId),
+      clientSecret,
       environment,
     },
     callContext: {},

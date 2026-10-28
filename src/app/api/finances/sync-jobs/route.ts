@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireFinanceAccess } from '@/lib/finances/access';
 import { createBackfillJobs, createRefreshJob, toPublicJob } from '@/lib/finances/jobs';
+import { merchantUnlocked, VaultLockedError } from '@/lib/vault/vault-service';
 import { resolveFinanceTimezone } from '@/lib/finances/settings';
 import { financeError, financeErrorFromException, financeJson, idempotencyKeyFrom, isUuid, readJsonBody } from '@/lib/finances/api';
 import { auditFinance } from '@/lib/finances/audit';
@@ -35,6 +36,12 @@ export async function POST(req: NextRequest) {
   if (connectionId && !isUuid(connectionId)) return financeError('invalid_request', 'connectionId must be a uuid', 400);
 
   try {
+    // Every sync opens the bank credential, which is sealed to the merchant's
+    // vault: say so up front instead of queueing a job that cannot run.
+    if (!merchantUnlocked(guard.id)) {
+      const locked = new VaultLockedError('merchant');
+      return financeError(locked.code, locked.message, 423);
+    }
     if (kind === 'refresh') {
       if (!connectionId) return financeError('invalid_request', 'A refresh needs a connectionId', 400);
       const parsedDays = Number.parseInt(String(body.days ?? ''), 10);

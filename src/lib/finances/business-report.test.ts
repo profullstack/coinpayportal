@@ -226,6 +226,32 @@ describe('one-click off link', () => {
 });
 
 describe('Connect CrawlProof', () => {
+  // The token is sealed to the merchant's secrets vault (2026-10-28): both
+  // merchants have one, A is unlocked.
+  const vaults: Record<string, { record: unknown; dek: Uint8Array }> = {};
+  beforeEach(async () => {
+    const sv = await import('../vault/sealed-vault');
+    const svc = await import('../vault/vault-service');
+    const { resetUnlockStore } = await import('../vault/unlock-store');
+    resetUnlockStore();
+    for (const m of [A, B]) {
+      vaults[m] ??= await sv.createVault('correct horse battery', 'merchant', m);
+      (db.tables.secret_vaults ??= []).push({ subject_type: 'merchant', subject_id: m, record: vaults[m].record });
+    }
+    await svc.unlockVault('merchant', A, sv.bytesToBase64(vaults[A].dek), 3600_000);
+  });
+
+  it('while locked the report section is skipped with a locked status, and the token is never read', async () => {
+    await cp.connectCrawlProof(A, TOKEN_A, fakeCrawlProof());
+    const svc = await import('../vault/vault-service');
+    svc.lockVault('merchant', A);
+    calls.length = 0;
+    expect(await cp.loadCrawlProofForMerchant(A, '1w', fakeCrawlProof())).toBeNull();
+    expect(calls).toEqual([]);
+    expect((await cp.getCrawlProofStatus(A)).lastError).toMatch(/^locked:/);
+    expect(db.tables.merchant_crawlproof_connections[0].token_encrypted).toMatch(/^cpv1\./);
+  });
+
   it('refuses anything that is not a crp_ token, and full-access tokens', async () => {
     await expect(cp.connectCrawlProof(A, 'hunter2', fakeCrawlProof())).rejects.toMatchObject({ code: 'invalid_request' });
     await expect(cp.connectCrawlProof(A, TOKEN_A, fakeCrawlProof({ scope: null }))).rejects.toMatchObject({ code: 'crawlproof_token_not_read_only' });

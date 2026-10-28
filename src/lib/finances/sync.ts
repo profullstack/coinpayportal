@@ -1,8 +1,10 @@
 import 'server-only';
 import { createHash } from 'crypto';
 import { getSupabaseAdmin } from '../supabase/server';
-import { encrypt, decrypt } from '../crypto/encryption';
+import { decrypt } from '../crypto/encryption';
 import { requireEncryptionKey } from '../crypto/require-key';
+import { openMerchantSecret, sealForMerchant } from '../vault/merchant-secret';
+import { isSealed, isVaultError, merchantUnlocked, openForMerchant } from '../vault/vault-service';
 import {
   collectProviderErrors,
   parseAmount,
@@ -156,14 +158,18 @@ export async function createConnection(params: {
   label?: string | null;
   protocolVersion?: SimpleFinProtocolVersion;
 }): Promise<FinanceConnectionRow> {
-  // Reject a malformed URL before it is encrypted and becomes hard to inspect.
+  // Reject a malformed URL before it is sealed and becomes hard to inspect.
   parseAccessUrl(params.accessUrl);
 
-  const key = requireEncryptionKey('finance connection storage');
+  // Sealed to the merchant's secrets vault (2026-10-28): only their unlock can
+  // open it. Needs the vault to exist (VaultMissingError otherwise), not to
+  // be unlocked: sealing uses the public key.
+  const sealed = await sealForMerchant(params.merchantId, params.accessUrl, connectionAad(params.merchantId));
   const supabase = getSupabaseAdmin();
 
   // The same access URL saved twice is one connection, not two: a second row
-  // pulls every account again and doubles every balance and total.
+  // pulls every account again and doubles every balance and total. The stored
+  // copies can only be compared while the merchant is unlocked.
   const { data: existing, error: existingError } = await supabase
     .from('finance_connections')
     .select(`${CONNECTION_COLUMNS}, access_url_encrypted`)
@@ -174,7 +180,12 @@ export async function createConnection(params: {
   for (const row of existing ?? []) {
     let stored: string | null = null;
     try {
-      stored = decrypt(row.access_url_encrypted as string, key);
+      const value = row.access_url_encrypted as string;
+      stored = isSealed(value)
+        ? merchantUnlocked(params.merchantId)
+          ? await openForMerchant(params.merchantId, value, connectionAad(params.merchantId))
+          : null
+        : decrypt(value, requireEncryptionKey('finance connection access'));
     } catch {
       continue;
     }
@@ -191,7 +202,8 @@ export async function createConnection(params: {
       provider: 'simplefin',
       merchant_id: params.merchantId,
       label: params.label?.trim() || null,
-      access_url_encrypted: encrypt(params.accessUrl, key),
+      access_url_encrypted: sealed,
+      seal_version: 2,
       protocol_version: params.protocolVersion ?? null,
       sync_minute: randomSyncMinute(),
     })
@@ -200,6 +212,11 @@ export async function createConnection(params: {
 
   if (error) throw new Error(`Could not save the SimpleFIN connection: ${error.message}`);
   return data as FinanceConnectionRow;
+}
+
+/** AAD for a finance credential: bound to its merchant. */
+export function connectionAad(merchantId: string): string {
+  return `finance_connections:${merchantId}:credential`;
 }
 
 /**
@@ -219,7 +236,7 @@ export async function createPlaidConnection(params: {
     throw new Error('Plaid returned an empty access token');
   }
 
-  const key = requireEncryptionKey('finance connection storage');
+  const sealed = await sealForMerchant(params.merchantId, params.accessToken, connectionAad(params.merchantId));
   const supabase = getSupabaseAdmin();
 
   const { data, error } = await supabase
@@ -228,7 +245,8 @@ export async function createPlaidConnection(params: {
       provider: 'plaid',
       merchant_id: params.merchantId,
       label: params.label?.trim() || null,
-      access_url_encrypted: encrypt(params.accessToken, key),
+      access_url_encrypted: sealed,
+      seal_version: 2,
       sync_minute: randomSyncMinute(),
     })
     .select(CONNECTION_COLUMNS)
@@ -312,28 +330,51 @@ async function getConnectionCredential(
   }
 
   const provider = (data.provider as string) ?? 'simplefin';
-  const key = requireEncryptionKey('finance connection access');
+  // Sealed to the merchant's vault: opens only while they are unlocked
+  // (VaultLockedError / VaultMissingError otherwise, which the job runner turns
+  // into a "locked" status instead of a retry loop). A legacy row under
+  // ENCRYPTION_KEY is re-sealed the first time it is used while unlocked.
+  let credential: string;
   try {
-    return {
-      provider,
-      credential: decrypt(data.access_url_encrypted as string, key),
-      label: (data.label as string | null) ?? null,
-      protocolVersion: (data.protocol_version as SimpleFinProtocolVersion | null) ?? undefined,
-      lifecycleState: (data.lifecycle_state as string) ?? 'active',
-    };
+    credential = await openMerchantSecret({
+      merchantId,
+      stored: data.access_url_encrypted as string,
+      aad: connectionAad(merchantId),
+      legacyDecrypt: (v) => decrypt(v, requireEncryptionKey('finance connection access')),
+      persist: (sealed) =>
+        Promise.resolve(
+          supabase
+            .from('finance_connections')
+            .update({ access_url_encrypted: sealed, seal_version: 2 })
+            .eq('id', connectionId)
+            .eq('merchant_id', merchantId),
+        ),
+    });
   } catch (err) {
-    // Both providers issue single-use link credentials, so neither can be
-    // rotated in place — the only route back is a fresh link either way.
-    const relink =
-      provider === 'plaid'
-        ? 'the connection must be linked again through Plaid'
-        : 'the connection must be re-linked with a new setup token';
-    throw new Error(
-      `Stored ${provider} credential could not be decrypted (${
-        err instanceof Error ? err.message : 'unknown error'
-      }). ENCRYPTION_KEY may have changed; ${relink}.`,
-    );
+    if (isVaultError(err)) throw err;
+    throw credentialError(provider, err);
   }
+  return {
+    provider,
+    credential,
+    label: (data.label as string | null) ?? null,
+    protocolVersion: (data.protocol_version as SimpleFinProtocolVersion | null) ?? undefined,
+    lifecycleState: (data.lifecycle_state as string) ?? 'active',
+  };
+}
+
+function credentialError(provider: string, err: unknown): Error {
+  // Both providers issue single-use link credentials, so neither can be
+  // rotated in place — the only route back is a fresh link either way.
+  const relink =
+    provider === 'plaid'
+      ? 'the connection must be linked again through Plaid'
+      : 'the connection must be re-linked with a new setup token';
+  return new Error(
+    `Stored ${provider} credential could not be opened (${
+      err instanceof Error ? err.message : 'unknown error'
+    }); ${relink}.`,
+  );
 }
 
 /**
@@ -1268,7 +1309,10 @@ async function revokeUpstream(connectionId: string, merchantId: string): Promise
   try {
     const { provider, credential } = await getConnectionCredential(connectionId, merchantId);
     if (provider === 'plaid') toRevoke = credential;
-  } catch {
+  } catch (err) {
+    // Locked: refuse, so the merchant unlocks and we can revoke at Plaid,
+    // rather than dropping the only handle on a live read feed.
+    if (isVaultError(err)) throw err;
     // Missing row, or a credential we can no longer decrypt. Neither can be
     // revoked and neither should block the merchant from clearing the row.
   }

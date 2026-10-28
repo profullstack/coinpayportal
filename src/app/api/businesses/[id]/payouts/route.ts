@@ -142,9 +142,10 @@ export async function POST(
 
     if (!result.success) {
       // If a payout record was created but failed, return 422 with the record
-      const status = result.payout ? 422 : 400;
+      // 423: the payout wallet key is sealed and the merchant has not unlocked.
+      const status = result.httpStatus ?? (result.payout ? 422 : 400);
       return NextResponse.json(
-        { success: false, error: result.error, payout: result.payout },
+        { success: false, error: result.error, code: result.code, payout: result.payout },
         { status }
       );
     }

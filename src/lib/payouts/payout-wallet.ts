@@ -3,15 +3,23 @@
  *
  * A business's receive wallets (business_wallets) are its own addresses and
  * carry no key, so they cannot sign a payout. A payout wallet is a hot wallet
- * CoinPay generates and keeps the encrypted key for; the merchant funds it and
- * /api/payouts/create sends from it. One EVM key covers every EVM coin.
+ * CoinPay generates; the merchant funds it and /api/payouts/create sends from
+ * it. One EVM key covers every EVM coin.
+ *
+ * The key is sealed to the owning merchant's secrets vault (2026-10-28): it
+ * can be generated while they are away (sealing uses the public key) but only
+ * signs while they have unlocked a payout session. Legacy keys under
+ * ENCRYPTION_KEY are re-sealed on first use while unlocked, or by the vault's
+ * legacy migration.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseClient = any;
 import { ethers } from 'ethers';
-import { encrypt } from '@/lib/crypto/encryption';
+import { decrypt } from '@/lib/crypto/encryption';
 import { requireEncryptionKey } from '@/lib/crypto/require-key';
+import { openMerchantSecret, sealForMerchant } from '@/lib/vault/merchant-secret';
+import { merchantIdForBusiness } from '@/lib/vault/vault-service';
 
 export type PayoutWalletFamily = 'evm';
 
@@ -68,13 +76,17 @@ export async function ensurePayoutWallet(
   const existing = await getPayoutWallet(supabase, businessId, family);
   if (existing) return { address: existing.address, created: false };
 
+  const merchantId = await merchantIdForBusiness(businessId);
+  if (!merchantId) throw new Error('Business not found');
   const wallet = ethers.Wallet.createRandom();
-  const encrypted = encrypt(wallet.privateKey, requireEncryptionKey('payout'));
+  // Throws VaultMissingError before anything is stored when there is no vault.
+  const sealed = await sealForMerchant(merchantId, wallet.privateKey, payoutKeyAad(businessId, family, wallet.address));
   const { error } = await supabase.from('business_payout_wallets').insert({
     business_id: businessId,
     family,
     address: wallet.address,
-    encrypted_private_key: encrypted,
+    encrypted_private_key: sealed,
+    seal_version: 2,
     created_by: createdBy,
   });
   if (error) {
@@ -84,4 +96,26 @@ export async function ensurePayoutWallet(
     throw new Error(`Failed to create payout wallet: ${error.message}`);
   }
   return { address: wallet.address, created: true };
+}
+
+export function payoutKeyAad(businessId: string, family: PayoutWalletFamily, address: string): string {
+  return `business_payout_wallets:${businessId}:${family}:${address.toLowerCase()}`;
+}
+
+/**
+ * The payout wallet's private key, for signing one payout. Needs the merchant's
+ * unlock (VaultLockedError / VaultMissingError otherwise). Drop the returned
+ * string as soon as the transaction is signed.
+ */
+export async function openPayoutWalletKey(supabase: SupabaseClient, row: PayoutWalletRow): Promise<string> {
+  const merchantId = await merchantIdForBusiness(row.business_id);
+  if (!merchantId) throw new Error('Business not found');
+  return openMerchantSecret({
+    merchantId,
+    stored: row.encrypted_private_key,
+    aad: payoutKeyAad(row.business_id, row.family, row.address),
+    legacyDecrypt: (v) => decrypt(v, requireEncryptionKey('payout')),
+    persist: (sealed) =>
+      Promise.resolve(supabase.from('business_payout_wallets').update({ encrypted_private_key: sealed, seal_version: 2 }).eq('id', row.id)),
+  });
 }

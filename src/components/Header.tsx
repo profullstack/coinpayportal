@@ -165,6 +165,7 @@ export default function Header() {
     { name: 'Escrow', href: '/escrow' },
     { name: 'Blog', href: '/blog' },
     { name: 'Developer', href: '/dashboard/oauth' },
+    { name: 'Secrets vault', href: '/dashboard/vault' },
     { name: 'DID', href: '/did' },
     { name: 'Reputation', href: '/reputation' },
     { name: 'x402', href: '/x402' },

@@ -10,15 +10,14 @@
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseClient = any;
-import { decrypt } from '@/lib/crypto/encryption';
 import {
   getProvider,
   getRpcUrl,
   type BlockchainType,
 } from '@/lib/blockchain/providers';
 import { getCryptoPrice } from '@/lib/rates/tatum';
-import { requireEncryptionKey } from '../crypto/require-key';
-import { payoutFamilyFor, getPayoutWallet } from './payout-wallet';
+import { payoutFamilyFor, getPayoutWallet, openPayoutWalletKey, type PayoutWalletRow } from './payout-wallet';
+import { vaultErrorBody } from '../vault/vault-service';
 import { isEvmPayoutToken, checkTokenPayout, sendTokenPayout } from './evm-token-send';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -51,6 +50,10 @@ export interface PayoutResult {
   success: boolean;
   payout?: PayoutRecord;
   error?: string;
+  /** Machine-readable reason, e.g. 'vault_locked'. */
+  code?: string;
+  /** HTTP status the route should answer with, when not the default. */
+  httpStatus?: number;
 }
 
 export interface PayoutListResult {
@@ -110,38 +113,20 @@ export function isPlausibleWalletAddress(address: string, crypto: string): boole
 
 /**
  * The wallet a payout sends from: the business's payout wallet (a hot wallet
- * CoinPay holds the key for) when the coin's family has one, else a receive
- * wallet that happens to carry a key.
+ * whose key is sealed to the merchant's secrets vault) for the coin's family.
+ *
+ * Receive wallets that happen to carry a key (business_wallets.
+ * encrypted_private_key, under ENCRYPTION_KEY) are no longer used to sign:
+ * that key would be usable with nobody present. Prod had none on 2026-10-28.
  */
 async function getBusinessSendWallet(
   supabase: SupabaseClient,
   businessId: string,
   cryptocurrency: string
-): Promise<{
-  wallet_address: string;
-  encrypted_private_key: string;
-} | null> {
+): Promise<PayoutWalletRow | null> {
   const family = payoutFamilyFor(cryptocurrency);
-  if (family) {
-    const payoutWallet = await getPayoutWallet(supabase, businessId, family);
-    if (payoutWallet) {
-      return { wallet_address: payoutWallet.address, encrypted_private_key: payoutWallet.encrypted_private_key };
-    }
-  }
-
-  const { data, error } = await supabase
-    .from('business_wallets')
-    .select('wallet_address, encrypted_private_key')
-    .eq('business_id', businessId)
-    .eq('cryptocurrency', cryptocurrency)
-    .eq('is_active', true)
-    .single();
-
-  if (error || !data || !data.encrypted_private_key) {
-    return null;
-  }
-
-  return data;
+  if (!family) return null;
+  return getPayoutWallet(supabase, businessId, family);
 }
 
 /**
@@ -189,13 +174,35 @@ export async function createPayout(
   }
 
   // ── Get business wallet with private key ──
-  const wallet = await getBusinessSendWallet(supabase, businessId, cryptocurrency);
-  if (!wallet) {
+  const sendWallet = await getBusinessSendWallet(supabase, businessId, cryptocurrency);
+  if (!sendWallet) {
     return {
       success: false,
       error: `No payout wallet for ${cryptocurrency}. ` +
         'Create one with POST /api/businesses/<id>/payout-wallet and fund it before sending payouts.',
     };
+  }
+  const wallet = { wallet_address: sendWallet.address };
+
+  // ── Open the key now, before any record exists: locked means 423 and no
+  //    half-made payout. The key is sealed to the merchant's secrets vault.
+  let privateKey: string;
+  try {
+    privateKey = await openPayoutWalletKey(supabase, sendWallet);
+  } catch (err) {
+    const v = vaultErrorBody(err);
+    if (v) {
+      return {
+        success: false,
+        code: v.body.code,
+        httpStatus: 423,
+        error:
+          v.body.code === 'vault_missing'
+            ? v.body.error
+            : 'Payouts are locked: unlock a payout session (/dashboard/vault, or POST /api/vault/unlock with your passphrase-derived data_key), then retry.',
+      };
+    }
+    return { success: false, error: `Could not open the payout wallet key: ${err instanceof Error ? err.message : err}` };
   }
 
   // ── Convert USD → crypto ──
@@ -274,7 +281,6 @@ export async function createPayout(
 
   // ── Decrypt private key & send transaction ──
   try {
-    const privateKey = decrypt(wallet.encrypted_private_key, requireEncryptionKey('payout'));
 
     let txHash: string;
     if (token && tokenUnits !== null) {

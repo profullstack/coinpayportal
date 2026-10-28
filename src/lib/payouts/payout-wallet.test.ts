@@ -18,6 +18,9 @@ const nativeProvider = vi.hoisted(() => ({
 }));
 
 vi.mock('./evm-token-send', async (orig) => ({ ...(await orig<object>()), ...tokenSend }));
+// The vault service reads secret_vaults/businesses through the admin client.
+const dbHolder = vi.hoisted(() => ({ db: null as any }));
+vi.mock('@/lib/supabase/server', () => ({ getSupabaseAdmin: () => dbHolder.db }));
 vi.mock('@/lib/blockchain/providers', () => ({
   getProvider: () => nativeProvider,
   getRpcUrl: () => 'http://rpc.test',
@@ -33,6 +36,9 @@ vi.mock('@/lib/crypto/require-key', () => ({ requireEncryptionKey: () => 'k' }))
 const { createPayout } = await import('./service');
 const { ensurePayoutWallet, payoutFamilyFor } = await import('./payout-wallet');
 const { toTokenUnits } = await import('./evm-token-send');
+const sealedVault = await import('@/lib/vault/sealed-vault');
+const vaultService = await import('@/lib/vault/vault-service');
+const { resetUnlockStore } = await import('@/lib/vault/unlock-store');
 
 // Tiny supabase stand-in: tables of rows, eq filters, insert/update.
 function fakeDb(tables: Record<string, any[]>) {
@@ -70,13 +76,28 @@ const RECIPIENT = '0xcCF572F86636F4C04E58F070be23a15c2DFc6643';
 const input = { recipient_email: 'op@example.com', recipient_wallet: RECIPIENT, amount_usd: 0.05564, cryptocurrency: 'USDC_POL' };
 
 let db: any;
-beforeEach(() => {
+let merchant = '';
+let n = 0;
+
+/** Give the business owner a secrets vault, optionally unlocked. */
+async function setupVault({ unlock = true } = {}) {
+  const { record, dek } = await sealedVault.createVault('correct horse battery', 'merchant', merchant);
+  await vaultService.createVault('merchant', merchant, record);
+  if (unlock) await vaultService.unlockVault('merchant', merchant, sealedVault.bytesToBase64(dek), 3600_000);
+}
+
+beforeEach(async () => {
   vi.clearAllMocks();
+  resetUnlockStore();
+  merchant = `m-${++n}`;
   db = fakeDb({
-    businesses: [{ id: 'b1' }],
+    secret_vaults: [],
+    businesses: [{ id: 'b1', merchant_id: merchant }],
     // the receive address: no key, must never be used to sign
     business_wallets: [{ business_id: 'b1', cryptocurrency: 'USDC_POL', wallet_address: '0xRECEIVE', is_active: true, encrypted_private_key: null }],
   });
+  dbHolder.db = db;
+  await setupVault();
 });
 
 describe('payout wallet', () => {
@@ -86,7 +107,15 @@ describe('payout wallet', () => {
     expect(a.created).toBe(true);
     expect(b).toEqual({ address: a.address, created: false });
     expect(db.tables.business_payout_wallets).toHaveLength(1);
-    expect(db.tables.business_payout_wallets[0].encrypted_private_key).toMatch(/^enc:0x[0-9a-f]{64}$/);
+    // Sealed to the owner's vault; ENCRYPTION_KEY opens nothing.
+    expect(db.tables.business_payout_wallets[0].encrypted_private_key).toMatch(/^cpv1\./);
+    expect(db.tables.business_payout_wallets[0].encrypted_private_key).not.toMatch(/0x[0-9a-f]{64}/);
+  });
+
+  it('is refused before any key exists when the owner has no vault', async () => {
+    db.tables.businesses[0].merchant_id = 'no-vault-merchant';
+    await expect(ensurePayoutWallet(db, 'b1')).rejects.toBeInstanceOf(vaultService.VaultMissingError);
+    expect(db.tables.business_payout_wallets ?? []).toHaveLength(0);
   });
 
   it('covers EVM coins only', () => {
@@ -139,5 +168,29 @@ describe('createPayout', () => {
     expect(out.success).toBe(true);
     expect(nativeProvider.sendTransaction).toHaveBeenCalled();
     expect(tokenSend.sendTokenPayout).not.toHaveBeenCalled();
+  });
+
+  it('while locked answers 423 before any record exists, and sends nothing', async () => {
+    await ensurePayoutWallet(db, 'b1');
+    vaultService.lockVault('merchant', merchant);
+    const out = await createPayout(db, 'b1', input);
+    expect(out).toMatchObject({ success: false, code: 'vault_locked', httpStatus: 423 });
+    expect(out.error).toMatch(/unlock a payout session/);
+    expect(db.tables.affiliate_payouts ?? []).toHaveLength(0);
+    expect(tokenSend.checkTokenPayout).not.toHaveBeenCalled();
+    expect(tokenSend.sendTokenPayout).not.toHaveBeenCalled();
+  });
+
+  it('a legacy ENCRYPTION_KEY key is re-sealed on first use while unlocked', async () => {
+    db.tables.business_payout_wallets = [
+      { id: 'w1', business_id: 'b1', family: 'evm', address: '0x00000000000000000000000000000000000000aa', encrypted_private_key: 'enc:0x' + '1'.repeat(64) },
+    ];
+    tokenSend.checkTokenPayout.mockResolvedValue({ ok: true, units: 55640n, tokenBalance: '1', nativeBalance: '1' });
+    tokenSend.sendTokenPayout.mockResolvedValue('0xtx');
+    const out = await createPayout(db, 'b1', input);
+    expect(out.success).toBe(true);
+    expect(tokenSend.sendTokenPayout).toHaveBeenCalledWith(expect.anything(), 'USDC_POL', expect.anything(), RECIPIENT, 55640n, '0x' + '1'.repeat(64));
+    expect(db.tables.business_payout_wallets[0].encrypted_private_key).toMatch(/^cpv1\./);
+    expect(db.tables.business_payout_wallets[0].seal_version).toBe(2);
   });
 });

@@ -6,6 +6,7 @@ import { checkRequestBudget, scheduledSyncIntervalMs, type RequestClass } from '
 import { fetchForConnection, ingestAccountSet, lifecycleStateFor, getConnection, DEFAULT_SYNC_DAYS, type SyncResult } from './sync';
 import { ProviderRequestError } from './simplefin';
 import { redactAccessUrl } from './simplefin';
+import { isVaultError, merchantUnlocked, VaultLockedError } from '../vault/vault-service';
 
 /**
  * Durable finance jobs.
@@ -429,6 +430,13 @@ async function runSyncJob(initial: FinanceJobRow): Promise<void> {
       });
     } catch (err) {
       if (err instanceof LeaseLostError) throw err;
+      if (isVaultError(err)) {
+        // Locked (or no vault yet): a status, not an error loop. The job ends
+        // here; the next scheduled sync after the merchant unlocks picks up.
+        await markConnectionLocked(connectionId, job.merchant_id, err.message);
+        await releaseWithStatus(job, 'cancelled', { error_code: err.code, error_message: err.message, progress });
+        return;
+      }
       const message = redactAccessUrl(err instanceof Error ? err.message : 'Unknown failure').slice(0, 1000);
       progress.lastError = message;
 
@@ -733,6 +741,17 @@ export async function enqueueScheduledSyncs(now: Date = new Date()): Promise<num
   let created = 0;
   const interval = scheduledSyncIntervalMs();
   for (const row of data ?? []) {
+    // Credentials are sealed to the merchant's vault: no unlock, no sync.
+    // Push the slot forward and show "locked" instead of queueing a job that
+    // can only fail.
+    if (!merchantUnlocked(row.merchant_id as string)) {
+      await supabase
+        .from('finance_connections')
+        .update({ next_sync_at: new Date(now.getTime() + interval).toISOString() })
+        .eq('id', row.id as string);
+      await markConnectionLocked(row.id as string, row.merchant_id as string, new VaultLockedError('merchant').message);
+      continue;
+    }
     const { count } = await supabase
       .from('finance_jobs')
       .select('id', { count: 'exact', head: true })
@@ -828,6 +847,22 @@ export async function runWorkerTick({
         result.errors.push(`lease lost on ${job.id}`);
         continue;
       }
+      if (isVaultError(err)) {
+        // Locked vault: end the job quietly with the reason, never retry-loop.
+        try {
+          await fencedUpdate(job.id, job.lease_version, {
+            status: 'cancelled',
+            finished_at: new Date().toISOString(),
+            error_code: err.code,
+            error_message: err.message,
+            lease_owner: null,
+            lease_expires_at: null,
+          });
+        } catch {
+          // Lease already gone.
+        }
+        continue;
+      }
       const message = redactAccessUrl(err instanceof Error ? err.message : String(err)).slice(0, 1000);
       result.errors.push(`${job.id}: ${message}`);
       try {
@@ -877,4 +912,13 @@ export function startFinanceWorkerLoop(intervalMs = 30_000): void {
 export function stopFinanceWorkerLoop(): void {
   if (loopTimer) clearInterval(loopTimer);
   loopTimer = null;
+}
+
+/** Show "locked" on a connection without touching its lifecycle. */
+async function markConnectionLocked(connectionId: string, merchantId: string, message: string): Promise<void> {
+  await getSupabaseAdmin()
+    .from('finance_connections')
+    .update({ last_sync_status: 'locked', last_sync_error: message })
+    .eq('id', connectionId)
+    .eq('merchant_id', merchantId);
 }
