@@ -112,8 +112,8 @@ importers:
         specifier: ^0.4.0
         version: 0.4.0
       '@profullstack/x402-gateway':
-        specifier: ^0.15.0
-        version: 0.15.0
+        specifier: ^0.15.2
+        version: 0.15.2
       '@scure/bip32':
         specifier: ^1.7.0
         version: 1.7.0
@@ -1581,8 +1581,8 @@ packages:
     resolution: {integrity: sha512-Lj+XHt51OxyaJ2FqosZDyr9Z5RFB8z+ARixpoUfrDu3YlvFlct5GbbZM/C0qLZkUgzeuFSDvtYt9f0NNfBkFqA==}
     engines: {node: '>=20.11'}
 
-  '@profullstack/x402-gateway@0.15.0':
-    resolution: {integrity: sha512-5T42YT/zKhShKW2ljU8xut51xrIgzyLqIyOx8sciRmWKmTPhKdPW/UyaNOUdMekscxZ8/NmbKF2W+FN4k8BIvA==}
+  '@profullstack/x402-gateway@0.15.2':
+    resolution: {integrity: sha512-f0el7rPd13StA04OxA0PGrrG0kxg/vvGPtvI0XYn8wlTGPut3G+2UKcMRzSxQdaF4LkYAOLnkg9S+LhmIKvDBA==}
     engines: {node: '>=20.11'}
 
   '@reduxjs/toolkit@2.13.0':
@@ -6302,9 +6302,9 @@ snapshots:
 
   '@profullstack/throttle@0.4.0':
     dependencies:
-      '@profullstack/x402-gateway': 0.15.0
+      '@profullstack/x402-gateway': 0.15.2
 
-  '@profullstack/x402-gateway@0.15.0':
+  '@profullstack/x402-gateway@0.15.2':
     dependencies:
       '@profullstack/keys': 0.1.0
 
