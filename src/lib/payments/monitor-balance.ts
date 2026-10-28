@@ -8,6 +8,7 @@ import { isSufficientPayment } from './tolerance';
 import { getSplTokenBalance } from '@/lib/blockchain/solana-token-balance';
 import { sendPaymentWebhook } from '@/lib/webhooks/service';
 import { fetchWithTimeout } from '@/lib/http/fetch-timeout';
+import { getSoChainBalance, getSoChainTransactions, satoshisToNumber } from '@/lib/blockchain/sochain';
 import { getUsdtTronBalance } from '@/lib/tron/client';
 import { evmRpcCall, type EvmBaseChain } from '@/lib/web-wallet/evm-rpc';
 
@@ -516,19 +517,36 @@ async function checkSolanaTokenBalance(
 
 /**
  * Check balance for a Dogecoin address
+ *
+ * SoChain first (keyless; SOCHAIN_API_KEY raises the allowance), then Tatum.
+ * Blockcypher's keyless tier (~200 requests/day) used to lead here, so a
+ * monitor cycle could rate-limit itself into reporting funded addresses as
+ * empty. The confirmed balance is used, as before, and the funding
+ * transaction is recorded like BTC's.
  */
 async function checkDOGEBalance(address: string): Promise<BalanceResult> {
   try {
-    // Try Blockcypher first
-    const response = await fetchWithTimeout(`https://api.blockcypher.com/v1/doge/main/addrs/${address}/balance`);
-    if (response.ok) {
-      const data = await response.json();
-      const balance = (data.balance || 0) / 1e8;
-      return { balance };
+    try {
+      const { confirmed } = await getSoChainBalance('DOGE', address);
+      const balance = satoshisToNumber(confirmed);
+
+      let txHash: string | undefined;
+      if (balance > 0) {
+        try {
+          const txs = await getSoChainTransactions('DOGE', address);
+          txHash = txs.find((tx) => tx.block !== null && tx.balanceChange > BigInt(0))?.hash;
+          if (txHash) console.log(`[Monitor] DOGE tx hash for ${address}: ${txHash}`);
+        } catch (txError) {
+          console.error(`[Monitor] Error fetching DOGE transactions for ${address}:`, txError);
+        }
+      }
+      return { balance, txHash };
+    } catch (primaryError) {
+      console.error(`[Monitor] SoChain DOGE balance failed for ${address}:`, primaryError);
     }
+
     // Fallback to Tatum. dogechain.info used to serve this fallback but now
-    // returns 403 to every request, so a Blockcypher rate-limit (its keyless
-    // tier is ~200 requests/day) would report a funded address as empty.
+    // returns 403 to every request.
     const apiKey = process.env.TATUM_API_KEY;
     if (apiKey) {
       const fallbackResponse = await fetchWithTimeout(

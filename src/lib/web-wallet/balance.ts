@@ -12,6 +12,7 @@ import { decryptLnKey } from '@/lib/lightning/key-encryption';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { WalletChain } from './identity';
 import { getBalance as getLnbitsBalance } from '@/lib/lightning/lnbits';
+import { getSoChainBalance, satoshisToCoins } from '@/lib/blockchain/sochain';
 
 /** Truncate an address for safe logging */
 function truncAddr(addr: string): string {
@@ -295,19 +296,15 @@ async function fetchSPLTokenBalance(
 }
 
 /**
- * Fetch DOGE balance via Dogechain or Blockcypher API.
+ * Fetch DOGE balance via SoChain, falling back to Tatum.
+ * SoChain is keyless by default; SOCHAIN_API_KEY raises the allowance.
  */
 async function fetchDOGEBalance(address: string): Promise<string> {
-  // Try Blockcypher first (more reliable)
   try {
-    const resp = await fetch(`https://api.blockcypher.com/v1/doge/main/addrs/${address}/balance`);
-    if (resp.ok) {
-      const data = await resp.json();
-      const satoshis = data.balance || 0;
-      return (satoshis / 1e8).toString();
-    }
+    const { confirmed } = await getSoChainBalance('DOGE', address);
+    return satoshisToCoins(confirmed);
   } catch (err) {
-    console.error('DOGE Blockcypher balance fetch failed:', err);
+    console.error('DOGE SoChain balance fetch failed:', err);
   }
 
   // Fallback to Tatum. dogechain.info held this slot until it started

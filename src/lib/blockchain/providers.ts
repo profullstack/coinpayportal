@@ -15,6 +15,13 @@ import { HDKey } from '@scure/bip32';
 import * as ecc from 'tiny-secp256k1';
 import ECPairFactory from 'ecpair';
 import { getCardanoSerializationLib, getXrpl } from '@/lib/server/optional-deps';
+import {
+  getSoChainBalance,
+  getSoChainTransaction,
+  getSoChainTransactionStatus,
+  getSoChainUnspentOutputs,
+  satoshisToCoins,
+} from './sochain';
 
 // Initialize ECPair with secp256k1
 const ECPair = ECPairFactory(ecc);
@@ -1737,7 +1744,11 @@ export class BnbProvider extends EthereumProvider {
 
 /**
  * Dogecoin provider - similar to Bitcoin but with different network params
- * Note: Full transaction sending not yet implemented, address generation works
+ *
+ * Reads (balance, transactions, unspent outputs, status) come from SoChain
+ * (https://sochain.com/api/v3), keyless by default; set SOCHAIN_API_KEY for a
+ * higher allowance. SoChain does not broadcast, so sending stays on
+ * Blockcypher's transaction API.
  */
 export class DogecoinProvider implements BlockchainProvider {
   chain: BlockchainType = 'DOGE';
@@ -1749,11 +1760,8 @@ export class DogecoinProvider implements BlockchainProvider {
 
   async getBalance(address: string): Promise<string> {
     try {
-      // Use Blockcypher API for DOGE
-      const response = await axios.get(
-        `https://api.blockcypher.com/v1/doge/main/addrs/${address}/balance`
-      );
-      return (Number(response.data.balance) / 100000000).toString();
+      const { confirmed } = await getSoChainBalance('DOGE', address);
+      return satoshisToCoins(confirmed);
     } catch (error) {
       console.error('[DOGE] Error fetching balance:', error);
       return '0';
@@ -1762,23 +1770,55 @@ export class DogecoinProvider implements BlockchainProvider {
 
   async getTransaction(txHash: string): Promise<TransactionDetails> {
     try {
-      const response = await axios.get(
-        `https://api.blockcypher.com/v1/doge/main/txs/${txHash}`
-      );
-      const tx = response.data;
+      const tx = await getSoChainTransaction('DOGE', txHash);
+      let status: TransactionDetails['status'] = tx.confirmations > 0 ? 'confirmed' : 'pending';
+
+      // An unconfirmed transaction may already be lost: replaced by another
+      // spend of its inputs, or dropped from the mempool. Report that as
+      // failed rather than leaving it pending forever.
+      if (status === 'pending') {
+        try {
+          const { status: state } = await getSoChainTransactionStatus('DOGE', txHash);
+          if (state === 'replaced' || state === 'dropped') status = 'failed';
+        } catch (statusError) {
+          console.error('[DOGE] Error fetching transaction status:', statusError);
+        }
+      }
+
       return {
         hash: tx.hash,
-        from: tx.inputs?.[0]?.addresses?.[0] || '',
-        to: tx.outputs?.[0]?.addresses?.[0] || '',
-        value: (tx.outputs?.[0]?.value / 100000000).toString(),
-        confirmations: tx.confirmations || 0,
-        blockNumber: tx.block_height,
-        timestamp: tx.confirmed ? new Date(tx.confirmed).getTime() / 1000 : undefined,
-        status: tx.confirmations > 0 ? 'confirmed' : 'pending',
+        from: tx.inputs[0]?.address || '',
+        to: tx.outputs[0]?.address || '',
+        value: tx.outputs[0] ? satoshisToCoins(tx.outputs[0].value) : '0',
+        confirmations: tx.confirmations,
+        blockNumber: tx.blockHeight ?? undefined,
+        timestamp: tx.time ?? undefined,
+        status,
       };
     } catch (error) {
       throw new Error(`Failed to fetch DOGE transaction: ${error}`);
     }
+  }
+
+  /**
+   * Confirmed spendable outputs of an address, in exact satoshis, each with
+   * its funding transaction (needed to sign legacy P2PKH inputs).
+   * Unconfirmed outputs are left out, as for BTC.
+   */
+  protected async getUTXOs(address: string): Promise<Array<UTXO & { txHex?: string }>> {
+    const outputs = await getSoChainUnspentOutputs('DOGE', address);
+    return outputs
+      .filter((out) => out.block !== null)
+      .map((out) => {
+        if (out.value > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('UTXO value out of range');
+        return {
+          txid: out.txid,
+          vout: out.vout,
+          value: Number(out.value),
+          scriptPubKey: out.scriptPubKey,
+          txHex: out.txHex,
+        };
+      });
   }
 
   async sendTransaction(

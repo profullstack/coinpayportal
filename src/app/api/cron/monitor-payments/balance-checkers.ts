@@ -9,6 +9,7 @@ import { getUsdtTronBalance } from '@/lib/tron/client';
 import { getSplTokenBalance } from '@/lib/blockchain/solana-token-balance';
 import * as bitcoin from 'bitcoinjs-lib';
 import { fetchWithTimeout } from '@/lib/http/fetch-timeout';
+import { getSoChainBalance, satoshisToNumber } from '@/lib/blockchain/sochain';
 import { evmRpcCall, type EvmBaseChain } from '@/lib/web-wallet/evm-rpc';
 
 /**
@@ -494,11 +495,9 @@ export async function checkADABalance(address: string, rpcUrl: string): Promise<
 async function checkDOGEBalance(address: string): Promise<number> {
   try {
     try {
-      const response = await fetchWithTimeout(`https://api.blockcypher.com/v1/doge/main/addrs/${address}/balance`);
-      if (response.ok) {
-        const data = await response.json();
-        return integerNumber(data?.balance) / 1e8;
-      }
+      // Confirmed balance, parsed to exact satoshis; a malformed answer throws.
+      const { confirmed } = await getSoChainBalance('DOGE', address);
+      return satoshisToNumber(confirmed);
     } catch (primaryError) {
       console.error('[Monitor DOGE] Primary balance source failed:', primaryError);
     }
