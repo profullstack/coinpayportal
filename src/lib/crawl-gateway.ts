@@ -55,14 +55,42 @@ export const COINPAY_APP_PATHS = [
 ];
 
 /**
- * A caller already signed in to CoinPay, or presenting an API key or bearer
- * token, is a customer and never shown the crawl offer. Unverified here; the
- * routes verify it, and the throttle meters a credentialed caller by host.
+ * A caller signed in to CoinPay is a customer and never shown the crawl offer.
+ *
+ * Only the session cookie counts, and only once its signature checks out: an
+ * exemption on the mere presence of `token=` or an Authorization header was a
+ * free pass for any scraper willing to send one. API keys and bearer tokens
+ * are not judged here at all -- they are presented to /api, which is an app
+ * path and never charged, and verifying them would mean a database read in
+ * the middleware. HS256 by WebCrypto, because this runs in the proxy.
  */
-export function signedIn(request: Request): boolean {
-  if (/(?:^|;\s*)token=[^;]+/.test(request.headers.get("cookie") ?? "")) return true;
-  if (request.headers.get("x-api-key")?.trim()) return true;
-  return /^(?:Bearer|Wallet)\s+\S+/i.test(request.headers.get("authorization")?.trim() ?? "");
+const SESSION = /(?:^|;\s*)token=([^;]+)/;
+
+const b64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
+
+let hmacKey: { secret: string; key: Promise<CryptoKey> } | null = null;
+const keyFor = (secret: string) => {
+  if (hmacKey?.secret !== secret) {
+    hmacKey = { secret, key: crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]) };
+  }
+  return hmacKey.key;
+};
+
+export async function signedIn(request: Request, now = Date.now()): Promise<boolean> {
+  const secret = env("JWT_SECRET");
+  const token = SESSION.exec(request.headers.get("cookie") ?? "")?.[1];
+  if (!secret || !token) return false;
+  const [header, payload, signature] = decodeURIComponent(token).split(".");
+  if (!header || !payload || !signature) return false;
+  try {
+    if (JSON.parse(new TextDecoder().decode(b64url(header))).alg !== "HS256") return false;
+    const ok = await crypto.subtle.verify("HMAC", await keyFor(secret), b64url(signature), new TextEncoder().encode(`${header}.${payload}`));
+    if (!ok) return false;
+    const claims = JSON.parse(new TextDecoder().decode(b64url(payload)));
+    return typeof claims.exp !== "number" || claims.exp * 1000 > now;
+  } catch {
+    return false;
+  }
 }
 
 export const gateway = createGateway({
@@ -72,8 +100,9 @@ export const gateway = createGateway({
   payTo: env("CRAWL_PAY_TO"),
   contact: "mailto:support@coinpayportal.com",
   appPaths: COINPAY_APP_PATHS,
-  exempt: signedIn,
 });
 
+const charge = x402Proxy(gateway);
+
 /** Resolves to a Response for a refused crawler, or undefined to carry on. */
-export const gate = x402Proxy(gateway);
+export const gate = async (request: Request) => ((await signedIn(request)) ? undefined : charge(request as never));

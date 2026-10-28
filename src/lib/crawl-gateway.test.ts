@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import jwt from 'jsonwebtoken';
 import { gate, signedIn } from './crawl-gateway';
 
 /**
@@ -12,6 +13,10 @@ const HEADLESS = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, lik
 
 const get = (path: string, ua: string, headers: Record<string, string> = {}) =>
   new Request(`https://coinpayportal.com${path}`, { headers: { 'user-agent': ua, accept: 'text/html', ...headers } });
+
+const SECRET = 'session-secret-for-tests';
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe('crawl gateway', () => {
   const app = [
@@ -41,19 +46,31 @@ describe('crawl gateway', () => {
     });
   }
 
-  it('never charges a caller holding a session, API key or bearer token', async () => {
+  it('never charges a caller holding a valid session', async () => {
+    vi.stubEnv('JWT_SECRET', SECRET);
+    const headers = { cookie: `theme=dark; token=${jwt.sign({ userId: 'u1' }, SECRET, { algorithm: 'HS256', expiresIn: '1h' })}` };
+    expect(await signedIn(get('/blog', STALE, headers))).toBe(true);
+    expect(await gate(get('/blog', STALE, headers) as never)).toBeFalsy();
+  });
+
+  it('charges a forged, expired or lookalike session, and a bare bearer token on a content page', async () => {
+    vi.stubEnv('JWT_SECRET', SECRET);
     for (const headers of [
-      { cookie: 'theme=dark; token=eyJhbGciOi' },
-      { 'x-api-key': 'cp_live_abc' },
+      { cookie: `token=${jwt.sign({ userId: 'u1' }, 'not-the-secret', { algorithm: 'HS256' })}` },
+      { cookie: `token=${jwt.sign({ userId: 'u1', exp: Math.floor(Date.now() / 1000) - 60 }, SECRET, { algorithm: 'HS256' })}` },
+      { cookie: 'token=eyJhbGciOi' },
+      { cookie: 'csrf_token=abc' },
       { authorization: 'Bearer cpat_abc' },
+      { 'x-api-key': 'cp_live_abc' },
     ]) {
-      expect(signedIn(get('/blog', STALE, headers))).toBe(true);
-      expect(await gate(get('/blog', STALE, headers) as never)).toBeFalsy();
+      expect(await signedIn(get('/blog', STALE, headers))).toBe(false);
+      expect((await gate(get('/blog', STALE, headers) as never))?.status).toBe(402);
     }
   });
 
-  it('does not mistake a lookalike cookie or an empty header for a session', () => {
-    expect(signedIn(get('/blog', STALE, { cookie: 'csrf_token=abc' }))).toBe(false);
-    expect(signedIn(get('/blog', STALE, { authorization: 'Bearer ' }))).toBe(false);
+  it('honours no session at all without a secret to check it against', async () => {
+    vi.stubEnv('JWT_SECRET', '');
+    const headers = { cookie: `token=${jwt.sign({ userId: 'u1' }, SECRET, { algorithm: 'HS256' })}` };
+    expect(await signedIn(get('/blog', STALE, headers))).toBe(false);
   });
 });
