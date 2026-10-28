@@ -106,8 +106,13 @@ describe('Next.js HTTP security entry point', () => {
     expect(response.headers.get('set-cookie')).toContain('referral_code=runtime-partner');
   }, 30_000);
 
-  it('stops a training crawler before reaching the route', async () => {
-    const response = await get('/api/health?ref=crawler', '198.51.100.21', { 'user-agent': 'GPTBot' });
+  it('lets any crawler reach the health check, which is never sold', async () => {
+    const response = await get('/api/health', '198.51.100.22', { 'user-agent': 'GPTBot' });
+    expect(response.status).toBe(200);
+  });
+
+  it('stops a training crawler before reaching a content page', async () => {
+    const response = await get('/blog?ref=crawler', '198.51.100.21', { 'user-agent': 'GPTBot' });
     expect(response.status).toBe(402);
     expect(response.headers.has('set-cookie')).toBe(false);
     expect(response.headers.get('Strict-Transport-Security')).toContain('max-age=31536000');
