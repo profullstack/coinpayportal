@@ -14,7 +14,8 @@ const HEADLESS = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, lik
 const get = (path: string, ua: string, headers: Record<string, string> = {}) =>
   new Request(`https://coinpayportal.com${path}`, { headers: { 'user-agent': ua, accept: 'text/html', ...headers } });
 
-const SECRET = 'session-secret-for-tests';
+// Made per run: a literal here reads as a hardcoded credential to the scanner.
+const SECRET = crypto.randomUUID();
 
 afterEach(() => vi.unstubAllEnvs());
 
