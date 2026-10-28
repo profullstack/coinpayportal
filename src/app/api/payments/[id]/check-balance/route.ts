@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { sendPaymentWebhook } from '@/lib/webhooks/service';
 import { forwardPaymentSecurely } from '@/lib/wallets/secure-forwarding';
+import { parkForwardingWhileLocked } from '@/lib/wallets/operator-keys';
 import { checkBalance } from '@/app/api/cron/monitor-payments/balance-checkers';
 import { authorizePaymentAccess } from '@/lib/auth/payment-access';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
@@ -183,6 +184,8 @@ export async function POST(
 
         if (forwardResult.success) {
           console.log(`Forwarding completed for payment ${paymentId}: merchantTx=${forwardResult.merchantTxHash}`);
+        } else if (forwardResult.code === 'operator_locked') {
+          await parkForwardingWhileLocked(supabase, paymentId);
         } else {
           console.error(`Forwarding failed for ${paymentId}: ${forwardResult.error}`);
         }

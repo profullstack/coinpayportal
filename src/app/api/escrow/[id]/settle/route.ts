@@ -11,9 +11,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { planSettlement, type SettlementPlan } from '@/lib/escrow/settlement-plan';
 import { createClient } from '@supabase/supabase-js';
 import { markEscrowSettled } from '@/lib/escrow';
-import { decrypt } from '@/lib/crypto/encryption';
 import { isInternalApiKey } from '@/lib/auth/secret-compare';
-import { requireEncryptionKey } from '@/lib/crypto/require-key';
+import { OperatorKeysLockedError, openPaymentAddressKey, operatorAlert } from '@/lib/wallets/operator-keys';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -137,21 +136,26 @@ export async function POST(
       );
     }
 
-    // Decrypt private key. requireEncryptionKey throws on a missing, malformed
-    // or known-weak key rather than letting settlement proceed under one.
-    let encryptionKey: string;
+    // Open the escrow address key: sealed to the operator vault (needs an
+    // operator unlock), or a legacy ENCRYPTION_KEY row. Locked: 423, and the
+    // claim is released so settlement can run after the next unlock.
+    let privateKey: string;
     try {
-      encryptionKey = requireEncryptionKey('escrow settlement');
+      privateKey = await openPaymentAddressKey(addressData, (sealed) =>
+        Promise.resolve(supabase.from('payment_addresses').update({ encrypted_private_key: sealed }).eq('id', addressData.id)),
+      );
     } catch (keyError) {
       await releaseClaim();
-      console.error(`Escrow ${escrowId} settlement blocked:`, keyError);
-      return NextResponse.json(
-        { error: 'Encryption key not configured' },
-        { status: 500 }
-      );
+      if (keyError instanceof OperatorKeysLockedError || (keyError as { code?: string })?.code === 'vault_locked') {
+        operatorAlert(`escrow ${escrowId} settlement waiting: operator keys locked`);
+        return NextResponse.json(
+          { error: 'Settlement is paused: CoinPay operator keys are locked. It runs after the next operator unlock.', code: 'operator_locked' },
+          { status: 423 }
+        );
+      }
+      console.error(`Escrow ${escrowId} settlement blocked:`, keyError instanceof Error ? keyError.message : keyError);
+      return NextResponse.json({ error: 'Escrow key unavailable' }, { status: 500 });
     }
-
-    const privateKey = await decrypt(addressData.encrypted_private_key, encryptionKey);
 
     // Who gets what. Throws when the fees would leave the beneficiary nothing,
     // which the create path already refuses, so it means a corrupted row.

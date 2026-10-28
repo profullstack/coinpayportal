@@ -70,6 +70,16 @@ export async function register() {
       console.log('[Instrumentation] Finance worker disabled');
     }
 
+    // Operator keys (SYSTEM_MNEMONIC_*, sealed to the operator vault): every
+    // 10 minutes, log the alert line while they are locked (throttled to
+    // hourly) and keep the deposit-address pool topped up while unlocked.
+    try {
+      const { startOperatorKeysWatch } = await import('./lib/wallets/operator-watch');
+      startOperatorKeysWatch();
+    } catch (err) {
+      console.error('[Instrumentation] operator keys watch failed to start', err instanceof Error ? err.message : err);
+    }
+
     // Merchant webhook retries (@profullstack/webhooks outbox). Started on every
     // server process: the claim is FOR UPDATE SKIP LOCKED, so several processes
     // never send the same delivery. WEBHOOKS_HUB=off switches the hub off.

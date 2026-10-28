@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/app/api/cron/monitor-payments/balance-checkers', () => ({ checkBalance: mocks.balance }));
 vi.mock('@/lib/crypto/require-key', () => ({ tryRequireEncryptionKey: () => ({ ok: true, key: 'synthetic' }) }));
 vi.mock('@/lib/crypto/encryption', () => ({ decrypt: () => mocks.key }));
+// Per-address keys open through the operator vault (operator-keys.ts, own tests).
+vi.mock('@/lib/wallets/operator-keys', () => ({
+  openPaymentAddressKey: async () => mocks.key,
+  OperatorKeysLockedError: class OperatorKeysLockedError extends Error {},
+}));
 vi.mock('@/lib/wallets/system-wallet', () => ({ getCommissionWallet: () => 'synthetic-fee' }));
 vi.mock('@/lib/entitlements/service', () => ({ isBusinessPaidTier: mocks.tier }));
 vi.mock('@/lib/webhooks/service', () => ({ sendPaymentWebhook: mocks.webhook }));

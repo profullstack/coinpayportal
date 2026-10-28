@@ -21,7 +21,6 @@
 
 import { acquireFamilyIndex } from '../wallets/derivation-family';
 import { getSystemKeyGeneration } from '../wallets/key-generation';
-import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
@@ -405,38 +404,21 @@ async function generateEscrowAddress(
   addressId?: string;
   error?: string;
 }> {
-  // Import the address derivation function
-  const { deriveSystemPaymentAddress, getCommissionWallet, getCommissionRate } = await import(
+  // Import the address minting function
+  const { mintSystemAddress, getCommissionWallet, getCommissionRate } = await import(
     '../wallets/system-wallet'
   );
-  const { encrypt } = await import('../crypto/encryption');
 
   try {
-    // Acquire the index through the shared compare-and-swap helper.
-    //
-    // This used to read `next_index`, then write `next_index + 1` with no
-    // condition on what it had read — so two concurrent escrow creations both
-    // saw the same value and derived the SAME address. Worse, it keyed on
-    // `cryptocurrency` while the normal payment flow keys on the derivation
-    // FAMILY (ETH/POL/BNB/USDT/USDC all share one), so escrow and payment
-    // counters advanced independently over the same key space and collided
-    // deterministically, not just under contention.
-    //
-    // `acquireFamilyIndex` is the same helper the payment flow uses: CAS with
-    // retries, seeded past any pre-existing addresses in the family.
-    const nextIndex = await acquireFamilyIndex(supabase, cryptocurrency);
-
-    // Derive address
-    const derived = await deriveSystemPaymentAddress(cryptocurrency, nextIndex);
-
-    // Encrypt private key
-    // Guarded, not just present — this key protects escrowed funds.
-    const keyResult = tryRequireEncryptionKey('escrow');
-    if (!keyResult.ok) {
-      return { success: false, error: keyResult.error };
-    }
-    const encryptionKey = keyResult.key;
-    const encryptedPrivateKey = await encrypt(derived.privateKey, encryptionKey);
+    // The index comes from the shared compare-and-swap helper
+    // (`acquireFamilyIndex`, keyed by derivation FAMILY like the payment
+    // flow) inside `mintSystemAddress`, so escrow and payment counters can
+    // never hand out the same address. While the operator keys are locked the
+    // address comes from the pre-derived pool; its key is sealed to the
+    // operator vault either way (ENCRYPTION_KEY only before the vault exists).
+    const derived = await mintSystemAddress(supabase, cryptocurrency);
+    const nextIndex = derived.index;
+    const encryptedPrivateKey = derived.storedKey;
 
     // Calculate fee split
     const commissionWallet = getCommissionWallet(cryptocurrency);
@@ -455,7 +437,7 @@ async function generateEscrowAddress(
         address: derived.address,
         derivation_index: nextIndex,
         derivation_path: derived.derivationPath,
-        key_generation: getSystemKeyGeneration(),
+        key_generation: derived.keyGeneration,
         encrypted_private_key: encryptedPrivateKey,
         merchant_wallet: beneficiaryWallet,
         commission_wallet: commissionWallet,

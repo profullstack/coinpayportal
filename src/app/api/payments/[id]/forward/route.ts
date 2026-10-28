@@ -4,6 +4,7 @@ import { verifyToken } from '@/lib/auth/jwt';
 import { oauthFundsMoveRefusalBody } from '@/lib/auth/oauth-funds';
 import { getForwardingStatus } from '@/lib/payments/forwarding';
 import { forwardPaymentSecurely, retryForwardingSecurely } from '@/lib/wallets/secure-forwarding';
+import { parkForwardingWhileLocked } from '@/lib/wallets/operator-keys';
 import { getJwtSecret, getSecret } from '@/lib/secrets';
 
 /**
@@ -105,6 +106,15 @@ export async function POST(
     }
 
     if (!result.success) {
+      if (result.code === 'operator_locked') {
+        // Not a failure: the keys are sealed and nobody has unlocked them.
+        // Parked on the retry queue without spending an attempt.
+        await parkForwardingWhileLocked(supabaseAdmin, paymentId);
+        return NextResponse.json(
+          { success: false, error: result.error, code: 'operator_locked' },
+          { status: 423 }
+        );
+      }
       return NextResponse.json(
         { success: false, error: result.error },
         { status: 400 }

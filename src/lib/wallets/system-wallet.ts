@@ -18,7 +18,6 @@
  * - Merchants never receive direct payments (all go through system)
  */
 
-import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import { getCardanoSerializationLib } from '@/lib/server/optional-deps';
 import { HDKey } from '@scure/bip32';
 import { generateMnemonic as bip39GenerateMnemonic, mnemonicToSeedSync, validateMnemonic } from '@scure/bip39';
@@ -26,7 +25,6 @@ import { wordlist } from '@scure/bip39/wordlists/english';
 import * as bitcoin from 'bitcoinjs-lib';
 import { ethers } from 'ethers';
 import { createHmac } from 'crypto';
-import { encrypt, decrypt } from '../crypto/encryption';
 import { deriveTronWallet } from '../tron/address';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getFeePercentage, FEE_PERCENTAGE_FREE, FEE_PERCENTAGE_PAID } from '../payments/fees';
@@ -37,6 +35,14 @@ import {
   bumpFamilyIndex,
 } from './derivation-family';
 import { assertMnemonicNotRetired, getSystemKeyGeneration } from './key-generation';
+import {
+  OperatorKeysLockedError,
+  openPaymentAddressKey,
+  readSystemMnemonicVar,
+  refreshOperatorState,
+  sealPaymentAddressKey,
+} from './operator-keys';
+import { claimPoolAddress } from './address-pool';
 
 /**
  * Supported blockchains
@@ -130,45 +136,46 @@ export interface PaymentAddressInfo {
 }
 
 /**
- * Get the system's master mnemonic from environment
- * In production, this should be stored securely (HSM, Vault, etc.)
+ * The system mnemonic for a coin. Once the operator keys are sealed
+ * (operator-keys.ts) this comes from the operator unlock and throws
+ * OperatorKeysLockedError while locked; before that, from the environment.
  */
 function getSystemMnemonic(cryptocurrency: SystemBlockchain): string {
   let envKey = `SYSTEM_MNEMONIC_${cryptocurrency}`;
-  let mnemonic = process.env[envKey];
+  let mnemonic = readSystemMnemonicVar(envKey);
 
   // Chain-specific USDC falls back to the parent chain's mnemonic
   if (!mnemonic && cryptocurrency === 'USDC_ETH') {
-    mnemonic = process.env['SYSTEM_MNEMONIC_ETH'];
+    mnemonic = readSystemMnemonicVar('SYSTEM_MNEMONIC_ETH');
   }
   if (!mnemonic && cryptocurrency === 'USDC_POL') {
-    mnemonic = process.env['SYSTEM_MNEMONIC_POL'] || process.env['SYSTEM_MNEMONIC_ETH'];
+    mnemonic = readSystemMnemonicVar('SYSTEM_MNEMONIC_POL') || readSystemMnemonicVar('SYSTEM_MNEMONIC_ETH');
   }
   if (!mnemonic && cryptocurrency === 'USDC_SOL') {
-    mnemonic = process.env['SYSTEM_MNEMONIC_SOL'];
+    mnemonic = readSystemMnemonicVar('SYSTEM_MNEMONIC_SOL');
   }
   if (!mnemonic && cryptocurrency === 'USDC_BASE') {
-    mnemonic = process.env['SYSTEM_MNEMONIC_BASE'] || process.env['SYSTEM_MNEMONIC_ETH'];
+    mnemonic = readSystemMnemonicVar('SYSTEM_MNEMONIC_BASE') || readSystemMnemonicVar('SYSTEM_MNEMONIC_ETH');
   }
   if (!mnemonic && cryptocurrency === 'USDT_ETH') {
-    mnemonic = process.env['SYSTEM_MNEMONIC_ETH'];
+    mnemonic = readSystemMnemonicVar('SYSTEM_MNEMONIC_ETH');
   }
   if (!mnemonic && cryptocurrency === 'USDT_POL') {
-    mnemonic = process.env['SYSTEM_MNEMONIC_POL'] || process.env['SYSTEM_MNEMONIC_ETH'];
+    mnemonic = readSystemMnemonicVar('SYSTEM_MNEMONIC_POL') || readSystemMnemonicVar('SYSTEM_MNEMONIC_ETH');
   }
   if (!mnemonic && cryptocurrency === 'USDT_SOL') {
-    mnemonic = process.env['SYSTEM_MNEMONIC_SOL'];
+    mnemonic = readSystemMnemonicVar('SYSTEM_MNEMONIC_SOL');
   }
   // TRON derives on its own coin type (195), so reusing the ETH seed yields
   // unrelated keys; a dedicated SYSTEM_MNEMONIC_TRON wins when set.
   if (!mnemonic && cryptocurrency === 'USDT_TRON') {
-    mnemonic = process.env['SYSTEM_MNEMONIC_TRON'] || process.env['SYSTEM_MNEMONIC_ETH'];
+    mnemonic = readSystemMnemonicVar('SYSTEM_MNEMONIC_TRON') || readSystemMnemonicVar('SYSTEM_MNEMONIC_ETH');
   }
 
   // POL, BNB, USDT, USDC (generic) use the same derivation as ETH, so fall back to ETH mnemonic
   if (!mnemonic && (cryptocurrency === 'POL' || cryptocurrency === 'BNB' || cryptocurrency === 'USDT' || cryptocurrency === 'USDC')) {
     envKey = 'SYSTEM_MNEMONIC_ETH';
-    mnemonic = process.env[envKey];
+    mnemonic = readSystemMnemonicVar(envKey);
   }
 
   if (!mnemonic) {
@@ -827,6 +834,55 @@ export async function deriveSystemPaymentAddress(
   };
 }
 
+export interface MintedSystemAddress {
+  address: string;
+  index: number;
+  derivationPath: string;
+  keyGeneration: number;
+  /** What goes in payment_addresses.encrypted_private_key. */
+  storedKey: string;
+  fromPool: boolean;
+}
+
+/**
+ * One fresh deposit address with its stored key, for payments and escrows.
+ *
+ *  - operator keys not sealed yet: derive from the env mnemonic, key under
+ *    ENCRYPTION_KEY (unchanged behaviour);
+ *  - sealed and unlocked: derive now, key sealed to the operator vault;
+ *  - sealed and locked: claim a pre-derived address from the pool.
+ */
+export async function mintSystemAddress(
+  supabase: SupabaseClient,
+  cryptocurrency: SystemBlockchain
+): Promise<MintedSystemAddress> {
+  const { sealed, unlocked } = await refreshOperatorState();
+  if (sealed && !unlocked) {
+    const pooled = await claimPoolAddress(supabase, cryptocurrency);
+    if (!pooled) {
+      throw new OperatorKeysLockedError(`${cryptocurrency} payments are temporarily unavailable; please choose another coin`);
+    }
+    return {
+      address: pooled.address,
+      index: pooled.derivation_index,
+      derivationPath: pooled.derivation_path,
+      keyGeneration: pooled.key_generation,
+      storedKey: pooled.sealed_private_key,
+      fromPool: true,
+    };
+  }
+  const index = await acquireFamilyIndex(supabase, cryptocurrency);
+  const derived = await deriveSystemPaymentAddress(cryptocurrency, index);
+  return {
+    address: derived.address,
+    index,
+    derivationPath: derived.derivationPath,
+    keyGeneration: getSystemKeyGeneration(),
+    storedKey: await sealPaymentAddressKey(derived.address, derived.privateKey),
+    fromPool: false,
+  };
+}
+
 // Re-export the implementation from ./derivation-family for any old call
 // sites that imported `getMaxFamilyIndex` from this file.
 const getMaxFamilyIndex = getMaxFamilyIndexImpl;
@@ -863,33 +919,6 @@ export async function generatePaymentAddress(
   }
 
   try {
-    // Acquire next family-scoped derivation index. The counter is keyed
-    // by derivation *family* (see ./derivation-family) because chains in
-    // the same family share an address space and would otherwise collide
-    // on the unique_address constraint.
-    let nextIndex: number;
-    try {
-      nextIndex = await acquireFamilyIndex(supabase, cryptocurrency);
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'Failed to acquire wallet index',
-      };
-    }
-
-    // Derive the payment address
-    const derivedAddress = await deriveSystemPaymentAddress(cryptocurrency, nextIndex);
-    const keyGeneration = getSystemKeyGeneration();
-
-    // Encrypt the private key for storage
-    // Guarded, not just present — this is the system custody path.
-    const keyResult = tryRequireEncryptionKey('system wallet');
-    if (!keyResult.ok) {
-      return { success: false, error: keyResult.error };
-    }
-    const encryptionKey = keyResult.key;
-    const encryptedPrivateKey = await encrypt(derivedAddress.privateKey, encryptionKey);
-
     // Get commission wallet
     const commissionWallet = getCommissionWallet(cryptocurrency);
 
@@ -898,38 +927,35 @@ export async function generatePaymentAddress(
     const commissionAmount = amountCrypto * commissionRate;
     const merchantAmount = amountCrypto - commissionAmount;
 
-    // Base payment info (address/index/key may change on retry)
-    const paymentInfo_base = {
-      payment_id: paymentId,
-      address: derivedAddress.address,
-      cryptocurrency,
-      derivation_index: nextIndex,
-      encrypted_private_key: encryptedPrivateKey,
-      merchant_wallet: merchantWallet,
-      commission_wallet: commissionWallet,
-      amount_expected: amountCrypto,
-      commission_amount: commissionAmount,
-      merchant_amount: merchantAmount,
-    };
-
-    // Insert payment address with retry on duplicate (stale index from previous failed attempts)
-    let finalAddress = derivedAddress.address;
-    let finalIndex = nextIndex;
-    let finalPrivateKey = encryptedPrivateKey;
+    // Mint the address: derived now (operator keys unlocked, or not sealed
+    // yet), or claimed from the pre-derived pool while they are locked. The
+    // per-address key is sealed to the operator vault once it exists.
+    // Duplicates (a counter behind reality, or a pooled address minted again)
+    // retry with the next address.
+    let minted: MintedSystemAddress | null = null;
     let inserted = false;
 
     for (let retryAttempt = 0; retryAttempt < 5; retryAttempt++) {
+      try {
+        minted = await mintSystemAddress(supabase, cryptocurrency);
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to acquire wallet index',
+        };
+      }
+
       const { error: insertError } = await supabase
         .from('payment_addresses')
         .insert({
           payment_id: paymentId,
           business_id: businessId,
           cryptocurrency,
-          address: finalAddress,
-          derivation_index: finalIndex,
-          derivation_path: derivedAddress.derivationPath,
-          key_generation: keyGeneration,
-          encrypted_private_key: finalPrivateKey,
+          address: minted.address,
+          derivation_index: minted.index,
+          derivation_path: minted.derivationPath,
+          key_generation: minted.keyGeneration,
+          encrypted_private_key: minted.storedKey,
           merchant_wallet: merchantWallet,
           commission_wallet: commissionWallet,
           amount_expected: amountCrypto,
@@ -944,18 +970,15 @@ export async function generatePaymentAddress(
       }
 
       // If duplicate address, jump the family counter past every existing
-      // address in this family and re-derive. This handles the case where
+      // address in this family and mint again. This handles the case where
       // the family counter is behind reality (e.g. it was just initialized
       // or another process raced ahead) and prevents the loop from
       // re-trying indexes that are already taken.
       if (insertError.message?.includes('unique') || insertError.code === '23505') {
-        const maxIdx = await getMaxFamilyIndex(supabase, cryptocurrency);
-        finalIndex = Math.max(finalIndex + 1, maxIdx + 1);
-        await bumpFamilyIndex(supabase, cryptocurrency, finalIndex);
-
-        const reDerived = await deriveSystemPaymentAddress(cryptocurrency, finalIndex);
-        finalAddress = reDerived.address;
-        finalPrivateKey = await encrypt(reDerived.privateKey, encryptionKey);
+        if (!minted.fromPool) {
+          const maxIdx = await getMaxFamilyIndex(supabase, cryptocurrency);
+          await bumpFamilyIndex(supabase, cryptocurrency, Math.max(minted.index + 1, maxIdx + 1));
+        }
         continue;
       }
 
@@ -966,12 +989,28 @@ export async function generatePaymentAddress(
       };
     }
 
-    if (!inserted) {
+    if (!inserted || !minted) {
       return {
         success: false,
         error: 'Failed to store payment address after retries — all derived addresses already exist',
       };
     }
+
+    const finalAddress = minted.address;
+    const finalIndex = minted.index;
+    const finalPrivateKey = minted.storedKey;
+    const paymentInfo_base = {
+      payment_id: paymentId,
+      address: finalAddress,
+      cryptocurrency,
+      derivation_index: finalIndex,
+      encrypted_private_key: finalPrivateKey,
+      merchant_wallet: merchantWallet,
+      commission_wallet: commissionWallet,
+      amount_expected: amountCrypto,
+      commission_amount: commissionAmount,
+      merchant_amount: merchantAmount,
+    };
 
     const paymentInfo: PaymentAddressInfo = {
       ...paymentInfo_base,
@@ -1005,11 +1044,11 @@ export async function generatePaymentAddress(
 export async function getPaymentPrivateKey(
   supabase: SupabaseClient,
   paymentId: string
-): Promise<{ success: boolean; privateKey?: string; error?: string }> {
+): Promise<{ success: boolean; privateKey?: string; error?: string; code?: string }> {
   try {
     const { data, error } = await supabase
       .from('payment_addresses')
-      .select('encrypted_private_key')
+      .select('id, address, encrypted_private_key')
       .eq('payment_id', paymentId)
       .single();
 
@@ -1020,14 +1059,11 @@ export async function getPaymentPrivateKey(
       };
     }
 
-    // Guarded, not just present — this is the system custody path.
-    const keyResult = tryRequireEncryptionKey('system wallet');
-    if (!keyResult.ok) {
-      return { success: false, error: keyResult.error };
-    }
-    const encryptionKey = keyResult.key;
-
-    const privateKey = await decrypt(data.encrypted_private_key, encryptionKey);
+    // Sealed to the operator vault (needs an operator unlock), or a legacy
+    // ENCRYPTION_KEY row (re-sealed on this use once the vault exists).
+    const privateKey = await openPaymentAddressKey(data, (sealed) =>
+      Promise.resolve(supabase.from('payment_addresses').update({ encrypted_private_key: sealed }).eq('id', data.id)),
+    );
 
     return {
       success: true,
@@ -1037,6 +1073,7 @@ export async function getPaymentPrivateKey(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to get private key',
+      ...(error instanceof OperatorKeysLockedError || (error as { code?: string })?.code === 'vault_locked' ? { code: 'operator_locked' } : {}),
     };
   }
 }

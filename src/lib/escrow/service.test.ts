@@ -35,6 +35,16 @@ vi.mock('../wallets/system-wallet', () => ({
     privateKey: 'mock-private-key-hex',
     derivationPath: "m/44'/60'/0'/0/0",
   }),
+  // Escrow addresses are minted through mintSystemAddress (pool while the
+  // operator keys are locked; key sealed to the operator vault).
+  mintSystemAddress: vi.fn().mockResolvedValue({
+    address: '0xEscrowAddress1234567890abcdef',
+    index: 1,
+    derivationPath: "m/44'/60'/0'/0/1",
+    keyGeneration: 1,
+    storedKey: 'encrypted-private-key',
+    fromPool: false,
+  }),
   getCommissionWallet: vi.fn().mockReturnValue('0xCommissionWallet'),
   getCommissionRate: vi.fn().mockReturnValue(0.01),
   generatePaymentAddress: vi.fn(),

@@ -115,6 +115,10 @@ async function triggerForwarding(supabase: SupabaseClient, paymentId: string): P
     }
 
     const errorText = await forwardResponse.text();
+    if (forwardResponse.status === 423) {
+      // Operator keys locked: parked on the queue by the forward route.
+      return;
+    }
     console.error(`Failed to trigger forwarding for ${paymentId}: ${forwardResponse.status} - ${errorText}`);
 
     // Immediate auto-retry once before queueing
@@ -583,6 +587,12 @@ export async function monitorPayments(
               .from('payment_forwarding_queue')
               .update({ status: 'resolved', updated_at: new Date().toISOString() })
               .eq('payment_id', item.payment_id);
+            continue;
+          }
+
+          if (retryResponse.status === 423) {
+            // Operator keys locked: the forward route already parked it for
+            // after the unlock without spending an attempt.
             continue;
           }
 
