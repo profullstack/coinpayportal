@@ -25,6 +25,7 @@ import {
   type RelayerUnderfundedError,
 } from './evm-gas';
 import { deriveGasRelayerWallet, deriveTronRelayerWallet, isUsdtTronEnabled, type SystemBlockchain } from './system-wallet';
+import { operatorKeysLocked, refreshOperatorState } from './operator-keys';
 import { getTrxBalanceSun, SUN_PER_TRX } from '@/lib/tron/client';
 
 const HOUR = 60 * 60 * 1000;
@@ -100,6 +101,9 @@ export async function checkRelayerFloats(
   supabase: SupabaseClient,
   now: Date = new Date(),
 ): Promise<RelayerFloat[] | null> {
+  // Sealed and locked operator keys: nothing to derive the relayers from,
+  // and the operator-keys alert already says so. Skip quietly.
+  if ((await refreshOperatorState()).sealed && operatorKeysLocked()) return null;
   if (!(await claimOpsSlot(supabase, 'check:relayer-floats', CHECK_INTERVAL_MS, now))) return null;
 
   const floats: RelayerFloat[] = [];

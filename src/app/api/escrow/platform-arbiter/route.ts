@@ -3,13 +3,12 @@ import { getMnemonic } from '@/lib/secrets';
 import { deriveKeyForChain } from '@/lib/web-wallet/keys';
 import { PLATFORM_ARBITER_DERIVATION_INDEX } from '@/lib/wallets/derivation-family';
 import { isRetiredMnemonic } from '@/lib/wallets/key-generation';
+import { OperatorKeysLockedError, readSystemMnemonicVar, refreshOperatorState } from '@/lib/wallets/operator-keys';
 
 function getSystemMnemonic(chain: string): string | undefined {
-  // Try exact chain first (e.g. SYSTEM_MNEMONIC_USDC_ETH), then fall back to COINPAY_MNEMONIC
-  return (
-    process.env[`SYSTEM_MNEMONIC_${chain}`] ||
-    getMnemonic()
-  );
+  // Try exact chain first (e.g. SYSTEM_MNEMONIC_USDC_ETH), then fall back to
+  // COINPAY_MNEMONIC. Sealed operator keys: from the operator unlock only.
+  return readSystemMnemonicVar(`SYSTEM_MNEMONIC_${chain}`) || getMnemonic();
 }
 
 /**
@@ -31,7 +30,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'chain query parameter is required' }, { status: 400 });
   }
 
-  const mnemonic = getSystemMnemonic(chain);
+  let mnemonic: string | undefined;
+  try {
+    await refreshOperatorState();
+    mnemonic = getSystemMnemonic(chain);
+  } catch (err) {
+    if (err instanceof OperatorKeysLockedError) {
+      return NextResponse.json({ error: 'Platform arbiter key unavailable: CoinPay operator keys are locked', code: 'operator_locked' }, { status: 503 });
+    }
+    throw err;
+  }
   if (!mnemonic || isRetiredMnemonic(mnemonic)) {
     // A retired (leaked) seed must never hand out an arbiter key for a new escrow.
     return NextResponse.json({ error: `Platform arbiter key not configured for ${chain}` }, { status: 503 });

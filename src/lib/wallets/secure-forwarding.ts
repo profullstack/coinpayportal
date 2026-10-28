@@ -16,7 +16,6 @@
 
 import { settleForwardingMetadata } from '@/lib/payments/reconciliation';
 import { settlementThreshold, toFiniteNumber } from '@/lib/payments/tolerance';
-import { tryRequireEncryptionKey } from '@/lib/crypto/require-key';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ethers } from 'ethers';
 import {
@@ -29,7 +28,6 @@ import {
   TransactionInstruction,
 } from '@solana/web3.js';
 import bs58 from 'bs58';
-import { decrypt } from '../crypto/encryption';
 import { getProvider, getRpcUrl, type BlockchainType, SolanaProvider, BitcoinProvider, EthereumProvider } from '../blockchain/providers';
 import { splitTieredPayment } from '../payments/fees';
 import { sendPaymentWebhook } from '../webhooks/service';
@@ -42,6 +40,7 @@ import {
 } from './evm-gas';
 import { alertRelayerUnderfunded } from './relayer-health';
 import { getCommissionWallet, deriveTronRelayerWallet, type SystemBlockchain } from './system-wallet';
+import { OperatorKeysLockedError, openPaymentAddressKey } from './operator-keys';
 import { forwardTronUsdtSplit } from '../tron/forward';
 import { checkBalance as checkAddressBalance } from '@/app/api/cron/monitor-payments/balance-checkers';
 
@@ -74,6 +73,8 @@ export interface SecureForwardingResult {
   merchantAmount?: number;
   platformFee?: number;
   error?: string;
+  /** 'operator_locked' when the operator keys are locked: retry after unlock, not a failure. */
+  code?: string;
 }
 
 /**
@@ -172,7 +173,7 @@ export function validateForwardingBinding(
 async function getDecryptedPrivateKey(
   supabase: SupabaseClient,
   paymentId: string
-): Promise<{ success: boolean; privateKey?: string; addressData?: PaymentAddressData; error?: string }> {
+): Promise<{ success: boolean; privateKey?: string; addressData?: PaymentAddressData; error?: string; code?: string }> {
   try {
     // Get the encrypted private key from database
     const { data, error } = await supabase
@@ -197,17 +198,11 @@ async function getDecryptedPrivateKey(
       };
     }
 
-    // Get encryption key from environment
-    // Guarded, not just present: decrypting under a known-weak key is the
-    // same exposure as never having encrypted at all.
-    const keyResult = tryRequireEncryptionKey('forwarding');
-    if (!keyResult.ok) {
-      return { success: false, error: keyResult.error };
-    }
-    const encryptionKey = keyResult.key;
-
-    // Decrypt the private key
-    const privateKey = decrypt(addressData.encrypted_private_key, encryptionKey);
+    // Sealed to the operator vault (needs an operator unlock), or a legacy
+    // ENCRYPTION_KEY row (re-sealed on this use once the vault exists).
+    const privateKey = await openPaymentAddressKey(addressData, (sealed) =>
+      Promise.resolve(supabase.from('payment_addresses').update({ encrypted_private_key: sealed }).eq('id', addressData.id)),
+    );
 
     // Log the operation (without exposing key material)
     console.log(`[SECURE] Decrypted private key for payment ${paymentId} (address: ${addressData.address.substring(0, 10)}...)`);
@@ -218,7 +213,10 @@ async function getDecryptedPrivateKey(
       addressData,
     };
   } catch (error) {
-    console.error(`[SECURE] Failed to decrypt private key for payment ${paymentId}:`, error);
+    if (error instanceof OperatorKeysLockedError || (error as { code?: string })?.code === 'vault_locked') {
+      return { success: false, error: (error as Error).message, code: 'operator_locked' };
+    }
+    console.error(`[SECURE] Failed to decrypt private key for payment ${paymentId}:`, error instanceof Error ? error.message : error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Decryption failed',
@@ -541,6 +539,7 @@ export async function forwardPaymentSecurely(
       return {
         success: false,
         error: keyResult.error || 'Failed to get private key',
+        ...(keyResult.code ? { code: keyResult.code } : {}),
       };
     }
 

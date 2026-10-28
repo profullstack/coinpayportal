@@ -233,3 +233,8 @@ export function vaultErrorBody(err: unknown): { body: { success: false; error: s
   if (!isVaultError(err)) return null;
   return { body: { success: false, error: err.message, code: err.code }, status: err.status };
 }
+
+/** Test seam: forget cached vault public keys. */
+export function resetVaultCache(): void {
+  publicKeyCache.clear();
+}

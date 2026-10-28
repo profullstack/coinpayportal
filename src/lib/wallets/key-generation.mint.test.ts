@@ -8,6 +8,15 @@ vi.mock('./derivation-family', async (orig) => ({
   getMaxFamilyIndex: vi.fn(async () => 7),
 }));
 
+// No operator vault and nothing sealed: the pre-vault path (env mnemonic,
+// ENCRYPTION_KEY per-row key) this test covers.
+vi.mock('../supabase/server', () => ({
+  getSupabaseAdmin: () => {
+    const q: any = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: null, error: null }) };
+    return { from: () => q };
+  },
+}));
+
 import { generatePaymentAddress } from './system-wallet';
 import { mnemonicFingerprint } from './key-generation';
 
