@@ -10,6 +10,7 @@ import { presentedCredential } from '@profullstack/throttle';
 import { trackReferralCode } from '@profullstack/stack/referrals';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { LIGHTNING_PAUSED_MESSAGE, isLightningPath, lightningPaused } from '@/lib/lightning/paused';
 
 // ── CORS Configuration ──────────────────────────────────────
 
@@ -194,6 +195,13 @@ export async function proxy(request: NextRequest) {
 
 async function handleRequest(request: NextRequest) {
   const path = request.nextUrl.pathname;
+  if (lightningPaused() && isLightningPath(path)) {
+    // LUD-06 wallets read {status:"ERROR", reason}; everyone else gets 503.
+    return NextResponse.json(
+      { status: 'ERROR', reason: LIGHTNING_PAUSED_MESSAGE, error: LIGHTNING_PAUSED_MESSAGE },
+      { status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '86400' } }
+    );
+  }
   const isExplorer = path === '/explorer' || path.startsWith('/explorer/');
   const account = isExplorer ? explorerAccount(request) : null;
   // A ban precedes the payment gateway: paying or rotating tokens cannot
