@@ -27,7 +27,8 @@ const mockUpdate = vi.fn(() => {
 const mockEq3 = vi.fn(() => ({ single: mockSingle }));
 const mockEq2 = vi.fn(() => ({ single: mockSingle, eq: mockEq3 }));
 // The refresh lookup is `.eq('client_id').in('token', [hash, raw]).maybeSingle()`.
-const mockIn = vi.fn((_col: string, _vals: string[]) => ({ maybeSingle: mockSingle, single: mockSingle }));
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const mockIn = vi.fn((..._args: [string, string[]]) => ({ maybeSingle: mockSingle, single: mockSingle }));
 const mockEq1 = vi.fn(() => ({ single: mockSingle, eq: mockEq2, in: mockIn }));
 const mockSelect = vi.fn(() => ({ eq: mockEq1 }));
 
@@ -61,6 +62,7 @@ vi.mock('@/lib/oauth/client', () => ({
 }));
 
 import { POST } from './route';
+import { hashToken } from '@/lib/crypto/token-hash';
 import { authenticateClient, getOAuthClient } from '@/lib/oauth/client';
 
 const TEST_SECRET = 'test-oidc-signing-secret-for-unit-tests-min-32';
@@ -442,9 +444,9 @@ describe('POST /api/oauth/token', () => {
       (authenticateClient as any).mockResolvedValue({ valid: true });
       const req = makeFormRequest({
         grant_type: 'refresh_token',
-        refresh_token: 'sha256:' + 'a'.repeat(64),
+        refresh_token: hashToken('some-real-refresh-token'),
         client_id: 'cp_test',
-        client_secret: 'cps_secret',
+        client_secret: TEST_SECRET,
       });
       const res = await POST(req);
       expect(res.status).toBe(400);
