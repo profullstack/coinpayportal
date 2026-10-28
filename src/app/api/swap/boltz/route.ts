@@ -6,7 +6,9 @@ import {
   createSwapOut,
   estimateSwapFee,
 } from '@/lib/swap/boltz';
-import { authorizeWallet, encryptProviderSecrets } from '@/lib/swap/auth';
+import { authorizeWallet, sealProviderSecrets } from '@/lib/swap/auth';
+import { SWAP_SEAL_VERSION } from '@/lib/swap/sealed-keys';
+import { validateSecp256k1PublicKey } from '@/lib/web-wallet/identity';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 
 function getSupabase() {
@@ -58,11 +60,43 @@ export async function POST(request: NextRequest) {
     }
     const { direction, invoice, refundAddress, amountSats, claimAddress } = body;
 
+    // A wallet may bring its own refund/claim public key; then the private key
+    // never exists on our side. Otherwise we generate one and seal it to the
+    // wallet's own secp256k1 public key, so no server key can open it.
+    const clientKey: string | undefined =
+      direction === 'in' ? body.refundPublicKey : direction === 'out' ? body.claimPublicKey : undefined;
+    if (clientKey !== undefined && (typeof clientKey !== 'string' || !validateSecp256k1PublicKey(clientKey))) {
+      return NextResponse.json(
+        { success: false, error: 'refundPublicKey/claimPublicKey must be a 33-byte compressed secp256k1 key (hex)' },
+        { status: 400 },
+      );
+    }
+    let walletPublicKey: string | null = null;
+    if ((direction === 'in' || direction === 'out') && !clientKey) {
+      const { data: walletRow } = await supabase
+        .from('wallets')
+        .select('public_key_secp256k1')
+        .eq('id', walletId)
+        .single();
+      walletPublicKey = (walletRow as { public_key_secp256k1?: string | null } | null)?.public_key_secp256k1 ?? null;
+      // Checked before the swap exists at Boltz: a key we cannot seal must
+      // never be minted, or it would be lost.
+      if (!walletPublicKey || !validateSecp256k1PublicKey(walletPublicKey)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'This wallet has no secp256k1 key to seal swap keys to. Pass refundPublicKey/claimPublicKey from your wallet.',
+          },
+          { status: 400 },
+        );
+      }
+    }
+
     if (direction === 'in') {
       if (!invoice) {
         return NextResponse.json({ success: false, error: 'Lightning invoice required' }, { status: 400 });
       }
-      const swap = await createSwapIn(invoice, refundAddress);
+      const swap = await createSwapIn(invoice, refundAddress, clientKey);
 
       // Save to DB
       {
@@ -76,14 +110,20 @@ export async function POST(request: NextRequest) {
           settle_address: 'Lightning Invoice',
           status: 'pending',
           provider: 'boltz',
-          // Key material is encrypted at rest; a read of the swaps table no
-          // longer yields the key that redeems the swap.
-          provider_data: encryptProviderSecrets({
-            direction: 'in',
-            bip21: swap.bip21,
-            expectedAmount: swap.expectedAmount,
-            refundPrivateKey: swap.refundPrivateKey,
-          }),
+          // Key material is sealed to the wallet's own public key; neither a
+          // read of the swaps table nor root on the server opens it.
+          seal_version: SWAP_SEAL_VERSION,
+          provider_data: await sealProviderSecrets(
+            {
+              direction: 'in',
+              bip21: swap.bip21,
+              expectedAmount: swap.expectedAmount,
+              refundPrivateKey: swap.refundPrivateKey,
+              keyCustody: clientKey ? 'client' : 'sealed',
+              seal_version: SWAP_SEAL_VERSION,
+            },
+            { walletId, swapId: swap.id, walletPublicKey: walletPublicKey ?? '' },
+          ),
         });
         // A-05: this used to log and answer `success: true`.
         //
@@ -119,7 +159,7 @@ export async function POST(request: NextRequest) {
       if (!amountSats || !claimAddress) {
         return NextResponse.json({ success: false, error: 'amountSats and claimAddress required' }, { status: 400 });
       }
-      const swap = await createSwapOut(amountSats, claimAddress);
+      const swap = await createSwapOut(amountSats, claimAddress, clientKey);
 
       // Save to DB
       {
@@ -134,13 +174,19 @@ export async function POST(request: NextRequest) {
           settle_address: claimAddress,
           status: 'pending',
           provider: 'boltz',
-          provider_data: encryptProviderSecrets({
-            direction: 'out',
-            invoice: swap.invoice,
-            lockupAddress: swap.lockupAddress,
-            onchainAmount: swap.onchainAmount,
-            claimPrivateKey: swap.claimPrivateKey,
-          }),
+          seal_version: SWAP_SEAL_VERSION,
+          provider_data: await sealProviderSecrets(
+            {
+              direction: 'out',
+              invoice: swap.invoice,
+              lockupAddress: swap.lockupAddress,
+              onchainAmount: swap.onchainAmount,
+              claimPrivateKey: swap.claimPrivateKey,
+              keyCustody: clientKey ? 'client' : 'sealed',
+              seal_version: SWAP_SEAL_VERSION,
+            },
+            { walletId, swapId: swap.id, walletPublicKey: walletPublicKey ?? '' },
+          ),
         });
         // A-05, reverse direction. `claimPrivateKey` is the only thing that can
         // claim the on-chain side of a swap-out; losing it strands the funds in

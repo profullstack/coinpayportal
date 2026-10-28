@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
 
     let did: string;
     let publicKey: string;
-    let privateKeyEncrypted: string | null = null;
+    let generatedPrivateKey: string | null = null;
 
     if (body && body.did && body.public_key && body.signature) {
       // Link existing DID — verify signature proves ownership
@@ -157,7 +157,11 @@ export async function POST(request: NextRequest) {
 
       did = publicKeyToDidKey(pubKeyRaw);
       publicKey = bytesToBase64url(pubKeyRaw);
-      privateKeyEncrypted = bytesToBase64url(privKeyRaw);
+      // Handed to the caller once, below, and never stored: CoinPay never
+      // uses a DID private key, and a stored copy is a key any root on the
+      // box could read (it was written in plaintext under a column named
+      // `_encrypted`).
+      generatedPrivateKey = bytesToBase64url(privKeyRaw);
     }
 
     const { data, error } = await supabase
@@ -166,7 +170,7 @@ export async function POST(request: NextRequest) {
         merchant_id: merchantId,
         did,
         public_key: publicKey,
-        private_key_encrypted: privateKeyEncrypted,
+        private_key_encrypted: null,
         verified: true,
         did_kind: didKind,
         lifetime,
@@ -188,7 +192,14 @@ export async function POST(request: NextRequest) {
       did_kind: data.did_kind,
       lifetime: data.lifetime,
       label: data.label,
-    }, { status: 201 });
+      ...(generatedPrivateKey
+        ? {
+            private_key: generatedPrivateKey,
+            private_key_notice:
+              'Save this private key now. CoinPay does not keep a copy and cannot show it again.',
+          }
+        : {}),
+    }, { status: 201, headers: generatedPrivateKey ? { 'Cache-Control': 'no-store' } : undefined });
   } catch (error) {
     console.error('DID claim error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
