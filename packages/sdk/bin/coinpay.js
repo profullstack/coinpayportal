@@ -13,7 +13,9 @@ import {
   generateMnemonic, 
   validateMnemonic,
   DEFAULT_CHAINS,
+  deriveAddress,
 } from '../src/wallet.js';
+import { mnemonicToSeedSync } from '@scure/bip39';
 import { SwapClient, SwapCoins } from '../src/swap.js';
 import {
   createInvoice,
@@ -2831,8 +2833,41 @@ async function handleWallet(subcommand, args, flags) {
         return;
       }
       
-      print.info(`Wallet: ${config.walletId}`);
-      print.info('Note: Full address list requires API authentication.');
+      // Derived locally from the encrypted seed: nothing leaves this machine.
+      // These are the receiving addresses to hand a marketplace (ugig.net
+      // profile payout wallets, invoices, bounties) so it pays you directly.
+      if (!hasEncryptedWallet(flags)) {
+        print.info(`Wallet: ${config.walletId}`);
+        print.error('No encrypted wallet file found, so no addresses can be derived here.');
+        return;
+      }
+      try {
+        const mnemonic = await getDecryptedMnemonic(flags);
+        const seed = mnemonicToSeedSync(mnemonic.trim());
+        clearString(mnemonic);
+        const chains = (flags.chains ? String(flags.chains).split(',') : DEFAULT_CHAINS)
+          .map((c) => c.trim().toUpperCase())
+          .filter(Boolean);
+        const index = parseInt(flags.index || '0', 10);
+        const addresses = [];
+        for (const chain of chains) {
+          try {
+            addresses.push({ chain, index, address: deriveAddress(seed, chain, index) });
+          } catch (err) {
+            addresses.push({ chain, index, error: err.message });
+          }
+        }
+        if (flags.json) {
+          print.json({ walletId: config.walletId, addresses });
+        } else {
+          print.info(`Wallet: ${config.walletId}`);
+          for (const a of addresses) {
+            console.log(`  ${a.chain.padEnd(9)} ${a.address || a.error}`);
+          }
+        }
+      } catch (error) {
+        print.error(error.message);
+      }
       break;
     }
     

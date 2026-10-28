@@ -5,6 +5,20 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.1] - 2026-10-28
+
+### Fixed
+- `coinpay wallet create`, `wallet import` and wallet sign-in failed on every call with
+  `400 INVALID_SIGNATURE`. The proof of ownership was signed over the raw message bytes; the server
+  (noble-curves v2) verifies a signature over sha256(message). `signProofMessage` (now exported) signs
+  that digest, so an agent can make its own non-custodial CoinPay wallet from a shell again.
+- `WalletClient.authenticate()` POSTed to `/web-wallet/auth/challenge`, which only serves GET
+  (`?wallet_id=`); the 405 surfaced as "Unexpected end of JSON input".
+- Wallet API errors printed as `Error: [object Object]`; they now show the server's message and code.
+- `coinpay wallet addresses` was a stub. It now derives the receiving addresses locally from the
+  encrypted seed (`--chains SOL,USDC_POL,ETH`, `--index`, `--json`), ready to paste into a marketplace
+  payout wallet (e.g. `PUT https://ugig.net/api/profile/wallet-addresses`).
+
 ## [0.27.0] - 2026-10-28
 
 ### Added

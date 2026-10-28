@@ -403,33 +403,35 @@ function getSecp256k1PublicKey(seed) {
 }
 
 /**
- * Sign a message with secp256k1 private key
- * @private
+ * Sign a proof-of-ownership / auth-challenge message with a secp256k1 key,
+ * the way the CoinPay server verifies it.
+ *
+ * The server (src/lib/web-wallet/auth.ts::verifySecp256k1Signature) runs
+ * noble-curves v2, whose `verify(sig, message, pub)` sha256-hashes the message
+ * first (prehash defaults to true). This SDK pins noble-curves v1, whose
+ * `sign(x, key)` treats `x` as an already-hashed digest. So the SDK must hash
+ * explicitly: sign(sha256(message), { prehash: false }) is byte-for-byte what
+ * the server checks, on either major version.
+ *
+ * History: 0.x signed sha256(message) and was right while the server ran v1
+ * (raw verify); a later "fix" switched to raw bytes; the server then moved to
+ * v2 and every `wallet create`, `wallet import` and wallet sign-in from the
+ * SDK/CLI failed with 400 INVALID_SIGNATURE (2026-10).
  */
-function signMessage(message, privateKey) {
-  // Signed over the RAW message bytes, not sha256(message).
-  //
-  // This used to hash first. The server verifies proofs by passing the raw
-  // encoded message straight to `secp256k1.verify` (see
-  // web-wallet/auth.ts::verifySecp256k1Signature), and noble treats that
-  // argument as the thing that was signed — so a signature over the digest
-  // verifies false against the message. Every proof of ownership this SDK
-  // produced was rejected, which meant `WalletClient.fromSeed()` could not
-  // import a wallet at all. Found while wiring the same proof into
-  // `create()` for V-04.
-  const signature = secp256k1.sign(new TextEncoder().encode(message), privateKey);
-  // Handle different noble-curves versions:
-  // v1.x returns Signature object with toCompactHex()
-  // v2.x returns raw Uint8Array directly
+export function signProofMessage(message, privateKey) {
+  const digest = sha256(new TextEncoder().encode(message));
+  const signature = secp256k1.sign(digest, privateKey, { prehash: false });
+  // v1.x returns a Signature object, v2.x a compact Uint8Array.
   if (signature instanceof Uint8Array) {
     return bytesToHex(signature);
   }
   if (typeof signature.toCompactHex === 'function') {
     return signature.toCompactHex();
   }
-  // Fallback: try toCompactRawBytes
   return bytesToHex(signature.toCompactRawBytes());
 }
+
+const signMessage = signProofMessage;
 
 // ================================================================
 // Arbitrary tx / message signing
@@ -795,9 +797,13 @@ export class WalletClient {
       const data = await response.json();
       
       if (!response.ok) {
-        const error = new Error(data.error || `HTTP ${response.status}`);
+        // Web-wallet routes answer { error: { code, message } }; older ones a string.
+        const apiError = data && typeof data.error === 'object' && data.error ? data.error : null;
+        const error = new Error(
+          (apiError ? apiError.message || apiError.code : data.error) || `HTTP ${response.status}`
+        );
         error.status = response.status;
-        error.code = data.code;
+        error.code = apiError?.code ?? data.code;
         error.response = data;
         throw error;
       }
@@ -823,10 +829,11 @@ export class WalletClient {
     }
     
     // Get challenge
-    const challengeRes = await this.#request(`/web-wallet/auth/challenge`, {
-      method: 'POST',
-      body: JSON.stringify({ wallet_id: this.#walletId }),
-    });
+    // The server serves challenges on GET ?wallet_id= (a POST is a 405 with
+    // an empty body, which surfaced as "Unexpected end of JSON input").
+    const challengeRes = await this.#request(
+      `/web-wallet/auth/challenge?wallet_id=${encodeURIComponent(this.#walletId)}`
+    );
     const challenge = challengeRes.data?.challenge || challengeRes.challenge;
     const challengeId = challengeRes.data?.challenge_id || challengeRes.challenge_id;
     
