@@ -50,14 +50,7 @@ export default function Footer() {
                 Tor mirror
               </a>
             )}
-            <a href="https://built.indie.pit.world/p/coinpay?ref=badge">
-              <img
-                src="https://built.indie.pit.world/badge/coinpay.svg"
-                alt="CoinPay on built.indie"
-                width="150"
-                height="33"
-              />
-            </a>
+            {/* The built.indie badge comes from @profullstack/footer below; one per page. */}
           </div>
         </div>
       </footer>
