@@ -120,7 +120,8 @@ describe('Next.js HTTP security entry point', () => {
   });
 
   it('enforces the site-wide allowance through HTTP', async () => {
-    for (let i = 0; i < 100; i++) {
+    // 100/min configured; @profullstack/throttle 0.4 applies x5 headroom.
+    for (let i = 0; i < 500; i++) {
       const response = await get('/api/health', '198.51.100.23');
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ downstream: true });
@@ -129,7 +130,7 @@ describe('Next.js HTTP security entry point', () => {
     expect(response.status).toBe(429);
     expect(Number(response.headers.get('Retry-After'))).toBeGreaterThan(0);
     expect(response.headers.get('Strict-Transport-Security')).toContain('max-age=31536000');
-    expect(await response.json()).toMatchObject({ error: 'Too many requests', limit: 100 });
+    expect(await response.json()).toMatchObject({ error: 'Too many requests', limit: 500 });
   }, 30_000);
 
   it('allows 30 explorer requests, then refuses the 31st before rendering', async () => {

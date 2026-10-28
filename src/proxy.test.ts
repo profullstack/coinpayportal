@@ -164,12 +164,13 @@ describe('presentedCredential', () => {
 });
 
 describe('proxy rate limiting', () => {
-  // 100/min is the house default in @profullstack/throttle, and it now applies
+  // 100/min is the configured default (x5 headroom in @profullstack/throttle
+  // 0.4 makes it 500/min live), and it now applies
   // to every route rather than just /api/ -- which is the whole point of the
   // change: the scraper that prompted it never touched an API path.
   it('caps an anonymous API caller at the general limit', async () => {
-    const allowed = await countUntilLimited('/api/rates', '10.1.0.1', 140);
-    expect(allowed).toBe(100);
+    const allowed = await countUntilLimited('/api/rates', '10.1.0.1', 540);
+    expect(allowed).toBe(500);
   });
 
   // Deliberately not an /explorer path. That prefix has its own, stricter
@@ -177,8 +178,8 @@ describe('proxy rate limiting', () => {
   // longer show what this test is about: that an ordinary page route is
   // metered at all now, where before only `/api/` was.
   it('meters a page route too, not only /api/', async () => {
-    const allowed = await countUntilLimited('/pricing', '10.1.0.9', 140);
-    expect(allowed).toBe(100);
+    const allowed = await countUntilLimited('/pricing', '10.1.0.9', 540);
+    expect(allowed).toBe(500);
   });
 
   // The regression that broke bulk invoice payments: ugig.net mints one payment
@@ -203,8 +204,8 @@ describe('proxy rate limiting', () => {
   it('budgets each API key separately from the same host', async () => {
     const headersA = { authorization: 'Bearer sk_live_a' };
     const headersB = { authorization: 'Bearer sk_live_b' };
-    // Spend key A's whole budget.
-    expect(await countUntilLimited('/api/payments/create', '10.1.0.3', 700, headersA)).toBe(600);
+    // Spend key A's whole budget (600 configured, x5 headroom).
+    expect(await countUntilLimited('/api/payments/create', '10.1.0.3', 3100, headersA)).toBe(3000);
     // Key B is untouched.
     const response = await proxy(post('/api/payments/create', '10.1.0.3', headersB));
     expect(response.status).toBe(200);
@@ -214,7 +215,8 @@ describe('proxy rate limiting', () => {
     const ip = '10.1.0.4';
     let limited = false;
     let allowed = 0;
-    for (let i = 0; i < 1400 && !limited; i++) {
+    // Ceiling is 1200 configured, x5 headroom.
+    for (let i = 0; i < 6400 && !limited; i++) {
       const response = await proxy(
         post('/api/payments/create', ip, { authorization: `Bearer sk_rotate_${i}` })
       );
@@ -222,7 +224,7 @@ describe('proxy rate limiting', () => {
       else allowed++;
     }
     expect(limited).toBe(true);
-    expect(allowed).toBe(1200);
+    expect(allowed).toBe(6000);
   });
 
   // Without this, brute-forcing a login is a matter of bolting on an unverified
@@ -231,6 +233,7 @@ describe('proxy rate limiting', () => {
     const allowed = await countUntilLimited('/api/auth/login', '10.1.0.5', 40, {
       authorization: 'Bearer sk_live_anything',
     });
+    // A brute-force guard: headroom does not apply.
     expect(allowed).toBe(10);
   });
 });
