@@ -165,17 +165,24 @@ function assertLockupBinding(kind: string, address: string, matched: boolean | n
   }
 }
 
+/**
+ * `clientRefundPublicKey`: when the wallet supplies its own refund public key
+ * (33-byte compressed hex), the private key never exists on our side and
+ * nothing is returned or stored. Otherwise a key pair is generated here and the
+ * caller must seal the private key to the wallet before storing it.
+ */
 export async function createSwapIn(
   invoice: string,
   refundAddress?: string,
+  clientRefundPublicKey?: string,
 ): Promise<BoltzSwapResponse & { refundPrivateKey?: string }> {
-  const kp = generateKeyPair();
+  const kp = clientRefundPublicKey ? null : generateKeyPair();
 
   const body: Record<string, unknown> = {
     from: 'BTC',
     to: 'BTC',
     invoice,
-    refundPublicKey: kp.publicKey,
+    refundPublicKey: clientRefundPublicKey ?? kp!.publicKey,
   };
 
   const res = await fetch(`${BOLTZ_API}/swap/submarine`, {
@@ -200,7 +207,7 @@ export async function createSwapIn(
     );
   }
 
-  return { ...swap, refundPrivateKey: kp.privateKey };
+  return kp ? { ...swap, refundPrivateKey: kp.privateKey } : swap;
 }
 
 /**
@@ -210,15 +217,16 @@ export async function createSwapIn(
 export async function createSwapOut(
   invoiceAmount: number,
   claimAddress: string,
+  clientClaimPublicKey?: string,
 ): Promise<BoltzReverseSwapResponse & { claimPrivateKey?: string }> {
-  const kp = generateKeyPair();
+  const kp = clientClaimPublicKey ? null : generateKeyPair();
 
   const body: Record<string, unknown> = {
     from: 'BTC',
     to: 'BTC',
     invoiceAmount,
     claimAddress,
-    claimPublicKey: kp.publicKey,
+    claimPublicKey: clientClaimPublicKey ?? kp!.publicKey,
   };
 
   const res = await fetch(`${BOLTZ_API}/swap/reverse`, {
@@ -241,7 +249,7 @@ export async function createSwapOut(
     );
   }
 
-  return { ...swap, claimPrivateKey: kp.privateKey };
+  return kp ? { ...swap, claimPrivateKey: kp.privateKey } : swap;
 }
 
 /**

@@ -132,6 +132,38 @@ describe('POST /api/reputation/did/claim', () => {
     expect(json.verified).toBe(true);
   });
 
+  it('never stores an auto-generated private key; returns it once, matching the DID', async () => {
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest());
+    const json = await res.json();
+    expect((mockInsertedData as Record<string, unknown>).private_key_encrypted).toBeNull();
+    expect(typeof json.private_key).toBe('string');
+    expect(json.private_key_notice).toMatch(/does not keep a copy/);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    // The returned key is the one behind the DID's public key.
+    const { createPrivateKey, createPublicKey } = await import('crypto');
+    const pkcs8 = Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), Buffer.from(json.private_key, 'base64url')]);
+    const pub = createPublicKey(createPrivateKey({ key: pkcs8, format: 'der', type: 'pkcs8' }));
+    const pubRaw = Buffer.from(pub.export({ type: 'spki', format: 'der' })).subarray(-32);
+    expect(deriveDidKey(pubRaw)).toBe((mockInsertedData as Record<string, unknown>).did);
+  });
+
+  it('does not return a private key when the caller brings their own key', async () => {
+    const kp = edKeypair();
+    const did = deriveDidKey(kp.pubRaw);
+    const signature = sign(null, Buffer.from(`claim-did:${did}:merchant-123`), kp.privateKey).toString('base64url');
+    mockInsertResult = {
+      data: { did, public_key: kp.pubB64url, verified: true, created_at: '2026-01-01T00:00:00Z' },
+      error: null,
+    };
+    const { POST } = await import('./route');
+    const res = await POST(makeRequest({ did, public_key: kp.pubB64url, signature, did_kind: 'agent' }));
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    expect(json.private_key).toBeUndefined();
+    expect((mockInsertedData as Record<string, unknown>).private_key_encrypted).toBeNull();
+  });
+
   it('stores merchant_id, did, public_key, and verified flag', async () => {
     const { POST } = await import('./route');
     await POST(makeRequest());
