@@ -3,6 +3,7 @@ import { requireFinanceAccess } from '@/lib/finances/access';
 import { exchangePublicToken } from '@/lib/finances/plaid';
 import { isPlaidEnabled } from '@/lib/finances/provider';
 import { createPlaidConnection } from '@/lib/finances/sync';
+import { hasVault, VaultMissingError } from '@/lib/vault/vault-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +35,13 @@ export async function POST(req: NextRequest) {
   const publicToken = typeof body.publicToken === 'string' ? body.publicToken.trim() : '';
   if (!publicToken) {
     return NextResponse.json({ error: 'publicToken is required' }, { status: 400 });
+  }
+
+  // The access token is sealed to the merchant's secrets vault; refuse before
+  // Plaid mints one we could not store.
+  if (!(await hasVault('merchant', guard.id))) {
+    const missing = new VaultMissingError('merchant');
+    return NextResponse.json({ error: missing.message, code: missing.code }, { status: 423 });
   }
 
   try {

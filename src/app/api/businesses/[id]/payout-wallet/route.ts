@@ -4,6 +4,7 @@ import { authenticateRequest, isMerchantAuth, isBusinessAuth, hasScope } from '@
 import { authorizeBusinessOwner } from '@/lib/auth/authz';
 import { refuseOAuthFundsMove } from '@/lib/auth/oauth-funds';
 import { ensurePayoutWallet, getPayoutWallet, EVM_PAYOUT_TOKENS } from '@/lib/payouts/payout-wallet';
+import { vaultErrorBody } from '@/lib/vault/vault-service';
 
 /**
  * GET  /api/businesses/:id/payout-wallet   the business's payout wallet, if any
@@ -89,6 +90,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const out = await ensurePayoutWallet(a.supabase, id, 'evm', a.actor);
     return NextResponse.json(body(out.address, { created: out.created }), { status: out.created ? 201 : 200 });
   } catch (error) {
+    const v = vaultErrorBody(error);
+    if (v) return NextResponse.json(v.body, { status: v.status });
     console.error('Create payout wallet error:', error);
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }

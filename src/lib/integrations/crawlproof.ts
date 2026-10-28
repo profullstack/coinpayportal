@@ -1,7 +1,9 @@
 import 'server-only';
 import { getSupabaseAdmin } from '../supabase/server';
-import { encrypt, decrypt } from '../crypto/encryption';
+import { decrypt } from '../crypto/encryption';
 import { requireEncryptionKey } from '../crypto/require-key';
+import { openMerchantSecret, sealForMerchant } from '../vault/merchant-secret';
+import { isVaultError } from '../vault/vault-service';
 import { audit } from '../finances/audit';
 
 /**
@@ -12,8 +14,9 @@ import { audit } from '../finances/audit';
  *   on every route except the tracker reads, and echoes the scope on
  *   /api/tracker/v1/report, so a full-access token (one that can post or
  *   spend ad budget) is refused here before it is ever stored.
- * - Stored AES-256-GCM encrypted with ENCRYPTION_KEY, one row per merchant;
- *   only the prefix is ever shown back. Disconnecting deletes the row.
+ * - Sealed to the merchant's secrets vault (2026-10-28), one row per merchant;
+ *   the report section reads it only while they are unlocked. Only the
+ *   prefix is ever shown back. Disconnecting deletes the row.
  * - CrawlProof scopes every answer to the token's owner, so a merchant can
  *   only ever see the sites of whoever minted the token they pasted.
  * - Reading never throws into the report: any failure is recorded on the row
@@ -172,13 +175,14 @@ export async function connectCrawlProof(merchantId: string, token: unknown, fetc
       400,
     );
   }
-  const key = requireEncryptionKey('crawlproof token storage');
+  const sealed = await sealForMerchant(merchantId, raw, tokenAad(merchantId));
   const now = new Date().toISOString();
   const supabase = getSupabaseAdmin();
   const { error } = await supabase.from('merchant_crawlproof_connections').upsert(
     {
       merchant_id: merchantId,
-      token_encrypted: encrypt(raw, key),
+      token_encrypted: sealed,
+      seal_version: 2,
       token_prefix: raw.slice(0, 8),
       sites_count: report.sites.length + report.truncated,
       connected_at: now,
@@ -215,7 +219,16 @@ export async function loadCrawlProofForMerchant(merchantId: string, range: Crawl
       .eq('merchant_id', merchantId)
       .maybeSingle();
     if (error || !data) return null;
-    const token = decrypt(data.token_encrypted as string, requireEncryptionKey('crawlproof token access'));
+    const token = await openMerchantSecret({
+      merchantId,
+      stored: data.token_encrypted as string,
+      aad: tokenAad(merchantId),
+      legacyDecrypt: (v) => decrypt(v, requireEncryptionKey('crawlproof token access')),
+      persist: (next) =>
+        Promise.resolve(
+          supabase.from('merchant_crawlproof_connections').update({ token_encrypted: next, seal_version: 2 }).eq('merchant_id', merchantId),
+        ),
+    });
     const report = await fetchCrawlProofReport(token, range, fetchImpl);
     await supabase
       .from('merchant_crawlproof_connections')
@@ -224,10 +237,21 @@ export async function loadCrawlProofForMerchant(merchantId: string, range: Crawl
     return report;
   } catch (err) {
     const message = (err instanceof Error ? err.message : String(err)).slice(0, 300);
+    if (isVaultError(err)) {
+      // Locked: a status, not a warning on every report.
+      await Promise.resolve(
+        supabase.from('merchant_crawlproof_connections').update({ last_error: `locked: ${message}`, updated_at: new Date().toISOString() }).eq('merchant_id', merchantId),
+      ).catch(() => undefined);
+      return null;
+    }
     console.warn('[crawlproof] report section skipped', message);
     await Promise.resolve(
       supabase.from('merchant_crawlproof_connections').update({ last_error: message, updated_at: new Date().toISOString() }).eq('merchant_id', merchantId),
     ).catch(() => undefined);
     return null;
   }
+}
+
+export function tokenAad(merchantId: string): string {
+  return `merchant_crawlproof_connections:${merchantId}:token`;
 }

@@ -4,6 +4,7 @@ import { sendEmail } from '../email';
 import { BrowserBusyError, launchCloudBrowser, loadEngine } from './cloud-browser';
 import { checkSiteThrottle } from './site-attempts';
 import { captureState, getBankSession, loadSessionState, nextTouchAt, saveSession, updateBankSession, type BankSessionRow, type SessionState } from './bank-sessions';
+import { merchantUnlocked } from '../vault/vault-service';
 
 /**
  * Keeping cloud bank sessions alive.
@@ -79,7 +80,16 @@ export async function notifyNeedsSignIn(row: Pick<BankSessionRow, 'merchant_id' 
 }
 
 /** One touch of one bank, end to end. Returns what happened. */
-export async function touchBankSession(row: BankSessionRow): Promise<'alive' | 'login_needed' | 'busy' | 'skipped' | 'error'> {
+export async function touchBankSession(row: BankSessionRow): Promise<'alive' | 'login_needed' | 'busy' | 'skipped' | 'locked' | 'error'> {
+  // The saved session is sealed to the merchant's vault: nothing to restore
+  // until they unlock. Show it and look again in an hour, without an error.
+  if (!merchantUnlocked(row.merchant_id)) {
+    await updateBankSession(row.merchant_id, row.institution_key, {
+      last_status: 'locked: unlock your secrets vault to resume',
+      next_touch_at: nextTouchAt(Date.now() + 60 * 60_000),
+    });
+    return 'locked';
+  }
   const { cloudStatementsAccess } = await import('./cloud-statements');
   const access = { id: row.merchant_id, actorId: row.merchant_id };
   if (!(await cloudStatementsAccess(access)).allowed) {

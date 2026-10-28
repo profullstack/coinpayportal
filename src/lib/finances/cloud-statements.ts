@@ -9,6 +9,7 @@ import { createJob, heartbeat, releaseWithStatus, type FinanceJobRow } from './j
 import { BrowserBusyError, launchCloudBrowser, loadEngine } from './cloud-browser';
 import { installRequestGuard } from './bank-guard';
 import { captureState, getBankSession, loadSessionState, restoreState, saveSession, updateBankSession, type BankSessionRow } from './bank-sessions';
+import { merchantUnlocked, VaultLockedError } from '../vault/vault-service';
 import { createDocument, DocumentError } from './documents';
 import { recordSiteLockout, takeSiteAttempt } from './site-attempts';
 
@@ -168,6 +169,14 @@ export async function runStatementFetchJob(job: FinanceJobRow): Promise<void> {
   const sf = await loadEngine();
   const taxInfo = sf.taxSource(institutionKey);
   const tax = !!taxInfo;
+  // A bank visit restores the saved session, which is sealed to the
+  // merchant's vault: end quietly with the reason while they are locked.
+  if (!tax && !merchantUnlocked(merchantId)) {
+    const locked = new VaultLockedError('merchant');
+    await updateBankSession(merchantId, institutionKey, { last_status: 'locked: unlock your secrets vault to resume' }).catch(() => undefined);
+    await releaseWithStatus(job, 'cancelled', { error_code: locked.code, error_message: locked.message });
+    return;
+  }
   // A brokerage with no linked account (Webull) files into the document library.
   const brokerage = !tax && !!sf.brokerageSource(institutionKey);
 

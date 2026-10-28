@@ -122,6 +122,12 @@ export async function reconcilePaypalTransactions(
 
     try {
       const context = await resolvePaypalContext(supabase, row.business_id);
+      if ('error' in context && context.status === 423) {
+        // PayPal locked (the owner's secrets vault): not gone, just paused.
+        // Never age a payment out for that; look again after they unlock.
+        stats.skipped++;
+        continue;
+      }
       if ('error' in context) {
         // Merchant disconnected PayPal while this was in flight. We can no
         // longer ask, so age it out rather than retrying forever.
