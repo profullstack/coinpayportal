@@ -8,6 +8,8 @@ import {
   generateIdToken,
   verifyAccessToken,
   validatePKCE,
+  getSigningSecret,
+  assertOidcSigningSecret,
 } from './tokens';
 
 const TEST_SECRET = 'test-oidc-signing-secret-for-unit-tests-min-32';
@@ -223,6 +225,50 @@ describe('OAuth Tokens', () => {
 
     it('should reject unknown method', () => {
       expect(validatePKCE('verifier', 'challenge', 'unknown')).toBe(false);
+    });
+  });
+  describe('signing secret (#511: never the Supabase/JWT secret in production)', () => {
+    const SESSION = 'session-and-supabase-jwt-secret-0123456789abcdef';
+    beforeEach(() => {
+      vi.stubEnv('JWT_SECRET', SESSION);
+      vi.stubEnv('SUPABASE_JWT_SECRET', SESSION);
+    });
+
+    it('fails closed in production when OIDC_SIGNING_SECRET is missing', () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('OIDC_SIGNING_SECRET', '');
+      expect(() => assertOidcSigningSecret()).toThrow(/OIDC_SIGNING_SECRET must be set/);
+      expect(() => generateAccessToken({ id: 'u' }, { client_id: 'c' }, ['openid'])).toThrow();
+    });
+
+    it('refuses a short secret in production', () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('OIDC_SIGNING_SECRET', 'short');
+      expect(() => getSigningSecret()).toThrow(/>= 32/);
+    });
+
+    it('refuses OIDC_SIGNING_SECRET equal to JWT_SECRET or SUPABASE_JWT_SECRET in production', () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('OIDC_SIGNING_SECRET', SESSION);
+      expect(() => getSigningSecret()).toThrow(/must not equal/);
+      vi.stubEnv('JWT_SECRET', 'another-session-secret-0123456789abcdef');
+      expect(() => getSigningSecret()).toThrow(/must not equal/);
+    });
+
+    it('uses its own secret in production, and tokens signed with JWT_SECRET do not verify', () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('OIDC_SIGNING_SECRET', TEST_SECRET);
+      expect(getSigningSecret()).toBe(TEST_SECRET);
+      const forged = jwt.sign({ sub: 'u', token_type: 'access', scope: 'openid' }, SESSION, { algorithm: 'HS256' });
+      expect(() => verifyAccessToken(forged)).toThrow('Invalid token');
+      const token = generateAccessToken({ id: 'u' }, { client_id: 'c' }, ['openid']);
+      expect(() => jwt.verify(token, SESSION)).toThrow();
+    });
+
+    it('falls back to JWT_SECRET outside production only', () => {
+      vi.stubEnv('NODE_ENV', 'test');
+      vi.stubEnv('OIDC_SIGNING_SECRET', '');
+      expect(getSigningSecret()).toBe(SESSION);
     });
   });
 });
