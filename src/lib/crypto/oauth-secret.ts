@@ -2,10 +2,12 @@
  * Browser-side passphrase encryption for OAuth client secrets.
  *
  * Format of the ciphertext we hand to the server:
- *   "v1:<base64-salt>:<base64-iv>:<base64-ciphertext-with-gcm-tag>"
+ *   "v2:<base64-salt>:<base64-iv>:<base64-ciphertext-with-gcm-tag>"
  *
- *  - salt: 16 random bytes, fed into PBKDF2(SHA-256, 200_000 iters) to
- *    derive a 256-bit key.
+ *  - salt: 16 random bytes, fed into PBKDF2(SHA-256) to derive a 256-bit key.
+ *    v2 uses 600_000 iterations (fleet rule, OWASP 2023). v1 used 200_000 and
+ *    is still opened; the dashboard re-encrypts a v1 copy as v2 right after
+ *    the owner unlocks it (`needsUpgrade`).
  *  - iv: 12 random bytes, the AES-GCM nonce.
  *  - ciphertext: AES-256-GCM output (16-byte authentication tag is
  *    appended by WebCrypto, so this is plaintext.length + 16 bytes).
@@ -14,8 +16,9 @@
  * derive the key (it never sees the passphrase).
  */
 
-const VERSION = 'v1' as const;
-const PBKDF2_ITERATIONS = 200_000;
+const VERSION = 'v2' as const;
+/** Iterations per format version. New ciphertext is always v2. */
+export const PBKDF2_ITERATIONS: Record<'v1' | 'v2', number> = { v1: 200_000, v2: 600_000 };
 const SALT_BYTES = 16;
 const IV_BYTES = 12;
 const KEY_BITS = 256;
@@ -42,7 +45,7 @@ function b64ToBytes(b64: string): Uint8Array {
   return bytes;
 }
 
-async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
+async function deriveKey(passphrase: string, salt: Uint8Array, iterations: number): Promise<CryptoKey> {
   const baseKey = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(passphrase),
@@ -54,7 +57,7 @@ async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKe
     {
       name: 'PBKDF2',
       salt: asBufferSource(salt),
-      iterations: PBKDF2_ITERATIONS,
+      iterations,
       hash: 'SHA-256',
     },
     baseKey,
@@ -70,7 +73,7 @@ export async function encryptClientSecret(plaintext: string, passphrase: string)
 
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
-  const key = await deriveKey(passphrase, salt);
+  const key = await deriveKey(passphrase, salt, PBKDF2_ITERATIONS[VERSION]);
   const ciphertext = new Uint8Array(
     await crypto.subtle.encrypt(
       { name: 'AES-GCM', iv: asBufferSource(iv) },
@@ -83,11 +86,11 @@ export async function encryptClientSecret(plaintext: string, passphrase: string)
 
 export async function decryptClientSecret(ciphertext: string, passphrase: string): Promise<string> {
   const parts = ciphertext.split(':');
-  if (parts.length !== 4 || parts[0] !== VERSION) {
+  if (parts.length !== 4 || (parts[0] !== 'v1' && parts[0] !== 'v2')) {
     throw new Error('Unsupported ciphertext format');
   }
-  const [, saltB64, ivB64, ctB64] = parts;
-  const key = await deriveKey(passphrase, b64ToBytes(saltB64));
+  const [version, saltB64, ivB64, ctB64] = parts as ['v1' | 'v2', string, string, string];
+  const key = await deriveKey(passphrase, b64ToBytes(saltB64), PBKDF2_ITERATIONS[version]);
   try {
     const plaintext = await crypto.subtle.decrypt(
       { name: 'AES-GCM', iv: asBufferSource(b64ToBytes(ivB64)) },
@@ -98,4 +101,9 @@ export async function decryptClientSecret(ciphertext: string, passphrase: string
   } catch {
     throw new Error('Wrong passphrase');
   }
+}
+
+/** True when a stored copy predates the current KDF strength and should be re-encrypted after unlock. */
+export function needsUpgrade(ciphertext: string): boolean {
+  return !ciphertext.startsWith(`${VERSION}:`);
 }

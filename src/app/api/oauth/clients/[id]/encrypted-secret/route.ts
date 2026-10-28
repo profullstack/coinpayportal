@@ -20,10 +20,11 @@ function getSupabase() {
   );
 }
 
-// "v1:<base64 salt>:<base64 iv>:<base64 ciphertext>". We don't try to decrypt
+// "v2:<base64 salt>:<base64 iv>:<base64 ciphertext>" (v1 = the older 200k-iteration
+// format, still accepted so nothing breaks mid-upgrade). We don't try to decrypt
 // it server-side; we just sanity-check the structure so we don't accept
 // arbitrary blobs that would then break the reveal UI.
-const CIPHERTEXT_PATTERN = /^v1:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/;
+const CIPHERTEXT_PATTERN = /^v[12]:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/;
 const CIPHERTEXT_MAX_LENGTH = 4096;
 
 async function loadOwnedClient(id: string, ownerId: string) {
@@ -90,7 +91,7 @@ export async function PUT(request: NextRequest, { params }: RouteCtx) {
     }
     if (!CIPHERTEXT_PATTERN.test(ciphertext)) {
       return NextResponse.json(
-        { success: false, error: 'encrypted_secret must look like "v1:<b64>:<b64>:<b64>"' },
+        { success: false, error: 'encrypted_secret must look like "v2:<b64>:<b64>:<b64>"' },
         { status: 400 },
       );
     }

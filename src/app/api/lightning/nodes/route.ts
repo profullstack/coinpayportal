@@ -1,4 +1,4 @@
-import { encryptLnKey } from '@/lib/lightning/key-encryption';
+import { encryptLnKey, lnKeyEncryptionConfigured } from '@/lib/lightning/key-encryption';
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { walletSuccess, WalletErrors } from '@/lib/web-wallet/response';
@@ -103,6 +103,12 @@ export async function POST(request: NextRequest) {
       return walletSuccess({ node: existing }, 200);
     }
 
+
+    // Fail closed before LNbits is called: the wallet's keys could not be
+    // stored encrypted, and they are never stored in plaintext.
+    if (!lnKeyEncryptionConfigured()) {
+      return WalletErrors.serverError('Lightning is not configured on this server');
+    }
 
     // Create an LNbits wallet on the droplet for this web wallet
     const { data: walletRow } = await supabase

@@ -3,6 +3,7 @@
  * POST — exchange authorization code for tokens, or refresh tokens
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { hashToken, isPresentableToken } from '@/lib/crypto/token-hash';
 import { createClient } from '@supabase/supabase-js';
 import { getOAuthClient, authenticateClient } from '@/lib/oauth/client';
 import {
@@ -217,8 +218,9 @@ async function handleAuthorizationCode(body: Record<string, string>) {
 
   // Store refresh token
   const refreshExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  // Only the hash is stored; the token itself goes to the client once.
   await supabase.from('oauth_refresh_tokens').insert({
-    token: refreshTokenValue,
+    token: hashToken(refreshTokenValue),
     client_id,
     user_id: authCode.user_id,
     scopes,
@@ -276,13 +278,19 @@ async function handleRefreshToken(body: Record<string, string>) {
 
   const supabase = getSupabase();
 
-  // Look up refresh token
+  // Look up refresh token. Rows store sha256(token); rows issued before
+  // 2026-10-28 held the raw token until the migration hashed them, so both
+  // forms are looked up. A presented value already in hash form is refused,
+  // so a leaked hash can never be replayed as a token.
+  if (!isPresentableToken(refresh_token)) {
+    return tokenError('invalid_grant', 'Invalid refresh token');
+  }
   const { data: storedToken, error } = await supabase
     .from('oauth_refresh_tokens')
     .select('*')
-    .eq('token', refresh_token)
     .eq('client_id', client_id)
-    .single();
+    .in('token', [hashToken(refresh_token), refresh_token])
+    .maybeSingle();
 
   if (error || !storedToken) {
     return tokenError('invalid_grant', 'Invalid refresh token');
@@ -332,7 +340,7 @@ async function handleRefreshToken(body: Record<string, string>) {
   // Store new refresh token
   const refreshExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
   await supabase.from('oauth_refresh_tokens').insert({
-    token: newRefreshToken,
+    token: hashToken(newRefreshToken),
     client_id,
     user_id: storedToken.user_id,
     scopes,

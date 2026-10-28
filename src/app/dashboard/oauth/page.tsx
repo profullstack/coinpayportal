@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
-import { decryptClientSecret } from '@/lib/crypto/oauth-secret';
+import { decryptClientSecret, encryptClientSecret, needsUpgrade } from '@/lib/crypto/oauth-secret';
 
 interface OAuthClient {
   id: string;
@@ -108,6 +108,21 @@ export default function OAuthDashboardPage() {
         throw new Error('No encrypted copy on file — recreate the app to set one.');
       }
       const plaintext = await decryptClientSecret(data.encrypted_secret, state.passphrase);
+      // Upgrade an older (200k-iteration) copy to the current 600k format now
+      // that the owner has proven the passphrase. Best effort: the reveal
+      // works either way, and the next unlock tries again.
+      if (needsUpgrade(data.encrypted_secret)) {
+        try {
+          const upgraded = await encryptClientSecret(plaintext, state.passphrase);
+          await authFetch(
+            `/api/oauth/clients/${client.id}/encrypted-secret`,
+            { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ encrypted_secret: upgraded }) },
+            router,
+          );
+        } catch {
+          /* retried on the next unlock */
+        }
+      }
       setRevealing((prev) => ({
         ...prev,
         [client.id]: { ...state, busy: false, error: '', plaintext },
