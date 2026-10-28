@@ -34,6 +34,18 @@ export default function OperatorVaultContent() {
   const [useRecovery, setUseRecovery] = useState(false);
   const [ttl, setTtl] = useState(168);
   const [shownRecovery, setShownRecovery] = useState<string | null>(null);
+  // An operator typing a long passphrase twice needs to see what they typed.
+  const [show, setShow] = useState(false);
+  const eye = (
+    <button
+      type="button"
+      className="text-sm text-purple-300 hover:underline"
+      aria-pressed={show}
+      onClick={() => setShow((v) => !v)}
+    >
+      {show ? '🙈 Hide passphrase' : '👁 Show passphrase'}
+    </button>
+  );
 
   const load = useCallback(async () => {
     const r = await authFetch('/api/admin/operator-vault', {}, router);
@@ -147,8 +159,10 @@ export default function OperatorVaultContent() {
             {!s.exists ? (
               <div className="space-y-3 rounded border border-slate-700 p-4">
                 <div className="font-semibold text-white">Set up (seals the SYSTEM_MNEMONIC_* in this server&apos;s environment)</div>
-                <input type="password" className={input} placeholder="Operator passphrase" value={pass} onChange={(e) => setPass(e.target.value)} autoComplete="new-password" />
-                <input type="password" className={input} placeholder="Repeat" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
+                <input type={show ? 'text' : 'password'} className={input} placeholder="Operator passphrase" value={pass} onChange={(e) => setPass(e.target.value)} autoComplete="new-password" />
+                <input type={show ? 'text' : 'password'} className={input} placeholder="Repeat" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
+                {eye}
+                {confirm && pass !== confirm && <p className="text-sm text-red-400">The two passphrases do not match.</p>}
                 <button className={button} disabled={busy} onClick={onSetup}>{busy ? 'Sealing…' : 'Create, seal and unlock'}</button>
               </div>
             ) : s.unlocked ? (
@@ -158,8 +172,9 @@ export default function OperatorVaultContent() {
                 {useRecovery ? (
                   <input className={input} placeholder="Recovery key" value={recovery} onChange={(e) => setRecovery(e.target.value)} />
                 ) : (
-                  <input type="password" className={input} placeholder="Operator passphrase" value={pass} onChange={(e) => setPass(e.target.value)} autoComplete="current-password" />
+                  <input type={show ? 'text' : 'password'} className={input} placeholder="Operator passphrase" value={pass} onChange={(e) => setPass(e.target.value)} autoComplete="current-password" />
                 )}
+                {!useRecovery && eye}
                 <div className="flex gap-4">
                   <button className={button} disabled={busy} onClick={onUnlock}>{busy ? 'Unlocking…' : 'Unlock'}</button>
                   <button className="text-sm text-purple-300 hover:underline" onClick={() => setUseRecovery((v) => !v)}>
