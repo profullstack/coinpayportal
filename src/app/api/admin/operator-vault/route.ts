@@ -7,7 +7,7 @@ import {
   refreshOperatorState,
   resealLegacyPaymentAddressKeys,
   sealEnvMnemonics,
-  SYSTEM_MNEMONICS_SECRET,
+  SYSTEM_MNEMONICS_ROW,
 } from '@/lib/wallets/operator-keys';
 
 /**
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const { data: pool } = await supabase.from('operator_address_pool').select('cryptocurrency').is('claimed_at', null);
   const poolCounts: Record<string, number> = {};
   for (const r of pool ?? []) poolCounts[r.cryptocurrency as string] = (poolCounts[r.cryptocurrency as string] ?? 0) + 1;
-  const { data: bundle } = await supabase.from('operator_sealed_secrets').select('meta, updated_at').eq('name', SYSTEM_MNEMONICS_SECRET).maybeSingle();
+  const { data: bundle } = await supabase.from('operator_sealed_secrets').select('meta, updated_at').eq('name', SYSTEM_MNEMONICS_ROW).maybeSingle();
   return NextResponse.json(
     {
       success: true,

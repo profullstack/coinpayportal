@@ -19,8 +19,6 @@
  *    OR dispute → arbiter resolves → settled or refunded
  */
 
-import { acquireFamilyIndex } from '../wallets/derivation-family';
-import { getSystemKeyGeneration } from '../wallets/key-generation';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';

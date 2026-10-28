@@ -45,8 +45,8 @@ import {
 } from '../vault/vault-service';
 import { assertMnemonicNotRetired } from './key-generation';
 
-export const SYSTEM_MNEMONICS_SECRET = 'system_mnemonics';
-const BUNDLE_AAD = `operator_sealed_secrets:${SYSTEM_MNEMONICS_SECRET}`;
+export const SYSTEM_MNEMONICS_ROW = 'system_mnemonics';
+const BUNDLE_AAD = `operator_sealed_secrets:${SYSTEM_MNEMONICS_ROW}`;
 const MNEMONIC_VAR = /^SYSTEM_MNEMONIC_[A-Z0-9_]+$/;
 const SEALED_CHECK_TTL_MS = 60_000;
 const ALERT_REPEAT_MS = 3600_000;
@@ -115,7 +115,7 @@ export async function refreshOperatorState(force = false): Promise<{ sealed: boo
     const { data, error } = await getSupabaseAdmin()
       .from('operator_sealed_secrets')
       .select('name')
-      .eq('name', SYSTEM_MNEMONICS_SECRET)
+      .eq('name', SYSTEM_MNEMONICS_ROW)
       .maybeSingle();
     if (!error) {
       s.sealed = !!data;
@@ -170,7 +170,7 @@ export async function sealEnvMnemonics(): Promise<{ sealed: string[] }> {
   const sealed = await sealFor('operator', OPERATOR_SUBJECT_ID, JSON.stringify(bundle), BUNDLE_AAD);
   const { error } = await getSupabaseAdmin()
     .from('operator_sealed_secrets')
-    .upsert({ name: SYSTEM_MNEMONICS_SECRET, sealed, meta: { names }, updated_at: new Date().toISOString() }, { onConflict: 'name' });
+    .upsert({ name: SYSTEM_MNEMONICS_ROW, sealed, meta: { names }, updated_at: new Date().toISOString() }, { onConflict: 'name' });
   if (error) throw new Error(`Could not store the sealed mnemonics: ${error.message}`);
   await refreshOperatorState(true);
   return { sealed: names };
@@ -183,7 +183,7 @@ export async function unlockOperatorKeys(dataKeyB64: string, ttlMs?: number | nu
     const { data, error } = await getSupabaseAdmin()
       .from('operator_sealed_secrets')
       .select('sealed')
-      .eq('name', SYSTEM_MNEMONICS_SECRET)
+      .eq('name', SYSTEM_MNEMONICS_ROW)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!data?.sealed) throw new Error('No sealed mnemonics yet: run setup first');
