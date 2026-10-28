@@ -7,6 +7,16 @@ import {
   CACHE_TTL_SECONDS,
 } from './balance';
 
+// Key storage is covered by src/lib/lightning/key-encryption.test.ts (it now
+// fails closed without LN_KEY_ENCRYPTION_KEY); here the keys pass through.
+vi.mock('@/lib/lightning/key-encryption', () => ({
+  encryptLnKey: (k: string) => k,
+  decryptLnKey: (k: string) => k,
+  lnKeyEncryptionConfigured: () => true,
+  LnKeyEncryptionError: class LnKeyEncryptionError extends Error {},
+}));
+
+
 // ──────────────────────────────────────────────
 // Mock fetch
 // ──────────────────────────────────────────────

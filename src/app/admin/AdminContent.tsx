@@ -10,7 +10,8 @@ type Integration = {
   id: string;
   name: string;
   kind: Kind;
-  access_token: string;
+  /** null once stored hashed (Outrank): the token is shown only in the create response. */
+  access_token: string | null;
   created_at: string;
   last_used_at: string | null;
   request_count: number;
@@ -300,7 +301,8 @@ export default function AdminContent() {
           <ul className="space-y-3">
             {integrations.map((it) => {
               const isRevealed = !!revealed[it.id];
-              const masked = `${it.access_token.slice(0, 8)}…${it.access_token.slice(-4)}`;
+              const token = it.access_token;
+              const masked = token ? `${token.slice(0, 8)}…${token.slice(-4)}` : '';
               const kindLabel = KIND_META[it.kind]?.label ?? it.kind;
               return (
                 <li key={it.id} className="rounded border border-slate-700/60 bg-slate-950/60 p-4">
@@ -316,9 +318,14 @@ export default function AdminContent() {
                           {it.last_used_at && ` · last ${new Date(it.last_used_at).toLocaleString()}`}
                         </span>
                       </div>
+                      {token === null ? (
+                        <p className="mt-2 text-xs text-gray-400">
+                          Token stored hashed; it was shown once when generated. Revoke and generate a new one if it is lost.
+                        </p>
+                      ) : (
                       <div className="mt-2 flex items-center gap-2">
                         <code className="flex-1 break-all rounded bg-black/40 px-2 py-1 text-xs text-purple-300 font-mono">
-                          {isRevealed ? it.access_token : masked}
+                          {isRevealed ? token : masked}
                         </code>
                         <button
                           onClick={() => setRevealed((prev) => ({ ...prev, [it.id]: !prev[it.id] }))}
@@ -327,12 +334,13 @@ export default function AdminContent() {
                           {isRevealed ? 'Hide' : 'Reveal'}
                         </button>
                         <button
-                          onClick={() => copy(it.id, it.access_token)}
+                          onClick={() => copy(it.id, token)}
                           className="text-xs text-gray-400 hover:text-purple-300"
                         >
                           {copied === it.id ? 'Copied' : 'Copy'}
                         </button>
                       </div>
+                      )}
                       <p className="mt-2 text-xs text-gray-400">
                         Use as <code className="text-purple-300">Authorization: Bearer &lt;token&gt;</code> in {kindLabel}.
                         Created {new Date(it.created_at).toLocaleDateString()}.

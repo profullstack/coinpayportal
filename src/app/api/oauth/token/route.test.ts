@@ -26,7 +26,10 @@ const mockUpdate = vi.fn(() => {
 });
 const mockEq3 = vi.fn(() => ({ single: mockSingle }));
 const mockEq2 = vi.fn(() => ({ single: mockSingle, eq: mockEq3 }));
-const mockEq1 = vi.fn(() => ({ single: mockSingle, eq: mockEq2 }));
+// The refresh lookup is `.eq('client_id').in('token', [hash, raw]).maybeSingle()`.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const mockIn = vi.fn((..._args: [string, string[]]) => ({ maybeSingle: mockSingle, single: mockSingle }));
+const mockEq1 = vi.fn(() => ({ single: mockSingle, eq: mockEq2, in: mockIn }));
 const mockSelect = vi.fn(() => ({ eq: mockEq1 }));
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -59,6 +62,7 @@ vi.mock('@/lib/oauth/client', () => ({
 }));
 
 import { POST } from './route';
+import { hashToken } from '@/lib/crypto/token-hash';
 import { authenticateClient, getOAuthClient } from '@/lib/oauth/client';
 
 const TEST_SECRET = 'test-oidc-signing-secret-for-unit-tests-min-32';
@@ -425,6 +429,28 @@ describe('POST /api/oauth/token', () => {
       expect(body.access_token).toBeDefined();
       expect(body.refresh_token).toBeDefined();
       expect(body.token_type).toBe('Bearer');
+
+      // Looked up by hash (and raw, for rows not yet migrated)...
+      const lookup = mockIn.mock.calls.at(-1)!;
+      expect(lookup[0]).toBe('token');
+      expect(lookup[1][0]).toMatch(/^sha256:[0-9a-f]{64}$/);
+      // ...and the new refresh token is stored only as its hash.
+      const inserted = (mockInsert.mock.calls as any[]).map((c) => c[0]).filter((r) => r && 'token' in r).at(-1);
+      expect(inserted.token).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(inserted.token).not.toBe(body.refresh_token);
+    });
+
+    it('refuses a presented value that is a stored hash', async () => {
+      (authenticateClient as any).mockResolvedValue({ valid: true });
+      const req = makeFormRequest({
+        grant_type: 'refresh_token',
+        refresh_token: hashToken('some-real-refresh-token'),
+        client_id: 'cp_test',
+        client_secret: TEST_SECRET,
+      });
+      const res = await POST(req);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('invalid_grant');
     });
 
     it('should reject invalid refresh token', async () => {

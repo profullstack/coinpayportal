@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { timingSafeEqual } from 'node:crypto';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
+import { storedTokenMatches } from '@/lib/crypto/token-hash';
 import { SITE_URL } from '@/lib/blog';
 import { pingWebSubHub } from '@/lib/websub';
 
@@ -22,12 +22,6 @@ type OutrankPayload = {
   data?: { articles?: OutrankArticle[] };
 };
 
-function tokensMatch(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return timingSafeEqual(ab, bb);
-}
 
 function slugify(input: string): string {
   return input
@@ -55,8 +49,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Lookup failed' }, { status: 500 });
   }
 
+  // Stored as sha256(token) since 2026-10-28; legacy raw rows still match
+  // until the migration hashes them.
   const integration = (integrations ?? []).find((row) =>
-    tokensMatch(row.access_token, token),
+    storedTokenMatches(row.access_token, token),
   );
   if (!integration) {
     return NextResponse.json({ error: 'Invalid access token' }, { status: 401 });

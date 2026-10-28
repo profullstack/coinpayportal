@@ -6,7 +6,7 @@ import { requireEncryptionKey, tryRequireEncryptionKey } from './require-key';
  * Regression tests for F9-01 (High, 2026-08-19 audit).
  *
  * `requireEncryptionKey` was correct and protected 4 of 13 real encryption call
- * sites. The other 9 — including the custody hot path (`hd-wallet`,
+ * sites. The other 9 — including the custody hot path (the since-deleted `hd-wallet`,
  * `system-wallet`, `secure-forwarding`, `escrow/service`) — each hand-rolled
  *
  *     const k = process.env.ENCRYPTION_KEY;

@@ -1,4 +1,4 @@
-import { encryptLnKey, decryptLnKey } from '@/lib/lightning/key-encryption';
+import { encryptLnKey, decryptLnKey, lnKeyEncryptionConfigured, LnKeyEncryptionError } from '@/lib/lightning/key-encryption';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createPayLink, createUserWallet, getPayLink } from '@/lib/lightning/lnbits';
@@ -33,6 +33,11 @@ async function ensureLightningAddressBackend(supabase: ReturnType<typeof getSupa
   ln_wallet_adminkey?: string | null;
   ln_paylink_id?: number | null;
 }) {
+  // Fail closed before LNbits is called: a wallet created now could not have
+  // its keys stored, and storing them in plaintext is not an option.
+  if (!lnKeyEncryptionConfigured()) {
+    throw new LnKeyEncryptionError('Lightning is not configured on this server (LN_KEY_ENCRYPTION_KEY missing)');
+  }
   let adminKey = wallet.ln_wallet_adminkey ? decryptLnKey(wallet.ln_wallet_adminkey) : null;
 
   const upsertLnbitsWallet = async () => {
