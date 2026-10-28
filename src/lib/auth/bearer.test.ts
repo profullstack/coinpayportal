@@ -73,6 +73,11 @@ describe('resolveBearerAuth', () => {
     expect((auth as BearerAuthOk).kind).toBe('oauth');
   });
 
+  it('does not accept an OAuth-shaped token signed with the session secret when OIDC_SIGNING_SECRET is set', () => {
+    const auth = resolveBearerAuth(`Bearer ${accessToken(JWT_SECRET)}`);
+    expect(auth.ok).toBe(false);
+  });
+
   it('rejects a token signed with the wrong secret', () => {
     const auth = resolveBearerAuth(`Bearer ${sessionToken('not-the-secret')}`);
     expect(auth.ok).toBe(false);

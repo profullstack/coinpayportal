@@ -47,6 +47,12 @@ function registerPostHogLogger() {
 export async function register() {
   // Only run on the server
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    // Fail closed: production must have its own OIDC_SIGNING_SECRET, never
+    // JWT_SECRET (which equals the Supabase JWT secret). Throwing here stops
+    // the server from booting, so the deploy health check fails loudly.
+    const { assertOidcSigningSecret } = await import('./lib/oauth/tokens');
+    assertOidcSigningSecret();
+
     registerPostHogLogger();
 
     // The finance job worker: backfills, scheduled syncs and report

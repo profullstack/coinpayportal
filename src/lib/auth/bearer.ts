@@ -4,8 +4,8 @@
  *
  * Two kinds of HS256 JWT arrive on `Authorization: Bearer …`:
  *   - dashboard session tokens, signed with JWT_SECRET, subject in `userId`;
- *   - OAuth2 access tokens, signed with OIDC_SIGNING_SECRET (falling back to
- *     JWT_SECRET), subject in `sub`, with `token_type: 'access'` and a `scope`.
+ *   - OAuth2 access tokens, signed with OIDC_SIGNING_SECRET (never JWT_SECRET
+ *     in production), subject in `sub`, with `token_type: 'access'` and a `scope`.
  *
  * Routes that only ever read `decoded.userId` silently resolve `undefined` for
  * an OAuth token — the caller looks authenticated but is scoped to nobody. This
@@ -35,11 +35,11 @@ export type BearerAuthErr = {
 
 export type BearerAuth = BearerAuthOk | BearerAuthErr;
 
-function classify(decoded: unknown): BearerAuthOk | null {
+function classify(decoded: unknown, kind: 'session' | 'oauth'): BearerAuthOk | null {
   if (!decoded || typeof decoded !== 'object') return null;
   const payload = decoded as Record<string, unknown>;
 
-  if (payload.token_type === 'access' && typeof payload.sub === 'string' && payload.sub) {
+  if (kind === 'oauth' && payload.token_type === 'access' && typeof payload.sub === 'string' && payload.sub) {
     const scope = typeof payload.scope === 'string' ? payload.scope : '';
     return {
       ok: true,
@@ -49,7 +49,7 @@ function classify(decoded: unknown): BearerAuthOk | null {
     };
   }
 
-  if (typeof payload.userId === 'string' && payload.userId) {
+  if (kind === 'session' && payload.token_type !== 'access' && typeof payload.userId === 'string' && payload.userId) {
     return { ok: true, userId: payload.userId, kind: 'session', scopes: null };
   }
 
@@ -72,17 +72,17 @@ export function resolveBearerAuth(authHeader: string | null | undefined): Bearer
 
   const token = authHeader.substring(7);
 
-  // Session secret first: the common case, and it also decodes OAuth tokens
-  // whenever OIDC_SIGNING_SECRET is unset and falls back to JWT_SECRET.
+  // Each secret only vouches for its own kind of token: an OAuth-shaped token
+  // signed with the session secret (JWT_SECRET) is not an OAuth token.
   try {
-    const resolved = classify(verifyToken(token, getJwtSecret()));
+    const resolved = classify(verifyToken(token, getJwtSecret()), 'session');
     if (resolved) return resolved;
   } catch {
     // Fall through to the OAuth signing secret.
   }
 
   try {
-    const resolved = classify(verifyAccessToken(token));
+    const resolved = classify(verifyAccessToken(token), 'oauth');
     if (resolved) return resolved;
   } catch {
     // Neither secret verified it.

@@ -4,12 +4,43 @@
 import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import jwt from 'jsonwebtoken';
 
-function getSigningSecret(): string {
-  const secret = process.env.OIDC_SIGNING_SECRET || process.env.JWT_SECRET;
+const MIN_OIDC_SECRET_LENGTH = 32;
+
+/**
+ * The OAuth/OIDC token signing secret. It must be its own value.
+ *
+ * It used to fall back to JWT_SECRET, which in production equals the Supabase
+ * JWT secret: every access token CoinPay issued (with `sub` set) was then also
+ * a valid PostgREST JWT, so auth.uid() resolved to the user and table policies
+ * applied (#511). In production there is no fallback at all, and a value that
+ * equals JWT_SECRET or the Supabase JWT secret is refused. Outside production
+ * the JWT_SECRET fallback stays so local dev and tests need no extra setup.
+ */
+export function getSigningSecret(): string {
+  const env = process.env;
+  const own = env.OIDC_SIGNING_SECRET;
+  if (env.NODE_ENV === 'production') {
+    if (!own || own.length < MIN_OIDC_SECRET_LENGTH) {
+      throw new Error(
+        `OIDC_SIGNING_SECRET must be set (>= ${MIN_OIDC_SECRET_LENGTH} chars) in production`
+      );
+    }
+    const reused = [env.JWT_SECRET, env.SUPABASE_JWT_SECRET].filter(Boolean);
+    if (reused.includes(own)) {
+      throw new Error('OIDC_SIGNING_SECRET must not equal JWT_SECRET or SUPABASE_JWT_SECRET');
+    }
+    return own;
+  }
+  const secret = own || env.JWT_SECRET;
   if (!secret) {
-    throw new Error('OIDC_SIGNING_SECRET or JWT_SECRET must be set');
+    throw new Error('OIDC_SIGNING_SECRET must be set');
   }
   return secret;
+}
+
+/** Fail closed at boot: throws when production has no usable OIDC secret. */
+export function assertOidcSigningSecret(): void {
+  getSigningSecret();
 }
 
 function getIssuer(): string {
