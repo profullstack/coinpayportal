@@ -84,6 +84,16 @@ export async function register() {
       console.error('[Instrumentation] operator keys watch failed to start', err instanceof Error ? err.message : err);
     }
 
+    // Deploy handoff: deploy-app.sh passes the operator unlock from the old
+    // container to the new one over a root-only Unix socket, so a redeploy no
+    // longer locks the vault (scripts/operator-vault-handoff.sh).
+    try {
+      const { startOperatorHandoffSocket } = await import('./lib/wallets/operator-handoff');
+      startOperatorHandoffSocket();
+    } catch (err) {
+      console.error('[Instrumentation] operator handoff socket failed to start', err instanceof Error ? err.message : err);
+    }
+
     // Merchant webhook retries (@profullstack/webhooks outbox). Started on every
     // server process: the claim is FOR UPDATE SKIP LOCKED, so several processes
     // never send the same delivery. WEBHOOKS_HUB=off switches the hub off.
