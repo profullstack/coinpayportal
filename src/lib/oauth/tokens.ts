@@ -3,6 +3,10 @@
  */
 import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import jwt from 'jsonwebtoken';
+import { getRsaSigningKey } from './signing';
+
+/** Access-token lifetime in seconds. Revocation rows only need to outlive this. */
+export const ACCESS_TOKEN_TTL = 3600;
 
 const MIN_OIDC_SECRET_LENGTH = 32;
 
@@ -67,20 +71,29 @@ export function generateRefreshToken(): string {
 export function generateAccessToken(
   user: { id: string; email?: string },
   client: { client_id: string },
-  scopes: string[]
+  scopes: string[],
+  opts: { sid?: string | null; jti?: string } = {}
 ): string {
   const secret = getSigningSecret();
-  const payload = {
+  const payload: Record<string, unknown> = {
     sub: user.id,
     client_id: client.client_id,
+    // The token is for the app it was issued to. CoinPay's own APIs accept it
+    // regardless of aud (they gate on scope); a relying party that receives a
+    // bearer from elsewhere checks aud === its own client_id.
+    aud: client.client_id,
     scope: scopes.join(' '),
     token_type: 'access',
     iss: getIssuer(),
+    // jti revokes this one token; sid (the refresh-token family) revokes the
+    // whole grant. See src/lib/oauth/grants.ts.
+    jti: opts.jti || randomBytes(16).toString('base64url'),
   };
+  if (opts.sid) payload.sid = opts.sid;
 
   return jwt.sign(payload, secret, {
     algorithm: 'HS256',
-    expiresIn: '1h',
+    expiresIn: ACCESS_TOKEN_TTL,
   });
 }
 
@@ -91,9 +104,9 @@ export function generateIdToken(
   user: { id: string; email?: string; name?: string; picture?: string; email_verified?: boolean },
   client: { client_id: string },
   scopes: string[],
-  nonce?: string | null
+  nonce?: string | null,
+  opts: { alg?: 'RS256' | 'HS256' } = {}
 ): string {
-  const secret = getSigningSecret();
   const now = Math.floor(Date.now() / 1000);
 
   const payload: Record<string, any> = {
@@ -118,7 +131,18 @@ export function generateIdToken(
     if (user.picture) payload.picture = user.picture;
   }
 
-  return jwt.sign(payload, secret, { algorithm: 'HS256' });
+  // azp: the party the ID token was issued to (OIDC Core 2).
+  payload.azp = client.client_id;
+
+  // RS256 when the client asks for it (the default for clients registered from
+  // 2026-10-29) and a key is configured; otherwise HS256 as before.
+  if (opts.alg === 'RS256') {
+    const key = getRsaSigningKey();
+    if (key) {
+      return jwt.sign(payload, key.privateKey, { algorithm: 'RS256', keyid: key.kid });
+    }
+  }
+  return jwt.sign(payload, getSigningSecret(), { algorithm: 'HS256' });
 }
 
 /**
@@ -140,6 +164,20 @@ export function verifyAccessToken(token: string): any {
       throw new Error('Invalid token');
     }
     throw error;
+  }
+}
+
+/**
+ * Verify an access token's signature but not its expiry, for revocation: an
+ * expired token is still a valid thing to revoke (it is a no-op).
+ */
+export function verifyAccessTokenSignature(token: string): Record<string, any> | null {
+  try {
+    const decoded = jwt.verify(token, getSigningSecret(), { algorithms: ['HS256'], ignoreExpiration: true });
+    if (!decoded || typeof decoded !== 'object' || decoded.token_type !== 'access') return null;
+    return decoded as Record<string, any>;
+  } catch {
+    return null;
   }
 }
 

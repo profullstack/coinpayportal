@@ -3,34 +3,12 @@
  * GET /.well-known/openid-configuration
  */
 import { NextResponse } from 'next/server';
+import { authorizationServerMetadata } from '@/lib/oauth/metadata';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const issuer = process.env.NEXT_PUBLIC_APP_URL || 'https://coinpay.dev';
-
-  return NextResponse.json({
-    issuer,
-    authorization_endpoint: `${issuer}/api/oauth/authorize`,
-    token_endpoint: `${issuer}/api/oauth/token`,
-    userinfo_endpoint: `${issuer}/api/oauth/userinfo`,
-    jwks_uri: `${issuer}/api/oauth/jwks`,
-    registration_endpoint: `${issuer}/api/oauth/clients`,
-    scopes_supported: ['openid', 'profile', 'email', 'did', 'wallet:read', 'merchant'],
-    response_types_supported: ['code'],
-    grant_types_supported: ['authorization_code', 'refresh_token'],
-    subject_types_supported: ['public'],
-    id_token_signing_alg_values_supported: ['HS256'],
-    token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
-    // validatePKCE rejects 'plain' (the challenge would equal the verifier).
-    code_challenge_methods_supported: ['S256'],
-    claims_supported: [
-      'sub',
-      'name',
-      'preferred_username',
-      'email',
-      'email_verified',
-      'picture',
-      'updated_at',
-      'did',
-    ],
+  return NextResponse.json(authorizationServerMetadata(), {
+    headers: { 'Cache-Control': 'public, max-age=300', 'Access-Control-Allow-Origin': '*' },
   });
 }

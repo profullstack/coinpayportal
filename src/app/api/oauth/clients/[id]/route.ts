@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAuthUser } from '@/lib/oauth/auth';
+import { checkRedirectUris, isPublicClient } from '@/lib/oauth/client';
 
 function getSupabase() {
   return createClient(
@@ -76,6 +77,29 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   updates.updated_at = new Date().toISOString();
 
   const supabase = getSupabase();
+
+  // New redirect URIs follow the OAuth 2.1 registration rules for this client's
+  // type. A pre-2.1 client keeps the redirects it already had.
+  if (updates.redirect_uris !== undefined) {
+    const { data: existing } = await supabase
+      .from('oauth_clients')
+      .select('client_secret, token_endpoint_auth_method, redirect_uris, legacy_oauth2')
+      .eq('id', id)
+      .eq('owner_id', user.id)
+      .maybeSingle();
+    if (!existing) {
+      return NextResponse.json({ success: false, error: 'Client not found or update failed' }, { status: 404 });
+    }
+    const added = Array.isArray(updates.redirect_uris)
+      ? updates.redirect_uris.filter((u: unknown) => !(existing.legacy_oauth2 && (existing.redirect_uris || []).includes(u)))
+      : updates.redirect_uris;
+    const uriError = Array.isArray(updates.redirect_uris) && updates.redirect_uris.length === 0
+      ? 'redirect_uris must be a non-empty array'
+      : Array.isArray(added) && added.length === 0
+        ? null
+        : checkRedirectUris(added, isPublicClient(existing as any));
+    if (uriError) return NextResponse.json({ success: false, error: uriError }, { status: 400 });
+  }
 
   const { data: client, error } = await supabase
     .from('oauth_clients')

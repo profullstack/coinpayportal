@@ -500,8 +500,8 @@ ${colors.cyan}Commands:${colors.reset}
     set-url <base-url>    Set custom API URL
     show                  Show current configuration
 
-  ${colors.bright}login${colors.reset}                 Sign in (OAuth 2.1 in your browser; --device on a machine without one)
-  ${colors.bright}logout${colors.reset}                Forget the saved session
+  ${colors.bright}login${colors.reset}                 Sign in (OAuth 2.1: browser + PKCE, or the device flow over SSH / --device)
+  ${colors.bright}logout${colors.reset}                Sign out and revoke the session at CoinPay
 
   ${colors.bright}auth${colors.reset}
     register              Register new merchant account
@@ -4746,22 +4746,28 @@ async function runInteractiveMenu() {
   }
 }
 
-// Headless login: ask the server for a device code, show a URL to approve on any
-// device, and poll until a merchant session token is minted and stored. No
-// password on this machine — works over SSH / on a server.
+// `coinpay login`: OAuth 2.1 as the public client `coinpay-cli`. With a local
+// browser it uses authorization code + PKCE on a loopback redirect; over SSH
+// or with no display (or --device) it uses the device flow (RFC 8628): it
+// prints a code to type at coinpayportal.com/oauth/device on any device.
+// Either way it stores a rotating refresh token in ~/.coinpay.json.
 async function handleLogin(flags = {}) {
-  // OAuth 2.1 (authorization code + PKCE, loopback redirect, rotating refresh)
-  // unless asked for the device flow, which is what works over SSH.
-  if (!flags.device) {
-    const cfg = loadConfig();
-    const { loopbackLogin, toStoredSession } = await import('../src/oauth-login.js');
+  const cfg = loadConfig();
+  const { loopbackLogin, deviceLogin, hasLocalBrowser, toStoredSession } = await import('../src/oauth-login.js');
+  const useDevice = Boolean(flags.device) || (!flags.browser && !hasLocalBrowser());
+
+  const save = async (tokens, how) => {
+    cfg.oauth = toStoredSession(tokens);
+    cfg.jwtToken = cfg.oauth.accessToken;
+    saveConfig(cfg);
+    const me = await fetchMe();
+    print.success(me ? `Logged in as ${meLabel(me)} (${how})` : 'Logged in! Session saved to ' + CONFIG_FILE);
+  };
+
+  if (!useDevice) {
     try {
       const tokens = await loopbackLogin({ apiBase: cfg.baseUrl, log: (line) => console.log(line) });
-      cfg.oauth = toStoredSession(tokens);
-      cfg.jwtToken = cfg.oauth.accessToken;
-      saveConfig(cfg);
-      const me = await fetchMe();
-      print.success(me ? `Logged in as ${meLabel(me)} (OAuth 2.1)` : 'Logged in! Session saved to ' + CONFIG_FILE);
+      await save(tokens, 'OAuth 2.1');
       return;
     } catch (err) {
       print.error(`Browser sign-in failed: ${err.message}`);
@@ -4769,75 +4775,54 @@ async function handleLogin(flags = {}) {
       process.exit(1);
     }
   }
-  const cfg = loadConfig();
-  const base = (cfg.baseUrl || 'https://coinpayportal.com/api').replace(/\/$/, '');
 
-  let start;
   try {
-    const res = await fetch(`${base}/cli-auth/start`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ client_name: hostname() }),
+    const tokens = await deviceLogin({
+      apiBase: cfg.baseUrl,
+      prompt: ({ userCode, verificationUri }) => {
+        // No pre-filled link (verification_uri_complete): typing the code is
+        // what ties the approval to this terminal.
+        console.log('');
+        console.log('  To sign in, open this page on any device where you are signed in to CoinPay:');
+        console.log('');
+        console.log('    ' + colors.cyan + verificationUri + colors.reset);
+        console.log('');
+        console.log('  and enter this code: ' + colors.bright + userCode + colors.reset);
+        console.log('');
+        console.log(colors.yellow + '  Only enter a code your own terminal printed.' + colors.reset);
+        console.log('');
+        print.info('Waiting for approval… (Ctrl-C to cancel)');
+      },
     });
-    if (!res.ok) throw new Error(`server returned ${res.status}`);
-    start = await res.json();
+    await save(tokens, 'OAuth 2.1 device flow');
   } catch (err) {
-    print.error(`Couldn't start login: ${err.message}`);
+    if (err.code === 'access_denied') print.error('Request denied.');
+    else if (err.code === 'expired_token') print.error('The code expired. Run `coinpay login --device` again.');
+    else print.error(`Couldn't sign in: ${err.message}`);
     process.exit(1);
   }
-
-  // G-1.2-10: there is no pre-filled approval link any more. A link that filled
-  // in the code turned a phishing message into one-click account takeover —
-  // anyone could start a device authorization and send the resulting link to a
-  // signed-in merchant. Entering the code by hand is what ties the approval to
-  // a terminal the person is actually sitting at.
-  print.info('');
-  console.log('  To log in, open this URL on any device (e.g. your desktop):');
-  console.log('');
-  console.log('    ' + colors.cyan + start.verification_uri + colors.reset);
-  console.log('');
-  console.log('  and enter this code: ' + colors.bright + start.user_code + colors.reset);
-  console.log('');
-  console.log(colors.yellow + '  Only enter a code your own terminal printed.' + colors.reset);
-  console.log('');
-  print.info('Waiting for approval… (Ctrl-C to cancel)');
-
-  const deadline = Date.now() + (start.expires_in || 600) * 1000;
-  const intervalMs = Math.max(1, start.interval || 5) * 1000;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, intervalMs));
-    let data = {};
-    try {
-      const res = await fetch(`${base}/cli-auth/poll`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ device_code: start.device_code }),
-      });
-      if (res.status === 202) continue; // authorization_pending
-      data = await res.json().catch(() => ({}));
-    } catch {
-      continue; // transient network error — keep polling
-    }
-    if (data.status === 'complete' && data.token) {
-      cfg.jwtToken = data.token;
-      saveConfig(cfg);
-      const me = await fetchMe();
-      print.success(me ? `Logged in as ${meLabel(me)}` : 'Logged in! Session saved to ' + CONFIG_FILE);
-      return;
-    }
-    if (data.status === 'denied') { print.error('Request denied.'); process.exit(1); }
-    if (data.status === 'expired') { print.error('Login request expired — run `coinpay login` again.'); process.exit(1); }
-  }
-  print.error('Timed out waiting for approval.');
-  process.exit(1);
 }
 
-function handleLogout() {
+// `coinpay logout`: revoke the grant at CoinPay (RFC 7009; revoking the
+// refresh token revokes its access tokens too), then forget it locally.
+async function handleLogout() {
   const cfg = loadConfig();
+  if (cfg.oauth) {
+    const { revokeToken, CLI_CLIENT_ID } = await import('../src/oauth-login.js');
+    const clientId = cfg.oauth.clientId || CLI_CLIENT_ID;
+    let ok = false;
+    if (cfg.oauth.refreshToken) {
+      ok = await revokeToken({ apiBase: cfg.baseUrl, token: cfg.oauth.refreshToken, tokenTypeHint: 'refresh_token', clientId });
+    }
+    if (cfg.oauth.accessToken) {
+      ok = (await revokeToken({ apiBase: cfg.baseUrl, token: cfg.oauth.accessToken, tokenTypeHint: 'access_token', clientId })) || ok;
+    }
+    if (!ok) print.warn('Could not reach CoinPay to revoke the session; it is removed locally and expires on its own.');
+  }
   delete cfg.jwtToken;
   delete cfg.oauth;
   saveConfig(cfg);
-  print.success('Logged out — session removed from ' + CONFIG_FILE);
+  print.success('Logged out — session revoked and removed from ' + CONFIG_FILE);
 }
 
 // Fetch the signed-in merchant (via the stored session token), or null if not
@@ -5505,7 +5490,7 @@ async function handleLightning(subcommand, args, flags) {
         break;
 
       case 'logout':
-        handleLogout();
+        await handleLogout();
         break;
 
       case 'whoami':

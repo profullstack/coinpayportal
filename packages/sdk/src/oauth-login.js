@@ -147,6 +147,99 @@ export async function loopbackLogin({ apiBase, open = openInBrowser, log = () =>
   }
 }
 
+export const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
+
+/**
+ * Is there a browser this process can open? Not over SSH, not on a Linux box
+ * with no display. Used to pick loopback PKCE vs the device flow.
+ */
+export function hasLocalBrowser(env = process.env, platform = process.platform) {
+  if (env.SSH_CONNECTION || env.SSH_TTY || env.SSH_CLIENT) return false;
+  if (env.COINPAY_NO_BROWSER) return false;
+  if (platform === 'darwin' || platform === 'win32') return true;
+  return Boolean(env.DISPLAY || env.WAYLAND_DISPLAY || env.BROWSER);
+}
+
+/**
+ * OAuth 2.0 Device Authorization Grant (RFC 8628). Starts at
+ * /api/oauth/device_authorization, shows the user_code via `prompt`, and polls
+ * /api/oauth/token honouring interval and slow_down. Resolves with the token
+ * response; rejects with err.code access_denied / expired_token.
+ */
+export async function deviceLogin({
+  apiBase,
+  clientId = CLI_CLIENT_ID,
+  scope = CLI_SCOPE,
+  prompt = () => {},
+  fetchImpl = fetch,
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  now = () => Date.now(),
+} = {}) {
+  const origin = siteOrigin(apiBase);
+  const res = await fetchImpl(new URL('/api/oauth/device_authorization', origin), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+    body: new URLSearchParams({ client_id: clientId, scope }).toString(),
+  });
+  const start = await res.json().catch(() => ({}));
+  if (!res.ok || !start.device_code) {
+    const err = new Error(start.error_description || start.error || `device authorization answered ${res.status}`);
+    err.code = start.error || 'device_error';
+    throw err;
+  }
+  prompt({ userCode: start.user_code, verificationUri: start.verification_uri, expiresIn: start.expires_in });
+
+  let interval = Math.max(1, Number(start.interval) || 5);
+  const deadline = now() + (Number(start.expires_in) || 600) * 1000;
+  while (now() < deadline) {
+    await sleep(interval * 1000);
+    let data = {};
+    let status = 0;
+    try {
+      const r = await fetchImpl(new URL('/api/oauth/token', origin), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+        body: new URLSearchParams({ grant_type: DEVICE_GRANT, device_code: start.device_code, client_id: clientId }).toString(),
+      });
+      status = r.status;
+      data = await r.json().catch(() => ({}));
+    } catch {
+      continue; // network blip: keep polling
+    }
+    if (status === 200 && data.access_token) return data;
+    if (data.error === 'authorization_pending') continue;
+    if (data.error === 'slow_down') {
+      interval += 5;
+      continue;
+    }
+    const err = new Error(
+      data.error === 'access_denied' ? 'access denied' : data.error === 'expired_token' ? 'the code expired' : data.error_description || data.error || `token endpoint answered ${status}`
+    );
+    err.code = data.error || 'token_error';
+    throw err;
+  }
+  const err = new Error('the code expired');
+  err.code = 'expired_token';
+  throw err;
+}
+
+/** RFC 7009: revoke a token at CoinPay. Best effort; resolves true on 200. */
+export async function revokeToken({ apiBase, token, tokenTypeHint, clientId = CLI_CLIENT_ID, fetchImpl = fetch }) {
+  if (!token) return false;
+  try {
+    const params = { token, client_id: clientId };
+    if (tokenTypeHint) params.token_type_hint = tokenTypeHint;
+    const res = await fetchImpl(new URL('/api/oauth/revoke', siteOrigin(apiBase)), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(params).toString(),
+    });
+    return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Before any command: if the stored OAuth access token is within a minute of
  * expiring, rotate it. Mutates and saves `cfg`. Returns false when the

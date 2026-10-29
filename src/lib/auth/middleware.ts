@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { verifyToken } from './jwt';
-import { merchantFromAccessToken } from './oauth-bearer';
+import { merchantFromLiveAccessToken } from './oauth-bearer';
 import { isApiKey, getBusinessByApiKey } from './apikey';
 import { resolveScopedKey, scopesSatisfy, WILDCARD_SCOPE } from './scoped-keys';
 import { FUNDS_MOVING_SCOPES } from './oauth-funds';
@@ -129,7 +129,7 @@ async function authenticateWithJWT(
       jwtError = err;
     }
     if (!userId) {
-      const oauth = merchantFromAccessToken(token);
+      const oauth = await merchantFromLiveAccessToken(token, supabase);
       if (oauth) {
         userId = oauth.id;
         via = 'oauth';

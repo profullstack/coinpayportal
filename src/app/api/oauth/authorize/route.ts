@@ -5,7 +5,8 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { validateClient } from '@/lib/oauth/client';
+import { validateClient, clientGrantTypes } from '@/lib/oauth/client';
+import { pkceProblem } from '@/lib/oauth/pkce';
 import { validateScopes } from '@/lib/oauth/scopes';
 import { generateAuthorizationCode } from '@/lib/oauth/tokens';
 import { getSessionUser } from '@/lib/oauth/session-user';
@@ -90,27 +91,17 @@ export async function GET(request: NextRequest) {
   }
 
   // R4-ID-OAUTH: an authorization request must be bound to the browser that
-  // started it, by `state` or by PKCE.
-  //
-  // Both were optional. The session cookie is `sameSite=lax`, which is sent on
-  // a top-level GET navigation, so an attacker could craft an authorize URL and
-  // have a victim's click complete a flow the victim never began — classic
-  // login-CSRF. `state` defends by binding the callback to the browser that
-  // issued it; `code_challenge` defends by binding the code to a verifier only
-  // the initiating client holds. Either is sufficient. Neither is not.
-  //
-  // Returned as a direct 400 rather than a redirect: with nothing binding the
-  // request there is nothing to safely redirect back to. Most live clients
-  // already send PKCE, so this rejects the unprotected minority, not everybody.
-  if (!state && !codeChallenge) {
+  // started it (state or PKCE), and under OAuth 2.1 by PKCE for every client
+  // that requires it. A direct 400, not a redirect: nothing binds the request.
+  if (!clientGrantTypes(clientResult.client).includes('authorization_code')) {
     return NextResponse.json(
-      {
-        error: 'invalid_request',
-        error_description:
-          'Either state or code_challenge (PKCE) is required to bind the authorization request',
-      },
+      { error: 'unauthorized_client', error_description: 'This client may not use the authorization code flow' },
       { status: 400 }
     );
+  }
+  const pkceError = pkceProblem(clientResult.client, codeChallenge, codeChallengeMethod, state);
+  if (pkceError) {
+    return NextResponse.json({ error: 'invalid_request', error_description: pkceError }, { status: 400 });
   }
 
   // Validate scopes against BOTH the global whitelist and this client's own
@@ -261,16 +252,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // PKCE downgrade guard: only S256 is supported, so reject an explicit
-  // 'plain' request here rather than storing a challenge that can never verify.
-  if (codeChallenge && codeChallengeMethod && codeChallengeMethod !== 'S256') {
-    return NextResponse.json(
-      {
-        error: 'invalid_request',
-        error_description: `Unsupported code_challenge_method: ${codeChallengeMethod}. Only S256 is accepted.`,
-      },
-      { status: 400 }
-    );
+  // Same PKCE policy as GET: the consent POST must not be a way around it.
+  const pkceError = pkceProblem(clientResult.client!, codeChallenge, codeChallengeMethod, state);
+  if (pkceError) {
+    return NextResponse.json({ error: 'invalid_request', error_description: pkceError }, { status: 400 });
   }
 
   const supabase = getSupabase();

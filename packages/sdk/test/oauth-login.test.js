@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import { request } from 'node:http';
 
-import { authorizeUrl, ensureFreshSession, loopbackLogin, pkcePair, siteOrigin, toStoredSession } from '../src/oauth-login.js';
+import { authorizeUrl, deviceLogin, DEVICE_GRANT, ensureFreshSession, hasLocalBrowser, loopbackLogin, pkcePair, revokeToken, siteOrigin, toStoredSession } from '../src/oauth-login.js';
 
 /** The "browser" following the redirect: always the loopback host, only port and path vary. */
 const callLoopback = (back) =>
@@ -114,5 +114,67 @@ describe('ensureFreshSession', () => {
 
   it('stores what a token response says', () => {
     expect(toStoredSession({ access_token: 'a', refresh_token: 'r', expires_in: 60, scope: 's' }, 0)).toEqual({ accessToken: 'a', refreshToken: 'r', expiresAt: '1970-01-01T00:01:00.000Z', scope: 's', clientId: 'coinpay-cli' });
+  });
+});
+
+describe('deviceLogin (RFC 8628)', () => {
+  const reply = (status, body) => new Response(JSON.stringify(body), { status });
+
+  function server(script) {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      const body = Object.fromEntries(new URLSearchParams(init.body));
+      calls.push({ path: new URL(url).pathname, body });
+      if (new URL(url).pathname === '/api/oauth/device_authorization') {
+        return reply(200, { device_code: 'dc-1', user_code: 'ABCD-EFGH', verification_uri: 'https://coinpay.example/oauth/device', expires_in: 600, interval: 5 });
+      }
+      return script.shift()();
+    };
+    return { calls, fetchImpl };
+  }
+
+  it('prints the code, polls through pending and slow_down, and returns the tokens', async () => {
+    const { calls, fetchImpl } = server([
+      () => reply(400, { error: 'authorization_pending' }),
+      () => reply(400, { error: 'slow_down' }),
+      () => reply(200, { access_token: 'at', refresh_token: 'rt', expires_in: 3600 }),
+    ]);
+    const sleeps = [];
+    let shown = null;
+    const tokens = await deviceLogin({ apiBase: 'https://coinpay.example/api', fetchImpl, sleep: async (ms) => sleeps.push(ms), prompt: (p) => (shown = p) });
+    expect(tokens.access_token).toBe('at');
+    expect(shown).toEqual({ userCode: 'ABCD-EFGH', verificationUri: 'https://coinpay.example/oauth/device', expiresIn: 600 });
+    expect(calls[0].body).toEqual({ client_id: 'coinpay-cli', scope: 'openid profile email merchant' });
+    expect(calls[1].body).toEqual({ grant_type: DEVICE_GRANT, device_code: 'dc-1', client_id: 'coinpay-cli' });
+    // slow_down adds 5 seconds to every later poll.
+    expect(sleeps).toEqual([5000, 5000, 10000]);
+  });
+
+  it('rejects with access_denied and expired_token', async () => {
+    const denied = server([() => reply(400, { error: 'access_denied' })]);
+    await expect(deviceLogin({ apiBase: 'https://coinpay.example/api', fetchImpl: denied.fetchImpl, sleep: async () => {} })).rejects.toMatchObject({ code: 'access_denied' });
+    const expired = server([() => reply(400, { error: 'expired_token' })]);
+    await expect(deviceLogin({ apiBase: 'https://coinpay.example/api', fetchImpl: expired.fetchImpl, sleep: async () => {} })).rejects.toMatchObject({ code: 'expired_token' });
+  });
+});
+
+describe('hasLocalBrowser', () => {
+  it('is false over SSH or on a headless Linux box', () => {
+    expect(hasLocalBrowser({ SSH_CONNECTION: '1 2 3 4', DISPLAY: ':0' }, 'linux')).toBe(false);
+    expect(hasLocalBrowser({}, 'linux')).toBe(false);
+    expect(hasLocalBrowser({ DISPLAY: ':0' }, 'linux')).toBe(true);
+    expect(hasLocalBrowser({}, 'darwin')).toBe(true);
+  });
+});
+
+describe('revokeToken (RFC 7009)', () => {
+  it('posts the token to /api/oauth/revoke as the CLI client', async () => {
+    let seen = null;
+    const fetchImpl = async (url, init) => {
+      seen = { path: new URL(url).pathname, body: Object.fromEntries(new URLSearchParams(init.body)) };
+      return new Response(null, { status: 200 });
+    };
+    expect(await revokeToken({ apiBase: 'https://coinpay.example/api', token: 'rt', tokenTypeHint: 'refresh_token', fetchImpl })).toBe(true);
+    expect(seen).toEqual({ path: '/api/oauth/revoke', body: { token: 'rt', client_id: 'coinpay-cli', token_type_hint: 'refresh_token' } });
   });
 });
