@@ -9,6 +9,7 @@ import {
   sealEnvMnemonics,
   SYSTEM_MNEMONICS_ROW,
 } from '@/lib/wallets/operator-keys';
+import { deriveSolanaFeePayer } from '@/lib/wallets/system-wallet';
 
 /**
  * Operator vault for CoinPay's own SYSTEM_MNEMONIC_* (admin only).
@@ -33,6 +34,9 @@ export async function GET(req: NextRequest) {
   const { data: pool } = await supabase.from('operator_address_pool').select('cryptocurrency').is('claimed_at', null);
   const poolCounts: Record<string, number> = {};
   for (const r of pool ?? []) poolCounts[r.cryptocurrency as string] = (poolCounts[r.cryptocurrency as string] ?? 0) + 1;
+  // The Solana fee payer's address (public; derived only while unlocked), so
+  // the operator knows where to send the SOL it spends on token forwards.
+  const solanaFeePayer = await deriveSolanaFeePayer().then((w) => w.address).catch(() => null);
   const { data: bundle } = await supabase.from('operator_sealed_secrets').select('meta, updated_at').eq('name', SYSTEM_MNEMONICS_ROW).maybeSingle();
   return NextResponse.json(
     {
@@ -45,6 +49,7 @@ export async function GET(req: NextRequest) {
       sealed_at: bundle?.updated_at ?? null,
       env_mnemonic_names: Object.keys(collectEnvMnemonics()).sort(),
       pool: poolCounts,
+      solana_fee_payer: solanaFeePayer,
       ...unlockStatus('operator', OPERATOR_SUBJECT_ID),
     },
     { headers: { 'Cache-Control': 'no-store' } },

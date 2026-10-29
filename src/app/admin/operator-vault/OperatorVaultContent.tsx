@@ -13,6 +13,7 @@ interface Status {
   sealed_names: string[];
   env_mnemonic_names: string[];
   pool: Record<string, number>;
+  solana_fee_payer?: string | null;
   unlocked: boolean;
   expiresAt: string | null;
 }
@@ -149,6 +150,11 @@ export default function OperatorVaultContent() {
               <div className="mt-2 text-gray-400">
                 Address pool: {Object.keys(s.pool).length ? Object.entries(s.pool).map(([k, v]) => `${k} ${v}`).join(' · ') : 'empty'}
               </div>
+              {s.solana_fee_payer && (
+                <div className="mt-2 text-gray-400">
+                  Solana fee payer (send SOL here; pays fees and token-account rent on USDC/USDT forwards): <code className="break-all">{s.solana_fee_payer}</code>
+                </div>
+              )}
             </div>
             <label className="block text-sm">
               Unlock for
