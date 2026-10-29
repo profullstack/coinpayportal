@@ -26,6 +26,9 @@ export async function GET(req: NextRequest, { params }: Ctx) {
 /**
  * PATCH /api/finances/goals/{id} — change any field of the create body, plus
  * `archived: true|false` and `startProgress` (where on-track is measured from).
+ * An archived goal is left out of GET /goals (unless `?archived=1`), the
+ * report and the goals email. Changing the linked accounts, wallets, kind,
+ * start or target re-reads `startProgress` from the new set unless it is given.
  */
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   const guard = await requireFinanceAccess(req, 'finance.write', { write: true });

@@ -18,6 +18,12 @@ Page: `/finances/goals`. Not financial advice; nothing here moves money.
 - Web wallets (`wallet_account_links`) count at their cached balances priced in USD, only on USD goals,
   with no history (their period change is 0 unless a contribution is recorded).
 - Accounts in a currency other than the goal's are ignored.
+- A card or loan linked to a save goal counts against it (net worth), never as money held.
+- Every goal carries `sources`: one line per linked account (signed amount, institution, kind,
+  `asOf`, `stale` when the balance is over 7 days old), the wallets, the starting point and recorded
+  contributions. The counted amounts add up to `snapshot.progress`. The page shows it under
+  "Show what makes up ..."; the report text and email list it under "Made of:".
+- Only the ticked accounts count. Edit a goal to change them ("Check all" / "None" in the picker).
 - `start_progress` is the progress at creation; "on track" compares progress with a straight line
   from it on the start date to the target on the deadline (half a percent of the target is noise).
 - Status: `achieved`, `on_track`, `behind`, `overdue` (deadline passed, target not reached).
@@ -36,13 +42,17 @@ quarterly (Jan/Apr/Jul/Oct 1st), at `hour` in the schedule's timezone. One-click
 
 ## API
 
-- `GET/POST /api/finances/goals`, `GET/PATCH/DELETE /api/finances/goals/{id}`
+- `GET/POST /api/finances/goals[?archived=1]`, `GET/PATCH/DELETE /api/finances/goals/{id}`.
+  PATCH takes any create field plus `archived: true|false`. Archived goals are hidden unless
+  `?archived=1` and are left out of the report and the email. Changing links, kind, start or target
+  re-reads `startProgress` from the new set (pass `startProgress` to set it yourself).
 - `GET/POST /api/finances/goals/{id}/contributions`, `DELETE .../contributions/{contributionId}`
 - `GET /api/finances/goals/sources` (linkable accounts and wallets)
 - `GET /api/finances/goals/report`
 - `POST /api/finances/email-schedules {kind:"goals_digest", cadence}`, `DELETE ?kind=goals_digest`,
   `POST /api/finances/email-schedules/send-now?kind=goals_digest`
 
-CLI: `coinpay finances goals ...` (SDK 0.27.0). MCP: `finance_goals`, `finance_goal_create`,
+CLI: `coinpay finances goals ...` (SDK 0.28.0: `edit`, `archive`, `unarchive`, `show` prints the
+breakdown). MCP: `finance_goals`, `finance_goal_create`, `finance_goal_update`, `finance_goal_delete`,
 `finance_goal_contribute`, `finance_goals_report`, `finance_goals_digest`.
 Migration: `supabase/migrations/20261028200000_finance_goals.sql`.

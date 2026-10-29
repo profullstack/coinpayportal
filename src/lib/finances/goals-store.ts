@@ -7,6 +7,7 @@ import { audit } from './audit';
 import {
   GoalError,
   buildReport,
+  goalBreakdown,
   normalizeContribution,
   normalizeGoal,
   progressAt,
@@ -204,6 +205,9 @@ export async function loadInputs(merchantId: string, goals: Goal[], since: Date)
         liability: a.is_liability,
         current: a.display_balance,
         history: history.get(a.id) ?? [],
+        institution: a.org_name ?? null,
+        kind: a.effective_kind,
+        asOf: a.balance_date ?? null,
       }));
     const wallets = goal.linkedWalletIds.length ? await walletsUsd(goal.linkedWalletIds) : { usd: 0, priced: true };
     out.set(goal.id, {
@@ -279,12 +283,34 @@ export async function updateGoal(merchantId: string, id: string, body: Record<st
     notes: draft.notes,
     updated_at: new Date().toISOString(),
   };
-  if (body.archived !== undefined) patch.archived_at = body.archived === true ? new Date().toISOString() : null;
+  if (body.archived !== undefined) {
+    if (typeof body.archived !== 'boolean') throw new GoalError('archived must be true or false');
+    patch.archived_at = body.archived ? existing.archivedAt ?? new Date().toISOString() : null;
+  }
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
+  const basisChanged =
+    !same(draft.linkedAccountIds, existing.linkedAccountIds) ||
+    !same(draft.linkedWalletIds, existing.linkedWalletIds) ||
+    draft.kind !== existing.kind ||
+    draft.currency !== existing.currency ||
+    draft.startDate !== existing.startDate ||
+    draft.startingAmount !== existing.startingAmount ||
+    draft.targetAmount !== existing.targetAmount;
   if (body.startProgress !== undefined) {
     const sp = Number(body.startProgress);
     if (!Number.isFinite(sp)) throw new GoalError('startProgress must be a number');
     patch.start_progress = Math.round(sp * 100) / 100;
+  } else if (basisChanged) {
+    // Different accounts (or a different start) mean a different starting
+    // point: re-read where the new set stood on the start date, so on-track
+    // is not measured from balances the goal no longer counts.
+    const probe: Goal = { ...existing, ...draft };
+    const startAt = new Date(Math.min(Date.now(), Date.parse(`${draft.startDate}T23:59:59Z`)));
+    const inputs = (await loadInputs(merchantId, [probe], startAt)).get(probe.id)!;
+    patch.start_progress = progressAt(probe, inputs, startAt).progress;
   }
+  // Achieved is re-judged against the edited goal the next time it is read.
+  if (basisChanged) patch.achieved_at = null;
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase.from('finance_goals').update(patch).eq('merchant_id', merchantId).eq('id', id).select(GOAL_COLUMNS).single();
   if (error) throw new Error(`Could not update the goal: ${error.message}`);
@@ -352,6 +378,7 @@ export async function goalsWithProgress(merchantId: string, timezone: string, { 
       ...goal,
       direction: goal.kind === 'debt_payoff' ? 'payoff' : 'save',
       snapshot: snapshotGoal(goal, inp, now, today),
+      sources: goalBreakdown(goal, inp, now),
       linked: { accounts: inp.accounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency, balance: a.current, liability: a.liability })), walletsUsd: inp.walletsUsd, walletsPriced: inp.walletsPriced },
     };
   });

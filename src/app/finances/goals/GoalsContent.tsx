@@ -43,10 +43,39 @@ interface GoalRow {
   startingAmount: number | null;
   linkedAccountIds: string[];
   linkedWalletIds: string[];
+  notes: string | null;
+  archivedAt: string | null;
   direction: 'save' | 'payoff';
   snapshot: Snapshot;
+  sources?: Source[];
   linked: { accounts: Array<{ id: string; name: string; balance: number | null }>; walletsUsd: number; walletsPriced: boolean };
 }
+
+interface Source {
+  type: 'account' | 'wallets' | 'contributions' | 'starting';
+  id: string | null;
+  name: string;
+  institution: string | null;
+  kind: string | null;
+  amount: number;
+  asOf: string | null;
+  stale: boolean;
+  counted: boolean;
+}
+
+interface GoalForm {
+  name: string;
+  kind: string;
+  targetAmount: string;
+  deadline: string;
+  startDate: string;
+  startingAmount: string;
+  notes: string;
+  accounts: string[];
+  wallets: string[];
+}
+
+const EMPTY_FORM: GoalForm = { name: '', kind: 'house', targetAmount: '', deadline: '', startDate: '', startingAmount: '', notes: '', accounts: [], wallets: [] };
 
 interface ReportLine {
   goal: { id: string; name: string; currency: string };
@@ -57,7 +86,7 @@ interface ReportLine {
 }
 
 interface Sources {
-  accounts: Array<{ id: string; name: string; institution: string | null; liability: boolean; currency: string; balance: number | null }>;
+  accounts: Array<{ id: string; name: string; institution: string | null; liability: boolean; currency: string; balance: number | null; asOf?: string | null; hidden?: boolean }>;
   wallets: Array<{ walletId: string; label: string | null }>;
 }
 
@@ -123,7 +152,10 @@ export default function GoalsContent() {
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', kind: 'house', targetAmount: '', deadline: '', startingAmount: '', accounts: [] as string[], wallets: [] as string[] });
+  const [editing, setEditing] = useState<GoalRow | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [openSources, setOpenSources] = useState<string | null>(null);
+  const [form, setForm] = useState<GoalForm>(EMPTY_FORM);
   const [contribFor, setContribFor] = useState<string | null>(null);
   const [contrib, setContrib] = useState({ amount: '', note: '' });
   const [cadence, setCadence] = useState<Period>('weekly');
@@ -131,7 +163,7 @@ export default function GoalsContent() {
   const load = useCallback(async () => {
     if (!requireAuth(router)) return;
     setError('');
-    const res = await fetch('/api/finances/goals', { headers: authHeaders(), cache: 'no-store' });
+    const res = await fetch(`/api/finances/goals${showArchived ? '?archived=1' : ''}`, { headers: authHeaders(), cache: 'no-store' });
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       setError(readError(data, 'Could not load goals'));
@@ -141,7 +173,7 @@ export default function GoalsContent() {
     setGoals(data.goals ?? []);
     setDisclaimer(data.disclaimer ?? '');
     setLoading(false);
-  }, [router]);
+  }, [router, showArchived]);
 
   const loadReport = useCallback(async (p: Period) => {
     const res = await fetch(`/api/finances/goals/report?period=${p}`, { headers: authHeaders(), cache: 'no-store' });
@@ -170,23 +202,60 @@ export default function GoalsContent() {
     loadReport(period);
   }, [period, loadReport, goals]);
 
-  async function createGoal(e: React.FormEvent) {
+  function closeForm() {
+    setShowForm(false);
+    setEditing(null);
+    setForm(EMPTY_FORM);
+  }
+
+  function openEdit(g: GoalRow) {
+    setEditing(g);
+    setShowForm(true);
+    setForm({
+      name: g.name,
+      kind: g.kind,
+      targetAmount: String(g.targetAmount),
+      deadline: g.deadline,
+      startDate: g.startDate,
+      startingAmount: g.startingAmount === null ? '' : String(g.startingAmount),
+      notes: g.notes ?? '',
+      accounts: g.linkedAccountIds,
+      wallets: g.linkedWalletIds,
+    });
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function saveGoal(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    setNotice('');
     const body: Record<string, unknown> = {
       name: form.name,
       kind: form.kind,
       deadline: form.deadline,
       linkedAccountIds: form.accounts,
       linkedWalletIds: form.kind === 'debt_payoff' ? [] : form.wallets,
+      notes: form.notes.trim() || null,
     };
     if (form.targetAmount) body.targetAmount = form.targetAmount;
     if (form.startingAmount) body.startingAmount = form.startingAmount;
-    const res = await fetch('/api/finances/goals', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) });
+    else if (editing) body.startingAmount = null;
+    if (editing && form.startDate) body.startDate = form.startDate;
+    const res = editing
+      ? await fetch(`/api/finances/goals/${editing.id}`, { method: 'PATCH', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) })
+      : await fetch('/api/finances/goals', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) });
     const data = await res.json().catch(() => null);
-    if (!res.ok) return setError(readError(data, 'Could not create the goal'));
-    setShowForm(false);
-    setForm({ name: '', kind: 'house', targetAmount: '', deadline: '', startingAmount: '', accounts: [], wallets: [] });
+    if (!res.ok) return setError(readError(data, editing ? 'Could not save the goal' : 'Could not create the goal'));
+    if (editing) setNotice(`Saved "${form.name}".`);
+    closeForm();
+    await load();
+  }
+
+  async function setArchived(goal: GoalRow, archived: boolean) {
+    setError('');
+    const res = await fetch(`/api/finances/goals/${goal.id}`, { method: 'PATCH', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ archived }) });
+    if (!res.ok) return setError(readError(await res.json().catch(() => null), archived ? 'Could not archive' : 'Could not unarchive'));
+    setNotice(archived ? `Archived "${goal.name}". It is hidden and left out of reports.` : `"${goal.name}" is active again.`);
     await load();
   }
 
@@ -232,7 +301,12 @@ export default function GoalsContent() {
   }
 
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
-  const linkable = sources.accounts.filter((a) => (form.kind === 'debt_payoff' ? a.liability : !a.liability));
+  // Hidden accounts only appear when this goal already counts them, so they can be unticked.
+  const linkable = sources.accounts.filter((a) => (form.kind === 'debt_payoff' ? a.liability : !a.liability) && (!a.hidden || form.accounts.includes(a.id)));
+  const linkableWallets = form.kind === 'debt_payoff' ? [] : sources.wallets;
+  const allChecked = linkable.length + linkableWallets.length > 0 && linkable.every((a) => form.accounts.includes(a.id)) && linkableWallets.every((w) => form.wallets.includes(w.walletId));
+  const checkAll = (on: boolean) => setForm({ ...form, accounts: on ? linkable.map((a) => a.id) : [], wallets: on ? linkableWallets.map((w) => w.walletId) : [] });
+  const selectedTotal = linkable.filter((a) => form.accounts.includes(a.id) && a.balance !== null && a.currency === 'USD').reduce((s, a) => s + (a.balance ?? 0), 0);
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 text-gray-200">
@@ -242,40 +316,56 @@ export default function GoalsContent() {
           <h1 className="text-2xl font-bold text-white">Goals</h1>
           <p className="text-sm text-gray-400">Save for a house or a car, build an emergency fund, pay off a debt. Progress follows linked balances or what you record.</p>
         </div>
-        <button onClick={() => setShowForm((v) => !v)} className="rounded bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-500">
-          {showForm ? 'Cancel' : 'New goal'}
-        </button>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1 text-sm text-gray-300">
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Show archived
+          </label>
+          <button onClick={() => (showForm ? closeForm() : setShowForm(true))} className="rounded bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-500">
+            {showForm ? 'Cancel' : 'New goal'}
+          </button>
+        </div>
       </div>
 
       {error && <p className="mb-4 rounded border border-red-700 bg-red-950 px-3 py-2 text-sm text-red-300">{error}</p>}
       {notice && <p className="mb-4 rounded border border-emerald-700 bg-emerald-950 px-3 py-2 text-sm text-emerald-300">{notice}</p>}
 
       {showForm && (
-        <form onSubmit={createGoal} className="mb-8 grid gap-3 rounded border border-slate-700 bg-slate-800/50 p-4 sm:grid-cols-2">
+        <form onSubmit={saveGoal} className="mb-8 grid gap-3 rounded border border-slate-700 bg-slate-800/50 p-4 sm:grid-cols-2">
+          <h2 className="font-semibold text-white sm:col-span-2">{editing ? `Edit "${editing.name}"` : 'New goal'}</h2>
           <label className="text-sm">Name<input className={inputCls} required maxLength={80} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Down payment" /></label>
           <label className="text-sm">Kind
-            <select className={inputCls} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value, accounts: [], wallets: [] })}>
+            <select className={inputCls} value={form.kind} onChange={(e) => setForm((e.target.value === 'debt_payoff') === (form.kind === 'debt_payoff') ? { ...form, kind: e.target.value } : { ...form, kind: e.target.value, accounts: [], wallets: [] })}>
               {KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </label>
           <label className="text-sm">{form.kind === 'debt_payoff' ? 'Debt to pay off (blank: what linked accounts owe now)' : 'Target amount (USD)'}
             <input className={inputCls} inputMode="decimal" value={form.targetAmount} onChange={(e) => setForm({ ...form, targetAmount: e.target.value })} placeholder="60000" required={form.kind !== 'debt_payoff'} />
           </label>
+          {editing && <label className="text-sm">Start date<input className={inputCls} type="date" required value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></label>}
           <label className="text-sm">Deadline<input className={inputCls} type="date" required value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value })} /></label>
           {form.accounts.length === 0 && form.wallets.length === 0 && form.kind !== 'debt_payoff' && (
             <label className="text-sm">Already saved (optional)<input className={inputCls} inputMode="decimal" value={form.startingAmount} onChange={(e) => setForm({ ...form, startingAmount: e.target.value })} placeholder="0" /></label>
           )}
           <fieldset className="text-sm sm:col-span-2">
-            <legend className="mb-1 text-gray-400">{form.kind === 'debt_payoff' ? 'Link the debt accounts (cards, loans)' : 'Link accounts or wallets that hold this money'} (optional)</legend>
-            {linkable.length === 0 && sources.wallets.length === 0 && <p className="text-xs text-gray-500">Nothing to link yet; progress will come from what you record.</p>}
+            <legend className="mb-1 text-gray-400">{form.kind === 'debt_payoff' ? 'Link the debt accounts (cards, loans)' : 'Link accounts or wallets that hold this money'} (optional). Only ticked ones count.</legend>
+            {linkable.length === 0 && linkableWallets.length === 0 && <p className="text-xs text-gray-500">Nothing to link yet; progress will come from what you record.</p>}
+            {linkable.length + linkableWallets.length > 0 && (
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                <label className="flex items-center gap-1 rounded border border-slate-500 px-2 py-1 font-medium">
+                  <input type="checkbox" aria-label="Check all" checked={allChecked} onChange={(e) => checkAll(e.target.checked)} /> Check all
+                </label>
+                <button type="button" onClick={() => checkAll(false)} className="rounded border border-slate-600 px-2 py-1 hover:bg-slate-700">None</button>
+                <span className="text-gray-400">{form.accounts.length + form.wallets.length} selected{form.accounts.length ? ` · accounts ${money(selectedTotal, 'USD')}${form.kind === 'debt_payoff' ? ' owed' : ''}` : ''}</span>
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
               {linkable.map((a) => (
                 <label key={a.id} className="flex items-center gap-1 rounded border border-slate-600 px-2 py-1">
                   <input type="checkbox" checked={form.accounts.includes(a.id)} onChange={() => setForm({ ...form, accounts: toggle(form.accounts, a.id) })} />
-                  {a.institution ? `${a.institution} · ` : ''}{a.name}{a.balance !== null ? ` (${money(a.balance, a.currency)})` : ''}
+                  {a.institution ? `${a.institution} · ` : ''}{a.name}{a.balance !== null ? ` (${money(a.balance, a.currency)})` : ''}{a.hidden ? ' · hidden' : ''}
                 </label>
               ))}
-              {form.kind !== 'debt_payoff' && sources.wallets.map((w) => (
+              {linkableWallets.map((w) => (
                 <label key={w.walletId} className="flex items-center gap-1 rounded border border-slate-600 px-2 py-1">
                   <input type="checkbox" checked={form.wallets.includes(w.walletId)} onChange={() => setForm({ ...form, wallets: toggle(form.wallets, w.walletId) })} />
                   Wallet {w.label ?? w.walletId.slice(0, 8)}
@@ -283,7 +373,11 @@ export default function GoalsContent() {
               ))}
             </div>
           </fieldset>
-          <div className="sm:col-span-2"><button type="submit" className="rounded bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-500">Create goal</button></div>
+          <label className="text-sm sm:col-span-2">Notes (optional)<textarea className={inputCls} maxLength={500} rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></label>
+          <div className="flex gap-2 sm:col-span-2">
+            <button type="submit" className="rounded bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-500">{editing ? 'Save changes' : 'Create goal'}</button>
+            {editing && <button type="button" onClick={closeForm} className="rounded border border-slate-600 px-4 py-2 text-sm hover:bg-slate-700">Cancel</button>}
+          </div>
         </form>
       )}
 
@@ -297,10 +391,10 @@ export default function GoalsContent() {
             const s = g.snapshot;
             const st = STATUS[s.status];
             return (
-              <div key={g.id} className="rounded border border-slate-700 bg-slate-800/50 p-4">
+              <div key={g.id} className={`rounded border border-slate-700 bg-slate-800/50 p-4${g.archivedAt ? ' opacity-70' : ''}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h2 className="font-semibold text-white">{g.name}</h2>
+                    <h2 className="font-semibold text-white">{g.name}{g.archivedAt && <span className="ml-2 rounded bg-slate-700 px-1.5 py-0.5 text-xs font-normal text-gray-300">Archived</span>}</h2>
                     <p className="text-xs text-gray-400">{KIND_LABEL[g.kind] ?? g.kind} · by {g.deadline} · {s.daysLeft >= 0 ? `${s.daysLeft} days left` : `${-s.daysLeft} days past`}</p>
                   </div>
                   <span className={`text-sm font-medium ${st.cls}`}>{st.label}</span>
@@ -313,11 +407,30 @@ export default function GoalsContent() {
                 {s.recentPerMonth !== null && (
                   <p className="text-xs text-gray-400">Last 90 days: {money(s.recentPerMonth, g.currency)}/month{s.projectedDate ? `, lands ${s.projectedDate} at that pace` : ''}</p>
                 )}
-                {(g.linked.accounts.length > 0 || g.linkedWalletIds.length > 0) && (
-                  <p className="mt-1 text-xs text-gray-500">Linked: {g.linked.accounts.map((a) => a.name).join(', ')}{g.linkedWalletIds.length ? `${g.linked.accounts.length ? ', ' : ''}${g.linkedWalletIds.length} wallet(s) ${money(g.linked.walletsUsd, 'USD')}${g.linked.walletsPriced ? '' : ' (some unpriced)'}` : ''}</p>
+                {g.sources && g.sources.length > 0 && (
+                  <div className="mt-2 text-xs">
+                    <button type="button" onClick={() => setOpenSources(openSources === g.id ? null : g.id)} className="text-gray-400 underline decoration-dotted hover:text-white" aria-expanded={openSources === g.id}>
+                      {openSources === g.id ? 'Hide' : 'Show'} what makes up {money(s.progress, g.currency)} ({g.sources.length} source{g.sources.length === 1 ? '' : 's'}{g.sources.some((x) => x.stale) ? ', some balances out of date' : ''})
+                    </button>
+                    {openSources === g.id && (
+                      <table className="mt-1 w-full">
+                        <tbody>
+                          {g.sources.map((src, i) => (
+                            <tr key={`${src.type}-${src.id ?? i}`} className="border-t border-slate-700/60">
+                              <td className="py-0.5 pr-2 text-gray-300">{src.institution && src.type === 'account' ? `${src.institution} · ` : ''}{src.name}{src.kind && src.type === 'account' ? <span className="text-gray-500"> ({src.kind})</span> : null}</td>
+                              <td className={`py-0.5 pr-2 text-right ${src.amount < 0 ? 'text-red-300' : 'text-gray-200'}`}>{src.counted ? money(src.amount, g.currency) : 'not counted'}</td>
+                              <td className="py-0.5 text-right text-amber-400">{src.stale && src.asOf ? `as of ${src.asOf.slice(0, 10)}` : ''}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
                 )}
-                <div className="mt-3 flex gap-2 text-xs">
-                  <button onClick={() => setContribFor(contribFor === g.id ? null : g.id)} className="rounded border border-slate-600 px-2 py-1 hover:bg-slate-700">{g.direction === 'payoff' ? 'Record a payment' : 'Record a contribution'}</button>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  {!g.archivedAt && <button onClick={() => setContribFor(contribFor === g.id ? null : g.id)} className="rounded border border-slate-600 px-2 py-1 hover:bg-slate-700">{g.direction === 'payoff' ? 'Record a payment' : 'Record a contribution'}</button>}
+                  <button onClick={() => openEdit(g)} className="rounded border border-slate-600 px-2 py-1 hover:bg-slate-700">Edit</button>
+                  <button onClick={() => setArchived(g, !g.archivedAt)} className="rounded border border-slate-600 px-2 py-1 hover:bg-slate-700">{g.archivedAt ? 'Unarchive' : 'Archive'}</button>
                   <button onClick={() => removeGoal(g)} className="rounded border border-slate-600 px-2 py-1 text-red-300 hover:bg-slate-700">Delete</button>
                 </div>
                 {contribFor === g.id && (

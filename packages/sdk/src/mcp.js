@@ -108,6 +108,36 @@ export const TOOLS = [
     handler: async (args, { client }) => text({ goal: await reports.createGoal(client, args) }),
   },
   {
+    name: 'finance_goal_update',
+    description: 'Edit a goal (any field), choose which linked accounts/wallets count (the full list replaces the old one; [] unlinks all), or archive/unarchive it. Archived goals are hidden from finance_goals unless archived=true and left out of reports and the goals email. Each goal\'s `sources` lists what its progress is made of.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        goalId: { type: 'string' },
+        name: { type: 'string' },
+        kind: { type: 'string', enum: ['house', 'car', 'emergency_fund', 'debt_payoff', 'custom'] },
+        targetAmount: { type: ['number', 'string'] },
+        deadline: { type: 'string', description: 'YYYY-MM-DD' },
+        startDate: { type: 'string', description: 'YYYY-MM-DD' },
+        currency: { type: 'string' },
+        startingAmount: { type: ['number', 'string', 'null'] },
+        linkedAccountIds: { type: 'array', items: { type: 'string' } },
+        linkedWalletIds: { type: 'array', items: { type: 'string' } },
+        notes: { type: ['string', 'null'] },
+        archived: { type: 'boolean' },
+      },
+      required: ['goalId'],
+      additionalProperties: false,
+    },
+    handler: async ({ goalId, ...patch }, { client }) => text({ goal: await reports.updateGoal(client, goalId, patch) }),
+  },
+  {
+    name: 'finance_goal_delete',
+    description: 'Delete a goal and its recorded contributions for good. Prefer finance_goal_update with archived=true to keep it.',
+    inputSchema: { type: 'object', properties: { goalId: { type: 'string' } }, required: ['goalId'], additionalProperties: false },
+    handler: async (args, { client }) => text(await reports.deleteGoal(client, args.goalId)),
+  },
+  {
     name: 'finance_goal_contribute',
     description: 'Record an amount put toward a goal, or a payment on a payoff goal (negative = withdrawal). Records only; moves no money.',
     inputSchema: {

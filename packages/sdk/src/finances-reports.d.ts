@@ -494,8 +494,22 @@ export interface FinanceGoal {
   linkedAccountIds: string[];
   linkedWalletIds: string[];
   notes: string | null;
+  archivedAt: string | null;
   direction: 'save' | 'payoff';
   snapshot: GoalSnapshot;
+  /** What progress is made of; counted amounts sum to `snapshot.progress`. */
+  sources: GoalSource[];
+}
+export interface GoalSource {
+  type: 'account' | 'wallets' | 'contributions' | 'starting';
+  id: string | null;
+  name: string;
+  institution: string | null;
+  kind: string | null;
+  amount: number;
+  asOf: string | null;
+  stale: boolean;
+  counted: boolean;
 }
 export interface GoalInput {
   name: string;

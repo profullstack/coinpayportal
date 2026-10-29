@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   GoalError,
   buildReport,
+  goalBreakdown,
   nextCadenceRun,
   normalizeContribution,
   normalizeGoal,
@@ -184,6 +185,59 @@ describe('periods and reports', () => {
   it('an empty report still renders', () => {
     const r = buildReport([], 'weekly', NOW, TODAY);
     expect(renderReportText(r)).toContain('No goals yet');
+  });
+});
+
+describe('goalBreakdown', () => {
+  const acct = (id: string, current: number, over: Partial<GoalInputs['accounts'][number]> = {}) => ({ id, name: id, currency: 'USD', liability: false, current, history: [], institution: 'Bank', kind: 'investment', asOf: '2026-10-28T11:00:00Z', ...over });
+
+  it('lists every linked account, largest first, and the counted amounts add up to progress', () => {
+    const g = goal({ kind: 'custom', targetAmount: 5000, linkedAccountIds: ['robo', 'brokerage', 'etrade', 'zero'], linkedWalletIds: ['w'] });
+    const inputs: GoalInputs = {
+      ...empty,
+      walletsUsd: 12.5,
+      contributions: [contrib(100, '2026-10-01')],
+      accounts: [acct('robo', 5514.76), acct('brokerage', 6722.73), acct('etrade', 3738.35, { asOf: '2026-09-12T20:29:41Z' }), acct('zero', 0)],
+    };
+    const sources = goalBreakdown(g, inputs, NOW);
+    expect(sources.map((s) => s.id ?? s.type)).toEqual(['brokerage', 'robo', 'etrade', 'contributions', 'wallets', 'zero']);
+    expect(sources.find((s) => s.id === 'etrade')).toMatchObject({ stale: true, asOf: '2026-09-12T20:29:41Z' });
+    expect(sources.find((s) => s.id === 'robo')!.stale).toBe(false);
+    const sum = Math.round(sources.reduce((t, s) => t + s.amount, 0) * 100) / 100;
+    expect(sum).toBe(progressAt(g, inputs, NOW, { now: true }).progress);
+  });
+
+  it('a card on a save goal subtracts; a payoff goal starts from the debt', () => {
+    const save = goal({ linkedAccountIds: ['sav', 'card'] });
+    const inputs: GoalInputs = { ...empty, accounts: [acct('sav', 1000), acct('card', 300, { liability: true, kind: 'credit' })] };
+    expect(progressAt(save, inputs, NOW, { now: true }).progress).toBe(700);
+    expect(goalBreakdown(save, inputs, NOW).find((s) => s.id === 'card')!.amount).toBe(-300);
+
+    const payoff = goal({ kind: 'debt_payoff', targetAmount: 8000, startingAmount: 8000, linkedAccountIds: ['card'] });
+    const debt: GoalInputs = { ...empty, accounts: [acct('card', 5000, { liability: true })] };
+    const b = goalBreakdown(payoff, debt, NOW);
+    expect(b.map((s) => [s.type, s.amount])).toEqual([['starting', 8000], ['account', -5000]]);
+    expect(b.reduce((t, s) => t + s.amount, 0)).toBe(progressAt(payoff, debt, NOW, { now: true }).progress);
+  });
+
+  it('marks another-currency accounts as not counted', () => {
+    const g = goal({ linkedAccountIds: ['eur'] });
+    const s = goalBreakdown(g, { ...empty, accounts: [acct('eur', 999, { currency: 'EUR' })] }, NOW);
+    expect(s[0]).toMatchObject({ counted: false, amount: 0 });
+  });
+
+  it('the report text and email say what each goal is made of', () => {
+    const g = goal({ kind: 'custom', name: 'overall', targetAmount: 5000, startDate: '2026-10-28', deadline: '2026-11-20', linkedAccountIds: ['b', 'e', 'z1', 'z2'] });
+    const inputs: GoalInputs = { ...empty, accounts: [acct('b', 6722.73, { name: 'Brokerage (6151)', institution: 'SoFi' }), acct('e', 3738.35, { name: 'Individual Brokerage', institution: 'E*Trade', asOf: '2026-09-12T20:29:41Z' }), acct('z1', 0), acct('z2', 0)] };
+    const r = buildReport([{ goal: g, inputs }], 'daily', NOW, TODAY);
+    const text = renderReportText(r);
+    expect(text).toMatch(/Made of:\n\s+\$6,722\.73\s+SoFi · Brokerage \(6151\)/);
+    expect(text).toMatch(/E\*Trade · Individual Brokerage \(balance from 2026-09-12\)/);
+    expect(text).toMatch(/\+ 2 linked accounts at \$0\.00/);
+    const html = renderReportHtml(r, { appUrl: 'https://coinpayportal.com' });
+    expect(html).toContain('Made of:');
+    expect(html).toContain('SoFi · Brokerage (6151)');
+    expect(html).toContain('E*Trade · Individual Brokerage');
   });
 });
 

@@ -5,6 +5,18 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-10-29
+
+### Added
+- `coinpay finances goals edit <id>` changes any field of a goal (`--name`, `--kind`, `--target`,
+  `--deadline`, `--start`, `--start-amount n|none`, `--notes "..."|none`) and which accounts or wallets
+  count (`--account <id>,<id>` replaces the list, `--account none` unlinks all).
+- `coinpay finances goals unarchive <id>`. Archived goals are hidden from `goals list` (unless
+  `--archived`) and left out of the report and the goals email.
+- `goals show` prints what the progress is made of: every linked account with its amount, flagged when
+  its balance is over a week old. `FinanceGoal.sources` / `GoalSource` in the types.
+- MCP: `finance_goal_update` (edit, relink, archive/unarchive) and `finance_goal_delete`.
+
 ## [0.27.1] - 2026-10-28
 
 ### Fixed
