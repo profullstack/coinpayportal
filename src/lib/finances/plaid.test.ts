@@ -452,3 +452,17 @@ describe('finances Plaid provider', () => {
     });
   });
 });
+
+describe('getProducts', () => {
+  afterEach(() => {
+    delete process.env.PLAID_PRODUCTS;
+  });
+
+  it('never asks Plaid for a product that can move money', async () => {
+    const { getProducts } = await import('./plaid');
+    process.env.PLAID_PRODUCTS = 'transactions,auth,transfer,payment_initiation,signal,liabilities';
+    expect(getProducts()).toEqual(['transactions', 'liabilities']);
+    process.env.PLAID_PRODUCTS = 'transfer';
+    expect(getProducts()).toEqual(['transactions', 'liabilities']);
+  });
+});

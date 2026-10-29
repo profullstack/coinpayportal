@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { CLOUD_BANK_BROWSER_ENABLED, cloudBankBrowserGone } from '@/lib/finances/cloud-disabled';
 import { requireFinanceAccess } from '@/lib/finances/access';
 import { institutionFor, requireCloudStatements, throttledError } from '@/lib/finances/cloud-statements';
 import { lockoutWatcher, takeSiteAttempt } from '@/lib/finances/site-attempts';
@@ -21,6 +22,7 @@ export const dynamic = 'force-dynamic';
  * `warning`: ID.me sits behind Cloudflare, which may refuse a datacenter.
  */
 export async function POST(req: NextRequest) {
+  if (!CLOUD_BANK_BROWSER_ENABLED) return cloudBankBrowserGone();
   // Owner only, like every cloud bank browser route: a live bank session can move
   // money, so no team member drives one, even with finance access.
   const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });

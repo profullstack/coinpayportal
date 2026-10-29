@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import path from 'path';
 import { checkUrl, installRequestGuard } from './bank-guard';
 import { captureState, saveSession, type SessionState } from './bank-sessions';
+import { CLOUD_BANK_BROWSER_ENABLED, CLOUD_BANK_BROWSER_OFF_MESSAGE } from './cloud-disabled';
 
 /**
  * Chrome on CoinPay's own server, for bank sign-ins and statement fetches.
@@ -50,6 +51,8 @@ export class BrowserBusyError extends Error {
  * BrowserBusyError when the server is already running its share.
  */
 export async function launchCloudBrowser(): Promise<{ browser: Browser; release: () => Promise<void> }> {
+  // Last line of defence: nothing (route, queued job, keep-alive) starts a bank Chrome.
+  if (!CLOUD_BANK_BROWSER_ENABLED) throw new Error(CLOUD_BANK_BROWSER_OFF_MESSAGE);
   if (running >= maxBrowsers()) throw new BrowserBusyError('CoinPay is already running as many bank browsers as it allows; try again in a minute');
   running += 1;
   const profile = await mkdtemp(path.join(tmpdir(), 'coinpay-bank-'));

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { CLOUD_BANK_BROWSER_ENABLED, cloudBankBrowserGone } from '@/lib/finances/cloud-disabled';
 import { requireFinanceAccess } from '@/lib/finances/access';
 import { disconnectBankSession, getBankSession, toPublicSession, updateBankSession } from '@/lib/finances/bank-sessions';
 import { cloudError, INSTITUTION_KEY } from '@/lib/finances/cloud-api';
@@ -8,6 +9,7 @@ export const dynamic = 'force-dynamic';
 
 /** PATCH /api/finances/statements/cloud/banks/:key — `{schedule?: "weekly" | "off", keepalive?: boolean}`. */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ key: string }> }) {
+  if (!CLOUD_BANK_BROWSER_ENABLED) return cloudBankBrowserGone();
   const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { key } = await params;
@@ -43,6 +45,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ ke
  * session at once. Statements already imported stay in the library.
  */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ key: string }> }) {
+  if (!CLOUD_BANK_BROWSER_ENABLED) return cloudBankBrowserGone();
   const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { key } = await params;

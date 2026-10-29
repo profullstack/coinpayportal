@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { CLOUD_BANK_BROWSER_ENABLED, cloudBankBrowserGone } from '@/lib/finances/cloud-disabled';
 import { requireFinanceAccess } from '@/lib/finances/access';
 import { subscribeLive, liveStatus, type LiveFrame, type LiveStatus } from '@/lib/finances/cloud-browser';
 import { cloudError } from '@/lib/finances/cloud-api';
@@ -13,6 +14,7 @@ export const maxDuration = 1800;
  * go out; a slow connection gets the newest frame, never a backlog.
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  if (!CLOUD_BANK_BROWSER_ENABLED) return cloudBankBrowserGone();
   const guard = await requireFinanceAccess(req, 'finance.connect');
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
