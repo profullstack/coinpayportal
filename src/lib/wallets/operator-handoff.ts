@@ -8,7 +8,8 @@
  * gives it to the new container once it is healthy
  * (scripts/operator-vault-handoff.sh).
  *
- * The channel is a Unix socket inside the container (mode 0600, root), so only
+ * The channel is a Unix socket inside the container, in a 0700 directory of
+ * its own (socket 0600, root), so only
  * `docker exec` reaches it: nothing on HTTP, nothing on disk, nothing in env.
  * Whoever can docker exec can already read this process's memory, so the
  * socket adds no new way in. The imported unlock keeps the ORIGINAL expiry:
@@ -18,14 +19,15 @@
  *   {"op":"export"}                              -> {"ok":true,"data_key":"...","expires_at":"..."} | {"ok":false,"error":"locked"}
  *   {"op":"import","data_key":"...","expires_at":"..."} -> {"ok":true,"expires_at":"..."} | {"ok":false,"error":"..."}
  */
-import { chmodSync, unlinkSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, unlinkSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { createServer, type Server } from 'node:net';
 import { getSupabaseAdmin } from '../supabase/server';
 import { operatorHandoffExport, unlockOperatorKeys } from './operator-keys';
 import { refillAddressPool } from './address-pool';
 import { deriveSystemPaymentAddress } from './system-wallet';
 
-export const DEFAULT_HANDOFF_SOCKET = '/tmp/coinpay-operator-handoff.sock';
+export const DEFAULT_HANDOFF_SOCKET = '/run/coinpay-operator/handoff.sock';
 const MIN_REMAINING_MS = 60_000;
 const MAX_LINE = 4096;
 const SERVER_KEY = Symbol.for('coinpay.operator-handoff.server');
@@ -67,6 +69,16 @@ export function startOperatorHandoffSocket(path: string = process.env.OPERATOR_H
   if (process.env.OPERATOR_HANDOFF === 'off') return null;
   const g = globalThis as unknown as Record<symbol, Server | undefined>;
   if (g[SERVER_KEY]) return g[SERVER_KEY]!;
+  // A private directory, never a shared one like /tmp: refuse a symlink or a
+  // directory someone else owns or can write to.
+  const dir = dirname(path);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const st = lstatSync(dir);
+  const uid = process.getuid?.();
+  if (!st.isDirectory() || st.isSymbolicLink() || (uid !== undefined && st.uid !== uid) || (st.mode & 0o077) !== 0) {
+    console.error(`[operator-vault] handoff socket NOT started: ${dir} is not a private directory`);
+    return null;
+  }
   try {
     unlinkSync(path);
   } catch {

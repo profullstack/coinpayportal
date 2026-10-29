@@ -13,7 +13,7 @@
 set -euo pipefail
 op=${1:?usage: operator-vault-handoff.sh export|import <container>}
 cid=${2:?container id or name}
-sock=${OPERATOR_HANDOFF_SOCKET:-/tmp/coinpay-operator-handoff.sock}
+sock=${OPERATOR_HANDOFF_SOCKET:-/run/coinpay-operator/handoff.sock}
 
 # Runs inside the container: send stdin as one line to the socket, print the reply.
 client='const net=require("net");let i="";process.stdin.setEncoding("utf8");

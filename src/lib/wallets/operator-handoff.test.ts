@@ -67,7 +67,7 @@ describe('operator handoff', () => {
 
   it('serves the protocol on a Unix socket', async () => {
     keys.current = { dataKey: 'a2V5', expiresAt: '2026-11-05T03:43:03.288Z' };
-    const path = join(mkdtempSync(join(tmpdir(), 'cp-handoff-')), 's.sock');
+    const path = join(mkdtempSync(join(tmpdir(), 'cp-handoff-')), 'private', 's.sock');
     const server = startOperatorHandoffSocket(path)!;
     await new Promise((r) => (server.listening ? r(null) : server.once('listening', r)));
     const reply = await new Promise<string>((resolve, reject) => {
