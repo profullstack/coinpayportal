@@ -21,7 +21,9 @@ export const dynamic = 'force-dynamic';
  * `warning`: ID.me sits behind Cloudflare, which may refuse a datacenter.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
+  // Owner only, like every cloud bank browser route: a live bank session can move
+  // money, so no team member drives one, even with finance access.
+  const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
   let body: { institutionKey?: unknown; url?: unknown };
   try {

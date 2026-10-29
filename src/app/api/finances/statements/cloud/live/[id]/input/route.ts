@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
  * Typed text is replayed and never stored or logged.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
+  const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   let body: unknown;

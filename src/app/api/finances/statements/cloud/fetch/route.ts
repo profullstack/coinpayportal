@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
  * Answers the queued jobs; poll /api/finances/jobs/:id or the fetch runs.
  */
 export async function POST(req: NextRequest) {
-  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
+  const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
   let body: { institutionKey?: unknown } = {};
   try {

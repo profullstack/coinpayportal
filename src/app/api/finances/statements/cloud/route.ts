@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
  * sources (`kind: 'tax'`) and brokerages with no linked account (`kind: 'brokerage'`), with its cloud connection, if any (`banks`).
  */
 export async function GET(req: NextRequest) {
-  const guard = await requireFinanceAccess(req, 'finance.read');
+  const guard = await requireFinanceAccess(req, 'finance.connect');
   if (guard instanceof NextResponse) return guard;
   try {
     const [access, institutions, sessions] = await Promise.all([cloudStatementsAccess(guard), merchantInstitutions(guard.id), listBankSessions(guard.id)]);

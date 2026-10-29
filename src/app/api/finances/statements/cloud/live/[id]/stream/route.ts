@@ -13,7 +13,7 @@ export const maxDuration = 1800;
  * go out; a slow connection gets the newest frame, never a backlog.
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireFinanceAccess(req, 'finance.read');
+  const guard = await requireFinanceAccess(req, 'finance.connect');
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   try {
