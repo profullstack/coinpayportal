@@ -16,7 +16,12 @@ export interface AgentInput {
   name: string;
   address: string;
   perPaymentLimitUsd: number | null;
+  hourlyLimitUsd: number | null;
   dailyLimitUsd: number | null;
+  weeklyLimitUsd: number | null;
+  monthlyLimitUsd: number | null;
+  quarterlyLimitUsd: number | null;
+  yearlyLimitUsd: number | null;
   totalLimitUsd: number | null;
   status: AgentStatus;
 }
@@ -83,8 +88,18 @@ export function validateAgentInput(body: unknown): ValidationResult<AgentInput> 
 
   const perPayment = validateLimit(input.perPaymentLimitUsd as LimitInput, 'perPaymentLimitUsd');
   if (!perPayment.ok) return fail(perPayment.error!);
+  const hourly = validateLimit(input.hourlyLimitUsd as LimitInput, 'hourlyLimitUsd');
+  if (!hourly.ok) return fail(hourly.error!);
   const daily = validateLimit(input.dailyLimitUsd as LimitInput, 'dailyLimitUsd');
   if (!daily.ok) return fail(daily.error!);
+  const weekly = validateLimit(input.weeklyLimitUsd as LimitInput, 'weeklyLimitUsd');
+  if (!weekly.ok) return fail(weekly.error!);
+  const monthly = validateLimit(input.monthlyLimitUsd as LimitInput, 'monthlyLimitUsd');
+  if (!monthly.ok) return fail(monthly.error!);
+  const quarterly = validateLimit(input.quarterlyLimitUsd as LimitInput, 'quarterlyLimitUsd');
+  if (!quarterly.ok) return fail(quarterly.error!);
+  const yearly = validateLimit(input.yearlyLimitUsd as LimitInput, 'yearlyLimitUsd');
+  if (!yearly.ok) return fail(yearly.error!);
   const total = validateLimit(input.totalLimitUsd as LimitInput, 'totalLimitUsd');
   if (!total.ok) return fail(total.error!);
 
@@ -108,7 +123,12 @@ export function validateAgentInput(body: unknown): ValidationResult<AgentInput> 
     name,
     address: address.toLowerCase(),
     perPaymentLimitUsd: perPayment.value,
+    hourlyLimitUsd: hourly.value,
     dailyLimitUsd: daily.value,
+    weeklyLimitUsd: weekly.value,
+    monthlyLimitUsd: monthly.value,
+    quarterlyLimitUsd: quarterly.value,
+    yearlyLimitUsd: yearly.value,
     totalLimitUsd: total.value,
     status,
   });
@@ -119,7 +139,12 @@ export interface AgentPatch {
   name?: string;
   status?: AgentStatus;
   perPaymentLimitUsd?: number | null;
+  hourlyLimitUsd?: number | null;
   dailyLimitUsd?: number | null;
+  weeklyLimitUsd?: number | null;
+  monthlyLimitUsd?: number | null;
+  quarterlyLimitUsd?: number | null;
+  yearlyLimitUsd?: number | null;
   totalLimitUsd?: number | null;
 }
 
@@ -151,7 +176,7 @@ export function validateAgentPatch(body: unknown): ValidationResult<AgentPatch> 
     patch.status = status;
   }
 
-  for (const field of ['perPaymentLimitUsd', 'dailyLimitUsd', 'totalLimitUsd'] as const) {
+  for (const field of ['perPaymentLimitUsd', 'hourlyLimitUsd', 'dailyLimitUsd', 'weeklyLimitUsd', 'monthlyLimitUsd', 'quarterlyLimitUsd', 'yearlyLimitUsd', 'totalLimitUsd'] as const) {
     if (!(field in input)) continue;
     const result = validateLimit(input[field] as LimitInput, field);
     if (!result.ok) return fail(result.error!);
@@ -170,7 +195,12 @@ export const COLUMN_FOR: Record<keyof AgentPatch, string> = {
   name: 'name',
   status: 'status',
   perPaymentLimitUsd: 'per_payment_limit_usd',
+  hourlyLimitUsd: 'hourly_limit_usd',
   dailyLimitUsd: 'daily_limit_usd',
+  weeklyLimitUsd: 'weekly_limit_usd',
+  monthlyLimitUsd: 'monthly_limit_usd',
+  quarterlyLimitUsd: 'quarterly_limit_usd',
+  yearlyLimitUsd: 'yearly_limit_usd',
   totalLimitUsd: 'total_limit_usd',
 };
 

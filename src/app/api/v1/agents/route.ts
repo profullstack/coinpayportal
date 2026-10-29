@@ -121,7 +121,12 @@ export async function POST(request: NextRequest) {
         address: input.value!.address,
         status: input.value!.status,
         per_payment_limit_usd: input.value!.perPaymentLimitUsd,
+        hourly_limit_usd: input.value!.hourlyLimitUsd,
         daily_limit_usd: input.value!.dailyLimitUsd,
+        weekly_limit_usd: input.value!.weeklyLimitUsd,
+        monthly_limit_usd: input.value!.monthlyLimitUsd,
+        quarterly_limit_usd: input.value!.quarterlyLimitUsd,
+        yearly_limit_usd: input.value!.yearlyLimitUsd,
         total_limit_usd: input.value!.totalLimitUsd,
       })
       .select('*')
