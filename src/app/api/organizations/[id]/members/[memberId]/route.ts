@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import { resolveCaller, errorResponse } from '@/lib/team/api';
+import { resolveSessionCaller, errorResponse } from '@/lib/team/api';
 import { authorizeOrg } from '@/lib/auth/authz';
 import { updateMemberRole, removeMember, setMemberFinanceAccess } from '@/lib/team/service';
 import { isRole } from '@/lib/auth/permissions';
@@ -15,7 +15,7 @@ export async function PATCH(
 ) {
   const { id, memberId } = await params;
   const supabase = getSupabaseAdmin();
-  const caller = await resolveCaller(supabase, request);
+  const caller = await resolveSessionCaller(supabase, request);
   if (caller instanceof NextResponse) return caller;
 
   const auth = await authorizeOrg(supabase, caller.merchantId, id, 'team.manage');
@@ -62,7 +62,7 @@ export async function DELETE(
 ) {
   const { id, memberId } = await params;
   const supabase = getSupabaseAdmin();
-  const caller = await resolveCaller(supabase, request);
+  const caller = await resolveSessionCaller(supabase, request);
   if (caller instanceof NextResponse) return caller;
 
   const auth = await authorizeOrg(supabase, caller.merchantId, id, 'team.manage');

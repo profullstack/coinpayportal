@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveMerchant } from '@/lib/auth/merchant';
 
-export type Caller = { merchantId: string; email: string };
+export type Caller = { merchantId: string; email: string; via: 'api_key' | 'session' | 'oauth' };
 
 /**
  * Resolve the authenticated caller (JWT/API key via resolveMerchant) plus their email,
@@ -25,7 +25,28 @@ export async function resolveCaller(
     .select('email')
     .eq('id', resolved.merchantId)
     .maybeSingle();
-  return { merchantId: resolved.merchantId, email: data?.email ?? '' };
+  return { merchantId: resolved.merchantId, email: data?.email ?? '', via: resolved.via };
+}
+
+/**
+ * Like resolveCaller, but only a signed-in dashboard session counts. Changing who is
+ * on a team (invite, accept, approve, role, remove, moving a business between orgs)
+ * is never done with an API key: a business key resolves to the OWNER's merchant id,
+ * so anyone holding one could invite themselves in as an admin.
+ */
+export async function resolveSessionCaller(
+  supabase: SupabaseClient,
+  request: NextRequest,
+): Promise<Caller | NextResponse> {
+  const caller = await resolveCaller(supabase, request);
+  if (caller instanceof NextResponse) return caller;
+  if (caller.via !== 'session') {
+    return NextResponse.json(
+      { success: false, error: 'Team changes need a signed-in dashboard session, not an API key' },
+      { status: 403 },
+    );
+  }
+  return caller;
 }
 
 /** Public base URL for building invitation links. */

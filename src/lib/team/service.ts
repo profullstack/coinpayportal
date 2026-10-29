@@ -6,7 +6,9 @@
  * src/lib/auth/authz.ts; this service receives the actor's resolved role and applies
  * the finer-grained guardrails:
  *   - owner is never invited and never demoted/removed here;
- *   - a non-owner cannot grant or manage a role >= their own (admins can't mint admins).
+ *   - a non-owner cannot grant or manage a role >= their own (admins can't mint admins);
+ *   - accepting an invitation never creates a membership: only the owner's approval does
+ *     (approveInvitation), so nobody joins a team the owner has not said yes to.
  *
  * Mirrors the password-reset token pattern in src/lib/auth/service.ts and sends mail
  * through src/lib/email (Resend/Mailgun).
@@ -68,6 +70,8 @@ export type InvitationView = {
   invitedBy: string;
   expiresAt: string;
   acceptedAt: string | null;
+  /** Set once someone accepted: they are waiting for the owner's approval. */
+  acceptedByEmail: string | null;
   createdAt: string;
 };
 
@@ -100,7 +104,10 @@ export async function listMembers(
   }));
 }
 
-/** List pending (not-yet-accepted) invitations for an org/business. */
+/**
+ * List open invitations for an org/business: not yet accepted, or accepted and
+ * waiting for the owner's approval (acceptedAt set).
+ */
 export async function listInvitations(
   supabase: SupabaseClient,
   scope: Scope,
@@ -110,11 +117,11 @@ export async function listInvitations(
     .from(invitesTable(scope))
     .select(
       scope === 'org'
-        ? 'id, email, role, finance_access, invited_by, expires_at, accepted_at, created_at'
-        : 'id, email, role, invited_by, expires_at, accepted_at, created_at',
+        ? 'id, email, role, finance_access, invited_by, expires_at, accepted_at, created_at, accepted_by:merchants!accepted_by_merchant_id(email)'
+        : 'id, email, role, invited_by, expires_at, accepted_at, created_at, accepted_by:merchants!accepted_by_merchant_id(email)',
     )
     .eq(scopeCol(scope), scopeId)
-    .is('accepted_at', null)
+    .is('approved_at', null)
     .order('created_at', { ascending: false });
 
   if (error || !data) return [];
@@ -127,6 +134,7 @@ export async function listInvitations(
     invitedBy: row.invited_by,
     expiresAt: row.expires_at,
     acceptedAt: row.accepted_at,
+    acceptedByEmail: row.accepted_by?.email ?? null,
     createdAt: row.created_at,
   }));
 }
@@ -152,7 +160,7 @@ function invitationEmailHtml(opts: {
   return `
     <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 480px; margin: 0 auto;">
       <h2>You've been invited to ${escapeHtml(opts.scopeLabel)} on CoinPay</h2>
-      <p>You've been added with <strong>${escapeHtml(ROLE_LABEL[opts.role] ?? opts.role)}</strong> access${opts.financeAccess ? ', including the owner&#39;s Finances (bank and card transactions, books and reports)' : ''}. Click below to accept the invitation and access the workspace.</p>
+      <p>You've been invited with <strong>${escapeHtml(ROLE_LABEL[opts.role] ?? opts.role)}</strong> access${opts.financeAccess ? ', including the owner&#39;s Finances (bank and card transactions, books and reports)' : ''}. Click below to accept. The owner then approves you before you can open the workspace.</p>
       <p style="margin: 24px 0;">
         <a href="${escapeUrl(opts.acceptUrl)}"
            style="background:#111827;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;display:inline-block;">
@@ -238,6 +246,9 @@ export async function inviteMember(opts: {
         invited_by: invitedByMerchantId,
         expires_at: expiresAt,
         accepted_at: null,
+        accepted_by_merchant_id: null,
+        approved_at: null,
+        approved_by: null,
         ...(scope === 'org' ? { finance_access: financeAccess } : {}),
       },
       { onConflict: `${scopeCol(scope)},email` },
@@ -281,6 +292,8 @@ type FoundInvitation = {
   financeAccess: boolean;
   expiresAt: string;
   acceptedAt: string | null;
+  acceptedBy: string | null;
+  approvedAt: string | null;
 };
 
 async function findInvitationByToken(
@@ -289,7 +302,7 @@ async function findInvitationByToken(
 ): Promise<FoundInvitation | null> {
   const { data: org } = await supabase
     .from('organization_invitations')
-    .select('id, organization_id, email, role, finance_access, expires_at, accepted_at')
+    .select('id, organization_id, email, role, finance_access, expires_at, accepted_at, accepted_by_merchant_id, approved_at')
     .eq('token', token)
     .maybeSingle();
   if (org) {
@@ -302,12 +315,14 @@ async function findInvitationByToken(
       financeAccess: org.finance_access === true,
       expiresAt: org.expires_at,
       acceptedAt: org.accepted_at,
+      acceptedBy: org.accepted_by_merchant_id ?? null,
+      approvedAt: org.approved_at ?? null,
     };
   }
 
   const { data: biz } = await supabase
     .from('business_invitations')
-    .select('id, business_id, email, role, expires_at, accepted_at')
+    .select('id, business_id, email, role, expires_at, accepted_at, accepted_by_merchant_id, approved_at')
     .eq('token', token)
     .maybeSingle();
   if (biz) {
@@ -320,23 +335,51 @@ async function findInvitationByToken(
       financeAccess: false,
       expiresAt: biz.expires_at,
       acceptedAt: biz.accepted_at,
+      acceptedBy: biz.accepted_by_merchant_id ?? null,
+      approvedAt: biz.approved_at ?? null,
     };
   }
 
   return null;
 }
 
+/** Owner merchant id + display name of an org/business. */
+async function scopeOwner(
+  supabase: SupabaseClient,
+  scope: Scope,
+  scopeId: string,
+): Promise<{ ownerId: string; name: string } | null> {
+  if (scope === 'org') {
+    const { data } = await supabase
+      .from('organizations')
+      .select('owner_merchant_id, name')
+      .eq('id', scopeId)
+      .maybeSingle();
+    return data ? { ownerId: data.owner_merchant_id, name: data.name ?? 'your organization' } : null;
+  }
+  const { data } = await supabase
+    .from('businesses')
+    .select('merchant_id, name')
+    .eq('id', scopeId)
+    .maybeSingle();
+  return data ? { ownerId: data.merchant_id, name: data.name ?? 'your business' } : null;
+}
+
 /**
  * Accept an invitation. The accepting merchant's email MUST match the invited email,
  * which is the security check that prevents a leaked token from being used by anyone
  * other than the intended recipient.
+ *
+ * Accepting does NOT add anyone to the team. It records who accepted and asks the
+ * owner, who approves or rejects it in Settings -> Team (approveInvitation).
  */
 export async function acceptInvitation(opts: {
   supabase: SupabaseClient;
   token: string;
   acceptingMerchantId: string;
   acceptingEmail: string;
-}): Promise<ServiceResult<{ scope: Scope; scopeId: string; role: Role }>> {
+  baseUrl?: string;
+}): Promise<ServiceResult<{ scope: Scope; scopeId: string; role: Role; pendingApproval: true }>> {
   const { supabase, token, acceptingMerchantId } = opts;
   const acceptingEmail = normalizeEmail(opts.acceptingEmail);
 
@@ -358,30 +401,113 @@ export async function acceptInvitation(opts: {
     };
   }
 
-  const { error: memberError } = await supabase.from(membersTable(invitation.scope)).upsert(
-    {
-      [scopeCol(invitation.scope)]: invitation.scopeId,
-      merchant_id: acceptingMerchantId,
-      role: invitation.role,
-      ...(invitation.scope === 'org' ? { finance_access: invitation.financeAccess } : {}),
-    },
-    { onConflict: `${scopeCol(invitation.scope)},merchant_id` },
-  );
-  if (memberError) {
-    return { success: false, error: memberError.message, status: 500 };
+  const { error } = await supabase
+    .from(invitesTable(invitation.scope))
+    .update({ accepted_at: new Date().toISOString(), accepted_by_merchant_id: acceptingMerchantId })
+    .eq('id', invitation.id);
+  if (error) {
+    return { success: false, error: error.message, status: 500 };
   }
 
-  await supabase
-    .from(invitesTable(invitation.scope))
-    .update({ accepted_at: new Date().toISOString() })
-    .eq('id', invitation.id);
+  const owner = await scopeOwner(supabase, invitation.scope, invitation.scopeId);
+  if (owner) {
+    const { data: ownerMerchant } = await supabase
+      .from('merchants')
+      .select('email')
+      .eq('id', owner.ownerId)
+      .maybeSingle();
+    if (ownerMerchant?.email) {
+      const teamUrl = `${(opts.baseUrl ?? '').replace(/\/$/, '')}/settings/team`;
+      await sendEmail({
+        to: ownerMerchant.email,
+        subject: `${acceptingEmail} wants to join ${owner.name} on CoinPay`,
+        html: `
+    <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 480px; margin: 0 auto;">
+      <h2>Approve a new team member?</h2>
+      <p><strong>${escapeHtml(acceptingEmail)}</strong> accepted an invitation to ${escapeHtml(owner.name)} with <strong>${escapeHtml(ROLE_LABEL[invitation.role] ?? invitation.role)}</strong> access${invitation.financeAccess ? ', including your Finances' : ''}.</p>
+      <p>They cannot see anything until you approve them. If you did not expect this, reject it and check who sent the invitation.</p>
+      <p style="margin: 24px 0;">
+        <a href="${escapeUrl(teamUrl)}"
+           style="background:#111827;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;display:inline-block;">
+          Review in Settings &rarr; Team
+        </a>
+      </p>
+    </div>
+  `,
+      }).catch(() => undefined);
+    }
+  }
 
   return {
     success: true,
     scope: invitation.scope,
     scopeId: invitation.scopeId,
     role: invitation.role,
+    pendingApproval: true,
   };
+}
+
+/**
+ * Approve an accepted invitation and create the membership. OWNER ONLY: an admin can
+ * send invitations but cannot let anyone in.
+ */
+export async function approveInvitation(opts: {
+  supabase: SupabaseClient;
+  scope: Scope;
+  scopeId: string;
+  invitationId: string;
+  actorRole: Role;
+  approvedByMerchantId: string;
+}): Promise<ServiceResult<{ memberMerchantId: string; role: Role }>> {
+  const { supabase, scope, scopeId, invitationId, actorRole, approvedByMerchantId } = opts;
+  if (actorRole !== 'owner') {
+    return { success: false, error: 'Only the owner can approve new team members', status: 403 };
+  }
+
+  const { data: inv } = await supabase
+    .from(invitesTable(scope))
+    .select(
+      scope === 'org'
+        ? 'id, role, finance_access, accepted_at, accepted_by_merchant_id, approved_at'
+        : 'id, role, accepted_at, accepted_by_merchant_id, approved_at',
+    )
+    .eq(scopeCol(scope), scopeId)
+    .eq('id', invitationId)
+    .maybeSingle();
+  const row = inv as any;
+  if (!row) {
+    return { success: false, error: 'Invitation not found', status: 404 };
+  }
+  if (row.approved_at) {
+    return { success: false, error: 'Invitation already approved', status: 409 };
+  }
+  if (!row.accepted_at || !row.accepted_by_merchant_id) {
+    return { success: false, error: 'Nobody has accepted this invitation yet', status: 409 };
+  }
+  const role = row.role as Role;
+  if (!isRole(role) || !INVITABLE_ROLES.includes(role)) {
+    return { success: false, error: 'Invalid role', status: 400 };
+  }
+
+  const { error: memberError } = await supabase.from(membersTable(scope)).upsert(
+    {
+      [scopeCol(scope)]: scopeId,
+      merchant_id: row.accepted_by_merchant_id,
+      role,
+      ...(scope === 'org' ? { finance_access: row.finance_access === true } : {}),
+    },
+    { onConflict: `${scopeCol(scope)},merchant_id` },
+  );
+  if (memberError) {
+    return { success: false, error: memberError.message, status: 500 };
+  }
+
+  await supabase
+    .from(invitesTable(scope))
+    .update({ approved_at: new Date().toISOString(), approved_by: approvedByMerchantId })
+    .eq('id', invitationId);
+
+  return { success: true, memberMerchantId: row.accepted_by_merchant_id, role };
 }
 
 /** Change a member's role. Cannot touch owners, cannot set owner, rank-gated by actor. */
