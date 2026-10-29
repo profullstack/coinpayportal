@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
           id: agent.id,
           name: agent.name,
           address: agent.address,
+          network: agent.network,
           status: agent.status,
           limits: {
             perPaymentUsd: agent.limits.perPaymentUsd,
@@ -119,6 +120,7 @@ export async function POST(request: NextRequest) {
         business_id: businessId,
         name: input.value!.name,
         address: input.value!.address,
+        network: input.value!.network,
         status: input.value!.status,
         per_payment_limit_usd: input.value!.perPaymentLimitUsd,
         hourly_limit_usd: input.value!.hourlyLimitUsd,
@@ -152,6 +154,7 @@ export async function POST(request: NextRequest) {
           id: agent.id,
           name: agent.name,
           address: agent.address,
+          network: agent.network,
           status: agent.status,
           limits: agent.limits,
           createdAt: agent.createdAt,

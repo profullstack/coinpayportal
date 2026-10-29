@@ -4,6 +4,7 @@ import type { AgentWalletLimits } from './client.js';
 export interface AgentWalletInput extends AgentWalletLimits {
   name: string;
   address: string;
+  network?: string;
   status?: 'active' | 'paused' | 'revoked';
 }
 

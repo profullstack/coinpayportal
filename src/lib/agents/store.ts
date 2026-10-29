@@ -14,6 +14,7 @@ export interface AgentWallet {
   businessId: string;
   name: string;
   address: string;
+  network: string;
   status: AgentStatus;
   limits: AgentLimits;
   createdAt: string;
@@ -25,6 +26,7 @@ interface AgentWalletRow {
   business_id: string;
   name: string;
   address: string;
+  network?: string;
   status: AgentStatus;
   per_payment_limit_usd: string | number | null;
   hourly_limit_usd?: string | number | null;
@@ -55,6 +57,7 @@ export const rowToAgent = (row: AgentWalletRow): AgentWallet => ({
   businessId: row.business_id,
   name: row.name,
   address: row.address,
+  network: row.network ?? 'evm',
   status: row.status,
   limits: {
     perPaymentUsd: toNumber(row.per_payment_limit_usd),
@@ -75,7 +78,10 @@ export const rowToAgent = (row: AgentWalletRow): AgentWallet => ({
  * comparison and every stored row uses the fold, so that a lookup is an
  * equality test on an indexed column rather than a scan.
  */
-export const normaliseAddress = (address: string): string => address.trim().toLowerCase();
+export const normaliseAddress = (address: string): string => {
+  const trimmed = address.trim();
+  return /^0x[0-9a-fA-F]{40}$/.test(trimmed) ? trimmed.toLowerCase() : trimmed;
+};
 
 /**
  * The agent registered for a payer address, or null when the address belongs to

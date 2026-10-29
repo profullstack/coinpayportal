@@ -908,9 +908,9 @@ async function handleAgent(subCommand, args) {
   if (subCommand === 'list') response = await fetch(endpoint, { headers });
   else {
     const id = opts._positional?.[0];
-    if (subCommand === 'create') response = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify({ name: opts.name, address: opts.address, perPaymentLimitUsd: opts['per-payment'], hourlyLimitUsd: opts.hourly, dailyLimitUsd: opts.daily, weeklyLimitUsd: opts.weekly, monthlyLimitUsd: opts.monthly, quarterlyLimitUsd: opts.quarterly, yearlyLimitUsd: opts.yearly, totalLimitUsd: opts.lifetime }) });
+    if (subCommand === 'create') response = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify({ name: opts.name, address: opts.address, network: opts.network || 'solana', perPaymentLimitUsd: opts['per-payment'], hourlyLimitUsd: opts.hourly, dailyLimitUsd: opts.daily, weeklyLimitUsd: opts.weekly, monthlyLimitUsd: opts.monthly, quarterlyLimitUsd: opts.quarterly, yearlyLimitUsd: opts.yearly, totalLimitUsd: opts.lifetime }) });
     else if (id && ['pause', 'resume', 'revoke'].includes(subCommand)) response = await fetch(`${endpoint}/${encodeURIComponent(id)}`, { method: subCommand === 'revoke' ? 'DELETE' : 'PATCH', headers, body: subCommand === 'revoke' ? undefined : JSON.stringify({ status: subCommand === 'pause' ? 'paused' : 'active' }) });
-    else throw new Error('Usage: coinpay agent list | create --name NAME --address 0x... --monthly 100 --lifetime 100 | pause|resume|revoke <id>');
+    else throw new Error('Usage: coinpay agent list | create --name NAME --network solana --address ADDRESS --monthly 100 --lifetime 100 | pause|resume|revoke <id>');
   }
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);

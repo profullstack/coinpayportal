@@ -15,6 +15,7 @@ export type LimitInput = number | null | undefined;
 export interface AgentInput {
   name: string;
   address: string;
+  network: string;
   perPaymentLimitUsd: number | null;
   hourlyLimitUsd: number | null;
   dailyLimitUsd: number | null;
@@ -38,8 +39,8 @@ const pass = <T>(value: T): ValidationResult<T> => ({ ok: true, value, error: nu
 /** The statuses an operator may set. `revoked` is deliberately included: it is final, and that is the point. */
 export const AGENT_STATUSES: AgentStatus[] = ['active', 'paused', 'revoked'];
 
-/** 0x plus 40 hex characters. Case is not checked because it is folded away. */
-const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+/** Chain labels are intentionally open-ended so a new network can be registered without a code deploy. */
+const NETWORK = /^[a-z0-9][a-z0-9._:-]{0,63}$/i;
 
 /**
  * A dollar limit.
@@ -82,9 +83,9 @@ export function validateAgentInput(body: unknown): ValidationResult<AgentInput> 
 
   const address = typeof input.address === 'string' ? input.address.trim() : '';
   if (!address) return fail('address is required.');
-  if (!EVM_ADDRESS.test(address)) {
-    return fail('address must be an EVM address: 0x followed by 40 hex characters.');
-  }
+  if (address.length > 512) return fail('address must be 512 characters or fewer.');
+  const network = typeof input.network === 'string' && input.network.trim() ? input.network.trim().toLowerCase() : 'solana';
+  if (!NETWORK.test(network)) return fail('network must be a short chain name, such as solana or ethereum.');
 
   const perPayment = validateLimit(input.perPaymentLimitUsd as LimitInput, 'perPaymentLimitUsd');
   if (!perPayment.ok) return fail(perPayment.error!);
@@ -121,7 +122,8 @@ export function validateAgentInput(body: unknown): ValidationResult<AgentInput> 
 
   return pass({
     name,
-    address: address.toLowerCase(),
+    address,
+    network,
     perPaymentLimitUsd: perPayment.value,
     hourlyLimitUsd: hourly.value,
     dailyLimitUsd: daily.value,
