@@ -9,7 +9,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   const auth = await authenticateRequest(supabase, request.headers.get('authorization'));
   if (!auth.success || !auth.context || !isMerchantAuth(auth.context)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const businesses = await listBusinesses(supabase, auth.context.merchantId);
-  const ids = businesses.success ? businesses.businesses.map((b) => b.id) : [];
+  const ids = businesses.success ? (businesses.businesses ?? []).map((b) => b.id) : [];
   const patch = validateAgentPatch(await request.json().catch(() => null));
   if (!patch.ok) return NextResponse.json({ error: patch.error }, { status: 400 });
   const { id } = await context.params;
@@ -24,7 +24,7 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
   const auth = await authenticateRequest(supabase, request.headers.get('authorization'));
   if (!auth.success || !auth.context || !isMerchantAuth(auth.context)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const businesses = await listBusinesses(supabase, auth.context.merchantId);
-  const ids = businesses.success ? businesses.businesses.map((b) => b.id) : [];
+  const ids = businesses.success ? (businesses.businesses ?? []).map((b) => b.id) : [];
   const { id } = await context.params;
   const { data, error } = await supabase.from('agent_wallets').update({ status: 'revoked', updated_at: new Date().toISOString() }).in('business_id', ids).eq('id', id).select('id,status').maybeSingle();
   if (error) return NextResponse.json({ error: 'Could not revoke agent wallet' }, { status: 500 });

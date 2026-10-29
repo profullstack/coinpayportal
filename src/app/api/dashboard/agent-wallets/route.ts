@@ -15,7 +15,7 @@ async function auth(request: NextRequest) {
   const result = await authenticateRequest(supabase, request.headers.get('authorization'));
   if (!result.success || !result.context || !isMerchantAuth(result.context)) return null;
   const businesses = await listBusinesses(supabase, result.context.merchantId);
-  return businesses.success ? { supabase, businesses: businesses.businesses } : null;
+  return businesses.success ? { supabase, businesses: businesses.businesses ?? [] } : null;
 }
 
 export async function GET(request: NextRequest) {
