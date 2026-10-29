@@ -395,7 +395,7 @@ describe('revocation (RFC 7009)', () => {
 
   it('answers 200 for unknown tokens and does not touch another client\'s tokens', async () => {
     const { body } = await exchangePublic();
-    expect((await revoke(form(R, { token: 'not-a-token', client_id: 'pub' }))).status).toBe(200);
+    expect((await revoke(form(R, { token: randomBytes(32).toString('hex'), client_id: 'pub' }))).status).toBe(200);
     const other = await revoke(form(R, { token: body.refresh_token, client_id: 'conf', client_secret: SECRET }));
     expect(other.status).toBe(200);
     expect(await userinfoStatus(body.access_token)).toBe(200);
