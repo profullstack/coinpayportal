@@ -4,6 +4,7 @@ import { cloudStatementsAccess, merchantInstitutions } from '@/lib/finances/clou
 import { listBankSessions, toPublicSession } from '@/lib/finances/bank-sessions';
 import { cloudError } from '@/lib/finances/cloud-api';
 import { financeJson } from '@/lib/finances/api';
+import { CLOUD_BANK_BROWSER_ENABLED } from '@/lib/finances/cloud-disabled';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
     const [access, institutions, sessions] = await Promise.all([cloudStatementsAccess(guard), merchantInstitutions(guard.id), listBankSessions(guard.id)]);
     const banks = institutions.map((i) => {
       const session = sessions.find((s) => s.institution_key === i.key);
-      return { key: i.key, name: i.name, kind: i.kind === 'tax' || i.kind === 'brokerage' ? i.kind : 'bank', url: i.url, accounts: i.accounts.map((a) => a.name), cloud: session ? toPublicSession(session) : null };
+      return { key: i.key, name: i.name, kind: i.kind === 'tax' || i.kind === 'brokerage' ? i.kind : 'bank', url: i.url, accounts: i.accounts.map((a) => a.name), cloud: session && CLOUD_BANK_BROWSER_ENABLED ? toPublicSession(session) : null };
     });
     return financeJson({ access, banks });
   } catch (err) {

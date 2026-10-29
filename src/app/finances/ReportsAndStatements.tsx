@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import StatementFetchPanel from './StatementFetchPanel';
-import CloudStatementsSection from './CloudStatementsSection';
 import BankStatementLinks from './BankStatementLinks';
 
 /**
@@ -719,7 +718,6 @@ export default function ReportsAndStatements({ accounts, connections = [], authH
         </p>
 
         <StatementFetchPanel authHeaders={authHeaders} refreshKey={statements.length} />
-        <CloudStatementsSection authHeaders={authHeaders} onChanged={() => void loadStatements()} />
         <BankStatementLinks authHeaders={authHeaders} />
 
         <div className="grid gap-3 md:grid-cols-4 mt-4">

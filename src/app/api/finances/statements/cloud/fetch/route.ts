@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { CLOUD_BANK_BROWSER_ENABLED, cloudBankBrowserGone } from '@/lib/finances/cloud-disabled';
 import { requireFinanceAccess } from '@/lib/finances/access';
 import { enqueueStatementFetch, requireCloudStatements } from '@/lib/finances/cloud-statements';
 import { listBankSessions } from '@/lib/finances/bank-sessions';
@@ -14,6 +15,7 @@ export const dynamic = 'force-dynamic';
  * Answers the queued jobs; poll /api/finances/jobs/:id or the fetch runs.
  */
 export async function POST(req: NextRequest) {
+  if (!CLOUD_BANK_BROWSER_ENABLED) return cloudBankBrowserGone();
   const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
   let body: { institutionKey?: unknown } = {};

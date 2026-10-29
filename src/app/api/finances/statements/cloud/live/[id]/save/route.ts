@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { CLOUD_BANK_BROWSER_ENABLED, cloudBankBrowserGone } from '@/lib/finances/cloud-disabled';
 import { requireFinanceAccess } from '@/lib/finances/access';
 import { finishLiveSession } from '@/lib/finances/cloud-browser';
 import { enqueueStatementFetch } from '@/lib/finances/cloud-statements';
@@ -16,6 +17,7 @@ export const dynamic = 'force-dynamic';
  * every fetch starts.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  if (!CLOUD_BANK_BROWSER_ENABLED) return cloudBankBrowserGone();
   const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;

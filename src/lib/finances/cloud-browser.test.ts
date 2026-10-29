@@ -16,6 +16,7 @@ import { findChrome } from '@profullstack/coinpay/statements';
 import { cloudBrowserStats, finishLiveSession, launchCloudBrowser, liveStatus, parseLiveInput, sendLiveInput, startLiveSession, subscribeLive, LiveSessionError } from './cloud-browser';
 import { installRequestGuard } from './bank-guard';
 import { bankBrowserStats } from './bank-browsers';
+import { CLOUD_BANK_BROWSER_ENABLED } from './cloud-disabled';
 import { captureState, restoreState, RESTORE_STORAGE } from './bank-sessions';
 
 describe('parseLiveInput', () => {
@@ -32,7 +33,15 @@ describe('parseLiveInput', () => {
 const chrome = process.env.CHROME_PATH || findChrome();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-describe.skipIf(!chrome)('cloud browser with real Chromium', () => {
+describe('cloud bank browser kill switch', () => {
+  it('refuses to start a bank Chrome at all', async () => {
+    expect(CLOUD_BANK_BROWSER_ENABLED).toBe(false);
+    await expect(launchCloudBrowser()).rejects.toThrow(/turned off/);
+  });
+});
+
+// Kept for the day the switch flips back; dead while it is off.
+describe.skipIf(!chrome || !CLOUD_BANK_BROWSER_ENABLED)('cloud browser with real Chromium', () => {
   let server: Server;
   let port = 0;
   let hits = 0;

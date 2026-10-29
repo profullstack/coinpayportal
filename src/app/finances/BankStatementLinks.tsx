@@ -7,7 +7,7 @@ type Bank = { key: string; name: string; kind?: 'bank' | 'tax' | 'brokerage'; ur
 
 /**
  * Where to download each linked bank's statements by hand, and how. For every
- * plan: the cloud and CLI fetchers are the automatic path, this is the one
+ * plan: the CLI fetcher is the automatic path (the cloud bank browser is off), this is the one
  * that always works. The PDF then goes through the import form below.
  */
 export default function BankStatementLinks({ authHeaders }: { authHeaders: () => HeadersInit }) {

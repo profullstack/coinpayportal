@@ -398,10 +398,19 @@ export async function fetchPlaidAccountSet(
  * `PLAID_PRODUCTS` overrides it as a comma-separated list, for deployments
  * that would rather not pay for what they do not show.
  */
+/**
+ * Products CoinPay may ever ask Plaid for: read-only ones. Anything that can
+ * move money or open a payment rail (auth, transfer, payment_initiation,
+ * signal, processor tokens) is dropped even if PLAID_PRODUCTS names it.
+ */
+export const READ_ONLY_PLAID_PRODUCTS = new Set(['transactions', 'liabilities', 'statements']);
+
 export function getProducts(): string[] {
   const raw = (process.env.PLAID_PRODUCTS || '').trim();
-  if (!raw) return ['transactions', 'liabilities'];
-  const products = raw.split(',').map((p) => p.trim()).filter(Boolean);
+  const products = raw
+    .split(',')
+    .map((p) => p.trim())
+    .filter((p) => READ_ONLY_PLAID_PRODUCTS.has(p));
   if (products.length === 0) return ['transactions', 'liabilities'];
   return products;
 }

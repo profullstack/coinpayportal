@@ -7,6 +7,7 @@ import { resolveFinanceTimezone } from './settings';
 import { recordFetchRun } from './statement-fetch';
 import { createJob, heartbeat, releaseWithStatus, type FinanceJobRow } from './jobs';
 import { BrowserBusyError, launchCloudBrowser, loadEngine } from './cloud-browser';
+import { CLOUD_BANK_BROWSER_ENABLED, CLOUD_BANK_BROWSER_OFF_MESSAGE } from './cloud-disabled';
 import { installRequestGuard } from './bank-guard';
 import { captureState, getBankSession, loadSessionState, restoreState, saveSession, updateBankSession, type BankSessionRow } from './bank-sessions';
 import { merchantUnlocked, VaultLockedError } from '../vault/vault-service';
@@ -57,6 +58,9 @@ export interface CloudAccess {
 
 /** Who may use cloud fetching: admins always, otherwise an active Professional plan on the books' owner. */
 export async function cloudStatementsAccess(access: { id: string; actorId: string }): Promise<CloudAccess> {
+  if (!CLOUD_BANK_BROWSER_ENABLED) {
+    return { allowed: false, reason: 'disabled', message: CLOUD_BANK_BROWSER_OFF_MESSAGE };
+  }
   if (process.env.FINANCES_CLOUD_STATEMENTS_ENABLED === 'false') {
     return { allowed: false, reason: 'disabled', message: 'Cloud statement fetching is turned off on this deployment.' };
   }
