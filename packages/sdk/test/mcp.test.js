@@ -40,6 +40,14 @@ describe('handleMessage', () => {
     expect(calls).toEqual([['GET', '/finances/goals/report?period=monthly'], ['POST', '/finances/goals']]);
   });
 
+  it('goal update and delete tools PATCH and DELETE the goal', async () => {
+    const calls = [];
+    const client = { request: async (endpoint, options = {}) => { calls.push([options.method || 'GET', endpoint, options.body ? JSON.parse(options.body) : null]); return { goal: { id: 'g' }, success: true }; } };
+    await handleMessage({ jsonrpc: '2.0', id: 11, method: 'tools/call', params: { name: 'finance_goal_update', arguments: { goalId: 'g', linkedAccountIds: [], archived: true } } }, ctx(client));
+    await handleMessage({ jsonrpc: '2.0', id: 12, method: 'tools/call', params: { name: 'finance_goal_delete', arguments: { goalId: 'g' } } }, ctx(client));
+    expect(calls).toEqual([['PATCH', '/finances/goals/g', { linkedAccountIds: [], archived: true }], ['DELETE', '/finances/goals/g', null]]);
+  });
+
   it('calls the API through the client and returns JSON text', async () => {
     const calls = [];
     const client = { request: async (endpoint) => { calls.push(endpoint); return { months: ['2026-10'], accounts: [], missing: 0, fetchers: [] }; } };

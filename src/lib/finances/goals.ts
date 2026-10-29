@@ -80,6 +80,10 @@ export interface LinkedSeries {
   current: number | null;
   /** Snapshots as shown, oldest first. */
   history: Array<{ at: string; value: number }>;
+  institution?: string | null;
+  kind?: string | null;
+  /** When the feed last reported `current`. */
+  asOf?: string | null;
 }
 
 export interface GoalInputs {
@@ -221,10 +225,12 @@ export function progressAt(goal: Pick<Goal, 'kind' | 'currency' | 'startingAmoun
   const linkedAny = goal.linkedAccountIds.length > 0 || goal.linkedWalletIds.length > 0;
   let exact = true;
   let balances = 0;
+  const save = directionOf(goal.kind) === 'save';
   for (const a of accounts) {
     const v = now ? { value: a.current, exact: true } : seriesValueAt(a, at);
     if (!v.exact) exact = false;
-    balances += v.value ?? 0;
+    // A debt linked to a savings goal counts against it (net worth), never as money held.
+    balances += (save && a.liability ? -1 : 1) * (v.value ?? 0);
   }
   if (goal.currency === 'USD') balances += inputs.walletsUsd;
   balances = round2(balances);
@@ -240,6 +246,68 @@ export function progressAt(goal: Pick<Goal, 'kind' | 'currency' | 'startingAmoun
     return { progress: round2(base + contributed), linked: 0, contributed, exact: true };
   }
   return { progress: round2(balances + contributed), linked: balances, contributed, exact };
+}
+
+/** A balance older than this is flagged: the feed may have stopped updating. */
+export const STALE_BALANCE_DAYS = 7;
+
+/** One line of what a goal's progress is made of. Counted amounts sum to `progressAt(..., { now: true }).progress`. */
+export interface GoalSource {
+  type: 'account' | 'wallets' | 'contributions' | 'starting';
+  id: string | null;
+  name: string;
+  institution: string | null;
+  kind: string | null;
+  /** Signed: what this source adds to progress now (a debt subtracts). */
+  amount: number;
+  /** When the balance was last reported, for accounts. */
+  asOf: string | null;
+  stale: boolean;
+  /** False for a linked account in another currency, which the goal cannot add up. */
+  counted: boolean;
+}
+
+/** Where today's progress comes from, largest first: the starting point, every linked account, the wallets and recorded contributions. */
+export function goalBreakdown(
+  goal: Pick<Goal, 'kind' | 'currency' | 'startingAmount' | 'targetAmount' | 'linkedAccountIds' | 'linkedWalletIds'>,
+  inputs: GoalInputs,
+  now: Date,
+): GoalSource[] {
+  const out: GoalSource[] = [];
+  const payoff = directionOf(goal.kind) === 'payoff';
+  const linkedAny = goal.linkedAccountIds.length > 0 || goal.linkedWalletIds.length > 0;
+  const staleBefore = now.getTime() - STALE_BALANCE_DAYS * DAY_MS;
+  const base = { id: null, institution: null, kind: null, asOf: null, stale: false, counted: true };
+  if (payoff && linkedAny) out.push({ ...base, type: 'starting', name: 'Debt at the start', amount: round2(goal.startingAmount ?? goal.targetAmount) });
+  else if (!payoff && !linkedAny && goal.startingAmount) out.push({ ...base, type: 'starting', name: 'Already saved at the start', amount: round2(goal.startingAmount) });
+  for (const a of inputs.accounts) {
+    const counted = a.currency === goal.currency;
+    const value = a.current ?? 0;
+    const amount = payoff || a.liability ? -value : value;
+    const asOf = a.asOf ?? null;
+    out.push({
+      type: 'account',
+      id: a.id,
+      name: a.name,
+      institution: a.institution ?? null,
+      kind: a.kind ?? null,
+      amount: counted ? round2(amount) : 0,
+      asOf,
+      stale: asOf ? Date.parse(asOf) < staleBefore : false,
+      counted,
+    });
+  }
+  if (goal.linkedWalletIds.length > 0) {
+    const n = goal.linkedWalletIds.length;
+    out.push({ ...base, type: 'wallets', name: `${n} web wallet${n === 1 ? '' : 's'}${inputs.walletsPriced ? '' : ' (some unpriced)'}`, institution: 'CoinPay', kind: 'wallet', amount: goal.currency === 'USD' ? round2(inputs.walletsUsd) : 0, counted: goal.currency === 'USD' });
+  }
+  const day = now.toISOString().slice(0, 10);
+  const recorded = inputs.contributions.filter((c) => c.occurredOn <= day);
+  if (recorded.length > 0) {
+    out.push({ ...base, type: 'contributions', name: `${recorded.length} recorded ${payoff ? 'payment' : 'contribution'}${recorded.length === 1 ? '' : 's'}`, amount: round2(recorded.reduce((s, c) => s + c.amount, 0)) });
+  }
+  const rank = (s: GoalSource) => (s.type === 'starting' ? 0 : 1);
+  return out.sort((x, y) => rank(x) - rank(y) || Math.abs(y.amount) - Math.abs(x.amount));
 }
 
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / DAY_MS);
@@ -328,6 +396,8 @@ export interface GoalPeriodLine {
   /** What this period needed at the pace that lands the goal on time (from where it stood at the period's start). */
   neededThisPeriod: number;
   pace: 'ahead' | 'on_pace' | 'short' | 'done';
+  /** What today's progress is made of. */
+  sources: GoalSource[];
 }
 
 export interface GoalReport {
@@ -366,6 +436,7 @@ export function periodLine(goal: Goal, inputs: GoalInputs, period: GoalPeriod, n
     change,
     neededThisPeriod,
     pace,
+    sources: goalBreakdown(goal, inputs, now),
   };
 }
 
@@ -393,6 +464,20 @@ export const STATUS_LABELS: Record<GoalStatus, string> = { achieved: 'Achieved',
 const PERIOD_LABELS: Record<GoalPeriod, string> = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', quarterly: 'Quarterly' };
 const STATUS_COLORS: Record<GoalStatus, string> = { achieved: '#15803d', on_track: '#15803d', behind: '#b45309', overdue: '#b91c1c' };
 
+export const sourceLabel = (s: GoalSource) => (s.institution && s.type === 'account' ? `${s.institution} · ${s.name}` : s.name);
+
+/** The sources worth a line each (anything non-zero, or not counted), and how many linked accounts sit at zero. */
+export function sourceLines(sources: GoalSource[]): { shown: GoalSource[]; zero: number } {
+  const shown = sources.filter((s) => s.amount !== 0 || !s.counted || s.type !== 'account');
+  return { shown, zero: sources.length - shown.length };
+}
+
+function sourceNote(s: GoalSource): string {
+  if (!s.counted) return ' (other currency, not counted)';
+  if (s.stale && s.asOf) return ` (balance from ${s.asOf.slice(0, 10)})`;
+  return '';
+}
+
 export function reportSubject(report: GoalReport): string {
   const behind = report.counts.behind + report.counts.overdue;
   const n = report.goals.length;
@@ -413,9 +498,24 @@ export function renderReportText(report: GoalReport): string {
     if (s.status !== 'achieved') lines.push(`  To finish on time: ${m(s.required.perMonth)}/month, ${m(s.required.perWeek)}/week`);
     if (s.projectedDate) lines.push(`  At the last 90 days' pace (${m(s.recentPerMonth ?? 0)}/month) it lands ${s.projectedDate}`);
     if (!s.exact) lines.push('  (Balance history before this period is incomplete; the earliest known balance stood in.)');
+    const { shown, zero } = sourceLines(l.sources ?? []);
+    if (shown.length || zero) {
+      lines.push(`  Made of:`);
+      for (const src of shown) lines.push(`    ${m(src.amount).padStart(12)}  ${sourceLabel(src)}${sourceNote(src)}`);
+      if (zero) lines.push(`    ${''.padStart(12)}  + ${zero} linked account${zero === 1 ? '' : 's'} at ${m(0)}`);
+    }
   }
   lines.push('', report.disclaimer);
   return lines.join('\n');
+}
+
+function sourcesRow(l: GoalPeriodLine, td: string): string {
+  const { shown, zero } = sourceLines(l.sources ?? []);
+  if (!shown.length && !zero) return '';
+  const m = (n: number) => esc(formatMoney(n, l.goal.currency));
+  const items = shown.map((s) => `<tr><td style="padding:1px 12px 1px 0;font-size:12px;text-align:right;white-space:nowrap">${m(s.amount)}</td><td style="padding:1px 0;font-size:12px">${esc(sourceLabel(s))}<span style="color:#b45309">${esc(sourceNote(s))}</span></td></tr>`).join('');
+  const more = zero ? `<tr><td></td><td style="padding:1px 0;font-size:12px;color:#666">+ ${zero} linked account${zero === 1 ? '' : 's'} at ${m(0)}</td></tr>` : '';
+  return `<tr><td colspan="5" style="${td};color:#444"><span style="font-size:12px;color:#666">Made of:</span><table style="border-collapse:collapse;margin-top:2px">${items}${more}</table></td></tr>`;
 }
 
 export function renderReportHtml(report: GoalReport, links: { appUrl: string; settingsUrl?: string; unsubscribeUrl?: string }): string {
@@ -430,7 +530,7 @@ export function renderReportHtml(report: GoalReport, links: { appUrl: string; se
 <td style="${td};color:${STATUS_COLORS[s.status]}"><strong>${STATUS_LABELS[s.status]}</strong></td>
 <td style="${td}">${l.change >= 0 ? '+' : ''}${m(l.change)}<br><span style="color:#666">needed ${m(l.neededThisPeriod)}</span></td>
 <td style="${td}">${s.status === 'achieved' ? '-' : `${m(s.required.perMonth)}/mo`}${s.projectedDate ? `<br><span style="color:#666">lands ${esc(s.projectedDate)} at recent pace</span>` : ''}</td>
-</tr>`;
+</tr>${sourcesRow(l, td)}`;
   }).join('');
   const base = links.appUrl.replace(/\/$/, '');
   const body = report.goals.length

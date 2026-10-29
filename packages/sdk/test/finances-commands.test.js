@@ -350,4 +350,44 @@ describe('finances goals', () => {
     const { ctx } = ctxFor(fakeClient({}));
     expect(await runFinancesCommand('goals', ['delete', GOAL.id], {}, ctx)).toBe(EXIT.INVALID);
   });
+
+  it('edits any field and replaces the linked accounts', async () => {
+    const client = fakeClient({ [`PATCH /finances/goals/${GOAL.id}`]: () => ({ goal: { ...GOAL, name: 'Investments' } }) });
+    const { ctx, out } = ctxFor(client);
+    expect(await runFinancesCommand('goals', ['edit', GOAL.id], { name: 'Investments', target: 15000, account: 'aaaaaaaa-0000-0000-0000-000000000001,aaaaaaaa-0000-0000-0000-000000000002', notes: 'none' }, ctx)).toBe(EXIT.OK);
+    expect(JSON.parse(client.calls[0].options.body)).toEqual({ name: 'Investments', targetAmount: '15000', linkedAccountIds: ['aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002'], notes: null });
+    expect(out.join('\n')).toMatch(/Saved Investments/);
+    const { ctx: c2 } = ctxFor(fakeClient({}));
+    expect(await runFinancesCommand('goals', ['edit', GOAL.id], {}, c2)).toBe(EXIT.INVALID);
+  });
+
+  it('--account none unlinks every account', async () => {
+    const client = fakeClient({ [`PATCH /finances/goals/${GOAL.id}`]: () => ({ goal: GOAL }) });
+    const { ctx } = ctxFor(client);
+    expect(await runFinancesCommand('goals', ['edit', GOAL.id], { account: 'none' }, ctx)).toBe(EXIT.OK);
+    expect(JSON.parse(client.calls[0].options.body)).toEqual({ linkedAccountIds: [] });
+  });
+
+  it('archives and unarchives', async () => {
+    const client = fakeClient({ [`PATCH /finances/goals/${GOAL.id}`]: (_p, o) => ({ goal: { ...GOAL, archivedAt: JSON.parse(o.body).archived ? '2026-10-29T00:00:00Z' : null } }) });
+    const { ctx, out } = ctxFor(client);
+    expect(await runFinancesCommand('goals', ['archive', GOAL.id], {}, ctx)).toBe(EXIT.OK);
+    expect(await runFinancesCommand('goals', ['unarchive', GOAL.id], {}, ctx)).toBe(EXIT.OK);
+    expect(client.calls.map((c) => JSON.parse(c.options.body))).toEqual([{ archived: true }, { archived: false }]);
+    expect(out.join('\n')).toMatch(/Archived Down payment[\s\S]*Down payment is active again/);
+  });
+
+  it('show prints what the progress is made of', async () => {
+    const sources = [
+      { type: 'account', id: 'a01c86c0-0000-0000-0000-000000000000', name: 'Brokerage (6151)', institution: 'SoFi', kind: 'investment', amount: 6722.73, asOf: '2026-10-28T11:49:27Z', stale: false, counted: true },
+      { type: 'account', id: 'ef7c3dc3-0000-0000-0000-000000000000', name: 'Individual Brokerage', institution: 'E*Trade', kind: 'investment', amount: 3738.35, asOf: '2026-09-12T20:29:41Z', stale: true, counted: true },
+    ];
+    const client = fakeClient({ [`GET /finances/goals/${GOAL.id}`]: () => ({ goal: { ...GOAL, sources }, contributions: [] }) });
+    const { ctx, out } = ctxFor(client);
+    expect(await runFinancesCommand('goals', ['show', GOAL.id], {}, ctx)).toBe(EXIT.OK);
+    const text = out.join('\n');
+    expect(text).toMatch(/Made of:/);
+    expect(text).toMatch(/\$6,722\.73\s+SoFi · Brokerage \(6151\)\s+\[a01c86c0\]/);
+    expect(text).toMatch(/E\*Trade · Individual Brokerage .*balance from 2026-09-12/);
+  });
 });
