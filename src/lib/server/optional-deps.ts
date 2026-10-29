@@ -8,6 +8,8 @@
  * having in a payments codebase even when every current caller passes a
  * constant. Adding a module here is a visible, reviewable change.
  */
+import { STRIPE_ENABLED, StripeArchivedError } from '@/lib/stripe/archived';
+
 const OPTIONAL_MODULES = {
   stripe: 'stripe',
   xrpl: 'xrpl',
@@ -51,6 +53,10 @@ function createStripeClient(Stripe: any, secretKey: string) {
 }
 
 export async function getStripe(secretKey = process.env.STRIPE_SECRET_KEY) {
+  // Archived 2026-10-29: no code path may reach Stripe, key or no key.
+  if (!STRIPE_ENABLED) {
+    throw new StripeArchivedError();
+  }
   if (!secretKey) {
     throw new Error('STRIPE_SECRET_KEY is not configured');
   }

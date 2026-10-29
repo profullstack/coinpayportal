@@ -36,6 +36,21 @@ export default defineConfig({
       'src/lib/blockchain/wallets.test.ts',
       'src/lib/payments/service.test.ts',
       'src/app/api/cron/monitor-payments/route.test.ts',
+      // Stripe is archived (2026-10-29, src/lib/stripe/archived.ts): these drive
+      // live Stripe calls that getStripe() and the proxy now refuse. Kept, not
+      // deleted, for the day STRIPE_ENABLED comes back; the off switch itself is
+      // covered by src/lib/stripe/archived.test.ts.
+      'src/app/api/stripe/api-keys/route.test.ts',
+      'src/app/api/stripe/connect/disconnect/route.test.ts',
+      'src/app/api/stripe/connect/onboard/route.test.ts',
+      'src/app/api/stripe/connect/status/[[]accountId]/route.test.ts',
+      'src/app/api/stripe/payments/create/route.test.ts',
+      'src/app/api/stripe/payouts/route.test.ts',
+      'src/app/api/stripe/webhook/checkout-session.test.ts',
+      'src/app/api/stripe/webhook/route.test.ts',
+      'src/app/api/stripe/webhooks/[[]id]/route.test.ts',
+      'src/app/api/stripe/webhooks/route.test.ts',
+      'src/app/api/invoices/[[]id]/enable-card/route.test.ts',
     ],
   },
   resolve: {

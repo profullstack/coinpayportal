@@ -59,7 +59,8 @@ describe('GET /api/businesses/[id]/payment-methods', () => {
     mockAuthorizeBusiness.mockResolvedValue({ ok: true, role: 'owner' });
   });
 
-  it('returns active crypto wallets and card enabled when Stripe charges are on', async () => {
+  // Stripe is archived: card is reported off even with charges enabled.
+  it('returns active crypto wallets and card disabled even when Stripe charges are on', async () => {
     setupTables(
       [
         { cryptocurrency: 'BTC', wallet_address: 'bc1q', is_active: true },
@@ -75,7 +76,7 @@ describe('GET /api/businesses/[id]/payment-methods', () => {
     expect(res.status).toBe(200);
     expect(body.success).toBe(true);
     expect(body.crypto.map((c: any) => c.cryptocurrency)).toEqual(['BTC', 'SOL']); // inactive filtered
-    expect(body.card).toEqual({ enabled: true, stripe_account_id: 'acct_1' });
+    expect(body.card).toEqual({ enabled: false, stripe_account_id: 'acct_1' });
   });
 
   it('reports card disabled when charges are not enabled', async () => {
@@ -109,7 +110,7 @@ describe('GET /api/businesses/[id]/payment-methods', () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.card.enabled).toBe(true);
+    expect(body.card.enabled).toBe(false);
     expect(body.crypto).toHaveLength(1);
   });
 

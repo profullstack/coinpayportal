@@ -1,3 +1,4 @@
+import { STRIPE_ENABLED } from '@/lib/stripe/archived';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { resolveMerchant } from '@/lib/auth/merchant';
@@ -77,7 +78,7 @@ export async function GET(
       .single();
 
     const card = {
-      enabled: !!(stripeAccount?.stripe_account_id && stripeAccount.charges_enabled),
+      enabled: STRIPE_ENABLED && !!(stripeAccount?.stripe_account_id && stripeAccount.charges_enabled),
       stripe_account_id: stripeAccount?.stripe_account_id ?? null,
     };
 

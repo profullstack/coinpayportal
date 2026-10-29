@@ -368,7 +368,42 @@ describe('Unified Payment Creation - POST /api/payments/create', () => {
     });
   });
 
-  describe('payment_method=card', () => {
+  // Stripe is archived (2026-10-29): card-only is refused, 'both' is crypto only.
+  describe('Stripe archived', () => {
+    it('refuses payment_method=card with 410 and never opens a Stripe session', async () => {
+      const response = await POST(makeRequest({ business_id: 'biz_123', amount_usd: 50, payment_method: 'card' }));
+      const data = await response.json();
+      expect(response.status).toBe(410);
+      expect(data.code).toBe('stripe_archived');
+      expect(mockStripe.checkout.sessions.create).not.toHaveBeenCalled();
+      expect(mockCreatePayment).not.toHaveBeenCalled();
+    });
+
+    it('treats payment_method=both as crypto only', async () => {
+      mockCreatePayment.mockResolvedValue({
+        success: true,
+        payment: {
+          id: 'pay_both_123',
+          business_id: 'biz_123',
+          amount: '100.00',
+          crypto_amount: '100.50',
+          blockchain: 'USDC_POL',
+          status: 'pending',
+          payment_address: '0xPaymentAddress123',
+          metadata: {},
+        },
+      });
+      const response = await POST(makeRequest({ business_id: 'biz_123', amount_usd: 100, currency: 'usdc_pol', payment_method: 'both' }));
+      const data = await response.json();
+      expect(response.status).toBe(201);
+      expect(data.payment.id).toBe('pay_both_123');
+      expect(data.payment.stripe_checkout_url).toBeUndefined();
+      expect(mockStripe.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // Live card behaviour, kept for the day Stripe comes back (STRIPE_ENABLED).
+  describe.skip('payment_method=card', () => {
     it('should create a card-only payment with Stripe Checkout session', async () => {
       const request = makeRequest({
         business_id: 'biz_123',
@@ -610,7 +645,7 @@ describe('Unified Payment Creation - POST /api/payments/create', () => {
     });
   });
 
-  describe('payment_method=both', () => {
+  describe.skip('payment_method=both', () => {
     it('should create both crypto payment and Stripe session', async () => {
       mockCreatePayment.mockResolvedValue({
         success: true,
@@ -747,7 +782,7 @@ describe('Unified Payment Creation - POST /api/payments/create', () => {
       expect(data.error).toContain('cryptocurrency');
     });
 
-    it('should allow card payment without crypto currency', async () => {
+    it.skip('should allow card payment without crypto currency', async () => {
       const request = makeRequest({
         business_id: 'biz_123',
         amount_usd: 100,

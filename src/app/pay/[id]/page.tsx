@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { STRIPE_ENABLED } from '@/lib/stripe/enabled';
 import AchPayForm, { useAchAvailability } from '@/components/AchPayForm';
 import { resolveReturnUrl, safeReturnUrl } from '@/lib/payments/return-url';
 
@@ -137,7 +138,8 @@ export default function PublicPaymentPage() {
   const balanceCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastBalanceCheckRef = useRef<number>(0);
 
-  const hasCardOption = !!(payment?.metadata?.stripe_checkout_url);
+  // Stripe is archived: an old checkout link on a pending payment is never offered.
+  const hasCardOption = STRIPE_ENABLED && !!(payment?.metadata?.stripe_checkout_url);
   const hasCryptoOption = !!(payment?.payment_address);
   const hasBankOption = !!ach.status?.available;
 
@@ -277,7 +279,7 @@ export default function PublicPaymentPage() {
         setPaymentStatus(data.payment.status);
         
         // Auto-select tab based on available payment methods
-        const hasStripe = !!data.payment.metadata?.stripe_checkout_url;
+        const hasStripe = STRIPE_ENABLED && !!data.payment.metadata?.stripe_checkout_url;
         const hasCrypto = !!data.payment.payment_address;
         if (!hasCrypto && hasStripe) {
           setActiveTab('card');

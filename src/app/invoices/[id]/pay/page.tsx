@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { STRIPE_ENABLED } from '@/lib/stripe/enabled';
 import AchPayForm, { useAchAvailability } from '@/components/AchPayForm';
 import LineItemsTable, { type InvoiceLine } from '@/components/invoices/LineItemsTable';
 
@@ -60,7 +61,7 @@ export default function InvoicePayPage() {
   const pollRef = useRef<NodeJS.Timeout | null>(null);
   const captureRef = useRef(false);
 
-  const hasCardOption = !!(invoice?.stripe_checkout_url);
+  const hasCardOption = STRIPE_ENABLED && !!(invoice?.stripe_checkout_url);
   const hasCryptoOption = !!(invoice?.payment_address);
   const hasPaypalOption = !!(invoice?.paypal_enabled);
   const manualMethods: ManualMethod[] = invoice?.manual_methods || [];
@@ -99,7 +100,7 @@ export default function InvoicePayPage() {
         setInvoice(data.invoice);
         // Auto-select tab based on available payment methods
         if (!data.invoice.payment_address) {
-          if (data.invoice.stripe_checkout_url) setActiveTab('card');
+          if (STRIPE_ENABLED && data.invoice.stripe_checkout_url) setActiveTab('card');
           else if (data.invoice.paypal_enabled) setActiveTab('paypal');
           else if (data.invoice.manual_methods?.length) setActiveTab(data.invoice.manual_methods[0].method_id);
           else setActiveTab('bank');

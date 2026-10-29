@@ -1,5 +1,6 @@
 import { screenCheckout } from '../fraud/screen';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { STRIPE_ENABLED } from '@/lib/stripe/archived';
 import { getStripe } from '@/lib/server/optional-deps';
 
 /**
@@ -35,6 +36,9 @@ export async function createInvoiceStripeCheckout(
   isPaidTier: boolean,
   idempotencyKey?: string
 ): Promise<InvoiceStripeCheckout | null> {
+  // Archived: an invoice never gets a card option, as if no Stripe account existed.
+  if (!STRIPE_ENABLED) return null;
+
   const { data: stripeAccount, error: stripeAccountError } = await supabase
     .from('stripe_accounts')
     .select('stripe_account_id, charges_enabled')

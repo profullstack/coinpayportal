@@ -17,6 +17,7 @@
  * — same as the other platform endpoints.
  */
 
+import { STRIPE_ENABLED } from '@/lib/stripe/archived';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authenticateIssuer } from '@/lib/reputation/issuer-auth';
@@ -68,7 +69,7 @@ export async function GET(request: NextRequest) {
         .eq('is_active', true),
     ]);
 
-    const accepts_card = (stripeRes.data?.length ?? 0) > 0;
+    const accepts_card = STRIPE_ENABLED && (stripeRes.data?.length ?? 0) > 0;
     const chains = Array.from(
       new Set(
         (walletsRes.data ?? [])

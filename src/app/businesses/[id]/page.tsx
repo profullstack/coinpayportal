@@ -1,5 +1,6 @@
 'use client';
 
+import { STRIPE_ENABLED } from '@/lib/stripe/enabled';
 import { useState, useEffect } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { authFetch } from '@/lib/auth/client';
@@ -39,16 +40,23 @@ const CRYPTO_TABS: { id: TabType; label: string | ((w: Wallet[]) => string) }[] 
   { id: 'members', label: 'Members' },
 ];
 
-const CARD_TABS: { id: TabType; label: string }[] = [
-  { id: 'general', label: 'General' },
-  { id: 'stripe-connect', label: 'Stripe Connect' },
-  { id: 'stripe-transactions', label: 'Transactions' },
-  { id: 'stripe-disputes', label: 'Disputes' },
-  { id: 'stripe-payouts', label: 'Payouts' },
-  { id: 'stripe-api-keys', label: 'API Keys' },
-  { id: 'calendar', label: 'Calendar' },
-  { id: 'members', label: 'Members' },
-];
+// Stripe is archived (2026-10-29): the card rail only shows its history.
+// Connect, payouts and API keys all needed a live Stripe account.
+const CARD_TABS: { id: TabType; label: string }[] = STRIPE_ENABLED
+  ? [
+      { id: 'general', label: 'General' },
+      { id: 'stripe-connect', label: 'Stripe Connect' },
+      { id: 'stripe-transactions', label: 'Transactions' },
+      { id: 'stripe-disputes', label: 'Disputes' },
+      { id: 'stripe-payouts', label: 'Payouts' },
+      { id: 'stripe-api-keys', label: 'API Keys' },
+      { id: 'calendar', label: 'Calendar' },
+      { id: 'members', label: 'Members' },
+    ]
+  : [
+      { id: 'stripe-transactions', label: 'Transactions (archived)' },
+      { id: 'stripe-disputes', label: 'Disputes (archived)' },
+    ];
 
 // PayPal is its own rail, not a "3rd party" setting: it has partner onboarding,
 // its own transactions and refunds, and a platform fee — the same surface as the
@@ -107,7 +115,11 @@ export default function BusinessDetailPage() {
   // The Webhooks mode has only one tab so we land on it directly.
   const handleModeChange = (mode: PaymentMode) => {
     setPaymentMode(mode);
-    setActiveTab(mode === 'webhooks' ? 'webhooks' : 'general');
+    setActiveTab(
+      mode === 'webhooks' ? 'webhooks'
+        : mode === 'card' && !STRIPE_ENABLED ? 'stripe-transactions'
+        : 'general'
+    );
   };
 
   const fetchBusiness = async () => {
@@ -260,7 +272,7 @@ export default function BusinessDetailPage() {
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              💳 Credit Card
+              {STRIPE_ENABLED ? '💳 Credit Card' : '💳 Card history'}
             </button>
             <button
               role="tab"

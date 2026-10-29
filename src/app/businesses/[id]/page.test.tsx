@@ -369,59 +369,35 @@ describe('BusinessDetailPage', () => {
       });
     });
 
-    it('should switch to Credit Card mode and show card tabs', async () => {
+    // Stripe is archived: card mode is read-only history.
+    it('should switch to Card history mode and show only archived history tabs', async () => {
       render(<BusinessDetailPage />);
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'Test Business' })).toBeInTheDocument();
       });
 
-      const cardTab = screen.getByRole('tab', { name: /Credit Card/i });
+      const cardTab = screen.getByRole('tab', { name: /Card history/i });
       fireEvent.click(cardTab);
 
       await waitFor(() => {
         expect(cardTab).toHaveAttribute('aria-selected', 'true');
-        expect(screen.getByRole('button', { name: /Stripe Connect/i })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /Transactions/i })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /Disputes/i })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /Payouts/i })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /API Keys/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Transactions \(archived\)/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Disputes \(archived\)/i })).toBeInTheDocument();
       });
-      // Webhooks is intentionally NOT in the Card tab list — it's a
-      // top-level mode now.
+      expect(screen.queryByRole('button', { name: /Stripe Connect/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /Payouts/i })).toBeNull();
       expect(screen.queryByRole('button', { name: /^Webhooks$/i })).toBeNull();
     });
 
-    it('should reset to General tab when switching modes', async () => {
+    it('should switch back to Crypto mode from Card history mode', async () => {
       render(<BusinessDetailPage />);
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'Test Business' })).toBeInTheDocument();
       });
 
-      // Switch to wallets tab in crypto mode
-      const walletsTab = screen.getByRole('button', { name: /Wallets/i });
-      fireEvent.click(walletsTab);
+      fireEvent.click(screen.getByRole('tab', { name: /Card history/i }));
       await waitFor(() => {
-        expect(screen.getByText('Multi-Crypto Wallets')).toBeInTheDocument();
-      });
-
-      // Switch to card mode - should reset to General
-      const cardTab = screen.getByRole('tab', { name: /Credit Card/i });
-      fireEvent.click(cardTab);
-      await waitFor(() => {
-        expect(screen.getByText('Business Information')).toBeInTheDocument();
-      });
-    });
-
-    it('should switch back to Crypto mode from Card mode', async () => {
-      render(<BusinessDetailPage />);
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { name: 'Test Business' })).toBeInTheDocument();
-      });
-
-      // Switch to card then back to crypto
-      fireEvent.click(screen.getByRole('tab', { name: /Credit Card/i }));
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Stripe Connect/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Transactions \(archived\)/i })).toBeInTheDocument();
       });
 
       fireEvent.click(screen.getByRole('tab', { name: /Crypto/i }));

@@ -37,6 +37,7 @@
  *            stripe_checkout_url?, stripe_session_id? }
  */
 
+import { STRIPE_ENABLED, stripeGone } from '@/lib/stripe/archived';
 import { NextRequest, NextResponse } from 'next/server';
 import { sanitizeStripeMetadata } from '@/lib/stripe/metadata';
 import { platformMayManageMerchant } from '@/lib/p2p/platform-ownership';
@@ -217,6 +218,9 @@ export async function POST(request: NextRequest) {
         : currency.toLowerCase() === 'paypal'
           ? 'paypal'
           : 'crypto');
+    if (!STRIPE_ENABLED && method === 'card') {
+      return stripeGone();
+    }
 
     // Verify the platform may act for this merchant — not merely that the
     // merchant exists.
