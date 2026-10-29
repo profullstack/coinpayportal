@@ -17,6 +17,7 @@
  *
  * Returns: { invoice_id, invoice_number, pay_url, payment_address?, crypto_amount?, stripe_checkout_url? }
  */
+import { STRIPE_ENABLED, stripeGone } from '@/lib/stripe/archived';
 import { NextRequest, NextResponse } from 'next/server';
 import { screenCheckout } from '@/lib/fraud/screen';
 import { getClientIp } from '@/lib/web-wallet/client-ip';
@@ -146,6 +147,10 @@ export async function POST(request: NextRequest) {
       );
     }
     const { payee, payer, amount_usd, crypto_currency, notes, due_date } = parsed.data;
+
+    if (!STRIPE_ENABLED && !('crypto' in payee.payout)) {
+      return stripeGone();
+    }
 
     const payout = 'crypto' in payee.payout
       ? { kind: 'crypto' as const, cryptocurrency: payee.payout.crypto.currency.toUpperCase(), address: payee.payout.crypto.address }

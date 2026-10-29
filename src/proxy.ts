@@ -10,6 +10,7 @@ import { presentedCredential } from '@profullstack/throttle';
 import { trackReferralCode } from '@profullstack/stack/referrals';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { isArchivedStripeRequest, stripeGone } from '@/lib/stripe/archived';
 import { LIGHTNING_PAUSED_MESSAGE, isLightningPath, lightningPaused } from '@/lib/lightning/paused';
 
 // ── CORS Configuration ──────────────────────────────────────
@@ -195,6 +196,9 @@ export async function proxy(request: NextRequest) {
 
 async function handleRequest(request: NextRequest) {
   const path = request.nextUrl.pathname;
+  if (isArchivedStripeRequest(request.method, path)) {
+    return stripeGone();
+  }
   if (lightningPaused() && isLightningPath(path)) {
     // LUD-06 wallets read {status:"ERROR", reason}; everyone else gets 503.
     return NextResponse.json(

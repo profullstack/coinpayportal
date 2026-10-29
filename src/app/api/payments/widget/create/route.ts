@@ -1,3 +1,4 @@
+import { STRIPE_ENABLED, stripeGone } from '@/lib/stripe/archived';
 import { NextRequest, NextResponse } from 'next/server';
 import { sanitizeStripeMetadata } from '@/lib/stripe/metadata';
 import { createClient } from '@supabase/supabase-js';
@@ -208,6 +209,11 @@ export async function POST(request: NextRequest) {
     }
 
     const method = payment_method ?? (currency.toLowerCase() === 'card' ? 'card' : 'crypto');
+    if (!STRIPE_ENABLED && method === 'card') {
+      const gone = stripeGone();
+      for (const [k, v] of Object.entries(cors)) gone.headers.set(k, v);
+      return gone;
+    }
     const baseMetadata: Record<string, unknown> = {
       ...sanitizeStripeMetadata(metadata, 'payments/widget/create'),
       source: 'payments.js',

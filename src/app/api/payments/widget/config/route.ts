@@ -1,3 +1,4 @@
+import { STRIPE_ENABLED } from '@/lib/stripe/archived';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest) {
           .filter(Boolean),
       ),
     ).sort();
-    const acceptsCard = (stripeRes.data?.length ?? 0) > 0;
+    const acceptsCard = STRIPE_ENABLED && (stripeRes.data?.length ?? 0) > 0;
     const business = businessRes.data?.[0] ?? null;
 
     return NextResponse.json(

@@ -201,7 +201,8 @@ describe('POST /api/invoices/[id]/send', () => {
     });
   }
 
-  it('creates Stripe checkout session when business has stripe_account_id', async () => {
+  // Stripe is archived: invoices no longer get a card checkout.
+  it.skip('creates Stripe checkout session when business has stripe_account_id', async () => {
     setupMocks({
       stripeAccount: { stripe_account_id: 'acct_test123', charges_enabled: true },
     });
@@ -281,7 +282,7 @@ describe('POST /api/invoices/[id]/send', () => {
     expect(mockStripeCreate).not.toHaveBeenCalled();
   });
 
-  it('uses 0.5% fee for paid tier businesses', async () => {
+  it.skip('uses 0.5% fee for paid tier businesses', async () => {
     // Override isBusinessPaidTier to return true
     const { isBusinessPaidTier } = await import('@/lib/entitlements/service');
     vi.mocked(isBusinessPaidTier).mockResolvedValueOnce(true);

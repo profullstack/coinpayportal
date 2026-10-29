@@ -25,7 +25,14 @@ describe('createInvoiceStripeCheckout account resolution', () => {
     await expect(createInvoiceStripeCheckout(supabase, invoice, false)).resolves.toBeNull();
   });
 
-  it('surfaces transient account lookup failures instead of clearing a prior checkout', async () => {
+  it('never builds a checkout while Stripe is archived, even for a usable account', async () => {
+    const supabase = stripeAccountClient({ data: { stripe_account_id: 'acct_1', charges_enabled: true }, error: null });
+
+    await expect(createInvoiceStripeCheckout(supabase, invoice, false)).resolves.toBeNull();
+  });
+
+  // Live behaviour, for the day STRIPE_ENABLED comes back.
+  it.skip('surfaces transient account lookup failures instead of clearing a prior checkout', async () => {
     const supabase = stripeAccountClient({
       data: null,
       error: { message: 'connection timed out' },

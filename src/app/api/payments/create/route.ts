@@ -1,3 +1,4 @@
+import { STRIPE_ENABLED, stripeGone } from '@/lib/stripe/archived';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
@@ -339,9 +340,14 @@ export async function POST(request: NextRequest) {
     }
     const windowMinutes = checkoutWindow.minutes;
 
-    const paymentMethod: PaymentMethod = (['crypto', 'card', 'both'].includes(rawPaymentMethod))
+    const requestedMethod: PaymentMethod = (['crypto', 'card', 'both'].includes(rawPaymentMethod))
       ? rawPaymentMethod
       : 'crypto';
+    // Stripe is archived: card-only is refused, 'both' settles as crypto only.
+    if (!STRIPE_ENABLED && requestedMethod === 'card') {
+      return stripeGone();
+    }
+    const paymentMethod: PaymentMethod = STRIPE_ENABLED ? requestedMethod : 'crypto';
 
     // Idempotency.
     //

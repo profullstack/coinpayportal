@@ -1,3 +1,4 @@
+import { STRIPE_ENABLED, stripeGone } from '@/lib/stripe/archived';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authorizeInvoice } from '@/lib/auth/invoice-access';
@@ -16,6 +17,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!STRIPE_ENABLED) {
+    return stripeGone();
+  }
   try {
     const { id } = await params;
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
