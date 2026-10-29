@@ -185,7 +185,55 @@ export async function POST(
     let marketplaceFeeTxHash: string | undefined;
     let feeForwardError: string | undefined;
 
-    if (!provider.sendTransaction) {
+    // USDC/USDT: the escrow holds the token, and the native-coin providers
+    // below would send SOL/ETH/POL instead. Every leg goes as the token, in
+    // one call: SPL on Solana (one transaction, recipient token accounts
+    // created as needed, fee paid by the CoinPay fee payer), ERC-20 through
+    // the gas relayer on EVM chains.
+    const { isTokenTransferChain, sendTokenTransfers, ForwardNotStartedError, SolanaFeeShortfallError } =
+      await import('@/lib/wallets/secure-forwarding');
+
+    const tokenChain = isTokenTransferChain(escrow.chain);
+    if (tokenChain) {
+      // USDC and USDT have 6 decimals on every chain we settle. A primary leg
+      // under one unit would send the fees and nothing to the beneficiary.
+      if (Math.round(amountToSend * 1e6) < 1) {
+        await releaseClaim();
+        return NextResponse.json(
+          { error: `Settlement amount ${amountToSend} is below one ${escrow.chain} token unit` },
+          { status: 500 }
+        );
+      }
+      let legHashes: Array<string | undefined>;
+      try {
+        legHashes = await sendTokenTransfers(
+          escrow.chain,
+          rpcUrl,
+          privateKey,
+          plan.legs.map((leg) => ({ address: leg.address, amount: leg.amount })),
+        );
+      } catch (tokenError) {
+        const message = tokenError instanceof Error ? tokenError.message : String(tokenError);
+        // Raised before anything was signed: hand the claim back so the
+        // monitor retries once the relayer or fee payer is topped up.
+        if (tokenError instanceof ForwardNotStartedError || tokenError instanceof SolanaFeeShortfallError) {
+          await releaseClaim();
+          operatorAlert(`escrow ${escrowId} ${escrow.chain} settlement waiting: ${message}`);
+          return NextResponse.json({ error: message, code: 'gas_unavailable' }, { status: 503 });
+        }
+        // Anything else may have broadcast part of the settlement, so the
+        // claim stays and the escrow waits for reconciliation.
+        console.error(`[Settle] ${escrow.chain} escrow ${escrowId} ${action} needs reconciliation: ${message}`);
+        operatorAlert(`escrow ${escrowId} ${escrow.chain} ${action} failed and may be partly sent: ${message}`);
+        throw tokenError;
+      }
+      txHash = legHashes[0];
+      plan.legs.forEach((leg, i) => {
+        if (i === 0) return;
+        if (leg.kind === 'platform_fee') feeTxHash = legHashes[i];
+        else if (leg.kind === 'marketplace_fee') marketplaceFeeTxHash = legHashes[i];
+      });
+    } else if (!provider.sendTransaction) {
       await releaseClaim();
       return NextResponse.json(
         { error: `No transaction provider for chain ${escrow.chain}` },
@@ -195,7 +243,7 @@ export async function POST(
 
     // Use split transaction when releasing with fees — single atomic tx
     // This avoids rent/balance issues from sequential sends
-    if (feeLegs.length > 0 && provider.sendSplitTransaction) {
+    if (!tokenChain && feeLegs.length > 0 && provider.sendSplitTransaction) {
       try {
         const recipients = plan.legs.map((leg) => ({ address: leg.address, amount: String(leg.amount) }));
         console.log(`[Settle] Using split transaction for escrow ${escrowId}: ${JSON.stringify(recipients)}`);
@@ -215,7 +263,7 @@ export async function POST(
     }
 
     // Fallback: sequential sends (refunds, or if split failed, or no fee legs)
-    if (!txHash) {
+    if (!tokenChain && !txHash && provider.sendTransaction) {
       txHash = await provider.sendTransaction(
         addressData.address,
         destinationAddress,

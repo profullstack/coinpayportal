@@ -24,7 +24,8 @@ import {
   currentGasPrice,
   type RelayerUnderfundedError,
 } from './evm-gas';
-import { deriveGasRelayerWallet, deriveTronRelayerWallet, isUsdtTronEnabled, type SystemBlockchain } from './system-wallet';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { deriveGasRelayerWallet, deriveSolanaFeePayer, deriveTronRelayerWallet, isUsdtTronEnabled, type SystemBlockchain } from './system-wallet';
 import { operatorKeysLocked, refreshOperatorState } from './operator-keys';
 import { getTrxBalanceSun, SUN_PER_TRX } from '@/lib/tron/client';
 
@@ -167,5 +168,34 @@ export async function checkRelayerFloats(
       console.error('[RelayerHealth] TRON check failed:', error);
     }
   }
+  // Solana: the fee payer covers the fee and the recipient's token-account
+  // rent on every USDC/USDT forward and escrow settle on Solana.
+  try {
+    const { address } = await deriveSolanaFeePayer();
+    const lamports = BigInt(await new Connection(getRpcUrl('SOL'), 'confirmed').getBalance(new PublicKey(address)));
+    const warnBelowLamports = SOLANA_FEE_PAYER_WARN_LAMPORTS;
+    const low = lamports < warnBelowLamports;
+    // Reported in the wei-shaped fields scaled by 1e9 so formatEther reads SOL.
+    floats.push({ network: 'Solana', address, balanceWei: lamports * 10n ** 9n, warnBelowWei: warnBelowLamports * 10n ** 9n, low });
+    if (low) {
+      const sol = (Number(lamports) / 1e9).toString();
+      await sendOpsAlert(supabase, {
+        key: 'relayer-low:Solana',
+        throttleMs: 12 * HOUR,
+        subject: `CoinPay: Solana fee payer is low (${sol} SOL)`,
+        html: alertHtml([
+          'The Solana fee payer pays the network fee, and the rent for a recipient\'s token account, on every USDC/USDT payment forwarded and every escrow settled on Solana.',
+          `Fee payer: <code>${escapeHtml(address)}</code><br>Balance: ${escapeHtml(sol)} SOL<br>` +
+            `Enough for ${RELAYER_WARN_SWEEPS} forwards that each open two token accounts: ~${Number(warnBelowLamports) / 1e9} SOL`,
+          'When it runs out, those forwards fall back to the deposit address paying, which holds no SOL, so they wait until it is topped up.',
+        ]),
+      });
+    }
+  } catch (error) {
+    console.error('[RelayerHealth] Solana check failed:', error);
+  }
   return floats;
 }
+
+/** Ten forwards that each open two token accounts (~0.00204 SOL rent each) plus fees. */
+export const SOLANA_FEE_PAYER_WARN_LAMPORTS = 10n * (2n * 2_039_280n + 10_000n);

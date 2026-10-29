@@ -17,6 +17,9 @@ function getSupabase() {
  * `partner_mode_available` tells the dashboard whether to offer "Connect with
  * PayPal" (onboard through CoinPay) or only the paste-your-own-credentials
  * form — the deployment may not have partner credentials configured.
+ *
+ * Accepts an API key, a dashboard session, or an OAuth token with the
+ * `merchant` scope.
  */
 export async function GET(
   request: NextRequest,
@@ -26,7 +29,9 @@ export async function GET(
   try {
     const { businessId } = await params;
 
-    const authResult = await resolveMerchant(supabase, request);
+    // Read-only, so a merchant-scope OAuth token may ask too: pay.agent reads
+    // this for the businesses it created to report whether a link takes card.
+    const authResult = await resolveMerchant(supabase, request, { allowOAuth: true });
     if ('error' in authResult) {
       return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status });
     }

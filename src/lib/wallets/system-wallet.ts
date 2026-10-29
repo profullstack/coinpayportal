@@ -767,6 +767,23 @@ export function deriveTronRelayerWallet(): { address: string; privateKey: string
   return { address, privateKey };
 }
 
+/**
+ * The Solana fee payer: pays the network fee and the rent for a recipient's
+ * token account when a USDC/USDT deposit on Solana is forwarded or an escrow
+ * settles. Those deposit addresses only ever receive the token, so they hold
+ * no SOL of their own. Payment addresses derive on m/44'/501'/i'/0'; the fee
+ * payer sits on change branch 1 of account 0, which that counter never
+ * reaches. It must hold SOL.
+ */
+export const SOLANA_FEE_PAYER_DERIVATION_PATH = "m/44'/501'/0'/1'";
+
+export async function deriveSolanaFeePayer(): Promise<{ address: string; privateKey: string }> {
+  const seed = Buffer.from(mnemonicToSeedSync(getSystemMnemonic('SOL')));
+  const { key } = deriveEd25519Key(seed, SOLANA_FEE_PAYER_DERIVATION_PATH);
+  const publicKey = await getEd25519PublicKey(key);
+  return { address: base58Encode(publicKey), privateKey: key.toString('hex') };
+}
+
 export async function deriveSystemPaymentAddress(
   cryptocurrency: SystemBlockchain,
   index: number
