@@ -7,6 +7,8 @@
 
 // Client exports
 export { CoinPayClient } from './client.js';
+export { AgentWalletClient } from './agents.js';
+export type { AgentWalletInput } from './agents.js';
 export type { 
   CoinPayClientOptions, 
   PaymentParams, 

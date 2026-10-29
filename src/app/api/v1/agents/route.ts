@@ -31,7 +31,7 @@ function getSupabase() {
 
 /** Authenticate, and return the business id or the response to send instead. */
 async function authenticate(request: NextRequest) {
-  const apiKey = request.headers.get('x-api-key');
+  const apiKey = request.headers.get('x-api-key') || request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
   if (!apiKey) {
     return { error: NextResponse.json({ error: 'API key required' }, { status: 401 }) };
   }

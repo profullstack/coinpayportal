@@ -1613,6 +1613,9 @@ export default function DashboardPage() {
             </p>
           </div>
           <div className="flex items-center gap-4">
+            <Link href="/agent-wallets" className="rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-purple-700">
+              Agent spend wallets
+            </Link>
             {/* Stats Period Filter */}
             <div className="relative">
               <label htmlFor="period-filter" className="sr-only">Filter stats by period</label>

@@ -33,6 +33,10 @@
       "import": "./src/wallet.js",
       "types": "./src/wallet.d.ts"
     },
+    "./agents": {
+      "import": "./src/agents.js",
+      "types": "./src/agents.d.ts"
+    },
     "./swap": {
       "import": "./src/swap.js",
       "types": "./src/swap.d.ts"

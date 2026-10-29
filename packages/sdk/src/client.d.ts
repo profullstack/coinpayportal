@@ -13,6 +13,17 @@ export interface CoinPayClientOptions {
   timeout?: number;
 }
 
+export interface AgentWalletLimits {
+  perPaymentUsd?: number | null;
+  hourlyLimitUsd?: number | null;
+  dailyLimitUsd?: number | null;
+  weeklyLimitUsd?: number | null;
+  monthlyLimitUsd?: number | null;
+  quarterlyLimitUsd?: number | null;
+  yearlyLimitUsd?: number | null;
+  totalLimitUsd?: number | null;
+}
+
 /** Parameters for creating a payment */
 export interface PaymentParams {
   /** Business ID from your CoinPay dashboard */

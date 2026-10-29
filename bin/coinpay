@@ -832,6 +832,7 @@ COMMANDS
   wallet       Wallet management
   reputation   Trust & reputation (CPTL)
   card         Card payments and escrow
+  agent        Capped agent wallet management
   subscription Subscription billing management
   help         Show this help
 
@@ -895,6 +896,25 @@ ENVIRONMENT
 
 More info: https://coinpayportal.com/docs
 `);
+}
+
+async function handleAgent(subCommand, args) {
+  const opts = parseArgs(args);
+  const apiKey = opts['api-key'] || process.env.COINPAY_API_KEY;
+  if (!apiKey) throw new Error('Set COINPAY_API_KEY or pass --api-key.');
+  const endpoint = `${API_BASE}/api/v1/agents`;
+  const headers = { 'content-type': 'application/json', 'x-api-key': apiKey };
+  let response;
+  if (subCommand === 'list') response = await fetch(endpoint, { headers });
+  else {
+    const id = opts._positional?.[0];
+    if (subCommand === 'create') response = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify({ name: opts.name, address: opts.address, perPaymentLimitUsd: opts['per-payment'], hourlyLimitUsd: opts.hourly, dailyLimitUsd: opts.daily, weeklyLimitUsd: opts.weekly, monthlyLimitUsd: opts.monthly, quarterlyLimitUsd: opts.quarterly, yearlyLimitUsd: opts.yearly, totalLimitUsd: opts.lifetime }) });
+    else if (id && ['pause', 'resume', 'revoke'].includes(subCommand)) response = await fetch(`${endpoint}/${encodeURIComponent(id)}`, { method: subCommand === 'revoke' ? 'DELETE' : 'PATCH', headers, body: subCommand === 'revoke' ? undefined : JSON.stringify({ status: subCommand === 'pause' ? 'paused' : 'active' }) });
+    else throw new Error('Usage: coinpay agent list | create --name NAME --address 0x... --monthly 100 --lifetime 100 | pause|resume|revoke <id>');
+  }
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  console.log(JSON.stringify(data, null, 2));
 }
 
 function showSwapHelp() {
@@ -1415,6 +1435,9 @@ async function main() {
       break;
     case 'card':
       await handleCard(subCommand, args.slice(2));
+      break;
+    case 'agent':
+      await handleAgent(subCommand, args.slice(2));
       break;
     case 'subscription':
       await handleSubscription(subCommand, args.slice(2));
