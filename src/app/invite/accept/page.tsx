@@ -45,10 +45,7 @@ function AcceptInvite() {
         return;
       }
       setStatus('success');
-      setMessage('Invitation accepted! Redirecting…');
-      setTimeout(() => {
-        router.push(data.scope === 'business' ? `/businesses/${data.scopeId}` : '/dashboard');
-      }, 1200);
+      setMessage('Invitation accepted. The owner has been asked to approve you; you will get access once they do.');
     })();
   }, [token, router]);
 
@@ -65,7 +62,7 @@ function AcceptInvite() {
         >
           {message}
         </p>
-        {status === 'error' && (
+        {status !== 'working' && (
           <Link
             href="/dashboard"
             className="inline-block mt-6 bg-purple-600 hover:bg-purple-700 text-white font-medium px-4 py-2 rounded-lg"

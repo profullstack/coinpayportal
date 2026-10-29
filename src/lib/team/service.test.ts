@@ -12,6 +12,7 @@ import {
   updateMemberRole,
   removeMember,
   setMemberFinanceAccess,
+  approveInvitation,
 } from './service';
 
 /**
@@ -189,6 +190,8 @@ describe('acceptInvitation', () => {
         },
       ],
       organization_members: [],
+      organizations: [{ id: 'org-1', owner_merchant_id: 'owner-1', name: 'Acme' }],
+      merchants: [{ id: 'owner-1', email: 'owner@x.com' }],
     });
   }
 
@@ -236,18 +239,60 @@ describe('acceptInvitation', () => {
     expect(res).toMatchObject({ success: false, status: 404 });
   });
 
-  it('adds membership and marks accepted on success (case-insensitive email)', async () => {
+  it('accepting does NOT add a member: it waits for the owner (case-insensitive email)', async () => {
     const { client, store } = seedInvite();
     const res = await acceptInvitation({
       supabase: client,
       token: 'tok-123',
       acceptingMerchantId: 'm-9',
       acceptingEmail: 'INVITEE@x.com',
+      baseUrl: BASE,
     });
-    expect(res).toMatchObject({ success: true, scope: 'org', scopeId: 'org-1', role: 'readonly' });
-    expect(store.organization_members).toHaveLength(1);
-    expect(store.organization_members[0]).toMatchObject({ merchant_id: 'm-9', role: 'readonly' });
+    expect(res).toMatchObject({ success: true, scope: 'org', scopeId: 'org-1', role: 'readonly', pendingApproval: true });
+    expect(store.organization_members).toHaveLength(0);
     expect(store.organization_invitations[0].accepted_at).not.toBeNull();
+    expect(store.organization_invitations[0].accepted_by_merchant_id).toBe('m-9');
+    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'owner@x.com' }));
+  });
+
+  it('only the owner can approve; approval creates the membership', async () => {
+    const { client, store } = seedInvite();
+    await acceptInvitation({ supabase: client, token: 'tok-123', acceptingMerchantId: 'm-9', acceptingEmail: 'invitee@x.com' });
+
+    const byAdmin = await approveInvitation({
+      supabase: client, scope: 'org', scopeId: 'org-1', invitationId: 'inv-1', actorRole: 'admin', approvedByMerchantId: 'admin-1',
+    });
+    expect(byAdmin).toMatchObject({ success: false, status: 403 });
+    expect(store.organization_members).toHaveLength(0);
+
+    const byOwner = await approveInvitation({
+      supabase: client, scope: 'org', scopeId: 'org-1', invitationId: 'inv-1', actorRole: 'owner', approvedByMerchantId: 'owner-1',
+    });
+    expect(byOwner).toMatchObject({ success: true, memberMerchantId: 'm-9', role: 'readonly' });
+    expect(store.organization_members[0]).toMatchObject({ merchant_id: 'm-9', role: 'readonly' });
+    expect(store.organization_invitations[0].approved_at).not.toBeNull();
+
+    const again = await approveInvitation({
+      supabase: client, scope: 'org', scopeId: 'org-1', invitationId: 'inv-1', actorRole: 'owner', approvedByMerchantId: 'owner-1',
+    });
+    expect(again).toMatchObject({ success: false, status: 409 });
+  });
+
+  it('cannot approve an invitation nobody accepted', async () => {
+    const { client, store } = seedInvite();
+    const res = await approveInvitation({
+      supabase: client, scope: 'org', scopeId: 'org-1', invitationId: 'inv-1', actorRole: 'owner', approvedByMerchantId: 'owner-1',
+    });
+    expect(res).toMatchObject({ success: false, status: 409 });
+    expect(store.organization_members).toHaveLength(0);
+  });
+
+  it('cannot approve an invitation from another org', async () => {
+    const { client } = seedInvite({ accepted_at: new Date().toISOString(), accepted_by_merchant_id: 'm-9' });
+    const res = await approveInvitation({
+      supabase: client, scope: 'org', scopeId: 'org-2', invitationId: 'inv-1', actorRole: 'owner', approvedByMerchantId: 'owner-2',
+    });
+    expect(res).toMatchObject({ success: false, status: 404 });
   });
 });
 
@@ -373,6 +418,12 @@ describe('finance access (owner-granted, org only)', () => {
       acceptingEmail: 'mom@example.com',
     });
     expect(accepted.success).toBe(true);
+    expect(store.organization_members ?? []).toHaveLength(0);
+    const approved = await approveInvitation({
+      supabase: client, scope: 'org', scopeId: 'org-1',
+      invitationId: store.organization_invitations[0].id, actorRole: 'owner', approvedByMerchantId: 'owner-1',
+    });
+    expect(approved.success).toBe(true);
     expect(store.organization_members[0]).toMatchObject({ merchant_id: 'mom-1', finance_access: true });
   });
 

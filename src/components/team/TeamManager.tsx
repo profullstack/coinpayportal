@@ -29,6 +29,9 @@ interface Invitation {
   role: Role;
   financeAccess?: boolean;
   expiresAt: string;
+  /** Set once the invitee accepted: they wait for the owner's approval. */
+  acceptedAt?: string | null;
+  acceptedByEmail?: string | null;
   createdAt: string;
 }
 
@@ -83,6 +86,9 @@ export function TeamManager({ scope, scopeId }: { scope: Scope; scopeId: string 
   }, [load]);
 
   const canManage = can(myRole, 'team.manage');
+  const isOwner = myRole === 'owner';
+  const awaiting = invitations.filter((i) => i.acceptedAt);
+  const pending = invitations.filter((i) => !i.acceptedAt);
   // Finances are the org owner's own bank and card accounts: only they can share them.
   const canGrantFinance = scope === 'org' && myRole === 'owner';
   // Roles this actor is allowed to grant (strictly below their own rank).
@@ -187,6 +193,26 @@ export function TeamManager({ scope, scopeId }: { scope: Scope; scopeId: string 
     const { response, data } = result;
     if (!response.ok || !data.success) {
       setError(data.error || 'Failed to revoke invitation');
+      return;
+    }
+    await load();
+  };
+
+  const handleApprove = async (invitationId: string) => {
+    setError('');
+    const result = await authFetch(
+      `${base}/invitations/${invitationId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve' }),
+      },
+      router,
+    );
+    if (!result) return;
+    const { response, data } = result;
+    if (!response.ok || !data.success) {
+      setError(data.error || 'Failed to approve');
       return;
     }
     await load();
@@ -355,11 +381,50 @@ export function TeamManager({ scope, scopeId }: { scope: Scope; scopeId: string 
         </div>
       </div>
 
-      {canManage && invitations.length > 0 && (
+      {canManage && awaiting.length > 0 && (
+        <div className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 p-4">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Waiting for owner approval</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+            These people accepted an invitation. They see nothing until the owner approves them.
+            {!isOwner && ' Only the owner can approve.'}
+          </p>
+          <ul className="divide-y divide-amber-200 dark:divide-amber-800">
+            {awaiting.map((inv) => (
+              <li key={inv.id} className="flex items-center justify-between py-3 text-sm">
+                <div>
+                  <span className="font-medium text-gray-900 dark:text-white">{inv.acceptedByEmail ?? inv.email}</span>
+                  <span className="text-gray-500 dark:text-gray-400"> · {ROLE_LABELS[inv.role]}</span>
+                  {inv.financeAccess && (
+                    <span className="text-gray-500 dark:text-gray-400"> · Finances</span>
+                  )}
+                </div>
+                <div className="flex gap-4">
+                  {isOwner && (
+                    <button
+                      onClick={() => handleApprove(inv.id)}
+                      className="text-green-700 hover:text-green-800 dark:text-green-400 font-medium"
+                    >
+                      Approve
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleRevoke(inv.id)}
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    Reject
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {canManage && pending.length > 0 && (
         <div>
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Pending invitations</h3>
           <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-            {invitations.map((inv) => (
+            {pending.map((inv) => (
               <li key={inv.id} className="flex items-center justify-between py-3 text-sm">
                 <div>
                   <span className="font-medium text-gray-900 dark:text-white">{inv.email}</span>
