@@ -159,6 +159,11 @@ export default function GoalsContent() {
   const [contribFor, setContribFor] = useState<string | null>(null);
   const [contrib, setContrib] = useState({ amount: '', note: '' });
   const [cadence, setCadence] = useState<Period>('weekly');
+  const [strategyDescription, setStrategyDescription] = useState('');
+  const [strategyInputs, setStrategyInputs] = useState({ targetAmount: '', downPayment: '', currentAmount: '', monthlyBudget: '', deadline: '', constraints: '' });
+  const [strategy, setStrategy] = useState('');
+  const [strategyBusy, setStrategyBusy] = useState(false);
+  const [strategyCost, setStrategyCost] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!requireAuth(router)) return;
@@ -300,6 +305,34 @@ export default function GoalsContent() {
     setNotice(`Sent to ${(data.sent ?? []).join(', ')}.`);
   }
 
+  async function generateStrategy(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setNotice('');
+    setStrategy('');
+    setStrategyBusy(true);
+    const res = await fetch('/api/finances/goals/strategy', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ description: strategyDescription, ...strategyInputs }),
+    });
+    const data = await res.json().catch(() => null);
+    setStrategyBusy(false);
+    if (!res.ok) {
+      setError(readError(data, 'Could not generate a strategy'));
+      if (data?.cost) setStrategyCost(Number(data.cost));
+      return;
+    }
+    setStrategy(data.strategy ?? '');
+    setStrategyCost(Number(data.cost ?? 0.1));
+    setNotice(`Strategy generated. Charged $${Number(data.cost ?? 0).toFixed(2)}; remaining AI credit: $${Number(data.remaining ?? 0).toFixed(2)}.`);
+  }
+
+  function copyStrategy() {
+    if (!strategy) return;
+    navigator.clipboard?.writeText(strategy).then(() => setNotice('Strategy copied as Markdown.')).catch(() => setError('Could not copy automatically; select the text and copy it.'));
+  }
+
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   // Hidden accounts only appear when this goal already counts them, so they can be unticked.
   const linkable = sources.accounts.filter((a) => (form.kind === 'debt_payoff' ? a.liability : !a.liability) && (!a.hidden || form.accounts.includes(a.id)));
@@ -380,6 +413,27 @@ export default function GoalsContent() {
           </div>
         </form>
       )}
+
+      <section className="mb-8 rounded border border-purple-800/70 bg-purple-950/20 p-4">
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">AI goal strategist</h2>
+            <p className="text-sm text-gray-400">Describe what you want to accomplish and get a Markdown execution brief for your agents. Advisory only; nothing moves money.</p>
+          </div>
+          <span className="rounded-full border border-purple-700 px-2 py-1 text-xs text-purple-200">Pay as you go · {strategyCost === null ? '$0.10' : `$${strategyCost.toFixed(2)}`} / strategy</span>
+        </div>
+        <form onSubmit={generateStrategy} className="grid gap-3 sm:grid-cols-2">
+          <label className="text-sm sm:col-span-2">What are you trying to accomplish?<textarea className={inputCls} required maxLength={4000} rows={3} value={strategyDescription} onChange={(e) => setStrategyDescription(e.target.value)} placeholder="Buy a $450,000 home in 18 months while keeping a six-month emergency fund…" /></label>
+          <label className="text-sm">Target amount<input className={inputCls} inputMode="decimal" value={strategyInputs.targetAmount} onChange={(e) => setStrategyInputs({ ...strategyInputs, targetAmount: e.target.value })} placeholder="450000" /></label>
+          <label className="text-sm">Down payment / upfront amount<input className={inputCls} inputMode="decimal" value={strategyInputs.downPayment} onChange={(e) => setStrategyInputs({ ...strategyInputs, downPayment: e.target.value })} placeholder="90000" /></label>
+          <label className="text-sm">Already saved / available<input className={inputCls} inputMode="decimal" value={strategyInputs.currentAmount} onChange={(e) => setStrategyInputs({ ...strategyInputs, currentAmount: e.target.value })} placeholder="12000" /></label>
+          <label className="text-sm">Monthly amount available<input className={inputCls} inputMode="decimal" value={strategyInputs.monthlyBudget} onChange={(e) => setStrategyInputs({ ...strategyInputs, monthlyBudget: e.target.value })} placeholder="3500" /></label>
+          <label className="text-sm">Target date<input className={inputCls} type="date" value={strategyInputs.deadline} onChange={(e) => setStrategyInputs({ ...strategyInputs, deadline: e.target.value })} /></label>
+          <label className="text-sm">Constraints or preferences<input className={inputCls} value={strategyInputs.constraints} onChange={(e) => setStrategyInputs({ ...strategyInputs, constraints: e.target.value })} placeholder="Avoid selling crypto; prioritize liquidity" /></label>
+          <div className="flex items-center gap-3 sm:col-span-2"><button type="submit" disabled={strategyBusy} className="rounded bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-500 disabled:cursor-wait disabled:opacity-60">{strategyBusy ? 'Planning…' : 'Generate agent strategy'}</button><span className="text-xs text-gray-500">Uses your AI credit balance. No subscription.</span></div>
+        </form>
+        {strategy && <div className="mt-4 rounded border border-slate-600 bg-slate-950 p-4"><div className="mb-2 flex items-center justify-between gap-2"><h3 className="font-semibold text-white">Agent-ready Markdown</h3><button type="button" onClick={copyStrategy} className="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800">Copy Markdown</button></div><pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap text-sm leading-6 text-gray-200">{strategy}</pre></div>}
+      </section>
 
       {loading ? (
         <p className="text-gray-400">Loading…</p>
