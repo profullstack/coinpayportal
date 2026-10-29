@@ -5,6 +5,17 @@ All notable changes to `@profullstack/coinpay` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] - 2026-10-29
+
+### Added
+- `coinpay login` uses OAuth 2.1 either way: authorization code + PKCE on a loopback redirect when a
+  browser is on this machine, the device flow (RFC 8628) otherwise. Over SSH or with no display it
+  picks the device flow by itself; `--device` / `--browser` force one. The device flow now gets real
+  OAuth tokens (rotating refresh token) from `/api/oauth/device_authorization` and the token
+  endpoint instead of the old `/api/cli-auth` session.
+- `coinpay logout` revokes the session at CoinPay (RFC 7009, `/api/oauth/revoke`) before forgetting it.
+- `deviceLogin`, `revokeToken` and `hasLocalBrowser` exported from `src/oauth-login.js`.
+
 ## [0.28.0] - 2026-10-29
 
 ### Added
