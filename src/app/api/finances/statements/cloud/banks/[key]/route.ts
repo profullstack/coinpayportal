@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 /** PATCH /api/finances/statements/cloud/banks/:key — `{schedule?: "weekly" | "off", keepalive?: boolean}`. */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ key: string }> }) {
-  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
+  const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { key } = await params;
   if (!INSTITUTION_KEY.test(key)) return financeError('not_found', 'Bank not found', 404);
@@ -43,7 +43,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ ke
  * session at once. Statements already imported stay in the library.
  */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ key: string }> }) {
-  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
+  const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { key } = await params;
   if (!INSTITUTION_KEY.test(key)) return financeError('not_found', 'Bank not found', 404);

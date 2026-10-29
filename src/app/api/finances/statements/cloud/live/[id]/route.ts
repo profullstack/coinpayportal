@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 /** GET /api/finances/statements/cloud/live/:id — the sign-in session's status (the CLI polls this). */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireFinanceAccess(req, 'finance.read');
+  const guard = await requireFinanceAccess(req, 'finance.connect');
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   try {
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 /** DELETE /api/finances/statements/cloud/live/:id — close the cloud browser without saving. */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireFinanceAccess(req, 'finance.write', { write: true });
+  const guard = await requireFinanceAccess(req, 'finance.connect', { write: true });
   if (guard instanceof NextResponse) return guard;
   const { id } = await params;
   try {
