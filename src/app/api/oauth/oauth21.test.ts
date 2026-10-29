@@ -34,6 +34,12 @@ import { checkRedirectUris, redirectUriMatches } from '@/lib/oauth/client';
 import { pkceProblem } from '@/lib/oauth/pkce';
 import { GRANT_DEVICE_CODE } from '@/lib/oauth/client';
 
+// Fixture secrets are generated per run, never literals.
+const SECRET = 'cps_' + randomBytes(24).toString('hex');
+const WRONG = 'cps_' + randomBytes(24).toString('hex');
+const decodeClaims = (t: string): any => JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString());
+const decodeHeader = (t: string): any => JSON.parse(Buffer.from(t.split('.')[0], 'base64url').toString());
+
 const USER = { id: '11111111-1111-4111-8111-111111111111', email: 'test@example.com', name: 'Test User' };
 const RSA = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const RSA_PEM = RSA.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
@@ -66,7 +72,7 @@ function get(url: string, headers: Record<string, string> = {}): any {
 const T = 'https://coinpay.dev/api/oauth/token';
 
 async function seedClients() {
-  const secretHash = await bcrypt.hash('cps_secret', 4);
+  const secretHash = await bcrypt.hash(SECRET, 4);
   db.seed('oauth_clients', [
     {
       client_id: 'pub', client_secret: '', name: 'Public CLI', is_active: true,
@@ -132,7 +138,7 @@ describe('public clients (token_endpoint_auth_method none)', () => {
     const { res, body } = await exchangePublic();
     expect(res.status).toBe(200);
     expect(body.refresh_token).toBeTruthy();
-    const access = jwt.decode(body.access_token) as any;
+    const access = decodeClaims(body.access_token);
     expect(access.aud).toBe('pub');
     expect(access.client_id).toBe('pub');
     expect(access.jti).toBeTruthy();
@@ -142,7 +148,7 @@ describe('public clients (token_endpoint_auth_method none)', () => {
 
   it('get an RS256 ID token that verifies against the published JWKS', async () => {
     const { body } = await exchangePublic();
-    const header = jwt.decode(body.id_token, { complete: true })!.header;
+    const header = decodeHeader(body.id_token);
     expect(header.alg).toBe('RS256');
     const keys = (await (await jwks()).json()).keys;
     const jwk = keys.find((k: any) => k.kid === header.kid);
@@ -193,17 +199,17 @@ describe('confidential clients', () => {
     const code = seedCode({ client_id: 'conf', redirect_uri: 'https://app.example/cb', code_challenge: challenge });
     const body = { grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: 'https://app.example/cb', client_id: 'conf' };
     expect((await token(form(T, body))).status).toBe(401);
-    const basic = 'Basic ' + Buffer.from('conf:cps_secret').toString('base64');
+    const basic = 'Basic ' + Buffer.from(`conf:${SECRET}`).toString('base64');
     const res = await token(form(T, body, { authorization: basic }));
     expect(res.status).toBe(200);
     const out = await res.json();
-    expect(jwt.decode(out.id_token, { complete: true })!.header.alg).toBe('RS256');
+    expect(decodeHeader(out.id_token).alg).toBe('RS256');
   });
 
   it('wrong secret is invalid_client', async () => {
     const { verifier, challenge } = pkce();
     const code = seedCode({ client_id: 'conf', redirect_uri: 'https://app.example/cb', code_challenge: challenge });
-    const res = await token(form(T, { grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: 'https://app.example/cb', client_id: 'conf', client_secret: 'nope' }));
+    const res = await token(form(T, { grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: 'https://app.example/cb', client_id: 'conf', client_secret: WRONG }));
     expect(res.status).toBe(401);
   });
 
@@ -212,13 +218,13 @@ describe('confidential clients', () => {
     const code = seedCode({ client_id: 'legacy', redirect_uri: 'https://legacy.example/cb', code_challenge: challenge });
     const res = await token(form(T, { grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: 'https://legacy.example/cb', client_id: 'legacy' }));
     expect(res.status).toBe(200);
-    expect(jwt.decode((await res.json()).id_token, { complete: true })!.header.alg).toBe('HS256');
+    expect(decodeHeader((await res.json()).id_token).alg).toBe('HS256');
 
     // No PKCE: the secret is still required, as before.
     const code2 = seedCode({ client_id: 'legacy', redirect_uri: 'https://legacy.example/cb' });
     const noSecret = await token(form(T, { grant_type: 'authorization_code', code: code2, redirect_uri: 'https://legacy.example/cb', client_id: 'legacy' }));
     expect(noSecret.status).toBe(401);
-    const withSecret = await token(form(T, { grant_type: 'authorization_code', code: code2, redirect_uri: 'https://legacy.example/cb', client_id: 'legacy', client_secret: 'cps_secret' }));
+    const withSecret = await token(form(T, { grant_type: 'authorization_code', code: code2, redirect_uri: 'https://legacy.example/cb', client_id: 'legacy', client_secret: SECRET }));
     expect(withSecret.status).toBe(200);
 
     sessionUser = USER;
@@ -271,16 +277,16 @@ describe('refresh tokens', () => {
     const { body } = await exchangePublic();
     const asHash = await token(form(T, { grant_type: 'refresh_token', refresh_token: hashToken(body.refresh_token), client_id: 'pub' }));
     expect(asHash.status).toBe(400);
-    const other = await token(form(T, { grant_type: 'refresh_token', refresh_token: body.refresh_token, client_id: 'conf', client_secret: 'cps_secret' }));
+    const other = await token(form(T, { grant_type: 'refresh_token', refresh_token: body.refresh_token, client_id: 'conf', client_secret: SECRET }));
     expect(other.status).toBe(400);
   });
 
   it('confidential clients must authenticate to refresh', async () => {
     const { verifier, challenge } = pkce();
     const code = seedCode({ client_id: 'conf', redirect_uri: 'https://app.example/cb', code_challenge: challenge });
-    const out = await (await token(form(T, { grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: 'https://app.example/cb', client_id: 'conf', client_secret: 'cps_secret' }))).json();
+    const out = await (await token(form(T, { grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: 'https://app.example/cb', client_id: 'conf', client_secret: SECRET }))).json();
     expect((await token(form(T, { grant_type: 'refresh_token', refresh_token: out.refresh_token, client_id: 'conf' }))).status).toBe(401);
-    expect((await token(form(T, { grant_type: 'refresh_token', refresh_token: out.refresh_token, client_id: 'conf', client_secret: 'cps_secret' }))).status).toBe(200);
+    expect((await token(form(T, { grant_type: 'refresh_token', refresh_token: out.refresh_token, client_id: 'conf', client_secret: SECRET }))).status).toBe(200);
   });
 });
 
@@ -330,7 +336,7 @@ describe('device authorization grant (RFC 8628)', () => {
     expect(res.status).toBe(200);
     const out = await res.json();
     expect(out.scope).toBe('openid profile merchant');
-    expect((jwt.decode(out.access_token) as any).aud).toBe('pub');
+    expect((decodeClaims(out.access_token)).aud).toBe('pub');
     expect(await userinfoStatus(out.access_token)).toBe(200);
 
     lastPollAgo(20_000);
@@ -353,7 +359,7 @@ describe('device authorization grant (RFC 8628)', () => {
   it('is limited to registered scopes and to clients registered for the grant', async () => {
     const d = await start('openid wallet:read');
     expect(db.rows('oauth_device_codes')[0].scopes).toEqual(['openid']);
-    const res = await deviceStart(form('https://coinpay.dev/api/oauth/device_authorization', { client_id: 'conf', client_secret: 'cps_secret', scope: 'openid' }));
+    const res = await deviceStart(form('https://coinpay.dev/api/oauth/device_authorization', { client_id: 'conf', client_secret: SECRET, scope: 'openid' }));
     expect((await res.json()).error).toBe('unauthorized_client');
     expect(d.device_code).toBeTruthy();
   });
@@ -363,7 +369,7 @@ describe('device authorization grant (RFC 8628)', () => {
     sessionUser = USER;
     await deviceDecide(json('https://coinpay.dev/api/oauth/device', { user_code: d.user_code, action: 'approve' }));
     db.rows('oauth_clients').find((c) => c.client_id === 'conf')!.grant_types.push(GRANT_DEVICE_CODE);
-    const res = await token(form(T, { grant_type: GRANT_DEVICE_CODE, device_code: d.device_code, client_id: 'conf', client_secret: 'cps_secret' }));
+    const res = await token(form(T, { grant_type: GRANT_DEVICE_CODE, device_code: d.device_code, client_id: 'conf', client_secret: SECRET }));
     expect((await res.json()).error).toBe('invalid_grant');
   });
 });
@@ -390,7 +396,7 @@ describe('revocation (RFC 7009)', () => {
   it('answers 200 for unknown tokens and does not touch another client\'s tokens', async () => {
     const { body } = await exchangePublic();
     expect((await revoke(form(R, { token: 'not-a-token', client_id: 'pub' }))).status).toBe(200);
-    const other = await revoke(form(R, { token: body.refresh_token, client_id: 'conf', client_secret: 'cps_secret' }));
+    const other = await revoke(form(R, { token: body.refresh_token, client_id: 'conf', client_secret: SECRET }));
     expect(other.status).toBe(200);
     expect(await userinfoStatus(body.access_token)).toBe(200);
   });
@@ -427,7 +433,7 @@ describe('discovery', () => {
     const doc = await (await asMetadata()).json();
     expect(doc.id_token_signing_alg_values_supported).toEqual(['HS256']);
     const { body } = await exchangePublic();
-    expect(jwt.decode(body.id_token, { complete: true })!.header.alg).toBe('HS256');
+    expect(decodeHeader(body.id_token).alg).toBe('HS256');
   });
 });
 

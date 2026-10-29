@@ -1,3 +1,4 @@
+import { randomBytes as fixtureBytes } from 'crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock dependencies
@@ -6,6 +7,9 @@ const mockUpsert = vi.fn().mockResolvedValue({ error: null });
 const mockSingle = vi.fn();
 const mockEq = vi.fn(() => ({ single: mockSingle, eq: mockEq }));
 const mockSelect = vi.fn(() => ({ eq: mockEq }));
+
+// A stored secret hash only needs to be non-empty here; generated, not a literal.
+const STORED_HASH = fixtureBytes(16).toString('hex');
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({
@@ -98,7 +102,7 @@ describe('GET /api/oauth/authorize', () => {
   it('should redirect to login if not authenticated', async () => {
     (validateClient as any).mockResolvedValue({
       valid: true,
-      client: { client_secret: 'bcrypt-hash', require_pkce: false, legacy_oauth2: true, client_id: 'cp_test', name: 'Test', redirect_uris: ['https://example.com/cb'] },
+      client: { client_secret: STORED_HASH, require_pkce: false, legacy_oauth2: true, client_id: 'cp_test', name: 'Test', redirect_uris: ['https://example.com/cb'] },
     });
     (verifyToken as any).mockImplementation(() => { throw new Error('invalid'); });
 
@@ -117,7 +121,7 @@ describe('GET /api/oauth/authorize', () => {
     // completed authorization they never began — login-CSRF.
     (validateClient as any).mockResolvedValue({
       valid: true,
-      client: { client_secret: 'bcrypt-hash', require_pkce: false, legacy_oauth2: true, client_id: 'cp_test', name: 'Test', redirect_uris: ['https://example.com/cb'] },
+      client: { client_secret: STORED_HASH, require_pkce: false, legacy_oauth2: true, client_id: 'cp_test', name: 'Test', redirect_uris: ['https://example.com/cb'] },
     });
 
     const req = makeRequest('https://coinpay.dev/api/oauth/authorize?response_type=code&client_id=cp_test&redirect_uri=https://example.com/cb&scope=openid');
@@ -132,7 +136,7 @@ describe('GET /api/oauth/authorize', () => {
     // Most live clients send PKCE and no state; they must keep working.
     (validateClient as any).mockResolvedValue({
       valid: true,
-      client: { client_secret: 'bcrypt-hash', require_pkce: false, legacy_oauth2: true, client_id: 'cp_test', name: 'Test', redirect_uris: ['https://example.com/cb'] },
+      client: { client_secret: STORED_HASH, require_pkce: false, legacy_oauth2: true, client_id: 'cp_test', name: 'Test', redirect_uris: ['https://example.com/cb'] },
     });
     (verifyToken as any).mockImplementation(() => { throw new Error('invalid'); });
 
@@ -146,7 +150,7 @@ describe('GET /api/oauth/authorize', () => {
   it('should redirect to consent for new client', async () => {
     (validateClient as any).mockResolvedValue({
       valid: true,
-      client: { client_secret: 'bcrypt-hash', require_pkce: false, legacy_oauth2: true, client_id: 'cp_test', name: 'Test' },
+      client: { client_secret: STORED_HASH, require_pkce: false, legacy_oauth2: true, client_id: 'cp_test', name: 'Test' },
     });
     (verifyToken as any).mockReturnValue({ userId: 'user-123', email: 'test@example.com' });
     mockSingle.mockResolvedValue({ data: null, error: { message: 'not found' } });
@@ -165,7 +169,7 @@ describe('GET /api/oauth/authorize', () => {
   it('should return code directly for pre-consented client', async () => {
     (validateClient as any).mockResolvedValue({
       valid: true,
-      client: { client_secret: 'bcrypt-hash', require_pkce: false, legacy_oauth2: true, client_id: 'cp_test', name: 'Test' },
+      client: { client_secret: STORED_HASH, require_pkce: false, legacy_oauth2: true, client_id: 'cp_test', name: 'Test' },
     });
     (verifyToken as any).mockReturnValue({ userId: 'user-123', email: 'test@example.com' });
     mockSingle.mockResolvedValue({
@@ -190,7 +194,7 @@ describe('GET /api/oauth/authorize', () => {
     const signedIn = { headers: { authorization: 'Bearer valid-token' } };
 
     beforeEach(() => {
-      (validateClient as any).mockResolvedValue({ valid: true, client: { client_secret: 'bcrypt-hash', require_pkce: false, legacy_oauth2: true, client_id: 'cp_test', name: 'Test' } });
+      (validateClient as any).mockResolvedValue({ valid: true, client: { client_secret: STORED_HASH, require_pkce: false, legacy_oauth2: true, client_id: 'cp_test', name: 'Test' } });
       (verifyToken as any).mockReturnValue({ userId: 'user-123', email: 'test@example.com' });
       mockSingle.mockResolvedValue({ data: { scopes: ['openid', 'profile'] }, error: null });
     });
@@ -254,7 +258,7 @@ describe('POST /api/oauth/authorize', () => {
   });
 
   it('should reject unauthenticated consent', async () => {
-    (validateClient as any).mockResolvedValue({ valid: true, client: { client_secret: 'bcrypt-hash', require_pkce: false, legacy_oauth2: true, client_id: 'cp_test' } });
+    (validateClient as any).mockResolvedValue({ valid: true, client: { client_secret: STORED_HASH, require_pkce: false, legacy_oauth2: true, client_id: 'cp_test' } });
     (verifyToken as any).mockImplementation(() => { throw new Error('invalid'); });
 
     const req = makeRequest('https://coinpay.dev/api/oauth/authorize', {
@@ -273,7 +277,7 @@ describe('POST /api/oauth/authorize', () => {
   });
 
   it('should return JSON redirect URL on denial (not a redirect response)', async () => {
-    (validateClient as any).mockResolvedValue({ valid: true, client: { client_secret: 'bcrypt-hash', require_pkce: false, legacy_oauth2: true, client_id: 'cp_test' } });
+    (validateClient as any).mockResolvedValue({ valid: true, client: { client_secret: STORED_HASH, require_pkce: false, legacy_oauth2: true, client_id: 'cp_test' } });
     (verifyToken as any).mockReturnValue({ userId: 'user-123', email: 'test@example.com' });
 
     const req = makeRequest('https://coinpay.dev/api/oauth/authorize', {
@@ -300,7 +304,7 @@ describe('POST /api/oauth/authorize', () => {
   });
 
   it('should return redirect URL on approval', async () => {
-    (validateClient as any).mockResolvedValue({ valid: true, client: { client_secret: 'bcrypt-hash', require_pkce: false, legacy_oauth2: true, client_id: 'cp_test' } });
+    (validateClient as any).mockResolvedValue({ valid: true, client: { client_secret: STORED_HASH, require_pkce: false, legacy_oauth2: true, client_id: 'cp_test' } });
     (verifyToken as any).mockReturnValue({ userId: 'user-123', email: 'test@example.com' });
 
     const req = makeRequest('https://coinpay.dev/api/oauth/authorize', {

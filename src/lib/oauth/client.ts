@@ -43,9 +43,9 @@ export type TokenEndpointAuthMethod = 'client_secret_basic' | 'client_secret_pos
 export const TOKEN_ENDPOINT_AUTH_METHODS: TokenEndpointAuthMethod[] = ['client_secret_basic', 'client_secret_post', 'none'];
 
 export const GRANT_AUTHORIZATION_CODE = 'authorization_code';
-export const GRANT_REFRESH_TOKEN = 'refresh_token';
+export const GRANT_REFRESH = 'refresh_token';
 export const GRANT_DEVICE_CODE = 'urn:ietf:params:oauth:grant-type:device_code';
-export const SUPPORTED_GRANT_TYPES = [GRANT_AUTHORIZATION_CODE, GRANT_REFRESH_TOKEN, GRANT_DEVICE_CODE];
+export const SUPPORTED_GRANT_TYPES = [GRANT_AUTHORIZATION_CODE, GRANT_REFRESH, GRANT_DEVICE_CODE];
 
 /** A public client has no secret to keep (token_endpoint_auth_method "none"). */
 export function isPublicClient(client: Pick<OAuthClient, 'client_secret' | 'token_endpoint_auth_method'>): boolean {
@@ -57,8 +57,8 @@ export function isPublicClient(client: Pick<OAuthClient, 'client_secret' | 'toke
 export function clientGrantTypes(client: Pick<OAuthClient, 'grant_types' | 'client_secret' | 'token_endpoint_auth_method'>): string[] {
   if (Array.isArray(client.grant_types) && client.grant_types.length) return client.grant_types;
   return isPublicClient(client)
-    ? [GRANT_AUTHORIZATION_CODE, GRANT_REFRESH_TOKEN, GRANT_DEVICE_CODE]
-    : [GRANT_AUTHORIZATION_CODE, GRANT_REFRESH_TOKEN];
+    ? [GRANT_AUTHORIZATION_CODE, GRANT_REFRESH, GRANT_DEVICE_CODE]
+    : [GRANT_AUTHORIZATION_CODE, GRANT_REFRESH];
 }
 
 /** PKCE is mandatory for public clients and for every client registered under OAuth 2.1. */

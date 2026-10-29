@@ -6,6 +6,11 @@
  */
 
 import { createServer } from 'node:http';
+import { randomBytes } from 'node:crypto';
+
+// Fake tokens for the stub server, generated per run.
+const DEVICE_ACCESS = randomBytes(16).toString('hex');
+const DEVICE_REFRESH = randomBytes(16).toString('hex');
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -43,7 +48,7 @@ describe('coinpay auth login and coinpay self', () => {
         const json = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(data)); };
         // RFC 8628: device authorization, then the token endpoint's device grant.
         if (req.url === '/api/oauth/device_authorization') return json(200, { device_code: 'dev-1', user_code: 'ABCD-EFGH', verification_uri: 'https://example.test/oauth/device', expires_in: 60, interval: 1 });
-        if (req.url === '/api/oauth/token') return json(200, { access_token: 'session-token-from-device-flow', refresh_token: 'rt-1', expires_in: 3600, token_type: 'Bearer' });
+        if (req.url === '/api/oauth/token') return json(200, { access_token: DEVICE_ACCESS, refresh_token: DEVICE_REFRESH, expires_in: 3600, token_type: 'Bearer' });
         if (req.url === '/api/auth/login') return json(200, { success: true, token: 'legacy-token', merchant: { id: 'm-1', email: 'someone@example.com' } });
         if (req.url === '/install.sh') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('echo "installer-ran:$1"\n'); }
         return json(404, { error: 'not found' });
@@ -67,8 +72,8 @@ describe('coinpay auth login and coinpay self', () => {
     expect(result.output).toContain('ABCD-EFGH');
     expect(result.output).not.toMatch(/Required: --email/);
     expect(hits.some((h) => h.path === '/api/oauth/device_authorization')).toBe(true);
-    expect(JSON.parse(readFileSync(join(home, '.coinpay.json'), 'utf8')).jwtToken).toBe('session-token-from-device-flow');
-    expect(JSON.parse(readFileSync(join(home, '.coinpay.json'), 'utf8')).oauth.refreshToken).toBe('rt-1');
+    expect(JSON.parse(readFileSync(join(home, '.coinpay.json'), 'utf8')).jwtToken).toBe(DEVICE_ACCESS);
+    expect(JSON.parse(readFileSync(join(home, '.coinpay.json'), 'utf8')).oauth.refreshToken).toBe(DEVICE_REFRESH);
   });
 
   it('auth login --email/--password keeps the old path, with a deprecation note', { timeout: 30_000 }, async () => {

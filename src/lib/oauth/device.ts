@@ -1,5 +1,5 @@
 /** RFC 8628 helpers: user codes and the verification URI. */
-import { randomBytes } from 'crypto';
+import { randomInt } from 'crypto';
 
 export const DEVICE_CODE_TTL_SECONDS = 600;
 export const DEVICE_POLL_INTERVAL_SECONDS = 5;
@@ -8,9 +8,9 @@ export const DEVICE_POLL_INTERVAL_SECONDS = 5;
 const USER_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 export function makeUserCode(): string {
-  const bytes = randomBytes(8);
+  // randomInt is uniform (rejection sampling); `byte % 31` would favour some letters.
   let s = '';
-  for (let i = 0; i < 8; i++) s += USER_CODE_ALPHABET[bytes[i] % USER_CODE_ALPHABET.length];
+  for (let i = 0; i < 8; i++) s += USER_CODE_ALPHABET[randomInt(USER_CODE_ALPHABET.length)];
   return `${s.slice(0, 4)}-${s.slice(4)}`;
 }
 
