@@ -102,6 +102,26 @@ describe('operator keys', () => {
     err.mockRestore();
   });
 
+  it('deploy handoff: export only while unlocked, and the key unlocks a fresh process', async () => {
+    const dataKey = await setUpVault();
+    await ok.sealEnvMnemonics();
+    vi.stubEnv('SYSTEM_MNEMONIC_ETH', '');
+    expect(ok.operatorHandoffExport()).toBeNull();
+    const { expiresAt } = await ok.unlockOperatorKeys(dataKey, 3600_000);
+    const h = ok.operatorHandoffExport();
+    expect(h).toEqual({ dataKey, expiresAt });
+
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    resetUnlockStore(); // the new process
+    ok.resetOperatorState();
+    expect(ok.operatorHandoffExport()).toBeNull();
+    await ok.unlockOperatorKeys(h!.dataKey, Date.parse(h!.expiresAt) - Date.now());
+    expect(ok.readSystemMnemonicVar('SYSTEM_MNEMONIC_ETH')).toBe(PHRASE);
+    ok.lockOperatorKeys();
+    expect(ok.operatorHandoffExport()).toBeNull();
+    err.mockRestore();
+  });
+
   it('a wrong data key never unlocks', async () => {
     await setUpVault();
     await ok.sealEnvMnemonics();

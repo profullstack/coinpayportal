@@ -57,6 +57,8 @@ interface OperatorState {
   checkedAt: number;
   /** Opened mnemonics, only while unlocked. */
   mnemonics: Map<string, string> | null;
+  /** The data key of the current unlock, kept only to hand it to the next process on deploy. */
+  handoff: { dataKey: string; expiresAt: string } | null;
   lastAlertAt: number;
   envWarned: boolean;
   listening: boolean;
@@ -67,7 +69,7 @@ const STATE_KEY = Symbol.for('coinpay.operator-keys.v1');
 function st(): OperatorState {
   const g = globalThis as unknown as Record<symbol, OperatorState | undefined>;
   if (!g[STATE_KEY]) {
-    g[STATE_KEY] = { sealed: null, checkedAt: 0, mnemonics: null, lastAlertAt: 0, envWarned: false, listening: false };
+    g[STATE_KEY] = { sealed: null, checkedAt: 0, mnemonics: null, handoff: null, lastAlertAt: 0, envWarned: false, listening: false };
   }
   const s = g[STATE_KEY]!;
   if (!s.listening) {
@@ -94,6 +96,7 @@ function wipeMnemonics(): void {
   const s = st();
   s.mnemonics?.clear();
   s.mnemonics = null;
+  s.handoff = null;
 }
 
 export class OperatorKeysLockedError extends VaultLockedError {
@@ -192,6 +195,7 @@ export async function unlockOperatorKeys(dataKeyB64: string, ttlMs?: number | nu
     const s = st();
     wipeMnemonics();
     s.mnemonics = new Map(Object.entries(bundle));
+    s.handoff = { dataKey: dataKeyB64, expiresAt };
     s.sealed = true;
     s.checkedAt = Date.now();
     s.lastAlertAt = 0;
@@ -201,6 +205,17 @@ export async function unlockOperatorKeys(dataKeyB64: string, ttlMs?: number | nu
     lockVault('operator', OPERATOR_SUBJECT_ID, 'unlock failed');
     throw err;
   }
+}
+
+/**
+ * The current unlock, for handing to the next process on a deploy (see
+ * operator-handoff.ts): same data key, same expiry, so a redeploy no longer
+ * locks the vault. Null while locked.
+ */
+export function operatorHandoffExport(): { dataKey: string; expiresAt: string } | null {
+  const s = st();
+  if (!isOperatorUnlocked() || !s.handoff) return null;
+  return { ...s.handoff };
 }
 
 export function lockOperatorKeys(): boolean {
