@@ -246,7 +246,7 @@ failure would invite the merchant to refund twice.
 |---|---|---|
 | `POST /api/paypal/connect/onboard` | Start partner onboarding | `POST /api/stripe/connect/onboard` |
 | `PATCH /api/paypal/connect/onboard` | Finish / re-check onboarding | (implicit in account retrieve) |
-| `GET /api/paypal/connect/status/{businessId}` | Connection state | `GET /api/stripe/connect/status/{id}` |
+| `GET /api/paypal/connect/status/{businessId}` | Connection state (also takes a `merchant`-scope OAuth token; read-only) | `GET /api/stripe/connect/status/{id}` |
 | `POST /api/paypal/connect` | Connect own credentials (default) | — |
 | `DELETE /api/paypal/connect` | Disconnect | `POST /api/stripe/connect/disconnect` |
 | `POST /api/paypal/payments/create` | Open an order | `POST /api/stripe/payments/create` |

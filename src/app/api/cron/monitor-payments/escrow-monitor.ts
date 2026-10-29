@@ -207,7 +207,7 @@ async function settleReleasedEscrows(supabase: SupabaseClient): Promise<void> {
   const SETTLEABLE_CHAINS = [
     'BTC', 'BCH', 'ETH', 'POL', 'SOL', 'BNB', 'DOGE', 'XRP', 'ADA',
     'USDT', 'USDT_ETH', 'USDT_POL', 'USDT_SOL',
-    'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL',
+    'USDC', 'USDC_ETH', 'USDC_POL', 'USDC_SOL', 'USDC_BASE',
   ];
 
   for (const escrow of releasedEscrows) {

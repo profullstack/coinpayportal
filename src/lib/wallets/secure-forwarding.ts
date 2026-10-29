@@ -29,6 +29,10 @@ import {
 } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { getProvider, getRpcUrl, type BlockchainType, SolanaProvider, BitcoinProvider, EthereumProvider } from '../blockchain/providers';
+// One copy of the SPL program ids. This file used to carry its own, with the
+// associated-token program mistyped (1Q2hv for 1b2hv): every destination it
+// derived was an address no wallet uses, so Solana token forwards failed.
+import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../blockchain/solana-token-balance';
 import { splitTieredPayment } from '../payments/fees';
 import { sendPaymentWebhook } from '../webhooks/service';
 import { isBusinessPaidTier } from '../entitlements/service';
@@ -39,7 +43,7 @@ import {
   RelayerUnderfundedError,
 } from './evm-gas';
 import { alertRelayerUnderfunded } from './relayer-health';
-import { getCommissionWallet, deriveTronRelayerWallet, type SystemBlockchain } from './system-wallet';
+import { getCommissionWallet, deriveSolanaFeePayer, deriveTronRelayerWallet, type SystemBlockchain } from './system-wallet';
 import { OperatorKeysLockedError, openPaymentAddressKey } from './operator-keys';
 import { forwardTronUsdtSplit } from '../tron/forward';
 import { checkBalance as checkAddressBalance } from '@/app/api/cron/monitor-payments/balance-checkers';
@@ -60,8 +64,6 @@ const SOLANA_TOKEN_CONFIG = {
 } as const;
 
 const ERC20_TRANSFER_ABI = ['function transfer(address to, uint256 amount) returns (bool)'];
-const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
-const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1Q2hvZbsiqW5xWH25efTNsLJA8knL');
 
 /**
  * Result of a secure forwarding operation
@@ -287,21 +289,38 @@ export class ForwardNotStartedError extends Error {
   }
 }
 
+/**
+ * Lines per-payout hashes back up with the recipients they were built from,
+ * leaving undefined where a recipient rounded to zero token units and was
+ * never sent.
+ */
+function alignTxHashes(sentIndexes: number[], txHashes: string[], recipientCount: number): Array<string | undefined> {
+  const aligned: Array<string | undefined> = new Array(recipientCount).fill(undefined);
+  sentIndexes.forEach((recipientIndex, i) => { aligned[recipientIndex] = txHashes[i]; });
+  return aligned;
+}
+
+/** Splits a token forward's per-recipient hashes into the merchant/platform pair. */
+function toMerchantPlatform(txHashes: Array<string | undefined>): { merchantTxHash?: string; platformTxHash?: string } {
+  return { merchantTxHash: txHashes[0], platformTxHash: txHashes[1] || txHashes[0] };
+}
+
 async function forwardEVMTokenSplit(
   chain: BlockchainType,
   rpcUrl: string,
   privateKey: string,
   recipients: Array<{ address: string; amount: number }>
-): Promise<{ merchantTxHash?: string; platformTxHash?: string }> {
+): Promise<Array<string | undefined>> {
   const config = EVM_TOKEN_CONFIG[chain as keyof typeof EVM_TOKEN_CONFIG];
   const provider = new ethers.JsonRpcProvider(rpcUrl);
 
   const payouts = recipients
-    .map((r) => ({ address: r.address, amount: toTokenUnits(r.amount, config.decimals) }))
+    .map((r, index) => ({ index, address: r.address, amount: toTokenUnits(r.amount, config.decimals) }))
     .filter((r) => r.amount > 0n);
+  const sentIndexes = payouts.map((p) => p.index);
 
   if (payouts.length === 0) {
-    return { merchantTxHash: undefined, platformTxHash: undefined };
+    return recipients.map(() => undefined);
   }
 
   // Preferred: the relayer pulls the funds with permit + transferFrom, so the
@@ -321,10 +340,7 @@ async function forwardEVMTokenSplit(
         `[SECURE] Forwarded ${chain} via relayer ${relayed.relayerAddress} ` +
           `(gas ${ethers.formatEther(relayed.gasSpentWei)})`,
       );
-      return {
-        merchantTxHash: relayed.txHashes[0],
-        platformTxHash: relayed.txHashes[1] || relayed.txHashes[0],
-      };
+      return alignTxHashes(sentIndexes, relayed.txHashes, recipients.length);
     }
   } catch (relayError) {
     // A broke relayer is an operational problem and the fallback needs the same
@@ -363,10 +379,7 @@ async function forwardEVMTokenSplit(
     txHashes.push(tx.hash);
   }
 
-  return {
-    merchantTxHash: txHashes[0],
-    platformTxHash: txHashes[1] || txHashes[0],
-  };
+  return alignTxHashes(sentIndexes, txHashes, recipients.length);
 }
 
 async function deriveFullSolanaKeypair(seed: Uint8Array): Promise<Uint8Array> {
@@ -410,18 +423,13 @@ function getAssociatedTokenAddress(owner: PublicKey, mint: PublicKey): PublicKey
   )[0];
 }
 
-async function addCreateAssociatedTokenAccountIfMissing(
-  connection: Connection,
-  transaction: SolanaTransaction,
+function createAssociatedTokenAccountInstruction(
   payer: PublicKey,
+  associatedTokenAddress: PublicKey,
   owner: PublicKey,
   mint: PublicKey
-): Promise<PublicKey> {
-  const associatedTokenAddress = getAssociatedTokenAddress(owner, mint);
-  const existing = await connection.getAccountInfo(associatedTokenAddress);
-  if (existing) return associatedTokenAddress;
-
-  transaction.add(new TransactionInstruction({
+): TransactionInstruction {
+  return new TransactionInstruction({
     programId: ASSOCIATED_TOKEN_PROGRAM_ID,
     keys: [
       { pubkey: payer, isSigner: true, isWritable: true },
@@ -432,9 +440,7 @@ async function addCreateAssociatedTokenAccountIfMissing(
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
     ],
     data: Buffer.alloc(0),
-  }));
-
-  return associatedTokenAddress;
+  });
 }
 
 function createSplTransferInstruction(
@@ -458,44 +464,142 @@ function createSplTransferInstruction(
   });
 }
 
+/** Size of an SPL token account; its rent-exempt minimum is what creating one costs. */
+const SPL_TOKEN_ACCOUNT_SIZE = 165;
+/** Fee per signature on Solana. */
+const LAMPORTS_PER_SIGNATURE = 5_000;
+
+/**
+ * Neither the CoinPay fee payer nor the deposit address holds enough SOL to pay
+ * the network fee and the rent for the recipients' token accounts. Raised
+ * before anything is signed, so nothing was broadcast and a retry is safe once
+ * the fee payer is topped up.
+ */
+export class SolanaFeeShortfallError extends Error {
+  readonly feePayerAddress: string | null;
+  readonly neededLamports: number;
+
+  constructor(params: { feePayerAddress: string | null; neededLamports: number; feePayerLamports: number; ownerLamports: number }) {
+    super(
+      `Solana token transfer needs ${params.neededLamports} lamports for fees and token-account rent; ` +
+        (params.feePayerAddress
+          ? `fee payer ${params.feePayerAddress} has ${params.feePayerLamports}`
+          : 'no fee payer is configured') +
+        ` and the sending address has ${params.ownerLamports}. Top up the fee payer.`,
+    );
+    this.name = 'SolanaFeeShortfallError';
+    this.feePayerAddress = params.feePayerAddress;
+    this.neededLamports = params.neededLamports;
+  }
+}
+
+async function loadSolanaFeePayer(): Promise<Keypair | null> {
+  try {
+    const { privateKey } = await deriveSolanaFeePayer();
+    return await parseSolanaKeypair(privateKey);
+  } catch {
+    return null;
+  }
+}
+
 async function forwardSolanaTokenSplit(
   chain: BlockchainType,
   rpcUrl: string,
   privateKey: string,
   recipients: Array<{ address: string; amount: number }>
-): Promise<{ merchantTxHash?: string; platformTxHash?: string }> {
+): Promise<Array<string | undefined>> {
   const config = SOLANA_TOKEN_CONFIG[chain as keyof typeof SOLANA_TOKEN_CONFIG];
   const connection = new Connection(rpcUrl, 'confirmed');
   const keypair = await parseSolanaKeypair(privateKey);
   const mint = new PublicKey(config.mintAddress);
-  const sourceAccounts = await connection.getTokenAccountsByOwner(keypair.publicKey, { mint });
-  const sourceTokenAccount = sourceAccounts.value[0]?.pubkey;
+  // Wallets pay into the owner's associated token account, so that is the
+  // source. Derived rather than looked up: the public RPC rate-limits
+  // getTokenAccountsByOwner (see solana-token-balance).
+  const sourceTokenAccount = getAssociatedTokenAddress(keypair.publicKey, mint);
 
-  if (!sourceTokenAccount) {
+  const payouts = recipients
+    .map((r, index) => ({ index, owner: new PublicKey(r.address), amountUnits: toTokenUnits(r.amount, config.decimals) }))
+    .filter((p) => p.amountUnits > 0n);
+  if (payouts.length === 0) return recipients.map(() => undefined);
+
+  // The deposit address only ever received the token, so it usually has no SOL
+  // for the fee or for a recipient's token account. The CoinPay fee payer covers
+  // both; the deposit address pays only when the fee payer cannot and it can.
+  const destinations = payouts.map((p) => getAssociatedTokenAddress(p.owner, mint));
+  const [sourceInfo, ...destinationInfos] = await connection.getMultipleAccountsInfo([sourceTokenAccount, ...destinations]);
+  if (!sourceInfo) {
     throw new Error(`No source ${chain} token account found for ${keypair.publicKey.toString()}`);
+  }
+  const missingAccounts = new Set(
+    destinations.map((d, i) => (destinationInfos[i] ? null : d.toBase58())).filter((d): d is string => d !== null),
+  ).size;
+  const rentPerAccount = missingAccounts > 0
+    ? await connection.getMinimumBalanceForRentExemption(SPL_TOKEN_ACCOUNT_SIZE)
+    : 0;
+
+  const feePayer = await loadSolanaFeePayer();
+  const useFeePayer = feePayer !== null && !feePayer.publicKey.equals(keypair.publicKey);
+  const neededWithFeePayer = missingAccounts * rentPerAccount + 2 * LAMPORTS_PER_SIGNATURE;
+  const neededAlone = missingAccounts * rentPerAccount + LAMPORTS_PER_SIGNATURE;
+  const feePayerLamports = useFeePayer ? await connection.getBalance(feePayer.publicKey) : 0;
+
+  let payer: Keypair;
+  if (useFeePayer && feePayerLamports >= neededWithFeePayer) {
+    payer = feePayer;
+  } else {
+    const ownerLamports = await connection.getBalance(keypair.publicKey);
+    if (ownerLamports < neededAlone) {
+      throw new SolanaFeeShortfallError({
+        feePayerAddress: useFeePayer ? feePayer.publicKey.toBase58() : null,
+        neededLamports: useFeePayer ? neededWithFeePayer : neededAlone,
+        feePayerLamports,
+        ownerLamports,
+      });
+    }
+    payer = keypair;
   }
 
   const transaction = new SolanaTransaction();
-  for (const recipient of recipients) {
-    const amountUnits = toTokenUnits(recipient.amount, config.decimals);
-    if (amountUnits <= 0n) continue;
+  transaction.feePayer = payer.publicKey;
+  const created = new Set<string>();
+  payouts.forEach((payout, i) => {
+    const destination = destinations[i];
+    if (!destinationInfos[i] && !created.has(destination.toBase58())) {
+      transaction.add(createAssociatedTokenAccountInstruction(payer.publicKey, destination, payout.owner, mint));
+      created.add(destination.toBase58());
+    }
+    transaction.add(createSplTransferInstruction(sourceTokenAccount, destination, keypair.publicKey, payout.amountUnits));
+  });
 
-    const recipientOwner = new PublicKey(recipient.address);
-    const recipientTokenAccount = await addCreateAssociatedTokenAccountIfMissing(
-      connection,
-      transaction,
-      keypair.publicKey,
-      recipientOwner,
-      mint
-    );
-    transaction.add(createSplTransferInstruction(sourceTokenAccount, recipientTokenAccount, keypair.publicKey, amountUnits));
-  }
+  const signers = payer === keypair ? [keypair] : [payer, keypair];
+  const signature = await sendAndConfirmTransaction(connection, transaction, signers, { commitment: 'confirmed' });
+  // One transaction carries every leg.
+  return recipients.map((_, index) => (payouts.some((p) => p.index === index) ? signature : undefined));
+}
 
-  const signature = await sendAndConfirmTransaction(connection, transaction, [keypair], { commitment: 'confirmed' });
-  return {
-    merchantTxHash: signature,
-    platformTxHash: signature,
-  };
+/** Chains whose escrow and payment funds are a token, not the chain's native coin. */
+export function isTokenTransferChain(chain: BlockchainType): boolean {
+  return isEVMToken(chain) || isSolanaToken(chain);
+}
+
+/**
+ * Send a USDC/USDT balance from a CoinPay-held address to each recipient, as
+ * the token itself: ERC-20 through the gas relayer on EVM chains, SPL on
+ * Solana with the recipient's token account created when missing.
+ *
+ * Returns one hash per recipient, in order; undefined where an amount rounded
+ * to zero token units. Errors that are certain nothing was broadcast are
+ * ForwardNotStartedError and SolanaFeeShortfallError.
+ */
+export async function sendTokenTransfers(
+  chain: BlockchainType,
+  rpcUrl: string,
+  privateKey: string,
+  recipients: Array<{ address: string; amount: number }>
+): Promise<Array<string | undefined>> {
+  if (isEVMToken(chain)) return forwardEVMTokenSplit(chain, rpcUrl, privateKey, recipients);
+  if (isSolanaToken(chain)) return forwardSolanaTokenSplit(chain, rpcUrl, privateKey, recipients);
+  throw new Error(`${chain} is not a token chain`);
 }
 
 /**
@@ -780,7 +884,7 @@ export async function forwardPaymentSecurely(
       // this point on, only reconciliation can establish that retry is safe.
       broadcastStarted = true;
       if (isEVMToken(addressData.cryptocurrency)) {
-        const tokenTxHashes = await forwardEVMTokenSplit(
+        const tokenTxHashes = toMerchantPlatform(await forwardEVMTokenSplit(
           addressData.cryptocurrency,
           rpcUrl,
           sensitiveData.privateKey,
@@ -788,7 +892,7 @@ export async function forwardPaymentSecurely(
             { address: addressData.merchant_wallet, amount: merchantAmount },
             { address: addressData.commission_wallet, amount: platformFee },
           ]
-        );
+        ));
         merchantTxHash = tokenTxHashes.merchantTxHash;
         platformTxHash = tokenTxHashes.platformTxHash;
         console.log(`[SECURE] Forwarded EVM token payment ${paymentId}: merchant=${merchantTxHash}, platform=${platformTxHash}`);
@@ -801,7 +905,7 @@ export async function forwardPaymentSecurely(
         platformTxHash = tokenTxHashes.platformTxHash;
         console.log(`[SECURE] Forwarded USDT_TRON payment ${paymentId}: merchant=${merchantTxHash}, platform=${platformTxHash}`);
       } else if (isSolanaToken(addressData.cryptocurrency)) {
-        const tokenTxHashes = await forwardSolanaTokenSplit(
+        const tokenTxHashes = toMerchantPlatform(await forwardSolanaTokenSplit(
           addressData.cryptocurrency,
           rpcUrl,
           sensitiveData.privateKey,
@@ -809,7 +913,7 @@ export async function forwardPaymentSecurely(
             { address: addressData.merchant_wallet, amount: merchantAmount },
             { address: addressData.commission_wallet, amount: platformFee },
           ]
-        );
+        ));
         merchantTxHash = tokenTxHashes.merchantTxHash;
         platformTxHash = tokenTxHashes.platformTxHash;
         console.log(`[SECURE] Forwarded Solana token payment ${paymentId} in single tx: ${merchantTxHash}`);
