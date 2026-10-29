@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from './jwt';
 import { extractBearerToken } from './middleware';
 import { getSupabaseAdmin } from '../supabase/server';
-import { merchantFromAccessToken } from './oauth-bearer';
+import { merchantFromLiveAccessToken } from './oauth-bearer';
 
 export type AuthenticatedMerchant = {
   id: string;
@@ -67,7 +67,7 @@ export async function requireMerchant(
   // are signed with JWT_SECRET (no OIDC_SIGNING_SECRET), the signature checks
   // out and only the missing userId tells them apart.
   if (!merchantId) {
-    const oauth = merchantFromAccessToken(headerToken);
+    const oauth = await merchantFromLiveAccessToken(headerToken, getSupabaseAdmin());
     if (oauth) {
       merchantId = oauth.id;
       email = '';

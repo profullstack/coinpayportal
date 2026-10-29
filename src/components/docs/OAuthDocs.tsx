@@ -10,6 +10,13 @@ export function OAuthDocs() {
         access profile data, wallet addresses, and DIDs — all with standard authorization code flow + PKCE.
       </p>
 
+      <div className="mb-8 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+        <p className="text-blue-200 text-sm">
+          OAuth 2.1: public clients (PWAs, CLIs), the device flow, refresh-token rotation, revocation and RS256 ID
+          tokens are covered in the <a href="/docs/oauth" className="underline text-blue-100">Sign in with CoinPay guide</a>.
+        </p>
+      </div>
+
       <div className="mb-8 p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg">
         <h4 className="font-semibold text-purple-300 mb-2">How It Works</h4>
         <ol className="text-purple-200 text-sm space-y-1 list-decimal list-inside">
@@ -219,7 +226,7 @@ client_secret=cps_xxxxxxxxxxxx...`}
 
       <h3 className="text-xl font-semibold text-white mt-8 mb-4">JWKS Endpoint</h3>
 
-      <ApiEndpoint method="GET" path="/api/oauth/jwks" description="JSON Web Key Set for token verification. Uses HS256 (symmetric).">
+      <ApiEndpoint method="GET" path="/api/oauth/jwks" description="JSON Web Key Set. The RSA key verifies RS256 ID tokens; the HS256 entry is a hint for clients still on HS256.">
         <CodeBlock title="Response">
 {`{
   "keys": [

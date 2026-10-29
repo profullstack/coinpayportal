@@ -6,6 +6,9 @@
  * Clients using HS256 need the shared secret to verify tokens.
  */
 import { NextResponse } from 'next/server';
+import { getRsaSigningKey } from '@/lib/oauth/signing';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   // The key id must NOT be derived from the signing secret.
@@ -22,14 +25,18 @@ export async function GET() {
   // OIDC_KEY_ID alongside it.
   const kid = process.env.OIDC_KEY_ID?.trim() || 'coinpay-oidc-hs256';
 
-  return NextResponse.json({
-    keys: [
-      {
-        kty: 'oct',
-        kid,
-        use: 'sig',
-        alg: 'HS256',
-      },
-    ],
-  });
+  // RS256 public key first: ID tokens for clients registered from 2026-10-29
+  // are RS256 and verifiable against it. The HS256 entry stays as a hint (no
+  // key material) for clients still on HS256 ID tokens.
+  const keys: Record<string, string>[] = [];
+  let rsa = null;
+  try {
+    rsa = getRsaSigningKey();
+  } catch (err) {
+    console.error('[OIDC] OIDC_RS256_PRIVATE_KEY is unreadable:', err instanceof Error ? err.message : err);
+  }
+  if (rsa) keys.push(rsa.publicJwk);
+  keys.push({ kty: 'oct', kid, use: 'sig', alg: 'HS256' });
+
+  return NextResponse.json({ keys }, { headers: { 'Cache-Control': 'public, max-age=300', 'Access-Control-Allow-Origin': '*' } });
 }

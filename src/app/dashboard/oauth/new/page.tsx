@@ -37,6 +37,7 @@ function OAuthNewForm() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [redirectUris, setRedirectUris] = useState('');
+  const [isPublic, setIsPublic] = useState(false);
   const [selectedScopes, setSelectedScopes] = useState<string[]>(['openid', 'profile', 'email']);
   const [loading, setLoading] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(!!editId);
@@ -112,6 +113,7 @@ function OAuthNewForm() {
             description: description || null,
             redirect_uris: uris,
             scopes: selectedScopes,
+            ...(isPublic ? { token_endpoint_auth_method: 'none' } : {}),
           }),
         }, router);
 
@@ -144,6 +146,12 @@ function OAuthNewForm() {
         if (!response.ok || !data.success) {
           setError(data.error || 'Failed to create client');
           setLoading(false);
+          return;
+        }
+
+        // A public client has no secret to show.
+        if (!data.client.client_secret) {
+          router.push('/dashboard/oauth');
           return;
         }
 
@@ -404,6 +412,22 @@ function OAuthNewForm() {
               placeholder="https://myapp.com/callback&#10;https://myapp.com/auth/callback"
             />
           </div>
+
+          {!editId && (
+            <label className="flex items-start gap-3 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                type="checkbox"
+                checked={isPublic}
+                onChange={(e) => setIsPublic(e.target.checked)}
+                className="mt-1"
+              />
+              <span>
+                <span className="font-medium">Public client</span> (PWA, CLI, mobile or desktop app): no client secret,
+                PKCE required, loopback redirects like <code>http://127.0.0.1/callback</code> allowed, device flow enabled.
+                {' '}<a href="/docs/oauth" className="text-purple-600 underline">Guide</a>
+              </span>
+            </label>
+          )}
 
           {/* Scopes */}
           <div>

@@ -96,6 +96,11 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'invoice_email_resend': { limit: 10, windowSeconds: 300 },  // 10/5min per business
   'p2p_request': { limit: 30, windowSeconds: 60 },           // 30/min per issuing platform
   'cli_auth_start': { limit: 10, windowSeconds: 300 },       // 10/5min per IP
+  // RFC 8628 device authorization (unauthenticated for public clients) and the
+  // signed-in approval lookup, which must not become a user-code oracle.
+  'oauth_device_start': { limit: 20, windowSeconds: 300 },   // 20/5min per IP
+  'oauth_device_lookup': { limit: 30, windowSeconds: 300 },  // 30/5min per user
+  'oauth_revoke': { limit: 120, windowSeconds: 60 },         // 120/min per IP
   // NEW-11: `poll` was unauthenticated and unlimited, and its answers are
   // distinguishable (invalid / pending / denied / expired), so it was a free
   // status oracle. A legitimate CLI polls every 5s for at most 10 minutes —

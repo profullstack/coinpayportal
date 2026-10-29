@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes, createHash } from 'crypto';
 import { hashPassword, verifyPassword } from '../crypto/encryption';
 import { generateToken, verifyToken } from './jwt';
-import { merchantFromAccessToken } from './oauth-bearer';
+import { merchantFromLiveAccessToken } from './oauth-bearer';
 import { getSecret } from '../secrets';
 import { z } from 'zod';
 
@@ -285,7 +285,7 @@ export async function verifySession(
     }
     let via: 'session' | 'oauth' = 'session';
     if (!userId) {
-      userId = merchantFromAccessToken(token)?.id ?? null;
+      userId = (await merchantFromLiveAccessToken(token, supabase))?.id ?? null;
       if (userId) via = 'oauth';
     }
     if (!userId) {

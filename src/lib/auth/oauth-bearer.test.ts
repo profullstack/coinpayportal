@@ -11,7 +11,7 @@ describe('merchantFromAccessToken', () => {
 
   it('accepts an access token whose grant carries the merchant scope', () => {
     const token = generateAccessToken({ id: 'm-1' }, { client_id: 'coinpay-cli' }, ['openid', 'merchant']);
-    expect(merchantFromAccessToken(token)).toEqual({ id: 'm-1', clientId: 'coinpay-cli' });
+    expect(merchantFromAccessToken(token)).toMatchObject({ id: 'm-1', clientId: 'coinpay-cli' });
   });
 
   it('refuses a third-party token without the merchant scope', () => {

@@ -6,7 +6,10 @@ vi.mock('server-only', () => ({}));
 const single = vi.fn();
 vi.mock('@/lib/supabase/server', () => ({
   getSupabaseAdmin: () => ({
-    from: () => ({ select: () => ({ eq: () => ({ single }) }) }),
+    from: (table: string) =>
+      table === 'oauth_revoked_tokens'
+        ? { select: () => ({ in: async () => ({ data: [], error: null }) }) }
+        : { select: () => ({ eq: () => ({ single }) }) },
   }),
 }));
 

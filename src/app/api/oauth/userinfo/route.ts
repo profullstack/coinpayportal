@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyAccessToken } from '@/lib/oauth/tokens';
+import { isAccessTokenRevoked } from '@/lib/oauth/grants';
 import { listUserWallets } from '@/lib/wallets/user-wallets';
 
 function getSupabase() {
@@ -40,6 +41,20 @@ export async function GET(request: NextRequest) {
 
   // Get user info from database
   const supabase = getSupabase();
+
+  // Revoked (RFC 7009) or from a grant revoked for refresh-token reuse.
+  let revoked = true;
+  try {
+    revoked = await isAccessTokenRevoked(supabase, decoded);
+  } catch {
+    revoked = true; // fail closed
+  }
+  if (revoked) {
+    return NextResponse.json(
+      { error: 'invalid_token', error_description: 'Token has been revoked' },
+      { status: 401, headers: { 'WWW-Authenticate': 'Bearer error="invalid_token"' } }
+    );
+  }
   const { data: merchant } = await supabase
     .from('merchants')
     .select('id, email, name, updated_at')

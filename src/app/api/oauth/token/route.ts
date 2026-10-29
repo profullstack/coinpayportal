@@ -1,362 +1,186 @@
 /**
- * OAuth2 Token Endpoint
- * POST — exchange authorization code for tokens, or refresh tokens
+ * OAuth 2.1 Token Endpoint
+ * POST — authorization_code (PKCE), refresh_token (rotation + reuse detection),
+ *        urn:ietf:params:oauth:grant-type:device_code (RFC 8628).
+ * No implicit, no password, no client_credentials.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { hashToken, isPresentableToken } from '@/lib/crypto/token-hash';
 import { createClient } from '@supabase/supabase-js';
-import { getOAuthClient, authenticateClient } from '@/lib/oauth/client';
-import {
-  generateAccessToken,
-  generateIdToken,
-  generateRefreshToken,
-  validatePKCE,
-} from '@/lib/oauth/tokens';
+import { hashToken, isPresentableToken } from '@/lib/crypto/token-hash';
+import { clientGrantTypes, clientRequiresPkce, GRANT_DEVICE_CODE, isPublicClient } from '@/lib/oauth/client';
+import { applyBasicAuth, authenticateTokenClient, parseFormOrJson } from '@/lib/oauth/client-auth';
+import { issueTokenSet, revokeFamily, rotateRefreshToken } from '@/lib/oauth/grants';
+import { validatePKCE } from '@/lib/oauth/tokens';
 
 function getSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 }
 
-async function parseBody(request: NextRequest): Promise<Record<string, string>> {
-  const contentType = request.headers.get('content-type') || '';
-
-  if (contentType.includes('application/x-www-form-urlencoded')) {
-    const text = await request.text();
-    const params = new URLSearchParams(text);
-    const result: Record<string, string> = {};
-    params.forEach((value, key) => {
-      result[key] = value;
-    });
-    return result;
-  }
-
-  // Default to JSON
-  try {
-    return await request.json();
-  } catch {
-    return {};
-  }
-}
+const NO_STORE = { 'Cache-Control': 'no-store', Pragma: 'no-cache' };
 
 function tokenError(error: string, description: string, status = 400) {
-  return NextResponse.json(
-    { error, error_description: description },
-    {
-      status,
-      headers: { 'Cache-Control': 'no-store', Pragma: 'no-cache' },
-    }
-  );
+  const headers: Record<string, string> = { ...NO_STORE };
+  if (status === 401) headers['WWW-Authenticate'] = 'Basic realm="coinpay", error="invalid_client"';
+  return NextResponse.json({ error, error_description: description }, { status, headers });
 }
 
-/**
- * Parse client credentials from Authorization header (Basic auth)
- * Returns { client_id, client_secret } or null
- */
-function parseBasicAuth(request: NextRequest): { client_id: string; client_secret: string } | null {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Basic ')) return null;
-
-  try {
-    const decoded = Buffer.from(authHeader.substring(6), 'base64').toString('utf-8');
-    const colonIndex = decoded.indexOf(':');
-    if (colonIndex === -1) return null;
-    return {
-      client_id: decodeURIComponent(decoded.substring(0, colonIndex)),
-      client_secret: decodeURIComponent(decoded.substring(colonIndex + 1)),
-    };
-  } catch {
-    return null;
-  }
+function ok(body: Record<string, unknown>) {
+  return NextResponse.json(body, { headers: NO_STORE });
 }
 
 export async function POST(request: NextRequest) {
-  // Extract Basic auth credentials if present
-  const basicAuth = parseBasicAuth(request);
-
-  const body = await parseBody(request);
-
-  // Basic auth overrides body params for client credentials
-  if (basicAuth) {
-    body.client_id = basicAuth.client_id;
-    body.client_secret = basicAuth.client_secret;
-  }
-
+  const body = applyBasicAuth(request, await parseFormOrJson(request));
   const grantType = body.grant_type;
 
-  if (grantType === 'authorization_code') {
-    return handleAuthorizationCode(body);
-  }
-
-  if (grantType === 'refresh_token') {
-    return handleRefreshToken(body);
-  }
-
+  if (grantType === 'authorization_code') return handleAuthorizationCode(body);
+  if (grantType === 'refresh_token') return handleRefreshToken(body);
+  if (grantType === GRANT_DEVICE_CODE) return handleDeviceCode(body);
   return tokenError('unsupported_grant_type', 'Unsupported grant_type');
 }
 
 async function handleAuthorizationCode(body: Record<string, string>) {
-  const { code, redirect_uri, client_id, client_secret, code_verifier } = body;
-
+  const { code, redirect_uri, client_id, code_verifier } = body;
   if (!code || !redirect_uri || !client_id) {
     return tokenError('invalid_request', 'Missing required parameters: code, redirect_uri, client_id');
   }
 
   const supabase = getSupabase();
-
-  // Look up the authorization code first (need it to check PKCE)
   const { data: authCode, error } = await supabase
     .from('oauth_authorization_codes')
     .select('*')
     .eq('code', code)
-    .single();
+    .maybeSingle();
+  if (error || !authCode) return tokenError('invalid_grant', 'Invalid authorization code');
 
-  if (error || !authCode) {
-    return tokenError('invalid_grant', 'Invalid authorization code');
-  }
+  // Authenticate the client. A legacy confidential client may skip its secret
+  // only when the code is PKCE-bound (what it always could do).
+  const auth = await authenticateTokenClient(body, { allowLegacySecretless: Boolean(authCode.code_challenge) });
+  if (!auth.ok) return tokenError(auth.error, auth.description, auth.status);
+  const client = auth.client;
 
-  // Check if code is expired
-  if (new Date(authCode.expires_at) < new Date()) {
-    return tokenError('invalid_grant', 'Authorization code has expired');
-  }
+  if (authCode.client_id !== client.client_id) return tokenError('invalid_grant', 'Client ID mismatch');
 
-  // Check if code was already used
+  // Replay of a used code: refuse, and revoke what the first exchange issued.
   if (authCode.used) {
+    if (authCode.family_id) await revokeFamily(supabase, authCode.family_id, client.client_id, 'code_reuse');
     return tokenError('invalid_grant', 'Authorization code has already been used');
   }
-
-  // Verify client_id matches
-  if (authCode.client_id !== client_id) {
-    return tokenError('invalid_grant', 'Client ID mismatch');
+  if (new Date(authCode.expires_at) < new Date()) return tokenError('invalid_grant', 'Authorization code has expired');
+  if (authCode.redirect_uri !== redirect_uri) return tokenError('invalid_grant', 'Redirect URI mismatch');
+  if (!clientGrantTypes(client).includes('authorization_code')) {
+    return tokenError('unauthorized_client', 'This client may not use the authorization_code grant');
   }
 
-  // Verify redirect_uri matches
-  if (authCode.redirect_uri !== redirect_uri) {
-    return tokenError('invalid_grant', 'Redirect URI mismatch');
-  }
-
-  // Client authentication:
-  // - If client_secret is provided, always validate it
-  // - If no client_secret and no code_challenge (not PKCE/public client), require client_secret
-  // - PKCE flows (public clients) can skip client_secret
-  if (client_secret) {
-    const authResult = await authenticateClient(client_id, client_secret);
-    if (!authResult.valid) {
-      return tokenError('invalid_client', authResult.error || 'Invalid client credentials', 401);
-    }
-  } else if (!authCode.code_challenge) {
-    // Confidential client without PKCE must provide client_secret
-    return tokenError('invalid_client', 'client_secret is required for confidential clients', 401);
-  }
-
-  // PKCE validation
   if (authCode.code_challenge) {
-    if (!code_verifier) {
-      return tokenError('invalid_grant', 'code_verifier is required');
-    }
-    const pkceValid = validatePKCE(
-      code_verifier,
-      authCode.code_challenge,
-      authCode.code_challenge_method || 'S256'
-    );
-    if (!pkceValid) {
+    if (!code_verifier) return tokenError('invalid_grant', 'code_verifier is required');
+    // RFC 7636 4.1 shape, enforced for clients registered under OAuth 2.1.
+    if (!client.legacy_oauth2 && !/^[A-Za-z0-9\-._~]{43,128}$/.test(code_verifier)) return tokenError('invalid_grant', 'Malformed code_verifier');
+    if (!validatePKCE(code_verifier, authCode.code_challenge, authCode.code_challenge_method || 'S256')) {
       return tokenError('invalid_grant', 'PKCE validation failed');
     }
+  } else if (clientRequiresPkce(client) || isPublicClient(client)) {
+    // The authorize endpoint refuses these; a code minted before the client
+    // became PKCE-only must not slip through either.
+    return tokenError('invalid_grant', 'This client must use PKCE');
+  } else if (code_verifier) {
+    return tokenError('invalid_grant', 'code_verifier sent for a code issued without code_challenge');
   }
 
-  // Consume the code with a compare-and-swap.
-  //
-  // The `authCode.used` check above is a read, and this write was
-  // unconditional, so two exchanges of the same code both saw used=false and
-  // both received a full token set. An authorization code is single-use by
-  // definition — a stolen code could be replayed alongside the legitimate
-  // exchange. Only the request that flips used from false proceeds.
+  // Single use: compare-and-swap on `used`.
   const { data: consumed } = await supabase
     .from('oauth_authorization_codes')
     .update({ used: true })
     .eq('id', authCode.id)
     .eq('used', false)
     .select('id');
+  if (!consumed || consumed.length === 0) return tokenError('invalid_grant', 'Authorization code has already been used');
 
-  if (!consumed || consumed.length === 0) {
-    return tokenError('invalid_grant', 'Authorization code has already been used');
+  const scopes: string[] = authCode.scopes || ['openid'];
+  try {
+    const issued = await issueTokenSet(supabase, {
+      userId: authCode.user_id,
+      client,
+      scopes,
+      nonce: authCode.nonce,
+    });
+    await supabase.from('oauth_authorization_codes').update({ family_id: issued.familyId }).eq('id', authCode.id);
+    return ok(issued.body);
+  } catch {
+    return tokenError('server_error', 'Could not issue tokens', 500);
   }
-
-  // Get user info for token claims
-  // `merchants` has no `email_verified` column — confirmed against the live
-  // schema. Selecting it made PostgREST reject the whole query, so `merchant`
-  // came back null every time and the ID token silently carried neither email
-  // nor name for any user, whatever scopes were granted.
-  //
-  // The claim itself stays `false` because there is no verification flow to
-  // report on. Asserting `true` is what an RP uses to link an incoming identity
-  // to an existing local account, so a false positive here is an
-  // account-takeover primitive on their side. When a real verification flow
-  // lands, add the column and read it here.
-  const { data: merchant } = await supabase
-    .from('merchants')
-    .select('id, email, name')
-    .eq('id', authCode.user_id)
-    .single();
-
-  const user = merchant
-    ? { ...merchant, email_verified: false }
-    : { id: authCode.user_id, email: undefined, name: undefined, email_verified: false };
-
-  const client = { client_id };
-  const scopes = authCode.scopes || ['openid'];
-
-  // Generate tokens
-  const accessToken = generateAccessToken(user, client, scopes);
-  const idToken = scopes.includes('openid')
-    ? generateIdToken(user, client, scopes, authCode.nonce)
-    : undefined;
-
-  const refreshTokenValue = generateRefreshToken();
-
-  // Store refresh token
-  const refreshExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  // Only the hash is stored; the token itself goes to the client once.
-  await supabase.from('oauth_refresh_tokens').insert({
-    token: hashToken(refreshTokenValue),
-    client_id,
-    user_id: authCode.user_id,
-    scopes,
-    expires_at: refreshExpiresAt,
-  });
-
-  const response: Record<string, any> = {
-    access_token: accessToken,
-    token_type: 'Bearer',
-    expires_in: 3600,
-    refresh_token: refreshTokenValue,
-    scope: scopes.join(' '),
-  };
-
-  if (idToken) {
-    response.id_token = idToken;
-  }
-
-  return NextResponse.json(response, {
-    headers: { 'Cache-Control': 'no-store', Pragma: 'no-cache' },
-  });
 }
 
 async function handleRefreshToken(body: Record<string, string>) {
-  const { refresh_token, client_id, client_secret } = body;
-
+  const { refresh_token, client_id } = body;
   if (!refresh_token || !client_id) {
     return tokenError('invalid_request', 'Missing required parameters: refresh_token, client_id');
   }
-
-  // Authenticate the client.
-  //
-  // Rotation used to validate client_secret only when one happened to be
-  // supplied — so simply omitting it skipped authentication entirely, and a
-  // stolen refresh token alone was enough to mint access tokens indefinitely.
-  // A confidential client (one registered with a secret) must always present
-  // it; public clients, which have no secret to keep, are identified by the
-  // refresh token itself.
-  const clientRecord = await getOAuthClient(client_id);
-  if (!clientRecord) {
-    return tokenError('invalid_client', 'Unknown client', 401);
+  // Confidential clients always authenticate on refresh; public clients are
+  // identified by the (sender-unconstrained, so rotating) refresh token.
+  const auth = await authenticateTokenClient(body);
+  if (!auth.ok) return tokenError(auth.error, auth.description, auth.status);
+  if (!clientGrantTypes(auth.client).includes('refresh_token')) {
+    return tokenError('unauthorized_client', 'This client may not use the refresh_token grant');
   }
+  if (!isPresentableToken(refresh_token)) return tokenError('invalid_grant', 'Invalid refresh token');
 
-  const isConfidential = Boolean(clientRecord.client_secret);
+  const result = await rotateRefreshToken(getSupabase(), { presented: refresh_token, client: auth.client });
+  if (!result.ok) return tokenError(result.error, result.description, result.error === 'server_error' ? 500 : 400);
+  return ok(result.body);
+}
 
-  if (isConfidential || client_secret) {
-    if (!client_secret) {
-      return tokenError('invalid_client', 'client_secret is required for this client', 401);
-    }
-    const authResult = await authenticateClient(client_id, client_secret);
-    if (!authResult.valid) {
-      return tokenError('invalid_client', authResult.error || 'Invalid client credentials', 401);
-    }
+async function handleDeviceCode(body: Record<string, string>) {
+  const { device_code } = body;
+  if (!device_code || !body.client_id) return tokenError('invalid_request', 'Missing required parameters: device_code, client_id');
+
+  const auth = await authenticateTokenClient(body);
+  if (!auth.ok) return tokenError(auth.error, auth.description, auth.status);
+  const client = auth.client;
+  if (!clientGrantTypes(client).includes(GRANT_DEVICE_CODE)) {
+    return tokenError('unauthorized_client', 'This client may not use the device_code grant');
   }
 
   const supabase = getSupabase();
-
-  // Look up refresh token. Rows store sha256(token); rows issued before
-  // 2026-10-28 held the raw token until the migration hashed them, so both
-  // forms are looked up. A presented value already in hash form is refused,
-  // so a leaked hash can never be replayed as a token.
-  if (!isPresentableToken(refresh_token)) {
-    return tokenError('invalid_grant', 'Invalid refresh token');
-  }
-  const { data: storedToken, error } = await supabase
-    .from('oauth_refresh_tokens')
+  const { data: row } = await supabase
+    .from('oauth_device_codes')
     .select('*')
-    .eq('client_id', client_id)
-    .in('token', [hashToken(refresh_token), refresh_token])
+    .eq('device_code', hashToken(device_code))
     .maybeSingle();
+  if (!row || row.client_id !== client.client_id) return tokenError('invalid_grant', 'Invalid device_code');
 
-  if (error || !storedToken) {
-    return tokenError('invalid_grant', 'Invalid refresh token');
+  const now = Date.now();
+  if (new Date(row.expires_at).getTime() < now) return tokenError('expired_token', 'The device code has expired');
+  if (row.status === 'denied') return tokenError('access_denied', 'The user denied the request');
+  if (row.status === 'completed') return tokenError('invalid_grant', 'The device code has already been used');
+
+  // RFC 8628 3.5: polling faster than the interval earns slow_down and +5s.
+  const interval = Number(row.interval_seconds) || 5;
+  const last = row.last_polled_at ? new Date(row.last_polled_at).getTime() : 0;
+  if (last && now - last < interval * 1000) {
+    await supabase
+      .from('oauth_device_codes')
+      .update({ interval_seconds: Math.min(interval + 5, 60), last_polled_at: new Date(now).toISOString() })
+      .eq('id', row.id);
+    return tokenError('slow_down', `Poll no more than every ${interval + 5} seconds`);
+  }
+  await supabase.from('oauth_device_codes').update({ last_polled_at: new Date(now).toISOString() }).eq('id', row.id);
+
+  if (row.status !== 'approved' || !row.user_id) {
+    return tokenError('authorization_pending', 'The user has not approved the request yet');
   }
 
-  if (storedToken.revoked) {
-    return tokenError('invalid_grant', 'Refresh token has been revoked');
-  }
-
-  if (new Date(storedToken.expires_at) < new Date()) {
-    return tokenError('invalid_grant', 'Refresh token has expired');
-  }
-
-  // Revoke the old refresh token, conditioned on it still being live. Two
-  // concurrent refreshes would otherwise both revoke-and-reissue, leaving two
-  // valid successor tokens for one rotation.
-  const { data: rotated } = await supabase
-    .from('oauth_refresh_tokens')
-    .update({ revoked: true })
-    .eq('id', storedToken.id)
-    .eq('revoked', false)
+  const { data: claimed } = await supabase
+    .from('oauth_device_codes')
+    .update({ status: 'completed' })
+    .eq('id', row.id)
+    .eq('status', 'approved')
     .select('id');
+  if (!claimed || claimed.length === 0) return tokenError('invalid_grant', 'The device code has already been used');
 
-  if (!rotated || rotated.length === 0) {
-    return tokenError('invalid_grant', 'Refresh token has been revoked');
+  try {
+    const issued = await issueTokenSet(supabase, { userId: row.user_id, client, scopes: row.scopes || ['openid'] });
+    return ok(issued.body);
+  } catch {
+    return tokenError('server_error', 'Could not issue tokens', 500);
   }
-
-  // Get user info
-  // Same as above: no `email_verified` column exists, and selecting it broke
-  // the query outright.
-  const { data: merchant } = await supabase
-    .from('merchants')
-    .select('id, email, name')
-    .eq('id', storedToken.user_id)
-    .single();
-
-  const user = merchant
-    ? { ...merchant, email_verified: false }
-    : { id: storedToken.user_id, email_verified: false };
-  const client = { client_id };
-  const scopes = storedToken.scopes || ['openid'];
-
-  // Generate new tokens
-  const accessToken = generateAccessToken(user, client, scopes);
-  const newRefreshToken = generateRefreshToken();
-
-  // Store new refresh token
-  const refreshExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  await supabase.from('oauth_refresh_tokens').insert({
-    token: hashToken(newRefreshToken),
-    client_id,
-    user_id: storedToken.user_id,
-    scopes,
-    expires_at: refreshExpiresAt,
-  });
-
-  return NextResponse.json(
-    {
-      access_token: accessToken,
-      token_type: 'Bearer',
-      expires_in: 3600,
-      refresh_token: newRefreshToken,
-      scope: scopes.join(' '),
-    },
-    {
-      headers: { 'Cache-Control': 'no-store', Pragma: 'no-cache' },
-    }
-  );
 }
