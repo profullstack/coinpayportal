@@ -151,3 +151,20 @@ describe('remainingAllowanceUsd', () => {
     expect(checkAgentLimits('active', limits, spent, remaining! + 0.01).allowed).toBe(false);
   });
 });
+
+
+describe('retained agent spending windows', () => {
+  it.each([
+    ['hourlyUsd', 'lastHourUsd', 'hourly_limit'],
+    ['weeklyUsd', 'last7dUsd', 'weekly_limit'],
+    ['monthlyUsd', 'last30dUsd', 'monthly_limit'],
+    ['quarterlyUsd', 'last90dUsd', 'quarterly_limit'],
+    ['yearlyUsd', 'last365dUsd', 'yearly_limit'],
+  ] as const)('enforces %s alongside the existing daily and lifetime limits', (limit, spent, reason) => {
+    const limits = { ...unlimited, [limit]: 100 };
+    const spending = { ...nothingSpent, [spent]: 95 };
+    expect(checkAgentLimits('active', limits, spending, 5).allowed).toBe(true);
+    expect(checkAgentLimits('active', limits, spending, 5.01).reason).toBe(reason);
+    expect(remainingAllowanceUsd('active', limits, spending)).toBe(5);
+  });
+});

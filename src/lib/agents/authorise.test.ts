@@ -86,6 +86,12 @@ function fakeSupabase(options: {
 const recently = () => new Date(Date.now() - 60_000).toISOString();
 const longAgo = () => new Date(Date.now() - 40 * 60 * 60 * 1000).toISOString();
 
+it('preserves Solana address case while normalising EVM prefixes consistently', () => {
+  const solana = '7EqQdEULxWcraVx3mXKFjc84LhCkMGZCkRuDpvcMwJeK';
+  expect(normaliseAddress(` ${solana} `)).toBe(solana);
+  expect(normaliseAddress(AGENT_ADDRESS.toUpperCase())).toBe(AGENT_ADDRESS);
+});
+
 describe('a payer that is not an agent', () => {
   it('is allowed through untouched', async () => {
     const { client } = fakeSupabase({ agent: null });
@@ -257,6 +263,6 @@ describe('usdFromTokenUnits', () => {
 
 describe('normaliseAddress', () => {
   it('folds case and trims, so a lookup is an equality test', () => {
-    expect(normaliseAddress('  0xAbC  ')).toBe('0xabc');
+    expect(normaliseAddress(`  ${AGENT_ADDRESS.toUpperCase()}  `)).toBe(AGENT_ADDRESS);
   });
 });

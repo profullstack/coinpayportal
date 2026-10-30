@@ -4,6 +4,7 @@
  */
 
 import { LightningClient } from './lightning.js';
+import { AgentWalletClient } from './agents.js';
 
 const DEFAULT_BASE_URL = 'https://coinpayportal.com/api';
 
@@ -29,6 +30,8 @@ export class CoinPayClient {
 
     /** @type {LightningClient} Lightning/BOLT12 operations */
     this.lightning = new LightningClient(this);
+    /** Capped wallets for bots and agent fleets. */
+    this.agents = new AgentWalletClient(this);
   }
 
   /** The API base this client talks to (read-only). */

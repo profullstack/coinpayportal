@@ -14,6 +14,7 @@ export interface AgentWallet {
   businessId: string;
   name: string;
   address: string;
+  network: string;
   status: AgentStatus;
   limits: AgentLimits;
   createdAt: string;
@@ -25,9 +26,15 @@ interface AgentWalletRow {
   business_id: string;
   name: string;
   address: string;
+  network?: string;
   status: AgentStatus;
   per_payment_limit_usd: string | number | null;
+  hourly_limit_usd?: string | number | null;
   daily_limit_usd: string | number | null;
+  weekly_limit_usd?: string | number | null;
+  monthly_limit_usd?: string | number | null;
+  quarterly_limit_usd?: string | number | null;
+  yearly_limit_usd?: string | number | null;
   total_limit_usd: string | number | null;
   created_at: string;
   updated_at: string;
@@ -39,7 +46,7 @@ interface AgentWalletRow {
  * range, so parsing is safe here, but it has to be done explicitly rather than
  * left to a comparison between a string and a number.
  */
-const toNumber = (value: string | number | null): number | null => {
+const toNumber = (value: string | number | null | undefined): number | null => {
   if (value === null) return null;
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -50,10 +57,16 @@ export const rowToAgent = (row: AgentWalletRow): AgentWallet => ({
   businessId: row.business_id,
   name: row.name,
   address: row.address,
+  network: row.network ?? 'evm',
   status: row.status,
   limits: {
     perPaymentUsd: toNumber(row.per_payment_limit_usd),
+    hourlyUsd: toNumber(row.hourly_limit_usd),
     dailyUsd: toNumber(row.daily_limit_usd),
+    weeklyUsd: toNumber(row.weekly_limit_usd),
+    monthlyUsd: toNumber(row.monthly_limit_usd),
+    quarterlyUsd: toNumber(row.quarterly_limit_usd),
+    yearlyUsd: toNumber(row.yearly_limit_usd),
     totalUsd: toNumber(row.total_limit_usd),
   },
   createdAt: row.created_at,
@@ -65,7 +78,10 @@ export const rowToAgent = (row: AgentWalletRow): AgentWallet => ({
  * comparison and every stored row uses the fold, so that a lookup is an
  * equality test on an indexed column rather than a scan.
  */
-export const normaliseAddress = (address: string): string => address.trim().toLowerCase();
+export const normaliseAddress = (address: string): string => {
+  const trimmed = address.trim();
+  return /^0x[0-9a-f]{40}$/i.test(trimmed) ? trimmed.toLowerCase() : trimmed;
+};
 
 /**
  * The agent registered for a payer address, or null when the address belongs to
@@ -101,23 +117,25 @@ export async function getSpending(
   agentWalletId: string,
   now: Date = new Date(),
 ): Promise<AgentSpending> {
-  const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const windows = [60 * 60 * 1000, 24 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000, 30 * 24 * 60 * 60 * 1000, 90 * 24 * 60 * 60 * 1000, 365 * 24 * 60 * 60 * 1000]
+    .map((duration) => now.getTime() - duration);
 
   const { data, error } = await supabase
     .from('agent_spends')
     .select('amount_usd, created_at')
     .eq('agent_wallet_id', agentWalletId);
 
-  if (error || !data) return { last24hUsd: 0, lifetimeUsd: 0 };
+  if (error || !data) return { lastHourUsd: 0, last24hUsd: 0, last7dUsd: 0, last30dUsd: 0, last90dUsd: 0, last365dUsd: 0, lifetimeUsd: 0 };
 
-  let last24hUsd = 0;
+  const sums = [0, 0, 0, 0, 0, 0];
   let lifetimeUsd = 0;
   for (const row of data as { amount_usd: string | number; created_at: string }[]) {
     const amount = toNumber(row.amount_usd) ?? 0;
     lifetimeUsd += amount;
-    if (row.created_at >= since) last24hUsd += amount;
+    const created = new Date(row.created_at).getTime();
+    windows.forEach((start, index) => { if (created >= start) sums[index] += amount; });
   }
-  return { last24hUsd, lifetimeUsd };
+  return { lastHourUsd: sums[0], last24hUsd: sums[1], last7dUsd: sums[2], last30dUsd: sums[3], last90dUsd: sums[4], last365dUsd: sums[5], lifetimeUsd };
 }
 
 /**

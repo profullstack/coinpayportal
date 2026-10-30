@@ -37,6 +37,7 @@
  */
 
 import { CoinPayClient } from './client.js';
+import { AgentWalletClient } from './agents.js';
 import {
   createPayment,
   getPayment,
@@ -262,6 +263,7 @@ import {
 } from './finances.js';
 
 export {
+  AgentWalletClient,
   // Client
   CoinPayClient,
   

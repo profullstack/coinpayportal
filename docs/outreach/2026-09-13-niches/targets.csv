@@ -1,0 +1,91 @@
+id,account_rank,niche_rank,niche_id,niche,company,domain,target_role,contact_url,contact_email,contact_source_url,contact_status,crypto_status,evidence,source_urls,source_checked_at,pain_hypothesis,pain_status,integration,qualification,disqualifier,search_query,score,payment_friction_score,crypto_demand_score,integration_fit_score,reachability_score,switching_penalty,status,send_approved,campaign_id,do_not_contact,subject,message
+coinpay-20260913-01,1,1,esim_refills,Travel eSIM and mobile-data refills,Keepgo,keepgo.com,Head of payments or eSIM partnerships,https://www.keepgo.com/pages/contact-us,info@keepgo.com,https://www.keepgo.com/pages/contact-us,public_role_channel_only,Already accepts crypto,Terms document a crypto surcharge and support-assisted underpayments.,https://www.keepgo.com/pages/terms-of-service | https://faq.keepgo.com/kb/keepgo-esim/what-payment-methods-may-i-use-to-recharge-keepgo-esim,2026-09-13,A small refill pilot may reduce payment exceptions; current costs and failure rates require discovery.,hypothesis_requires_discovery,Hosted checkout plus a custom webhook that credits one refill exactly once.,"Confirm surcharge scope, provider contract, smallest economical refill, refund handling and telecom eligibility. Retain country and identity rules.","No payment exceptions, no interest in another rail, or no compatible refill API.","""eSIM"" ""cryptocurrency"" ""refill"" ""payment""",9,3,3,2,2,1,research_draft,false,,false,A crypto-refill pilot for Keepgo,"Hi Keepgo team,
+
+Your payment docs already cover crypto refills. I run CoinPay at Profullstack. Would a small pilot connecting hosted crypto checkout to one refill SKU help your payments team compare exception handling and total cost? We would preserve your existing account and country checks and measure successful refill delivery, not just a transaction hash.
+
+Worth a short workflow review?
+
+Anthony | Profullstack
+https://coinpayportal.com
+If this is not relevant, let me know and I will close it out."
+coinpay-20260913-02,2,2,hosting,"Independent VPS, dedicated hosting and domain services",OrangeWebsite,orangewebsite.com,Billing operations lead or owner,https://secure.orangewebsite.com/submitticket.php,,https://secure.orangewebsite.com/submitticket.php,public_role_channel_only,Already uses BitPay and CoinPayments; automated invoice marking documented,Official crypto-hosting page describes existing gateways and automatic invoice updates.,https://orangewebsite.com/company/bitcoin-crypto-currency | https://orangewebsite.com/pages/faq,2026-09-13,Another gateway is useful only if there is an unmet billing or maintenance need.,hypothesis_requires_discovery,WHMCS or FOSSBilling gateway if the actual billing stack matches; otherwise hosted checkout/API.,"Confirm billing software/version, existing gateway maintenance burden and lawful hosting policy. Do not assume manual reconciliation.",Existing automated flow meets needs; merchant requires a feature absent from the working plugin.,"""VPS"" ""WHMCS"" ""crypto"" ""billing""",8,1,3,3,3,2,research_draft,false,,false,A second crypto gateway for hosting invoices,"Hi OrangeWebsite team,
+
+I saw that your crypto invoices already reconcile automatically through BitPay and CoinPayments. I run CoinPay at Profullstack. We have implemented WHMCS and FOSSBilling gateways; if either matches your stack, we could compare one invoice flow and the effort of maintaining another gateway.
+
+Is there an unresolved billing workflow worth testing?
+
+Anthony | Profullstack
+https://coinpayportal.com
+If this is not relevant, let me know and I will close it out."
+coinpay-20260913-03,3,3,paid_apis,Commercial data APIs and agent tools,Geoapify,geoapify.com,API product lead or founder,https://www.geoapify.com/pricing/,,https://www.geoapify.com/pricing/,public_role_channel_only,Not established by reviewed sources,Geoapify publishes an MCP server and credit-based API pricing.,https://apidocs.geoapify.com/docs/mcp/ | https://www.geoapify.com/pricing/,2026-09-13,Agent developers may want a separately priced request or credit pack without changing their main subscription.,hypothesis_requires_discovery,Scoped x402 v2 proof of concept for one EVM/USDC API offer; agree fee model before commercial launch.,"Validate paying-agent demand, data license, tax/account requirements, settlement success and per-request economics. Pricing page has a Contact Us control.","No demand outside existing API-key billing, required identity cannot be preserved, or x402 economics unresolved.","""API"" ""MCP"" ""credits"" ""pricing""",8,2,1,3,2,0,research_draft,false,,false,A paid-agent API pilot alongside Geoapify credits,"Hi Geoapify team,
+
+Your MCP server makes location tools available to agents. I run CoinPay at Profullstack. We could prototype one separately priced API offer using our x402 payment flow, while keeping your existing credits, attribution and access rules.
+
+Would testing whether agents will buy that offer be useful? We would agree the commercial terms before any paid rollout.
+
+Anthony | Profullstack
+https://coinpayportal.com
+If this is not relevant, let me know and I will close it out."
+coinpay-20260913-04,4,4,security_training,Authorized cybersecurity labs and training,PentesterLab,pentesterlab.com,Founder or training platform owner,https://pentesterlab.com/exercises,support@pentesterlab.com,https://pentesterlab.com/exercises,public_role_channel_only,Not established; terms list card and PayPal,PentesterLab sells hands-on training; terms describe manual invoicing when automatic billing fails.,https://pentesterlab.com/terms | https://pentesterlab.com/about,2026-09-13,One-time course or lab access could serve eligible learners who ask to pay from a wallet.,hypothesis_requires_discovery,Hosted invoice/checkout with custom entitlement delivery after confirmed payment; start with a fixed-duration purchase.,"Confirm actual buyer requests, tax invoices and access control. Scope to authorized labs; no unauthorized attack services. Do not promise recurring wallet debits.","No wallet-paying demand, or project requires automatic subscription charging from arbitrary wallets.","""security training"" ""payment methods"" ""labs""",7,1,1,2,3,0,research_draft,false,,false,Wallet checkout for a one-time training purchase,"Hi PentesterLab team,
+
+I run CoinPay at Profullstack. For learners who ask to pay from a crypto wallet, we could pilot one fixed-duration training purchase: hosted checkout followed by an entitlement update after payment confirmation.
+
+Are wallet-payment requests common enough to make that worth exploring? Your existing billing and training access rules would define the integration.
+
+Anthony | Profullstack
+https://coinpayportal.com
+If this is not relevant, let me know and I will close it out."
+coinpay-20260913-05,5,5,lawful_supplements,Lawfully marketed dietary supplements,Nootropics Depot,nootropicsdepot.com,Ecommerce payments or operations lead,https://support.nootropicsdepot.com/article/43-how-do-i-contact-nootropics-depot,,https://support.nootropicsdepot.com/article/43-how-do-i-contact-nootropics-depot,public_role_channel_only,Not established; published accepted-payment list does not list crypto,Support docs describe product/region-specific payment availability and manual card verification.,https://support.nootropicsdepot.com/article/36-accepted-forms-of-payment | https://nootropicsdepot.com/payment-verification/,2026-09-13,An additional payment option may help eligible buyers of permitted products; restrictions remain in force.,hypothesis_requires_discovery,Hosted checkout/API for a reviewed subset of SKUs and destinations; confirm storefront integration.,"Review exact SKU, claims, ingredients, destination and CoinPay eligibility before a pilot. Exclude unapproved drugs, peptides, controlled substances and prohibited shipment routes.",Purpose is to bypass a product/destination prohibition or merchant cannot isolate an eligible catalog.,"""dietary supplements"" ""payment methods"" ""international""",7,3,1,2,2,1,research_draft,false,,false,A limited crypto-checkout pilot for eligible products,"Hi Nootropics Depot team,
+
+I run CoinPay at Profullstack. Your support pages explain that payment availability can vary by product and region. For products and destinations you already permit, would a limited crypto-checkout pilot be useful?
+
+We would start with a reviewed catalog subset and measure checkout completion and payment support work. Product and shipping restrictions would remain part of checkout.
+
+Anthony | Profullstack
+https://coinpayportal.com
+If this is not relevant, let me know and I will close it out."
+coinpay-20260913-06,6,6,adult_wellness,Adult wellness and intimate-care retail,Spectrum Boutique,spectrumboutique.com,Owner or ecommerce lead,https://spectrumboutique.com/pages/contact,,https://spectrumboutique.com/pages/contact,public_role_channel_only,Not established by reviewed sources,Retailer FAQ discusses discreet billing and the limits of card-statement descriptors.,https://spectrumboutique.com/pages/faqs | https://spectrumboutique.com/pages/terms-of-service,2026-09-13,Some adult customers may prefer wallet checkout; neither conversion lift nor merchant account trouble is established.,hypothesis_requires_discovery,Hosted checkout/API after storefront review; Shopify native payment integration is not a working off-the-shelf promise.,Limit to lawful retail products and adult buyers; confirm country/product rules and approved integration path. Public-chain payments are not anonymous.,Merchant wants guaranteed anonymity or unsupported Shopify native checkout.,"""intimate wellness"" ""discreet billing"" ""online store""",7,2,1,2,2,0,research_draft,false,,false,Optional wallet checkout for Spectrum customers,"Hi Spectrum team,
+
+I run CoinPay at Profullstack. Your FAQ puts thought into customers' billing preferences. If customers ask to pay from a crypto wallet, we could review an optional hosted checkout for a small set of eligible retail products.
+
+The first step would be checking your storefront integration and order updates. Have you seen enough wallet-payment demand to test it?
+
+Anthony | Profullstack
+https://coinpayportal.com
+If this is not relevant, let me know and I will close it out."
+coinpay-20260913-07,7,7,gpu_compute,GPU inference and compute-credit services,Runpod,runpod.io,Payments product lead or developer-platform partnerships,https://www.runpod.io/contact,,https://www.runpod.io/contact,public_role_channel_only,Already accepts crypto through payment processors,Billing docs offer crypto deposits and a credit-balance model.,https://docs.runpod.io/accounts-billing/billing | https://www.runpod.io/legal/terms-of-service,2026-09-13,A scoped agent-funded credit purchase might serve a new workflow; no incumbent payment failure is established.,hypothesis_requires_discovery,Custom one-time credit top-up through hosted checkout; x402 v2 is a separate experimental integration.,"Retain account, use-policy and identity checks; verify duplicate credits, refunds and cost of small purchases. x402 commercial terms remain open.",Existing crypto top-ups already satisfy demand or project expects a drop-in replacement for compute metering.,"""GPU cloud"" ""cryptocurrency"" ""credits""",6,1,3,2,2,2,research_draft,false,,false,A scoped agent-funded compute-credit pilot,"Hi Runpod team,
+
+Your billing docs already support crypto deposits. I run CoinPay at Profullstack. We are exploring a separate workflow: an authorized agent buying a bounded amount of compute credit, with an explicit link between payment and credited account.
+
+Would a small integration discussion be useful? We would preserve your account checks and compare it with your existing deposit flow before proposing changes.
+
+Anthony | Profullstack
+https://coinpayportal.com
+If this is not relevant, let me know and I will close it out."
+coinpay-20260913-08,8,8,licensed_digital_goods,First-party audio software and sound libraries,u-he,u-he.com,Ecommerce or business-development lead,https://u-he.com/support/,support@u-he.com,https://u-he.com/support/,public_role_channel_only,Not established; existing checkout routes through Cleverbridge,Support page documents Cleverbridge checkout and license/download delivery.,https://u-he.com/support/ | https://u-he.com/support/faq/contact/,2026-09-13,"Wallet checkout may serve incremental direct customers, but the existing commerce provider can cover more than payment.",hypothesis_requires_discovery,"Hosted checkout plus custom license issuance only if merchant-of-record, tax and distribution responsibilities are resolved.","First-party authorized catalog only. Confirm Cleverbridge contract, tax/refund responsibilities and license API. EDD plugin is a stub.",Merchant requires CoinPay to replace merchant-of-record obligations or no wallet demand exists.,"""audio plugins"" ""soundsets"" ""payment methods""",5,1,1,2,2,1,research_draft,false,,false,An optional wallet route for direct software purchases,"Hi u-he team,
+
+I saw that your checkout runs through Cleverbridge. I run CoinPay at Profullstack. If you receive requests to buy directly from a crypto wallet, we could assess a small hosted-checkout pilot linked to license delivery.
+
+It would first need to fit your existing commerce contract and tax process. Is there enough customer demand to warrant that review?
+
+Anthony | Profullstack
+https://coinpayportal.com
+If this is not relevant, let me know and I will close it out."
+coinpay-20260913-09,9,9,privacy_vpn,Privacy-focused VPN subscriptions,IVPN,ivpn.net,Founder or payments engineering lead,https://www.ivpn.net/contactus/,support@ivpn.net,https://www.ivpn.net/contactus/,public_role_channel_only,Self-hosted BTCPay for Bitcoin and self-hosted Monero,IVPN's payment FAQ documents its own crypto infrastructure.,https://www.ivpn.net/knowledgebase/general/what-payment-methods-do-you-accept | https://www.ivpn.net/en/refunds/,2026-09-13,An extra supported asset could matter only if customers request it; current independence makes switching unattractive.,hypothesis_requires_discovery,Optional fixed-term invoice for a supported asset; preserve existing BTC/Monero checkout. CoinPay Monero support is not established.,Confirm actual stablecoin demand and acceptance of hosted-checkout custody. Stop if self-hosting is a core requirement.,"Merchant requires self-hosted custody for every rail, requires Monero, or sees no additional buyer demand.","""VPN"" ""BTCPay"" ""payment methods""",5,0,3,2,2,2,research_draft,false,,false,Any unmet demand beyond your current crypto checkout?,"Hi IVPN team,
+
+I saw that you run your own Bitcoin and Monero payment infrastructure. I run CoinPay at Profullstack. Have customers requested a stablecoin payment option that you do not currently want to maintain yourselves?
+
+If so, we could evaluate a separate fixed-term checkout. Our hosted on-chain payments use an address we control before forwarding, so that custody tradeoff would need to fit your requirements.
+
+Anthony | Profullstack
+https://coinpayportal.com
+If this is not relevant, let me know and I will close it out."
+coinpay-20260913-10,10,10,physical_bullion,Established physical bullion and collectible-coin dealers,JM Bullion,jmbullion.com,Payments product or ecommerce operations lead,https://www.jmbullion.com/contact/payment/,,https://www.jmbullion.com/contact/payment/,public_role_channel_only,Already processes Bitcoin orders with BitPay,Current support article identifies BitPay as its Bitcoin processor.,https://help.jmbullion.com/article/118-how-do-i-pay-with-bitcoin | https://www.jmbullion.com/contact/payment/,2026-09-13,A second rail could be relevant only to a specific checkout exception; incumbent coverage makes this a low-priority account.,hypothesis_requires_discovery,"Discovery only initially; assess price-lock expiry, confirmation, shipping and treasury requirements before custom checkout.","Physical inventory with legitimate title; preserve verification and sale rules. Confirm settlement currency, refunds and quote expiry. CoinPay does not establish an equivalent fiat merchant-of-record service.","Requires guaranteed fiat conversion, account-check bypass, or complete incumbent feature parity.","""bullion dealer"" ""BitPay"" ""payment methods""",4,1,3,1,1,2,research_draft,false,,false,A focused checkout workflow review,"Hi JM Bullion team,
+
+I saw that you already process Bitcoin orders through BitPay. I run CoinPay at Profullstack. If there is a specific crypto-checkout exception your team still handles manually, we could assess whether a limited second-rail pilot would help.
+
+We would first review price locks, verification, refunds and settlement-currency requirements. Is there an unresolved workflow worth discussing?
+
+Anthony | Profullstack
+https://coinpayportal.com
+If this is not relevant, let me know and I will close it out."
