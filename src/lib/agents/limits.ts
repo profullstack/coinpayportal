@@ -19,14 +19,24 @@
 /** The limits on one agent. Null means unlimited for that dimension. */
 export interface AgentLimits {
   perPaymentUsd: number | null;
+  hourlyUsd?: number | null;
   dailyUsd: number | null;
+  weeklyUsd?: number | null;
+  monthlyUsd?: number | null;
+  quarterlyUsd?: number | null;
+  yearlyUsd?: number | null;
   totalUsd: number | null;
 }
 
 /** What the agent has already spent, in USD. */
 export interface AgentSpending {
+  lastHourUsd?: number;
   /** Spent in the rolling window the daily limit covers. */
   last24hUsd: number;
+  last7dUsd?: number;
+  last30dUsd?: number;
+  last90dUsd?: number;
+  last365dUsd?: number;
   /** Spent over the agent's whole life. */
   lifetimeUsd: number;
 }
@@ -38,7 +48,12 @@ export type RefusalReason =
   | 'agent_paused'
   | 'agent_revoked'
   | 'per_payment_limit'
+  | 'hourly_limit'
   | 'daily_limit'
+  | 'weekly_limit'
+  | 'monthly_limit'
+  | 'quarterly_limit'
+  | 'yearly_limit'
   | 'total_limit';
 
 export interface LimitDecision {
@@ -105,6 +120,11 @@ export function checkAgentLimits(
   }
 
   const { perPaymentUsd, dailyUsd, totalUsd } = limits;
+  const hourlyUsd = limits.hourlyUsd ?? null;
+  const weeklyUsd = limits.weeklyUsd ?? null;
+  const monthlyUsd = limits.monthlyUsd ?? null;
+  const quarterlyUsd = limits.quarterlyUsd ?? null;
+  const yearlyUsd = limits.yearlyUsd ?? null;
 
   if (perPaymentUsd !== null && amountUsd > perPaymentUsd) {
     return refuse(
@@ -115,15 +135,19 @@ export function checkAgentLimits(
     );
   }
 
-  if (dailyUsd !== null) {
-    const remaining = Math.max(0, dailyUsd - spending.last24hUsd);
+  const windows: Array<[number | null, number, RefusalReason, string]> = [
+    [hourlyUsd, spending.lastHourUsd ?? 0, 'hourly_limit', 'hourly'],
+    [dailyUsd, spending.last24hUsd, 'daily_limit', 'daily'],
+    [weeklyUsd, spending.last7dUsd ?? 0, 'weekly_limit', 'weekly'],
+    [monthlyUsd, spending.last30dUsd ?? 0, 'monthly_limit', 'monthly'],
+    [quarterlyUsd, spending.last90dUsd ?? 0, 'quarterly_limit', 'quarterly'],
+    [yearlyUsd, spending.last365dUsd ?? 0, 'yearly_limit', 'yearly'],
+  ];
+  for (const [limit, spent, reason, label] of windows) {
+    if (limit === null) continue;
+    const remaining = Math.max(0, limit - spent);
     if (amountUsd > remaining) {
-      return refuse(
-        'daily_limit',
-        `Payment of ${money(amountUsd)} is over this agent's remaining daily allowance of ${money(remaining)}.`,
-        dailyUsd,
-        remaining,
-      );
+      return refuse(reason, `Payment of ${money(amountUsd)} is over this agent's remaining ${label} allowance of ${money(remaining)}.`, limit, remaining);
     }
   }
 
@@ -156,7 +180,12 @@ export function remainingAllowanceUsd(
 
   const candidates: number[] = [];
   if (limits.perPaymentUsd !== null) candidates.push(limits.perPaymentUsd);
+  if (limits.hourlyUsd != null) candidates.push(Math.max(0, limits.hourlyUsd - (spending.lastHourUsd ?? 0)));
   if (limits.dailyUsd !== null) candidates.push(Math.max(0, limits.dailyUsd - spending.last24hUsd));
+  if (limits.weeklyUsd != null) candidates.push(Math.max(0, limits.weeklyUsd - (spending.last7dUsd ?? 0)));
+  if (limits.monthlyUsd != null) candidates.push(Math.max(0, limits.monthlyUsd - (spending.last30dUsd ?? 0)));
+  if (limits.quarterlyUsd != null) candidates.push(Math.max(0, limits.quarterlyUsd - (spending.last90dUsd ?? 0)));
+  if (limits.yearlyUsd != null) candidates.push(Math.max(0, limits.yearlyUsd - (spending.last365dUsd ?? 0)));
   if (limits.totalUsd !== null) candidates.push(Math.max(0, limits.totalUsd - spending.lifetimeUsd));
 
   return candidates.length ? Math.min(...candidates) : null;

@@ -53,14 +53,15 @@ describe('validateAgentInput', () => {
     expect(validateAgentInput({ ...base, name: '   ' }).error).toMatch(/name is required/);
   });
 
-  it('refuses anything that is not an EVM address', () => {
-    expect(validateAgentInput({ ...base, address: '0x123' }).ok).toBe(false);
-    expect(validateAgentInput({ ...base, address: 'not-an-address' }).ok).toBe(false);
-    // A Solana address is the realistic mistake, and it is the right length to
-    // look plausible.
-    expect(
-      validateAgentInput({ ...base, address: '7EqQdEULxWcraVx3mXKFjc84LhCkMGZCkRuDpvcMwJeK' }).ok,
-    ).toBe(false);
+  it('keeps case-sensitive multi-chain addresses intact and validates input bounds', () => {
+    const address = '7EqQdEULxWcraVx3mXKFjc84LhCkMGZCkRuDpvcMwJeK';
+    const result = validateAgentInput({ ...base, address, network: 'Solana' });
+    expect(result.ok).toBe(true);
+    expect(result.value!.address).toBe(address);
+    expect(result.value!.network).toBe('solana');
+    expect(validateAgentInput({ ...base, address: ' ' }).ok).toBe(false);
+    expect(validateAgentInput({ ...base, address: 'a'.repeat(513) }).ok).toBe(false);
+    expect(validateAgentInput({ ...base, network: 'bad network' }).ok).toBe(false);
   });
 
   it('refuses a limit that could never apply', () => {

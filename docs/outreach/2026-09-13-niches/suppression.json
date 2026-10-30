@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-09-13",
+  "scope": "This initiative; merge with the sending system's current suppression list.",
+  "domains": [
+    {
+      "domain": "instantpeptides.com",
+      "reason": "Prior decline in supplied private conversation",
+      "status": "do_not_contact",
+      "source": "User-provided correspondence; original message is not reproduced"
+    }
+  ]
+}

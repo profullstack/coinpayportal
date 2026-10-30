@@ -8,6 +8,7 @@
  */
 
 import type { AgentStatus } from './limits';
+import { normaliseAddress } from './store';
 
 /** A limit as it arrives: a number, null for "no limit", or absent. */
 export type LimitInput = number | null | undefined;
@@ -15,8 +16,14 @@ export type LimitInput = number | null | undefined;
 export interface AgentInput {
   name: string;
   address: string;
+  network: string;
   perPaymentLimitUsd: number | null;
+  hourlyLimitUsd: number | null;
   dailyLimitUsd: number | null;
+  weeklyLimitUsd: number | null;
+  monthlyLimitUsd: number | null;
+  quarterlyLimitUsd: number | null;
+  yearlyLimitUsd: number | null;
   totalLimitUsd: number | null;
   status: AgentStatus;
 }
@@ -33,8 +40,8 @@ const pass = <T>(value: T): ValidationResult<T> => ({ ok: true, value, error: nu
 /** The statuses an operator may set. `revoked` is deliberately included: it is final, and that is the point. */
 export const AGENT_STATUSES: AgentStatus[] = ['active', 'paused', 'revoked'];
 
-/** 0x plus 40 hex characters. Case is not checked because it is folded away. */
-const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+/** Chain labels are intentionally open-ended so a new network can be registered without a code deploy. */
+const NETWORK = /^[a-z0-9][a-z0-9._:-]{0,63}$/i;
 
 /**
  * A dollar limit.
@@ -75,16 +82,26 @@ export function validateAgentInput(body: unknown): ValidationResult<AgentInput> 
   if (!name) return fail('name is required.');
   if (name.length > 120) return fail('name must be 120 characters or fewer.');
 
-  const address = typeof input.address === 'string' ? input.address.trim() : '';
+  const address = typeof input.address === 'string' ? normaliseAddress(input.address) : '';
   if (!address) return fail('address is required.');
-  if (!EVM_ADDRESS.test(address)) {
-    return fail('address must be an EVM address: 0x followed by 40 hex characters.');
-  }
+  if (address.length > 512) return fail('address must be 512 characters or fewer.');
+  const network = typeof input.network === 'string' && input.network.trim() ? input.network.trim().toLowerCase() : 'solana';
+  if (!NETWORK.test(network)) return fail('network must be a short chain name, such as solana or ethereum.');
 
   const perPayment = validateLimit(input.perPaymentLimitUsd as LimitInput, 'perPaymentLimitUsd');
   if (!perPayment.ok) return fail(perPayment.error!);
+  const hourly = validateLimit(input.hourlyLimitUsd as LimitInput, 'hourlyLimitUsd');
+  if (!hourly.ok) return fail(hourly.error!);
   const daily = validateLimit(input.dailyLimitUsd as LimitInput, 'dailyLimitUsd');
   if (!daily.ok) return fail(daily.error!);
+  const weekly = validateLimit(input.weeklyLimitUsd as LimitInput, 'weeklyLimitUsd');
+  if (!weekly.ok) return fail(weekly.error!);
+  const monthly = validateLimit(input.monthlyLimitUsd as LimitInput, 'monthlyLimitUsd');
+  if (!monthly.ok) return fail(monthly.error!);
+  const quarterly = validateLimit(input.quarterlyLimitUsd as LimitInput, 'quarterlyLimitUsd');
+  if (!quarterly.ok) return fail(quarterly.error!);
+  const yearly = validateLimit(input.yearlyLimitUsd as LimitInput, 'yearlyLimitUsd');
+  if (!yearly.ok) return fail(yearly.error!);
   const total = validateLimit(input.totalLimitUsd as LimitInput, 'totalLimitUsd');
   if (!total.ok) return fail(total.error!);
 
@@ -106,9 +123,15 @@ export function validateAgentInput(body: unknown): ValidationResult<AgentInput> 
 
   return pass({
     name,
-    address: address.toLowerCase(),
+    address,
+    network,
     perPaymentLimitUsd: perPayment.value,
+    hourlyLimitUsd: hourly.value,
     dailyLimitUsd: daily.value,
+    weeklyLimitUsd: weekly.value,
+    monthlyLimitUsd: monthly.value,
+    quarterlyLimitUsd: quarterly.value,
+    yearlyLimitUsd: yearly.value,
     totalLimitUsd: total.value,
     status,
   });
@@ -119,7 +142,12 @@ export interface AgentPatch {
   name?: string;
   status?: AgentStatus;
   perPaymentLimitUsd?: number | null;
+  hourlyLimitUsd?: number | null;
   dailyLimitUsd?: number | null;
+  weeklyLimitUsd?: number | null;
+  monthlyLimitUsd?: number | null;
+  quarterlyLimitUsd?: number | null;
+  yearlyLimitUsd?: number | null;
   totalLimitUsd?: number | null;
 }
 
@@ -151,7 +179,7 @@ export function validateAgentPatch(body: unknown): ValidationResult<AgentPatch> 
     patch.status = status;
   }
 
-  for (const field of ['perPaymentLimitUsd', 'dailyLimitUsd', 'totalLimitUsd'] as const) {
+  for (const field of ['perPaymentLimitUsd', 'hourlyLimitUsd', 'dailyLimitUsd', 'weeklyLimitUsd', 'monthlyLimitUsd', 'quarterlyLimitUsd', 'yearlyLimitUsd', 'totalLimitUsd'] as const) {
     if (!(field in input)) continue;
     const result = validateLimit(input[field] as LimitInput, field);
     if (!result.ok) return fail(result.error!);
@@ -170,7 +198,12 @@ export const COLUMN_FOR: Record<keyof AgentPatch, string> = {
   name: 'name',
   status: 'status',
   perPaymentLimitUsd: 'per_payment_limit_usd',
+  hourlyLimitUsd: 'hourly_limit_usd',
   dailyLimitUsd: 'daily_limit_usd',
+  weeklyLimitUsd: 'weekly_limit_usd',
+  monthlyLimitUsd: 'monthly_limit_usd',
+  quarterlyLimitUsd: 'quarterly_limit_usd',
+  yearlyLimitUsd: 'yearly_limit_usd',
   totalLimitUsd: 'total_limit_usd',
 };
 

@@ -31,7 +31,7 @@ function getSupabase() {
 
 /** Authenticate, and return the business id or the response to send instead. */
 async function authenticate(request: NextRequest) {
-  const apiKey = request.headers.get('x-api-key');
+  const apiKey = request.headers.get('x-api-key') || request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
   if (!apiKey) {
     return { error: NextResponse.json({ error: 'API key required' }, { status: 401 }) };
   }
@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
           id: agent.id,
           name: agent.name,
           address: agent.address,
+          network: agent.network,
           status: agent.status,
           limits: {
             perPaymentUsd: agent.limits.perPaymentUsd,
@@ -119,9 +120,15 @@ export async function POST(request: NextRequest) {
         business_id: businessId,
         name: input.value!.name,
         address: input.value!.address,
+        network: input.value!.network,
         status: input.value!.status,
         per_payment_limit_usd: input.value!.perPaymentLimitUsd,
+        hourly_limit_usd: input.value!.hourlyLimitUsd,
         daily_limit_usd: input.value!.dailyLimitUsd,
+        weekly_limit_usd: input.value!.weeklyLimitUsd,
+        monthly_limit_usd: input.value!.monthlyLimitUsd,
+        quarterly_limit_usd: input.value!.quarterlyLimitUsd,
+        yearly_limit_usd: input.value!.yearlyLimitUsd,
         total_limit_usd: input.value!.totalLimitUsd,
       })
       .select('*')
@@ -147,6 +154,7 @@ export async function POST(request: NextRequest) {
           id: agent.id,
           name: agent.name,
           address: agent.address,
+          network: agent.network,
           status: agent.status,
           limits: agent.limits,
           createdAt: agent.createdAt,
