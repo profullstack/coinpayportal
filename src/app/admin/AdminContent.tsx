@@ -167,48 +167,6 @@ export default function AdminContent() {
         <AskYourData scope="platform" title="Ask Your Data (your companies + platform)" />
       </div>
 
-      <section className="mb-8 rounded-lg border border-slate-700 bg-slate-900/50 p-6">
-        <h2 className="text-lg font-semibold text-white mb-3">Tools</h2>
-        <div className="flex flex-wrap gap-3">
-          <Link
-            href="/admin/stats"
-            className="rounded bg-purple-600/20 px-4 py-2 text-sm text-purple-300 hover:bg-purple-600/30 border border-purple-500/20"
-          >
-            Platform stats →
-          </Link>
-          <Link
-            href="/admin/logs"
-            className="rounded bg-purple-600/20 px-4 py-2 text-sm text-purple-300 hover:bg-purple-600/30 border border-purple-500/20"
-          >
-            Event log →
-          </Link>
-          <Link
-            href="/admin/users"
-            className="rounded bg-purple-600/20 px-4 py-2 text-sm text-purple-300 hover:bg-purple-600/30 border border-purple-500/20"
-          >
-            User stats →
-          </Link>
-          <Link
-            href="/admin/businesses"
-            className="rounded bg-purple-600/20 px-4 py-2 text-sm text-purple-300 hover:bg-purple-600/30 border border-purple-500/20"
-          >
-            Businesses →
-          </Link>
-          <Link
-            href="/admin/escrows"
-            className="rounded bg-purple-600/20 px-4 py-2 text-sm text-purple-300 hover:bg-purple-600/30 border border-purple-500/20"
-          >
-            Escrows →
-          </Link>
-          <Link
-            href="/admin/email-broadcast"
-            className="rounded bg-purple-600/20 px-4 py-2 text-sm text-purple-300 hover:bg-purple-600/30 border border-purple-500/20"
-          >
-            Email broadcast →
-          </Link>
-        </div>
-      </section>
-
       {error && (
         <div className="mb-4 rounded border border-red-500/50 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           {error}
