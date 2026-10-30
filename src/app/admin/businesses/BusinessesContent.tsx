@@ -1,11 +1,12 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   BUSINESS_CATEGORIES,
   CATEGORY_GROUPS,
   getCategory,
+  normalizeTags,
   type RiskLevel,
 } from '@/lib/business/taxonomy';
 
@@ -42,6 +43,14 @@ const RISK_STYLES: Record<string, string> = {
 };
 
 const PAGE_SIZE = 50;
+const ACTIONS = {
+  approve: { pending: 'Approving…', success: 'approved' },
+  reject: { pending: 'Rejecting…', success: 'rejected' },
+  activate: { pending: 'Reactivating…', success: 'reactivated' },
+  deactivate: { pending: 'Deactivating…', success: 'deactivated' },
+  tags: { pending: 'Saving tags…', success: 'tags saved' },
+} as const;
+type BusinessAction = keyof typeof ACTIONS;
 
 function authHeaders(extra?: HeadersInit): HeadersInit {
   const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
@@ -75,7 +84,10 @@ export default function BusinessesContent() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [linked, setLinked] = useState<LinkedBusiness[]>([]);
   const [tagDraft, setTagDraft] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [pendingAction, setPendingAction] = useState<BusinessAction | null>(null);
+  const [notice, setNotice] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
+  const actionInFlight = useRef(false);
+  const busy = pendingAction !== null;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -114,6 +126,7 @@ export default function BusinessesContent() {
   }, [load]);
 
   const openRow = async (business: AdminBusiness) => {
+    if (actionInFlight.current) return;
     if (expanded === business.id) {
       setExpanded(null);
       return;
@@ -132,24 +145,46 @@ export default function BusinessesContent() {
     }
   };
 
-  const patch = async (id: string, body: Record<string, unknown>) => {
-    setBusy(true);
+  const patch = async (business: AdminBusiness, body: Record<string, unknown>, action: BusinessAction) => {
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
+    setPendingAction(action);
+    setNotice(null);
     try {
-      const res = await fetch(`/api/admin/businesses/${id}`, {
+      const res = await fetch(`/api/admin/businesses/${business.id}`, {
         method: 'PATCH',
         headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error || 'Update failed');
-        return;
+      const data = await res.json().catch(() => null);
+      if (res.status === 401) throw new Error('Your session expired. Sign in again to update this business.');
+      if (res.status === 403) throw new Error('Admin access is required to update this business.');
+      if (!res.ok) throw new Error(typeof data?.error === 'string' ? data.error : `Update failed (${res.status}). Please try again.`);
+      if (data?.success !== true || data.business?.id !== business.id) {
+        throw new Error('The update could not be verified. Refresh the list before trying again.');
       }
-      await load();
-    } catch {
-      setError('Network error');
+
+      const updated: AdminBusiness = { ...business, ...data.business };
+      const filteredOut = Boolean(
+        (review && updated.review_status !== review) ||
+        (risk && updated.risk_level !== risk) ||
+        (category && updated.category !== category) ||
+        normalizeTags(tagFilter.split(',')).some((tag) => !normalizeTags(updated.tags).includes(tag))
+      );
+      setBusinesses((rows) => filteredOut ? rows.filter((row) => row.id !== business.id) : rows.map((row) => row.id === business.id ? updated : row));
+      if (filteredOut) {
+        setTotal((count) => Math.max(0, count - 1));
+        setExpanded(null);
+        if (businesses.length === 1 && offset > 0) setOffset(Math.max(0, offset - PAGE_SIZE));
+      } else if (action === 'tags') {
+        setTagDraft((updated.tags ?? []).join(', '));
+      }
+      setNotice({ kind: 'success', message: `${business.name}: ${ACTIONS[action].success}.${filteredOut ? ' It no longer matches the current filters.' : ''}` });
+    } catch (err) {
+      setNotice({ kind: 'error', message: err instanceof TypeError ? 'Could not reach CoinPay. Check your connection and try again.' : err instanceof Error ? err.message : 'Update failed. Please try again.' });
     } finally {
-      setBusy(false);
+      actionInFlight.current = false;
+      setPendingAction(null);
     }
   };
 
@@ -162,6 +197,15 @@ export default function BusinessesContent() {
 
   return (
     <Shell>
+      {notice && (
+        <div
+          role={notice.kind === 'error' ? 'alert' : 'status'}
+          className={`fixed bottom-4 left-4 right-4 z-50 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm shadow-lg sm:left-auto sm:max-w-md ${notice.kind === 'error' ? 'border-red-300 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-950 dark:text-red-200' : 'border-green-300 bg-green-50 text-green-800 dark:border-green-700 dark:bg-green-950 dark:text-green-200'}`}
+        >
+          <p className="flex-1">{notice.message}</p>
+          <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification" className="rounded px-1 font-semibold focus-visible:outline focus-visible:outline-2">×</button>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Businesses</h1>
@@ -178,6 +222,7 @@ export default function BusinessesContent() {
       <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-6">
         <input
           type="search"
+          disabled={busy}
           value={search}
           onChange={(e) => { setOffset(0); setSearch(e.target.value); }}
           placeholder="Search name or description"
@@ -185,12 +230,15 @@ export default function BusinessesContent() {
         />
         <input
           type="search"
+          disabled={busy}
           value={tagFilter}
           onChange={(e) => { setOffset(0); setTagFilter(e.target.value); }}
           placeholder="Tags, comma separated"
           className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white dark:bg-gray-700"
         />
         <select
+          aria-label="Category"
+          disabled={busy}
           value={category}
           onChange={(e) => { setOffset(0); setCategory(e.target.value); }}
           className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white dark:bg-gray-700"
@@ -206,6 +254,8 @@ export default function BusinessesContent() {
         </select>
         <div className="flex gap-2">
           <select
+            aria-label="Risk"
+            disabled={busy}
             value={risk}
             onChange={(e) => { setOffset(0); setRisk(e.target.value); }}
             className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white dark:bg-gray-700"
@@ -217,6 +267,8 @@ export default function BusinessesContent() {
             <option value="prohibited">Prohibited</option>
           </select>
           <select
+            aria-label="Review"
+            disabled={busy}
             value={review}
             onChange={(e) => { setOffset(0); setReview(e.target.value); }}
             className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white dark:bg-gray-700"
@@ -231,7 +283,7 @@ export default function BusinessesContent() {
       </div>
 
       {error && (
-        <div className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
+        <div role="alert" className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
           {error}
         </div>
       )}
@@ -342,11 +394,13 @@ export default function BusinessesContent() {
                         )}
 
                         <div>
-                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                          <label htmlFor={`tags-${b.id}`} className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
                             Tags (comma separated)
                           </label>
                           <div className="flex gap-2">
                             <input
+                              id={`tags-${b.id}`}
+                              disabled={busy}
                               value={tagDraft}
                               onChange={(e) => setTagDraft(e.target.value)}
                               className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white dark:bg-gray-700"
@@ -355,13 +409,13 @@ export default function BusinessesContent() {
                               type="button"
                               disabled={busy}
                               onClick={() =>
-                                patch(b.id, {
+                                patch(b, {
                                   tags: tagDraft.split(',').map((t) => t.trim()).filter(Boolean),
-                                })
+                                }, 'tags')
                               }
                               className="px-3 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-500 disabled:opacity-50"
                             >
-                              Save tags
+                              {pendingAction === 'tags' ? ACTIONS.tags.pending : 'Save tags'}
                             </button>
                           </div>
                           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -369,30 +423,30 @@ export default function BusinessesContent() {
                           </p>
                         </div>
 
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2" aria-busy={busy}>
                           <button
                             type="button"
                             disabled={busy}
-                            onClick={() => patch(b.id, { review_status: 'approved' })}
+                            onClick={() => patch(b, { review_status: 'approved' }, 'approve')}
                             className="px-3 py-2 border border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 rounded-lg text-sm hover:bg-green-50 dark:hover:bg-green-900/20 disabled:opacity-50"
                           >
-                            Approve
+                            {pendingAction === 'approve' ? ACTIONS.approve.pending : 'Approve'}
                           </button>
                           <button
                             type="button"
                             disabled={busy}
-                            onClick={() => patch(b.id, { review_status: 'rejected' })}
+                            onClick={() => patch(b, { review_status: 'rejected' }, 'reject')}
                             className="px-3 py-2 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-400 rounded-lg text-sm hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
                           >
-                            Reject
+                            {pendingAction === 'reject' ? ACTIONS.reject.pending : 'Reject'}
                           </button>
                           <button
                             type="button"
                             disabled={busy}
-                            onClick={() => patch(b.id, { active: !b.active })}
+                            onClick={() => patch(b, { active: !b.active }, b.active ? 'deactivate' : 'activate')}
                             className="px-3 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
                           >
-                            {b.active ? 'Deactivate' : 'Reactivate'}
+                            {pendingAction === 'activate' || pendingAction === 'deactivate' ? ACTIONS[pendingAction].pending : b.active ? 'Deactivate' : 'Reactivate'}
                           </button>
                         </div>
                       </td>
@@ -409,7 +463,7 @@ export default function BusinessesContent() {
         <div className="flex items-center justify-between mt-4 text-sm">
           <button
             type="button"
-            disabled={offset === 0}
+            disabled={busy || offset === 0}
             onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-40 text-gray-700 dark:text-gray-300"
           >
@@ -420,7 +474,7 @@ export default function BusinessesContent() {
           </span>
           <button
             type="button"
-            disabled={offset + PAGE_SIZE >= total}
+            disabled={busy || offset + PAGE_SIZE >= total}
             onClick={() => setOffset(offset + PAGE_SIZE)}
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-40 text-gray-700 dark:text-gray-300"
           >
