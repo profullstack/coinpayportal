@@ -30,10 +30,7 @@
 #   COINPAY_HOME=/path           install dir          (default: $HOME/.coinpay)
 #   COINPAY_BIN=/path/dir        wrapper bin dir      (default: $HOME/.local/bin)
 #   COINPAY_REF=branch|tag|sha   git ref to install   (default: master)
-#   COINPAY_AUTO_UPGRADE_UNPINNED=1  schedule auto-upgrade even on a mutable
-#                                    ref. Off by default: following master
-#                                    unattended means any merge runs here
-#                                    within 5 minutes (W-01).
+#   COINPAY_AUTO_UPGRADE_UNPINNED=0  opt out of auto-upgrade on a mutable ref.
 #   COINPAY_NO_AUTOUPGRADE=1     skip the 5-min poll setup
 #   COINPAY_API_URL=https://…    pin API base         (default: https://coinpayportal.com)
 #
@@ -47,19 +44,8 @@ set -eu
 NPM_PACKAGE="@profullstack/coinpay"      # display name / package identity
 GH_REPO="profullstack/coinpayportal"
 PKG_SUBDIR="packages/sdk"
-# Default install ref.
-#
-# `master` is a MUTABLE branch, and the auto-upgrade timer below polls every
-# five minutes — so anything merged to master reaches every installed machine
-# within five minutes, with no review step between merge and execution on
-# operator hosts. Pinning COINPAY_REF to a tag or commit SHA is the mitigation,
-# and it now actually holds across upgrades (it previously did not; see the
-# self-upgrade helper).
-#
-# Changing this default to a release tag is a release-process decision, not a
-# code one: the installer compares against packages/sdk/package.json AT THE REF,
-# so a tag whose SDK version trails master would make the upgrader either idle
-# or loop. Tracked as W-01 in /TODO-vulns.md.
+# Auto-upgrade is enabled on this ref by default and can be disabled with
+# COINPAY_NO_AUTOUPGRADE=1. Every run checks the package version before install.
 COINPAY_REF="${COINPAY_REF:-master}"
 # `set -e` is in force, so this must be an if/else rather than
 # `[ test ] && VAR=0` — that form exits non-zero when the test fails, which
@@ -402,6 +388,18 @@ case "\${1:-}" in
         # installed from is baked in below.
         exec sh -c "curl -fsSL '\$INSTALL_URL' | COINPAY_REF='$COINPAY_REF' sh -s -- update \$@"
         ;;
+    self)
+        case "\${2:-}" in
+            update|upgrade|self-update)
+                shift || true; shift || true
+                exec sh -c "curl -fsSL '\$INSTALL_URL' | COINPAY_REF='$COINPAY_REF' sh -s -- update \$@"
+                ;;
+            remove|uninstall)
+                shift || true; shift || true
+                exec "\$0" remove "\$@"
+                ;;
+        esac
+        ;;
     remove|uninstall)
         shift || true
         exec sh -c "curl -fsSL '\$INSTALL_URL' | sh -s -- remove \$@"
@@ -491,11 +489,25 @@ if [ -z "\$latest" ]; then
     log "could not read version from GitHub; will retry"
     exit 0
 fi
-# Unknown current version (fresh/partial install) → force an update pass.
-if [ -n "\$current" ] && [ "\$current" = "\$latest" ]; then
-    # Quiet success — uncomment to debug:
-    # log "up-to-date (\$current)"
-    exit 0
+# Unknown current version (fresh install) → install. Otherwise compare versions
+# numerically so the timer never reinstalls the same version or downgrades.
+if [ -n "\$current" ]; then
+    relation="\$(node -e '
+        const [a,b]=process.argv.slice(1);
+        const parse=s=>{const m=String(s).match(/^v?(\\d+)\\.(\\d+)\\.(\\d+)(?:[-+].*)?$/);return m&&m.slice(1,4).map(Number)};
+        const x=parse(a),y=parse(b); if(!x||!y)process.exit(2);
+        for(let i=0;i<3;i++)if(x[i]!==y[i]){process.stdout.write(x[i]<y[i]?"-1":"1");process.exit(0)}
+        process.stdout.write("0");
+    ' "\$current" "\$latest" 2>/dev/null || echo invalid)"
+    if [ "\$relation" = "invalid" ]; then
+        log "could not compare installed version \$current with \$latest; will retry without reinstalling"
+        exit 0
+    fi
+    if [ "\$relation" = "0" ]; then exit 0; fi
+    if [ "\$relation" = "1" ]; then
+        log "installed version \$current is newer than feed \$latest; refusing downgrade"
+        exit 0
+    fi
 fi
 
 log "upgrade available: \${current:-?} → \$latest — running installer update (ref=\$COINPAY_REF)"
@@ -611,25 +623,8 @@ schedule_auto_upgrade() {
         return 0
     fi
 
-    # W-01: following a MUTABLE ref unattended is now opt-in.
-    #
-    # With COINPAY_REF unpinned the ref is `master`, and this timer polls every
-    # ${UPGRADE_INTERVAL_SEC}s. That means anything merged to master executes on
-    # every installed operator host within five minutes, with no human between
-    # the merge and the execution — a single bad merge, or a single compromised
-    # push, reaches the whole fleet automatically.
-    #
-    # Pinned installs keep auto-upgrade on by default: a tag or SHA is immutable,
-    # so the timer can only ever re-install the same code it already has, and
-    # moving to a new version stays a deliberate act.
-    #
-    # An operator who genuinely wants to track master can still have it, by
-    # asking for it explicitly. Refusing outright would push people to write
-    # their own cron job, which is worse.
-    if [ "$COINPAY_REF_PINNED" = "0" ] && [ "${COINPAY_AUTO_UPGRADE_UNPINNED:-}" != "1" ]; then
-        warn "auto-upgrade not scheduled: '$COINPAY_REF' is a mutable branch"
-        warn "  pin a release (COINPAY_REF=v0.6.13) to get automatic updates, or"
-        warn "  set COINPAY_AUTO_UPGRADE_UNPINNED=1 to follow master unattended"
+    if [ "$COINPAY_REF_PINNED" = "0" ] && [ "${COINPAY_AUTO_UPGRADE_UNPINNED:-1}" = "0" ]; then
+        info "auto-upgrade disabled for mutable ref '$COINPAY_REF' (COINPAY_AUTO_UPGRADE_UNPINNED=0)"
         return 0
     fi
 
@@ -776,6 +771,25 @@ run_update() {
     detect_os
     info "checking for updates"
     ensure_node_via_mise
+    latest="$(curl -fsSL "$RAW_PKG_URL" 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const v=JSON.parse(s).version;if(/^\d+\.\d+\.\d+/.test(v))process.stdout.write(v)}catch{}})' 2>/dev/null || true)"
+    [ -n "$latest" ] || fail "could not check the latest CoinPay version; installer was not run"
+    current=""
+    [ ! -f "$PKG_DIR/package.json" ] || current="$(node -p "require('$PKG_DIR/package.json').version" 2>/dev/null || true)"
+    if [ -n "$current" ]; then
+        relation="$(node -e '
+            const [a,b]=process.argv.slice(1);
+            const parse=s=>{const m=String(s).match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);return m&&m.slice(1,4).map(Number)};
+            const x=parse(a),y=parse(b); if(!x||!y)process.exit(2);
+            for(let i=0;i<3;i++)if(x[i]!==y[i]){process.stdout.write(x[i]<y[i]?"-1":"1");process.exit(0)}
+            process.stdout.write("0");
+        ' "$current" "$latest" 2>/dev/null || echo invalid)"
+        case "$relation" in
+            0) info "CoinPay $current is already current; skipping reinstall"; return 0 ;;
+            1) info "installed CoinPay $current is newer than $latest; refusing downgrade"; return 0 ;;
+            -1) info "updating CoinPay $current → $latest" ;;
+            *) fail "could not compare installed version '$current' with '$latest'; installer was not run" ;;
+        esac
+    fi
     install_cli
     write_self_upgrade_helper
     write_wrapper
