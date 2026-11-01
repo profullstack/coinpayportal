@@ -396,7 +396,7 @@ case "\${1:-}" in
                 ;;
             remove|uninstall)
                 shift || true; shift || true
-                exec sh -c "curl -fsSL '\$INSTALL_URL' | sh -s -- remove \$@"
+                exec "\$0" remove "\$@"
                 ;;
         esac
         ;;
