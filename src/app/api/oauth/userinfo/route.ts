@@ -69,6 +69,14 @@ export async function GET(request: NextRequest) {
     if (scopes.includes('profile')) {
       if (merchant.name) claims.name = merchant.name;
       if (merchant.updated_at) claims.updated_at = Math.floor(new Date(merchant.updated_at).getTime() / 1000);
+
+      const { data: didProfile } = await supabase
+        .from('merchant_dids')
+        .select('openprofile_url')
+        .eq('merchant_id', userId)
+        .eq('did_kind', 'human')
+        .maybeSingle();
+      if (didProfile?.openprofile_url) claims.openprofile_url = didProfile.openprofile_url;
     }
 
     if (scopes.includes('email') && merchant.email) {

@@ -29,7 +29,7 @@ export function authorizationServerMetadata(): Record<string, unknown> {
     // validatePKCE rejects 'plain' (the challenge would equal the verifier).
     code_challenge_methods_supported: ['S256'],
     prompt_values_supported: ['none', 'login', 'consent', 'select_account'],
-    claims_supported: ['sub', 'iss', 'aud', 'azp', 'exp', 'iat', 'nonce', 'name', 'email', 'email_verified', 'updated_at', 'did', 'wallets'],
+    claims_supported: ['sub', 'iss', 'aud', 'azp', 'exp', 'iat', 'nonce', 'name', 'email', 'email_verified', 'updated_at', 'openprofile_url', 'did', 'wallets'],
     request_parameter_supported: false,
     authorization_response_iss_parameter_supported: false,
     service_documentation: `${iss}/docs/oauth`,

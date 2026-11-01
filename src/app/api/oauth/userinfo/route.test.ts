@@ -97,6 +97,24 @@ describe('GET /api/oauth/userinfo', () => {
     expect(body.email_verified).toBe(false);
   });
 
+  it('includes the linked OpenProfile URL with the profile scope', async () => {
+    (verifyAccessToken as any).mockReturnValue({ sub: 'user-123', scope: 'openid profile' });
+    let callNum = 0;
+    mockSingle.mockImplementation(() => {
+      callNum++;
+      return Promise.resolve({
+        data: callNum === 1
+          ? { id: 'user-123', name: 'Ada' }
+          : { openprofile_url: 'https://ada.example/.well-known/openprofile.md' },
+        error: null,
+      });
+    });
+
+    const res = await GET(makeRequest({ authorization: 'Bearer valid-token' }));
+    const body = await res.json();
+    expect(body.openprofile_url).toBe('https://ada.example/.well-known/openprofile.md');
+  });
+
   it('should return email_verified as false when not verified', async () => {
     (verifyAccessToken as any).mockReturnValue({
       sub: 'user-123',

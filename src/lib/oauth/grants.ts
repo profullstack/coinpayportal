@@ -37,7 +37,17 @@ export async function issueTokenSet(
 
   // No email_verified column and no verification flow: the claim stays false.
   const { data: merchant } = await db.from('merchants').select('id, email, name').eq('id', userId).maybeSingle();
-  const user = merchant ? { ...merchant, email_verified: false } : { id: userId, email_verified: false };
+  let user: { id: string; email?: string; name?: string; email_verified: boolean; openprofile_url?: string } =
+    merchant ? { ...merchant, email_verified: false } : { id: userId, email_verified: false };
+  if (scopes.includes('profile')) {
+    const { data: didProfile } = await db
+      .from('merchant_dids')
+      .select('openprofile_url')
+      .eq('merchant_id', userId)
+      .eq('did_kind', 'human')
+      .maybeSingle();
+    if (didProfile?.openprofile_url) user = { ...user, openprofile_url: didProfile.openprofile_url };
+  }
 
   const accessToken = generateAccessToken(user, client, scopes, { sid: familyId });
   const refreshToken = generateRefreshToken();

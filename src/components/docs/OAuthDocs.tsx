@@ -32,7 +32,7 @@ export function OAuthDocs() {
       <div className="grid md:grid-cols-2 gap-4 mb-8">
         {[
           { scope: 'openid', desc: 'Verify user identity (always included)' },
-          { scope: 'profile', desc: 'Access name and profile info' },
+          { scope: 'profile', desc: 'Access name, profile info, and the linked OpenProfile.md URL' },
           { scope: 'email', desc: 'Access email address' },
           { scope: 'did', desc: 'Access decentralized identifier (DID)' },
           { scope: 'wallet:read', desc: 'View wallet addresses and chains' },
@@ -159,6 +159,7 @@ client_secret=cps_xxxxxxxxxxxx...`}
   "name": "Alice Merchant",
   "email": "alice@example.com",
   "email_verified": false,
+  "openprofile_url": "https://alice.example/.well-known/openprofile.md",
   "wallets": [
     { "address": "bc1q...", "chain": "BTC", "label": "Main" },
     { "address": "0x1234...", "chain": "ETH", "label": "Acme Inc", "business_id": "biz-uuid" }
