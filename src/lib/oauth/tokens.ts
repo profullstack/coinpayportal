@@ -101,7 +101,7 @@ export function generateAccessToken(
  * Generate an OIDC ID token (JWT)
  */
 export function generateIdToken(
-  user: { id: string; email?: string; name?: string; picture?: string; email_verified?: boolean },
+  user: { id: string; email?: string; name?: string; picture?: string; email_verified?: boolean; openprofile_url?: string },
   client: { client_id: string },
   scopes: string[],
   nonce?: string | null,
@@ -129,6 +129,7 @@ export function generateIdToken(
   if (scopes.includes('profile')) {
     if (user.name) payload.name = user.name;
     if (user.picture) payload.picture = user.picture;
+    if (user.openprofile_url) payload.openprofile_url = user.openprofile_url;
   }
 
   // azp: the party the ID token was issued to (OIDC Core 2).

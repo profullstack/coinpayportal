@@ -32,7 +32,7 @@ export type ScopeInfo = {
  */
 export const SCOPE_INFO: Record<OAuthScope, ScopeInfo> = {
   openid: { label: 'Identity', description: 'Verify your identity', icon: '🔑' },
-  profile: { label: 'Profile', description: 'Access your name and profile picture', icon: '👤' },
+  profile: { label: 'Profile', description: 'Access your name, profile picture, and linked OpenProfile.md URL', icon: '👤' },
   email: { label: 'Email', description: 'Access your email address', icon: '📧' },
   did: { label: 'DID', description: 'Access your decentralized identifier', icon: '🆔' },
   'wallet:read': { label: 'Wallet', description: 'View your wallet addresses', icon: '💰' },

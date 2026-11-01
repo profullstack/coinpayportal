@@ -13,6 +13,7 @@ interface DidInfo {
   did_kind?: 'human' | 'agent' | 'service';
   lifetime?: 'persistent' | 'ephemeral';
   label?: string | null;
+  openprofile_url?: string | null;
 }
 
 interface Delegation {
@@ -69,6 +70,9 @@ export default function ClaimDidPage() {
   const [claiming, setClaiming] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState('');
+  const [openProfileUrl, setOpenProfileUrl] = useState('');
+  const [openProfileBusy, setOpenProfileBusy] = useState(false);
+  const [openProfileMessage, setOpenProfileMessage] = useState('');
 
   // Link form state
   const [linkDid, setLinkDid] = useState('');
@@ -100,6 +104,7 @@ export default function ClaimDidPage() {
       const result = await authFetch('/api/reputation/did/me', {}, router);
       if (result && result.response.ok) {
         setDidInfo(result.data);
+        setOpenProfileUrl(result.data.openprofile_url || '');
         fetchCredentials(result.data.did);
         fetchReceipts(result.data.did);
         fetchDelegations();
@@ -197,6 +202,7 @@ export default function ClaimDidPage() {
       if (!result) { setError('Authentication required'); return; }
       if (result.response.ok) {
         setDidInfo(result.data);
+        setOpenProfileUrl(result.data.openprofile_url || '');
       } else {
         setError(result.data?.error || 'Failed to claim DID');
       }
@@ -224,6 +230,7 @@ export default function ClaimDidPage() {
       if (!result) { setError('Authentication required'); return; }
       if (result.response.ok) {
         setDidInfo(result.data);
+        setOpenProfileUrl(result.data.openprofile_url || '');
       } else {
         setError(result.data?.error || 'Failed to link DID');
       }
@@ -231,6 +238,34 @@ export default function ClaimDidPage() {
       setError(err.message || 'Failed to link DID');
     } finally {
       setClaiming(false);
+    }
+  }
+
+  async function saveOpenProfileUrl(e: React.FormEvent) {
+    e.preventDefault();
+    setOpenProfileBusy(true);
+    setOpenProfileMessage('');
+    try {
+      const result = await authFetch('/api/reputation/did/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ openprofile_url: openProfileUrl.trim() || null }),
+      }, router);
+      if (!result) {
+        setOpenProfileMessage('Authentication required');
+        return;
+      }
+      if (!result.response.ok) {
+        setOpenProfileMessage(result.data?.error || 'Could not save your OpenProfile URL.');
+        return;
+      }
+      setDidInfo((current) => current ? { ...current, openprofile_url: result.data.openprofile_url } : current);
+      setOpenProfileUrl(result.data.openprofile_url || '');
+      setOpenProfileMessage(result.data.openprofile_url ? 'OpenProfile linked to your DID.' : 'OpenProfile link removed.');
+    } catch (err: any) {
+      setOpenProfileMessage(err?.message || 'Could not save your OpenProfile URL.');
+    } finally {
+      setOpenProfileBusy(false);
     }
   }
 
@@ -276,6 +311,16 @@ export default function ClaimDidPage() {
                   {copied === 'did' ? '✓ Copied!' : 'Copy'}
                 </button>
               </div>
+              {didInfo.openprofile_url && (
+                <a
+                  href={didInfo.openprofile_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-violet-300 hover:underline inline-block mt-2"
+                >
+                  View linked OpenProfile.md ↗
+                </a>
+              )}
             </div>
             <div>
               <label className="text-sm font-medium text-gray-400 block mb-1">Public Key</label>
@@ -305,6 +350,34 @@ export default function ClaimDidPage() {
             </div>
           </div>
         </div>
+
+        <form onSubmit={saveOpenProfileUrl} className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 mb-6">
+          <h2 className="text-lg font-bold mb-2">OpenProfile.md</h2>
+          <p className="text-sm text-gray-400 mb-4">
+            Link a public OpenProfile.md to this DID. Apps you connect to CoinPay can use it to fill your contact details.
+          </p>
+          <label htmlFor="openprofile-url" className="block text-sm font-medium text-gray-300 mb-1">OpenProfile URL</label>
+          <div className="flex flex-wrap gap-2">
+            <input
+              id="openprofile-url"
+              type="url"
+              inputMode="url"
+              autoComplete="url"
+              value={openProfileUrl}
+              onChange={(event) => setOpenProfileUrl(event.target.value)}
+              placeholder="https://example.com/.well-known/openprofile.md"
+              className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-gray-900 border border-gray-600 text-white"
+            />
+            <button
+              type="submit"
+              disabled={openProfileBusy}
+              className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white font-medium"
+            >
+              {openProfileBusy ? 'Saving…' : 'Save OpenProfile'}
+            </button>
+          </div>
+          <p role="status" aria-live="polite" className="text-sm text-gray-400 mt-2 min-h-5">{openProfileMessage}</p>
+        </form>
 
         {/* What To Do Next */}
         <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 mb-6">

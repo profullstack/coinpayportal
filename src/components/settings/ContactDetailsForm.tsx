@@ -75,6 +75,13 @@ export function ContactDetailsForm() {
         onChange={setValues}
         errors={errors}
         disabled={loading || busy}
+        importOpenProfile
+        importOpenProfileFetcher={async (url) => {
+          const result = await authFetch(`/api/v1/me/profile?openprofile=${encodeURIComponent(url)}`, {}, router);
+          if (!result) throw new Error('Sign in again before fetching an OpenProfile.');
+          if (!result.response.ok) throw new Error(result.data.error || 'Could not fetch that OpenProfile.md.');
+          return result.data.profile;
+        }}
       />
       <div className="flex items-center gap-3">
         <button

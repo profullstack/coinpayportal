@@ -77,7 +77,7 @@ describe('OAuth Tokens', () => {
   describe('generateIdToken', () => {
     it('should contain OIDC claims with email_verified from user data', () => {
       const token = generateIdToken(
-        { id: 'user-123', email: 'test@example.com', name: 'Test User', picture: 'https://example.com/pic.jpg', email_verified: true },
+        { id: 'user-123', email: 'test@example.com', name: 'Test User', picture: 'https://example.com/pic.jpg', openprofile_url: 'https://ada.example/.well-known/openprofile.md', email_verified: true },
         { client_id: 'cp_test' },
         ['openid', 'profile', 'email'],
         'test-nonce-123'
@@ -92,6 +92,7 @@ describe('OAuth Tokens', () => {
       expect(decoded.email_verified).toBe(true);
       expect(decoded.name).toBe('Test User');
       expect(decoded.picture).toBe('https://example.com/pic.jpg');
+      expect(decoded.openprofile_url).toBe('https://ada.example/.well-known/openprofile.md');
       expect(decoded.iat).toBeDefined();
       expect(decoded.exp).toBeDefined();
     });
