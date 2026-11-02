@@ -39,7 +39,10 @@ export async function POST(
     }
 
     const { invoice } = access;
-    if (invoice.status !== 'sent') {
+    // An overdue invoice usually still has a live payment link: the monitor
+    // flips sent -> overdue on the due date without touching the payment. The
+    // payment check below decides between emailing it and asking for re-issue.
+    if (invoice.status !== 'sent' && invoice.status !== 'overdue') {
       return NextResponse.json(
         { success: false, error: `Cannot resend email for invoice with status: ${invoice.status}` },
         { status: 400 }
@@ -155,7 +158,7 @@ export async function POST(
         .from('invoices')
         .update({ status: 'overdue', updated_at: updatedAt })
         .eq('id', id)
-        .eq('status', 'sent')
+        .eq('status', invoice.status)
         .select('id')
         .maybeSingle();
 
@@ -216,7 +219,7 @@ export async function POST(
         email_last_attempted_at: emailAttemptedAt,
       })
       .eq('id', id)
-      .eq('status', 'sent');
+      .eq('status', invoice.status);
 
     pendingUpdate = invoice.email_last_attempted_at
       ? pendingUpdate.eq('email_last_attempted_at', invoice.email_last_attempted_at)

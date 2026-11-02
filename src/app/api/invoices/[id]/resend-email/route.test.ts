@@ -312,8 +312,48 @@ describe('POST /api/invoices/[id]/resend-email', () => {
     expect(body.warning).toContain('tracking status could not be saved');
   });
 
-  it('does not resend overdue or closed invoices', async () => {
-    for (const status of ['overdue', 'draft', 'paid', 'cancelled', 'rejected']) {
+  it('emails an overdue invoice whose payment link is still live', async () => {
+    mockAuthorizeInvoice.mockResolvedValueOnce({
+      ok: true,
+      invoice: { ...sentInvoice, status: 'overdue' },
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: 'inv-1' }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.emailAccepted).toBe(true);
+    expect(body.invoice).toMatchObject({
+      status: 'overdue',
+      payment_address: 'existing-solana-payment-address',
+    });
+    expect(mockDeliverInvoiceEmail).toHaveBeenCalledTimes(1);
+    expect(invoiceUpdatePayloads.some((p) => 'status' in p)).toBe(false);
+  });
+
+  it('asks for re-issue when an overdue invoice has a dead payment link', async () => {
+    mockAuthorizeInvoice.mockResolvedValueOnce({
+      ok: true,
+      invoice: { ...sentInvoice, status: 'overdue' },
+    });
+    paymentResult.data = {
+      ...paymentResult.data,
+      status: 'expired',
+      expires_at: new Date(Date.now() - 60_000).toISOString(),
+    };
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: 'inv-1' }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(body.code).toBe('PAYMENT_LINK_INACTIVE');
+    expect(body.canReissue).toBe(true);
+    expect(mockDeliverInvoiceEmail).not.toHaveBeenCalled();
+  });
+
+  it('does not resend draft or closed invoices', async () => {
+    for (const status of ['draft', 'paid', 'cancelled', 'rejected']) {
       mockAuthorizeInvoice.mockResolvedValueOnce({
         ok: true,
         invoice: { ...sentInvoice, status },
