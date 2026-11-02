@@ -170,6 +170,64 @@ export async function unlockVault(
 
 export { lockVault, unlockStatus };
 
+/**
+ * Prove a presented data key opens this vault, without unlocking anything.
+ * Used where an action must be confirmed with the passphrase (operator lock).
+ */
+export async function verifyVaultKey(subjectType: VaultSubjectType, subjectId: string, dataKeyB64: string): Promise<void> {
+  const record = await getVaultRecord(subjectType, subjectId);
+  if (!record) throw new VaultMissingError(subjectType);
+  const dek = decodeDataKey(dataKeyB64);
+  try {
+    await openVaultPrivateKey(record, dek, subjectType, subjectId); // throws "Wrong key"
+  } finally {
+    wipe(dek);
+  }
+}
+
+/**
+ * Open a brand-new vault record with its data key (before it is stored), to
+ * re-key onto it. Returns the record's non-extractable private key.
+ */
+export async function openNewVaultRecord(
+  subjectType: VaultSubjectType,
+  subjectId: string,
+  record: unknown,
+  dataKeyB64: string,
+): Promise<{ record: VaultRecord; privateKey: CryptoKey }> {
+  assertVaultRecord(record);
+  const dek = decodeDataKey(dataKeyB64);
+  try {
+    return { record, privateKey: await openVaultPrivateKey(record, dek, subjectType, subjectId) };
+  } finally {
+    wipe(dek);
+  }
+}
+
+/**
+ * Swap the active vault record for a new one. The old row is kept, renamed to
+ * `<subjectId>:retired:<iso time>`, so anything still sealed to it can be
+ * recovered with the old passphrase. If storing the new record fails, the old
+ * one is put back.
+ */
+export async function replaceVaultRecord(subjectType: VaultSubjectType, subjectId: string, next: VaultRecord): Promise<string> {
+  const supabase = getSupabaseAdmin();
+  const retiredId = `${subjectId}:retired:${new Date().toISOString()}`;
+  const { error: mvErr } = await supabase
+    .from('secret_vaults')
+    .update({ subject_id: retiredId, updated_at: new Date().toISOString() })
+    .eq('subject_type', subjectType)
+    .eq('subject_id', subjectId);
+  if (mvErr) throw new Error(`Could not retire the old vault: ${mvErr.message}`);
+  const { error: insErr } = await supabase.from('secret_vaults').insert({ subject_type: subjectType, subject_id: subjectId, record: next });
+  if (insErr) {
+    await supabase.from('secret_vaults').update({ subject_id: subjectId }).eq('subject_type', subjectType).eq('subject_id', retiredId);
+    throw new Error(`Could not store the new vault: ${insErr.message}`);
+  }
+  publicKeyCache.set(cacheKey(subjectType, subjectId), next.public_key);
+  return retiredId;
+}
+
 export async function vaultStatus(subjectType: VaultSubjectType, subjectId: string) {
   const record = await getVaultRecord(subjectType, subjectId);
   return { exists: !!record, ...unlockStatus(subjectType, subjectId) };

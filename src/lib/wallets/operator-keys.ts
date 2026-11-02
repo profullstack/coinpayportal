@@ -32,13 +32,15 @@ import { getSupabaseAdmin } from '../supabase/server';
 import { decrypt, encrypt } from '../crypto/encryption';
 import { requireEncryptionKey } from '../crypto/require-key';
 import { legacyKeyMigrationEnabled } from '../crypto/legacy-migration';
-import { isSealed } from '../vault/sealed-vault';
-import { onVaultLocked, unlockStatus } from '../vault/unlock-store';
+import { isSealed, openSealed, sealToPublicKey } from '../vault/sealed-vault';
+import { getUnlockedKey, onVaultLocked, putUnlock, unlockStatus } from '../vault/unlock-store';
 import {
   getVaultPublicKey,
   lockVault,
+  openNewVaultRecord,
   OPERATOR_SUBJECT_ID,
   openFor,
+  replaceVaultRecord,
   sealFor,
   unlockVault,
   VaultLockedError,
@@ -60,6 +62,8 @@ interface OperatorState {
   /** The data key of the current unlock, kept only to hand it to the next process on deploy. */
   handoff: { dataKey: string; expiresAt: string } | null;
   lastAlertAt: number;
+  /** The previous vault's private key, only during a re-key: rows not rewritten yet still open. */
+  retiredKey: CryptoKey | null;
   envWarned: boolean;
   listening: boolean;
 }
@@ -69,7 +73,7 @@ const STATE_KEY = Symbol.for('coinpay.operator-keys.v1');
 function st(): OperatorState {
   const g = globalThis as unknown as Record<symbol, OperatorState | undefined>;
   if (!g[STATE_KEY]) {
-    g[STATE_KEY] = { sealed: null, checkedAt: 0, mnemonics: null, handoff: null, lastAlertAt: 0, envWarned: false, listening: false };
+    g[STATE_KEY] = { sealed: null, checkedAt: 0, mnemonics: null, handoff: null, lastAlertAt: 0, retiredKey: null, envWarned: false, listening: false };
   }
   const s = g[STATE_KEY]!;
   if (!s.listening) {
@@ -255,7 +259,14 @@ export async function openPaymentAddressKey(
   const stored = row.encrypted_private_key;
   if (isSealed(stored)) {
     if (!unlockStatus('operator', OPERATOR_SUBJECT_ID).unlocked) throw new OperatorKeysLockedError();
-    return openFor('operator', OPERATOR_SUBJECT_ID, stored, paymentAddressKeyAad(row.address));
+    try {
+      return await openFor('operator', OPERATOR_SUBJECT_ID, stored, paymentAddressKeyAad(row.address));
+    } catch (err) {
+      // Mid re-key: this row may still be sealed to the previous vault.
+      const retired = st().retiredKey;
+      if (!retired) throw err;
+      return openSealed(retired, stored, paymentAddressKeyAad(row.address));
+    }
   }
   const pub = await getVaultPublicKey('operator', OPERATOR_SUBJECT_ID);
   if (!pub) return decrypt(stored, requireEncryptionKey('forwarding'));
@@ -316,6 +327,235 @@ export async function resealLegacyPaymentAddressKeys(batch = 500): Promise<{ res
   return { resealed, failed };
 }
 
+// ---------------------------------------------------------------------------
+// Re-key: move everything to a brand-new vault (new key pair, new data key)
+// ---------------------------------------------------------------------------
+
+type RekeySource = 'operator_sealed_secrets' | 'payment_addresses' | 'operator_address_pool';
+interface RekeyRow {
+  source: RekeySource;
+  key: string; // name or id
+  aad: string;
+  old: string;
+  next: string;
+}
+
+const PAGE = 1000;
+
+/** Every operator-sealed value: the mnemonic bundle, deposit keys and pool keys. */
+async function listOperatorSealed(): Promise<Array<Omit<RekeyRow, 'next'>>> {
+  const supabase = getSupabaseAdmin();
+  const out: Array<Omit<RekeyRow, 'next'>> = [];
+  const { data: bundle, error: bErr } = await supabase
+    .from('operator_sealed_secrets')
+    .select('name, sealed')
+    .eq('name', SYSTEM_MNEMONICS_ROW)
+    .maybeSingle();
+  if (bErr) throw new Error(bErr.message);
+  if (!bundle?.sealed) throw new Error('No sealed mnemonics to re-key');
+  out.push({ source: 'operator_sealed_secrets', key: SYSTEM_MNEMONICS_ROW, aad: BUNDLE_AAD, old: bundle.sealed as string });
+  for (const [table, col] of [
+    ['payment_addresses', 'encrypted_private_key'],
+    ['operator_address_pool', 'sealed_private_key'],
+  ] as const) {
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from(table)
+        .select(`id, address, ${col}`)
+        .like(col, 'cpv1.%')
+        .order('id', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) throw new Error(`${table}: ${error.message}`);
+      for (const r of (data ?? []) as unknown as Array<Record<string, string>>) {
+        out.push({ source: table, key: r.id, aad: paymentAddressKeyAad(r.address), old: r[col] });
+      }
+      if (!data || data.length < PAGE) break;
+    }
+  }
+  return out;
+}
+
+function columnFor(source: RekeySource): string {
+  return source === 'operator_sealed_secrets' ? 'sealed' : source === 'payment_addresses' ? 'encrypted_private_key' : 'sealed_private_key';
+}
+
+async function writeRekeyed(rows: RekeyRow[]): Promise<number> {
+  const supabase = getSupabaseAdmin();
+  let written = 0;
+  for (const r of rows) {
+    const col = columnFor(r.source);
+    const idCol = r.source === 'operator_sealed_secrets' ? 'name' : 'id';
+    const { error, count } = await supabase
+      .from(r.source)
+      .update({ [col]: r.next }, { count: 'exact' })
+      .eq(idCol, r.key)
+      .eq(col, r.old);
+    if (!error && (count ?? 0) > 0) written += 1;
+  }
+  return written;
+}
+
+export interface RekeyResult {
+  retiredVault: string;
+  mnemonicBundles: number;
+  paymentKeys: number;
+  poolKeys: number;
+  written: number;
+  secondPass: number;
+  expiresAt: string;
+}
+
+/**
+ * Move every operator secret to a new vault the operator just created in the
+ * browser (new key pair, new data key, new passphrase), while the current
+ * vault is unlocked. Nothing is written until every value has been opened with
+ * the current key and re-sealed to the new one. Before the swap, the old
+ * ciphertexts are copied to operator_rekey_backup and the old vault row is
+ * kept (renamed), so the old passphrase can still restore everything until
+ * that backup is dropped. The unlock carries over to the new vault with the
+ * same expiry.
+ */
+export async function rekeyOperatorVault(newRecord: unknown, newDataKeyB64: string): Promise<RekeyResult> {
+  const oldKey = getUnlockedKey('operator', OPERATOR_SUBJECT_ID);
+  const status = unlockStatus('operator', OPERATOR_SUBJECT_ID);
+  if (!oldKey || !status.unlocked || !status.expiresAt) throw new OperatorKeysLockedError('Unlock the operator keys first: the re-key opens every secret with the current key');
+  const oldPub = await getVaultPublicKey('operator', OPERATOR_SUBJECT_ID);
+  const { record, privateKey: newKey } = await openNewVaultRecord('operator', OPERATOR_SUBJECT_ID, newRecord, newDataKeyB64);
+  if (record.public_key === oldPub) throw new Error('The new vault must have a new key pair: create it fresh, do not reuse the old record');
+
+  // 1. Open everything with the current key and seal it to the new one. Abort on any failure.
+  const listed = await listOperatorSealed();
+  const rows: RekeyRow[] = [];
+  let failed = 0;
+  for (const r of listed) {
+    try {
+      rows.push({ ...r, next: await sealToPublicKey(record.public_key, await openSealed(oldKey, r.old, r.aad), r.aad) });
+    } catch {
+      failed += 1;
+    }
+  }
+  if (failed) throw new Error(`${failed} of ${listed.length} sealed values did not open with the current key; nothing was changed`);
+
+  // 2. Back up the old ciphertexts (still sealed to the old key) before touching anything.
+  const supabase = getSupabaseAdmin();
+  const retiredName = `${OPERATOR_SUBJECT_ID}:retired:pending`;
+  const backupRows = rows.map((r) => ({ rekey_id: retiredName, source: r.source, row_key: r.key, aad: r.aad, sealed: r.old }));
+  for (let i = 0; i < backupRows.length; i += 500) {
+    const { error } = await supabase.from('operator_rekey_backup').insert(backupRows.slice(i, i + 500));
+    if (error) {
+      await supabase.from('operator_rekey_backup').delete().eq('rekey_id', retiredName);
+      throw new Error(`Could not back up the old sealed values; nothing was changed: ${error.message}`);
+    }
+  }
+
+  // 3. Swap the vault record (old row kept, renamed) and write the new ciphertexts.
+  const s = st();
+  s.retiredKey = oldKey; // in-flight forwards can still open rows not rewritten yet
+  let retiredVault: string;
+  try {
+    retiredVault = await replaceVaultRecord('operator', OPERATOR_SUBJECT_ID, record);
+  } catch (err) {
+    s.retiredKey = null;
+    await supabase.from('operator_rekey_backup').delete().eq('rekey_id', retiredName);
+    throw err;
+  }
+  await supabase.from('operator_rekey_backup').update({ rekey_id: retiredVault }).eq('rekey_id', retiredName);
+  const msLeft = Math.max(60_000, new Date(status.expiresAt).getTime() - Date.now());
+  const { expiresAt } = putUnlock('operator', OPERATOR_SUBJECT_ID, newKey, msLeft);
+  if (s.handoff) s.handoff = { dataKey: newDataKeyB64, expiresAt };
+  const written = await writeRekeyed(rows);
+
+  // 4. Second pass: anything minted with the old public key while this ran.
+  let secondPass = 0;
+  const again = await listOperatorSealed();
+  for (const r of again) {
+    try {
+      await openSealed(newKey, r.old, r.aad);
+    } catch {
+      try {
+        const next = await sealToPublicKey(record.public_key, await openSealed(oldKey, r.old, r.aad), r.aad);
+        await supabase.from('operator_rekey_backup').insert({ rekey_id: retiredVault, source: r.source, row_key: r.key, aad: r.aad, sealed: r.old });
+        secondPass += await writeRekeyed([{ ...r, next }]);
+      } catch (err) {
+        console.error(`[operator-keys] re-key second pass failed for ${r.source} ${r.key}`, err instanceof Error ? err.message : err);
+      }
+    }
+  }
+  s.retiredKey = null;
+  const count = (src: RekeySource) => rows.filter((r) => r.source === src).length;
+  console.log(`[operator-keys] re-keyed to a new vault; old vault kept as ${retiredVault}; unlocked until ${expiresAt}`);
+  return {
+    retiredVault,
+    mnemonicBundles: count('operator_sealed_secrets'),
+    paymentKeys: count('payment_addresses'),
+    poolKeys: count('operator_address_pool'),
+    written,
+    secondPass,
+    expiresAt,
+  };
+}
+
+/**
+ * The restore path, and when to drop it. List re-key backups (sealed to the
+ * retired vaults), or delete one backup together with its retired vault row
+ * once the new passphrase is proven.
+ */
+export async function listRekeyBackups(): Promise<Array<{ retiredVault: string; values: number }>> {
+  const { data, error } = await getSupabaseAdmin().from('operator_rekey_backup').select('rekey_id');
+  if (error) throw new Error(error.message);
+  const counts = new Map<string, number>();
+  for (const r of data ?? []) counts.set(r.rekey_id as string, (counts.get(r.rekey_id as string) ?? 0) + 1);
+  return [...counts].map(([retiredVault, values]) => ({ retiredVault, values }));
+}
+
+/**
+ * Restore with the OLD passphrase: make a retired vault active again and put
+ * its backed-up ciphertexts back. The data key must open the retired vault.
+ * The current vault is retired in turn (kept, not deleted). Values minted
+ * after the re-key are sealed to the current vault and stay as they are; they
+ * open again once it is restored the same way, or re-derive from the seeds.
+ */
+export async function restoreRekeyBackup(retiredVault: string, oldDataKeyB64: string): Promise<{ restored: number; activeRetiredAs: string }> {
+  if (!retiredVault.startsWith(`${OPERATOR_SUBJECT_ID}:retired:`)) throw new Error('Not a retired operator vault');
+  const supabase = getSupabaseAdmin();
+  const { data: row, error } = await supabase
+    .from('secret_vaults')
+    .select('record')
+    .eq('subject_type', 'operator')
+    .eq('subject_id', retiredVault)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!row?.record) throw new Error('That retired vault no longer exists');
+  // Proves the old passphrase (the record's AAD is bound to the live subject id).
+  const { record } = await openNewVaultRecord('operator', OPERATOR_SUBJECT_ID, row.record, oldDataKeyB64);
+  const { data: backups, error: bErr } = await supabase
+    .from('operator_rekey_backup')
+    .select('source, row_key, sealed')
+    .eq('rekey_id', retiredVault);
+  if (bErr) throw new Error(bErr.message);
+  lockOperatorKeys();
+  const activeRetiredAs = await replaceVaultRecord('operator', OPERATOR_SUBJECT_ID, record);
+  await supabase.from('secret_vaults').delete().eq('subject_type', 'operator').eq('subject_id', retiredVault);
+  let restored = 0;
+  for (const b of backups ?? []) {
+    const source = b.source as RekeySource;
+    const idCol = source === 'operator_sealed_secrets' ? 'name' : 'id';
+    const { error: uErr } = await supabase.from(source).update({ [columnFor(source)]: b.sealed }).eq(idCol, b.row_key as string);
+    if (!uErr) restored += 1;
+  }
+  console.log(`[operator-keys] restored retired vault ${retiredVault} (${restored} values); previous vault kept as ${activeRetiredAs}; unlock to resume`);
+  return { restored, activeRetiredAs };
+}
+
+export async function dropRekeyBackup(retiredVault: string): Promise<void> {
+  if (!retiredVault.startsWith(`${OPERATOR_SUBJECT_ID}:retired:`)) throw new Error('Not a retired operator vault');
+  const supabase = getSupabaseAdmin();
+  const { error: e1 } = await supabase.from('operator_rekey_backup').delete().eq('rekey_id', retiredVault);
+  if (e1) throw new Error(e1.message);
+  const { error: e2 } = await supabase.from('secret_vaults').delete().eq('subject_type', 'operator').eq('subject_id', retiredVault);
+  if (e2) throw new Error(e2.message);
+}
+
 /** Test seam: what a restart does to this module's state. */
 export function resetOperatorState(): void {
   const s = st();
@@ -323,6 +563,7 @@ export function resetOperatorState(): void {
   s.sealed = null;
   s.checkedAt = 0;
   s.lastAlertAt = 0;
+  s.retiredKey = null;
   s.envWarned = false;
 }
 
