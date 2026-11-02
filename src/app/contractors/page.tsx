@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { CountrySelect } from '@/components/CountrySelect';
+import { countryName } from '@/lib/countries';
 import { authFetch, getAuthToken } from '@/lib/auth/client';
 import { Badge, button, card, day, ErrorBox, ghost, input, kindLabel, Spinner, usd } from './ui';
 
@@ -196,7 +198,7 @@ export default function ContractorsPage() {
               </label>
               <label className="text-sm text-gray-300">
                 Country
-                <input maxLength={2} placeholder="US" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value.toUpperCase() })} className={`${input} mt-1`} />
+                <CountrySelect value={form.country} onChange={(country) => setForm({ ...form, country })} placeholder="e.g. Nigeria" className={`${input} mt-1`} />
               </label>
               <button disabled={busy || !businessId} className={button}>Invite</button>
               <p className="sm:col-span-5 text-xs text-gray-500">
@@ -214,7 +216,7 @@ export default function ContractorsPage() {
                       <Link href={`/contractors/${c.id}`} className="py-3 flex flex-wrap items-center justify-between gap-3 hover:bg-gray-800/60 rounded-lg px-2 -mx-2">
                         <div className="min-w-0">
                           <p className="text-white font-medium">{c.name}</p>
-                          <p className="text-xs text-gray-500">{c.email}{c.country ? ` · ${c.country}` : ''}{c.job_title ? ` · ${c.job_title}` : ''}</p>
+                          <p className="text-xs text-gray-500">{c.email}{c.country ? ` · ${countryName(c.country)}` : ''}{c.job_title ? ` · ${c.job_title}` : ''}</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           {c.pending_approvals > 0 && <Badge status="submitted" label={`${c.pending_approvals} to approve`} />}

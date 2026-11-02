@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { isCountryCode } from '@/lib/countries';
 import { authorizeCatalog, serviceClient } from '@/lib/invoices/catalog';
 import { resolveMerchant } from '@/lib/auth/merchant';
 import { authorizeBusiness } from '@/lib/auth/authz';
@@ -55,7 +56,7 @@ export const contractorSchema = z
   .object({
     name: z.string().trim().min(1).max(200),
     email: z.string().trim().toLowerCase().email().max(320),
-    country: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/).nullable().optional(),
+    country: z.string().trim().toUpperCase().refine(isCountryCode, 'Not an ISO 3166-1 country code').nullable().optional(),
     job_title: z.string().trim().max(200).nullable().optional(),
     notes: z.string().max(2000).nullable().optional(),
   })
@@ -131,7 +132,7 @@ export const taxFormSchema = z
       .enum(['individual', 'sole_proprietor', 'llc', 'c_corp', 's_corp', 'partnership', 'trust', 'foreign_entity'])
       .optional(),
     address: z.string().trim().min(5).max(500),
-    country: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/),
+    country: z.string().trim().toUpperCase().refine(isCountryCode, 'Not an ISO 3166-1 country code'),
     tax_id: z.string().trim().max(40).optional(),
     signature: z.string().trim().min(2).max(200),
     certify: z.literal(true),
