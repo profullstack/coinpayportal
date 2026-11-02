@@ -16,11 +16,69 @@ function LoginContent() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [usePhrase, setUsePhrase] = useState(false);
+  const [phrase, setPhrase] = useState('');
+
+  const finishLogin = async (data: { token?: string; merchant?: { is_admin?: boolean } }) => {
+    if (data.token) {
+      localStorage.setItem('auth_token', data.token);
+      window.dispatchEvent(new Event('auth-change'));
+    }
+    if (redirectTo) {
+      window.location.href = redirectTo;
+    } else if (data.merchant?.is_admin) {
+      window.location.href = '/admin';
+    } else {
+      window.location.href = await resolveLandingPath(data.token!);
+    }
+  };
+
+  // The phrase never leaves this page: it becomes an Ed25519 key here and
+  // only a signature over the server's one-time challenge is sent.
+  const handlePassphraseLogin = async () => {
+    try {
+      const { deriveSecretKey, signLogin } = await import('@/lib/passphrase');
+      const optRes = await fetch('/api/auth/passphrase/login-options', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formData.email }),
+      });
+      const opt = await optRes.json();
+      if (!optRes.ok || !opt.success) {
+        setError(opt.error || 'Could not start passphrase sign-in');
+        setLoading(false);
+        return;
+      }
+      const sk = await deriveSecretKey(phrase, opt.salt, opt.kdf); // slow on purpose (scrypt)
+      const signature = await signLogin(sk, opt.challenge, formData.email);
+      sk.fill(0);
+      const res = await fetch('/api/auth/passphrase/login-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeKey: opt.challengeKey, signature }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setError(data.error || 'Wrong email or passphrase');
+        setLoading(false);
+        return;
+      }
+      await finishLogin(data);
+    } catch (err) {
+      setError((err as Error).message || 'Passphrase sign-in failed');
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
+
+    if (usePhrase) {
+      await handlePassphraseLogin();
+      return;
+    }
 
     try {
       const response = await fetch('/api/auth/login', {
@@ -37,20 +95,9 @@ function LoginContent() {
         return;
       }
 
-      if (data.token) {
-        localStorage.setItem('auth_token', data.token);
-        window.dispatchEvent(new Event('auth-change'));
-      }
-
-      if (redirectTo) {
-        window.location.href = redirectTo;
-      } else if (data.merchant?.is_admin) {
-        window.location.href = '/admin';
-      } else {
-        // Sends users with no payee wallet — or who have been away long enough
-        // that theirs may be stale — to wallet settings instead of the dashboard.
-        window.location.href = await resolveLandingPath(data.token);
-      }
+      // resolveLandingPath sends users with no payee wallet (or a stale one)
+      // to wallet settings instead of the dashboard.
+      await finishLogin(data);
     } catch {
       setError('An error occurred. Please try again.');
       setLoading(false);
@@ -141,33 +188,59 @@ function LoginContent() {
               />
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                  Password
-                </label>
-                <Link href="/forgot-password" className="text-sm text-purple-600 hover:text-purple-500">
-                  Forgot password?
-                </Link>
+            {usePhrase ? (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label htmlFor="passphrase" className="block text-sm font-medium text-gray-700">
+                    Passphrase
+                  </label>
+                  <button type="button" onClick={() => { setError(''); setUsePhrase(false); }} className="text-sm text-purple-600 hover:text-purple-500">
+                    Use password instead
+                  </button>
+                </div>
+                <textarea
+                  id="passphrase"
+                  required
+                  rows={2}
+                  value={phrase}
+                  onChange={(e) => setPhrase(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder:text-gray-400 text-gray-900"
+                  placeholder="The sentence you set in Settings → Security"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                />
+                <p className="mt-1 text-xs text-gray-500">Capitals, punctuation and a/an/the don&apos;t matter.</p>
               </div>
-              <input
-                id="password"
-                type="password"
-                required
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder:text-gray-400 text-gray-900"
-                placeholder="••••••••"
-                autoComplete="current-password"
-              />
-            </div>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                    Password
+                  </label>
+                  <Link href="/forgot-password" className="text-sm text-purple-600 hover:text-purple-500">
+                    Forgot password?
+                  </Link>
+                </div>
+                <input
+                  id="password"
+                  type="password"
+                  required
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder:text-gray-400 text-gray-900"
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                />
+              </div>
+            )}
 
             <button
               type="submit"
               disabled={loading}
               className="w-full bg-purple-600 text-white py-3 px-4 rounded-lg font-semibold hover:bg-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {loading ? 'Logging in...' : 'Log in'}
+              {loading ? (usePhrase ? 'Unlocking…' : 'Logging in...') : 'Log in'}
             </button>
           </form>
 
@@ -181,8 +254,17 @@ function LoginContent() {
             </div>
           </div>
 
-          {/* Passkey Login */}
-          <div className="mt-6">
+          {/* Passphrase + Passkey Login */}
+          <div className="mt-6 space-y-3">
+            {!usePhrase && (
+              <button
+                type="button"
+                onClick={() => { setError(''); setUsePhrase(true); }}
+                className="w-full inline-flex items-center justify-center gap-2 border border-gray-300 text-gray-800 py-3 px-4 rounded-lg font-semibold hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition-colors"
+              >
+                Sign in with a passphrase
+              </button>
+            )}
             <button
               type="button"
               disabled={passkeyLoading}
