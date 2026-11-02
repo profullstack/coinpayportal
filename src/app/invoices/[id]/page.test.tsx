@@ -158,13 +158,13 @@ describe('InvoiceDetailPage email delivery', () => {
     expect(screen.getByRole('button', { name: /Resend Email/ })).toBeInTheDocument();
   });
 
-  it('does not offer email resend for an overdue payment link', async () => {
+  it('offers both email resend and re-issue for an overdue invoice', async () => {
     mockInitialInvoice({ ...sentInvoice, status: 'overdue' });
 
     render(<InvoiceDetailPage />);
 
     expect(await screen.findByRole('button', { name: /Re-issue Payment Details/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Resend Email/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Resend Email/ })).toBeInTheDocument();
   });
 
   it('offers payment re-issue after a resend discovers an inactive legacy payment', async () => {
