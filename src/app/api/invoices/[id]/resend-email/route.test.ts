@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server';
 const mockAuthorizeInvoice = vi.fn();
 const mockDeliverInvoiceEmail = vi.fn();
 const mockCheckRateLimitAsync = vi.fn();
+const mockActivateInvoicePayment = vi.fn();
 const invoiceUpdatePayloads: Array<Record<string, unknown>> = [];
 
 let paymentResult: { data: Record<string, unknown> | null; error: unknown };
@@ -37,6 +38,10 @@ vi.mock('@/lib/auth/invoice-access', () => ({
 vi.mock('@/lib/email/invoice-delivery', () => ({
   deliverInvoiceEmail: (...args: unknown[]) => mockDeliverInvoiceEmail(...args),
   getInvoicePaymentLink: (id: string) => `https://coinpayportal.com/now/${id}`,
+}));
+
+vi.mock('@/lib/invoices/activation', () => ({
+  activateInvoicePayment: (...args: unknown[]) => mockActivateInvoicePayment(...args),
 }));
 
 vi.mock('@/lib/web-wallet/rate-limit', () => ({
@@ -105,6 +110,20 @@ describe('POST /api/invoices/[id]/resend-email', () => {
     claimResult = { data: { id: 'inv-1' }, error: null };
     finalizeResult = { data: { id: 'inv-1' }, error: null };
     mockCheckRateLimitAsync.mockResolvedValue({ allowed: true, limit: 10, remaining: 9, resetAt: 0 });
+    mockActivateInvoicePayment.mockImplementation((_supabase: unknown, inv: Record<string, unknown>) =>
+      Promise.resolve({
+        ok: true,
+        invoice: {
+          ...inv,
+          status: 'sent',
+          payment_address: 'fresh-solana-payment-address',
+          crypto_amount: '0.60000000',
+          metadata: { coinpay_payment_id: 'payment-2' },
+        },
+        paymentLink: 'https://coinpayportal.com/now/inv-1',
+        idempotentReplay: false,
+      })
+    );
     mockDeliverInvoiceEmail.mockResolvedValue({
       success: true,
       messageId: 'email-message-2',
@@ -174,7 +193,7 @@ describe('POST /api/invoices/[id]/resend-email', () => {
     expect(invoiceUpdatePayloads[1]).toMatchObject({ email_status: 'failed' });
   });
 
-  it('does not advertise an expired payment link and prepares the invoice for re-issue', async () => {
+  it('regenerates an expired payment link and emails the new one', async () => {
     paymentResult.data = {
       ...paymentResult.data,
       status: 'expired',
@@ -184,15 +203,44 @@ describe('POST /api/invoices/[id]/resend-email', () => {
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: 'inv-1' }) });
     const body = await res.json();
 
-    expect(res.status).toBe(409);
-    expect(body.code).toBe('PAYMENT_LINK_INACTIVE');
-    expect(body.canReissue).toBe(true);
-    expect(body.error).toContain('no longer active');
-    expect(body.invoice).toMatchObject({ id: 'inv-1', status: 'overdue' });
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.paymentLinkRegenerated).toBe(true);
+    expect(body.invoice).toMatchObject({
+      status: 'sent',
+      payment_address: 'fresh-solana-payment-address',
+      email_status: 'accepted',
+    });
+    expect(invoiceUpdatePayloads[0]).toMatchObject({ status: 'overdue' });
+    expect(mockActivateInvoicePayment).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'inv-1', status: 'overdue' }),
+    );
+    expect(mockDeliverInvoiceEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ payment_address: 'fresh-solana-payment-address' }),
+    );
+  });
+
+  it('does not email when a new payment link cannot be generated', async () => {
+    paymentResult.data = {
+      ...paymentResult.data,
+      status: 'expired',
+      expires_at: new Date(Date.now() - 60_000).toISOString(),
+    };
+    mockActivateInvoicePayment.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      error: 'Failed to create invoice payment: rpc down',
+      code: 'PAYMENT_CREATION_FAILED',
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: 'inv-1' }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(body.code).toBe('PAYMENT_CREATION_FAILED');
+    expect(body.error).toContain('new one could not be generated');
     expect(mockDeliverInvoiceEmail).not.toHaveBeenCalled();
-    expect(invoiceUpdatePayloads).toEqual([
-      expect.objectContaining({ status: 'overdue' }),
-    ]);
   });
 
   it('does not overwrite an invoice that changes while an inactive payment is checked', async () => {
@@ -332,7 +380,7 @@ describe('POST /api/invoices/[id]/resend-email', () => {
     expect(invoiceUpdatePayloads.some((p) => 'status' in p)).toBe(false);
   });
 
-  it('asks for re-issue when an overdue invoice has a dead payment link', async () => {
+  it('regenerates the link when an overdue invoice has a dead payment link', async () => {
     mockAuthorizeInvoice.mockResolvedValueOnce({
       ok: true,
       invoice: { ...sentInvoice, status: 'overdue' },
@@ -346,10 +394,12 @@ describe('POST /api/invoices/[id]/resend-email', () => {
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: 'inv-1' }) });
     const body = await res.json();
 
-    expect(res.status).toBe(409);
-    expect(body.code).toBe('PAYMENT_LINK_INACTIVE');
-    expect(body.canReissue).toBe(true);
-    expect(mockDeliverInvoiceEmail).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(body.paymentLinkRegenerated).toBe(true);
+    expect(mockActivateInvoicePayment).toHaveBeenCalledTimes(1);
+    expect(mockDeliverInvoiceEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ payment_address: 'fresh-solana-payment-address' }),
+    );
   });
 
   it('does not resend draft or closed invoices', async () => {

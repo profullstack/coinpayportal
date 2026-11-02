@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authorizeInvoice } from '@/lib/auth/invoice-access';
 import { deliverInvoiceEmail, getInvoicePaymentLink } from '@/lib/email/invoice-delivery';
+import { activateInvoicePayment } from '@/lib/invoices/activation';
 import { loadInvoiceSettings } from '@/lib/invoices/settings';
 import { brandFrom } from '@/lib/invoices/reminders';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
@@ -29,7 +30,7 @@ export async function POST(
       `
         *,
         clients (id, name, email, company_name),
-        businesses (id, name)
+        businesses (id, name, merchant_id)
       `,
       { allowOAuth: true },
     );
@@ -38,10 +39,10 @@ export async function POST(
       return NextResponse.json({ success: false, error: access.error }, { status: access.status });
     }
 
-    const { invoice } = access;
-    // An overdue invoice usually still has a live payment link: the monitor
-    // flips sent -> overdue on the due date without touching the payment. The
-    // payment check below decides between emailing it and asking for re-issue.
+    let invoice = access.invoice;
+    // An overdue invoice may still have a live payment link (the monitor flips
+    // sent -> overdue on the due date without touching the payment). If the
+    // link has expired, a fresh one is generated below before emailing.
     if (invoice.status !== 'sent' && invoice.status !== 'overdue') {
       return NextResponse.json(
         { success: false, error: `Cannot resend email for invoice with status: ${invoice.status}` },
@@ -148,11 +149,21 @@ export async function POST(
       );
     }
 
+    const resendRate = await checkRateLimitAsync(invoice.business_id, 'invoice_email_resend');
+    if (!resendRate.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Too many invoice email attempts; try again shortly.' },
+        { status: 429 }
+      );
+    }
+
+    let regenerated = false;
     if (!paymentIsActive) {
-      // Keep the invoice state aligned with the payment state. Without a due
-      // date, the monitor cannot promote a legacy sent invoice to overdue, so
-      // the UI would otherwise keep offering only a retry that can never work.
-      // The conditional update also avoids overwriting a concurrent settlement.
+      // The old payment link is dead, so nothing watches it and nothing is lost
+      // by replacing it: generate fresh payment details, then email those.
+      // The invoice goes to overdue first because only draft/overdue invoices
+      // can be activated; the conditional update avoids overwriting a
+      // concurrent settlement.
       const updatedAt = new Date().toISOString();
       const { data: reissuableInvoice, error: reissueStateError } = await supabase
         .from('invoices')
@@ -179,24 +190,24 @@ export async function POST(
         );
       }
 
-      return NextResponse.json(
-        {
-          success: false,
-          code: 'PAYMENT_LINK_INACTIVE',
-          error: 'The existing payment link is no longer active. Re-issue the invoice before emailing it again.',
-          canReissue: true,
-          invoice: { ...invoice, status: 'overdue', updated_at: updatedAt },
-        },
-        { status: 409 }
-      );
-    }
-
-    const resendRate = await checkRateLimitAsync(invoice.business_id, 'invoice_email_resend');
-    if (!resendRate.allowed) {
-      return NextResponse.json(
-        { success: false, error: 'Too many invoice email attempts; try again shortly.' },
-        { status: 429 }
-      );
+      const activation = await activateInvoicePayment(supabase, {
+        ...invoice,
+        status: 'overdue',
+        updated_at: updatedAt,
+      });
+      if (!activation.ok) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: activation.code,
+            error: `The payment link had expired and a new one could not be generated: ${activation.error}`,
+            invoice: { ...invoice, status: 'overdue', updated_at: updatedAt },
+          },
+          { status: activation.status }
+        );
+      }
+      invoice = { ...invoice, ...activation.invoice };
+      regenerated = true;
     }
 
     const lastAttemptAt = invoice.email_last_attempted_at
@@ -297,6 +308,7 @@ export async function POST(
       invoice: { ...invoice, ...persistedEmailState },
       emailAccepted: emailResult.success,
       emailTrackingSaved,
+      paymentLinkRegenerated: regenerated,
       paymentLink: emailResult.paymentLink,
       ...(warning && { warning }),
       ...(!emailResult.success && { emailError: emailResult.error }),

@@ -61,8 +61,6 @@ export default function InvoiceDetailPage() {
   const [error, setError] = useState('');
   const [emailFeedback, setEmailFeedback] = useState<{ tone: 'success' | 'warning'; message: string } | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
-  // Set when a resend finds the payment link dead: only a re-issue can help then.
-  const [paymentLinkInactive, setPaymentLinkInactive] = useState(false);
   // null = unknown/loading. cardsEnabled reflects whether the invoice's business
   // has a Stripe Connect account with card charges enabled.
   const [cardsEnabled, setCardsEnabled] = useState<boolean | null>(null);
@@ -130,7 +128,6 @@ export default function InvoiceDetailPage() {
     const result = await authFetch(`/api/invoices/${invoiceId}/send`, { method: 'POST' }, router);
     if (result?.data.success) {
       setInvoice(result.data.invoice);
-      setPaymentLinkInactive(false);
       setEmailFeedback(result.data.emailAccepted === false || result.data.warning
         ? {
             tone: 'warning',
@@ -152,16 +149,15 @@ export default function InvoiceDetailPage() {
     if (result?.data.invoice) {
       setInvoice(result.data.invoice);
     }
-    if (result?.data.code === 'PAYMENT_LINK_INACTIVE') {
-      setPaymentLinkInactive(true);
-    }
     if (result?.data.success) {
       setEmailFeedback({
         tone: result.data.warning ? 'warning' : 'success',
-        message: result.data.warning || 'The email provider accepted the invoice message.',
+        message: result.data.warning || (result.data.paymentLinkRegenerated
+          ? 'The old payment link had expired, so a new one was generated and emailed.'
+          : 'The email provider accepted the invoice message.'),
       });
     } else {
-      setError(result?.data.error || 'Failed to resend invoice email. The existing payment link is still active.');
+      setError(result?.data.error || 'Failed to resend invoice email.');
     }
     setActionLoading('');
   };
@@ -491,7 +487,7 @@ export default function InvoiceDetailPage() {
                 </button>
               )}
 
-              {['sent', 'overdue'].includes(invoice.status) && !paymentLinkInactive && invoice.payment_address && invoice.crypto_amount && invoice.crypto_currency && (
+              {['sent', 'overdue'].includes(invoice.status) && invoice.payment_address && invoice.crypto_amount && invoice.crypto_currency && (
                 <button
                   onClick={handleResendEmail}
                   disabled={actionLoading === 'resend-email'}
