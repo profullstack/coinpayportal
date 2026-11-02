@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
 import { startRegistration } from '@simplewebauthn/browser';
+import PassphraseSection from './PassphraseSection';
 
 interface Passkey {
   id: string;
@@ -180,7 +181,7 @@ export default function SecuritySettingsPage() {
           </Link>
           <h1 className="mt-4 text-3xl font-bold text-gray-900 dark:text-white">Security</h1>
           <p className="mt-2 text-gray-600 dark:text-gray-300">
-            Manage your passkeys and security settings
+            Manage your passkeys, passphrase and security settings
           </p>
         </div>
 
@@ -324,6 +325,8 @@ export default function SecuritySettingsPage() {
             </div>
           )}
         </div>
+
+        <PassphraseSection />
 
         {/* Info */}
         <div className="mt-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">

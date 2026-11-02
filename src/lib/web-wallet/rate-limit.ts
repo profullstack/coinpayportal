@@ -115,6 +115,7 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   // oracle; the verify endpoints back an authentication decision.
   'webauthn_options': { limit: 20, windowSeconds: 300 },     // 20/5min per IP
   'webauthn_verify': { limit: 20, windowSeconds: 300 },      // 20/5min per IP
+  'passphrase_options': { limit: 20, windowSeconds: 300 },   // 20/5min per IP
   // Address derivation. Its five sibling mutating routes are limited; this one
   // was not, and each call does HD derivation work and writes a row.
   'wallet_derive': { limit: 30, windowSeconds: 60 },         // 30/min per wallet
