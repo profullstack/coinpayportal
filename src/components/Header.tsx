@@ -155,6 +155,8 @@ export default function Header() {
   const loggedInNavigation: NavItem[] = [
     { name: 'Dashboard', href: '/dashboard', primary: true },
     { name: 'Invoices', href: '/invoices', primary: true },
+    // Overdue invoices + declined card payments, by customer and next step.
+    { name: "Who's behind", href: '/payments/behind' },
     { name: 'Wallet', href: '/web-wallet', primary: true },
     { name: 'Explorer', href: '/explorer', primary: true },
     { name: 'API', href: '/docs', primary: true },

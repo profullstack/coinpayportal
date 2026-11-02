@@ -103,6 +103,9 @@ export default function AgingPage() {
           </Link>
           <h1 className="text-3xl font-bold text-white">Accounts Receivable Aging</h1>
           <p className="mt-2 text-gray-400">Unpaid invoices that have been sent, grouped by how far past due they are.</p>
+          <Link href="/payments/behind" className="mt-2 inline-block text-sm text-purple-400 hover:text-purple-300">
+            Who&apos;s behind, and what to do about each →
+          </Link>
         </div>
 
         {businesses.length > 1 && (
