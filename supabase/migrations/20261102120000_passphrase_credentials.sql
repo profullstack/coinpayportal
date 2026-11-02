@@ -15,3 +15,8 @@ CREATE TABLE IF NOT EXISTS passphrase_credentials (
 
 ALTER TABLE passphrase_credentials ENABLE ROW LEVEL SECURITY;
 -- No policies: only the service role (API routes) reads or writes this table.
+
+-- Self-hosted Postgres gives a new table no default grants; the API routes
+-- use service_role. Browser roles get nothing.
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE passphrase_credentials TO service_role;
+REVOKE ALL ON TABLE passphrase_credentials FROM anon, authenticated;
