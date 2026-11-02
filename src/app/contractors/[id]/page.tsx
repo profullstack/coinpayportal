@@ -4,6 +4,7 @@ import { use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { authFetch } from '@/lib/auth/client';
+import { countryName } from '@/lib/countries';
 import { Badge, button, card, contractTerms, day, ErrorBox, ghost, input, kindLabel, Spinner, usd } from '../ui';
 
 interface Milestone { id: string; title: string; amount: string; due_date: string | null; position: number; status: string }
@@ -142,7 +143,7 @@ export default function ContractorPage({ params }: { params: Promise<{ id: strin
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white">{contractor.name}</h1>
-            <p className="text-gray-400 mt-1">{contractor.email}{contractor.country ? ` · ${contractor.country}` : ''}{contractor.job_title ? ` · ${contractor.job_title}` : ''}</p>
+            <p className="text-gray-400 mt-1">{contractor.email}{contractor.country ? ` · ${countryName(contractor.country)}` : ''}{contractor.job_title ? ` · ${contractor.job_title}` : ''}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge status={contractor.status} />

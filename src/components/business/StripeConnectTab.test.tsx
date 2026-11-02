@@ -49,8 +49,8 @@ describe('StripeConnectTab', () => {
     await waitFor(() => screen.getByText('Connect with Stripe'));
     expect((screen.getByText('Connect with Stripe') as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.click(screen.getByText('Select a country'));
-    fireEvent.click(screen.getByRole('option', { name: /Germany/ }));
+    fireEvent.focus(screen.getByRole('combobox'));
+    fireEvent.mouseDown(screen.getByRole('option', { name: /Germany/ }));
 
     expect((screen.getByText('Connect with Stripe') as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByText('Connect with Stripe'));
@@ -71,11 +71,23 @@ describe('StripeConnectTab', () => {
     render(<StripeConnectTab businessId="biz-1" />);
     await waitFor(() => screen.getByText('Connect with Stripe'));
 
-    fireEvent.click(screen.getByText('Select a country'));
-    fireEvent.change(screen.getByPlaceholderText('Filter countries…'), { target: { value: 'japan' } });
+    fireEvent.focus(screen.getByRole('combobox'));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'japan' } });
 
     expect(screen.getByRole('option', { name: /Japan/ })).toBeTruthy();
     expect(screen.queryByRole('option', { name: /United States/ })).toBeNull();
+  });
+
+  it('typing a full country name selects it, but only Stripe Connect countries', async () => {
+    mockAuthFetch.mockResolvedValue({ response: { ok: false }, data: { success: false } });
+    render(<StripeConnectTab businessId="biz-1" />);
+    await waitFor(() => screen.getByText('Connect with Stripe'));
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Nigeria' } });
+    expect((screen.getByText('Connect with Stripe') as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'North Korea' } });
+    expect((screen.getByText('Connect with Stripe') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('shows account info when connected', async () => {

@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { authFetch } from '@/lib/auth/client';
 import { formatAmount } from './stripe-helpers';
-import { CountrySelect } from './CountrySelect';
+import { CountrySelect } from '@/components/CountrySelect';
+import { STRIPE_CONNECT_COUNTRIES } from '@/lib/stripe/connect-countries';
 
 interface StripeConnectTabProps {
   businessId: string;
@@ -273,7 +274,7 @@ export function StripeConnectTab({ businessId }: StripeConnectTabProps) {
               <label htmlFor="stripe-country" className="block text-xs font-medium text-gray-300 mb-1 text-left">
                 Country (cannot be changed after onboarding)
               </label>
-              <CountrySelect id="stripe-country" value={country} onChange={setCountry} disabled={onboarding} />
+              <CountrySelect id="stripe-country" countries={STRIPE_CONNECT_COUNTRIES} value={country} onChange={setCountry} disabled={onboarding} />
             </div>
             <div className="text-center">
               <button

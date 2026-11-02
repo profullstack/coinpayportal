@@ -146,8 +146,8 @@ describe('StripeTab', () => {
     });
 
     // Open the country picker and select a country (button is disabled until one is chosen)
-    fireEvent.click(screen.getByText('Select a country'));
-    fireEvent.click(screen.getByRole('option', { name: /United States/ }));
+    fireEvent.focus(screen.getByRole('combobox'));
+    fireEvent.mouseDown(screen.getByRole('option', { name: /United States/ }));
 
     fireEvent.click(screen.getByText('Connect with Stripe'));
 

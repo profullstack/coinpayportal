@@ -2,6 +2,7 @@
 
 import { use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { CountrySelect } from '@/components/CountrySelect';
 import { Badge, button, card, contractTerms, day, ErrorBox, ghost, input, kindLabel, Spinner, usd } from '@/app/contractors/ui';
 
 const COINS = ['USDC_SOL', 'USDC_POL', 'USDC_ETH', 'USDT_SOL', 'USDT_POL', 'USDT_ETH', 'BTC', 'ETH', 'SOL', 'POL', 'BNB', 'XRP', 'ADA', 'DOGE', 'BCH'];
@@ -205,7 +206,7 @@ export default function ContractorPortal({ params }: { params: Promise<{ token: 
                 </label>
               )}
               <label className="text-sm text-gray-300 sm:col-span-2">Address *<input required minLength={5} value={tax.address} onChange={(e) => setTax({ ...tax, address: e.target.value })} className={`${input} mt-1`} /></label>
-              <label className="text-sm text-gray-300">Country (2 letters) *<input required maxLength={2} value={tax.country} onChange={(e) => setTax({ ...tax, country: e.target.value.toUpperCase() })} className={`${input} mt-1`} /></label>
+              <label className="text-sm text-gray-300">Country *<CountrySelect required value={tax.country} onChange={(country) => setTax({ ...tax, country })} className={`${input} mt-1`} /></label>
               <label className="text-sm text-gray-300">{tax.tax_form === 'W9' ? 'SSN or EIN *' : 'Foreign tax id (optional)'}
                 <input required={tax.tax_form === 'W9'} autoComplete="off" value={tax.tax_id} onChange={(e) => setTax({ ...tax, tax_id: e.target.value })} className={`${input} mt-1`} />
               </label>
