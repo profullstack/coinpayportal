@@ -167,26 +167,25 @@ describe('InvoiceDetailPage email delivery', () => {
     expect(screen.getByRole('button', { name: /Resend Email/ })).toBeInTheDocument();
   });
 
-  it('offers payment re-issue after a resend discovers an inactive legacy payment', async () => {
+  it('tells the merchant when a resend generated a new payment link', async () => {
     const user = userEvent.setup();
     const overdueInvoice = { ...sentInvoice, status: 'overdue' };
 
     mockAuthFetch.mockImplementation((url: string) => {
       if (url === '/api/invoices/inv-1') {
-        return Promise.resolve({ response: { ok: true }, data: { success: true, invoice: sentInvoice } });
+        return Promise.resolve({ response: { ok: true }, data: { success: true, invoice: overdueInvoice } });
       }
       if (url === '/api/stripe/connect/status/biz-1') {
         return Promise.resolve({ response: { ok: true }, data: { success: true, charges_enabled: false } });
       }
       if (url === '/api/invoices/inv-1/resend-email') {
         return Promise.resolve({
-          response: { ok: false, status: 409 },
+          response: { ok: true },
           data: {
-            success: false,
-            code: 'PAYMENT_LINK_INACTIVE',
-            canReissue: true,
-            error: 'The existing payment link is no longer active. Re-issue the invoice before emailing it again.',
-            invoice: overdueInvoice,
+            success: true,
+            emailAccepted: true,
+            paymentLinkRegenerated: true,
+            invoice: { ...sentInvoice, payment_address: 'fresh-address' },
           },
         });
       }
@@ -196,8 +195,6 @@ describe('InvoiceDetailPage email delivery', () => {
     render(<InvoiceDetailPage />);
     await user.click(await screen.findByRole('button', { name: /Resend Email/ }));
 
-    expect(await screen.findByRole('button', { name: /Re-issue Payment Details/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Resend Email/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/no longer active/)).toBeInTheDocument();
+    expect(await screen.findByText(/new one was generated and emailed/)).toBeInTheDocument();
   });
 });
