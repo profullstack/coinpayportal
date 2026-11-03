@@ -46,11 +46,6 @@ function askHidden(prompt: string): Promise<string> {
 
 async function main() {
   if (!token) throw new Error('Set COINPAY_ADMIN_TOKEN (an admin session JWT)');
-  if (flag('--lock')) {
-    await api('/api/admin/operator-vault/lock', { method: 'POST', body: '{}' });
-    console.log('locked');
-    return;
-  }
   const status = await api('/api/admin/operator-vault');
   if (flag('--status')) {
     const { record: _r, ...rest } = status;
@@ -65,6 +60,12 @@ async function main() {
     ? await unwrapDekWithRecovery(record, secret, 'operator', status.subject_id)
     : await unwrapDek(record, secret, 'operator', status.subject_id);
   try {
+    if (flag('--lock')) {
+      // Locking stops forwarding, so it needs the passphrase too.
+      await api('/api/admin/operator-vault/lock', { method: 'POST', body: JSON.stringify({ data_key: bytesToBase64(dek) }) });
+      console.log('locked');
+      return;
+    }
     const out = await api('/api/admin/operator-vault/unlock', {
       method: 'POST',
       body: JSON.stringify({ data_key: bytesToBase64(dek), ttl_hours: hours }),
