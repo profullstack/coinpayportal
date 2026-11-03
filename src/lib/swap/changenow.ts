@@ -88,19 +88,21 @@ const CN_COIN_MAP: Record<SwapCoin, { ticker: string; network: string }> = {
   'ETH': { ticker: 'eth', network: 'eth' },
   'POL': { ticker: 'matic', network: 'matic' },
   'SOL': { ticker: 'sol', network: 'sol' },
-  'BNB': { ticker: 'bnbbsc', network: 'bsc' },
+  'BNB': { ticker: 'bnb', network: 'bsc' },
   'DOGE': { ticker: 'doge', network: 'doge' },
   'XRP': { ticker: 'xrp', network: 'xrp' },
   'ADA': { ticker: 'ada', network: 'ada' },
-  // Stablecoins - ChangeNOW uses network-specific tickers
-  'USDT': { ticker: 'usdterc20', network: 'eth' },
-  'USDT_ETH': { ticker: 'usdterc20', network: 'eth' },
-  'USDT_POL': { ticker: 'usdtmatic', network: 'matic' },
-  'USDT_SOL': { ticker: 'usdtsol', network: 'sol' },
+  // Stablecoins: ChangeNOW v2 takes the asset and the chain separately
+  // (ticker 'usdc' + network 'matic'). The old combined tickers (usdcmatic,
+  // usdterc20, bnbbsc...) now fail with "Currency ... is not supported".
+  'USDT': { ticker: 'usdt', network: 'eth' },
+  'USDT_ETH': { ticker: 'usdt', network: 'eth' },
+  'USDT_POL': { ticker: 'usdt', network: 'matic' },
+  'USDT_SOL': { ticker: 'usdt', network: 'sol' },
   'USDC': { ticker: 'usdc', network: 'eth' },
   'USDC_ETH': { ticker: 'usdc', network: 'eth' },
-  'USDC_POL': { ticker: 'usdcmatic', network: 'matic' },
-  'USDC_SOL': { ticker: 'usdcsol', network: 'sol' },
+  'USDC_POL': { ticker: 'usdc', network: 'matic' },
+  'USDC_SOL': { ticker: 'usdc', network: 'sol' },
 };
 
 /**
