@@ -43,7 +43,7 @@ vi.mock('@/lib/swap/changenow', () => ({
     'SOL': { ticker: 'sol', network: 'sol' },
     'POL': { ticker: 'matic', network: 'matic' },
     'USDC': { ticker: 'usdc', network: 'eth' },
-    'USDT': { ticker: 'usdterc20', network: 'eth' },
+    'USDT': { ticker: 'usdt', network: 'eth' },
   },
 }));
 
