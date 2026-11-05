@@ -46,7 +46,7 @@
     "@opentelemetry/exporter-logs-otlp-http": "^0.300.0",
     "@opentelemetry/resources": "^3.0.0",
     "@opentelemetry/sdk-logs": "^3.0.0",
-    "@profullstack/autoblog": "^0.4.0",
+    "@profullstack/autoblog": "^0.5.0",
     "@profullstack/coinpay": "workspace:*",
     "@profullstack/emailer": "^1.0.3",
     "@profullstack/fleet": "0.1.1",
