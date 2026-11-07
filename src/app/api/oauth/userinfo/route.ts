@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyAccessToken } from '@/lib/oauth/tokens';
 import { isAccessTokenRevoked } from '@/lib/oauth/grants';
 import { listUserWallets } from '@/lib/wallets/user-wallets';
+import { getPassStatus } from '@/lib/pass/service';
 
 function getSupabase() {
   return createClient(
@@ -135,6 +136,19 @@ export async function GET(request: NextRequest) {
 
     if (didRow?.did) {
       claims.did = didRow.did;
+    }
+  }
+
+  // Profullstack Pass: deposit $99 into your own CoinPay wallet, get a free
+  // month on every Profullstack property. Every client gets it with openid so
+  // the ~60 existing properties need no new scope registration; it says only
+  // whether the month is running and when it ends.
+  if (scopes.includes('openid')) {
+    const pass = await getPassStatus(supabase, userId).catch(() => null);
+    if (pass) {
+      claims.pass = pass.claimed
+        ? { active: pass.active, expires_at: pass.expires_at }
+        : { active: false };
     }
   }
 
