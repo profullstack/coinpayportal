@@ -28,8 +28,11 @@ interface ClientRow {
   created_at?: string;
 }
 
-export function firstPartyOwnerId(): string | null {
-  return process.env.FIRST_PARTY_OAUTH_OWNER_ID?.trim() || null;
+/** The Profullstack account that owns every first-party OAuth client. Not a secret. */
+const PROFULLSTACK_OWNER_ID = '5d79f032-b9ec-42b6-a34a-577c9ab9688d';
+
+export function firstPartyOwnerId(): string {
+  return process.env.FIRST_PARTY_OAUTH_OWNER_ID?.trim() || PROFULLSTACK_OWNER_ID;
 }
 
 export function preapprovableScopes(scopes: string[] | null | undefined): string[] {
@@ -74,7 +77,6 @@ export function groupApps(clients: ClientRow[], consented: Set<string>): PassApp
 
 export async function listPassApps(supabase: SupabaseClient, userId: string | null): Promise<PassApp[]> {
   const owner = firstPartyOwnerId();
-  if (!owner) return [];
   const { data: clients } = await supabase
     .from('oauth_clients')
     .select('client_id, name, redirect_uris, scopes, created_at')
