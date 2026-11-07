@@ -164,9 +164,19 @@ client_secret=cps_xxxxxxxxxxxx...`}
     { "address": "bc1q...", "chain": "BTC", "label": "Main" },
     { "address": "0x1234...", "chain": "ETH", "label": "Acme Inc", "business_id": "biz-uuid" }
   ],
-  "did": "did:key:z6Mk..."
+  "did": "did:key:z6Mk...",
+  "pass": { "active": true, "expires_at": "2026-12-07T18:00:00.000Z" }
 }`}
         </CodeBlock>
+
+        <p className="text-gray-400 text-sm mt-4">
+          <code className="text-gray-300">pass</code> comes with every <code className="text-gray-300">openid</code> token.
+          It is the Profullstack Pass: a user who deposits $99 into their own CoinPay web wallet gets a free
+          month on every Profullstack property (see <a href="/pass" className="text-purple-300">/pass</a>).
+          When <code className="text-gray-300">pass.active</code> is true, give the user full access until{' '}
+          <code className="text-gray-300">expires_at</code>; after that, take pay-as-you-go top-ups with crypto checkout.
+          Re-read userinfo at sign-in or refresh rather than caching it for longer than the session.
+        </p>
 
         <p className="text-gray-400 text-sm mt-4">
           <code className="text-gray-300">wallets</code> covers both account-level addresses and

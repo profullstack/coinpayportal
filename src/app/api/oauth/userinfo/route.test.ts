@@ -19,6 +19,11 @@ vi.mock('@/lib/oauth/tokens', () => ({
   verifyAccessToken: vi.fn(),
 }));
 
+const mockGetPassStatus = vi.fn(async () => ({ active: false, claimed: false }));
+vi.mock('@/lib/pass/service', () => ({
+  getPassStatus: (...args: unknown[]) => mockGetPassStatus(...(args as [])),
+}));
+
 import { GET } from './route';
 import { verifyAccessToken } from '@/lib/oauth/tokens';
 
@@ -353,5 +358,32 @@ describe('GET /api/oauth/userinfo', () => {
     expect(body.wallets[0].business_id).toBe('biz-abc');
     // business_wallets has no label column; fall back to the business name.
     expect(body.wallets[0].label).toBe('Acme Inc');
+  });
+
+  it('includes the Profullstack Pass claim with openid', async () => {
+    (verifyAccessToken as any).mockReturnValue({ sub: 'user-123', scope: 'openid' });
+    mockSingle.mockResolvedValueOnce({ data: { id: 'user-123', email: 'a@b.c', name: 'A' }, error: null });
+    mockGetPassStatus.mockResolvedValueOnce({
+      active: true,
+      claimed: true,
+      starts_at: '2026-11-07T00:00:00Z',
+      expires_at: '2026-12-07T00:00:00Z',
+      deposit_usd: 120,
+    });
+
+    const res = await GET(makeRequest({ authorization: 'Bearer valid-token' }));
+    const body = await res.json();
+    expect(body.pass).toEqual({ active: true, expires_at: '2026-12-07T00:00:00Z' });
+    // The deposit amount stays private to CoinPay.
+    expect(body.pass.deposit_usd).toBeUndefined();
+  });
+
+  it('reports an unclaimed pass as inactive', async () => {
+    (verifyAccessToken as any).mockReturnValue({ sub: 'user-123', scope: 'openid' });
+    mockSingle.mockResolvedValueOnce({ data: { id: 'user-123' }, error: null });
+
+    const res = await GET(makeRequest({ authorization: 'Bearer valid-token' }));
+    const body = await res.json();
+    expect(body.pass).toEqual({ active: false });
   });
 });
