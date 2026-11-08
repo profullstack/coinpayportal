@@ -14,7 +14,7 @@ describe('stripDeadLinks', () => {
   });
   it('leaves live links and c0upons links alone', () => {
     const html =
-      '<a href="https://c0upons.com/blog/walgreens-coupon-code-workflow">c</a> <a href="https://jonandersen.substack.com/p/other">o</a>';
+      '<a href="https://c0upons.pwa.pit.world/blog/walgreens-coupon-code-workflow">c</a> <a href="https://jonandersen.substack.com/p/other">o</a>';
     expect(stripDeadLinks(html)).toBe(html);
   });
 });
