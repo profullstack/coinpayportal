@@ -257,4 +257,32 @@ describe('QR Code Generator', () => {
       );
     });
   });
+
+  describe('every chain a payment can be created on', () => {
+    const EVM = '0xB979219AF07eBaFe39422b5A3Cb5Bcc8ae329062';
+    const SOLA = '7EqQdEULxWcraVx3mXKFjc84LhCkMGZCkRuDpvcMwJeK';
+    const cases: Array<[string, string, RegExp]> = [
+      // The payment that showed "QR unavailable" on 2026-11-08
+      ['USDC_BASE', EVM, /^ethereum:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913@8453\/transfer\?address=0xB979219AF07eBaFe39422b5A3Cb5Bcc8ae329062&uint256=5021507$/],
+      ['USDT_ETH', EVM, /^ethereum:0xdAC17F958D2ee523a2206206994597C13D831ec7@1\/transfer\?address=.+&uint256=5021507$/],
+      ['USDT_POL', EVM, /^ethereum:0xc2132D05D31c914a87C6611C10748AEb04B58e8F@137\/transfer\?/],
+      ['USDT', EVM, /^ethereum:0xdAC17F958D2ee523a2206206994597C13D831ec7@1\/transfer\?/],
+      ['USDC', EVM, /^ethereum:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48@1\/transfer\?/],
+      ['BNB', EVM, /^ethereum:0xB979219AF07eBaFe39422b5A3Cb5Bcc8ae329062@56\?value=5021507000000000000$/],
+      ['USDT_SOL', SOLA, /^solana:7EqQ.+\?amount=5.021507&spl-token=Es9vMFrzaCERmJfrF4H2FYDUTR4o4M2xq9knkXJmNQp7$/],
+      ['USDT_TRON', 'TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf', /^TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf$/],
+    ];
+
+    it.each(cases)('%s encodes', async (blockchain, address, uri) => {
+      vi.mocked(QRCode.toDataURL).mockResolvedValueOnce('data:image/png;base64,test');
+      await generatePaymentQR({ blockchain: blockchain as any, address, amount: 5.021507 });
+      expect(vi.mocked(QRCode.toDataURL).mock.lastCall?.[0]).toMatch(uri);
+    });
+
+    it('converts an amount small enough to stringify in exponent form', async () => {
+      vi.mocked(QRCode.toDataURL).mockResolvedValueOnce('data:image/png;base64,test');
+      await generatePaymentQR({ blockchain: 'ETH', address: EVM, amount: 1e-7 });
+      expect(vi.mocked(QRCode.toDataURL).mock.lastCall?.[0]).toBe(`ethereum:${EVM}@1?value=100000000000`);
+    });
+  });
 });
