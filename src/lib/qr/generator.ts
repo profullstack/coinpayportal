@@ -8,7 +8,7 @@ export type Blockchain =
   | 'DOGE' | 'XRP' | 'ADA' | 'BNB'
   | 'USDT' | 'USDT_ETH' | 'USDT_POL' | 'USDT_SOL' | 'USDT_TRON'
   | 'USDC'
-  | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL';
+  | 'USDC_ETH' | 'USDC_POL' | 'USDC_SOL' | 'USDC_BASE';
 
 /**
  * QR code generation options
@@ -87,16 +87,24 @@ export async function generateQRCode(
 const CHAIN_IDS: Record<string, number> = {
   ETH: 1,
   POL: 137,
+  BNB: 56,
+  // Bare USDT/USDC are the legacy codes for the Ethereum-mainnet tokens
+  USDT: 1,
+  USDC: 1,
   USDT_ETH: 1,
   USDT_POL: 137,
   USDC_ETH: 1,
   USDC_POL: 137,
+  USDC_BASE: 8453,
 };
 
 /**
  * Token contract addresses for ERC-20/SPL tokens
  */
 const TOKEN_CONTRACTS: Record<string, string> = {
+  // Legacy bare codes: the Ethereum-mainnet contracts
+  USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+  USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
   // USDT on Ethereum mainnet
   USDT_ETH: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
   // USDT on Polygon mainnet
@@ -109,6 +117,8 @@ const TOKEN_CONTRACTS: Record<string, string> = {
   USDC_POL: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
   // USDC on Solana (SPL token mint address)
   USDC_SOL: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  // USDC on Base mainnet (native, Circle-issued)
+  USDC_BASE: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
 };
 
 /**
@@ -123,57 +133,65 @@ const TOKEN_DECIMALS: Record<string, number> = {
   DOGE: 8,
   XRP: 6,
   ADA: 6,
-    BNB: 18,
-    USDT: 6,
-    USDT_ETH: 6,
-    USDT_POL: 6,
-    USDT_SOL: 6,
-    USDC: 6,
+  BNB: 18,
+  USDT: 6,
+  USDT_ETH: 6,
+  USDT_POL: 6,
+  USDT_SOL: 6,
+  USDT_TRON: 6,
+  USDC: 6,
   USDC_ETH: 6,
   USDC_POL: 6,
   USDC_SOL: 6,
+  USDC_BASE: 6,
 };
 
 /**
  * Get payment URI scheme for blockchain
  */
 function getPaymentScheme(blockchain: Blockchain): string {
-  const schemes: Record<Blockchain, string> = {
-    BTC: 'bitcoin',
-    BCH: 'bitcoincash',
-    ETH: 'ethereum',
-    POL: 'ethereum', // EIP-681: all EVM chains use ethereum: scheme with chain ID
-    SOL: 'solana',
-    DOGE: 'dogecoin',
-    XRP: 'ripple',
-    ADA: 'web+cardano', // CIP-13 Cardano URI scheme
-    BNB: 'ethereum', // BNB Chain is EVM compatible
-    USDT: 'ethereum', // USDT is ERC-20
-    USDT_ETH: 'ethereum',
-    USDT_POL: 'ethereum',
-    USDT_SOL: 'solana',
-    USDT_TRON: 'tron', // unused: a TRON code is the bare address
-    USDC: 'ethereum', // USDC is ERC-20
-    USDC_ETH: 'ethereum',
-    USDC_POL: 'ethereum', // EIP-681: all EVM chains use ethereum: scheme with chain ID
-    USDC_SOL: 'solana',
-  };
-
-  return schemes[blockchain];
+  return PAYMENT_SCHEMES[blockchain];
 }
+
+/**
+ * URI scheme per chain. Typed as a full Record so adding a chain to
+ * `Blockchain` without a scheme fails to compile, and validation reads its
+ * keys, so a chain the type knows is a chain the QR route will draw.
+ */
+const PAYMENT_SCHEMES: Record<Blockchain, string> = {
+  BTC: 'bitcoin',
+  BCH: 'bitcoincash',
+  ETH: 'ethereum',
+  POL: 'ethereum', // EIP-681: all EVM chains use ethereum: scheme with chain ID
+  SOL: 'solana',
+  DOGE: 'dogecoin',
+  XRP: 'ripple',
+  ADA: 'web+cardano', // CIP-13 Cardano URI scheme
+  BNB: 'ethereum', // BNB Chain is EVM compatible
+  USDT: 'ethereum', // USDT is ERC-20
+  USDT_ETH: 'ethereum',
+  USDT_POL: 'ethereum',
+  USDT_SOL: 'solana',
+  USDT_TRON: 'tron', // unused: a TRON code is the bare address
+  USDC: 'ethereum', // USDC is ERC-20
+  USDC_ETH: 'ethereum',
+  USDC_POL: 'ethereum', // EIP-681: all EVM chains use ethereum: scheme with chain ID
+  USDC_SOL: 'solana',
+  USDC_BASE: 'ethereum', // EIP-681 with chain ID 8453
+};
 
 /**
  * Check if blockchain is an EVM chain
  */
 function isEVMChain(blockchain: Blockchain): boolean {
-  return ['ETH', 'POL', 'BNB', 'USDT', 'USDT_ETH', 'USDT_POL', 'USDC', 'USDC_ETH', 'USDC_POL'].includes(blockchain);
+  return PAYMENT_SCHEMES[blockchain] === 'ethereum';
 }
 
 /**
  * Check if blockchain is a token (not native coin)
  */
 function isToken(blockchain: Blockchain): boolean {
-  return ['USDT_ETH', 'USDT_POL', 'USDT_SOL', 'USDC_ETH', 'USDC_POL', 'USDC_SOL'].includes(blockchain);
+  return blockchain in TOKEN_CONTRACTS;
 }
 
 /**
@@ -181,9 +199,13 @@ function isToken(blockchain: Blockchain): boolean {
  */
 function toSmallestUnit(amount: number, blockchain: Blockchain): string {
   const decimals = TOKEN_DECIMALS[blockchain] || 18;
-  const multiplier = BigInt(10 ** decimals);
+  const multiplier = BigInt(10) ** BigInt(decimals);
   // Use string manipulation to avoid floating point precision issues
-  const [whole, fraction = ''] = amount.toString().split('.');
+  // A small amount stringifies as "1e-7", which BigInt rejects. Only then use
+  // toFixed: on ordinary amounts it exposes float noise (5.021507 -> ...6999721).
+  let text = amount.toString();
+  if (/e/i.test(text)) text = amount.toFixed(decimals);
+  const [whole, fraction = ''] = text.split('.');
   const paddedFraction = fraction.padEnd(decimals, '0').slice(0, decimals);
   const smallestUnit = BigInt(whole) * multiplier + BigInt(paddedFraction);
   return smallestUnit.toString();
@@ -218,7 +240,7 @@ function buildPaymentURI(params: PaymentQRParams): string {
   }
 
   // Handle Solana chains - Solana Pay format
-  if (blockchain === 'SOL' || blockchain === 'USDT_SOL' || blockchain === 'USDC_SOL') {
+  if (PAYMENT_SCHEMES[blockchain] === 'solana') {
     return buildSolanaPayURI(params);
   }
 
@@ -287,7 +309,7 @@ function buildSolanaPayURI(params: PaymentQRParams): string {
   }
 
   // Add SPL token mint address for USDC
-  if (blockchain === 'USDC_SOL' && TOKEN_CONTRACTS[blockchain]) {
+  if (blockchain !== 'SOL' && TOKEN_CONTRACTS[blockchain]) {
     queryParams.push(`spl-token=${TOKEN_CONTRACTS[blockchain]}`);
   }
 
@@ -310,14 +332,7 @@ function buildSolanaPayURI(params: PaymentQRParams): string {
  * Validate payment QR parameters
  */
 function validatePaymentParams(params: PaymentQRParams): void {
-  const validBlockchains: Blockchain[] = [
-    'BTC', 'BCH', 'ETH', 'POL', 'SOL',
-    'DOGE', 'XRP', 'ADA', 'BNB',
-    'USDT', 'USDC',
-    'USDC_ETH', 'USDC_POL', 'USDC_SOL',
-  ];
-
-  if (!validBlockchains.includes(params.blockchain)) {
+  if (!Object.prototype.hasOwnProperty.call(PAYMENT_SCHEMES, params.blockchain)) {
     throw new Error(`Invalid blockchain: ${params.blockchain}`);
   }
 
