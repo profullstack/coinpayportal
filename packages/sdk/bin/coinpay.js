@@ -85,6 +85,7 @@ import {
   moveDocument,
 } from '../src/documents.js';
 import { publishDirectory } from '../src/documents-publish.js';
+import { getVault, initVault, unlockVault, lockVault, payoutWallet } from '../src/secrets-vault.js';
 import { readFileSync, writeFileSync, existsSync, unlinkSync, chmodSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 import { createInterface } from 'readline';
@@ -227,6 +228,9 @@ function createUnauthenticatedClient() {
 }
 
 const BOOLEAN_FLAGS = new Set([
+  // vault, payout wallet
+  'no-recovery',
+  'create',
   // projects, time, client portal
   'non-billable',
   'unbilled',
@@ -618,6 +622,18 @@ ${colors.cyan}Commands:${colors.reset}
     get <id>              Get business details
     list                  List businesses
     update <id>           Update business
+    payout-wallet <id>    Show the business payout (hot) wallet; --create makes it
+                          (needs the secrets vault set up + unlocked, and an API key)
+
+  ${colors.bright}vault${colors.reset}             Your secrets vault (sealed to a passphrase only you know;
+                    payouts, bank links and payout wallets need it). Needs an API key
+                    (COINPAY_API_KEY / config set-key): apps signed in with CoinPay cannot.
+                    Passphrase: COINPAY_VAULT_PASSPHRASE or a hidden prompt.
+    status                Exists? Unlocked until when?
+    init                  Create it and unlock it; prints a recovery key ONCE
+                          [--no-recovery] [--ttl 8]
+    unlock                [--ttl 8 (hours, max 168)] [--recovery-key KEY]
+    lock                  Forget the unlock on the server now
 
   ${colors.bright}rates${colors.reset}
     get <crypto>          Get exchange rate
@@ -2451,6 +2467,63 @@ async function handleTokens(subcommand, args, flags) {
 /**
  * Business commands
  */
+async function readVaultPassphrase(confirm = false) {
+  if (process.env.COINPAY_VAULT_PASSPHRASE) return process.env.COINPAY_VAULT_PASSPHRASE;
+  const pass = await promptPassword('Vault passphrase: ');
+  if (confirm) {
+    const again = await promptPassword('Repeat passphrase: ');
+    if (again !== pass) {
+      print.error('Passphrases do not match');
+      process.exit(1);
+    }
+  }
+  return pass;
+}
+
+function vaultTtl(flags) {
+  if (flags.ttl === undefined) return 8;
+  const ttl = Number(flags.ttl);
+  if (!Number.isFinite(ttl) || ttl <= 0 || ttl > 168) usageExit('--ttl is hours, 1 to 168');
+  return ttl;
+}
+
+async function handleVault(subcommand, args, flags) {
+  const client = createClient();
+  switch (subcommand || 'status') {
+    case 'status': {
+      const v = await getVault(client);
+      if (flags.json) return print.json({ exists: v.exists, unlocked: !!v.unlocked, expiresAt: v.expiresAt ?? null });
+      if (!v.exists) return print.info('No secrets vault yet: coinpay vault init');
+      return v.unlocked
+        ? print.success('Vault unlocked until ' + v.expiresAt)
+        : print.info('Vault exists and is locked: coinpay vault unlock');
+    }
+    case 'init': {
+      const passphrase = await readVaultPassphrase(!process.env.COINPAY_VAULT_PASSPHRASE);
+      const out = await initVault(client, { passphrase, withRecoveryKey: !flags['no-recovery'], ttlHours: vaultTtl(flags) });
+      if (flags.json) return print.json(out);
+      print.success('Secrets vault created and unlocked until ' + out.expiresAt);
+      if (out.recoveryKey) {
+        print.warn('Recovery key (shown once; store it somewhere safe, it opens the vault without the passphrase):');
+        console.log(out.recoveryKey);
+      }
+      return;
+    }
+    case 'unlock': {
+      const recoveryKey = flags['recovery-key'];
+      const passphrase = recoveryKey ? undefined : await readVaultPassphrase();
+      const out = await unlockVault(client, { passphrase, recoveryKey, ttlHours: vaultTtl(flags) });
+      return flags.json ? print.json(out) : print.success('Vault unlocked until ' + out.expiresAt);
+    }
+    case 'lock': {
+      await lockVault(client);
+      return print.success('Vault locked');
+    }
+    default:
+      usageExit('coinpay vault <status|init|unlock|lock>');
+  }
+}
+
 async function handleBusiness(subcommand, args, flags) {
   const client = createClient();
   
@@ -2483,6 +2556,13 @@ async function handleBusiness(subcommand, args, flags) {
       });
       print.success('Business created');
       print.json(business);
+      break;
+    }
+
+    case 'payout-wallet': {
+      if (!args[0]) usageExit('coinpay business payout-wallet <business-id> [--create]');
+      const out = await payoutWallet(client, args[0], { create: !!flags.create });
+      print.json(out.payout_wallet ?? out);
       break;
     }
 
@@ -4509,7 +4589,8 @@ const SUBCOMMANDS = {
   payment: [['create', 'Create a new payment'], ['get', 'Get payment details <id>'], ['list', 'List payments'], ['qr', 'Get payment QR code <id>']],
   invoice: [['create', 'Create a draft invoice'], ['list', 'List invoices'], ['get', 'Get invoice details <id>'], ['update', 'Update a draft invoice <id>'], ['publish', 'Publish an invoice <id>'], ['send', 'Send an invoice <id>'], ['delete', 'Delete a draft invoice <id>']],
   tokens: [['list', 'List checkout tokens']],
-  business: [['create', 'Create a new business'], ['get', 'Get business details <id>'], ['list', 'List businesses'], ['update', 'Update business <id>']],
+  business: [['create', 'Create a new business'], ['get', 'Get business details <id>'], ['list', 'List businesses'], ['update', 'Update business <id>'], ['payout-wallet', 'Payout wallet <id> [--create]']],
+  vault: [['status', 'Secrets vault status'], ['init', 'Create + unlock the vault'], ['unlock', 'Unlock [--ttl hours]'], ['lock', 'Lock now']],
   rates: [['get', 'Get exchange rate <crypto>'], ['list', 'Get all exchange rates']],
   wallet: [['create', 'Create a new wallet'], ['import', 'Import wallet <mnemonic>'], ['unlock', 'Decrypt wallet and show info'], ['info', 'Show wallet info'], ['addresses', 'List all addresses'], ['derive', 'Derive new address <chain>'], ['derive-missing', 'Derive missing chains'], ['balance', 'Get balance(s) [chain]'], ['send', 'Send a transaction'], ['history', 'Transaction history'], ['backup', 'Export encrypted backup'], ['delete', 'Delete local wallet file']],
   swap: [['coins', 'List supported coins'], ['quote', 'Get swap quote'], ['create', 'Create swap transaction'], ['status', 'Check swap status <swap-id>'], ['history', 'Swap history']],
@@ -5547,6 +5628,10 @@ async function handleLightning(subcommand, args, flags) {
         
       case 'business':
         await handleBusiness(subcommand, args, flags);
+        break;
+
+      case 'vault':
+        await handleVault(subcommand, args, flags);
         break;
         
       case 'rates':
