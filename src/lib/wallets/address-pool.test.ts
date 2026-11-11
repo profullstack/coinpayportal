@@ -20,6 +20,25 @@ vi.mock('./derivation-family', async (orig) => ({
 
 const { mintSystemAddress } = await import('./system-wallet');
 const { OperatorKeysLockedError } = await import('./operator-keys');
+const { poolTarget } = await import('./address-pool');
+
+describe('poolTarget', () => {
+  const env = (v?: string) => (v === undefined ? {} : { OPERATOR_ADDRESS_POOL_TARGET: v }) as NodeJS.ProcessEnv;
+  it('defaults to 100 when unset or blank (Number("") is 0, which disabled the pool)', () => {
+    expect(poolTarget(env())).toBe(100);
+    expect(poolTarget(env(''))).toBe(100);
+    expect(poolTarget(env('  '))).toBe(100);
+  });
+  it('honours an explicit value, including 0 to disable', () => {
+    expect(poolTarget(env('25'))).toBe(25);
+    expect(poolTarget(env('0'))).toBe(0);
+  });
+  it('falls back to 100 for garbage or out-of-range values', () => {
+    expect(poolTarget(env('abc'))).toBe(100);
+    expect(poolTarget(env('9999'))).toBe(100);
+    expect(poolTarget(env('-1'))).toBe(100);
+  });
+});
 
 function supabase() {
   return {
