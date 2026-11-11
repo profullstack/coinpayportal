@@ -19,7 +19,15 @@ function getSupabase() {
 async function getMerchantId(
   request: NextRequest,
   supabase: ReturnType<typeof getSupabase>
-): Promise<{ merchantId?: string; via?: AuthVia; error?: string }> {
+): Promise<{
+  merchantId?: string;
+  via?: AuthVia;
+  /** Set when a business API key authenticated: the key's own business. */
+  businessId?: string;
+  /** That key's scopes ('*' for a legacy single key). */
+  scopes?: string[];
+  error?: string;
+}> {
   const authHeader = request.headers.get('authorization');
   const apiKeyHeader = request.headers.get('x-api-key');
   const token = authHeader || (apiKeyHeader ? `Bearer ${apiKeyHeader}` : null);
@@ -43,7 +51,12 @@ async function getMerchantId(
           .eq('id', (authResult.context as any).businessId)
           .single();
         if (business?.merchant_id) {
-          return { merchantId: business.merchant_id, via: 'api_key' };
+          return {
+            merchantId: business.merchant_id,
+            via: 'api_key',
+            businessId: (authResult.context as any).businessId,
+            scopes: (authResult.context as any).scopes ?? [],
+          };
         }
       }
     }
@@ -68,20 +81,46 @@ async function getMerchantId(
   return { error: 'Invalid or expired credentials' };
 }
 
+/** Never hand a business's credentials to a caller holding only an API key. */
+function withoutSecrets<T extends Record<string, unknown>>(b: T): T {
+  const { api_key: _k, webhook_secret: _w, ...rest } = b as any;
+  return rest as T;
+}
+
 /**
  * GET /api/businesses
  * List all businesses for authenticated merchant
  * Supports: JWT (dashboard) or API key (AI agents)
+ *
+ * A business API key sees ONLY its own business, without api_key or
+ * webhook_secret. It used to be widened to its merchant and list every
+ * business with their keys, so one site's x402 key (payments scopes) could
+ * read every other business's credentials.
  */
 export async function GET(request: NextRequest) {
   try {
     const supabase = getSupabase();
-    const { merchantId, via, error: authError } = await getMerchantId(request, supabase);
+    const { merchantId, via, businessId, error: authError } = await getMerchantId(request, supabase);
 
     if (!merchantId) {
       return NextResponse.json(
         { success: false, error: authError || 'Unauthorized' },
         { status: 401 }
+      );
+    }
+
+    if (via === 'api_key' && businessId) {
+      const { data: own, error: ownError } = await supabase
+        .from('businesses')
+        .select('*')
+        .eq('id', businessId)
+        .single();
+      if (ownError || !own) {
+        return NextResponse.json({ success: false, error: 'Business not found' }, { status: 404 });
+      }
+      return NextResponse.json(
+        { success: true, businesses: [withoutSecrets(own as Record<string, unknown>)] },
+        { status: 200 }
       );
     }
 
@@ -127,12 +166,21 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const supabase = getSupabase();
-    const { merchantId, via, error: authError } = await getMerchantId(request, supabase);
+    const { merchantId, via, scopes, error: authError } = await getMerchantId(request, supabase);
 
     if (!merchantId) {
       return NextResponse.json(
         { success: false, error: authError || 'Unauthorized' },
         { status: 401 }
+      );
+    }
+
+    // A scoped key (payments, webhooks, ...) may not create businesses for its
+    // merchant. Legacy all-scope keys keep the agent onboarding flow.
+    if (via === 'api_key' && !(scopes ?? []).includes('*')) {
+      return NextResponse.json(
+        { success: false, error: 'API key may not create businesses' },
+        { status: 403 }
       );
     }
 
