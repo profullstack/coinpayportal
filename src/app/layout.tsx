@@ -4,8 +4,6 @@ import Script from 'next/script';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import PitFooter from '@/components/PitFooter';
-import { HomeGuidePromotion } from '@/components/field-guide/HomeGuidePromotion';
-import { guideAvailable } from '@/lib/field-guide/asset';
 import { Providers } from '@/components/Providers';
 import './globals.css';
 import { serializeJsonLd } from '@/lib/seo/json-ld';
@@ -105,7 +103,6 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const guideReady = await guideAvailable();
   return (
     <html lang="en" className="dark">
       <head>
@@ -141,7 +138,6 @@ export default async function RootLayout({
           </a>
           <Header />
           <main id="main-content" className="flex-grow">
-            {guideReady && <HomeGuidePromotion />}
             <ReferralProvider>{children}</ReferralProvider>
           </main>
           <Footer />
