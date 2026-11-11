@@ -72,7 +72,7 @@ const nextConfig = {
               // same script + frame shape as Plaid: the loader from www.paypal.com
               // and *.paypalobjects.com, and the buttons and checkout popup in
               // paypal.com / sandbox.paypal.com frames.
-              "script-src 'self' 'unsafe-inline' https://datafa.st https://crawlproof.com https://invitejs.trustpilot.com https://cdn.plaid.com https://www.paypal.com https://www.sandbox.paypal.com https://*.paypalobjects.com",
+              "script-src 'self' 'unsafe-inline' https://datafa.st https://crawlproof.com https://cdn.jsdelivr.net https://invitejs.trustpilot.com https://cdn.plaid.com https://www.paypal.com https://www.sandbox.paypal.com https://*.paypalobjects.com",
               "style-src 'self' 'unsafe-inline'",
               // blob: in img-src and frame-src: end-to-end encrypted documents
               // (/documents, /sign) are decrypted in the page and previewed from
