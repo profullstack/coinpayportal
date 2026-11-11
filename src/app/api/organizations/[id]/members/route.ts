@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import { resolveCaller, resolveSessionCaller, appBaseUrl, errorResponse } from '@/lib/team/api';
+import { resolveSessionCaller, appBaseUrl, errorResponse } from '@/lib/team/api';
 import { authorizeOrg, resolveOrgRole } from '@/lib/auth/authz';
 import { listMembers, listInvitations, inviteMember } from '@/lib/team/service';
 import { isRole } from '@/lib/auth/permissions';
@@ -9,7 +9,7 @@ import { isRole } from '@/lib/auth/permissions';
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = getSupabaseAdmin();
-  const caller = await resolveCaller(supabase, request);
+  const caller = await resolveSessionCaller(supabase, request);
   if (caller instanceof NextResponse) return caller;
 
   const role = await resolveOrgRole(supabase, caller.merchantId, id);

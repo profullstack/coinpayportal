@@ -13,9 +13,10 @@ vi.mock('@supabase/supabase-js', () => ({
 vi.mock('@/lib/auth/middleware', () => ({
   authenticateRequest: vi.fn().mockResolvedValue({
     success: true,
-    context: { type: 'business', businessId: 'biz_1' },
+    context: { type: 'business', businessId: 'biz_1', scopes: ['payments:create'] },
   }),
   isMerchantAuth: vi.fn().mockReturnValue(false),
+  hasScope: (c: any, s: string) => (c?.scopes ?? []).includes('*') || (c?.scopes ?? []).includes(s),
 }));
 
 vi.mock('@/lib/auth/authz', () => ({ getAccessibleBusinessRoles: vi.fn() }));

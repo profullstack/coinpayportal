@@ -54,6 +54,14 @@ export async function POST(request: NextRequest) {
     if (isMerchantAuth(authResult.context)) {
       merchantId = authResult.context.merchantId;
     } else if (isBusinessAuth(authResult.context)) {
+      // Changing the merchant's plan is an account act: a scoped key (payments,
+      // wallet) may not; a legacy all-scope key (owner-equivalent) still may.
+      if (!(authResult.context.scopes ?? []).includes('*')) {
+        return NextResponse.json(
+          { success: false, error: 'An API key with limited scopes cannot change the plan; sign in' },
+          { status: 403 }
+        );
+      }
       merchantId = authResult.context.merchantId;
     } else {
       return NextResponse.json(

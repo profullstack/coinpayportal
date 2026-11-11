@@ -15,7 +15,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { NextRequest } from 'next/server';
-import { authenticateRequest, extractBearerToken, isMerchantAuth } from './middleware';
+import { authenticateRequest, extractBearerToken, hasScope, isMerchantAuth } from './middleware';
 import { getAccessibleBusinessRoles } from './authz';
 import { can } from './permissions';
 import { isInternalApiKey } from './secret-compare';
@@ -77,6 +77,13 @@ export async function authorizePaymentAccess(
 
   if (auth.context.businessId !== businessId) {
     return { ok: false, status: 403, error: 'API key does not belong to this payment' };
+  }
+
+  // A read-only key (payments:read, wallet:read) must not take the write path
+  // (state changes, on-chain forwarding). Reads need a payments scope too.
+  const needed = write ? 'payments:create' : 'payments:read';
+  if (!hasScope(auth.context, needed) && !(!write && hasScope(auth.context, 'payments:create'))) {
+    return { ok: false, status: 403, error: `API key missing required scope: ${needed}` };
   }
 
   return { ok: true, via: 'api_key', merchantId: auth.context.merchantId };

@@ -8,7 +8,7 @@ import { isMultisigDefault, isMultisigEnabled } from '@/lib/multisig/engine';
 import { createClient } from '@supabase/supabase-js';
 import { createEscrow, listEscrows } from '@/lib/escrow';
 import { resolvePayee } from '@/lib/payments/payee';
-import { authenticateRequest, isMerchantAuth, type AuthContext } from '@/lib/auth/middleware';
+import { authenticateRequest, isMerchantAuth, hasScope as hasScopeFn, type AuthContext } from '@/lib/auth/middleware';
 import { getAccessibleBusinessRoles } from '@/lib/auth/authz';
 import { can } from '@/lib/auth/permissions';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
@@ -67,6 +67,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Authentication failed' },
         { status: 401 }
+      );
+    }
+
+    // Creating an escrow takes customer money into custody: a read-only key
+    // (payments:read, wallet:read) may not.
+    if (authContext && !isMerchantAuth(authContext) && !hasScopeFn(authContext, 'payments:create')) {
+      return NextResponse.json(
+        { error: 'API key missing required scope: payments:create' },
+        { status: 403 }
       );
     }
 
