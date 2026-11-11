@@ -2,7 +2,7 @@
  * OAuth2/OIDC Scope definitions and utilities
  */
 
-export const VALID_SCOPES = ['openid', 'profile', 'email', 'did', 'wallet:read', 'merchant'] as const;
+export const VALID_SCOPES = ['openid', 'profile', 'email', 'did', 'wallet:read', 'merchant', 'invoices'] as const;
 
 export type OAuthScope = (typeof VALID_SCOPES)[number];
 
@@ -45,6 +45,15 @@ export const SCOPE_INFO: Record<OAuthScope, ScopeInfo> = {
       'transfers or withdrawals.',
     icon: '⚠️',
     sensitive: true,
+  },
+  // The remote MCP server (/api/mcp) and nothing else accepts this scope; the
+  // merchant API still requires `merchant`. See src/lib/mcp/.
+  invoices: {
+    label: 'Invoices and projects',
+    description:
+      'Read your invoices, projects, contractors, pay runs and document status, create DRAFT invoices ' +
+      'and log time. It cannot send an invoice, email anyone, approve work, pay a pay run or move funds.',
+    icon: '🧾',
   },
 };
 

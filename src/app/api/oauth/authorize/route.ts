@@ -10,6 +10,7 @@ import { pkceProblem } from '@/lib/oauth/pkce';
 import { validateScopes } from '@/lib/oauth/scopes';
 import { generateAuthorizationCode } from '@/lib/oauth/tokens';
 import { getSessionUser } from '@/lib/oauth/session-user';
+import { MCP_SCOPE, mcpResourceUrl } from '@/lib/mcp/resource';
 
 function getSupabase() {
   return createClient(
@@ -57,7 +58,11 @@ export async function GET(request: NextRequest) {
   const responseType = url.searchParams.get('response_type');
   const clientId = url.searchParams.get('client_id');
   const redirectUri = url.searchParams.get('redirect_uri');
-  const scope = url.searchParams.get('scope') || 'openid';
+  // An MCP client may name only the resource (RFC 8707) and no scope; for the
+  // remote MCP server that means its own scope, not a bare `openid` token it
+  // would then be refused with.
+  const resource = url.searchParams.get('resource');
+  const scope = url.searchParams.get('scope') || (resource && resource === mcpResourceUrl() ? `openid ${MCP_SCOPE}` : 'openid');
   const state = url.searchParams.get('state') || undefined;
   const codeChallenge = url.searchParams.get('code_challenge') || undefined;
   const codeChallengeMethod = url.searchParams.get('code_challenge_method') || undefined;

@@ -123,6 +123,14 @@ function ConsentContent() {
             <p className="text-gray-300 text-sm mb-6">{appDescription}</p>
           )}
 
+          {redirectHost(redirectUri) && (
+            // App names are chosen by whoever registered the app (anyone, for
+            // MCP connectors), so show where approving actually sends you.
+            <p data-testid="redirect-host" className="text-gray-400 text-xs mb-6">
+              After you approve, you return to <span className="font-mono text-gray-200">{redirectHost(redirectUri)}</span>
+            </p>
+          )}
+
           <div className="mb-6">
             <h2 className="text-white font-semibold mb-3">This app will be able to:</h2>
             <ul className="space-y-3">
@@ -186,6 +194,15 @@ function ConsentContent() {
       </div>
     </div>
   );
+}
+
+/** The host an approval redirects to, for display; null when unparseable. */
+function redirectHost(uri: string): string | null {
+  try {
+    return new URL(uri).host || null;
+  } catch {
+    return null;
+  }
 }
 
 export default function ConsentPage() {

@@ -101,6 +101,12 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'oauth_device_start': { limit: 20, windowSeconds: 300 },   // 20/5min per IP
   'oauth_device_lookup': { limit: 30, windowSeconds: 300 },  // 30/5min per user
   'oauth_revoke': { limit: 120, windowSeconds: 60 },         // 120/min per IP
+  // RFC 7591 open dynamic client registration (MCP connectors). Unauthenticated
+  // by design, so this is what bounds rows written to oauth_clients.
+  'oauth_register': { limit: 20, windowSeconds: 3600 },      // 20/hour per IP
+  // Remote MCP tools/call, per signed-in user (OAuth sub). Each call is one
+  // in-process API request; a model in a loop should not become a DB load.
+  'mcp_tool_call': { limit: 60, windowSeconds: 60 },         // 60/min per user
   // NEW-11: `poll` was unauthenticated and unlimited, and its answers are
   // distinguishable (invalid / pending / denied / expired), so it was a free
   // status oracle. A legitimate CLI polls every 5s for at most 10 minutes —

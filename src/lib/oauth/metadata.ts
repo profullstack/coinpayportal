@@ -15,7 +15,9 @@ export function authorizationServerMetadata(): Record<string, unknown> {
     token_endpoint: `${iss}/api/oauth/token`,
     userinfo_endpoint: `${iss}/api/oauth/userinfo`,
     jwks_uri: `${iss}/api/oauth/jwks`,
-    registration_endpoint: `${iss}/api/oauth/clients`,
+    // RFC 7591 open registration (public clients, allowlisted redirects).
+    // /api/oauth/clients is the dashboard's own, signed-in client manager.
+    registration_endpoint: `${iss}/api/oauth/register`,
     revocation_endpoint: `${iss}/api/oauth/revoke`,
     device_authorization_endpoint: `${iss}/api/oauth/device_authorization`,
     scopes_supported: [...VALID_SCOPES],
