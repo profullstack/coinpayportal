@@ -13,6 +13,7 @@ import { solanaRpcUrl } from '../chains';
 import { NotFoundError, UpstreamError } from '../types';
 import type { ExplorerAddress, ExplorerBlock, ExplorerTransaction } from '../types';
 import { fromBaseUnits, sumBaseUnits } from '../units';
+import { SOLANA_MAX_TX_VERSION } from '@/lib/blockchain/solana-rpc';
 
 const MAX_TXS = 25;
 
@@ -102,7 +103,7 @@ function solToTx(signature: string, tx: SolTx): ExplorerTransaction {
 async function getSolTransaction(signature: string): Promise<ExplorerTransaction> {
   const tx = await solRpc<SolTx>('getTransaction', [
     signature,
-    { maxSupportedTransactionVersion: 0, encoding: 'jsonParsed' },
+    { maxSupportedTransactionVersion: SOLANA_MAX_TX_VERSION, encoding: 'jsonParsed' },
   ]);
   return solToTx(signature, tx);
 }
@@ -148,7 +149,7 @@ async function getSolBlock(ref: string): Promise<ExplorerBlock> {
     signatures?: string[];
   }>('getBlock', [
     slot,
-    { transactionDetails: 'signatures', rewards: false, maxSupportedTransactionVersion: 0 },
+    { transactionDetails: 'signatures', rewards: false, maxSupportedTransactionVersion: SOLANA_MAX_TX_VERSION },
   ]);
 
   return {

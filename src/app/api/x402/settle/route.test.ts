@@ -558,6 +558,56 @@ describe('POST /api/x402/settle — payee matching on case-sensitive chains', ()
     expect(data.txHash).toBe('soltx');
   });
 
+  // #521: a version 1 transaction under a `maxSupportedTransactionVersion: 0`
+  // cap came back as JSON-RPC error -32015 with no result, read as pending.
+  function solanaRow() {
+    mockSingle.mockResolvedValueOnce({
+      data: { id: 'p1', status: 'verified', amount: '1000000', network: 'solana', to_address: SOL_PAYEE, asset: null },
+      error: null,
+    });
+  }
+
+  it('asks the RPC for version 1 transactions', async () => {
+    solanaRow();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ result: null }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await POST(makeRequest({ payment: { payload: { network: 'solana', scheme: 'exact', txSignature: 'soltx' } } }));
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.method).toBe('getTransaction');
+    expect(body.params[1].maxSupportedTransactionVersion).toBe(1);
+  });
+
+  it('fails a settlement on a JSON-RPC error instead of leaving it pending', async () => {
+    solanaRow();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          error: { code: -32015, message: 'Transaction version (2) is not supported by the requesting client.' },
+        }),
+      }),
+    );
+
+    const res = await POST(makeRequest({ payment: { payload: { network: 'solana', scheme: 'exact', txSignature: 'soltx' } } }));
+
+    expect(res.status).toBe(500);
+    expect((await res.json()).details).toContain('-32015');
+  });
+
+  it('stays pending when the RPC is rate limited', async () => {
+    solanaRow();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) }));
+
+    const res = await POST(makeRequest({ payment: { payload: { network: 'solana', scheme: 'exact', txSignature: 'soltx' } } }));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).status).toBe('pending_confirmation');
+  });
+
   it('reports the tier fee as uncollected, because the buyer paid the merchant direct', async () => {
     mockSingle.mockResolvedValueOnce({
       data: {

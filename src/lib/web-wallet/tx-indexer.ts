@@ -11,6 +11,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { WalletChain } from './identity';
+import { SOLANA_MAX_TX_VERSION } from '../blockchain/solana-rpc';
 
 // ──────────────────────────────────────────────
 // Types
@@ -913,7 +914,7 @@ async function fetchSOLHistory(
             method: 'getTransaction',
             params: [
               sig.signature,
-              { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 },
+              { encoding: 'jsonParsed', maxSupportedTransactionVersion: SOLANA_MAX_TX_VERSION },
             ],
             id: 1,
           }),
@@ -1072,7 +1073,7 @@ async function fetchUSDCSOLHistory(
             method: 'getTransaction',
             params: [
               sig.signature,
-              { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 },
+              { encoding: 'jsonParsed', maxSupportedTransactionVersion: SOLANA_MAX_TX_VERSION },
             ],
             id: 1,
           }),
@@ -1800,7 +1801,7 @@ async function fetchUSDTSOLHistory(
             body: JSON.stringify({
               jsonrpc: '2.0',
               method: 'getTransaction',
-              params: [sig.signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }],
+              params: [sig.signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: SOLANA_MAX_TX_VERSION }],
               id: 1,
             }),
           });
