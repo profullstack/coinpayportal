@@ -34,7 +34,11 @@ export const POOL_CRYPTOS: SystemBlockchain[] = [
 ];
 
 export function poolTarget(env: NodeJS.ProcessEnv = process.env): number {
-  const n = Number(env.OPERATOR_ADDRESS_POOL_TARGET ?? '');
+  // Unset or blank means the default. Number('') is 0, which used to pass the
+  // range check and silently disable the pool in every deployment.
+  const raw = env.OPERATOR_ADDRESS_POOL_TARGET?.trim();
+  if (!raw) return 100;
+  const n = Number(raw);
   return Number.isInteger(n) && n >= 0 && n <= 5000 ? n : 100;
 }
 
