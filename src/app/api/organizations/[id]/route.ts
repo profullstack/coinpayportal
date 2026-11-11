@@ -1,13 +1,13 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import { resolveCaller } from '@/lib/team/api';
+import { resolveSessionCaller } from '@/lib/team/api';
 import { authorizeOrg, resolveOrgRole } from '@/lib/auth/authz';
 
 /** DELETE /api/organizations/[id] — delete an organization (owner only, must be empty). */
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = getSupabaseAdmin();
-  const caller = await resolveCaller(supabase, request);
+  const caller = await resolveSessionCaller(supabase, request);
   if (caller instanceof NextResponse) return caller;
 
   const role = await resolveOrgRole(supabase, caller.merchantId, id);
@@ -47,7 +47,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = getSupabaseAdmin();
-  const caller = await resolveCaller(supabase, request);
+  const caller = await resolveSessionCaller(supabase, request);
   if (caller instanceof NextResponse) return caller;
 
   const role = await resolveOrgRole(supabase, caller.merchantId, id);
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = getSupabaseAdmin();
-  const caller = await resolveCaller(supabase, request);
+  const caller = await resolveSessionCaller(supabase, request);
   if (caller instanceof NextResponse) return caller;
 
   const auth = await authorizeOrg(supabase, caller.merchantId, id, 'settings.manage');

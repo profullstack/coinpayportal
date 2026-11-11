@@ -24,6 +24,11 @@ export async function GET(request: NextRequest) {
     if ('error' in auth) {
       return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
     }
+    // Dashboard landing state (last login, wallets reviewed) belongs to the
+    // signed-in owner; an API key must not read or stamp it.
+    if (auth.via === 'api_key') {
+      return NextResponse.json({ success: false, error: 'Dashboard session required' }, { status: 403 });
+    }
 
     const { data: merchant } = await supabase
       .from('merchants')
@@ -60,6 +65,11 @@ export async function POST(request: NextRequest) {
     const auth = await resolveMerchant(supabase, request);
     if ('error' in auth) {
       return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    }
+    // Dashboard landing state (last login, wallets reviewed) belongs to the
+    // signed-in owner; an API key must not read or stamp it.
+    if (auth.via === 'api_key') {
+      return NextResponse.json({ success: false, error: 'Dashboard session required' }, { status: 403 });
     }
 
     await supabase

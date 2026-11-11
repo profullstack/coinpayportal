@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import { resolveCaller } from '@/lib/team/api';
+import { resolveSessionCaller } from '@/lib/team/api';
 import type { Role } from '@/lib/auth/permissions';
 
 /**
@@ -9,7 +9,7 @@ import type { Role } from '@/lib/auth/permissions';
  */
 export async function GET(request: NextRequest) {
   const supabase = getSupabaseAdmin();
-  const caller = await resolveCaller(supabase, request);
+  const caller = await resolveSessionCaller(supabase, request);
   if (caller instanceof NextResponse) return caller;
 
   const { data: memberships } = await supabase
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   const supabase = getSupabaseAdmin();
-  const caller = await resolveCaller(supabase, request);
+  const caller = await resolveSessionCaller(supabase, request);
   if (caller instanceof NextResponse) return caller;
 
   const body = await request.json().catch(() => ({}));

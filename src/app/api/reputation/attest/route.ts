@@ -42,6 +42,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Attesting speaks as the merchant's DID: a scoped business key may not.
+    if (auth.context.type === 'business' && !(auth.context.scopes ?? []).includes('*')) {
+      return NextResponse.json(
+        { success: false, error: 'An API key with limited scopes cannot attest as the merchant' },
+        { status: 403 }
+      );
+    }
+
     const attesterDid = typeof body?.attester_did === 'string' ? body.attester_did : null;
     if (!attesterDid) {
       return NextResponse.json(
