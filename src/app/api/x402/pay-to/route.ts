@@ -22,7 +22,7 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveScopedKey, scopesSatisfy } from '@/lib/auth/scoped-keys';
 
 /** CoinPay wallet currency -> CAIP-2 network for USDC (EIP-3009) on chains we settle. */
-export const USDC_WALLET_NETWORKS: ReadonlyArray<[string, string]> = [
+const USDC_WALLET_NETWORKS: ReadonlyArray<[string, string]> = [
   ['USDC_BASE', 'eip155:8453'],
   ['USDC_POL', 'eip155:137'],
   ['USDC_ETH', 'eip155:1'],
