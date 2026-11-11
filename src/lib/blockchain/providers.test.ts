@@ -224,6 +224,50 @@ describe('Blockchain Providers', () => {
       expect(balance).toBe('1');
     });
 
+    // #521: web3.js 1.x cannot decode version 1 transactions, so this goes
+    // over raw JSON-RPC with the version cap raised to 1.
+    it('reads a version 1 transaction over raw JSON-RPC', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          result: {
+            version: 1,
+            slot: 990,
+            blockTime: 1_700_000_000,
+            meta: { err: null },
+            transaction: { message: { accountKeys: [{ pubkey: 'FromKey' }, { pubkey: 'ToKey' }] } },
+          },
+        }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      try {
+        const provider = new SolanaProvider('https://rpc.example');
+        const tx = await provider.getTransaction('sig1');
+
+        const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect(body.params[1]).toMatchObject({ encoding: 'jsonParsed', maxSupportedTransactionVersion: 1 });
+        expect(tx).toMatchObject({ hash: 'sig1', from: 'FromKey', to: 'ToKey', confirmations: 10, status: 'confirmed' });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('surfaces a JSON-RPC error instead of "not found"', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ error: { code: -32015, message: 'Transaction version (2) is not supported' } }),
+        }),
+      );
+      try {
+        const provider = new SolanaProvider('https://rpc.example');
+        await expect(provider.getTransaction('sig1')).rejects.toThrow('-32015');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it('should have deriveFullKeypair private method for 32-byte seed conversion', async () => {
       const provider = new SolanaProvider('https://api.mainnet-beta.solana.com');
       // Access private method for testing

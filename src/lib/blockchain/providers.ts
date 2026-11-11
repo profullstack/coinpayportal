@@ -15,6 +15,7 @@ import { HDKey } from '@scure/bip32';
 import * as ecc from 'tiny-secp256k1';
 import ECPairFactory from 'ecpair';
 import { getCardanoSerializationLib, getXrpl } from '@/lib/server/optional-deps';
+import { SOLANA_MAX_TX_VERSION } from './solana-rpc';
 import {
   getSoChainBalance,
   getSoChainTransaction,
@@ -800,9 +801,44 @@ export class SolanaProvider implements BlockchainProvider {
 
   async getTransaction(txHash: string): Promise<TransactionDetails> {
     try {
-      const tx = await this.connection.getTransaction(txHash, {
-        maxSupportedTransactionVersion: 0,
+      // Raw JSON-RPC rather than `connection.getTransaction`: web3.js 1.x
+      // rejects version 1 transactions outright, and capping at version 0
+      // made the node refuse them instead (#521).
+      const res = await fetch(this.rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getTransaction',
+          params: [
+            txHash,
+            {
+              encoding: 'jsonParsed',
+              commitment: 'confirmed',
+              maxSupportedTransactionVersion: SOLANA_MAX_TX_VERSION,
+            },
+          ],
+        }),
       });
+      if (!res.ok) {
+        throw new Error(`RPC HTTP ${res.status}`);
+      }
+      const body = (await res.json()) as {
+        result?: {
+          slot?: number;
+          blockTime?: number | null;
+          meta?: { err?: unknown } | null;
+          transaction?: {
+            message?: { accountKeys?: Array<string | { pubkey?: string }> };
+          };
+        } | null;
+        error?: { code?: number; message?: string };
+      };
+      if (body.error) {
+        throw new Error(`RPC error ${body.error.code ?? ''}: ${body.error.message ?? ''}`);
+      }
+      const tx = body.result;
 
       if (!tx) {
         throw new Error('Transaction not found');
@@ -811,13 +847,14 @@ export class SolanaProvider implements BlockchainProvider {
       const currentSlot = await this.connection.getSlot();
       const confirmations = tx.slot ? currentSlot - tx.slot : 0;
 
-      // Get account keys from the transaction message
-      const accountKeys = tx.transaction.message.getAccountKeys();
-      
+      const accountKeys = (tx.transaction?.message?.accountKeys ?? []).map((k) =>
+        typeof k === 'string' ? k : k?.pubkey ?? '',
+      );
+
       return {
         hash: txHash,
-        from: accountKeys.get(0)?.toString() || '',
-        to: accountKeys.get(1)?.toString() || '',
+        from: accountKeys[0] || '',
+        to: accountKeys[1] || '',
         value: '0', // Solana transactions are more complex
         confirmations,
         blockNumber: tx.slot,

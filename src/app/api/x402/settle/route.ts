@@ -42,6 +42,7 @@ import { evmChainId, isV2Payment } from '@/lib/x402/v2';
 import { EVM_NETWORKS, checkSchemeForNetwork } from '@/lib/x402/networks';
 import { normalizeNanoBlockHash, verifyNanoBlock } from '@/lib/x402/nano';
 import { sanitizeX402Metadata } from '@/lib/x402/metadata';
+import { SOLANA_MAX_TX_VERSION, isTransientSolanaRpcError } from '@/lib/blockchain/solana-rpc';
 import {
   authoriseAgentSpend,
   recordAgentSpend,
@@ -213,12 +214,33 @@ async function verifySolanaTx(
       method: 'getTransaction',
       params: [
         txSignature,
-        { encoding: 'jsonParsed', commitment: 'confirmed', maxSupportedTransactionVersion: 0 },
+        {
+          encoding: 'jsonParsed',
+          commitment: 'confirmed',
+          maxSupportedTransactionVersion: SOLANA_MAX_TX_VERSION,
+        },
       ],
     }),
   });
 
+  // A throttled or briefly unhealthy RPC is not a verdict on the payment:
+  // stay pending so the settlement can be re-checked.
+  if (res.status === 429 || res.status >= 500) {
+    return { confirmed: false, txHash: txSignature, pending: true };
+  }
+
   const data = await res.json();
+
+  // A JSON-RPC error is an answer, not "not found yet". Reading it as pending
+  // is what left version 1 transactions pending forever (#521).
+  if (data.error) {
+    if (isTransientSolanaRpcError(data.error)) {
+      return { confirmed: false, txHash: txSignature, pending: true };
+    }
+    throw new Error(
+      `Solana RPC error ${data.error.code ?? ''}: ${data.error.message || 'unknown error'}`.trim(),
+    );
+  }
 
   if (data.result?.meta?.err) {
     throw new Error(`Solana transaction failed: ${JSON.stringify(data.result.meta.err)}`);
