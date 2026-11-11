@@ -11,8 +11,8 @@ const OWN = {
   id: 'b-own',
   merchant_id: 'm-1',
   name: 'c0mpute.com',
-  api_key: 'cp_live_OWN_SECRET',
-  webhook_secret: 'whsec_OWN',
+  api_key: 'fixture-api-key-not-real',
+  webhook_secret: 'fixture-webhook-secret-not-real',
 };
 
 const authState = vi.hoisted(() => ({ ctx: null as any }));
@@ -48,7 +48,7 @@ import { GET, POST } from './route';
 const req = (method = 'GET', body?: unknown) =>
   new NextRequest('https://coinpayportal.com/api/businesses', {
     method,
-    headers: { 'x-api-key': 'cp_live_whatever', 'content-type': 'application/json' },
+    headers: { 'x-api-key': 'fixture-key', 'content-type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   });
 
@@ -76,7 +76,7 @@ describe('GET /api/businesses with a business API key', () => {
     authState.ctx = { type: 'business', businessId: 'b-own', merchantId: 'm-1', businessName: 'x', scopes: ['*'] };
     const body = await (await GET(req())).json();
     expect(body.businesses.map((b: any) => b.id)).toEqual(['b-own']);
-    expect(JSON.stringify(body)).not.toContain('cp_live_OWN_SECRET');
+    expect(JSON.stringify(body)).not.toContain('fixture-api-key-not-real');
   });
 });
 
