@@ -113,6 +113,23 @@ export default async function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: serializeJsonLd(organizationJsonLd) }}
         />
+        {/* WebMCP (@profullstack/webmcp): site_info and open_page for an AI
+            agent in the visitor's browser. Read-only; no payment tools. */}
+        <script
+          type="module"
+          data-webmcp=""
+          src="https://cdn.jsdelivr.net/npm/@profullstack/webmcp@0/src/embed.js"
+          data-pages={JSON.stringify({
+            features: '/features',
+            pricing: '/pricing',
+            docs: '/docs',
+            escrow: '/escrow',
+            x402: '/x402',
+            explorer: '/explorer',
+            help: '/help',
+            status: '/status',
+          })}
+        />
       </head>
       <body className="flex flex-col min-h-screen font-sans">
         <Providers>
