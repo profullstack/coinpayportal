@@ -66,4 +66,11 @@ describe('OAuth consent page', () => {
     expect(container.querySelector('li[data-scope="ledger:write"]')).toBeTruthy();
     expect(screen.getByText('ledger:write')).toBeTruthy();
   });
+
+  it('shows the invoices scope and where approving returns to', () => {
+    const { container } = renderWithScope('openid invoices');
+    expect(screen.getByText('Invoices and projects')).toBeTruthy();
+    expect(container.querySelector('li[data-scope="invoices"]')!.textContent).toContain('cannot send an invoice');
+    expect(screen.getByTestId('redirect-host').textContent).toContain('app.example.test');
+  });
 });

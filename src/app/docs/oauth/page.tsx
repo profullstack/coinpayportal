@@ -19,6 +19,7 @@ const ENDPOINTS: Array<[string, string, string]> = [
   ['GET', '/api/oauth/userinfo', 'Claims for the access token'],
   ['GET', '/api/oauth/jwks', 'Public keys for RS256 ID tokens'],
   ['POST', '/api/oauth/clients', 'Register a client (signed-in CoinPay account)'],
+  ['POST', '/api/oauth/register', 'Open dynamic registration (RFC 7591): public MCP connector clients only, see /docs/mcp'],
 ];
 
 export default function SignInWithCoinPayDocs() {
