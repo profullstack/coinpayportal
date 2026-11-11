@@ -40,17 +40,25 @@ const registerSchema = z.object({
   published: z.boolean().optional(),
 });
 
-/** Resolve the merchant behind either a JWT or an API key. */
+/**
+ * Resolve the merchant behind either a JWT or an API key. With `write`, a
+ * scoped business key (payments/wallet scopes) is refused: registering a
+ * signing key under the merchant's DID is an identity act, not a payments
+ * one. The session and legacy all-scope keys (owner-equivalent) still may.
+ */
 async function resolveMerchantId(
   supabase: ReturnType<typeof getSupabase>,
-  request: NextRequest
+  request: NextRequest,
+  opts: { write?: boolean } = {}
 ): Promise<string | null> {
   const auth = await authenticateRequest(
     supabase,
     request.headers.get('authorization')
   );
   if (!auth.success || !auth.context) return null;
-  // Both contexts carry the owning merchant; a business key acts for its owner.
+  if (opts.write && auth.context.type === 'business' && !(auth.context.scopes ?? []).includes('*')) {
+    return null;
+  }
   return auth.context.merchantId;
 }
 
@@ -58,7 +66,7 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = getSupabase();
 
-    const merchantId = await resolveMerchantId(supabase, request);
+    const merchantId = await resolveMerchantId(supabase, request, { write: true });
     if (!merchantId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

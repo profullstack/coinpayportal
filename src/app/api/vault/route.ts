@@ -15,7 +15,7 @@ import { migrateLegacyMerchantSecrets } from '@/lib/vault/legacy-migration';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const who = await vaultMerchant(request);
+  const who = await vaultMerchant(request, { apiKey: 'payouts' });
   if (who instanceof NextResponse) return who;
   const record = await getVaultRecord('merchant', who.merchantId);
   return NextResponse.json(

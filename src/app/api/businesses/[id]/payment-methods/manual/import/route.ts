@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { resolveMerchant } from '@/lib/auth/merchant';
+import { resolveMerchant, keyMayActOnBusiness } from '@/lib/auth/merchant';
 import { verifyBusinessAccess } from '@/lib/wallets/supported-coins';
 import { importManualDefaultsToBusiness } from '@/lib/payment-methods/account-defaults';
 
@@ -20,6 +20,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const authResult = await resolveMerchant(supabase, request);
     if ('error' in authResult) {
       return NextResponse.json({ success: false, error: authResult.error }, { status: authResult.status });
+    }
+    // A key for one business must not write another business's handles (the
+    // sibling manual route checks this; this one did not).
+    if (!keyMayActOnBusiness(authResult, id)) {
+      return NextResponse.json(
+        { success: false, error: 'This API key cannot act on that business' },
+        { status: 403 },
+      );
     }
     // Same field, same invariant as the sibling route: this copies payout
     // handles into the business, and a payout handle is where customer money is

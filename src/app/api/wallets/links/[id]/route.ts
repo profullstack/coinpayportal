@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { resolveMerchant, keyMayActOnBusiness } from '@/lib/auth/merchant';
+import { resolveMerchant, keyMayActOnBusiness, keyMayActOnAccount } from '@/lib/auth/merchant';
 
 function client() {
   return createClient(
@@ -54,7 +54,7 @@ export async function PATCH(
     // as the key being allowed to touch it: a key scoped to business A could
     // mutate a link belonging to business B of the same merchant. 404 rather
     // than 403 so the endpoint is not an existence oracle across businesses.
-    if (!keyMayActOnBusiness(auth, link.business_id)) {
+    if (!keyMayActOnBusiness(auth, link.business_id) || (!link.business_id && !keyMayActOnAccount(auth))) {
       return NextResponse.json({ success: false, error: 'Wallet link not found' }, { status: 404 });
     }
 
@@ -125,7 +125,7 @@ export async function DELETE(
     // as the key being allowed to touch it: a key scoped to business A could
     // mutate a link belonging to business B of the same merchant. 404 rather
     // than 403 so the endpoint is not an existence oracle across businesses.
-    if (!keyMayActOnBusiness(auth, link.business_id)) {
+    if (!keyMayActOnBusiness(auth, link.business_id) || (!link.business_id && !keyMayActOnAccount(auth))) {
       return NextResponse.json({ success: false, error: 'Wallet link not found' }, { status: 404 });
     }
 

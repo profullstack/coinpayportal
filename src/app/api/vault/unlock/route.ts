@@ -13,7 +13,7 @@ import { vaultMerchant } from '@/lib/vault/route-auth';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
-  const who = await vaultMerchant(request);
+  const who = await vaultMerchant(request, { apiKey: 'payouts' });
   if (who instanceof NextResponse) return who;
   let body: { data_key?: string; ttl_hours?: number };
   try {
