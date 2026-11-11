@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { resolveMerchant, keyMayActOnBusiness } from '@/lib/auth/merchant';
+import { resolveMerchant, keyMayActOnBusiness, keyMayActOnAccount } from '@/lib/auth/merchant';
 import { authorizeBusiness } from '@/lib/auth/authz';
 
 function client() {
@@ -54,6 +54,13 @@ export async function POST(
     const chainFilter: string[] | null = Array.isArray(body.chains) && body.chains.length > 0
       ? body.chains.map((c: string) => String(c).toUpperCase())
       : null;
+
+    if (target === 'account' && !keyMayActOnAccount(auth)) {
+      return NextResponse.json(
+          { success: false, error: 'An API key cannot change account-level wallets; sign in, or target its own business' },
+          { status: 403 }
+        );
+    }
 
     if (target === 'business') {
       if (!businessId) {

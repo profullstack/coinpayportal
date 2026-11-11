@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { resolveMerchant, keyMayActOnBusiness } from '@/lib/auth/merchant';
+import { resolveMerchant, keyMayActOnBusiness, keyMayActOnAccount } from '@/lib/auth/merchant';
 import { authorizeBusiness } from '@/lib/auth/authz';
 import { verifyAuthChallenge } from '@/lib/web-wallet/service';
 import { listWalletAccountLinks } from '@/lib/wallets/linked-web-wallets';
@@ -111,6 +111,13 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 },
       );
+    }
+
+    if (!business_id && !keyMayActOnAccount(auth)) {
+      return NextResponse.json(
+        { success: false, error: 'An API key cannot change account-level wallets; sign in, or target its own business' },
+          { status: 403 }
+        );
     }
 
     // Business-scoped links require write access to that business.

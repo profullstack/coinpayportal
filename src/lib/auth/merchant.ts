@@ -109,6 +109,18 @@ async function resolveApiKey(
  * shape its own; a shared helper that wrote responses would not fit the routes
  * that need it.
  */
+/**
+ * Whether the caller may change ACCOUNT-level (merchant-wide) state: the
+ * merchant's own wallets and default payee handles, which every business of
+ * the merchant falls back to. A business API key never may: it belongs to one
+ * business, and an account-level write redirects payments for all of them
+ * (`keyMayActOnBusiness(auth, null)` is true, so routes that only checked that
+ * let a key overwrite `merchant_wallets`).
+ */
+export function keyMayActOnAccount(auth: { apiKeyBusinessId: string | null }): boolean {
+  return !auth.apiKeyBusinessId;
+}
+
 export function keyMayActOnBusiness(
   auth: { apiKeyBusinessId: string | null },
   businessId: string | null | undefined,

@@ -42,7 +42,8 @@ async function checkPassword(merchantId: string, password: string): Promise<Next
 }
 
 export async function GET(request: NextRequest) {
-  const user = await getAuthUser(request);
+  // Keys allowed here only because every write below needs the account password.
+  const user = await getAuthUser(request, { allowApiKey: true });
   if (!user) return NextResponse.json({ success: false, error: 'Authentication required' }, { status: 401 });
   const { data } = await getSupabase()
     .from('passphrase_credentials')
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const user = await getAuthUser(request);
+  const user = await getAuthUser(request, { allowApiKey: true });
   if (!user) return NextResponse.json({ success: false, error: 'Authentication required' }, { status: 401 });
 
   let body: unknown;
@@ -92,7 +93,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const user = await getAuthUser(request);
+  const user = await getAuthUser(request, { allowApiKey: true });
   if (!user) return NextResponse.json({ success: false, error: 'Authentication required' }, { status: 401 });
 
   let body: unknown;

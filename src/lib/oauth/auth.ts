@@ -17,17 +17,33 @@ function getSupabase() {
   return createClient(url, key);
 }
 
+export type GetAuthUserOptions = {
+  /**
+   * Also accept a business API key, acting as the merchant that owns the
+   * business. OFF by default: a key belongs to ONE business, and every caller
+   * of this helper is account-level (passkeys, OAuth apps). Accepting keys let
+   * one business's leaked key register a passkey on the owner's login, i.e.
+   * take over the whole account. Opt in only where the route itself demands
+   * more (auth/passphrase requires the account password for every write).
+   */
+  allowApiKey?: boolean;
+};
+
 /**
  * Extract authenticated user from request.
  * Checks (in order):
- *   1. x-api-key header (CoinPay business API key)
- *   2. Authorization: Bearer <api_key>
+ *   1. x-api-key header (CoinPay business API key), only with `allowApiKey`
+ *   2. Authorization: Bearer <api_key>, only with `allowApiKey`
  *   3. Authorization: Bearer <jwt>
  */
-export async function getAuthUser(request: NextRequest): Promise<{ id: string } | null> {
+export async function getAuthUser(
+  request: NextRequest,
+  options: GetAuthUserOptions = {},
+): Promise<{ id: string } | null> {
   // 1. Check x-api-key header
   const apiKeyHeader = request.headers.get('x-api-key');
   if (apiKeyHeader) {
+    if (!options.allowApiKey) return null;
     const result = await resolveApiKey(apiKeyHeader);
     if (result) return result;
     // If x-api-key was provided but invalid, don't fall through — it was intentional
@@ -41,6 +57,7 @@ export async function getAuthUser(request: NextRequest): Promise<{ id: string } 
 
   // 2. If it looks like an API key, resolve via DB
   if (isApiKey(token)) {
+    if (!options.allowApiKey) return null;
     const result = await resolveApiKey(token);
     if (result) return result;
     console.warn('[OAuth Auth] Bearer token looks like API key but failed to resolve');

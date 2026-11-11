@@ -6,7 +6,7 @@ import { vaultMerchant } from '@/lib/vault/route-auth';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
-  const who = await vaultMerchant(request);
+  const who = await vaultMerchant(request, { apiKey: 'payouts' });
   if (who instanceof NextResponse) return who;
   const wasUnlocked = lockVault('merchant', who.merchantId);
   return NextResponse.json({ success: true, unlocked: false, wasUnlocked });
