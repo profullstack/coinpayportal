@@ -112,14 +112,14 @@ importers:
         specifier: ^0.5.0
         version: 0.5.0(next@16.4.3(@opentelemetry/api@1.10.0)(@playwright/test@1.64.1)(@types/node@24.19.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)
       '@profullstack/throttle':
-        specifier: ^0.4.1
-        version: 0.4.1
+        specifier: ^0.4.2
+        version: 0.4.2
       '@profullstack/webhooks':
         specifier: 0.2.1
         version: 0.2.1
       '@profullstack/x402-gateway':
-        specifier: ^0.18.0
-        version: 0.18.0
+        specifier: ^0.18.1
+        version: 0.18.1
       '@scure/bip32':
         specifier: ^1.7.0
         version: 1.7.0
@@ -1600,20 +1600,16 @@ packages:
       react:
         optional: true
 
-  '@profullstack/throttle@0.4.1':
-    resolution: {integrity: sha512-ffY49nQ20/ZXyp/LVh/LxXTKJozqxyggBhjt9rRGz/JCC30IKFaqN2UmNwThm721r0rgQnhikpHNOb5EqzU9kw==}
+  '@profullstack/throttle@0.4.2':
+    resolution: {integrity: sha512-2ibd5rirK5HyqYtk+XsiORpcSLHWMVCgHX+ZdED7uPkIW7iMJi1mjth3Ly1cQcpJhHWE6uyDaIIirRaeTl7/sw==}
     engines: {node: '>=20.11'}
 
   '@profullstack/webhooks@0.2.1':
     resolution: {integrity: sha512-QHeSkpu4O44oJ620qhQqxqFlD3u/OhupmXRnBHw4MGKuDTa0R+Y/727nnF7psSHxxSfnbWfNuVl15z3IXuaZiw==}
     engines: {node: '>=20'}
 
-  '@profullstack/x402-gateway@0.16.0':
-    resolution: {integrity: sha512-3xN7vlGXmoqdexR7NNAIExZLtYvE5M8nR9fqr7kwLK/xks06lUiymEsjZOc2wCbowfnCVNiZBOe98rvsCE9Mgw==}
-    engines: {node: '>=20.11'}
-
-  '@profullstack/x402-gateway@0.18.0':
-    resolution: {integrity: sha512-+vORJd17QpLycouk0wrmyOlnyv+6Q9Ttxk+iglsMH2pZpejTUD2Ak3ysKxQsb94R4m1GLSEv8DHoCS49Nf4/0A==}
+  '@profullstack/x402-gateway@0.18.1':
+    resolution: {integrity: sha512-zc2JGLXMX8eCk7Mp4X91E175enOTNcWPZncKf3LXzoGE+XEhHDJHM1LRZkkY3x2pjLYX3AB11Vx/TP3cobSQ/g==}
     engines: {node: '>=20.11'}
 
   '@reduxjs/toolkit@2.13.0':
@@ -6343,17 +6339,13 @@ snapshots:
       next: 16.4.3(@opentelemetry/api@1.10.0)(@playwright/test@1.64.1)(@types/node@24.19.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       react: 19.3.1
 
-  '@profullstack/throttle@0.4.1':
+  '@profullstack/throttle@0.4.2':
     dependencies:
-      '@profullstack/x402-gateway': 0.16.0
+      '@profullstack/x402-gateway': 0.18.1
 
   '@profullstack/webhooks@0.2.1': {}
 
-  '@profullstack/x402-gateway@0.16.0':
-    dependencies:
-      '@profullstack/keys': 0.1.0
-
-  '@profullstack/x402-gateway@0.18.0':
+  '@profullstack/x402-gateway@0.18.1':
     dependencies:
       '@profullstack/keys': 0.1.0
 
