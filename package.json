@@ -78,7 +78,7 @@
     "jsonwebtoken": "^9.0.3",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.9",
-    "next": "16.4.3",
+    "next": "16.4.5",
     "node-fetch": "^3.3.2",
     "openpgp": "^6.3.2",
     "papaparse": "^5.7.0",
