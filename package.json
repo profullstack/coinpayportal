@@ -90,7 +90,7 @@
     "recharts": "^3.10.1",
     "sanitize-html": "^2.18.1",
     "stripe": "^23.0.1",
-    "tiny-secp256k1": "^2.2.4",
+    "tiny-secp256k1": "^2.2.5",
     "tweetnacl": "^1.0.3",
     "viem": "^2.57.11",
     "xrpl": "^5.3.0",
