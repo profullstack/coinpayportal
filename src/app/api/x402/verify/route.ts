@@ -20,6 +20,7 @@ import { normalizeAddressForNetwork } from '@/lib/x402/address';
 import { isV2Payment, verifyExactEvmV2, type V2Payment } from '@/lib/x402/v2';
 import { EVM_NETWORKS, UTXO_NETWORKS, checkSchemeForNetwork } from '@/lib/x402/networks';
 import { normalizeNanoBlockHash, verifyNanoBlock } from '@/lib/x402/nano';
+import { isNanoV2Payment, nanoV2ToV1 } from '@/lib/x402/nano-v2';
 import { createHash } from 'crypto';
 
 function getSupabase() {
@@ -661,13 +662,25 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { payment, expected } = body;
+    const { expected } = body;
+    let { payment } = body;
 
     if (!payment || !payment.payload) {
       return NextResponse.json(
         { error: 'Invalid payment proof: missing payload' },
         { status: 400 }
       );
+    }
+
+    // A standard v2 proof on Nano (`nano:mainnet`, block hash in the payload)
+    // is not an EIP-3009 authorization, so it must not reach `verifyV2`. It is
+    // reshaped into the v1 Nano proof and checked exactly like one below.
+    if (isNanoV2Payment(payment)) {
+      const converted = nanoV2ToV1(payment);
+      if (!converted.ok) {
+        return NextResponse.json({ error: converted.error }, { status: 400 });
+      }
+      payment = converted.payment;
     }
 
     // v2 proofs are a different object entirely: an EIP-3009 authorization

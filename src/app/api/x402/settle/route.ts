@@ -41,6 +41,7 @@ import { addressesEqual } from '@/lib/x402/address';
 import { evmChainId, isV2Payment } from '@/lib/x402/v2';
 import { EVM_NETWORKS, checkSchemeForNetwork } from '@/lib/x402/networks';
 import { normalizeNanoBlockHash, verifyNanoBlock } from '@/lib/x402/nano';
+import { isNanoV2Payment, nanoV2ToV1 } from '@/lib/x402/nano-v2';
 import { sanitizeX402Metadata } from '@/lib/x402/metadata';
 import { SOLANA_MAX_TX_VERSION, isTransientSolanaRpcError } from '@/lib/blockchain/solana-rpc';
 import {
@@ -422,12 +423,22 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { payment } = body;
+    let { payment } = body;
     // Optional seller annotation: which property and page this sale bought.
     const metadata = sanitizeX402Metadata(body?.metadata);
 
     if (!payment?.payload) {
       return NextResponse.json({ error: 'Invalid payment data' }, { status: 400 });
+    }
+
+    // Same reshaping as /verify: a v2 `nano:mainnet` proof settles as the v1
+    // Nano proof it was recorded as, under the same (block hash, network) key.
+    if (isNanoV2Payment(payment)) {
+      const converted = nanoV2ToV1(payment);
+      if (!converted.ok) {
+        return NextResponse.json({ error: converted.error }, { status: 400 });
+      }
+      payment = converted.payment;
     }
 
     // v2 proofs carry the network at the top level and the replay key inside
