@@ -60,7 +60,7 @@ export const throttle = createThrottle({
     console.log(
       `[throttle] ${event.sold ? "402" : "429"} ${event.count}/${event.limit}` +
         ` per ${event.windowSeconds}s ${new URL(event.url).pathname}` +
-        ` ua=${(event.userAgent ?? "-").slice(0, 80)}`
+        ` bucket=${event.bucket} ua=${(event.userAgent ?? "-").slice(0, 80)}`
     );
   },
 });
