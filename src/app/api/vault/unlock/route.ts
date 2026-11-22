@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { unlockVault, vaultErrorBody } from '@/lib/vault/vault-service';
 import { vaultMerchant } from '@/lib/vault/route-auth';
+import { migratePaypalSecretsToPlatform } from '@/lib/paypal/accounts';
+import { getSupabaseAdmin } from '@/lib/supabase/server';
 
 /**
  * POST /api/vault/unlock  { data_key: base64(32 bytes), ttl_hours?: number }
@@ -24,7 +26,16 @@ export async function POST(request: NextRequest) {
   const ttlMs = typeof body.ttl_hours === 'number' ? body.ttl_hours * 3600_000 : null;
   try {
     const { expiresAt } = await unlockVault('merchant', who.merchantId, body.data_key ?? '', ttlMs);
-    return NextResponse.json({ success: true, unlocked: true, expiresAt });
+    // While unlocked, give this merchant's PayPal secrets their platform-sealed
+    // copy so checkout no longer depends on the unlock (PayPal API creds only).
+    let paypalPlatformSealed: number | undefined;
+    try {
+      const r = await migratePaypalSecretsToPlatform(getSupabaseAdmin(), { merchantId: who.merchantId });
+      if (r.configured) paypalPlatformSealed = r.migrated;
+    } catch (err) {
+      console.error('[vault] PayPal platform-seal on unlock failed', err instanceof Error ? err.message : err);
+    }
+    return NextResponse.json({ success: true, unlocked: true, expiresAt, paypal_platform_sealed: paypalPlatformSealed });
   } catch (err) {
     const v = vaultErrorBody(err);
     if (v) return NextResponse.json(v.body, { status: v.status });

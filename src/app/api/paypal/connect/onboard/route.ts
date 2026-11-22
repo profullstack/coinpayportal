@@ -123,6 +123,7 @@ export async function POST(request: NextRequest) {
         // re-onboard after a self-serve disconnect can't leave a stale secret.
         paypal_client_id: null,
         paypal_client_secret_encrypted: null,
+        paypal_client_secret_platform: null,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'business_id' }
