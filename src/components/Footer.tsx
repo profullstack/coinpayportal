@@ -12,6 +12,7 @@ const links = [
   { label: 'Help', href: '/help' },
   { label: 'Status', href: '/status' },
   { label: 'Who holds your money', href: '/custody' },
+  { label: 'Security', href: '/security' },
   { label: 'Privacy', href: '/privacy' },
   { label: 'Terms', href: '/terms' },
   { label: 'GitHub', href: 'https://github.com/profullstack/coinpayportal' },
