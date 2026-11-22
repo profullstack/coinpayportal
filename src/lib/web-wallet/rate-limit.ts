@@ -136,6 +136,9 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   // request here is several third-party calls. Tighter than swap_quote for
   // that reason: the multiplier is the whole point of the endpoint.
   'onramp_quote': { limit: 15, windowSeconds: 60 },          // 15/min per IP
+  // Exchange Engine: one quote fans out to THORChain and ChangeNOW at once.
+  'exchange_quote': { limit: 15, windowSeconds: 60 },        // 15/min per IP
+  'exchange_order': { limit: 20, windowSeconds: 3600 },      // 20/hour per wallet
   // Same fan-out shape as onramp_quote, and each quote also costs a crypto
   // spot lookup and an FX lookup on top of the partner calls.
   'remittance_quote': { limit: 15, windowSeconds: 60 },      // 15/min per IP
