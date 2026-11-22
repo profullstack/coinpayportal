@@ -34,7 +34,7 @@ CREATE INDEX IF NOT EXISTS idx_exchange_quotes_created ON exchange_quotes(create
 
 CREATE TABLE IF NOT EXISTS exchange_orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    wallet_id UUID NOT NULL REFERENCES web_wallets(id) ON DELETE CASCADE,
+    wallet_id UUID NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
     quote_id UUID REFERENCES exchange_quotes(id) ON DELETE SET NULL,
     idempotency_key TEXT NOT NULL,
     provider TEXT NOT NULL,
