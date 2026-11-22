@@ -1,5 +1,8 @@
 import { Footer as ProfullstackFooter } from '@profullstack/footer/react';
 
+const PRODUCTWATCH_EMBED =
+  '<a href="https://productwatch.io/products/coinpay?utm_source=badge" target="_blank"><img src="https://productwatch.io/backend/api/v1/badge/featured?productId=80962a69-8555-4397-85a8-bfda39a2e48e&darkMode=false" alt="CoinPay" style="max-width: 250px;" /></a>';
+
 const links = [
   { label: 'Docs', href: '/docs' },
   { label: 'API', href: '/docs#api' },
@@ -20,18 +23,13 @@ export default function Footer() {
 
   return (
     <>
-      {/* "Featured on ProductWatch": ProductWatch's embed code, verbatim. Do not add
-          rel, referrerPolicy, query params or client-side rewriting. */}
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '1.5rem 1rem 0' }}>
-        <a href="https://productwatch.io/products/coinpay?utm_source=badge" target="_blank">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="https://productwatch.io/backend/api/v1/badge/featured?productId=80962a69-8555-4397-85a8-bfda39a2e48e&darkMode=false"
-            alt="CoinPay"
-            style={{ maxWidth: '250px' }}
-          />
-        </a>
-      </div>
+      {/* "Featured on ProductWatch": ProductWatch's verifier string-matches its embed code,
+          so it is injected byte-for-byte as raw HTML. Do NOT convert to JSX or edit it:
+          JSX re-serializes it (&amp;, max-width:250px) and verification fails. */}
+      <div
+        style={{ display: 'flex', justifyContent: 'center', padding: '1.5rem 1rem 0' }}
+        dangerouslySetInnerHTML={{ __html: PRODUCTWATCH_EMBED }}
+      />
       <ProfullstackFooter
         site="https://coinpayportal.com/"
         owner={{ name: 'CoinPay', url: 'https://coinpayportal.com/' }}
