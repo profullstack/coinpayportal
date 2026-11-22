@@ -4,15 +4,8 @@ import { authenticateRequest, isMerchantAuth, isBusinessAuth } from '@/lib/auth/
 import { getSubscriptionPrice, type BillingPeriod } from '@/lib/subscriptions/service';
 import { createSubscriptionCheckout, countOpenSubscriptionCheckouts } from '@/lib/subscriptions/checkout';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
-
-/**
- * Unpaid subscription checkouts one merchant may hold at once.
- *
- * A merchant legitimately abandons a checkout and starts another — switching
- * chain, or changing their mind on billing period — so this is generous. It
- * exists to stop unbounded accumulation, not to police normal indecision.
- */
-const MAX_PENDING_SUBSCRIPTION_CHECKOUTS = 10;
+// The pending cap lives beside the prices so the /upgrade page applies the same one.
+import { MAX_PENDING_SUBSCRIPTION_CHECKOUTS } from '@/lib/subscriptions/plans';
 
 /**
  * POST /api/subscriptions/checkout

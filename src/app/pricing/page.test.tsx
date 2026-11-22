@@ -82,45 +82,26 @@ describe('PricingPage', () => {
         };
       }
 
-      if (url === '/api/subscriptions/checkout') {
-        return {
-          response: { ok: true } as Response,
-          data: {
-            success: true,
-            payment: {
-              id: 'pay_upgrade_123',
-              checkout_path: '/checkout/cs_upgrade_123',
-              checkout_url: 'https://coinpayportal.com/checkout/cs_upgrade_123',
-            },
-          },
-        };
-      }
-
       throw new Error(`Unexpected authFetch URL: ${url}`);
     });
   });
 
-  it('redirects subscription upgrades to hosted CoinPay checkout', async () => {
+  it('links the upgrade button to the upgrade page with the chosen billing period', async () => {
     render(<PricingPage />);
 
-    const upgradeButton = await screen.findByRole('button', { name: /upgrade to professional/i });
-    fireEvent.click(upgradeButton);
+    const upgrade = await screen.findByRole('link', { name: /upgrade to professional/i });
+    expect(upgrade).toHaveAttribute('href', '/upgrade?plan=monthly&source=pricing');
 
+    fireEvent.click(screen.getByRole('button', { name: /yearly/i }));
     await waitFor(() => {
-      expect(authFetch).toHaveBeenCalledWith(
-        '/api/subscriptions/checkout',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({
-            plan_id: 'professional',
-            billing_period: 'monthly',
-          }),
-        }),
-        expect.any(Object)
+      expect(screen.getByRole('link', { name: /upgrade to professional/i })).toHaveAttribute(
+        'href',
+        '/upgrade?plan=yearly&source=pricing'
       );
-      expect(mockPush).toHaveBeenCalledWith('/checkout/cs_upgrade_123');
     });
 
-    expect(screen.queryByText('Complete Your Payment')).not.toBeInTheDocument();
+    // The page no longer opens the checkout itself: /upgrade does.
+    expect(authFetch).not.toHaveBeenCalledWith('/api/subscriptions/checkout', expect.anything(), expect.anything());
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });

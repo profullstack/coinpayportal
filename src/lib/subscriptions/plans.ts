@@ -33,3 +33,13 @@ export function billingBusinessId(): string {
   const fromEnv = process.env.COINPAY_BILLING_BUSINESS_ID;
   return fromEnv && /^[0-9a-f-]{36}$/i.test(fromEnv.trim()) ? fromEnv.trim() : DEFAULT_BILLING_BUSINESS_ID;
 }
+
+/**
+ * Unpaid subscription checkouts one merchant may hold at once.
+ *
+ * A merchant legitimately abandons a checkout and starts another (switching
+ * chain, or changing their mind on billing period), so this is generous. It
+ * exists to stop unbounded accumulation, not to police normal indecision.
+ * Shared by POST /api/subscriptions/checkout and the /upgrade page.
+ */
+export const MAX_PENDING_SUBSCRIPTION_CHECKOUTS = 10;
