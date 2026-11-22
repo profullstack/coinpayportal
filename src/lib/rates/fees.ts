@@ -22,6 +22,12 @@ const TATUM_RETRY_CONFIG = {
   baseDelayMs: 100,
 };
 
+/** Keyless fallbacks: one quick retry, the next source is the real fallback. */
+const KEYLESS_RETRY_CONFIG = {
+  maxRetries: 2,
+  baseDelayMs: 100,
+};
+
 /**
  * Fee cache to minimize API calls
  */
@@ -76,7 +82,7 @@ function isCacheValid(cached: CachedFee): boolean {
  * Estimate Bitcoin transaction fee in USD
  * Uses Tatum's unified fee endpoint: GET /v3/blockchain/fee/{chain}
  */
-async function estimateBitcoinFee(): Promise<number> {
+async function tatumBitcoinSatPerByte(): Promise<number> {
   const apiKey = getApiKey();
 
   // Get recommended fee (satoshis per byte) from unified endpoint
@@ -102,7 +108,42 @@ async function estimateBitcoinFee(): Promise<number> {
 
   // Use "medium" fee for balance between speed and cost
   // Fee is in satoshis per byte
-  const satoshisPerByte = data.medium ?? data.fast ?? 20;
+  return data.medium ?? data.fast ?? 20;
+}
+
+/**
+ * Keyless BTC fee rate (sat/vB, ~30 minute target): mempool.space, then
+ * blockstream.info. Used when Tatum fails; a Tatum plan running out (402
+ * "Your plan limit has been exceeded", 2026-11-22) refused every BTC and
+ * ETH payment, because fee estimation had no other source.
+ */
+async function keylessBitcoinSatPerByte(): Promise<number> {
+  try {
+    const res = await fetchWithRetry('https://mempool.space/api/v1/fees/recommended', { method: 'GET' }, KEYLESS_RETRY_CONFIG);
+    if (res.ok) {
+      const d = (await res.json()) as { halfHourFee?: number; hourFee?: number; fastestFee?: number };
+      const v = d.halfHourFee ?? d.hourFee ?? d.fastestFee;
+      if (typeof v === 'number' && v > 0) return v;
+    }
+  } catch (e) {
+    console.warn('[Fee] mempool.space fee lookup failed:', e instanceof Error ? e.message : e);
+  }
+  const res = await fetchWithRetry('https://blockstream.info/api/fee-estimates', { method: 'GET' }, KEYLESS_RETRY_CONFIG);
+  if (!res.ok) throw new Error(`blockstream fee-estimates error: ${res.status}`);
+  const d = (await res.json()) as Record<string, number>;
+  const v = d['3'] ?? d['6'] ?? d['2'];
+  if (typeof v !== 'number' || !(v > 0)) throw new Error('blockstream fee-estimates returned no rate');
+  return v;
+}
+
+async function estimateBitcoinFee(): Promise<number> {
+  let satoshisPerByte: number;
+  try {
+    satoshisPerByte = await tatumBitcoinSatPerByte();
+  } catch (e) {
+    console.warn('[Fee] Tatum BTC fee failed, using keyless source:', e instanceof Error ? e.message : e);
+    satoshisPerByte = await keylessBitcoinSatPerByte();
+  }
   const avgTxSize = 250; // Average transaction size in bytes
   const feeInSatoshis = satoshisPerByte * avgTxSize;
   const feeInBtc = feeInSatoshis / 100000000;
@@ -116,7 +157,7 @@ async function estimateBitcoinFee(): Promise<number> {
  * Estimate Ethereum transaction fee in USD
  * Uses Tatum's unified fee endpoint: GET /v3/blockchain/fee/{chain}
  */
-async function estimateEthereumFee(): Promise<number> {
+async function tatumEthereumGasPriceWei(): Promise<number> {
   const apiKey = getApiKey();
 
   // Get current gas price from unified endpoint
@@ -148,7 +189,45 @@ async function estimateEthereumFee(): Promise<number> {
 
   // Gas price can be nested under gasPrice or at root level
   // Value is in wei
-  const gasPriceWei = data.gasPrice?.medium ?? data.gasPrice?.fast ?? data.medium ?? data.fast ?? 30000000000;
+  return data.gasPrice?.medium ?? data.gasPrice?.fast ?? data.medium ?? data.fast ?? 30000000000;
+}
+
+/** Ethereum JSON-RPC endpoints for eth_gasPrice when Tatum fails: ours first, then keyless public ones. */
+function ethereumRpcUrls(): string[] {
+  const own = [process.env.ETHEREUM_RPC_URL, process.env.ETH_RPC_URL].filter((u): u is string => Boolean(u));
+  return [...new Set([...own, 'https://ethereum-rpc.publicnode.com', 'https://1rpc.io/eth', 'https://eth.drpc.org', 'https://rpc.mevblocker.io'])];
+}
+
+async function keylessEthereumGasPriceWei(): Promise<number> {
+  let lastError: unknown;
+  for (const url of ethereumRpcUrls()) {
+    try {
+      const res = await fetchWithRetry(
+        url,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_gasPrice', params: [] }) },
+        KEYLESS_RETRY_CONFIG
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = (await res.json()) as { result?: string };
+      const wei = d.result ? Number(BigInt(d.result)) : NaN;
+      if (Number.isFinite(wei) && wei > 0) return wei;
+      throw new Error('no result');
+    } catch (e) {
+      lastError = e;
+      console.warn(`[Fee] eth_gasPrice via ${new URL(url).host} failed:`, e instanceof Error ? e.message : e);
+    }
+  }
+  throw new Error(`No Ethereum gas price source answered: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+}
+
+async function estimateEthereumFee(): Promise<number> {
+  let gasPriceWei: number;
+  try {
+    gasPriceWei = await tatumEthereumGasPriceWei();
+  } catch (e) {
+    console.warn('[Fee] Tatum ETH fee failed, using keyless source:', e instanceof Error ? e.message : e);
+    gasPriceWei = await keylessEthereumGasPriceWei();
+  }
   const gasLimit = 65000; // Use higher estimate for token transfers
   const feeInWei = gasPriceWei * gasLimit;
   const feeInEth = feeInWei / 1e18;

@@ -259,22 +259,47 @@ describe('Tatum Fee Estimation Service', () => {
     });
 
     describe('error handling', () => {
-      it('should throw error when API key is missing', async () => {
+      it('BTC falls back to mempool.space when TATUM_API_KEY is missing', async () => {
         delete process.env.TATUM_API_KEY;
+        mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ fastestFee: 40, halfHourFee: 20, hourFee: 10 }) });
 
-        await expect(getEstimatedNetworkFee('BTC')).rejects.toThrow(
-          'TATUM_API_KEY environment variable is not set'
-        );
+        // 20 sat/vB * 250 B = 5000 sat = 0.00005 BTC * $50,000 = $2.50, +20% = $3.00
+        expect(await getEstimatedNetworkFee('BTC')).toBe(3);
+        expect(mockFetch.mock.calls[0][0]).toBe('https://mempool.space/api/v1/fees/recommended');
       });
 
-      it('should throw error when API returns error status', async () => {
-        mockFetch.mockResolvedValueOnce({
-          ok: false,
-          status: 401,
-          text: () => Promise.resolve('Unauthorized'),
-        });
+      it('BTC falls back when Tatum says the plan limit is exceeded (402), then to blockstream', async () => {
+        mockFetch
+          .mockResolvedValueOnce({ ok: false, status: 402, text: () => Promise.resolve('{"statusCode":402,"message":"Your plan limit has been exceeded."}') })
+          .mockResolvedValueOnce({ ok: false, status: 400, json: () => Promise.resolve({}) })
+          .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ '2': 30, '3': 20, '6': 10 }) });
 
-        await expect(getEstimatedNetworkFee('BTC')).rejects.toThrow('Tatum API error: 401');
+        expect(await getEstimatedNetworkFee('BTC')).toBe(3);
+        expect(mockFetch.mock.calls.map((c) => c[0])).toEqual([
+          'https://api.tatum.io/v3/blockchain/fee/BTC',
+          'https://mempool.space/api/v1/fees/recommended',
+          'https://blockstream.info/api/fee-estimates',
+        ]);
+      });
+
+      it('ETH and ETH stablecoins fall back to eth_gasPrice over public RPC when Tatum fails', async () => {
+        delete process.env.ETHEREUM_RPC_URL;
+        delete process.env.ETH_RPC_URL;
+        mockFetch
+          .mockResolvedValueOnce({ ok: false, status: 402, text: () => Promise.resolve('plan limit') })
+          .mockResolvedValueOnce({ ok: false, status: 403, json: () => Promise.resolve({}) })
+          .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, result: '0x' + (20e9).toString(16) }) });
+
+        // 20 gwei * 65,000 = 0.0013 ETH * $3,000 = $3.90, +20% = $4.68
+        expect(await getEstimatedNetworkFee('USDC_ETH')).toBe(4.68);
+        expect(mockFetch.mock.calls[1][0]).toBe('https://ethereum-rpc.publicnode.com');
+        expect(JSON.parse(mockFetch.mock.calls[2][1].body).method).toBe('eth_gasPrice');
+      });
+
+      it('throws only when every source fails', async () => {
+        mockFetch.mockResolvedValue({ ok: false, status: 500, text: () => Promise.resolve('down'), json: () => Promise.resolve({}) });
+        await expect(getEstimatedNetworkFee('BTC')).rejects.toThrow();
+        mockFetch.mockReset();
       });
 
       it('should throw error for unsupported blockchain', async () => {
