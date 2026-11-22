@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveMerchant } from '@/lib/auth/merchant';
 import { verifyBusinessAccess } from '@/lib/wallets/supported-coins';
 import { getPaypalAccessToken, type PaypalEnvironment } from '@/lib/paypal/client';
-import { sealPaypalSecret } from '@/lib/paypal/accounts';
+import { sealPaypalSecrets } from '@/lib/paypal/accounts';
 import { vaultErrorBody } from '@/lib/vault/vault-service';
 
 function getSupabase() {
@@ -78,11 +78,11 @@ export async function POST(request: NextRequest) {
       .eq('id', businessId)
       .single();
 
-    // Sealed to the business owner's secrets vault: REST calls with it work
-    // only while they are unlocked (423 / partner fallback otherwise).
-    let sealedSecret: string;
+    // Stored twice: sealed to the business owner's secrets vault, and under the
+    // platform key PAYPAL_SECRETS_KEY so checkout works without an unlock.
+    let sealed: { vault: string; platform: string | null };
     try {
-      sealedSecret = await sealPaypalSecret(clientSecret, businessId);
+      sealed = await sealPaypalSecrets(clientSecret, businessId);
     } catch (err) {
       const v = vaultErrorBody(err);
       if (v) return NextResponse.json(v.body, { status: v.status });
@@ -96,7 +96,8 @@ export async function POST(request: NextRequest) {
           merchant_id: business?.merchant_id ?? authResult.merchantId,
           business_id: businessId,
           paypal_client_id: clientId,
-          paypal_client_secret_encrypted: sealedSecret,
+          paypal_client_secret_encrypted: sealed.vault,
+          paypal_client_secret_platform: sealed.platform,
           seal_version: 2,
           environment,
           email,

@@ -100,7 +100,7 @@ export async function migrateLegacyMerchantSecrets(merchantId: string): Promise<
     });
 
     await step('paypal_accounts', async () => {
-      const { decryptLegacyPaypalSecret, sealPaypalSecret } = await import('../paypal/accounts');
+      const { decryptLegacyPaypalSecret, sealPaypalSecrets } = await import('../paypal/accounts');
       const { data } = await supabase
         .from('paypal_accounts')
         .select('business_id, paypal_client_secret_encrypted')
@@ -109,8 +109,16 @@ export async function migrateLegacyMerchantSecrets(merchantId: string): Promise<
         const stored = row.paypal_client_secret_encrypted as string | null;
         if (!stored || isSealed(stored)) continue;
         const plain = decryptLegacyPaypalSecret(stored, row.business_id);
-        const sealed = await sealPaypalSecret(plain, row.business_id);
-        await supabase.from('paypal_accounts').update({ paypal_client_secret_encrypted: sealed, seal_version: 2 }).eq('business_id', row.business_id);
+        const sealed = await sealPaypalSecrets(plain, row.business_id);
+        await supabase
+          .from('paypal_accounts')
+          .update({
+            paypal_client_secret_encrypted: sealed.vault,
+            seal_version: 2,
+            // PayPal only: the platform copy keeps checkout working without an unlock.
+            ...(sealed.platform ? { paypal_client_secret_platform: sealed.platform } : {}),
+          })
+          .eq('business_id', row.business_id);
         result.paypalAccounts += 1;
       }
     });
