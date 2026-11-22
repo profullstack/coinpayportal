@@ -2,7 +2,7 @@
  * RFC 7591 Dynamic Client Registration, open (no initial access token).
  *
  * It exists for MCP connectors: Claude (claude.ai / claude.com, Claude Code,
- * Claude Desktop) and ChatGPT register themselves before the authorization
+ * Claude Desktop), ChatGPT and c0mpute chat register themselves before the authorization
  * code + PKCE flow against /api/mcp. Because anyone may call it, what it can
  * create is narrow:
  *   - PUBLIC clients only (token_endpoint_auth_method "none", PKCE S256
@@ -22,6 +22,9 @@ export const DCR_HOSTED_REDIRECTS: ReadonlySet<string> = new Set([
   'https://claude.ai/api/mcp/auth_callback',
   'https://claude.com/api/mcp/auth_callback',
   'https://chatgpt.com/connector_platform_oauth_redirect',
+  // c0mpute chat plugins: CoinPay is a default plugin there, each person
+  // signs in to their own CoinPay account (public client, PKCE S256).
+  'https://c0mpute.com/api/v1/chat/plugins/callback',
 ]);
 
 const DCR_LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);

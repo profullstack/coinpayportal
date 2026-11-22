@@ -6,6 +6,7 @@ describe('dcrRedirectAllowed', () => {
     expect(dcrRedirectAllowed('https://claude.ai/api/mcp/auth_callback')).toBe(true);
     expect(dcrRedirectAllowed('https://claude.com/api/mcp/auth_callback')).toBe(true);
     expect(dcrRedirectAllowed('https://chatgpt.com/connector_platform_oauth_redirect')).toBe(true);
+    expect(dcrRedirectAllowed('https://c0mpute.com/api/v1/chat/plugins/callback')).toBe(true);
   });
 
   it('accepts http loopback on any port and path', () => {
@@ -19,6 +20,9 @@ describe('dcrRedirectAllowed', () => {
       'https://evil.example/cb',
       'https://claude.ai/api/mcp/auth_callback?x=1',
       'https://claude.ai.evil.example/api/mcp/auth_callback',
+      'https://c0mpute.com/api/v1/chat/plugins/callback/../x',
+      'https://evil.c0mpute.com/api/v1/chat/plugins/callback',
+      'https://c0mpute.com/api/v1/chat/plugins/callback?next=evil',
       'http://claude.ai/api/mcp/auth_callback',
       'https://localhost/cb',
       'http://localhost.evil.example/cb',
