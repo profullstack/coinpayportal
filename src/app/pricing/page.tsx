@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
 
@@ -42,14 +41,11 @@ interface Entitlements {
 }
 
 export default function PricingPage() {
-  const router = useRouter();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [entitlements, setEntitlements] = useState<Entitlements | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
-  const [upgrading, setUpgrading] = useState(false);
-  const [checkoutError, setCheckoutError] = useState('');
   const [justUpgraded, setJustUpgraded] = useState(false);
 
   useEffect(() => {
@@ -94,46 +90,6 @@ export default function PricingPage() {
       console.error('Failed to fetch entitlements:', err);
     }
     setLoading(false);
-  };
-
-  const handleUpgrade = async (planId: string) => {
-    if (!isAuthenticated) {
-      router.push('/login?redirect=/pricing');
-      return;
-    }
-
-    if (planId === 'starter') {
-      // Can't downgrade to starter from UI - contact support
-      return;
-    }
-
-    setUpgrading(true);
-    setCheckoutError('');
-    
-    try {
-      const result = await authFetch('/api/subscriptions/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          plan_id: planId,
-          billing_period: billingPeriod,
-        }),
-      }, router);
-      if (!result) return;
-
-      const { data } = result;
-      
-      if (data.success && (data.payment?.checkout_path || data.payment?.checkout_url)) {
-        router.push(data.payment.checkout_path || new URL(data.payment.checkout_url).pathname);
-      } else {
-        setCheckoutError(data.error || 'Unable to start checkout. Please try again.');
-        setUpgrading(false);
-      }
-    } catch (err) {
-      console.error('Checkout error:', err);
-      setCheckoutError('Unable to start checkout. Please try again.');
-      setUpgrading(false);
-    }
   };
 
   const getFeatureList = (plan: Plan) => {
@@ -263,12 +219,6 @@ export default function PricingPage() {
           </div>
         )}
 
-        {checkoutError && (
-          <div className="mb-8 max-w-2xl mx-auto rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-            {checkoutError}
-          </div>
-        )}
-
         {/* Pricing Cards */}
         <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           {plans.map((plan) => {
@@ -327,13 +277,13 @@ export default function PricingPage() {
                         Current Plan
                       </button>
                     ) : isProfessional ? (
-                      <button
-                        onClick={() => handleUpgrade(plan.id)}
-                        disabled={upgrading}
-                        className="w-full py-3 px-4 rounded-lg font-semibold bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-400 hover:to-pink-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-purple-500/30"
+                      <Link
+                        href={`/upgrade?plan=${billingPeriod}&source=pricing`}
+                        prefetch={false}
+                        className="block w-full py-3 px-4 rounded-lg font-semibold text-center bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-400 hover:to-pink-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition-colors shadow-lg shadow-purple-500/30"
                       >
-                        {upgrading ? 'Processing...' : 'Upgrade to Professional'}
-                      </button>
+                        Upgrade to Professional
+                      </Link>
                     ) : isAuthenticated ? (
                       <button
                         disabled

@@ -200,3 +200,13 @@ html {
 .dark .pfs-profile__row label { color: #d1d5db; }
 .dark .pfs-profile__row input { background: #374151; border-color: #4b5563; color: #fff; }
 .dark .pfs-profile__optional { color: #9ca3af; }
+/* /upgrade (@profullstack/checkout): the plan checkout in the site's colours. */
+.pfc {
+  --pfc-accent: #a855f7;
+  --pfc-accent-fg: #ffffff;
+  --pfc-fg: #ffffff;
+  --pfc-muted: #9ca3af;
+  --pfc-card: rgba(255, 255, 255, 0.05);
+  --pfc-border: rgba(255, 255, 255, 0.1);
+  --pfc-error: #fecaca;
+}

@@ -87,6 +87,9 @@ importers:
       '@profullstack/autoblog':
         specifier: ^0.5.0
         version: 0.5.0
+      '@profullstack/checkout':
+        specifier: ^0.1.3
+        version: 0.1.3(react@19.3.1)
       '@profullstack/coinpay':
         specifier: workspace:*
         version: link:packages/sdk
@@ -1524,6 +1527,15 @@ packages:
   '@profullstack/autoblog@0.5.0':
     resolution: {integrity: sha512-KewpX0rM55o+7TMYeU35gqZceQFNF6zmo8zDoZRP5zoPU+XqTRcBlv6bZvl9oQHUXKXAsePJVNZKtDNhTrNEfw==}
     engines: {node: '>=18'}
+
+  '@profullstack/checkout@0.1.3':
+    resolution: {integrity: sha512-JRRXOKUnN7UpbXI8tK+l+T+GPFQEU5g2WsNTmbdtyGsHs0SfYOafgUlSY//C/gnarD7Iv5tV1iXmM+wa//hvlQ==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      react: '>=18'
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@profullstack/emailer@1.0.3':
     resolution: {integrity: sha512-VyAtCcfnSI6LOwJvWogCr3ZNmEsaZw+iuWrqnosLsdcKsbRyCrCmXigMNZJZEjlgYlR+lK//PwNPG+xtCFvWAw==}
@@ -6303,6 +6315,10 @@ snapshots:
   '@profullstack/autoblog@0.5.0':
     dependencies:
       '@profullstack/ai-providers': 0.1.0
+
+  '@profullstack/checkout@0.1.3(react@19.3.1)':
+    optionalDependencies:
+      react: 19.3.1
 
   '@profullstack/emailer@1.0.3': {}
 
