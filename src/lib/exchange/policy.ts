@@ -29,8 +29,31 @@ function envList(name: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * off      - every route 503s (default)
+ * internal - only wallets in EXCHANGE_INTERNAL_WALLETS may use it (prod testing
+ *            with our own wallets; the public still gets 503)
+ * public   - EXCHANGE_ENGINE_ENABLED=true
+ */
+export type EngineMode = 'off' | 'internal' | 'public';
+
+export function engineMode(): EngineMode {
+  const v = process.env.EXCHANGE_ENGINE_ENABLED;
+  if (v === 'true') return 'public';
+  if (v === 'internal') return 'internal';
+  return 'off';
+}
+
 export function isExchangeEnabled(): boolean {
-  return process.env.EXCHANGE_ENGINE_ENABLED === 'true';
+  return engineMode() !== 'off';
+}
+
+export function isInternalWallet(walletId: string): boolean {
+  return (process.env.EXCHANGE_INTERNAL_WALLETS ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(walletId.toLowerCase());
 }
 
 export interface PolicyInput {
