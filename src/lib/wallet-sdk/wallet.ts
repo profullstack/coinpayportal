@@ -786,6 +786,7 @@ export class Wallet {
   getExchangeQuotes(params: Parameters<ReturnType<typeof createExchangeMethods>['getExchangeQuotes']>[0]) { return this.exchange.getExchangeQuotes(params); }
   createExchangeOrder(params: Parameters<ReturnType<typeof createExchangeMethods>['createExchangeOrder']>[0]) { return this.exchange.createExchangeOrder(params); }
   submitExchangeTx(orderId: string, txHash: string) { return this.exchange.submitExchangeTx(orderId, txHash); }
+  submitExchangeFeeTx(orderId: string, feeTxHash: string) { return this.exchange.submitExchangeFeeTx(orderId, feeTxHash); }
   getExchangeOrder(orderId: string) { return this.exchange.getExchangeOrder(orderId); }
   listExchangeOrders(limit?: number) { return this.exchange.listExchangeOrders(limit); }
   cancelExchangeOrder(orderId: string) { return this.exchange.cancelExchangeOrder(orderId); }

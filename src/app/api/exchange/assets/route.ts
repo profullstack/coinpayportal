@@ -9,8 +9,8 @@ import { getAdapters } from '@/lib/exchange/router';
 import { isProviderEnabled } from '@/lib/exchange/policy';
 
 export async function GET(request: NextRequest) {
-  const off = await guardAnonymous(request);
-  if (off) return off;
+  const gate = await guardAnonymous(request);
+  if (gate.response) return gate.response;
 
   const adapters = getAdapters().filter((a) => a.isConfigured() && isProviderEnabled(a.id));
   const assets = listAssets().map((a) => ({
