@@ -11,6 +11,8 @@ const BASE = process.env.BASE || 'https://coinpayportal.com';
 // MODE=public (default) when the engine is open to everyone; MODE=internal when only wallet A is allowlisted.
 const MODE = process.env.MODE || 'public';
 const errMsg = (j) => j?.error?.message ?? j?.error;
+// EXPECT_FEE_BPS: the free-tier CoinPay fee these throwaway wallets should be quoted (0 = fee off).
+const FEE_BPS = Number(process.env.EXPECT_FEE_BPS ?? 200);
 const STATE = process.env.E2E_STATE || `${process.env.HOME}/.cache/coinpay-exchange-e2e-wallets.json`;
 const hex = (b) => Buffer.from(b).toString('hex');
 
@@ -103,6 +105,13 @@ const quotes = r.json?.quotes ?? [];
 check('BTC->ETH quotes -> 200', r.status === 200, quotes.map((q) => `${q.provider} ${q.expectedAmountOut} ETH`).join(', ') + (r.json?.unavailable?.length ? ` | unavailable: ${JSON.stringify(r.json.unavailable)}` : ''));
 check('both providers quoted (THORChain BTC halt tolerated)', r.json?.unavailable?.some((u) => /halted/.test(u.reason)) || quotes.some((q) => q.provider === 'thorchain') && quotes.some((q) => q.provider === 'changenow'));
 check('ranked by delivered amount', quotes.length < 2 || Number(quotes[0].expectedAmountOut) >= Number(quotes[1].expectedAmountOut));
+if (FEE_BPS > 0) {
+  check(`quotes carry the ${FEE_BPS / 100}% CoinPay fee (0.01 BTC -> ${(0.01 * FEE_BPS) / 10000} BTC)`,
+    quotes.length > 0 && quotes.every((q) => q.coinpayFee?.bps === FEE_BPS && Number(q.coinpayFee.amount) === (0.01 * FEE_BPS) / 10000 && q.coinpayFee.tier === 'free'),
+    JSON.stringify(quotes[0]?.coinpayFee));
+} else {
+  check('no CoinPay fee on quotes', quotes.every((q) => !q.coinpayFee));
+}
 check('disclosure present, no "no KYC" claim', /may require verification/.test(r.json?.disclosure ?? '') && !/no.?kyc/i.test(JSON.stringify(r.json)));
 
 r = await call(A, 'POST', '/api/exchange/quotes', { from: 'BTC', to: 'ETH', amount: '1e3' });
@@ -126,6 +135,12 @@ if (tq) {
   const o = r.json?.order;
   check('THORChain order -> 201', r.status === 201, `${o?.status} ${o?.nextAction?.kind} to=${o?.nextAction?.to} memo=${o?.nextAction?.memo}`);
   check('plan is send_with_memo to our destination', o?.nextAction?.kind === 'send_with_memo' && o?.nextAction?.memo?.includes(ETH_DEST));
+  if (FEE_BPS > 0) {
+    const fee = (500 * FEE_BPS) / 10000;
+    check(`THORChain plan splits 500 DOGE into ${500 - fee} deposit + ${fee} fee`,
+      Number(o?.nextAction?.amount) === 500 - fee && Number(o?.nextAction?.fee?.amount) === fee && !!o?.nextAction?.fee?.to && o?.fee?.paid === false,
+      `deposit=${o?.nextAction?.amount} fee=${o?.nextAction?.fee?.amount} to=${o?.nextAction?.fee?.to}`);
+  }
   r = await call(A, 'POST', '/api/exchange/orders', { quoteId: tq.id, destinationAddress: ETH_DEST }, { 'idempotency-key': key });
   check('same idempotency key -> same order, no second provider call', r.status === 200 && r.json?.replayed === true && r.json?.order?.id === o?.id);
   r = await call(A, 'GET', `/api/exchange/orders/${o?.id}`);
@@ -146,6 +161,14 @@ if (cq) {
   r = await call(A, 'POST', '/api/exchange/orders', { quoteId: cq.id, destinationAddress: ETH_DEST, refundAddress: BTC_DEST }, { 'idempotency-key': `e2e-${randomUUID()}` });
   const o = r.json?.order;
   check('ChangeNOW order -> 201 with deposit address', r.status === 201 && o?.nextAction?.kind === 'send' && !!o?.nextAction?.to, `${r.status} ${o?.providerOrderId} deposit=${o?.nextAction?.to} ${errMsg(r.json) ?? ''}`);
+  if (o?.id && FEE_BPS > 0) {
+    const fee = (0.01 * FEE_BPS) / 10000;
+    check(`ChangeNOW plan splits 0.01 BTC into ${0.01 - fee} deposit + ${fee} fee`,
+      Math.abs(Number(o.nextAction?.amount) - (0.01 - fee)) < 1e-12 && Number(o.nextAction?.fee?.amount) === fee && !!o.nextAction?.fee?.to,
+      `deposit=${o.nextAction?.amount} fee=${o.nextAction?.fee?.amount} to=${o.nextAction?.fee?.to}`);
+    r = await call(A, 'POST', `/api/exchange/orders/${o.id}/submit`, { feeTxHash: 'not-a-hash' });
+    check('bad fee tx hash -> 400', r.status === 400, errMsg(r.json));
+  }
   if (o?.id) {
     r = await call(A, 'GET', `/api/exchange/orders/${o.id}`);
     check('ChangeNOW status poll', r.status === 200, `${r.json?.order?.status} / provider ${r.json?.order?.providerStatus}`);

@@ -1,5 +1,6 @@
 /**
- * POST /api/exchange/orders/:id/submit — body { txHash }
+ * POST /api/exchange/orders/:id/submit — body { txHash?, feeTxHash? }
+ * feeTxHash is the separate send that paid CoinPay's fee (nextAction.fee).
  * The wallet broadcast the order's nextAction; attach the inbound tx hash so
  * the swap can be tracked. A hash can belong to only one order.
  */
@@ -7,7 +8,7 @@
 import { NextRequest } from 'next/server';
 import { authorizeWallet } from '@/lib/swap/auth';
 import { errorResponse, exchangeSupabase, guardEnabled, guardWallet, json } from '@/lib/exchange/http';
-import { loadOrder, presentOrder, submitOrderTx } from '@/lib/exchange/orders';
+import { loadOrder, presentOrder, recordFeeTx, submitOrderTx } from '@/lib/exchange/orders';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const off = guardEnabled();
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const gate = guardWallet(auth.walletId);
   if (gate) return gate;
 
-  let body: { txHash?: unknown };
+  let body: { txHash?: unknown; feeTxHash?: unknown };
   try {
     body = JSON.parse(raw);
   } catch {
@@ -33,7 +34,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const order = await loadOrder(supabase, id, auth.walletId);
     if (!order) return json({ error: 'Order not found' }, 404);
-    const updated = await submitOrderTx(supabase, order, String(body.txHash ?? ''));
+    if (!body.txHash && !body.feeTxHash) {
+      return json({ error: 'txHash or feeTxHash is required', code: 'invalid_request' }, 400);
+    }
+    let updated = order;
+    if (body.txHash) updated = await submitOrderTx(supabase, updated, String(body.txHash));
+    if (body.feeTxHash) updated = await recordFeeTx(supabase, updated, String(body.feeTxHash));
     return json({ order: presentOrder(updated) });
   } catch (e) {
     return errorResponse(e, 'orders.submit');

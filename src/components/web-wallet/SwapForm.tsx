@@ -56,6 +56,8 @@ interface Quote {
   provider: string;
   verification: 'none' | 'provider_may_require';
   warnings: string[];
+  /** CoinPay's fee in the "from" coin; depositAmount already includes it. */
+  fee: { amount: string; bps: number } | null;
 }
 
 /** Engine quotes ranked best-first; we execute the best one this wallet can send. */
@@ -80,6 +82,7 @@ function toQuote(q: ExchangeQuote): Quote {
     provider: q.provider,
     verification: q.verification,
     warnings: q.warnings ?? [],
+    fee: q.coinpayFee ? { amount: q.coinpayFee.amount, bps: q.coinpayFee.bps } : null,
   };
 }
 
@@ -264,7 +267,8 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
       const createdSwap: SwapResult = {
         id: order.id,
         depositAddress: action.to,
-        depositAmount: action.amount,
+        // The full amount leaving the wallet: the deposit plus CoinPay's fee.
+        depositAmount: quote.depositAmount,
         settleAmount: order.expectedAmountOut ?? quote.settleAmount,
         status: order.status,
       };
@@ -287,6 +291,26 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
       // Step 3: Attach the deposit tx so the order can be tracked.
       wallet.submitExchangeTx(order.id, result.txHash)
         .catch(err => console.error('Failed to record deposit tx:', err));
+
+      // Step 4: CoinPay's fee, a separate send. The deposit goes first so a
+      // failure here can never cost the user a fee without a swap.
+      if (action.fee) {
+        try {
+          const feeResult = await wallet.send({
+            chain: fromCoin as WalletChain,
+            fromAddress,
+            toAddress: action.fee.to,
+            amount: action.fee.amount,
+            priority: 'medium',
+          });
+          if (feeResult.txHash) {
+            wallet.submitExchangeFeeTx(order.id, feeResult.txHash)
+              .catch(err => console.error('Failed to record fee tx:', err));
+          }
+        } catch (err) {
+          console.error('Fee send failed (swap continues):', err);
+        }
+      }
 
       setDepositTxHash(result.txHash);
       setPassword('');
@@ -512,6 +536,12 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
               <span className="text-gray-400">You receive</span>
               <span className="text-green-400">≈ {parseFloat(quote.settleAmount).toFixed(8)} {toCoin}</span>
             </div>
+            {quote.fee && (
+              <div className="flex justify-between">
+                <span className="text-gray-400">CoinPay fee ({quote.fee.bps / 100}%)</span>
+                <span className="text-gray-300">{quote.fee.amount} {fromCoin} (included)</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-gray-400">Rate</span>
               <span className="text-gray-300">1 {fromCoin} = {parseFloat(quote.rate).toFixed(8)} {toCoin}</span>
@@ -613,6 +643,12 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
               ≈ {parseFloat(quote.settleAmount).toFixed(8)} {toCoin}
             </span>
           </div>
+          {quote.fee && (
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-500">CoinPay fee ({quote.fee.bps / 100}%)</span>
+              <span className="text-gray-400">{quote.fee.amount} {fromCoin}</span>
+            </div>
+          )}
           <div className="flex justify-between text-xs">
             <span className="text-gray-500">Rate</span>
             <span className="text-gray-400">

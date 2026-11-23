@@ -58,6 +58,11 @@ export interface ExchangeQuote {
   warnings: string[];
   /** Provider route details needed to build the execution plan. */
   route: Record<string, unknown>;
+  /**
+   * CoinPay's fee in the source asset, already taken off before the provider
+   * was quoted: amountIn = swapped amount + this. Absent when no fee applies.
+   */
+  coinpayFee?: { amount: string; asset: ExchangeAsset; bps: number; tier: 'free' | 'paid' };
 }
 
 /**
@@ -67,14 +72,24 @@ export interface ExchangeQuote {
  * - send_with_memo: a transfer whose memo routes the swap (THORChain). UTXO
  *   chains carry the memo as OP_RETURN; EVM chains go through `router`.
  */
+/** CoinPay's fee leg: a second, separate send from the user's wallet. */
+export interface PlanFee {
+  to: string;
+  /** Whole units of the source asset. */
+  amount: string;
+  bps: number;
+}
+
 export type ExecutionPlan =
   | {
       kind: 'send';
       chain: ExchangeAsset;
       to: string;
+      /** What goes to the provider: the order amount minus CoinPay's fee. */
       amount: string;
       extraId?: string;
       expiresAt: number | null;
+      fee?: PlanFee;
     }
   | {
       kind: 'send_with_memo';
@@ -85,6 +100,7 @@ export type ExecutionPlan =
       /** EVM only: deposit through this router contract, not a plain send. */
       router?: string;
       expiresAt: number | null;
+      fee?: PlanFee;
     };
 
 export interface ProviderOrder {

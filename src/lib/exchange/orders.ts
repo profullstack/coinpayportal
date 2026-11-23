@@ -11,6 +11,7 @@ import { randomUUID } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getAsset, normalizeAsset } from './assets';
 import { isPositiveDecimal } from './decimal';
+import { computeFee, feeAddressFor, isFeeEnabled, netOfFee, resolveWalletTier } from './fee';
 import { evaluatePolicy } from './policy';
 import { getAdapter, routeQuotes, type RoutedQuotes } from './router';
 import { canTransition, isCancellable, isTerminal } from './state';
@@ -54,6 +55,11 @@ export interface ExchangeOrderRow {
   out_tx_hash: string | null;
   expires_at: string | null;
   policy_version: string;
+  fee_amount: string | number;
+  fee_bps: number;
+  fee_tier: string | null;
+  fee_address: string | null;
+  fee_tx_hash: string | null;
   last_polled_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -85,9 +91,15 @@ export function parseQuoteRequest(input: Record<string, unknown>, country: strin
 /** Quote every eligible provider and persist the set so an order can cite one. */
 export async function quoteAndStore(
   supabase: SupabaseClient,
-  req: ExchangeQuoteRequest
+  req: ExchangeQuoteRequest,
+  tier: 'free' | 'paid' = 'free'
 ): Promise<Omit<RoutedQuotes, 'quotes'> & { requestId: string; quotes: StoredQuote[] }> {
-  const routed = await routeQuotes(req);
+  // CoinPay's fee comes off first; providers are quoted on what is left, so
+  // expectedAmountOut is already net of our fee.
+  const fee = computeFee(req.amount, req.from, tier);
+  const coinpayFee = fee.amount !== '0' ? { amount: fee.amount, asset: req.from, bps: fee.bps, tier: fee.tier } : undefined;
+  const net = await routeQuotes({ ...req, amount: fee.netAmount });
+  const routed = { ...net, quotes: net.quotes.map((q) => ({ ...q, amountIn: req.amount, coinpayFee })) };
   const requestId = randomUUID();
   if (routed.quotes.length === 0) return { ...routed, requestId, quotes: [] };
 
@@ -98,7 +110,7 @@ export async function quoteAndStore(
     to_asset: q.to,
     amount_in: q.amountIn,
     expected_amount_out: q.expectedAmountOut,
-    fees: q.fees,
+    fees: coinpayFee ? { ...q.fees, coinpay: { amount: coinpayFee.amount, bps: coinpayFee.bps, tier: coinpayFee.tier } } : q.fees,
     route: q.route,
     verification: q.verification,
     rank: i + 1,
@@ -236,6 +248,21 @@ export async function createOrder(supabase: SupabaseClient, input: CreateOrderIn
   if (!policy.allow) throw new ExchangeError(`Exchange not available: ${policy.reason}`, 'policy_denied', 403);
 
   const amountIn = String(q.amount_in);
+
+  // The quote fixed the fee. A wallet may not use a quote priced for a cheaper
+  // tier than its own (a paid-tier quote id handed to a free-tier wallet).
+  const quoted = (q.fees?.coinpay ?? null) as { amount: string; bps: number; tier: string } | null;
+  if (isFeeEnabled()) {
+    const due = computeFee(amountIn, q.from_asset, await resolveWalletTier(supabase, input.walletId));
+    if (due.bps > (quoted?.bps ?? 0)) {
+      throw new ExchangeError('This quote was priced for a different account tier; request a new one', 'quote_expired', 409);
+    }
+  }
+  const feeAddress = quoted ? feeAddressFor(q.from_asset) : null;
+  const feeAmount = quoted && feeAddress ? String(quoted.amount) : '0';
+  // What actually goes to the provider.
+  const swapAmount = feeAmount !== '0' ? netOfFee(amountIn, feeAmount, q.from_asset) : amountIn;
+
   const insert = await supabase
     .from('exchange_orders')
     .insert({
@@ -251,6 +278,10 @@ export async function createOrder(supabase: SupabaseClient, input: CreateOrderIn
       refund_address: input.refundAddress ?? null,
       status: 'created',
       policy_version: policy.version,
+      fee_amount: feeAmount,
+      fee_bps: feeAmount !== '0' ? quoted!.bps : 0,
+      fee_tier: feeAmount !== '0' ? quoted!.tier : null,
+      fee_address: feeAmount !== '0' ? feeAddress : null,
     })
     .select('*')
     .single();
@@ -269,7 +300,7 @@ export async function createOrder(supabase: SupabaseClient, input: CreateOrderIn
     provider: adapter.id,
     from: q.from_asset,
     to: q.to_asset,
-    amountIn,
+    amountIn: swapAmount,
     expectedAmountOut: String(q.expected_amount_out),
     fees: q.fees,
     expiresAt,
@@ -283,14 +314,15 @@ export async function createOrder(supabase: SupabaseClient, input: CreateOrderIn
     const po = await adapter.createOrder(quote, {
       from: q.from_asset,
       to: q.to_asset,
-      amount: amountIn,
+      amount: swapAmount,
       destinationAddress: input.destinationAddress,
       refundAddress: input.refundAddress,
       country: input.country,
     });
+    const plan = feeAmount !== '0' ? { ...po.plan, fee: { to: feeAddress!, amount: feeAmount, bps: quoted!.bps } } : po.plan;
     order = await transition(supabase, order, 'awaiting_user_action', {
       provider_order_id: po.providerOrderId,
-      plan: po.plan,
+      plan,
       details: po.details,
       expires_at: po.plan.expiresAt ? new Date(po.plan.expiresAt).toISOString() : null,
     }, { source: 'api', dedupeKey: 'plan_issued', data: { providerOrderId: po.providerOrderId } });
@@ -329,6 +361,39 @@ export async function submitOrderTx(supabase: SupabaseClient, order: ExchangeOrd
     }
     throw e;
   }
+}
+
+/**
+ * Record the transaction that paid CoinPay's fee. Separate from the deposit:
+ * the swap proceeds either way, and an unpaid fee stays visible as owed.
+ */
+export async function recordFeeTx(supabase: SupabaseClient, order: ExchangeOrderRow, feeTxHash: string): Promise<ExchangeOrderRow> {
+  const hash = typeof feeTxHash === 'string' ? feeTxHash.trim() : '';
+  if (!/^(0x)?[0-9a-fA-F]{64}$/.test(hash) && !/^[1-9A-HJ-NP-Za-km-z]{43,88}$/.test(hash)) {
+    throw new ExchangeError('feeTxHash is not a transaction hash', 'invalid_request');
+  }
+  if (!(Number(order.fee_amount) > 0)) throw new ExchangeError('This order has no fee', 'invalid_request');
+  if (order.fee_tx_hash) {
+    if (order.fee_tx_hash.toLowerCase() === hash.toLowerCase()) return order;
+    throw new ExchangeError('A fee transaction is already recorded for this order', 'invalid_transition', 409);
+  }
+  if (order.in_tx_hash && order.in_tx_hash.toLowerCase() === hash.toLowerCase()) {
+    throw new ExchangeError('The fee transaction cannot be the deposit transaction', 'invalid_request');
+  }
+  const { data, error } = await supabase
+    .from('exchange_orders')
+    .update({ fee_tx_hash: hash })
+    .eq('id', order.id)
+    .select('*')
+    .maybeSingle();
+  if (error) {
+    if (/uq_exchange_orders_fee_tx|duplicate key/.test(error.message)) {
+      throw new ExchangeError('That transaction already paid the fee on another order', 'invalid_transition', 409);
+    }
+    throw new Error(`Failed to record fee transaction: ${error.message}`);
+  }
+  await appendEvent(supabase, order.id, { source: 'user', from: order.status, to: order.status, dedupeKey: `fee:${hash.toLowerCase()}`, data: { feeTxHash: hash, feeAmount: String(order.fee_amount) } });
+  return (data as ExchangeOrderRow) ?? { ...order, fee_tx_hash: hash };
 }
 
 export async function cancelOrder(supabase: SupabaseClient, order: ExchangeOrderRow): Promise<ExchangeOrderRow> {
@@ -407,6 +472,9 @@ export function presentOrder(o: ExchangeOrderRow) {
     destinationAddress: o.destination_address,
     refundAddress: o.refund_address,
     nextAction: o.status === 'awaiting_user_action' ? o.plan : null,
+    fee: Number(o.fee_amount) > 0
+      ? { amount: String(o.fee_amount), asset: o.from_asset, bps: o.fee_bps, tier: o.fee_tier, address: o.fee_address, txHash: o.fee_tx_hash, paid: !!o.fee_tx_hash }
+      : null,
     providerOrderId: o.provider_order_id,
     providerStatus: o.provider_status,
     inTxHash: o.in_tx_hash,

@@ -5,15 +5,34 @@ ChangeNOW, with fiat rails designed in but hard-disabled. Code:
 `src/lib/exchange/`, routes `src/app/api/exchange/`, schema
 `supabase/migrations/20261122140000_exchange_engine.sql`.
 
-**Status: PUBLIC in prod since 2026-11-23, no CoinPay fee.** Anthony chose to
-launch before the DFAL/FinCEN review in *Launch gate*, accepting that risk.
-No affiliate fee is set, so CoinPay earns nothing from swaps. The web wallet's
-Swap tab runs on this engine and executes ChangeNOW quotes. THORChain quotes are
-shown but need a memo send the wallet can't do yet.
+**Status: PUBLIC in prod since 2026-11-23, with a CoinPay fee.** Anthony chose
+to launch, and to charge, before the DFAL/FinCEN review in *Launch gate*,
+accepting that risk. The web wallet's Swap tab runs on this engine and executes
+ChangeNOW quotes. THORChain quotes are shown but need a memo send the wallet
+can't do yet.
+
+## Fee
+
+Same shape as CoinPay's payment fee (free tier pays double the paid tier):
+**2% free tier, 1% paid tier**. A wallet is paid tier when it is linked
+(`wallet_account_links`) to a merchant on a paid plan; quotes signed by that
+wallet get the 1% rate, anonymous quotes get 2%.
+
+The fee comes off the amount being swapped and the provider is quoted on the
+rest, so `expectedAmountOut` is already net. An order's `nextAction` then has
+two sends from the user's wallet: `amount` to the provider and `fee.amount` to
+`fee.to`, CoinPay's `PLATFORM_FEE_WALLET_<ASSET>`. The wallet sends the deposit
+first, then the fee, and reports it with `POST /orders/:id/submit {feeTxHash}`.
+CoinPay still never holds the swap.
+
+No fee leg when the asset has no fee wallet or the fee is below the chain's
+dust floor. The fee is not enforced on-chain yet: a direct API caller could
+send the deposit and skip the fee send. `exchange_orders.fee_tx_hash IS NULL`
+with `fee_amount > 0` on a completed order is a fee owed.
 
 Prod end-to-end test (no funds move): `node scripts/exchange-e2e.mjs create`
 once, put wallet A in `EXCHANGE_INTERNAL_WALLETS`, then
-`MODE=public node scripts/exchange-e2e.mjs run`. 26/26 passed on prod in public mode on 2026-11-23.
+`MODE=public EXPECT_FEE_BPS=200 node scripts/exchange-e2e.mjs run`. 26/26 passed on prod in public mode on 2026-11-23.
 The quote route allows 15 requests per minute per IP, so wait a minute
 between runs.
 
@@ -70,6 +89,9 @@ whichever comes first. A stale quote is refused (`409 quote_expired`).
 |---|---|---|
 | `EXCHANGE_ENGINE_ENABLED` | unset (off) | `internal` = allowlisted wallets only, `true` = public |
 | `EXCHANGE_INTERNAL_WALLETS` | none | Comma-separated wallet ids admitted in `internal` mode |
+| `EXCHANGE_FEE_ENABLED` | unset (off) | `true` charges the CoinPay swap fee |
+| `EXCHANGE_FEE_BPS_FREE` / `EXCHANGE_FEE_BPS_PAID` | 200 / 100 | Fee in basis points per tier (max 500) |
+| `PLATFORM_FEE_WALLET_<ASSET>` | existing | Where the fee for that source asset is sent |
 | `EXCHANGE_DISABLED_PROVIDERS` | none | e.g. `thorchain,changenow` |
 | `EXCHANGE_DISABLED_ASSETS` | none | e.g. `DOGE,USDT_SOL` |
 | `EXCHANGE_BLOCKED_COUNTRIES` | `CU,IR,KP,SY` | Replaces the default when set |

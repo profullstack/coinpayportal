@@ -35,13 +35,23 @@ export function guardEnabled(): NextResponse | null {
  * mode the caller must sign as an allowlisted wallet; anyone else sees the
  * same 503 as when the engine is off, so internal testing is invisible.
  */
-export async function guardAnonymous(request: NextRequest, rawBody?: string): Promise<NextResponse | null> {
+export async function guardAnonymous(
+  request: NextRequest,
+  rawBody?: string
+): Promise<{ response: NextResponse | null; walletId: string | null }> {
   const mode = engineMode();
-  if (mode === 'off') return disabledResponse();
-  if (mode === 'public') return null;
-  if (!request.headers.get('authorization')) return disabledResponse();
-  const auth = await authorizeWallet(exchangeSupabase(), request, rawBody);
-  return auth.ok && isInternalWallet(auth.walletId) ? null : disabledResponse();
+  if (mode === 'off') return { response: disabledResponse(), walletId: null };
+  // A signature is optional here, but when present it tells us whose fee tier
+  // to quote. It is verified exactly once (signatures are single-use).
+  let walletId: string | null = null;
+  if (request.headers.get('authorization')) {
+    const auth = await authorizeWallet(exchangeSupabase(), request, rawBody);
+    if (auth.ok) walletId = auth.walletId;
+  }
+  if (mode === 'internal' && !(walletId && isInternalWallet(walletId))) {
+    return { response: disabledResponse(), walletId: null };
+  }
+  return { response: null, walletId };
 }
 
 /** For wallet-authenticated routes, after auth: internal mode admits only the allowlist. */

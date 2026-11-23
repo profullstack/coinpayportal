@@ -11,6 +11,7 @@ import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { getClientIp } from '@/lib/web-wallet/client-ip';
 import { errorResponse, exchangeSupabase, guardAnonymous, guardEnabled, json, requestCountry } from '@/lib/exchange/http';
 import { parseQuoteRequest, quoteAndStore } from '@/lib/exchange/orders';
+import { resolveWalletTier } from '@/lib/exchange/fee';
 
 export async function POST(request: NextRequest) {
   const off = guardEnabled();
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest) {
 
   const raw = await request.text();
   const gate = await guardAnonymous(request, raw);
-  if (gate) return gate;
+  if (gate.response) return gate.response;
 
   let body: Record<string, unknown>;
   try {
@@ -32,7 +33,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const req = parseQuoteRequest(body ?? {}, requestCountry(request));
-    const result = await quoteAndStore(exchangeSupabase(), req);
+    // Signed by a wallet linked to a paid account: the paid-tier fee. Anyone else: free tier.
+    const supabase = exchangeSupabase();
+    const tier = await resolveWalletTier(supabase, gate.walletId);
+    const result = await quoteAndStore(supabase, req, tier);
     return json({
       requestId: result.requestId,
       policyVersion: result.policyVersion,
@@ -44,6 +48,7 @@ export async function POST(request: NextRequest) {
         amountIn: q.amountIn,
         expectedAmountOut: q.expectedAmountOut,
         fees: q.fees,
+        coinpayFee: q.coinpayFee ?? null,
         minAmountIn: q.minAmountIn ?? null,
         expiresAt: q.expiresAt ? new Date(q.expiresAt).toISOString() : null,
         etaSeconds: q.etaSeconds,
