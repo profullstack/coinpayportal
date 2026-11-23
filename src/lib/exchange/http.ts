@@ -23,10 +23,7 @@ export function requestCountry(request: NextRequest): string | null {
 }
 
 export function disabledResponse(): NextResponse {
-  return NextResponse.json(
-    { error: 'The exchange is not available yet.', code: 'engine_disabled' },
-    { status: 503, headers: { 'Cache-Control': 'no-store' } }
-  );
+  return json({ error: 'The exchange is not available yet.', code: 'engine_disabled' }, 503);
 }
 
 export function guardEnabled(): NextResponse | null {
@@ -57,12 +54,25 @@ export function guardWallet(walletId: string): NextResponse | null {
 
 export function errorResponse(e: unknown, where: string): NextResponse {
   if (e instanceof ExchangeError) {
-    return NextResponse.json({ error: e.message, code: e.code }, { status: e.status });
+    return json({ error: e.message, code: e.code }, e.status);
   }
   console.error(`[exchange] ${where}`, e);
-  return NextResponse.json({ error: 'Exchange request failed', code: 'internal' }, { status: 500 });
+  return json({ error: 'Exchange request failed', code: 'internal' }, 500);
 }
 
-export function json(body: unknown, status = 200): NextResponse {
-  return NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
+/**
+ * Every exchange response uses the web-wallet envelope the wallet SDK parses
+ * (WalletAPIClient throws unless `success` is true and reads `data`):
+ *   ok:    { success: true, data: {...}, ...same fields at the top level }
+ *   error: { success: false, error: { code, message } }
+ * The top-level copy on success keeps plain REST callers simple.
+ */
+export function json(body: Record<string, unknown>, status = 200): NextResponse {
+  const headers = { 'Cache-Control': 'no-store' };
+  if (status >= 400 || typeof body.error === 'string') {
+    const message = typeof body.error === 'string' ? body.error : 'Request failed';
+    const code = typeof body.code === 'string' ? body.code : status === 401 ? 'unauthorized' : status === 404 ? 'not_found' : 'error';
+    return NextResponse.json({ success: false, error: { code, message } }, { status, headers });
+  }
+  return NextResponse.json({ success: true, data: body, ...body }, { status, headers });
 }
