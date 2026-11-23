@@ -5,14 +5,15 @@ ChangeNOW, with fiat rails designed in but hard-disabled. Code:
 `src/lib/exchange/`, routes `src/app/api/exchange/`, schema
 `supabase/migrations/20261122140000_exchange_engine.sql`.
 
-**Status: internal mode in prod (2026-11-23).** Only allowlisted test wallets
-can use it; everyone else gets 503 `engine_disabled`. Public launch
-(`EXCHANGE_ENGINE_ENABLED=true`) is a business/legal decision, not an
-engineering one. See *Launch gate* below.
+**Status: PUBLIC in prod since 2026-11-23, no CoinPay fee.** Anthony chose to
+launch before the DFAL/FinCEN review in *Launch gate*, accepting that risk.
+No affiliate fee is set, so CoinPay earns nothing from swaps. The web wallet's
+Swap tab runs on this engine and executes ChangeNOW quotes. THORChain quotes are
+shown but need a memo send the wallet can't do yet.
 
 Prod end-to-end test (no funds move): `node scripts/exchange-e2e.mjs create`
 once, put wallet A in `EXCHANGE_INTERNAL_WALLETS`, then
-`node scripts/exchange-e2e.mjs run`. 27 checks passed on prod on 2026-11-23.
+`MODE=public node scripts/exchange-e2e.mjs run`. 26/26 passed on prod in public mode on 2026-11-23.
 The quote route allows 15 requests per minute per IP, so wait a minute
 between runs.
 
