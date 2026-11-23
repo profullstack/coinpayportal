@@ -5,9 +5,16 @@ ChangeNOW, with fiat rails designed in but hard-disabled. Code:
 `src/lib/exchange/`, routes `src/app/api/exchange/`, schema
 `supabase/migrations/20261122140000_exchange_engine.sql`.
 
-**Status: shipped dark.** Every route answers 503 `engine_disabled` until
-`EXCHANGE_ENGINE_ENABLED=true`. Turning it on is a business/legal decision, not
-an engineering one. See *Launch gate* below.
+**Status: internal mode in prod (2026-11-23).** Only allowlisted test wallets
+can use it; everyone else gets 503 `engine_disabled`. Public launch
+(`EXCHANGE_ENGINE_ENABLED=true`) is a business/legal decision, not an
+engineering one. See *Launch gate* below.
+
+Prod end-to-end test (no funds move): `node scripts/exchange-e2e.mjs create`
+once, put wallet A in `EXCHANGE_INTERNAL_WALLETS`, then
+`node scripts/exchange-e2e.mjs run`. 27 checks passed on prod on 2026-11-23.
+The quote route allows 15 requests per minute per IP, so wait a minute
+between runs.
 
 ## Boundaries (enforced in code)
 
@@ -60,7 +67,8 @@ whichever comes first. A stale quote is refused (`409 quote_expired`).
 
 | Env | Default | Meaning |
 |---|---|---|
-| `EXCHANGE_ENGINE_ENABLED` | unset (off) | Master switch |
+| `EXCHANGE_ENGINE_ENABLED` | unset (off) | `internal` = allowlisted wallets only, `true` = public |
+| `EXCHANGE_INTERNAL_WALLETS` | none | Comma-separated wallet ids admitted in `internal` mode |
 | `EXCHANGE_DISABLED_PROVIDERS` | none | e.g. `thorchain,changenow` |
 | `EXCHANGE_DISABLED_ASSETS` | none | e.g. `DOGE,USDT_SOL` |
 | `EXCHANGE_BLOCKED_COUNTRIES` | `CU,IR,KP,SY` | Replaces the default when set |
