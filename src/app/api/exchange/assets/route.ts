@@ -2,13 +2,14 @@
  * GET /api/exchange/assets — assets the exchange can route, and by whom.
  */
 
-import { guardEnabled, json } from '@/lib/exchange/http';
+import type { NextRequest } from 'next/server';
+import { guardAnonymous, json } from '@/lib/exchange/http';
 import { listAssets } from '@/lib/exchange/assets';
 import { getAdapters } from '@/lib/exchange/router';
 import { isProviderEnabled } from '@/lib/exchange/policy';
 
-export async function GET() {
-  const off = guardEnabled();
+export async function GET(request: NextRequest) {
+  const off = await guardAnonymous(request);
   if (off) return off;
 
   const adapters = getAdapters().filter((a) => a.isConfigured() && isProviderEnabled(a.id));

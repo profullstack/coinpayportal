@@ -13,7 +13,7 @@
 import { NextRequest } from 'next/server';
 import { authorizeWallet } from '@/lib/swap/auth';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
-import { errorResponse, exchangeSupabase, guardEnabled, json, requestCountry } from '@/lib/exchange/http';
+import { errorResponse, exchangeSupabase, guardEnabled, guardWallet, json, requestCountry } from '@/lib/exchange/http';
 import { createOrder, listOrders, presentOrder } from '@/lib/exchange/orders';
 
 export async function POST(request: NextRequest) {
@@ -24,6 +24,8 @@ export async function POST(request: NextRequest) {
   const raw = await request.text();
   const auth = await authorizeWallet(supabase, request, raw);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  const gate = guardWallet(auth.walletId);
+  if (gate) return gate;
 
   let body: Record<string, unknown>;
   try {
@@ -62,6 +64,8 @@ export async function GET(request: NextRequest) {
   const supabase = exchangeSupabase();
   const auth = await authorizeWallet(supabase, request);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  const gate = guardWallet(auth.walletId);
+  if (gate) return gate;
   try {
     const limit = Number(new URL(request.url).searchParams.get('limit') ?? 50);
     const orders = await listOrders(supabase, auth.walletId, Number.isFinite(limit) ? limit : 50);

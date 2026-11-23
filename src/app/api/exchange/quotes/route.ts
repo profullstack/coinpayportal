@@ -9,7 +9,7 @@
 import { NextRequest } from 'next/server';
 import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { getClientIp } from '@/lib/web-wallet/client-ip';
-import { errorResponse, exchangeSupabase, guardEnabled, json, requestCountry } from '@/lib/exchange/http';
+import { errorResponse, exchangeSupabase, guardAnonymous, guardEnabled, json, requestCountry } from '@/lib/exchange/http';
 import { parseQuoteRequest, quoteAndStore } from '@/lib/exchange/orders';
 
 export async function POST(request: NextRequest) {
@@ -19,9 +19,13 @@ export async function POST(request: NextRequest) {
   const rate = await checkRateLimitAsync(getClientIp(request) || 'unknown', 'exchange_quote');
   if (!rate.allowed) return json({ error: 'Too many quote requests. Try again shortly.', code: 'rate_limited' }, 429);
 
+  const raw = await request.text();
+  const gate = await guardAnonymous(request, raw);
+  if (gate) return gate;
+
   let body: Record<string, unknown>;
   try {
-    body = await request.json();
+    body = JSON.parse(raw);
   } catch {
     return json({ error: 'Invalid JSON body', code: 'invalid_request' }, 400);
   }

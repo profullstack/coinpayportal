@@ -4,7 +4,8 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse, type NextRequest } from 'next/server';
-import { isExchangeEnabled } from './policy';
+import { authorizeWallet } from '@/lib/swap/auth';
+import { engineMode, isExchangeEnabled, isInternalWallet } from './policy';
 import { ExchangeError } from './types';
 
 export function exchangeSupabase(): SupabaseClient {
@@ -30,6 +31,28 @@ export function disabledResponse(): NextResponse {
 
 export function guardEnabled(): NextResponse | null {
   return isExchangeEnabled() ? null : disabledResponse();
+}
+
+/**
+ * For routes that are anonymous in public mode (assets, quotes). In internal
+ * mode the caller must sign as an allowlisted wallet; anyone else sees the
+ * same 503 as when the engine is off, so internal testing is invisible.
+ */
+export async function guardAnonymous(request: NextRequest, rawBody?: string): Promise<NextResponse | null> {
+  const mode = engineMode();
+  if (mode === 'off') return disabledResponse();
+  if (mode === 'public') return null;
+  if (!request.headers.get('authorization')) return disabledResponse();
+  const auth = await authorizeWallet(exchangeSupabase(), request, rawBody);
+  return auth.ok && isInternalWallet(auth.walletId) ? null : disabledResponse();
+}
+
+/** For wallet-authenticated routes, after auth: internal mode admits only the allowlist. */
+export function guardWallet(walletId: string): NextResponse | null {
+  const mode = engineMode();
+  if (mode === 'off') return disabledResponse();
+  if (mode === 'internal' && !isInternalWallet(walletId)) return disabledResponse();
+  return null;
 }
 
 export function errorResponse(e: unknown, where: string): NextResponse {

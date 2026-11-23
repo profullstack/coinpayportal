@@ -5,7 +5,7 @@
 
 import { NextRequest } from 'next/server';
 import { authorizeWallet } from '@/lib/swap/auth';
-import { errorResponse, exchangeSupabase, guardEnabled, json } from '@/lib/exchange/http';
+import { errorResponse, exchangeSupabase, guardEnabled, guardWallet, json } from '@/lib/exchange/http';
 import { cancelOrder, loadOrder, presentOrder } from '@/lib/exchange/orders';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -19,6 +19,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const raw = await request.text();
   const auth = await authorizeWallet(supabase, request, raw);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  const gate = guardWallet(auth.walletId);
+  if (gate) return gate;
 
   try {
     const order = await loadOrder(supabase, id, auth.walletId);

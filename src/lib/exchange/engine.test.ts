@@ -66,6 +66,17 @@ describe('policy', () => {
     process.env.EXCHANGE_FIAT_APPROVED_JURISDICTIONS = 'US';
     expect(evaluatePolicy({ ...base, rail: 'crypto_fiat', country: 'US' })).toMatchObject({ allow: false, reason: 'fiat_provider_not_integrated' });
   });
+  it('has an internal mode limited to allowlisted wallets', async () => {
+    const { engineMode, isInternalWallet } = await import('./policy');
+    process.env.EXCHANGE_ENGINE_ENABLED = 'internal';
+    process.env.EXCHANGE_INTERNAL_WALLETS = ' AAA-1 , bbb-2 ';
+    expect(engineMode()).toBe('internal');
+    expect(evaluatePolicy(base)).toMatchObject({ allow: true });
+    expect(isInternalWallet('aaa-1')).toBe(true);
+    expect(isInternalWallet('ccc-3')).toBe(false);
+    process.env.EXCHANGE_ENGINE_ENABLED = 'yes';
+    expect(engineMode()).toBe('off'); // anything but true/internal is off
+  });
   it('honours kill switches', () => {
     process.env.EXCHANGE_DISABLED_ASSETS = 'eth';
     expect(evaluatePolicy(base)).toMatchObject({ allow: false, reason: 'asset_disabled' });
