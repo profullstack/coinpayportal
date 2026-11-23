@@ -21,6 +21,7 @@ import { buildDerivationPath } from '../web-wallet/identity';
 import { encryptSeedPhrase, decryptSeedPhrase, type EncryptedBackup } from './backup';
 import { createLightningMethods } from './lightning';
 import { createSwapMethods } from './swap';
+import { createExchangeMethods } from './exchange';
 import type {
   WalletSDKConfig,
   WalletChain,
@@ -774,6 +775,20 @@ export class Wallet {
   getSwapHistory(options?: SwapHistoryOptions) { return this.swap.getSwapHistory(options); }
   saveSwapDeposit(swapId: string, txHash: string) { return this.swap.saveSwapDeposit(swapId, txHash); }
   getSwapCoins() { return this.swap.getSwapCoins(); }
+
+  // ── Exchange Engine (see exchange.ts) ──
+
+  private _exchange: ReturnType<typeof createExchangeMethods> | null = null;
+  private get exchange() {
+    return (this._exchange ??= createExchangeMethods(this.client));
+  }
+
+  getExchangeQuotes(params: Parameters<ReturnType<typeof createExchangeMethods>['getExchangeQuotes']>[0]) { return this.exchange.getExchangeQuotes(params); }
+  createExchangeOrder(params: Parameters<ReturnType<typeof createExchangeMethods>['createExchangeOrder']>[0]) { return this.exchange.createExchangeOrder(params); }
+  submitExchangeTx(orderId: string, txHash: string) { return this.exchange.submitExchangeTx(orderId, txHash); }
+  getExchangeOrder(orderId: string) { return this.exchange.getExchangeOrder(orderId); }
+  listExchangeOrders(limit?: number) { return this.exchange.listExchangeOrders(limit); }
+  cancelExchangeOrder(orderId: string) { return this.exchange.cancelExchangeOrder(orderId); }
 
   // ── Events ──
 
