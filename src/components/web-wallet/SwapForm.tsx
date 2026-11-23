@@ -10,6 +10,7 @@ import {
 } from '@/lib/web-wallet/client-crypto';
 import { getActiveWallet } from '@/lib/web-wallet/wallet-registry';
 import type { WalletChain } from '@/lib/web-wallet/identity';
+import { isWalletExecutable, type ExchangeQuote } from '@/lib/wallet-sdk/exchange';
 
 // All coins supported for swaps (must match changenow.ts SWAP_SUPPORTED_COINS)
 const SWAP_COINS = [
@@ -45,6 +46,7 @@ function getExplorerUrl(coin: string, txHash: string): string {
 }
 
 interface Quote {
+  id: string;
   from: string;
   to: string;
   depositAmount: string;
@@ -52,6 +54,33 @@ interface Quote {
   rate: string;
   minAmount?: number;
   provider: string;
+  verification: 'none' | 'provider_may_require';
+  warnings: string[];
+}
+
+/** Engine quotes ranked best-first; we execute the best one this wallet can send. */
+interface QuoteSet {
+  chosen: Quote;
+  better: Quote | null; // a better quote the wallet cannot execute yet (THORChain memo)
+  disclosure: string;
+}
+
+const PROVIDER_LABELS: Record<string, string> = { changenow: 'ChangeNOW', thorchain: 'THORChain' };
+
+function toQuote(q: ExchangeQuote): Quote {
+  const inN = parseFloat(q.amountIn);
+  return {
+    id: q.id,
+    from: q.from,
+    to: q.to,
+    depositAmount: q.amountIn,
+    settleAmount: q.expectedAmountOut,
+    rate: inN > 0 ? String(parseFloat(q.expectedAmountOut) / inN) : '0',
+    minAmount: q.minAmountIn ? parseFloat(q.minAmountIn) : undefined,
+    provider: q.provider,
+    verification: q.verification,
+    warnings: q.warnings ?? [],
+  };
 }
 
 interface SwapResult {
@@ -82,6 +111,7 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
   const [toCoin, setToCoin] = useState('');
   const [amount, setAmount] = useState('');
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [quoteSet, setQuoteSet] = useState<QuoteSet | null>(null);
   const [swap, setSwap] = useState<SwapResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -133,25 +163,33 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
     setLoading(true);
     setError(null);
 
+    if (!wallet) {
+      setLoading(false);
+      return;
+    }
     try {
-      const res = await fetch(
-        `/api/swap/quote?from=${fromCoin}&to=${toCoin}&amount=${amount}`
-      );
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || 'Failed to get quote');
+      const data = await wallet.getExchangeQuotes({ from: fromCoin, to: toCoin, amount });
+      const usable = data.quotes.filter((q) => isWalletExecutable(q.provider));
+      if (usable.length === 0) {
+        const why = data.unavailable.map((u) => `${PROVIDER_LABELS[u.provider] ?? u.provider}: ${u.reason}`).join('; ');
+        setError(data.quotes.length ? 'This pair is only available through THORChain, which this wallet cannot send to yet.' : why || 'No quote available for this pair');
         setQuote(null);
+        setQuoteSet(null);
       } else {
-        setQuote(data.quote);
+        const chosen = toQuote(usable[0]);
+        const top = data.quotes[0];
+        const better = top && !isWalletExecutable(top.provider) ? toQuote(top) : null;
+        setQuote(chosen);
+        setQuoteSet({ chosen, better, disclosure: data.disclosure });
       }
-    } catch (err) {
-      setError('Network error fetching quote');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to get quote');
       setQuote(null);
+      setQuoteSet(null);
     } finally {
       setLoading(false);
     }
-  }, [fromCoin, toCoin, amount]);
+  }, [fromCoin, toCoin, amount, wallet]);
 
   // Fetch quote when inputs change (debounced)
   useEffect(() => {
@@ -207,56 +245,49 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
         throw new Error(`No ${fromCoin} address available`);
       }
 
-      // Step 1: Create swap
-      const res = await fetch('/api/swap/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: fromCoin,
-          to: toCoin,
-          amount,
-          settleAddress,
-          refundAddress,
-          walletId,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to create swap');
+      if (!settleAddress) {
+        throw new Error(`No ${toCoin} address in wallet. Derive it first.`);
       }
 
-      const createdSwap = data.swap;
+      // Step 1: Create the exchange order (signed by this wallet; idempotent).
+      const order = await wallet.createExchangeOrder({
+        quoteId: quote.id,
+        destinationAddress: settleAddress,
+        refundAddress,
+        idempotencyKey: `wallet-${crypto.randomUUID()}`,
+      });
+      const action = order.nextAction;
+      if (!action || action.kind !== 'send') {
+        throw new Error('This route needs a memo transaction this wallet cannot send yet');
+      }
+
+      const createdSwap: SwapResult = {
+        id: order.id,
+        depositAddress: action.to,
+        depositAmount: action.amount,
+        settleAmount: order.expectedAmountOut ?? quote.settleAmount,
+        status: order.status,
+      };
       setSwap(createdSwap);
       onSwapCreated?.(createdSwap);
 
-      // Step 2: Send deposit immediately
-      console.log('[Swap] Sending deposit:', {
-        chain: fromCoin,
-        fromAddress,
-        toAddress: createdSwap.depositAddress,
-        amount: createdSwap.depositAmount,
-      });
-      
+      // Step 2: Send the deposit from this wallet.
       const result = await wallet.send({
         chain: fromCoin as WalletChain,
         fromAddress,
-        toAddress: createdSwap.depositAddress,
-        amount: createdSwap.depositAmount,
+        toAddress: action.to,
+        amount: action.amount,
         priority: 'medium',
       });
-      
-      console.log('[Swap] Send result:', result);
-      
+
       if (!result.txHash) {
         throw new Error('No transaction hash returned - deposit may have failed');
       }
-      
-      // Save the tx hash to the database
-      wallet.saveSwapDeposit(createdSwap.id, result.txHash)
-        .catch(err => console.error('Failed to save deposit tx hash:', err));
-      
+
+      // Step 3: Attach the deposit tx so the order can be tracked.
+      wallet.submitExchangeTx(order.id, result.txHash)
+        .catch(err => console.error('Failed to record deposit tx:', err));
+
       setDepositTxHash(result.txHash);
       setPassword('');
       setStep('complete');
@@ -368,7 +399,7 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
 
           <div className="mt-6 p-4 rounded-lg bg-black/30">
             <p className="text-xs text-gray-400 mb-2">
-              ⏱️ The swap typically completes in 10-30 minutes. Check the Swap History tab for status updates.
+              ⏱️ The swap typically completes in 10-30 minutes. Status updates appear in Swap History.
             </p>
           </div>
         </div>
@@ -491,7 +522,7 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
             </div>
             <div className="flex justify-between">
               <span className="text-gray-400">Provider</span>
-              <span className="text-gray-300">ChangeNOW (no KYC)</span>
+              <span className="text-gray-300">{PROVIDER_LABELS[quote.provider] ?? quote.provider}</span>
             </div>
           </div>
 
@@ -611,8 +642,17 @@ export function SwapForm({ walletId, addresses, balances, displayCurrency = 'USD
          'Continue'}
       </button>
 
+      {quoteSet?.better && (
+        <p className="text-xs text-gray-400">
+          {PROVIDER_LABELS[quoteSet.better.provider] ?? quoteSet.better.provider} quotes ≈ {parseFloat(quoteSet.better.settleAmount).toFixed(8)} {toCoin}, but it needs a memo transaction this wallet cannot send yet.
+        </p>
+      )}
+      {quote?.warnings.map((w) => (
+        <p key={w} className="text-xs text-yellow-400">{w}</p>
+      ))}
+
       <p className="text-xs text-center text-gray-500">
-        Powered by ChangeNOW • No KYC • No registration
+        {quoteSet?.disclosure || 'CoinPay does not collect identity documents for this flow. The selected provider may require verification under its own policy.'}
       </p>
     </div>
   );

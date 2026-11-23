@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useWebWallet } from './WalletContext';
 
 interface Swap {
   id: string;
@@ -50,6 +51,12 @@ const STATUS_COLORS: Record<string, string> = {
   failed: 'text-red-400 bg-red-400/10',
   refunded: 'text-orange-400 bg-orange-400/10',
   expired: 'text-gray-400 bg-gray-400/10',
+  awaiting_user_action: 'text-yellow-400 bg-yellow-400/10',
+  submitted: 'text-blue-400 bg-blue-400/10',
+  completed: 'text-green-400 bg-green-400/10',
+  cancelled: 'text-gray-400 bg-gray-400/10',
+  refund_pending: 'text-orange-400 bg-orange-400/10',
+  manual_review: 'text-orange-400 bg-orange-400/10',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -65,6 +72,12 @@ const STATUS_LABELS: Record<string, string> = {
   failed: 'Failed',
   refunded: 'Refunded',
   expired: 'Expired',
+  awaiting_user_action: 'Waiting for deposit',
+  submitted: 'Deposit sent',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+  refund_pending: 'Refunding',
+  manual_review: 'Under review',
 };
 
 export function SwapHistory({ walletId, onSwapClick }: SwapHistoryProps) {
@@ -72,50 +85,61 @@ export function SwapHistory({ walletId, onSwapClick }: SwapHistoryProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const PENDING_STATUSES = ['waiting', 'pending', 'confirming', 'exchanging', 'sending', 'processing', 'settling'];
+  const PENDING_STATUSES = ['waiting', 'pending', 'confirming', 'exchanging', 'sending', 'processing', 'settling', 'awaiting_user_action', 'submitted', 'refund_pending', 'manual_review'];
+
+  const { wallet } = useWebWallet();
 
   const fetchHistory = useCallback(async (updatePending = false) => {
+    if (!wallet) return;
     try {
-      const res = await fetch(`/api/swap/history?walletId=${walletId}`);
-      const data = await res.json();
+      // Both lists are wallet-signed: the routes refuse unauthenticated reads.
+      const [legacy, orders] = await Promise.all([
+        wallet.getSwapHistory({ limit: 50 }).catch(() => []),
+        wallet.listExchangeOrders(50).catch(() => []),
+      ]);
 
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to fetch history');
-      }
-
-      let swapList = data.swaps || [];
-
-      // If updatePending, fetch latest status from provider for pending swaps
+      let fresh = orders;
       if (updatePending) {
-        const pendingSwaps = swapList.filter((s: Swap) => PENDING_STATUSES.includes(s.status));
-        if (pendingSwaps.length > 0) {
-          const updates = await Promise.all(
-            pendingSwaps.map(async (swap: Swap) => {
-              try {
-                const statusRes = await fetch(`/api/swap/${swap.id}`);
-                if (statusRes.ok) {
-                  const statusData = await statusRes.json();
-                  return { id: swap.id, ...statusData.swap };
-                }
-              } catch {}
-              return null;
-            })
-          );
-
-          // Merge updates into swapList
-          const updateMap = new Map(updates.filter(Boolean).map((u: any) => [u.id, u]));
-          swapList = swapList.map((s: Swap) => updateMap.get(s.id) || s);
-        }
+        // Reading an open order makes the server poll its provider.
+        fresh = await Promise.all(
+          orders.map((o) => (PENDING_STATUSES.includes(o.status) ? wallet.getExchangeOrder(o.id).catch(() => o) : o))
+        );
       }
 
-      setSwaps(swapList);
+      const fromOrders: Swap[] = fresh.map((o) => ({
+        id: o.id,
+        from_coin: o.from,
+        to_coin: o.to,
+        deposit_amount: o.amountIn,
+        settle_amount: o.amountOut ?? o.expectedAmountOut,
+        deposit_address: o.nextAction?.to ?? '',
+        settle_address: o.destinationAddress,
+        status: o.status,
+        deposit_tx_hash: o.inTxHash ?? undefined,
+        provider: o.provider,
+        created_at: o.createdAt,
+      }));
+      const fromLegacy: Swap[] = legacy.map((l) => ({
+        id: l.id,
+        from_coin: l.from,
+        to_coin: l.to,
+        deposit_amount: l.depositAmount,
+        settle_amount: l.settleAmount,
+        deposit_address: l.depositAddress,
+        settle_address: l.settleAddress,
+        status: l.status,
+        provider: 'changenow',
+        created_at: l.createdAt,
+      }));
+
+      setSwaps([...fromOrders, ...fromLegacy].sort((a, b) => b.created_at.localeCompare(a.created_at)));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load history');
     } finally {
       setLoading(false);
     }
-  }, [walletId]);
+  }, [wallet]);
 
   // Track if we have pending swaps for polling interval
   const hasPending = swaps.some(s => PENDING_STATUSES.includes(s.status));
@@ -317,47 +341,41 @@ export function PendingSwaps({ walletId }: { walletId: string }) {
   const [pendingSwaps, setPendingSwaps] = useState<Swap[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchPending = useCallback(async () => {
-    try {
-      // Fetch pending swaps
-      const res = await fetch(`/api/swap/history?walletId=${walletId}&status=pending`);
-      const data = await res.json();
+  const { wallet } = useWebWallet();
+  const OPEN = ['awaiting_user_action', 'submitted', 'pending', 'refund_pending', 'manual_review'];
 
-      if (res.ok && data.swaps) {
-        // For each pending swap, fetch latest status from provider
-        const updatedSwaps = await Promise.all(
-          data.swaps.map(async (swap: Swap) => {
-            try {
-              // Use correct status endpoint based on provider
-              const statusUrl = swap.provider === 'boltz'
-                ? `/api/swap/boltz/${swap.id}`
-                : `/api/swap/${swap.id}`;
-              const statusRes = await fetch(statusUrl);
-              const statusData = await statusRes.json();
-              if (statusRes.ok) {
-                if (swap.provider === 'boltz' && statusData.status) {
-                  // Boltz status endpoint already updates DB, just refresh local state
-                  return { ...swap, status: statusData.status, deposit_tx_hash: statusData.transaction?.id || swap.deposit_tx_hash };
-                } else if (statusData.swap) {
-                  return { ...swap, status: statusData.swap.status };
-                }
-              }
-            } catch {
-              // Keep original status on error
-            }
-            return swap;
-          })
-        );
-        setPendingSwaps(updatedSwaps.filter(s => 
-          ['waiting', 'pending', 'confirming', 'exchanging', 'sending', 'processing', 'settling'].includes(s.status)
-        ));
-      }
+  const fetchPending = useCallback(async () => {
+    if (!wallet) return;
+    try {
+      const orders = await wallet.listExchangeOrders(20);
+      // Reading an open order makes the server poll its provider for news.
+      const open = await Promise.all(
+        orders.filter((o) => OPEN.includes(o.status)).map((o) => wallet.getExchangeOrder(o.id).catch(() => o))
+      );
+      setPendingSwaps(
+        open
+          // An order nobody has paid into is not "in progress" for the user.
+          .filter((o) => OPEN.includes(o.status) && (o.status !== 'awaiting_user_action' || o.inTxHash))
+          .map((o) => ({
+            id: o.id,
+            from_coin: o.from,
+            to_coin: o.to,
+            deposit_amount: o.amountIn,
+            settle_amount: o.amountOut ?? o.expectedAmountOut,
+            deposit_address: o.nextAction?.to ?? '',
+            settle_address: o.destinationAddress,
+            status: o.status,
+            deposit_tx_hash: o.inTxHash ?? undefined,
+            provider: o.provider,
+            created_at: o.createdAt,
+          }))
+      );
     } catch {
-      // Silently fail - this is supplementary info
+      // Supplementary info: stay quiet on failure.
     } finally {
       setLoading(false);
     }
-  }, [walletId]);
+  }, [wallet]);
 
   useEffect(() => {
     fetchPending();
