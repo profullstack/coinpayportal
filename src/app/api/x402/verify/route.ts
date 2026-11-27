@@ -19,7 +19,8 @@ import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { normalizeAddressForNetwork } from '@/lib/x402/address';
 import { isV2Payment, verifyExactEvmV2, type V2Payment } from '@/lib/x402/v2';
 import { EVM_NETWORKS, UTXO_NETWORKS, checkSchemeForNetwork } from '@/lib/x402/networks';
-import { normalizeNanoBlockHash, verifyNanoBlock } from '@/lib/x402/nano';
+import { verifyNanoBlock } from '@/lib/x402/nano';
+import { x402ReplayKey } from '@/lib/x402/replay';
 import { createHash } from 'crypto';
 
 function getSupabase() {
@@ -719,24 +720,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
 
-    // Replay identity. Stripe proofs carry no nonce/txId/txSignature/preimage —
-    // their unique identifier is the PaymentIntent id, so include it here.
-    //
-    // Nano's replay identity is the block hash alone, in canonical case. A
-    // payer-chosen `nonce` must not take precedence there, or one block could
-    // be redeemed once per nonce.
-    const uniqueKey =
-      network === 'nano'
-        ? normalizeNanoBlockHash(payment.payload.blockHash)
-        : payment.payload.nonce ||
-          payment.payload.txId ||
-          payment.payload.txSignature ||
-          payment.payload.preimage ||
-          payment.payload.paymentIntentId;
+    // Replay identity: the one identifier that names this payment on its rail
+    // (txSignature, txId, paymentHash, paymentIntentId, block hash, or the
+    // signed EIP-712 nonce on EVM). A payer-chosen `nonce` used to take
+    // precedence on every rail but Nano, so one real payment could be
+    // redeemed once per nonce (report CPP-03). See src/lib/x402/replay.ts.
+    const uniqueKey = x402ReplayKey(network, payment.payload);
 
     if (!uniqueKey) {
       return NextResponse.json(
-        { error: 'Proof carries no nonce, txId, txSignature, preimage or paymentIntentId — cannot be replay-checked' },
+        {
+          error:
+            'Proof is missing its payment identifier (txSignature, txId, paymentHash, ' +
+            'paymentIntentId, blockHash, or the signed nonce on EVM) — cannot be replay-checked',
+        },
         { status: 400 }
       );
     }

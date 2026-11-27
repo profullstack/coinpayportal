@@ -22,7 +22,7 @@ const mockUpdate = vi.fn();
 function makeQueryChain() {
   const chain: any = {};
   let isWrite = false;
-  for (const method of ['select', 'in', 'order', 'limit', 'not']) {
+  for (const method of ['select', 'in', 'order', 'limit', 'not', 'neq']) {
     chain[method] = vi.fn(() => chain);
   }
   chain.eq = vi.fn((...args: unknown[]) => {
