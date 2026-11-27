@@ -31,7 +31,7 @@ function makeQueryChain() {
   const chain: any = {};
   let isWrite = false;
 
-  for (const method of ['select', 'in', 'order', 'limit', 'not']) {
+  for (const method of ['select', 'in', 'order', 'limit', 'not', 'neq']) {
     chain[method] = vi.fn(() => chain);
   }
   chain.eq = vi.fn((...args: unknown[]) => {
@@ -287,7 +287,7 @@ describe('POST /api/x402/settle', () => {
 
     const req = makeRequest({
       payment: {
-        payload: { network: 'base', scheme: 'exact' },
+        payload: { network: 'base', scheme: 'exact', nonce: '7' },
       },
     });
     const res = await POST(req);
@@ -296,7 +296,7 @@ describe('POST /api/x402/settle', () => {
     expect(data.details).toContain('Missing txHash');
   });
 
-  it('should return 500 for UTXO settlement with missing txId', async () => {
+  it('should return 400 for UTXO settlement with missing txId (it is the replay key)', async () => {
     mockSingle
       .mockResolvedValueOnce({
         data: { id: 'p1', status: 'verified', amount: '100000', network: 'bitcoin', to_address: 'bc1qhouse', asset: null },
@@ -309,12 +309,12 @@ describe('POST /api/x402/settle', () => {
       },
     });
     const res = await POST(req);
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(400);
     const data = await res.json();
-    expect(data.details).toContain('Missing txId');
+    expect(data.error).toContain('Missing payment identifier for bitcoin');
   });
 
-  it('should return 500 for Solana settlement with missing txSignature', async () => {
+  it('should return 400 for Solana settlement with missing txSignature (it is the replay key)', async () => {
     mockSingle
       .mockResolvedValueOnce({
         data: { id: 'p1', status: 'verified', amount: '1000000', network: 'solana', to_address: 'SoLHouse', asset: null },
@@ -327,9 +327,9 @@ describe('POST /api/x402/settle', () => {
       },
     });
     const res = await POST(req);
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(400);
     const data = await res.json();
-    expect(data.details).toContain('Missing txSignature');
+    expect(data.error).toContain('Missing payment identifier for solana');
   });
 
   it('should handle Stripe settlement with missing secret key', async () => {

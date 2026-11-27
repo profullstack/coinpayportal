@@ -40,7 +40,8 @@ import { checkRateLimitAsync } from '@/lib/web-wallet/rate-limit';
 import { addressesEqual } from '@/lib/x402/address';
 import { evmChainId, isV2Payment } from '@/lib/x402/v2';
 import { EVM_NETWORKS, checkSchemeForNetwork } from '@/lib/x402/networks';
-import { normalizeNanoBlockHash, verifyNanoBlock } from '@/lib/x402/nano';
+import { verifyNanoBlock } from '@/lib/x402/nano';
+import { x402ReplayKey, canonicalTxHash, solanaSettlementAsset } from '@/lib/x402/replay';
 import { sanitizeX402Metadata } from '@/lib/x402/metadata';
 import { SOLANA_MAX_TX_VERSION, isTransientSolanaRpcError } from '@/lib/blockchain/solana-rpc';
 import {
@@ -181,10 +182,16 @@ async function verifyUtxoTx(
       );
     }
 
+    // An unconfirmed mempool transaction is not a payment yet: under BIP-125 /
+    // full-RBF the payer can replace it with one paying themselves. It used to
+    // come back without `pending`, and the handler gates finality on `pending`
+    // alone, so a 0-conf transaction was recorded `settled` (report CPP-02).
+    const confirmed = !!tx.status?.confirmed;
     return {
-      confirmed: !!tx.status?.confirmed,
+      confirmed,
+      pending: !confirmed,
       txHash: txId,
-      confirmations: tx.status?.block_height ? 1 : 0,
+      confirmations: confirmed ? 1 : 0,
     };
   }
 
@@ -202,6 +209,7 @@ async function verifySolanaTx(
   txSignature: string,
   expectedTo: string,
   expectedAmount: bigint,
+  asset: unknown,
 ) {
   const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
@@ -257,25 +265,34 @@ async function verifySolanaTx(
   // Solana pubkeys are mixed-case base58. `expectedTo` used to arrive
   // lowercased, so the payee was never found among the account keys and every
   // Solana settlement failed with "Transaction does not involve".
-  const index = accountKeys.findIndex((key) =>
-    addressesEqual('solana', typeof key === 'string' ? key : key?.pubkey, expectedTo),
-  );
+  //
+  // What counts as payment is decided by the asset the proof was VERIFIED in,
+  // never by what the transaction happens to contain. This used to fall back
+  // from lamports to "any SPL token credited to the payee" with no mint check,
+  // so a worthless self-minted token settled a USDC or SOL order (report
+  // CPP-01). Native SOL is lamports only; a token order is that exact mint only.
+  const settlement = solanaSettlementAsset(asset);
 
-  if (index === -1) {
-    throw new Error(`Transaction does not involve ${expectedTo}`);
-  }
-
-  const pre = BigInt(data.result.meta?.preBalances?.[index] ?? 0);
-  const post = BigInt(data.result.meta?.postBalances?.[index] ?? 0);
-  const gained = post - pre;
-
-  if (gained < expectedAmount) {
-    // Fall back to token balances for SPL transfers, where the lamport
-    // balances do not move.
-    const tokenGain = solanaTokenGain(data.result.meta, expectedTo);
+  if (settlement.native) {
+    const index = accountKeys.findIndex((key) =>
+      addressesEqual('solana', typeof key === 'string' ? key : key?.pubkey, expectedTo),
+    );
+    if (index === -1) {
+      throw new Error(`Transaction does not involve ${expectedTo}`);
+    }
+    const pre = BigInt(data.result.meta?.preBalances?.[index] ?? 0);
+    const post = BigInt(data.result.meta?.postBalances?.[index] ?? 0);
+    const gained = post - pre;
+    if (gained < expectedAmount) {
+      throw new Error(
+        `Transaction credited ${gained} lamports to ${expectedTo}, expected at least ${expectedAmount}`,
+      );
+    }
+  } else {
+    const tokenGain = solanaTokenGain(data.result.meta, expectedTo, settlement.mint);
     if (tokenGain < expectedAmount) {
       throw new Error(
-        `Transaction credited ${gained > 0n ? gained : tokenGain} to ${expectedTo}, ` +
+        `Transaction credited ${tokenGain} of mint ${settlement.mint} to ${expectedTo}, ` +
           `expected at least ${expectedAmount}`,
       );
     }
@@ -284,14 +301,14 @@ async function verifySolanaTx(
   return { confirmed: true, txHash: txSignature };
 }
 
-/** Net SPL token amount credited to `owner` by a parsed transaction's meta. */
-function solanaTokenGain(meta: any, owner: string): bigint {
+/** Net amount of SPL `mint` credited to `owner` by a parsed transaction's meta. */
+function solanaTokenGain(meta: any, owner: string, mint: string): bigint {
   // `owner` is compared under Solana's casing rules for the same reason the
   // lamport path is: a lowercased pubkey matches no token-balance owner, so
   // SPL gains were invisible and USDC settlement failed as an underpayment.
   const before = new Map<string, bigint>();
   for (const entry of meta?.preTokenBalances ?? []) {
-    if (addressesEqual('solana', entry.owner, owner)) {
+    if (addressesEqual('solana', entry.owner, owner) && entry.mint === mint) {
       before.set(String(entry.accountIndex), BigInt(entry.uiTokenAmount?.amount ?? '0'));
     }
   }
@@ -299,6 +316,7 @@ function solanaTokenGain(meta: any, owner: string): bigint {
   let gain = 0n;
   for (const entry of meta?.postTokenBalances ?? []) {
     if (!addressesEqual('solana', entry.owner, owner)) continue;
+    if (entry.mint !== mint) continue;
     const post = BigInt(entry.uiTokenAmount?.amount ?? '0');
     gain += post - (before.get(String(entry.accountIndex)) ?? 0n);
   }
@@ -461,37 +479,30 @@ export async function POST(request: NextRequest) {
     if (schemeError) {
       return NextResponse.json({ error: schemeError }, { status: 400 });
     }
-    const uniqueKey = isV2
-      ? payment.payload.authorization?.nonce
-      : network === 'nano'
-        ? normalizeNanoBlockHash(payment.payload.blockHash)
-        : payment.payload.nonce ||
-          payment.payload.txId ||
-          payment.payload.txSignature ||
-          payment.payload.preimage ||
-          payment.payload.paymentIntentId;
+    // Same derivation as /verify (src/lib/x402/replay.ts). A payer-chosen
+    // `nonce` no longer shadows the real payment identifier (report CPP-03).
+    const uniqueKey: string | null = isV2
+      ? payment.payload.authorization?.nonce || null
+      : x402ReplayKey(network, payment.payload);
 
-    // Without a hash the lookup below would fall back to "any verified Nano
-    // payment for this business" and could claim someone else's.
-    if (network === 'nano' && !uniqueKey) {
+    // Required on every rail. Without it the lookup below fell back to "any
+    // verified payment for this business on this network" and could claim
+    // someone else's.
+    if (!uniqueKey) {
       return NextResponse.json(
-        { error: 'Missing or malformed blockHash for Nano settlement' },
+        { error: `Missing payment identifier for ${network} settlement` },
         { status: 400 }
       );
     }
 
     // Find the verified payment record
-    const query = supabase
+    const { data: verifiedPayment, error: vpError } = await supabase
       .from('x402_payments')
       .select('*')
       .eq('network', network)
-      .eq('business_id', keyData.business_id);
-
-    if (uniqueKey) {
-      query.eq('unique_key', uniqueKey);
-    }
-
-    const { data: verifiedPayment, error: vpError } = await query.single();
+      .eq('business_id', keyData.business_id)
+      .eq('unique_key', uniqueKey)
+      .single();
 
     if (vpError || !verifiedPayment) {
       return NextResponse.json(
@@ -507,7 +518,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (verifiedPayment.status !== 'verified') {
+    // `pending_confirmation` is settleable again: it means the transaction was
+    // seen but not final (unconfirmed Bitcoin, Solana not yet indexed), and a
+    // later call is how it becomes final. Refusing it stranded those rows.
+    const claimableFrom = ['verified', 'pending_confirmation'];
+    if (!claimableFrom.includes(verifiedPayment.status)) {
       return NextResponse.json(
         { error: `Cannot settle payment in status: ${verifiedPayment.status}` },
         { status: 400 }
@@ -521,7 +536,7 @@ export async function POST(request: NextRequest) {
       .from('x402_payments')
       .update({ status: 'settling', updated_at: new Date().toISOString() })
       .eq('id', verifiedPayment.id)
-      .eq('status', 'verified')
+      .eq('status', verifiedPayment.status)
       .select('id');
 
     if (!settleClaim || settleClaim.length === 0) {
@@ -535,7 +550,7 @@ export async function POST(request: NextRequest) {
     const releaseSettleClaim = async () => {
       await supabase
         .from('x402_payments')
-        .update({ status: 'verified', updated_at: new Date().toISOString() })
+        .update({ status: verifiedPayment.status, updated_at: new Date().toISOString() })
         .eq('id', verifiedPayment.id)
         .eq('status', 'settling');
     };
@@ -667,7 +682,7 @@ export async function POST(request: NextRequest) {
         // Solana: confirm the merchant's own balance rose by the amount.
         const txSig = payment.payload.txSignature;
         if (!txSig) throw new Error('Missing txSignature for Solana settlement');
-        result = await verifySolanaTx(txSig, expectedTo, expectedAmount);
+        result = await verifySolanaTx(txSig, expectedTo, expectedAmount, verifiedPayment.asset);
       } else if (network === 'nano') {
         // Nano: re-check the block against the recorded payee and amount.
         // The payer already published it; there is nothing to broadcast.
@@ -697,16 +712,59 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update payment record with commission info
-    const finalStatus = result.pending ? 'pending_confirmation' : 'settled';
-    await supabase
+    // Final only when the rail says so. `confirmed === false` is treated as
+    // pending too, so a verifier that forgets to set `pending` fails safe
+    // rather than settling an unconfirmed transaction (report CPP-02).
+    const isPending = Boolean(result.pending || result.confirmed === false);
+    const finalStatus = isPending ? 'pending_confirmation' : 'settled';
+    const txHash = canonicalTxHash(network, result.txHash);
+
+    // One transaction pays one ledger row. On EVM v1 the replay key is the
+    // signed nonce, which says nothing about the transaction, so a single
+    // transfer could otherwise be presented under any number of signed
+    // authorizations (report CPP-03). The unique index on (network, tx_hash)
+    // enforces this under concurrency; this read gives the clear answer.
+    const { data: alreadyPaid } = await supabase
+      .from('x402_payments')
+      .select('id')
+      .eq('network', network)
+      .eq('tx_hash', txHash)
+      .neq('id', verifiedPayment.id)
+      .limit(1);
+    if (alreadyPaid && alreadyPaid.length > 0) {
+      await supabase
+        .from('x402_payments')
+        .update({ status: 'settlement_failed', error: 'Transaction already settled another x402 payment' })
+        .eq('id', verifiedPayment.id);
+      return NextResponse.json(
+        { error: 'This transaction has already settled another x402 payment' },
+        { status: 409 }
+      );
+    }
+
+    const { error: settleWriteError } = await supabase
       .from('x402_payments')
       .update({
         status: finalStatus,
-        tx_hash: result.txHash,
-        settled_at: result.pending ? null : new Date().toISOString(),
+        tx_hash: txHash,
+        settled_at: isPending ? null : new Date().toISOString(),
       })
       .eq('id', verifiedPayment.id);
+
+    if (settleWriteError) {
+      if (settleWriteError.code === '23505') {
+        await supabase
+          .from('x402_payments')
+          .update({ status: 'settlement_failed', error: 'Transaction already settled another x402 payment' })
+          .eq('id', verifiedPayment.id);
+        return NextResponse.json(
+          { error: 'This transaction has already settled another x402 payment' },
+          { status: 409 }
+        );
+      }
+      console.error('x402 settle: could not record settlement', settleWriteError.message);
+      return NextResponse.json({ error: 'Could not record settlement' }, { status: 503 });
+    }
 
     // A separate write, so a missing column or a bad value can never undo the
     // status update above (PostgREST refuses a whole UPDATE over one unknown
@@ -720,9 +778,9 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({
-      settled: !result.pending,
+      settled: !isPending,
       status: finalStatus,
-      txHash: result.txHash,
+      txHash,
       network,
       asset: payment.payload.asset || payment.payload.extra?.assetSymbol,
       commission: {
