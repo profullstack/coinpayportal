@@ -33,6 +33,14 @@ function makeRequest(headers: Record<string, string> = {}): any {
   });
 }
 
+// The wallet tests swap createClient's return value with mockReturnValue, and
+// clearAllMocks keeps that; tests that rely on the shared chain put it back.
+async function useDefaultSupabaseMock() {
+  const { createClient } = await import('@supabase/supabase-js');
+  (createClient as any).mockReturnValue({ from: vi.fn(() => ({ select: mockSelect })) });
+  mockSingle.mockReset();
+}
+
 describe('GET /api/oauth/userinfo', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -389,6 +397,7 @@ describe('GET /api/oauth/userinfo', () => {
 
   it('adds the self-declared age claims with the age scope', async () => {
     (verifyAccessToken as any).mockReturnValue({ sub: 'user-123', scope: 'openid age' });
+    await useDefaultSupabaseMock();
     mockSingle
       .mockResolvedValueOnce({ data: { id: 'user-123' }, error: null })
       .mockResolvedValueOnce({ data: { age_range: '18_20' }, error: null });
@@ -402,6 +411,7 @@ describe('GET /api/oauth/userinfo', () => {
 
   it('omits age claims when the user has not chosen a range', async () => {
     (verifyAccessToken as any).mockReturnValue({ sub: 'user-123', scope: 'openid age' });
+    await useDefaultSupabaseMock();
     mockSingle
       .mockResolvedValueOnce({ data: { id: 'user-123' }, error: null })
       .mockResolvedValueOnce({ data: { age_range: null }, error: null });
@@ -414,6 +424,7 @@ describe('GET /api/oauth/userinfo', () => {
 
   it('does not reveal the age range without the age scope', async () => {
     (verifyAccessToken as any).mockReturnValue({ sub: 'user-123', scope: 'openid did' });
+    await useDefaultSupabaseMock();
     mockSingle
       .mockResolvedValueOnce({ data: { id: 'user-123' }, error: null })
       .mockResolvedValueOnce({ data: { did: 'did:example:123', age_range: '31_40' }, error: null });
