@@ -8,6 +8,7 @@ import { verifyAccessToken } from '@/lib/oauth/tokens';
 import { isAccessTokenRevoked } from '@/lib/oauth/grants';
 import { listUserWallets } from '@/lib/wallets/user-wallets';
 import { getPassStatus } from '@/lib/pass/service';
+import { ageClaims } from '@/lib/did/age-range';
 
 function getSupabase() {
   return createClient(
@@ -137,6 +138,21 @@ export async function GET(request: NextRequest) {
     if (didRow?.did) {
       claims.did = didRow.did;
     }
+  }
+
+  // age scope — the optional, self-declared age band on the user's DID, plus
+  // age_over_18 / age_over_21 derived from it for age gates. Self-attested
+  // (age_verification: 'self_attested'); omitted entirely when the user has
+  // not chosen a band, so "no claim" means "unknown", never "under 18".
+  if (scopes.includes('age')) {
+    const { data: ageRow } = await supabase
+      .from('merchant_dids')
+      .select('age_range')
+      .eq('merchant_id', userId)
+      .eq('did_kind', 'human')
+      .maybeSingle();
+    const age = ageClaims(ageRow?.age_range);
+    if (age) Object.assign(claims, age);
   }
 
   // Profullstack Pass: deposit $99 into your own CoinPay wallet, get a free

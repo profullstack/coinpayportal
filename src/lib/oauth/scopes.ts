@@ -2,7 +2,7 @@
  * OAuth2/OIDC Scope definitions and utilities
  */
 
-export const VALID_SCOPES = ['openid', 'profile', 'email', 'did', 'wallet:read', 'merchant', 'invoices'] as const;
+export const VALID_SCOPES = ['openid', 'profile', 'email', 'did', 'age', 'wallet:read', 'merchant', 'invoices'] as const;
 
 export type OAuthScope = (typeof VALID_SCOPES)[number];
 
@@ -35,6 +35,12 @@ export const SCOPE_INFO: Record<OAuthScope, ScopeInfo> = {
   profile: { label: 'Profile', description: 'Access your name, profile picture, and linked OpenProfile.md URL', icon: '👤' },
   email: { label: 'Email', description: 'Access your email address', icon: '📧' },
   did: { label: 'DID', description: 'Access your decentralized identifier', icon: '🆔' },
+  // Self-declared band from the DID page (never a birth date); see src/lib/did/age-range.ts.
+  age: {
+    label: 'Age range',
+    description: 'See the age range you chose on your DID (for example 21–30) and whether you are over 18 and 21. Not shared if you have not set one.',
+    icon: '🎂',
+  },
   'wallet:read': { label: 'Wallet', description: 'View your wallet addresses', icon: '💰' },
   merchant: {
     label: 'Merchant account',

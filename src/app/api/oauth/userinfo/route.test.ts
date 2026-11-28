@@ -386,4 +386,39 @@ describe('GET /api/oauth/userinfo', () => {
     const body = await res.json();
     expect(body.pass).toEqual({ active: false });
   });
+
+  it('adds the self-declared age claims with the age scope', async () => {
+    (verifyAccessToken as any).mockReturnValue({ sub: 'user-123', scope: 'openid age' });
+    mockSingle
+      .mockResolvedValueOnce({ data: { id: 'user-123' }, error: null })
+      .mockResolvedValueOnce({ data: { age_range: '18_20' }, error: null });
+
+    const body = await (await GET(makeRequest({ authorization: 'Bearer valid-token' }))).json();
+    expect(body.age_range).toBe('18_20');
+    expect(body.age_over_18).toBe(true);
+    expect(body.age_over_21).toBe(false);
+    expect(body.age_verification).toBe('self_attested');
+  });
+
+  it('omits age claims when the user has not chosen a range', async () => {
+    (verifyAccessToken as any).mockReturnValue({ sub: 'user-123', scope: 'openid age' });
+    mockSingle
+      .mockResolvedValueOnce({ data: { id: 'user-123' }, error: null })
+      .mockResolvedValueOnce({ data: { age_range: null }, error: null });
+
+    const body = await (await GET(makeRequest({ authorization: 'Bearer valid-token' }))).json();
+    // Missing means unknown, never "under 18".
+    expect(body.age_range).toBeUndefined();
+    expect(body.age_over_18).toBeUndefined();
+  });
+
+  it('does not reveal the age range without the age scope', async () => {
+    (verifyAccessToken as any).mockReturnValue({ sub: 'user-123', scope: 'openid did' });
+    mockSingle
+      .mockResolvedValueOnce({ data: { id: 'user-123' }, error: null })
+      .mockResolvedValueOnce({ data: { did: 'did:example:123', age_range: '31_40' }, error: null });
+
+    const body = await (await GET(makeRequest({ authorization: 'Bearer valid-token' }))).json();
+    expect(body.age_range).toBeUndefined();
+  });
 });

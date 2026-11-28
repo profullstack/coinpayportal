@@ -35,6 +35,7 @@ export function OAuthDocs() {
           { scope: 'profile', desc: 'Access name, profile info, and the linked OpenProfile.md URL' },
           { scope: 'email', desc: 'Access email address' },
           { scope: 'did', desc: 'Access decentralized identifier (DID)' },
+          { scope: 'age', desc: 'Self-declared age range from the DID, plus age_over_18 / age_over_21 for age gates' },
           { scope: 'wallet:read', desc: 'View wallet addresses and chains' },
         ].map((item) => (
           <div key={item.scope} className="p-3 rounded-lg bg-slate-800/50 border border-white/10">
@@ -176,6 +177,19 @@ client_secret=cps_xxxxxxxxxxxx...`}
           When <code className="text-gray-300">pass.active</code> is true, give the user full access until{' '}
           <code className="text-gray-300">expires_at</code>; after that, take pay-as-you-go top-ups with crypto checkout.
           Re-read userinfo at sign-in or refresh rather than caching it for longer than the session.
+        </p>
+
+        <p className="text-gray-400 text-sm mt-4">
+          With the <code className="text-gray-300">age</code> scope (register it on your client first), userinfo adds
+          the age range the user chose on their DID:{' '}
+          <code className="text-gray-300">{'"age_range": "21_30", "age_over_18": true, "age_over_21": true, "age_verification": "self_attested"'}</code>.
+          Ranges are <code className="text-gray-300">under_18</code>, <code className="text-gray-300">18_20</code>,{' '}
+          <code className="text-gray-300">21_30</code>, <code className="text-gray-300">31_40</code>,{' '}
+          <code className="text-gray-300">41_50</code>, <code className="text-gray-300">51_60</code> and{' '}
+          <code className="text-gray-300">61_plus</code>. Setting it is optional: when the user has not, none of these
+          claims appear, so treat a missing claim as unknown (ask the user), never as under 18. The range is
+          self-declared, not checked against an ID: it is fine for an 18+ or 21+ click-through gate, not for a
+          check that legally needs documentary proof.
         </p>
 
         <p className="text-gray-400 text-sm mt-4">
