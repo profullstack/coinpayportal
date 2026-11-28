@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authFetch } from '@/lib/auth/client';
+import { AGE_RANGES, AGE_RANGE_LABELS } from '@/lib/did/age-range';
 
 interface DidInfo {
   did: string;
@@ -14,6 +15,7 @@ interface DidInfo {
   lifetime?: 'persistent' | 'ephemeral';
   label?: string | null;
   openprofile_url?: string | null;
+  age_range?: string | null;
 }
 
 interface Delegation {
@@ -73,6 +75,9 @@ export default function ClaimDidPage() {
   const [openProfileUrl, setOpenProfileUrl] = useState('');
   const [openProfileBusy, setOpenProfileBusy] = useState(false);
   const [openProfileMessage, setOpenProfileMessage] = useState('');
+  const [ageRange, setAgeRange] = useState('');
+  const [ageBusy, setAgeBusy] = useState(false);
+  const [ageMessage, setAgeMessage] = useState('');
 
   // Link form state
   const [linkDid, setLinkDid] = useState('');
@@ -105,6 +110,7 @@ export default function ClaimDidPage() {
       if (result && result.response.ok) {
         setDidInfo(result.data);
         setOpenProfileUrl(result.data.openprofile_url || '');
+        setAgeRange(result.data.age_range || '');
         fetchCredentials(result.data.did);
         fetchReceipts(result.data.did);
         fetchDelegations();
@@ -203,6 +209,7 @@ export default function ClaimDidPage() {
       if (result.response.ok) {
         setDidInfo(result.data);
         setOpenProfileUrl(result.data.openprofile_url || '');
+        setAgeRange(result.data.age_range || '');
       } else {
         setError(result.data?.error || 'Failed to claim DID');
       }
@@ -231,6 +238,7 @@ export default function ClaimDidPage() {
       if (result.response.ok) {
         setDidInfo(result.data);
         setOpenProfileUrl(result.data.openprofile_url || '');
+        setAgeRange(result.data.age_range || '');
       } else {
         setError(result.data?.error || 'Failed to link DID');
       }
@@ -266,6 +274,34 @@ export default function ClaimDidPage() {
       setOpenProfileMessage(err?.message || 'Could not save your OpenProfile URL.');
     } finally {
       setOpenProfileBusy(false);
+    }
+  }
+
+  async function saveAgeRange(e: React.FormEvent) {
+    e.preventDefault();
+    setAgeBusy(true);
+    setAgeMessage('');
+    try {
+      const result = await authFetch('/api/reputation/did/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ age_range: ageRange || null }),
+      }, router);
+      if (!result) {
+        setAgeMessage('Authentication required');
+        return;
+      }
+      if (!result.response.ok) {
+        setAgeMessage(result.data?.error || 'Could not save your age range.');
+        return;
+      }
+      setDidInfo((current) => current ? { ...current, age_range: result.data.age_range } : current);
+      setAgeRange(result.data.age_range || '');
+      setAgeMessage(result.data.age_range ? 'Age range saved.' : 'Age range removed.');
+    } catch (err: any) {
+      setAgeMessage(err?.message || 'Could not save your age range.');
+    } finally {
+      setAgeBusy(false);
     }
   }
 
@@ -377,6 +413,37 @@ export default function ClaimDidPage() {
             </button>
           </div>
           <p role="status" aria-live="polite" className="text-sm text-gray-400 mt-2 min-h-5">{openProfileMessage}</p>
+        </form>
+
+        <form onSubmit={saveAgeRange} className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 mb-6">
+          <h2 className="text-lg font-bold mb-2">Age range <span className="text-sm font-normal text-gray-400">(optional)</span></h2>
+          <p className="text-sm text-gray-400 mb-4">
+            Pick a range, never a birth date. Apps you approve for the <code className="text-gray-300">age</code> permission
+            see only the range and whether you are over 18 and 21, so they can skip asking you again for age checks.
+            It is self-declared, and apps are told so.
+          </p>
+          <label htmlFor="age-range" className="block text-sm font-medium text-gray-300 mb-1">Your age range</label>
+          <div className="flex flex-wrap gap-2">
+            <select
+              id="age-range"
+              value={ageRange}
+              onChange={(event) => setAgeRange(event.target.value)}
+              className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-gray-900 border border-gray-600 text-white"
+            >
+              <option value="">Prefer not to say</option>
+              {AGE_RANGES.map((range) => (
+                <option key={range} value={range}>{AGE_RANGE_LABELS[range]}</option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              disabled={ageBusy}
+              className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white font-medium"
+            >
+              {ageBusy ? 'Saving…' : 'Save age range'}
+            </button>
+          </div>
+          <p role="status" aria-live="polite" className="text-sm text-gray-400 mt-2 min-h-5">{ageMessage}</p>
         </form>
 
         {/* What To Do Next */}
